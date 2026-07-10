@@ -64,6 +64,15 @@ export class ListRegistry {
     const defaultOptIn = this.isSubscribedByDefault(id);
     return defaultOptIn ? categories[id] !== false : categories[id] === true;
   }
+
+  /**
+   * Is `id` a registered channel (an engine-synthesized delivery channel — the
+   * in-app feed or a per-connector opt-out list) rather than an author-defined
+   * topic? False for topics, unknown ids, and the built-in categories.
+   */
+  isChannel(id: string): boolean {
+    return this.get(id)?.kind === "channel";
+  }
 }
 
 /**
@@ -74,12 +83,21 @@ export class ListRegistry {
  *
  * `parseEnabledFilter` (journeys/registry.ts) is reused as-is — `ENABLED_LISTS`
  * honours the same `"*"`-or-csv contract as `ENABLED_JOURNEYS` /
- * `ENABLED_BUCKETS`. Disabled lists (filtered out OR `enabled: false`) are NOT
- * registered, so an unknown id resolves to legacy opt-in.
+ * `ENABLED_BUCKETS`. Disabled user lists (filtered out OR `enabled: false`) are
+ * NOT registered, so an unknown id resolves to legacy opt-in.
+ *
+ * `channels` (engine-synthesized channel metas from `synthesizeChannelLists`)
+ * are registered AFTER the user lists, UNCONDITIONALLY — the `ENABLED_LISTS`
+ * filter does NOT apply. A "disabled" channel would hide the catalog entry while
+ * opt-out-polarity enforcement silently continued (a confusing half-state), so
+ * channels are always on. If a filtered-IN user list id collides with a channel
+ * id, we throw an actionable error rather than let one silently shadow the
+ * other.
  */
 export function buildListRegistry(
   lists: DefinedList[],
   enabledFilter?: string,
+  channels: ListMeta[] = [],
 ): ListRegistry {
   const registry = new ListRegistry();
   const enabled = parseEnabledFilter(enabledFilter);
@@ -88,6 +106,15 @@ export function buildListRegistry(
     if (enabled === "*" || enabled.has(list.meta.id)) {
       registry.register(list.meta);
     }
+  }
+
+  for (const channel of channels) {
+    if (registry.has(channel.id)) {
+      throw new Error(
+        `List id "${channel.id}" collides with the auto-registered channel list for the "${channel.id}" connector. Rename your defineList id.`,
+      );
+    }
+    registry.register(channel);
   }
 
   setListRegistry(registry);

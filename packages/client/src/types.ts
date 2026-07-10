@@ -105,6 +105,11 @@ export interface ListSummary {
   name: string;
   description?: string;
   defaultOptIn: boolean;
+  /**
+   * Whether this list is a delivery `channel` (in_app, telegram, discord…) or a
+   * content `topic`. Optional — an older engine omits it (treat as `"topic"`).
+   */
+  kind?: "channel" | "topic";
 }
 
 /** Result of `emails.send`. */

@@ -12,7 +12,10 @@ import {
 } from "../../lib/contacts.js";
 import type { Logger } from "../../lib/logger.js";
 import { emitOutbound } from "../../lib/outbound.js";
-import { applyListMembership } from "../../lib/preferences.js";
+import {
+  applyListMembership,
+  upsertEmailPreference,
+} from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { getListRegistry } from "../../lists/registry-singleton.js";
 import {
@@ -26,6 +29,11 @@ const listSummarySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   defaultOptIn: z.boolean(),
+  // Whether this is an author-defined `"topic"` or an engine-synthesized
+  // delivery `"channel"` (the in-app feed + one per member-directed connector).
+  // Always emitted by the server (`meta.kind ?? "topic"`); additive for
+  // consumers that ignore it.
+  kind: z.enum(["channel", "topic"]),
   // The resolved opt-in state for the identity in the query (`categories[id] ??
   // defaultOptIn`). An anon / publishable / no-identity read degrades to
   // `defaultOptIn` (never leaks another contact's state — mirrors the
@@ -104,6 +112,54 @@ const preferencesRoute = createRoute({
     403: {
       content: { "application/json": { schema: errorSchema } },
       description: "Publishable key may not read a concrete identity",
+    },
+  },
+});
+
+// NEW public data-plane write for the email/global master opt-out
+// (`unsubscribedAll`). Until now the ONLY writers of `unsubscribed_all` were the
+// HMAC unsubscribe-token flow and the admin PUT — a browser had no first-party
+// way to set the master toggle. This is the email/global master; per-category
+// channels + topics are managed via the `/{id}/(un)subscribe` endpoints. Static
+// `/preferences` POST is registered adjacent to its GET; it never collides with
+// `/{id}/subscribe` (distinct path shape) so match order is safe.
+const setPreferencesBodySchema = z.object({
+  unsubscribedAll: z.boolean(),
+  email: z.string().optional(),
+  userId: z.string().optional(),
+  // Publishable-key identity assertion (§Phase 1). Ignored on the secret path.
+  userToken: z.string().optional(),
+});
+
+const setPreferencesRoute = createRoute({
+  method: "post",
+  path: "/preferences",
+  tags: ["Lists"],
+  summary: "Set a contact's global opt-out (`unsubscribedAll`)",
+  description:
+    "Writes the email/global master toggle (`unsubscribed_all`) for the resolved contact — the account-wide email opt-out. Per-category channels + topics are managed via `POST /v1/lists/{id}/(un)subscribe`. Behind the publishable gate: a pk_ key must present a verified userToken to act on a concrete identity.",
+  request: {
+    body: {
+      content: { "application/json": { schema: setPreferencesBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ unsubscribedAll: z.boolean() }),
+        },
+      },
+      description: "Global opt-out updated",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Missing identity or no resolvable email",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Publishable key attempted to act on another identity without a verified userToken",
     },
   },
 });
@@ -187,6 +243,36 @@ const unsubscribeRoute = createRoute({
 });
 
 /**
+ * INTENT-LAYER `contact.created` emit (decision #3), shared by the list
+ * subscribe/unsubscribe path and the master-toggle write. A preference flip is
+ * NOT a contact-property delta (so no `contact.updated`); we emit ONLY on the
+ * first creation, after a read-back, fire-and-forget so a transient outbound
+ * error never fails the preference write. A no-op when `created` is false.
+ */
+function emitContactCreatedIfNew(opts: {
+  db: Database;
+  hatchet: HatchetClient;
+  logger: Logger;
+  contactId: string;
+  created: boolean;
+}): void {
+  const { db, hatchet, logger, contactId, created } = opts;
+  if (!created) return;
+  void resolveContact({ db, id: contactId })
+    .then((row) => {
+      if (!row) return;
+      return emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "contact.created",
+        payload: serializeContact(row),
+      });
+    })
+    .catch(logger.warn);
+}
+
+/**
  * The shared side-effect of subscribe + unsubscribe (identical apart from the
  * boolean polarity): validate the list id, guard identity, then resolve/create
  * the contact FIRST (mirroring /v1/contacts + /v1/events) so a real row (and
@@ -231,23 +317,7 @@ async function applyListSubscription(opts: {
       email,
     });
 
-    // INTENT-LAYER outbound emit (decision #3): the lists route emits
-    // `contact.created` ONLY on first creation (a list flip is not a contact
-    // property delta, so no `contact.updated`). Fire-and-forget after a read-back.
-    if (created) {
-      void resolveContact({ db, id: contactId })
-        .then((row) => {
-          if (!row) return;
-          return emitOutbound({
-            db,
-            hatchet,
-            logger,
-            event: "contact.created",
-            payload: serializeContact(row),
-          });
-        })
-        .catch(logger.warn);
-    }
+    emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
 
     await applyListMembership({
       db,
@@ -303,6 +373,7 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       name: l.name,
       ...(l.description !== undefined ? { description: l.description } : {}),
       defaultOptIn: l.defaultOptIn,
+      kind: l.kind ?? "topic",
       subscribed: categories[l.id] ?? l.defaultOptIn,
     }));
 
@@ -356,6 +427,55 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       { categories: prefs.categories, unsubscribedAll: prefs.unsubscribedAll },
       200,
     );
+  })
+  .openapi(setPreferencesRoute, async (c) => {
+    const { db, hatchet, logger, env } = c.get("container");
+    const { unsubscribedAll, email, userId, userToken } = c.req.valid("json");
+
+    // Identical publishable gate to the subscribe handlers: a secret key defers
+    // to requireIdentity; a pk_ key needs a verified userToken to act on a
+    // concrete identity.
+    const guard = gatePublishableIdentity(
+      c,
+      { email, userId, userToken },
+      env.BETTER_AUTH_SECRET,
+    );
+    if (guard) return guard;
+
+    if (!email && !userId) {
+      return c.json({ error: "email or userId is required" }, 400);
+    }
+
+    // Resolve/create the contact FIRST (mirroring the subscribe path) so a real
+    // row + uuid exists before the preference write keys on `external_id ?? id`.
+    const { id: contactId, created } = await resolveOrCreateContact({
+      db,
+      userId,
+      email,
+    });
+
+    emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
+
+    // Resolve the deterministic `(external_id ?? contact.id, email)` pair the
+    // same way `applyListMembership` does — `email_preferences.email` is NOT
+    // NULL, so a contact with no resolvable email 400s (mirrors its error).
+    const recipient = await resolveRecipient({ db, userId, email });
+    if (!recipient) {
+      return c.json(
+        { error: "Contact has no email; cannot manage list membership" },
+        400,
+      );
+    }
+    const externalId = recipient.externalId ?? recipient.contactId;
+
+    await upsertEmailPreference({
+      db,
+      externalId,
+      email: recipient.email,
+      update: { unsubscribedAll },
+    });
+
+    return c.json({ unsubscribedAll }, 200);
   })
   .openapi(subscribeRoute, async (c) => {
     const { db, hatchet, logger, env } = c.get("container");

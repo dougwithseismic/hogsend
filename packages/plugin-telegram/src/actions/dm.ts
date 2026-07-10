@@ -31,6 +31,18 @@ export const dm: DefinedConnectorAction<DmArgs, DmResult> =
     name: "dm",
     description:
       "Direct-message a contact on Telegram (resolved contact → chat id).",
+    // Member-directed: gate on the recipient's `telegram` channel preference.
+    // `to` may be an email/external id (matches the first candidate) OR a raw
+    // Telegram chat id — a LINKED telegram contact is keyed
+    // `externalId = "telegram:<chatId>"`, so a raw chat-id `to` needs the
+    // namespaced candidate to resolve. Both are tried in order; the first
+    // resolving contact wins.
+    audience: {
+      kind: "member",
+      ref(args) {
+        return [args.to, `telegram:${args.to}`];
+      },
+    },
     async run(args, ctx) {
       const chatId = await resolveTelegramChatId(ctx, args.to);
       if (!chatId) {

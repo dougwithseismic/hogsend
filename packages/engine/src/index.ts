@@ -125,8 +125,11 @@ export {
 } from "./connectors/action-registry-singleton.js";
 export {
   type ConnectorActionCtx,
+  type ConnectorActionSkipped,
   type DefinedConnectorAction,
   defineConnectorAction,
+  isConnectorActionSkipped,
+  type MemberAudience,
   type ResolvedActionContact,
 } from "./connectors/define-action.js";
 // --- Inbound connectors: unified authoring layer ---
@@ -459,6 +462,11 @@ export {
 export { getPostHog } from "./lib/posthog.js";
 // --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
 export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
+// --- Recipient preferences (shared aggregated read across email/feed/connectors) ---
+export {
+  type RecipientPreferences,
+  readRecipientPreferences,
+} from "./lib/preferences.js";
 // --- Provider credentials (encrypted-at-rest OAuth token store) ---
 export {
   type CredentialKind,
@@ -568,9 +576,15 @@ export {
   type WebhookEventType,
 } from "./lib/webhook-signing.js";
 // --- Lists (D3) ---
+// NOTE: `IN_APP_LIST_ID` is canonically defined in `./lists/channels.js` but
+// exported here via `./lib/feed.js` (which re-exports it) to keep its
+// pre-existing import path stable — do NOT also export it from channels.js
+// (a duplicate named export).
+export { synthesizeChannelLists } from "./lists/channels.js";
 export {
   type DefinedList,
   defineList,
+  type ListKind,
   type ListMeta,
 } from "./lists/define-list.js";
 export { buildListRegistry, ListRegistry } from "./lists/registry.js";

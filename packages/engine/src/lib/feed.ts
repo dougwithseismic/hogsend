@@ -1,14 +1,15 @@
-import { emailPreferences, type FeedBlock, feedItems } from "@hogsend/db";
-import { and, eq } from "drizzle-orm";
+import { type FeedBlock, feedItems } from "@hogsend/db";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
   registerKey,
 } from "../journeys/journey-boundary.js";
+import { IN_APP_LIST_ID } from "../lists/channels.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import { resolveOrCreateContact, resolveRecipient } from "./contacts.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
+import { readRecipientPreferences } from "./preferences.js";
 import { getRedis } from "./redis.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
@@ -16,9 +17,11 @@ const logger = createLogger(process.env.LOG_LEVEL);
 /**
  * Reserved list id governing in-app feed suppression (mirrors the built-in
  * `transactional` / `journey` categories). A recipient unsubscribed from
- * `in_app` (or `unsubscribed_all`) gets no feed items.
+ * `in_app` (or `unsubscribed_all`) gets no feed items. Canonically defined in
+ * `../lists/channels.js` (where the in-app channel is synthesized); re-exported
+ * here so the engine's existing export surface stays stable.
  */
-export const IN_APP_LIST_ID = "in_app";
+export { IN_APP_LIST_ID };
 
 export interface SendFeedItemOptions {
   recipient: { userId?: string; email?: string; anonymousId?: string };
@@ -88,55 +91,23 @@ export async function sendFeedItem(
   });
   const recipientKey = resolvedKey;
 
-  // (2) `in_app` suppression check. Suppression is governed by the `in_app` list
-  // key regardless of the item's own category. `email_preferences` is
-  // `(user_id, email)`-keyed; an anon-only recipient has no pref row → categories
-  // = {} → opt-in default → not suppressed (you cannot suppress what has no
-  // preference surface yet). `unsubscribed_all` on an identified recipient DOES
-  // suppress, consistent with the email mailer's `checkEmailPreferences`.
-  let categories: Record<string, boolean> = {};
-  const recip = await resolveRecipient({
-    db,
-    userId: recipient.userId,
-    email: recipient.email,
-  });
-  if (recip) {
-    const extId = recip.externalId ?? recip.contactId;
-    const rows = await db
-      .select()
-      .from(emailPreferences)
-      .where(
-        and(
-          eq(emailPreferences.userId, extId),
-          eq(emailPreferences.email, recip.email),
-        ),
-      )
-      .limit(1);
-    const row = rows[0];
-    if (row) {
-      if (row.unsubscribedAll) {
-        return {
-          feedItemId: null,
-          recipientKey,
-          suppressed: true,
-          createdAt: null,
-        };
-      }
-      categories = (row.categories ?? {}) as Record<string, boolean>;
-    }
-  }
-  if (!getListRegistry().isSubscribed(categories, IN_APP_LIST_ID)) {
-    return {
-      feedItemId: null,
-      recipientKey,
-      suppressed: true,
-      createdAt: null,
-    };
-  }
-
-  // (3) Replay-safe idempotency key (mirrors `sendEmail`). The `feed:`-namespaced
+  // (2) Replay-safe idempotency key (mirrors `sendEmail`), derived
+  // UNCONDITIONALLY — BEFORE any preference decision. The `feed:`-namespaced
   // discriminant realizes the plan's `feedSend:<runAnchor>:<site>:<type>` shape
   // through the SAME branch-stable key engine (one primitive, not a fork).
+  //
+  // THE LAW: the Hatchet journal is positional, and `boundary.memoize` (step 4)
+  // is a durable call, so its issuance must never be conditional on a live
+  // preference read. A recipient's `in_app`/`unsubscribed_all` state can flip
+  // between an original run and a replay-from-top; the OLD code early-returned on
+  // that read HERE, before the key derivation + `registerKey` + `memoize`, so a
+  // flip made the replay conditionally skip (or add) the memoize durable call →
+  // positional journal shift → the run is killed with a non-determinism error.
+  // The fix (mirroring the connector gate in lib/connector-actions.ts): derive +
+  // register the key and issue the memoize UNCONDITIONALLY, and fold the whole
+  // preference verdict INSIDE the memo closure (step 3) so the skip/allow verdict
+  // is RECORDED by the durable memo and replays verbatim — the live-flipped
+  // preference is never re-read on a replay.
   const boundary = getJourneyBoundary();
   let key: string | undefined = opts.idempotencyKey;
   if (!key && boundary) {
@@ -222,12 +193,61 @@ export async function sendFeedItem(
     };
   };
 
-  // Layer 1 (eviction-gated, FREE) fast path. When inside a journey on an
-  // eviction-capable engine, a replay returns the recorded result WITHOUT
-  // re-hitting the DB; Layer 2 (`onConflictDoNothing`) is the version-independent
-  // backstop. Outside a journey, run directly.
+  // (3) `in_app` suppression gate + insert/publish, folded into ONE closure so
+  // the whole verdict (skip OR insert) is recorded by the durable memo (step 4)
+  // and replays byte-identically. Suppression is governed by the `in_app`
+  // channel list regardless of the item's own category.
+  //
+  // The preference read is the UNIFIED aggregated `readRecipientPreferences`
+  // keyed by BOTH the recipient's `external_id ?? contact_id` AND its email —
+  // NOT the old single-row `(extId, email)` lookup. This is a deliberate,
+  // suppression-conservative behaviour change: an `unsubscribed_all` (or category
+  // opt-out) imported before the contact existed and keyed `(email, email)` now
+  // suppresses the feed too, exactly as it already suppresses email. An anon-only
+  // recipient has no preference surface (`resolveRecipient` → null), so
+  // `unsubscribed_all` is not consulted (you cannot suppress what has no pref row
+  // yet); the `in_app` channel check still runs, but empty categories → opt-in
+  // default → subscribed, so an anon recipient is never suppressed here.
+  const doGatedInsertAndPublish = async (): Promise<SendFeedItemResult> => {
+    const suppressedResult: SendFeedItemResult = {
+      feedItemId: null,
+      recipientKey,
+      suppressed: true,
+      createdAt: null,
+    };
+    const recip = await resolveRecipient({
+      db,
+      userId: recipient.userId,
+      email: recipient.email,
+    });
+    // `external_id ?? contact_id` — the SAME identity key the old single-row read
+    // used (and that preference writes key on). Undefined for an anon recipient.
+    const extId = recip ? (recip.externalId ?? recip.contactId) : undefined;
+    const prefs = await readRecipientPreferences(db, {
+      email: recip?.email,
+      userId: extId,
+    });
+    // `unsubscribed_all` on an IDENTIFIED recipient suppresses (consistent with
+    // the email mailer's `checkEmailPreferences`); guarded on `recip` so an
+    // anon recipient with no preference surface is never blocked.
+    if (recip && prefs.unsubscribedAll) {
+      return suppressedResult;
+    }
+    if (!getListRegistry().isSubscribed(prefs.categories, IN_APP_LIST_ID)) {
+      return suppressedResult;
+    }
+    return doInsertAndPublish();
+  };
+
+  // (4) Layer 1 (eviction-gated, FREE) fast path. When inside a journey on an
+  // eviction-capable engine, a replay returns the recorded result (a skip verdict
+  // OR the insert result) WITHOUT re-reading preferences or re-hitting the DB;
+  // Layer 2 (`onConflictDoNothing`) is the version-independent backstop. Outside
+  // a journey, run directly. The key derivation, `registerKey`, and this
+  // `memoize` call all stay UNCONDITIONAL (THE LAW) — the preference verdict
+  // lives inside the closure, never gating the durable call itself.
   if (boundary && key) {
-    return boundary.memoize([key], doInsertAndPublish);
+    return boundary.memoize([key], doGatedInsertAndPublish);
   }
-  return doInsertAndPublish();
+  return doGatedInsertAndPublish();
 }

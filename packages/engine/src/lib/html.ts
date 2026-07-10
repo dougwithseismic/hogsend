@@ -12,6 +12,7 @@ export function htmlPage(opts: { title: string; body: string }): string {
     p { color: #555; line-height: 1.6; }
     a { color: #2563eb; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .pref-section { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin: 28px 0 4px; }
     .pref-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
     .pref-label { font-weight: 500; }
     .pref-status { font-size: 0.875rem; }

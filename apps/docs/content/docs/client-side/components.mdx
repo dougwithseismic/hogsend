@@ -254,7 +254,7 @@ State attribute: `data-type`.
 
 ## `<PreferenceCenter>`
 
-The list/category opt-in surface. Renders one row per code-defined list with an on/off switch; supply `channels` to render a category×channel matrix instead. Usable standalone or as a tab inside `<FeedPopover preferences>`.
+The list/category opt-in surface. Renders one row per code-defined list with an on/off switch; supply `channels` to render a category×channel matrix instead. When the catalog carries `kind: "channel"` lists it **auto-sections** into a **Channels** group (a synthetic Email master row + the delivery channels) above a **Topics** group. Usable standalone or as a tab inside `<FeedPopover preferences>`.
 
 ```tsx
 import { PreferenceCenter } from "@hogsend/react";
@@ -269,16 +269,25 @@ import { PreferenceCenter } from "@hogsend/react/preferences";
 | `channels` | `PreferenceChannel[]` | — | Channel columns → a category×channel matrix. Omit → a single switch column. |
 | `resolveCategoryId` | `(listId: string, channelId: string) => string` | `primary → listId`, else `${listId}.${channelId}` | Maps a `(list, channel)` cell to the engine categoryId it toggles. |
 | `title` | `string` | — | Optional header. |
+| `layout` | `"auto" \| "flat"` | `"auto"` | `"auto"` sections Channels/Topics when the catalog carries `kind: "channel"` lists (and no `channels` matrix is set). `"flat"` forces the legacy single column. |
+| `emailToggle` | `false \| { label?: string; description?: string }` | `{ label: "Email" }` | The synthetic Email master row in the Channels section (wired to `unsubscribedAll`). Pass `false` to hide it. Rendered only in sectioned mode. |
+| `sectionLabels` | `{ channels?: string; topics?: string }` | `{ channels: "Channels", topics: "Topics" }` | Section heading text. |
 | `asChild` | `boolean` | `false` | `Slot` prop-merge. |
 | `className` | `string` | — | Root class. |
-| `classNames` | `PreferenceCenterClassNames` | — | Slots: `{ root, header, row, rowLabel, rowDescription, control, switch, switchThumb, cell, matrixHeader, loading, empty }`. |
+| `classNames` | `PreferenceCenterClassNames` | — | Slots: `{ root, header, section, sectionHeader, row, rowLabel, rowDescription, control, switch, switchThumb, cell, matrixHeader, loading, empty }`. |
 | `renderRow` | `(state: { list; channels?; toggle; isOn }) => ReactNode` | — | Replace a whole row. |
 | `renderControl` | `(state: { categoryId; checked; onChange; label }) => ReactNode` | — | Replace a single switch / matrix cell. |
 | `renderEmpty` | `() => ReactNode` | — | Replace the empty state. |
 | `onPreferenceChange` | `(categoryId: string, subscribed: boolean) => void` | — | Fired AFTER the toggle dispatches. |
 | `aria-label` | `string` | — | Accessible label. |
 
-Reads `usePreferences()` → `GET /v1/lists` (the catalog) + `GET /v1/lists/preferences`. Toggling emits `inapp.preference_changed` from the SDK store (do NOT add a capture). State attributes: root `data-loading` / `data-empty` / `data-matrix`; row `data-list-id`; switch `data-state="on|off"`. `GET /v1/lists` is reachable with an anonymous `pk_` key, which degrades each list's `subscribed` to its `defaultOptIn` — **writes** need an identified user with a `userToken` (see [identifying-users](./identifying-users)). The [./preferences](./preferences) page is a live anonymous read.
+Reads `usePreferences()` → `GET /v1/lists` (the catalog) + `GET /v1/lists/preferences`. Toggling emits `inapp.preference_changed` from the SDK store (do NOT add a capture). State attributes: root `data-loading` / `data-empty` / `data-matrix` / `data-sectioned`; section `data-section="channels|topics"`; row `data-list-id` (the Email master row is `data-list-id="$email"`) + `data-kind="channel|topic"`; switch `data-state="on|off"`. `GET /v1/lists` is reachable with an anonymous `pk_` key, which degrades each list's `subscribed` to its `defaultOptIn` — **writes** need an identified user with a `userToken` (see [identifying-users](./identifying-users)). The [./preferences](./preferences) page is a live anonymous read.
+
+### Sectioned layout
+
+`layout` defaults to `"auto"`: when the engine's `GET /v1/lists` catalog carries any `kind: "channel"` list, the panel splits into a **Channels** section (a synthetic **Email** master row wired to `unsubscribedAll`, then the delivery channels — `in_app`, `telegram`, `discord`, …) above a **Topics** section (your `defineList` lists). The channel kind is set server-side; an older engine that omits `kind` surfaces no channel rows, so the body is byte-identical to the flat layout — existing consumers need zero changes. Supplying the `channels` **matrix** prop always wins over sectioning, and `layout: "flat"` forces the legacy single column.
+
+The synthetic Email master row is not backed by a real `ListSummary`, so it **bypasses `renderRow`** — but its control still flows through `renderControl` with `categoryId: ALL_EMAILS_CATEGORY` (`"$all"`), and a flip inverts to `setUnsubscribedAll(!next)` (subscribed-to-email ≡ NOT `unsubscribedAll`). `ListSummary.kind` (`"channel" | "topic" | undefined`) is exported from `@hogsend/js`; treat `undefined` as `"topic"`. `ALL_EMAILS_CATEGORY` is the exported `"$all"` sentinel emitted on the Email master's `inapp.preference_changed`.
 
 ## Minimal pre-built inbox
 

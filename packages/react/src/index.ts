@@ -17,6 +17,8 @@ export type {
   Properties,
   Toast,
 } from "@hogsend/js";
+// ── re-exported core values ──
+export { ALL_EMAILS_CATEGORY } from "@hogsend/js";
 // ── components ──
 export {
   Banner as BannerView,

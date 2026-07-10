@@ -912,6 +912,17 @@ async function canSendEmail(userId: string, journeySuppressHours: number, action
 
 If suppressed due to frequency cap, the engine reschedules `next_eval_at` to when the cap expires, rather than skipping the send entirely.
 
+### Channel preferences & connector gating
+
+`email_preferences.categories` is a shared preference namespace across delivery channels, not just email topics. Lists have a `kind`: author-defined `defineList` topics, plus engine **auto-registered channels** (`kind: "channel"`, opt-out) — `in_app` always, and one per member-directed connector (`telegram`, `discord`). Channels are managed through the same `POST /v1/lists/:id/(un)subscribe` endpoints; `in_app` is reserved and a `defineList` id may not collide with a channel id (both throw at boot). The account-wide `unsubscribedAll` master is writable at `POST /v1/lists/preferences` (same identity gate as list writes).
+
+Enforcement follows the channel:
+- **Email** — the send gate above (`unsubscribed` / category opt-out) reads an aggregated multi-row preference record, so a suppression imported under `(email, email)` counts.
+- **In-app feed** — gated on the `in_app` channel via the same aggregated read.
+- **Member-directed connector actions** (`sendConnectorAction` → Discord `dmMember`, Telegram `dm`/`sendMessage`) — auto-skip with a typed `ConnectorActionSkipped` when the resolved contact has `unsubscribedAll` or opted out of that connector's channel. Ops actions (roles, broadcasts, channel messages) and sends with no resolvable contact are never gated. The verdict is replay-stable.
+
+A **journey** stamps its sends with `meta.category` (default `journey`), boot-validated fail-closed against the list namespace; a channel list is never a valid email category or a campaign audience.
+
 ---
 
 ## Hono Route Map

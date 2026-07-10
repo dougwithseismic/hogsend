@@ -59,6 +59,14 @@ export interface JourneyMeta {
   }>;
 
   /**
+   * Email-preference category stamped on this journey's `sendEmail` sends
+   * (overrides the template's own category, exactly as the built-in default
+   * does). Must be a defined topic list or a reserved built-in category;
+   * validated fail-closed at boot. Defaults to `journey`.
+   */
+  category?: string;
+
+  /**
    * Minimum gap between sends WITHIN this journey, per recipient email —
    * enforced at send time in the engine-owned tracked mailer. If a non-failed
    * `email_sends` row for this journey (across ALL of the journey's

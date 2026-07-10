@@ -82,6 +82,15 @@ export interface JourneyBoundary {
    * disables it. Optional for the same reason as {@link journeyId}.
    */
   suppressMs?: number;
+  /**
+   * The enclosing journey's `meta.category` — the email-preference category
+   * stamped on this journey's `sendEmail` sends, overriding the template's own
+   * category (the standalone `sendEmail` has no journey reference of its own, so
+   * the boundary is the only conduit for it). Undefined ⇒ the send falls back to
+   * the built-in `journey` default. Optional so non-journey boundaries (tests,
+   * harness contexts) compile unchanged.
+   */
+  category?: string;
 }
 
 const journeyBoundaryAls = new AsyncLocalStorage<JourneyBoundary>();

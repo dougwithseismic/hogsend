@@ -664,6 +664,23 @@ describe("POST /v1/campaigns validation", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 for a CHANNEL-list audience (a channel cannot be a campaign audience)", async () => {
+    // `in_app` is the always-synthesized channel list (kind:"channel"). A
+    // list-audience campaign resolves recipients by SUBSCRIPTION, so a channel
+    // audience would email everyone not opted out of the transport. Rejected.
+    const res = await app.request("/v1/campaigns", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        list: "in_app",
+        template: "welcome",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("channel preference list");
+  });
+
   it("returns 400 when neither list nor bucket is supplied", async () => {
     const res = await app.request("/v1/campaigns", {
       method: "POST",

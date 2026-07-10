@@ -296,6 +296,32 @@ describe("reconcileDefinedCampaigns", () => {
     expect(rows.length).toBe(0);
   });
 
+  it("skips a channel-list audience definition (a channel cannot be a campaign audience)", async () => {
+    // `in_app` is the always-synthesized channel list. A list-audience campaign
+    // resolves recipients by SUBSCRIPTION, so a channel audience would email
+    // everyone not opted out of the transport — the reconciler's config-error
+    // path (warn + skip, never throw) rejects it, mirroring an unknown audience.
+    const id = defId("channel-audience");
+    const definition = defineCampaign({
+      id,
+      audience: { list: "in_app" },
+      template: "welcome",
+      sendAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    const result = await reconcileDefinedCampaigns({
+      client: container,
+      campaigns: [definition],
+    });
+    expect(result.skipped).toBe(1);
+    expect(result.created).toBe(0);
+
+    const rows = await rowFor(id);
+    expect(rows.length).toBe(0);
+    expect(scheduleSpy).not.toHaveBeenCalled();
+    expect(runNoWaitSpy).not.toHaveBeenCalled();
+  });
+
   it("defineCampaign validates id, audience XOR, and sendAt at definition time", () => {
     expect(() =>
       defineCampaign({
