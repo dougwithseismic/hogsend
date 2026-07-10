@@ -176,8 +176,10 @@ resolvers in `packages/engine/src/workflows/send-campaign.ts`.)
 1. **`bucket_memberships.userEmail` normalization** — fixed at the root:
    every write site (realtime join, reconcile cron, backfill task) now runs
    `normalizeEmail()`, and migration 0043 backfilled existing rows. The read
-   sites' defensive `lower(trim(…))` joins are retained for one release as
-   belt-and-braces, then can be stripped.
+   sites' defensive `lower(trim(…))` joins are retained as belt-and-braces —
+   TODO(cleanup): safe to strip once `@hogsend/engine` has shipped past
+   0.40.0 (see the `TODO(cleanup)` in `send-campaign.ts`'s
+   `resolveBucketRecipients`).
 2. **The email/userId keyspace seam** — consent keys on email, behavior keys
    on userId. Correct, but every crossing (bucket audience → email send) is a
    join that must handle a missing/mixed-case email. Wart 1 is the sharp

@@ -920,8 +920,10 @@ async function* resolveCohortRecipients(
  *
  * Compliance: `bucket_memberships.userEmail` is normalized at every write site
  * (and existing rows were backfilled by migration 0043), but this resolver
- * KEEPS its own `normalizeEmail` / `lower(trim(…))` belt-and-braces for one
- * release — an un-normalized membership email (`User@Example.com`) would not
+ * KEEPS its own `normalizeEmail` / `lower(trim(…))` belt-and-braces —
+ * TODO(cleanup): safe to drop once `@hogsend/engine` has shipped past 0.40.0
+ * (all deployed write sites normalize as of this changeset). An un-normalized
+ * membership email (`User@Example.com`) would not
  * case-match its NORMALIZED `email_preferences` row (`user@example.com`) and
  * the mailer's case-sensitive suppression check would MISS the row, leaking a
  * marketing blast to a suppressed/unsubscribed contact (CAN-SPAM/GDPR).
@@ -938,8 +940,8 @@ async function* resolveBucketRecipients(
   bucketId: string,
 ): AsyncGenerator<CampaignRecipient> {
   // The recipient's normalized email — writes are normalized now, but the
-  // read-side lower(trim(…)) stays one release as belt-and-braces (see the fn
-  // docstring); the contact email is the fallback.
+  // read-side lower(trim(…)) stays as belt-and-braces (TODO(cleanup): see the
+  // fn docstring for the drop condition); the contact email is the fallback.
   const recipientEmail = sql<string>`lower(trim(coalesce(${bucketMemberships.userEmail}, ${contacts.email})))`;
 
   yield* keysetPaginate({
