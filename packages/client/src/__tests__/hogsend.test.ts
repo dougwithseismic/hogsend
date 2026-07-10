@@ -250,13 +250,21 @@ describe("emails", () => {
 // ---------------------------------------------------------------------------
 
 describe("lists", () => {
-  it("list GETs /v1/lists and unwraps lists", async () => {
+  it("list GETs /v1/lists and unwraps lists, passing through `kind`", async () => {
     const lists = [
-      { id: "newsletter", name: "Newsletter", defaultOptIn: true },
+      {
+        id: "newsletter",
+        name: "Newsletter",
+        defaultOptIn: true,
+        kind: "topic",
+      },
+      { id: "in_app", name: "In-app", defaultOptIn: true, kind: "channel" },
     ];
     const { fetchImpl, calls } = makeFetch({ body: { lists } });
     const res = await client(fetchImpl as unknown as typeof fetch).lists.list();
     expect(res).toEqual(lists);
+    // `kind` is carried through verbatim (channel vs topic).
+    expect(res[1]?.kind).toBe("channel");
     expect(calls[0]?.url).toBe("https://api.test.local/v1/lists");
   });
 

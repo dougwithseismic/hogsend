@@ -5,27 +5,35 @@
  * {@link usePreferences}. Usable standalone OR bundled as a tab inside
  * `<FeedPopover preferences>` (the Novu `<Inbox/>` pattern).
  *
- * Two layouts from one component:
- *   - default (no `channels`): one row per list with a single on/off switch
- *     driving `setPreference(list.id, next)`.
- *   - matrix (`channels` supplied): a category×channel grid. The backend stays a
- *     FLAT `categories` map (migration-free) — per-channel is realized by
- *     distinct category ids via `resolveCategoryId(listId, channelId)` (default:
- *     a `primary` channel → `listId`, else `${listId}.${channelId}`).
+ * Three layouts from one component:
+ *   - default/flat (no `channels`, no channel-kind lists): one row per list with
+ *     a single on/off switch driving `setPreference(list.id, next)`.
+ *   - sectioned (`layout: "auto"`, the default, when the catalog carries
+ *     `kind: "channel"` lists): a "Channels" section (a synthetic Email master
+ *     row wired to `unsubscribedAll`, then the channel lists) above a "Topics"
+ *     section. An OLD engine emits no `kind`, so no channel lists surface and the
+ *     body is byte-identical to flat. Force flat with `layout: "flat"`.
+ *   - matrix (`channels` supplied): a category×channel grid. Takes precedence
+ *     over sectioning. The backend stays a FLAT `categories` map
+ *     (migration-free) — per-channel is realized by distinct category ids via
+ *     `resolveCategoryId(listId, channelId)` (default: a `primary` channel →
+ *     `listId`, else `${listId}.${channelId}`).
  *
  * Override surface (matches the rest of the kit):
  *   1. `--hs-pref-*` / `--hs-switch-*` / `--hs-tab-*` CSS vars
  *   2. `className` + per-slot `classNames`
- *   3. `data-*` state (root `data-loading`/`data-empty`/`data-matrix`; row
- *      `data-list-id`; switch `data-state="on|off"`)
+ *   3. `data-*` state (root `data-loading`/`data-empty`/`data-matrix`/
+ *      `data-sectioned`; section `data-section="channels|topics"`; row
+ *      `data-list-id` + `data-kind`; switch `data-state="on|off"`)
  *   4. `asChild` → Slot merges our props onto the consumer's element
  *   5. `renderRow` / `renderControl` / `renderEmpty` render-prop escapes
  *
- * Closed loop: `setPreference` already emits `inapp.preference_changed` in the
- * SDK store mutation — do NOT add a capture here.
+ * Closed loop: `setPreference`/`setUnsubscribedAll` already emit
+ * `inapp.preference_changed` in the SDK store mutation — do NOT add a capture
+ * here.
  */
 
-import type { ListSummary } from "@hogsend/js";
+import { ALL_EMAILS_CATEGORY, type ListSummary } from "@hogsend/js";
 import type { ReactNode } from "react";
 import { usePreferences } from "../../hooks/use-preferences.js";
 import { cn } from "../../lib/cn.js";
@@ -44,6 +52,8 @@ export interface PreferenceChannel {
 export interface PreferenceCenterClassNames {
   root?: string;
   header?: string;
+  section?: string;
+  sectionHeader?: string;
   row?: string;
   rowLabel?: string;
   rowDescription?: string;
@@ -66,6 +76,22 @@ export interface PreferenceCenterProps {
    */
   resolveCategoryId?: (listId: string, channelId: string) => string;
   title?: string;
+  /**
+   * `"auto"` (default): section Channels/Topics when the catalog carries
+   * `kind: "channel"` lists and no `channels` matrix prop is set. `"flat"`:
+   * force the legacy single column.
+   */
+  layout?: "auto" | "flat";
+  /**
+   * The synthetic email master row in the Channels section (wired to
+   * `unsubscribedAll`). Default `{ label: "Email" }`. Pass `false` to hide.
+   * Rendered only in sectioned mode. It intentionally BYPASSES `renderRow`
+   * (no real `ListSummary` backs it), but its control still flows through
+   * `renderControl` with `categoryId: "$all"`.
+   */
+  emailToggle?: false | { label?: string; description?: string };
+  /** Section heading text. Default `{ channels: "Channels", topics: "Topics" }`. */
+  sectionLabels?: { channels?: string; topics?: string };
   /** Merge props onto a consumer element (override layer 4). */
   asChild?: boolean;
   className?: string;
@@ -119,6 +145,9 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
     channels,
     resolveCategoryId,
     title,
+    layout = "auto",
+    emailToggle,
+    sectionLabels,
     asChild = false,
     className,
     classNames,
@@ -129,7 +158,8 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
     "aria-label": ariaLabel,
   } = props;
 
-  const { lists, loading, preferences, setPreference } = usePreferences();
+  const { lists, loading, preferences, setPreference, setUnsubscribedAll } =
+    usePreferences();
 
   // Default category mapping: a `primary` channel toggles the bare `listId`
   // category; every other channel gets its own `${listId}.${channelId}` key.
@@ -140,28 +170,45 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
       return channel?.primary ? listId : `${listId}.${channelId}`;
     });
 
-  // One dispatch for every toggle (a matrix cell or a single switch): write the
-  // preference, then fire the consumer hook.
-  const dispatch = (categoryId: string, next: boolean): void => {
-    void setPreference(categoryId, next);
+  // One dispatch for every toggle (a matrix cell or a single switch): run the
+  // write (defaulting to `setPreference`, overridable for the synthetic email
+  // master row), then fire the consumer hook. `write` receives the SAME `next`
+  // the switch reports so a custom writer can re-map it (the email row inverts
+  // it into `setUnsubscribedAll`).
+  const dispatch = (
+    categoryId: string,
+    next: boolean,
+    write?: (next: boolean) => void,
+  ): void => {
+    if (write) write(next);
+    else void setPreference(categoryId, next);
     onPreferenceChange?.(categoryId, next);
   };
 
   const isMatrix = Boolean(channels && channels.length > 0);
   const isEmpty = !loading && lists.length === 0;
 
+  // Channel vs topic split (undefined kind → topic). Only channel-kind lists
+  // trigger sectioning; an OLD engine emits no kinds → `channelLists` empty →
+  // `isSectioned` false → the exact legacy flat body. Matrix mode wins.
+  const channelLists = lists.filter((l) => l.kind === "channel");
+  const topicLists = lists.filter((l) => l.kind !== "channel");
+  const isSectioned = !isMatrix && layout !== "flat" && channelLists.length > 0;
+
   const stateAttrs = dataVariants({
     loading,
     empty: isEmpty,
     matrix: isMatrix,
+    sectioned: isSectioned,
   });
 
   function renderControlNode(
     categoryId: string,
     checked: boolean,
     label: string,
+    write?: (next: boolean) => void,
   ): ReactNode {
-    const onChange = (next: boolean): void => dispatch(categoryId, next);
+    const onChange = (next: boolean): void => dispatch(categoryId, next, write);
     if (renderControl) {
       return renderControl({ categoryId, checked, onChange, label });
     }
@@ -214,6 +261,7 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
           key={list.id}
           className={cn("hsr-pref__row", classNames?.row)}
           data-list-id={list.id}
+          {...(list.kind ? { "data-kind": list.kind } : {})}
         >
           {main}
           {channels.map((channel) => {
@@ -240,6 +288,7 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
         key={list.id}
         className={cn("hsr-pref__row", classNames?.row)}
         data-list-id={list.id}
+        {...(list.kind ? { "data-kind": list.kind } : {})}
       >
         {main}
         <div className={cn("hsr-pref__control", classNames?.control)}>
@@ -248,6 +297,46 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
       </div>
     );
   }
+
+  // The synthetic Email master row (sectioned mode only). No real ListSummary
+  // backs it, so it BYPASSES renderListRow; its control still flows through
+  // renderControlNode with categoryId "$all", but its write inverts `next` into
+  // `setUnsubscribedAll` (subscribed-to-email === NOT unsubscribedAll).
+  const emailLabel =
+    (emailToggle === false ? undefined : emailToggle?.label) ?? "Email";
+  const emailDescription =
+    emailToggle === false ? undefined : emailToggle?.description;
+  // Built ONLY when it will actually render (sectioned mode, master not hidden),
+  // so a consumer `renderControl` is never invoked with the "$all" categoryId
+  // in flat/matrix mode where the email row is absent.
+  const emailRow =
+    isSectioned && emailToggle !== false ? (
+      <div
+        key="$email"
+        className={cn("hsr-pref__row", classNames?.row)}
+        data-list-id="$email"
+        data-kind="channel"
+      >
+        <div className="hsr-pref__row-main">
+          <div className={cn("hsr-pref__label", classNames?.rowLabel)}>
+            {emailLabel}
+          </div>
+          {emailDescription ? (
+            <div className={cn("hsr-pref__desc", classNames?.rowDescription)}>
+              {emailDescription}
+            </div>
+          ) : null}
+        </div>
+        <div className={cn("hsr-pref__control", classNames?.control)}>
+          {renderControlNode(
+            ALL_EMAILS_CATEGORY,
+            !preferences.unsubscribedAll,
+            emailLabel,
+            (next) => void setUnsubscribedAll(!next),
+          )}
+        </div>
+      </div>
+    ) : null;
 
   const body = loading ? (
     <div className={cn("hsr-pref__loading", classNames?.loading)} role="status">
@@ -261,6 +350,37 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
         No preferences to manage.
       </div>
     )
+  ) : isSectioned ? (
+    <>
+      <section
+        className={cn("hsr-pref__section", classNames?.section)}
+        data-section="channels"
+      >
+        <div
+          className={cn("hsr-pref__section-header", classNames?.sectionHeader)}
+        >
+          {sectionLabels?.channels ?? "Channels"}
+        </div>
+        {emailToggle !== false ? emailRow : null}
+        {channelLists.map((list) => renderListRow(list))}
+      </section>
+      {topicLists.length > 0 ? (
+        <section
+          className={cn("hsr-pref__section", classNames?.section)}
+          data-section="topics"
+        >
+          <div
+            className={cn(
+              "hsr-pref__section-header",
+              classNames?.sectionHeader,
+            )}
+          >
+            {sectionLabels?.topics ?? "Topics"}
+          </div>
+          {topicLists.map((list) => renderListRow(list))}
+        </section>
+      ) : null}
+    </>
   ) : (
     <>
       {isMatrix && channels ? (
