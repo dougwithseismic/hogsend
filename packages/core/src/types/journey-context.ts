@@ -216,6 +216,29 @@ export interface DigestResult {
   flushedAt: string;
 }
 
+export interface ThrottleOptions {
+  /** The check passes while the windowed send count is < limit. Must be >= 1. */
+  limit: number;
+  window: DurationObject;
+  /**
+   * Count only sends in this category. NO exemption semantics — unlike the
+   * mailer-level frequency cap, "transactional" genuinely counts here.
+   */
+  category?: string;
+  /**
+   * Disambiguates the recorded verdict site. Two identical throttle calls at
+   * the same site throw — pass a distinct label to re-check.
+   */
+  label?: string;
+}
+
+export interface ThrottleResult {
+  allowed: boolean;
+  /** Non-failed sends to this user's email within the window, at first check. */
+  count: number;
+  remaining: number;
+}
+
 export interface JourneyContext {
   sleep(opts: SleepOptions): Promise<SleepResult>;
 
@@ -293,6 +316,30 @@ export interface JourneyContext {
    * straggler band, matching Novu's digest semantics).
    */
   digest(opts: DigestOptions): Promise<DigestResult>;
+
+  /**
+   * ADVISORY frequency check the journey branches on ("has this user already
+   * received `limit` emails this window? then skip the nudge"). Checks THIS
+   * user's `email_sends` by recipient EMAIL — the SAME counting rule the
+   * mailer-level cap enforces on (userId is NOT the cap key), so the two agree
+   * on what they count. Passes while the non-failed send count is `< limit`.
+   *
+   * The verdict is RECORDED once per site (same rationale as {@link once}) so a
+   * replay-from-top branches IDENTICALLY even though the run's own sends have
+   * since landed in the window — a live re-count on replay is guaranteed to
+   * diverge (check allowed → send → crash → replay re-counts → now blocked →
+   * different branch → different template → different idempotency key), the very
+   * divergence class the engine's replay-safety design forbids.
+   *
+   * ADVISORY, not enforcement: the client-level `frequencyCap` config remains
+   * the HARD send-time backstop, and the two can legitimately disagree across a
+   * long wait (this verdict is frozen at first check; the cap re-counts at
+   * send). There is NO reservation either — concurrent journeys each read the
+   * same count and can overshoot an advisory limit. To count arbitrary things
+   * instead of sends, use `ctx.trigger` + `ctx.history.hasEvent` (the
+   * named-counter recipe).
+   */
+  throttle(opts: ThrottleOptions): Promise<ThrottleResult>;
 
   guard: {
     isSubscribed(): Promise<boolean>;

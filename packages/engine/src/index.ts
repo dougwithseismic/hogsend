@@ -383,7 +383,7 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
-export { isFrequencyCapped } from "./lib/frequency-cap.js";
+export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
 // --- Identity service (resolve/merge + analytics merge propagation, §7) ---

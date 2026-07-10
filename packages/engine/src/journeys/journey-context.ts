@@ -31,6 +31,8 @@ import type {
   JourneyContext,
   PropertyCondition,
   RecentEvent,
+  ThrottleOptions,
+  ThrottleResult,
   TimeOfDayBuilder,
   WaitForEventResult,
   Weekday,
@@ -55,6 +57,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
+import { countRecentSends } from "../lib/frequency-cap.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
 import {
@@ -904,6 +907,65 @@ export function createJourneyContext(
     });
   };
 
+  // Advisory, RECORDED-once frequency check the author branches on. The verdict
+  // is frozen into the state row the FIRST time this site runs and replayed
+  // verbatim thereafter: a live re-count on replay is guaranteed to diverge
+  // because the run's OWN send lands in the counting window (check allowed →
+  // send → crash → replay re-counts → now blocked → different branch → different
+  // template → different idempotency key — the exact divergence class this
+  // engine's replay-safety design forbids). recordOnce under `__throttle__`
+  // gives that durability on ANY engine; countRecentSends is the SAME COUNT the
+  // mailer-level cap enforces on, keyed by recipient EMAIL (userId is NOT the
+  // cap key), so advisory and enforcement agree on what they count.
+  const performThrottle = async (
+    opts: ThrottleOptions,
+  ): Promise<ThrottleResult> => {
+    // 1. VALIDATE — throw BEFORE any durable work (no db/hatchet touched yet).
+    if (!Number.isInteger(opts.limit) || opts.limit < 1) {
+      throw new RangeError("ctx.throttle limit must be an integer >= 1");
+    }
+    const windowMs = durationToMs(opts.window);
+    if (windowMs <= 0) {
+      throw new RangeError("ctx.throttle window must be a positive duration");
+    }
+
+    // 2. SITE — the same "site" rule the send auto-keys use: explicit label ??
+    // nearest authored wait label ?? "start" (outside any wait).
+    const site = opts.label ?? getJourneyBoundary()?.currentLabel ?? "start";
+
+    // 3. REGISTER + DERIVE KEY. The `throttle:` prefix keeps throttle sites from
+    // colliding with digest labels in the shared boundary label set; the key
+    // folds in category + limit/window so two DISTINCT throttle configs at one
+    // site don't share a record. Reusing a label throws the loud collision error
+    // (pass a distinct `label` to re-check).
+    const key = `${site}:${opts.category ?? "*"}:${opts.limit}/${windowMs}`;
+    registerRecordLabel(getJourneyBoundary(), `throttle:${key}`);
+
+    // 4. RECORD ONCE — the verdict is computed on the first winning writer and
+    // replayed verbatim after (recordOnce's read-back means a zombie
+    // double-writer returns the first-committed verdict too).
+    return recordOnce({
+      db,
+      stateId,
+      namespace: "__throttle__",
+      key,
+      compute: async () => {
+        const since = new Date((await refreshNow()).getTime() - windowMs);
+        const count = await countRecentSends({
+          db,
+          to: userEmail,
+          since,
+          ...(opts.category ? { category: opts.category } : {}),
+        });
+        return {
+          allowed: count < opts.limit,
+          count,
+          remaining: Math.max(0, opts.limit - count),
+        };
+      },
+    });
+  };
+
   return {
     when: createWhenBuilder({
       timezone: resolvedTimezone,
@@ -1054,6 +1116,10 @@ export function createJourneyContext(
 
     digest(opts) {
       return performDigest(opts);
+    },
+
+    throttle(opts) {
+      return performThrottle(opts);
     },
 
     guard: {
