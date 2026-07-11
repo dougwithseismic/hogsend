@@ -46,6 +46,7 @@ function capitalize(id: string): string {
  */
 export function synthesizeChannelLists(
   actions: DefinedConnectorAction[],
+  opts?: { sms?: boolean },
 ): ListMeta[] {
   const channels: ListMeta[] = [
     {
@@ -65,6 +66,21 @@ export function synthesizeChannelLists(
     channels.push({
       id: action.connectorId,
       name: capitalize(action.connectorId),
+      defaultOptIn: true,
+      enabled: true,
+      kind: "channel",
+    });
+  }
+
+  // The SMS channel is minted when an SMS provider is configured (SMS is NOT a
+  // connector). Opt-out polarity like every channel — an inbound STOP flips
+  // `categories.sms` to false; the tracked SMS sender gates on it. De-duped via
+  // `seen` in case a connector also happened to use the id "sms".
+  if (opts?.sms && !seen.has("sms")) {
+    seen.add("sms");
+    channels.push({
+      id: "sms",
+      name: "SMS",
       defaultOptIn: true,
       enabled: true,
       kind: "channel",

@@ -42,6 +42,7 @@ import {
   type Database,
   emailSends,
   journeyStates,
+  smsSends,
   userEvents,
 } from "@hogsend/db";
 import {
@@ -1166,6 +1167,31 @@ export function createJourneyContext(
             and(
               eq(emailSends.toEmail, targetEmail),
               eq(emailSends.templateKey, template),
+            ),
+          );
+
+        const total = result?.count ?? 0;
+        return {
+          sent: total > 0,
+          lastSentAt:
+            result?.lastSentAt instanceof Date
+              ? result.lastSentAt.toISOString()
+              : null,
+          count: total,
+        };
+      },
+
+      async sms({ phone, template }) {
+        const [result] = await db
+          .select({
+            count: count(),
+            lastSentAt: max(smsSends.sentAt),
+          })
+          .from(smsSends)
+          .where(
+            and(
+              eq(smsSends.toPhone, phone),
+              eq(smsSends.templateKey, template),
             ),
           );
 

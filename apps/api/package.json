@@ -29,6 +29,8 @@
     "@hogsend/plugin-posthog": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
     "@hogsend/plugin-telegram": "workspace:^",
+    "@hogsend/plugin-twilio": "workspace:^",
+    "@hogsend/sms": "workspace:^",
     "@hono/node-server": "^2.0.4",
     "@hono/zod-openapi": "^1.4.0",
     "@scalar/hono-api-reference": "^0.10.19",
@@ -45,6 +47,7 @@
     "react-dom": "19.2.6",
     "react-email": "6.3.2",
     "resend": "^6.12.3",
+    "twilio": "^6.0.0",
     "winston": "^3.19.0",
     "zod": "^4.4.3"
   },

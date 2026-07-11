@@ -10,6 +10,7 @@ import {
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
+import { smsTemplates } from "./sms/index.js";
 
 async function main() {
   const discordConnector = buildDiscordConnector();
@@ -19,6 +20,9 @@ async function main() {
     buckets,
     lists,
     email: { templates },
+    // SMS templates must mirror the API (same registry rule as email) so the
+    // worker's tracked SMS sender resolves the same keys journeys send.
+    sms: { templates: smsTemplates },
     // Mirror the API's connector/destination registration so the worker's
     // process-singleton registries match (the ingest pipeline runs here too).
     connectors: [

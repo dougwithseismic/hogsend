@@ -25,9 +25,13 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 16-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 19-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
+ *
+ * The `sms.*` trio mirrors the email delivery lifecycle for the SMS channel:
+ * `sms.sent` (provider-accepted, first-party), `sms.delivered` / `sms.failed`
+ * (provider status webhook — the single source, no first-party signal).
  *
  * `link.clicked` is the NON-email click event: a click on a tracked link that
  * has no email send (Discord/referral/ad-hoc `createTrackedLink`). It is the
@@ -50,6 +54,9 @@ export const WEBHOOK_EVENT_TYPES = [
   "email.action",
   "email.bounced",
   "email.complained",
+  "sms.sent",
+  "sms.delivered",
+  "sms.failed",
   "journey.completed",
   "bucket.entered",
   "bucket.left",

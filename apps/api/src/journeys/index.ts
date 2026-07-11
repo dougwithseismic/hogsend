@@ -21,6 +21,7 @@ import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
 import { retentionMilestone } from "./retention-milestone.js";
 import { retentionWeeklyDigest } from "./retention-weekly-digest.js";
+import { smsWelcome } from "./sms-welcome.js";
 import { telegramLinkRequest } from "./telegram-link-request.js";
 import { telegramLinked } from "./telegram-linked.js";
 import { telegramOnboarding } from "./telegram-onboarding.js";
@@ -60,6 +61,7 @@ export const journeys: DefinedJourney[] = [
   demoWelcome,
   demoLaunch,
   demoTrialNudge,
+  smsWelcome,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
@@ -87,6 +89,7 @@ export {
   referralInvite,
   retentionMilestone,
   retentionWeeklyDigest,
+  smsWelcome,
   telegramLinked,
   telegramLinkRequest,
   telegramOnboarding,

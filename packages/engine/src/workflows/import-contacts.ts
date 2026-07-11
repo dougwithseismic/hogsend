@@ -1,15 +1,42 @@
-import { createDatabase, importJobs } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import type { Database } from "@hogsend/db";
+import { contacts, createDatabase, importJobs } from "@hogsend/db";
+import { and, eq, isNull } from "drizzle-orm";
 import Papa from "papaparse";
 import { resolveOrCreateContact } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
+import { normalizePhone } from "../lib/phone.js";
 
 const BATCH_SIZE = 500;
 
 interface ImportRow {
   externalId?: string;
   email?: string;
+  /** Optional E.164 phone; attached to the resolved contact (SMS channel). */
+  phone?: string;
   properties?: Record<string, unknown>;
+}
+
+/**
+ * Best-effort attach a normalized phone to a resolved contact's `phone` column
+ * without minting an identity conflict. Only fills a NULL column, and swallows
+ * the partial-unique conflict (another live contact already owns that number) so
+ * one duplicate phone never fails the whole import row.
+ */
+async function attachPhone(
+  db: Database,
+  contactId: string,
+  rawPhone: string | undefined,
+): Promise<void> {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return;
+  try {
+    await db
+      .update(contacts)
+      .set({ phone, updatedAt: new Date() })
+      .where(and(eq(contacts.id, contactId), isNull(contacts.phone)));
+  } catch {
+    // Unique-index conflict (another contact owns this phone) — leave unset.
+  }
 }
 
 export const importContactsTask = hatchet.task({
@@ -77,7 +104,10 @@ export const importContactsTask = hatchet.task({
             userId: row.externalId,
             email: row.email,
             contactProperties: row.properties,
-          }).then(() => ({ index: i + idx, ok: true }));
+          }).then(async (result) => {
+            await attachPhone(db, result.id, row.phone);
+            return { index: i + idx, ok: true };
+          });
         }),
       );
 
@@ -131,11 +161,12 @@ function parseCsv(data: string): ImportRow[] {
   }
 
   return result.data.map((row) => {
-    const { externalId, email, ...rest } = row;
+    const { externalId, email, phone, ...rest } = row;
     const properties = Object.keys(rest).length > 0 ? rest : undefined;
     return {
       externalId: externalId || undefined,
       email: email || undefined,
+      phone: phone || undefined,
       properties: properties as Record<string, unknown> | undefined,
     };
   });

@@ -152,6 +152,35 @@ export interface OutboundPayloads {
     complaintType?: string;
     reason?: string;
   };
+  "sms.sent": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    to: string;
+    userId: string | null;
+    category: string | null;
+    journeyStateId: string | null;
+    segments: number | null;
+    sentAt: string;
+  };
+  "sms.delivered": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+  };
+  "sms.failed": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    errorCode?: string;
+    errorReason?: string;
+  };
   "journey.completed": {
     journeyId: string;
     journeyName: string;

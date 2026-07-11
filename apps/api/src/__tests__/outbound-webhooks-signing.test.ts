@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 16-event catalog, in order", () => {
+  it("is exactly the 19-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -215,6 +215,10 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "email.action",
       "email.bounced",
       "email.complained",
+      // SMS delivery lifecycle (sibling of the email.* funnel).
+      "sms.sent",
+      "sms.delivered",
+      "sms.failed",
       "journey.completed",
       "bucket.entered",
       "bucket.left",

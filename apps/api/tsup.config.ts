@@ -17,9 +17,11 @@ export default defineConfig({
     "@hogsend/plugin-posthog",
     "@hogsend/plugin-resend",
     "@hogsend/plugin-telegram",
+    "@hogsend/plugin-twilio",
+    "@hogsend/sms",
   ],
-  // discord.js is a real runtime dep resolved from node_modules — the gateway
-  // worker pulls it via a dynamic `import("discord.js")`, so it must NOT be
-  // bundled (it's large, native-ish, and stays external like other npm deps).
-  external: ["discord.js"],
+  // discord.js + twilio are real runtime deps resolved from node_modules —
+  // pulled via dynamic import (twilio through the engine's guarded preset), so
+  // they must NOT be bundled (they stay external like other npm deps).
+  external: ["discord.js", "twilio"],
 });
