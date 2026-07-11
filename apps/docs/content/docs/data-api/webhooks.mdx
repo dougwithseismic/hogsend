@@ -27,23 +27,31 @@ Every delivery carries a `Webhook-Id` header. All deliveries that belong to one 
 
 ## The event catalog
 
-Hogsend emits a fixed catalog of **13 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
+Hogsend emits a fixed catalog of **21 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
 
 | Event type | Fires when |
 |---|---|
 | `contact.created` | A contact record is first created |
 | `contact.updated` | An existing contact's properties or email change |
 | `contact.deleted` | A contact is deleted |
-| `contact.unsubscribed` | A contact opts out (all mail, or a single category) |
+| `contact.unsubscribed` | A contact opts out (all mail, or a single category/channel) |
+| `contact.subscribed` | A contact opts IN (resubscribe, or a category/channel grant — e.g. SMS consent); carries `source` provenance |
 | `email.sent` | A transactional or journey email is dispatched |
 | `email.delivered` | The provider confirms delivery to the inbox — the canonical "received" signal |
 | `email.opened` | The open pixel fires for a sent email — **per-hit**, every open |
 | `email.clicked` | A tracked link in an email is clicked — **per-hit**, every click |
+| `email.action` | A semantic email link's answer is confirmed |
 | `email.bounced` | A send hard/soft bounces |
 | `email.complained` | The recipient marks the email as spam |
+| `sms.sent` | A tracked SMS is accepted by the provider |
+| `sms.delivered` | The carrier confirms SMS delivery (provider webhook) |
+| `sms.failed` | An SMS delivery fails (provider webhook, with the carrier error) |
+| `sms.clicked` | A first-party SMS short link (`/s/:code`) is clicked — **per-hit** |
 | `journey.completed` | A contact finishes a journey run |
 | `bucket.entered` | A contact enters a real-time audience bucket |
 | `bucket.left` | A contact leaves a bucket |
+| `link.clicked` | A NON-email tracked/managed link is clicked — **per-hit** |
+| `link.arrived` | A visitor confirmed landing from a tracked link (opt-in `hs_ref`) |
 
 There is one event Hogsend emits that is **not** in this catalog: `webhook.test`. It's delivered out-of-band by the [`/test` endpoint](#send-a-test-event) regardless of an endpoint's subscriptions, so you can confirm signing and connectivity. You can't subscribe to it.
 
@@ -127,6 +135,8 @@ The full per-event field lists are the `OutboundPayloads` interface in `packages
 - **`contact.created` / `contact.updated`** carry the full serialized contact (`id`, `externalId`, `email`, `properties`, timestamps).
 - **`contact.deleted`** carries `{ id, externalId, email }`.
 - **`contact.unsubscribed`** carries `{ externalId, email, category, scope }` where `scope` is `"all"` or `"category"`.
+- **`contact.subscribed`** carries the same shape plus `source` — the grant provenance (`"api"`, `"preference_center"`, `"started_keyword"`).
+- **`sms.sent`** carries `{ smsSendId, messageId, templateKey, to, userId, category, journeyStateId, segments, sentAt }`; **`sms.delivered` / `sms.failed`** carry `{ smsSendId, messageId, templateKey, userId, to, at }` (`sms.failed` adds `errorCode`/`errorReason`); **`sms.clicked`** adds `linkUrl` and `linkId`.
 - **`email.sent`** carries `{ emailSendId, messageId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`. `messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …) — it replaced `resendId`, which lingers as a `@deprecated` alias for one minor.
 - **`email.delivered` / `email.opened` / `email.complained`** carry the common email shape `{ emailSendId, messageId, templateKey, userId, to, at }`.
 - **`email.clicked`** adds `linkUrl` and `linkId`; **`email.bounced`** adds `bounceType` and `bounceReason`.

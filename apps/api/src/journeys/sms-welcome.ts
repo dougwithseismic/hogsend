@@ -5,9 +5,12 @@ import { Events } from "./constants/events.js";
 /**
  * SMS — Welcome. Fires on `user.created` and texts a welcome to contacts that
  * carry a valid E.164 `phone` property. Demonstrates the SMS channel end-to-end:
- * `sendSms` renders the `welcome-sms` React template to plain text, checks the
- * `sms` opt-out channel + `sms_suppressions`, appends the STOP footer, and
- * delivers through the active provider (Twilio) — replay-safe like `sendEmail`.
+ * `sendSms` renders the `welcome-sms` React template to plain text, runs the
+ * consent gate (the `sms` channel is EXPLICIT OPT-IN — a contact with no grant
+ * silently no-ops with `no_consent`, which is correct: welcome texts are
+ * marketing under TCPA), rewrites links, appends the STOP footer, and delivers
+ * through the active provider (Twilio) — replay-safe like `sendEmail`, with
+ * the enrollment auto-attributed from the journey boundary.
  *
  * A contact with no phone (or a non-E.164 one) simply exits early — the SMS
  * channel is additive, never required.
