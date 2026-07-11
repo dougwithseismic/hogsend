@@ -192,20 +192,21 @@ export const blueprintDurationInputSchema = z.strictObject({
 });
 
 /**
- * `entryPeriod` variant: at least one key required (same refine as core's
- * graph-node `blueprintDurationSchema`). An empty `{}` would make
- * `durationToMs({}) === 0`, silently turning `once_per_period` into
- * `unlimited` — the one place a zero-length duration is a footgun, not a
- * "disabled" contract. Omitting `entryPeriod` entirely stays legal:
- * `checkEntryLimit` defaults an undefined period to 24h.
+ * `entryPeriod` variant: requires a POSITIVE duration. Key presence alone is
+ * not enough — `{ hours: 0 }` (or `{ seconds: 0 }`) still makes
+ * `durationToMs(...) === 0`, which silently turns `once_per_period` into
+ * `unlimited` (cutoff === now, so every trigger re-enrolls). That is the one
+ * place a zero-length duration is a footgun, not a "disabled" contract, so
+ * refine on the summed value, not on presence. Omitting `entryPeriod` entirely
+ * stays legal: `checkEntryLimit` defaults an undefined period to 24h.
  */
 export const blueprintEntryPeriodInputSchema =
   blueprintDurationInputSchema.refine(
-    (d) =>
-      d.hours !== undefined ||
-      d.minutes !== undefined ||
-      d.seconds !== undefined,
-    { message: "entryPeriod must set at least one of hours/minutes/seconds" },
+    (d) => (d.hours ?? 0) + (d.minutes ?? 0) + (d.seconds ?? 0) > 0,
+    {
+      message:
+        "entryPeriod must be a positive duration (hours/minutes/seconds)",
+    },
   );
 
 export const blueprintExitOnInputSchema = z.array(

@@ -339,6 +339,29 @@ describe("POST /v1/admin/blueprints", () => {
     expect(omitted.status).toBe(201);
   });
 
+  it("400s a zero-value entryPeriod — durationToMs === 0 degrades once_per_period to unlimited", async () => {
+    // Key presence alone is not enough: { hours: 0 } / { seconds: 0 } still
+    // yields a zero cutoff, so the refine must reject non-positive durations.
+    for (const entryPeriod of [
+      { hours: 0 },
+      { seconds: 0 },
+      { hours: 0, minutes: 0, seconds: 0 },
+    ]) {
+      const res = await createBlueprint(`${RUN}-zero-period`, {
+        entryLimit: "once_per_period",
+        entryPeriod,
+      });
+      expect(res.status).toBe(400);
+    }
+
+    // A positive partial-zero duration stays legal.
+    const ok = await createBlueprint(`${RUN}-pos-period`, {
+      entryLimit: "once_per_period",
+      entryPeriod: { hours: 0, minutes: 30 },
+    });
+    expect(ok.status).toBe(201);
+  });
+
   it("409s on a duplicate blueprint id", async () => {
     const id = `${RUN}-dupe`;
     expect((await createBlueprint(id)).status).toBe(201);

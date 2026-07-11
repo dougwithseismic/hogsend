@@ -304,17 +304,16 @@ export function reenrollmentRefusal(
 /**
  * The blueprint id IS the journey id, and that continuity is what lets the
  * entryLimit "once" history survive promotion. A --journey-id that differs from
- * the blueprint id silently breaks it, so refuse unless --allow-reenrollment is
- * also passed. A matching id (the default) needs no acknowledgment.
+ * the blueprint id silently breaks it, so it needs --allow-reenrollment. A
+ * matching id (the default) needs no acknowledgment. Returns true when the
+ * caller must refuse (rename without the ack).
  */
-export function assertReenrollmentAck(opts: {
+export function reenrollmentNeedsAck(opts: {
   blueprintId: string;
   journeyId: string;
   allowReenrollment: boolean;
-}): void {
-  if (opts.journeyId !== opts.blueprintId && !opts.allowReenrollment) {
-    throw new Error(reenrollmentRefusal(opts.blueprintId, opts.journeyId));
-  }
+}): boolean {
+  return opts.journeyId !== opts.blueprintId && !opts.allowReenrollment;
 }
 
 export interface PromoteFlags {
@@ -661,16 +660,16 @@ async function runPromote(ctx: CommandContext, argv: string[]): Promise<void> {
   // the entryLimit "once" history (the blueprint id IS the journey id) — refuse
   // unless the operator explicitly acknowledges the re-enrollment. --journey-id
   // is single-blueprint only, so ids[0] is the one being renamed.
-  if (flags.journeyId !== undefined && ids[0]) {
-    try {
-      assertReenrollmentAck({
-        blueprintId: ids[0],
-        journeyId: flags.journeyId,
-        allowReenrollment: flags.allowReenrollment,
-      });
-    } catch (err) {
-      ctx.out.fail(errorMessage(err));
-    }
+  if (
+    flags.journeyId !== undefined &&
+    ids[0] &&
+    reenrollmentNeedsAck({
+      blueprintId: ids[0],
+      journeyId: flags.journeyId,
+      allowReenrollment: flags.allowReenrollment,
+    })
+  ) {
+    ctx.out.fail(reenrollmentRefusal(ids[0], flags.journeyId));
   }
 
   // 4. Fetch → guard → validate → codegen, sequentially per blueprint.
