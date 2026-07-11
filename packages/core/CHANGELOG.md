@@ -1,5 +1,54 @@
 # @hogsend/core
 
+## 0.42.0
+
+### Minor Changes
+
+- d7328a3: Journey Blueprints hardening across the save path, interpreter, promote-to-code generator, and Studio.
+
+  Engine + core:
+  - Blueprint `triggerEvent` and trigger-node events now reject reserved engine namespaces (`email`/`journey`/`bucket`/`contact`, both `.` and `:` forms) at save time (structured `reserved_event` issue, 422) and at execution time for pre-existing rows. The canonical `RESERVED_EVENT_NAME_RE` / `isReservedEventName` now live in `@hogsend/core` and are reused by semantic-link tracking.
+  - `entryPeriod` must be a positive duration — `{}` and zero-valued shapes (`{hours: 0}`) are rejected instead of silently degrading `once_per_period` to unlimited.
+  - Enable/update/promote races closed with guarded conditional writes: a promoted blueprint can no longer be re-enabled or edited by a racing request (`promoted`, 409), concurrent graph edits resolve to exactly one winner (`version_conflict`, 409), and graph edits serialize against new enrollments via a transaction-scoped advisory lock taken on both sides — closing the count-vs-insert window that could desync a suspended run's replay journal.
+  - A replayed blueprint run whose row was deleted or whose stored graph no longer validates now fails the recovered enrollment (guarded, with `journey:failed` side effects) instead of stranding it in `waiting`/`active` forever.
+  - New `ctx.exit(reason?)` journey primitive: terminate an enrollment as `exited` (no `journey:completed`/`journey:failed`). The blueprint interpreter's `end-exited` node and promoted code share this one mechanism.
+  - MCP blueprint tools: `createdBy` is bound at mount time and removed from tool input — agent input can no longer attribute a blueprint to someone else.
+
+  CLI (`hogsend blueprints promote`):
+  - Generated code is now faithful to the interpreter: `end-exited` emits `ctx.exit()`, `end-failed` throws, every send/trigger/connector carries `idempotencyLabel` (author label or node id), sends pass `props: user.properties`, triggers pass `userEmail`, and decision verdicts are frozen via `ctx.once` with the interpreter's key shape.
+  - Blueprint-controlled strings interpolated into generated comments are sanitized (`*/` and line terminators neutralized) so a hostile node id or condition value cannot escape comment syntax.
+  - `--journey-id` that renames the journey away from the blueprint id now requires `--allow-reenrollment`, since the rename discards `entryLimit` history and re-enrolls prior completers.
+
+  Studio:
+  - The Journeys list pages through all blueprints instead of silently truncating at 100, with an explicit indicator if the cap is hit.
+
+- 6e17712: Promote a Journey Blueprint to a code-first `defineJourney()` file.
+  - New `hogsend blueprints promote [id...]` CLI command — generates a `defineJourney()` TypeScript file from one or more blueprints, registers it in `src/journeys/index.ts` on a fresh git branch, prints the staged diff, and — after confirmation — marks each blueprint promoted. Never commits or pushes. `hogsend blueprints list` shows every blueprint's status, trigger, and promotion state.
+  - New engine capability backing it: `POST /v1/admin/blueprints/{id}/promote` stamps `promotedAt`/`promotedToJourneyId` and disables the blueprint in one update. A promoted blueprint is now frozen — `PATCH` and `enable` both refuse it (409), closing a gap where a promoted blueprint's graph could previously still be edited or re-enabled out from under the generated code.
+
+- 01ac1f3: Journey Blueprints example content for scaffolded apps.
+  - New vendored skill `hogsend-authoring-journey-blueprints` (`packages/cli/skills/`, synced into every scaffold's `.claude/skills/`) — teaches an agent how to create/validate/enable a blueprint via the MCP tools, with the full node/edge vocabulary reference (and what's excluded from v1: `digest`/`sleepUntil`/`capture`/`unknown`).
+  - New `pnpm seed:example-blueprint` script in the scaffold — seeds one example Journey Blueprint (a JSON-authored companion to the `welcome` code journey, same primitives) so a fresh app has one to look at in Studio → Journeys immediately, without needing an agent/API call first.
+
+- df76ac6: Fix `hogsend upgrade` breaking existing consumers' type-checking after a new engine dependency ships.
+
+  `@hogsend/engine` ships raw `.ts` source (no build step), so a consumer's own `tsc` type-checks engine's source directly against whatever is in the consumer's `node_modules`. `@types/qrcode` and `@types/papaparse` were declared in the engine's `devDependencies` — which never propagate to consumers — instead of `dependencies`. Any consumer scaffolded before the vanity-links/QR feature (#385) landed hit a `TS7016` on `qrcode` the moment `hogsend upgrade` bumped them past 0.40.0, even though `check-types`/build succeeded in this repo.
+
+  Moved both `@types/*` packages to `dependencies` so they install transitively for every consumer, old and new, regardless of whether `hogsend upgrade` or a fresh `create-hogsend` scaffold picked them up.
+
+- 57e6272: New `@hogsend/mcp` package — a distributable Model Context Protocol server for a running Hogsend instance.
+  - New publishable `@hogsend/mcp` package with two transports over one tool implementation: **stdio** (`npx @hogsend/mcp`, for Claude Desktop / Cursor / any local client) and **Streamable HTTP** — a consumer-mounted route (`mcpRoutes()` passed to `createApp`'s `routes` option) served at `POST /v1/mcp` for claude.ai connectors. The hosted route is admin-gated by the engine's existing `requireAdmin` and runs each tool call in-process with the caller's own credential, so there is no new engine dep and no parallel auth path.
+  - Surface: three tools (`manage_blueprint` — create/update/validate/enable/disable Journey Blueprints; `hogsend_report` — a read-only health report with severity-ranked findings across the health/blueprints/journeys/deliverability/catalog scopes; `send_test_email`), the `hogsend://blueprint-authoring-guide` resource, and the `find_and_fix_bottleneck` prompt.
+  - Engine changes backing it: new `GET /v1/admin/api-keys/self` (returns the calling credential's identity) and `GET /v1/admin/events/names` read routes, `requireAdmin` exported from the engine barrel, the blueprint authoring-guide extracted into a shared env-free `@hogsend/engine/mcp/authoring-guide` export, blueprint `409` conflict bodies now carry a machine-readable `code`, and stricter `entryPeriod` / `within` schema validation.
+
+### Patch Changes
+
+- Updated dependencies [6e17712]
+- Updated dependencies [01ac1f3]
+- Updated dependencies [df76ac6]
+- Updated dependencies [57e6272]
+  - @hogsend/db@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes
