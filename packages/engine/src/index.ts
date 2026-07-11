@@ -632,6 +632,10 @@ export {
   type JourneyBlueprintTools,
   type JourneyBlueprintToolsOptions,
 } from "./mcp/blueprint-tools.js";
+export {
+  createRateLimit,
+  type RateLimitOptions,
+} from "./middleware/rate-limit.js";
 // --- Middleware (consumer-mounted routes, e.g. the @hogsend/mcp hosted route) ---
 export { requireAdmin } from "./middleware/require-admin.js";
 // --- Webhook sources ---

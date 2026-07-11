@@ -50,6 +50,9 @@ importers:
       '@hogsend/engine':
         specifier: workspace:^
         version: link:../../packages/engine
+      '@hogsend/mcp':
+        specifier: workspace:^
+        version: link:../../packages/mcp
       '@hogsend/plugin-discord':
         specifier: workspace:^
         version: link:../../packages/plugin-discord
@@ -62,12 +65,18 @@ importers:
       '@hogsend/plugin-telegram':
         specifier: workspace:^
         version: link:../../packages/plugin-telegram
+      '@hono/mcp':
+        specifier: ^0.3.1
+        version: 0.3.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(hono-rate-limiter@0.5.3(hono@4.12.22))(hono@4.12.22)(zod@4.4.3)
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.22)
       '@hono/zod-openapi':
         specifier: ^1.4.0
         version: 1.4.0(hono@4.12.22)(zod@4.4.3)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
       '@scalar/hono-api-reference':
         specifier: ^0.10.19
         version: 0.10.19(hono@4.12.22)
@@ -16256,7 +16265,7 @@ snapshots:
   terser@5.48.0:
     dependencies:
       '@jridgewell/source-map': 0.3.11
-      acorn: 8.16.0
+      acorn: 8.17.0
       commander: 2.20.3
       source-map-support: 0.5.21
 
@@ -16385,7 +16394,7 @@ snapshots:
 
   tsx@4.22.4:
     dependencies:
-      esbuild: 0.28.0
+      esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
 

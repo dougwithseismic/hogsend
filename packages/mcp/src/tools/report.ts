@@ -31,8 +31,15 @@ import { defineTool, type McpTool } from "../lib/tool.js";
 
 const NAME = "hogsend_report";
 
-/** Max per-journey funnel fetches before we stop and note the cap (no silent truncation). */
-const MAX_FUNNEL_FETCHES = 25;
+/**
+ * Max per-journey funnel fetches before we stop and note the cap (no silent
+ * truncation). Kept low because each fetch is a separate admin sub-request
+ * against the caller's rate budget — the journeys scope already costs 2 list
+ * calls + this many funnel calls, so a big number could self-throttle a busy
+ * key. The top-enrolled journeys are scanned first, so the cap keeps the most
+ * signal.
+ */
+const MAX_FUNNEL_FETCHES = 10;
 /** List page size (the admin pagination max). */
 const LIST_LIMIT = 100;
 
@@ -54,6 +61,9 @@ const description =
   "problems; catalog lists the registered template keys and observed event names " +
   "for authoring. Findings carry severity/evidence/suggested_action; thresholds are " +
   "conservative. The envelope includes the calling credential's identity. " +
+  "Each report makes several admin API calls under the hood (the journeys scope " +
+  "fans out per-journey funnel fetches), all against the key's rate budget — so " +
+  "prefer one scoped report over rapid repeats. " +
   "Read-only in effect, but the Hogsend admin API authorizes every call at the " +
   "full-admin scope — a lesser key is rejected with 403.";
 

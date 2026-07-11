@@ -41,4 +41,10 @@ describe("buildUrl", () => {
       }),
     ).toBe("https://api.example.com/v1/x?limit=10");
   });
+
+  it("extends an inline query with `&` instead of a second `?`", () => {
+    expect(buildUrl("https://api.example.com", "/v1/x?a=1", { b: 2 })).toBe(
+      "https://api.example.com/v1/x?a=1&b=2",
+    );
+  });
 });

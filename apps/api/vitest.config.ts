@@ -22,7 +22,10 @@ export default defineConfig({
     // of leaving them to Node's resolver (which fails on `./app.js`).
     server: {
       deps: {
-        inline: [/@hogsend\/engine/],
+        // `@hogsend/engine` AND `@hogsend/mcp` ship raw `.ts` with `.js`-suffixed
+        // relative imports; inlining lets Vite's transform resolve those to the
+        // `.ts` sources (the mcp-http integration suite loads `@hogsend/mcp`).
+        inline: [/@hogsend\/(engine|mcp)/],
       },
     },
     env: {

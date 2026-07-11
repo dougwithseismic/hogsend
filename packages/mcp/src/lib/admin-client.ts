@@ -58,7 +58,7 @@ export function arrayField(body: unknown, key: string): unknown[] | undefined {
   return undefined;
 }
 
-function makeHttpError(
+export function makeHttpError(
   message: string,
   status: number,
   body: unknown,
@@ -71,29 +71,76 @@ function makeHttpError(
 }
 
 /**
+ * Encode a query object into a BARE `a=b&c=d` string (no leading `?`, `""` when
+ * there is nothing to encode). Shared by {@link buildUrl} (absolute-URL fetch
+ * client) and the in-process client (path-only). It stays bare so each call
+ * site can pick the right separator via {@link appendQuery} — a target that
+ * already carries an inline query gets `&`, not a second `?`. `undefined`
+ * values are dropped.
+ */
+export function encodeQuery(query?: Query): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    params.set(key, String(value));
+  }
+  return params.toString();
+}
+
+/**
+ * Append an encoded query onto a path or URL with the correct separator: `?`
+ * when the target has no query yet, `&` when it already does. A no-op when the
+ * query is empty. Shared by both clients so neither can emit a malformed
+ * double-`?`.
+ */
+export function appendQuery(target: string, query?: Query): string {
+  const qs = encodeQuery(query);
+  if (!qs) return target;
+  return `${target}${target.includes("?") ? "&" : "?"}${qs}`;
+}
+
+/**
  * Join `path` onto `baseUrl`, preserving any subpath prefix on the base. Using
  * `new URL("/v1/x", "https://proxy/hogsend/")` would RESOLVE the absolute path
  * against the origin and silently drop `/hogsend`; we join instead — strip the
  * path's leading slash and ensure the base ends with `/` — so a base like
  * `https://proxy.example.com/hogsend` keeps its prefix. `undefined` query
- * values are dropped.
+ * values are dropped; an inline query already on the path is preserved and
+ * extended (not clobbered) via {@link appendQuery}.
  */
 export function buildUrl(baseUrl: string, path: string, query?: Query): string {
   const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const relPath = path.startsWith("/") ? path.slice(1) : path;
   const url = new URL(relPath, base);
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
-      if (value === undefined) continue;
-      url.searchParams.set(key, String(value));
-    }
-  }
-  return url.toString();
+  return appendQuery(url.toString(), query);
 }
 
 function bodyMessage(status: number, body: unknown): string {
   const error = stringField(body, "error");
   return error ? `${status}: ${error}` : `request failed with status ${status}`;
+}
+
+/**
+ * Parse a `Response` into `T`, or throw the shared {@link HttpError} on a
+ * non-2xx status. JSON-parse-with-text-fallback (an empty body → `undefined`).
+ * Shared by both admin clients so the exact same error/parse shape flows into
+ * `mapHttpError` regardless of transport.
+ */
+export async function handleResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let parsed: unknown;
+  if (text.length > 0) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+  }
+  if (!res.ok) {
+    throw makeHttpError(bodyMessage(res.status, parsed), res.status, parsed);
+  }
+  return parsed as T;
 }
 
 async function request<T>(
@@ -133,21 +180,7 @@ async function request<T>(
     throw makeHttpError(`cannot reach ${baseUrl} (${msg})`, 0, undefined);
   }
 
-  const text = await res.text();
-  let parsed: unknown;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
-  }
-
-  if (!res.ok) {
-    throw makeHttpError(bodyMessage(res.status, parsed), res.status, parsed);
-  }
-
-  return parsed as T;
+  return handleResponse<T>(res);
 }
 
 /** Config for {@link createFetchAdminClient}. */
