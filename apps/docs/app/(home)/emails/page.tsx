@@ -16,6 +16,17 @@ export const metadata: Metadata = {
   title: "13 React Email templates, in your repo",
   description:
     "Every Hogsend scaffold ships 13 production lifecycle templates — onboarding, trials, win-back, digests — as React Email + Tailwind components you own.",
+  alternates: { canonical: "/emails" },
+  keywords: [
+    "react email templates",
+    "email templates",
+    "onboarding emails",
+    "trial conversion",
+    "win-back emails",
+    "lifecycle email",
+    "resend",
+    "transactional email",
+  ],
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";

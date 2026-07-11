@@ -18,6 +18,17 @@ export const metadata: Metadata = {
   title: "Trial conversion emails in TypeScript",
   description:
     "Trial emails that react to product usage: durable waits, behavioral branching, timezone-aware sends, instant exit the moment they pay. Plain TypeScript.",
+  alternates: { canonical: "/use-cases/trial-conversion" },
+  keywords: [
+    "trial conversion",
+    "trial conversion emails",
+    "typescript",
+    "posthog",
+    "lifecycle email",
+    "email automation",
+    "product-led growth",
+    "drip campaigns",
+  ],
 };
 
 /* Mirrors apps/api/src/journeys/conversion-trial-upgrade.ts — string literals

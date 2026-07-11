@@ -221,6 +221,7 @@ export async function generateMetadata(props: {
   return {
     title: page.data.title,
     description: page.data.description,
+    alternates: { canonical: page.url },
     // Gated lessons render a thin wall to anonymous crawlers — keep them out of
     // the index; public first lessons stay indexable.
     ...(free ? {} : { robots: { index: false, follow: false } }),

@@ -15,6 +15,17 @@ export const metadata: Metadata = {
   title: "Campaigns — one-off sends to your whole audience",
   description:
     "Broadcast one template to every subscribed member of a list, at an instant you pick. Commit the campaign as a file or queue it with one API call — scheduled, cancelable until send, deduplicated per recipient.",
+  alternates: { canonical: "/campaigns" },
+  keywords: [
+    "email campaigns",
+    "broadcast email",
+    "one-off email sends",
+    "scheduled email",
+    "email automation",
+    "lifecycle email",
+    "audience broadcast",
+    "self-hosted",
+  ],
 };
 
 /* Mirrors packages/create-hogsend/template/src/campaigns/product-launch.ts —

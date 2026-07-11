@@ -8,6 +8,17 @@ export const metadata: Metadata = {
   title: "Growth metrics: interactive calculators & glossary",
   description:
     "Interactive calculators for LTV, CAC, NRR, K-factor and the rest — plus a practitioner glossary and the lifecycle lever behind every metric. Drag an input and watch the others move.",
+  alternates: { canonical: "/growth-metrics" },
+  keywords: [
+    "growth metrics",
+    "ltv calculator",
+    "cac calculator",
+    "nrr",
+    "k-factor",
+    "product-led growth",
+    "customer lifecycle",
+    "marketing metrics glossary",
+  ],
 };
 
 /* FAQ + glossary structured data — drawn straight from the page's calculators

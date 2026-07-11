@@ -8,6 +8,17 @@ export const metadata: Metadata = {
   title: "Terms",
   description:
     "The terms for using Hogsend and this site. Short, because the software is provided as is and the responsibilities are yours.",
+  alternates: { canonical: "/terms" },
+  keywords: [
+    "hogsend terms of service",
+    "terms of service",
+    "terms and conditions",
+    "lifecycle email",
+    "email automation",
+    "self-hosted",
+    "source-available",
+    "software license",
+  ],
 };
 
 const CONTACT_EMAIL = "hello@hogsend.com";

@@ -17,6 +17,17 @@ export const metadata: Metadata = {
   title: "Onboarding emails in TypeScript",
   description:
     "Behavior-driven onboarding from PostHog events: durable TypeScript journeys that wait for activation and nudge only the users who actually stall.",
+  alternates: { canonical: "/use-cases/onboarding" },
+  keywords: [
+    "onboarding emails",
+    "typescript",
+    "posthog",
+    "behavioral email automation",
+    "user activation",
+    "lifecycle email",
+    "drip campaigns",
+    "product-led growth",
+  ],
 };
 
 /* Mirrors apps/api/src/journeys/activation-welcome.ts — string literals stand

@@ -18,6 +18,17 @@ export const metadata: Metadata = {
   title: "Pricing: free to self-host, no per-contact billing",
   description:
     "Hogsend is free to self-host under ELv2 — no per-contact, per-profile, or per-send pricing. Rather not run it? We run your single-tenant instance for $149/month, install it for $2,300, or install and operate the lifecycle program for $1,500/month.",
+  alternates: { canonical: "/pricing" },
+  keywords: [
+    "hogsend pricing",
+    "self-hosted email",
+    "email automation pricing",
+    "no per-contact billing",
+    "lifecycle email",
+    "managed hosting",
+    "marketing automation for developers",
+    "code-first",
+  ],
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";

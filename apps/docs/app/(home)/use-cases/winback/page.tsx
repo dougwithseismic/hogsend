@@ -17,6 +17,17 @@ export const metadata: Metadata = {
   title: "Win-back email automation in code",
   description:
     "Trigger win-back on inactivity: a real-time bucket detects 'no activity for 7 days' and enrolls a durable journey that exits the instant the user returns. Self-hosted, your provider.",
+  alternates: { canonical: "/use-cases/winback" },
+  keywords: [
+    "win-back emails",
+    "win-back email automation",
+    "re-engagement emails",
+    "churn prevention",
+    "customer lifecycle",
+    "lifecycle email",
+    "email automation",
+    "self-hosted",
+  ],
 };
 
 /* Mirrors apps/api/src/buckets/went-dormant.ts — string literals stand in for

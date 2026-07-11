@@ -11,9 +11,10 @@ import { HogsendDocsProvider } from "@/components/hogsend/provider";
 import {
   OrganizationJsonLd,
   SoftwareApplicationJsonLd,
+  WebSiteJsonLd,
 } from "@/components/seo/json-ld";
 import { geistMono, inter, interDisplay } from "@/lib/fonts";
-import { SITE_URL } from "@/lib/site";
+import { SITE_URL, WITHSEISMIC_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -23,6 +24,25 @@ export const metadata: Metadata = {
   },
   description:
     "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
+  keywords: [
+    "lifecycle email",
+    "posthog",
+    "resend",
+    "postmark",
+    "email automation",
+    "marketing automation for developers",
+    "drip campaigns",
+    "customer lifecycle",
+    "product-led growth",
+    "typescript",
+    "self-hosted",
+    "code-first",
+    "transactional email",
+    "hogsend",
+  ],
+  authors: [{ name: "Doug Silkstone", url: WITHSEISMIC_URL }],
+  creator: "Doug Silkstone",
+  publisher: "Hogsend",
   openGraph: {
     siteName: "Hogsend",
     type: "website",
@@ -30,6 +50,7 @@ export const metadata: Metadata = {
   },
   twitter: { card: "summary_large_image" },
   icons: { icon: "/icon.svg", apple: "/apple-icon.png" },
+  formatDetection: { telephone: false },
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -57,6 +78,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <CookieBanner />
         <SoftwareApplicationJsonLd />
         <OrganizationJsonLd />
+        <WebSiteJsonLd />
         {/* Unified TanStack Devtools shell (built-in + product panels). Always
             on in dev; in production it's opt-in via the `?hs-devtools` URL flag
             so real visitors never load it (see components/devtools/index.tsx). */}

@@ -22,6 +22,17 @@ export const metadata: Metadata = {
   title: "How we run Hogsend on Hogsend",
   description:
     "Hogsend's own marketing runs on one production Hogsend instance — the docs funnel, the course lifecycle, the Discord community, and referrals. This page shows the real emails, DMs, and journeys, and the live bell you're already inside.",
+  alternates: { canonical: "/dogfood" },
+  keywords: [
+    "hogsend dogfood",
+    "lifecycle email",
+    "email automation",
+    "posthog",
+    "customer lifecycle",
+    "referrals",
+    "product-led growth",
+    "self-hosted",
+  ],
 };
 
 /* ========================================================================== */

@@ -23,6 +23,15 @@ export const metadata: Metadata = {
   title: "Pricing — one-time, lifetime access",
   description:
     "Buy a single course for a one-time fee, or get All-Access — every course, including future ones, for one payment. No subscription.",
+  keywords: [
+    "posthog course pricing",
+    "growth course",
+    "lifetime access",
+    "one-time payment",
+    "all-access pass",
+    "product analytics training",
+  ],
+  alternates: { canonical: "/pricing" },
 };
 
 const FLAGSHIP_PRICE = getCourse(FLAGSHIP_SLUG)?.priceLabel ?? "$49";

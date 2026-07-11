@@ -8,6 +8,17 @@ export const metadata: Metadata = {
   title: "Privacy",
   description:
     "What Hogsend collects, what it's used for, where it lives, and how to get it removed.",
+  alternates: { canonical: "/privacy" },
+  keywords: [
+    "hogsend privacy policy",
+    "privacy policy",
+    "data privacy",
+    "lifecycle email",
+    "email automation",
+    "self-hosted",
+    "data collection",
+    "gdpr",
+  ],
 };
 
 const PRIVACY_EMAIL = "hello@hogsend.com";

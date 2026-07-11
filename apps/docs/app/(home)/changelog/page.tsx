@@ -16,6 +16,17 @@ export const metadata: Metadata = {
   title: "Changelog",
   description:
     "Every Hogsend release: features, fixes, and upgrade notes for the source-available lifecycle email engine. Upgrades are pnpm up, never a merge.",
+  keywords: [
+    "hogsend changelog",
+    "release notes",
+    "lifecycle email",
+    "email automation",
+    "self-hosted",
+    "product updates",
+    "version history",
+    "code-first",
+  ],
+  alternates: { canonical: "/changelog" },
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";

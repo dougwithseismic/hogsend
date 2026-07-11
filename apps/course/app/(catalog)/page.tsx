@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
@@ -37,6 +38,12 @@ import { source } from "@/lib/source";
 // Reads the session to resolve owned/locked card state, so it's per-request.
 // Anon requests still render identical HTML for everyone (indexable).
 export const dynamic = "force-dynamic";
+
+// Homepage self-canonical. Title/description are inherited from the root
+// layout's defaults (the strongest copy for "/").
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 // Content is fixed at build — count once per process, not per request.
 const FLAGSHIP_CHAPTERS = countChapters(FLAGSHIP_SLUG);

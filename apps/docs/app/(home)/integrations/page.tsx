@@ -22,6 +22,17 @@ export const metadata: Metadata = {
   title: "Integrations",
   description:
     "PostHog is the default source. Events also flow in from signed webhooks (Stripe, Clerk, Supabase, Segment), your own app, or any custom source, and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
+  alternates: { canonical: "/integrations" },
+  keywords: [
+    "posthog integration",
+    "webhook integrations",
+    "stripe",
+    "segment",
+    "lifecycle email",
+    "email automation",
+    "data warehouse",
+    "crm integration",
+  ],
 };
 
 const ICON_SIZE = 20;

@@ -14,6 +14,17 @@ export const metadata: Metadata = {
   title: "How to do onboarding properly",
   description:
     "A guide to onboarding email that reacts to what users do, not how long they have been signed up — the activation event the sequence aims at, the durable wait that parks the journey, and the whole thing as one TypeScript file in your repo.",
+  alternates: { canonical: "/dogfood-onboarding" },
+  keywords: [
+    "onboarding emails",
+    "behavioral onboarding",
+    "activation email",
+    "typescript",
+    "lifecycle email",
+    "posthog",
+    "email automation",
+    "product-led growth",
+  ],
 };
 
 const EVENTS_CODE = `// src/journeys/constants/events.ts
