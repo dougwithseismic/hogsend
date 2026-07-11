@@ -348,8 +348,10 @@ function emitChain(
       ]);
 
     case "trigger":
+      // idempotencyLabel = the node id, exactly as the interpreter passes it,
+      // so a replay re-pushing this trigger is a no-op.
       return continueFrom(walk, node, depth, nextPath, [
-        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id });`,
+        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id, idempotencyLabel: ${str(node.id)} });`,
       ]);
 
     case "send": {
@@ -361,34 +363,23 @@ function emitChain(
         `${ind}${INDENT}journeyStateId: user.stateId,`,
         `${ind}${INDENT}journeyName: user.journeyName,`,
         `${ind}${INDENT}template: ${str(node.meta.template)},`,
+        // Always label the send (author's label ?? the node id), exactly as the
+        // interpreter does — so two sends of the SAME template on divergent
+        // branches derive DISTINCT exactly-once keys instead of colliding (the
+        // engine throws an intra-run key-collision otherwise).
+        `${ind}${INDENT}idempotencyLabel: ${str(node.meta.idempotencyLabel ?? node.id)},`,
+        `${ind}});`,
       ];
-      if (node.meta.idempotencyLabel !== undefined) {
-        lines.push(
-          `${ind}${INDENT}idempotencyLabel: ${str(node.meta.idempotencyLabel)},`,
-        );
-      }
-      lines.push(`${ind}});`);
       return continueFrom(walk, node, depth, nextPath, lines);
     }
 
-    case "connector": {
+    case "connector":
       walk.usesConnector = true;
-      const args = [
-        `connectorId: ${str(node.meta.connectorId)}`,
-        `action: ${str(node.meta.action)}`,
-      ];
-      // Not in the blueprint connector meta schema (v1), but honored if a
-      // future vocabulary version carries it.
-      const { idempotencyLabel } = node.meta as typeof node.meta & {
-        idempotencyLabel?: string;
-      };
-      if (idempotencyLabel !== undefined) {
-        args.push(`idempotencyLabel: ${str(idempotencyLabel)}`);
-      }
+      // idempotencyLabel = the node id, exactly as the interpreter passes it
+      // (connector meta carries no label in v1) — branch-stable exactly-once.
       return continueFrom(walk, node, depth, nextPath, [
-        `${ind}await sendConnectorAction({ ${args.join(", ")} });`,
+        `${ind}await sendConnectorAction({ connectorId: ${str(node.meta.connectorId)}, action: ${str(node.meta.action)}, idempotencyLabel: ${str(node.id)} });`,
       ]);
-    }
 
     case "wait": {
       const out = outgoingEdges(walk, node.id);

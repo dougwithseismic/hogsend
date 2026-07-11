@@ -135,6 +135,12 @@ describe("generateJourneyFile — seed example blueprint", () => {
     expect(output).toContain("// (the journey ends on this branch)");
   });
 
+  it("labels an unlabelled send with its node id (mirrors the interpreter)", () => {
+    // send-nudge carries no author idempotencyLabel → the node id is used, so
+    // two sends of the same template on divergent branches never collide.
+    expect(output).toContain('idempotencyLabel: "send-nudge",');
+  });
+
   it("builds the meta object from the row fields", () => {
     expect(output).toContain('id: "activation-nudge",');
     expect(output).toContain('name: "Activation nudge (example blueprint)",');
@@ -285,9 +291,9 @@ describe("generateJourneyFile — wait node forks", () => {
     expect(output).toContain("if (npsWait.timedOut) {");
     // timedOut branch → reminder send with its idempotencyLabel
     expect(output).toContain('idempotencyLabel: "nps-reminder",');
-    // answered branch → the trigger
+    // answered branch → the trigger, labelled with the node id
     expect(output).toContain(
-      'await ctx.trigger({ event: "nps.recorded", userId: user.id });',
+      'await ctx.trigger({ event: "nps.recorded", userId: user.id, idempotencyLabel: "trigger-answered" });',
     );
     expectValidTs(output);
   });
@@ -605,7 +611,7 @@ describe("generateJourneyFile — meta extras and connectors", () => {
       'import { defineJourney, sendConnectorAction } from "@hogsend/engine";',
     );
     expect(output).toContain(
-      'await sendConnectorAction({ connectorId: "discord", action: "sendChannelMessage" });',
+      'await sendConnectorAction({ connectorId: "discord", action: "sendChannelMessage", idempotencyLabel: "notify-discord" });',
     );
     expect(output).not.toContain("sendEmail");
     expectValidTs(output);
