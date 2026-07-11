@@ -18,6 +18,7 @@ import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import type { FrequencyCapConfig } from "./email-service-types.js";
 import { hatchet } from "./hatchet.js";
+import { checkJourneySuppress } from "./journey-suppress.js";
 import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
 import { readRecipientPreferences } from "./preferences.js";
@@ -52,8 +53,22 @@ export async function sendTrackedSms<K extends SmsTemplateName>(
   opts: TrackedSmsDeps & { options: SendTrackedSmsOptions<K> },
 ): Promise<SmsTrackedSendResult> {
   const boundary = getJourneyBoundary();
-  if (!boundary || opts.options.idempotencyKey) {
-    return sendTrackedSmsInner(opts);
+  if (!boundary) return sendTrackedSmsInner(opts);
+
+  // Inside a journey run the engine KNOWS the enrollment — default the
+  // attribution to the boundary's state id so authors never hand-thread it.
+  // An explicit journeyStateId (cross-enrollment sends) still wins. Without
+  // this, a forgotten journeyStateId silently blinds transition logs AND the
+  // meta.suppress min-gap guard.
+  const attributed = {
+    ...opts,
+    options: {
+      ...opts.options,
+      journeyStateId: opts.options.journeyStateId ?? boundary.stateId,
+    },
+  };
+  if (attributed.options.idempotencyKey) {
+    return sendTrackedSmsInner(attributed);
   }
 
   const site = boundary.currentLabel ?? String(opts.options.templateKey);
@@ -65,8 +80,8 @@ export async function sendTrackedSms<K extends SmsTemplateName>(
   });
   registerKey(boundary, key);
   const keyed = {
-    ...opts,
-    options: { ...opts.options, idempotencyKey: key },
+    ...attributed,
+    options: { ...attributed.options, idempotencyKey: key },
   };
   return boundary.memoize([key], () => sendTrackedSmsInner(keyed));
 }
@@ -161,6 +176,32 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
           reason: "frequency_capped",
         };
       }
+    }
+
+    // Journey suppress (`meta.suppress`) — the same per-recipient min-gap
+    // flooding guard the email pipeline enforces (tracked.ts), running against
+    // SMS send history. Placed after the idempotency short-circuit (a replayed
+    // already-dispatched send must return its dup first) and recorded set-once
+    // so the verdict is replay-stable. Inert outside a journey boundary.
+    const boundary = getJourneyBoundary();
+    const suppress = await checkJourneySuppress({
+      db,
+      boundary,
+      to: options.to,
+      idempotencyKey: options.idempotencyKey,
+      channel: "sms",
+    });
+    if (suppress.suppressed) {
+      logger?.info("sms skipped: journey_suppressed", {
+        to: options.to,
+        journeyId: boundary?.journeyId,
+      });
+      return {
+        smsSendId: "",
+        messageId: "",
+        status: "skipped",
+        reason: "journey_suppressed",
+      };
     }
   }
 

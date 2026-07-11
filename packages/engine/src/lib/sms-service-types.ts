@@ -44,10 +44,12 @@ export interface SmsTrackedSendResult {
   /**
    * Present only when `status === "skipped"`:
    * - `"frequency_capped"` — the per-recipient frequency cap was hit.
+   * - `"journey_suppressed"` — the journey's `meta.suppress` min-gap found a
+   *   recent SMS to this recipient from the same journey.
    * - `"test_mode_blocked"` — test mode active but no `HOGSEND_TEST_PHONE`, so
    *   the send was blocked rather than delivered to the real recipient.
    */
-  reason?: "frequency_capped" | "test_mode_blocked";
+  reason?: "frequency_capped" | "journey_suppressed" | "test_mode_blocked";
 }
 
 // ---------------------------------------------------------------------------
