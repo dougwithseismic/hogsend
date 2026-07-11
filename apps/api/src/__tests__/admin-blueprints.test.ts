@@ -863,6 +863,28 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
     ).json();
     expect(detail.blueprint.name).not.toBe("Renamed after promotion");
   });
+
+  it("rejects a direct updateBlueprint on a promoted blueprint (structured 'promoted', both paths)", async () => {
+    // Reuse the `${RUN}-promote` row promoted earlier in this describe.
+    const metaEdit = await updateBlueprint({
+      container,
+      id: `${RUN}-promote`,
+      patch: { name: "Direct rename attempt" },
+    });
+    expect(metaEdit.ok).toBe(false);
+    if (metaEdit.ok) throw new Error("expected metadata update to be refused");
+    expect(metaEdit.code).toBe("promoted");
+
+    // A graph edit is frozen the same way — a promoted blueprint is read-only.
+    const graphEdit = await updateBlueprint({
+      container,
+      id: `${RUN}-promote`,
+      patch: { graph: nudgeGraph(`${RUN}-promote`) },
+    });
+    expect(graphEdit.ok).toBe(false);
+    if (graphEdit.ok) throw new Error("expected graph update to be refused");
+    expect(graphEdit.code).toBe("promoted");
+  });
 });
 
 describe("blueprint service guards — enable/update races (direct calls)", () => {
