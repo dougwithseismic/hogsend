@@ -27,6 +27,18 @@ export function normalizeKeyword(body: string): string {
     .toUpperCase();
 }
 
+/**
+ * The FIRST whitespace-delimited token, letter-normalized. Matched alongside
+ * the whole-message keyword so "STOP texting me" / "STOP please" still opt
+ * out — the whole-message normalization concatenates ("STOPTEXTINGME") and
+ * misses them. Exact single-keyword matching is the carrier norm, but honoring
+ * a leading keyword costs nothing and only ever widens opt-out (never opt-in
+ * beyond START itself leading the message).
+ */
+function firstToken(body: string): string {
+  return normalizeKeyword(body.trim().split(/\s+/)[0] ?? "");
+}
+
 interface InboundDeps {
   db: Database;
   provider: SmsProvider;
@@ -52,10 +64,11 @@ export async function handleInboundSms(
   if (event.type !== "sms.inbound" || !event.inbound) return;
   const phone = event.phone;
   const keyword = normalizeKeyword(event.inbound.body);
+  const lead = firstToken(event.inbound.body);
 
-  if (STOP_KEYWORDS.has(keyword)) {
-    await recordStop(deps.db, phone);
-    await flipContactChannel(deps.db, phone, false);
+  if (STOP_KEYWORDS.has(keyword) || STOP_KEYWORDS.has(lead)) {
+    await recordPhoneOptOut(deps.db, phone, "inbound_stop");
+    await flipContactChannel(deps.db, phone, false, "stopped_keyword");
     deps.logger.info("sms inbound STOP processed", { phone, keyword });
     if (deps.optOutReplies) {
       await safeReply(
@@ -68,8 +81,8 @@ export async function handleInboundSms(
   }
 
   if (START_KEYWORDS.has(keyword)) {
-    await recordStart(deps.db, phone);
-    await flipContactChannel(deps.db, phone, true);
+    await grantPhoneConsent(deps.db, phone, { reason: "inbound_start" });
+    await flipContactChannel(deps.db, phone, true, "started_keyword");
     deps.logger.info("sms inbound START processed", { phone, keyword });
     if (deps.optOutReplies) {
       await safeReply(deps, phone, "You have been resubscribed.");
@@ -77,7 +90,10 @@ export async function handleInboundSms(
     return;
   }
 
-  if (HELP_KEYWORDS.has(keyword) && deps.optOutReplies) {
+  if (
+    (HELP_KEYWORDS.has(keyword) || HELP_KEYWORDS.has(lead)) &&
+    deps.optOutReplies
+  ) {
     await safeReply(
       deps,
       phone,
@@ -86,16 +102,20 @@ export async function handleInboundSms(
   }
 }
 
-/** Suppress a phone (STOP). Upsert: re-STOP after START resets the flag. */
-async function recordStop(db: Database, phone: string): Promise<void> {
+/** Suppress a phone (STOP / manual). Upsert: re-STOP after START resets the flag. */
+export async function recordPhoneOptOut(
+  db: Database,
+  phone: string,
+  reason: "inbound_stop" | "manual",
+): Promise<void> {
   const now = new Date();
   await db
     .insert(smsSuppressions)
-    .values({ phone, reason: "inbound_stop", suppressedAt: now })
+    .values({ phone, reason, suppressedAt: now })
     .onConflictDoUpdate({
       target: smsSuppressions.phone,
       set: {
-        reason: "inbound_stop",
+        reason,
         suppressedAt: now,
         resubscribedAt: null,
         updatedAt: now,
@@ -103,25 +123,45 @@ async function recordStop(db: Database, phone: string): Promise<void> {
     });
 }
 
-/** Resubscribe a phone (START): clear the active suppression. */
-async function recordStart(db: Database, phone: string): Promise<void> {
+/**
+ * Record express phone-level consent: an `sms_suppressions` row with
+ * `resubscribed_at` set. Under the explicit opt-in model this row IS the
+ * consent record for a number with no (or a phone-only) contact — texting
+ * START is express consent, so a fresh START with no prior STOP row must
+ * still grant (hence upsert, not update).
+ */
+export async function grantPhoneConsent(
+  db: Database,
+  phone: string,
+  opts?: { reason?: "inbound_start" | "api_grant" },
+): Promise<void> {
   const now = new Date();
   await db
-    .update(smsSuppressions)
-    .set({ resubscribedAt: now, updatedAt: now })
-    .where(eq(smsSuppressions.phone, phone));
+    .insert(smsSuppressions)
+    .values({
+      phone,
+      reason: opts?.reason ?? "inbound_start",
+      suppressedAt: now,
+      resubscribedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: smsSuppressions.phone,
+      set: { resubscribedAt: now, updatedAt: now },
+    });
 }
 
 /**
  * When the phone resolves to a contact with an email, flip the `sms` channel
  * category on `email_preferences` so the preference center agrees with the
- * suppression list. `false` emits `contact.unsubscribed`; `true` (resubscribe)
- * does not (the choke only emits on opt-OUT).
+ * suppression list. `false` emits `contact.unsubscribed`; `true` (a consent
+ * grant) emits `contact.subscribed` — both from the single write choke, with
+ * the keyword provenance in `source`.
  */
 async function flipContactChannel(
   db: Database,
   phone: string,
   subscribed: boolean,
+  source: string,
 ): Promise<void> {
   const rows = await db
     .select({
@@ -139,6 +179,7 @@ async function flipContactChannel(
     externalId: contact.externalId ?? contact.id,
     email: contact.email,
     update: { categoryKey: SMS_CHANNEL_ID, categoryValue: subscribed },
+    source,
   });
 }
 

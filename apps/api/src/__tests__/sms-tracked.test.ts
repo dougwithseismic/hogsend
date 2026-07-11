@@ -76,6 +76,19 @@ function uniquePhone(): string {
   return `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
 }
 
+// The sms channel is EXPLICIT OPT-IN: a send needs a `categories.sms === true`
+// grant (this is the row `POST /v1/lists/sms/subscribe` writes) or phone-track
+// consent. Every test that expects to reach the provider grants first.
+async function grantedUser(): Promise<string> {
+  const userId = `u_${randomUUID()}`;
+  await client.db.insert(emailPreferences).values({
+    userId,
+    email: `${userId}@example.com`,
+    categories: { sms: true },
+  });
+  return userId;
+}
+
 describe("sendTrackedSms — happy path", () => {
   it("sends and writes a `sent` row", async () => {
     const to = uniquePhone();
@@ -83,7 +96,7 @@ describe("sendTrackedSms — happy path", () => {
       template: "t-sms" as never,
       props: { name: "Ada" } as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     expect(res.status).toBe("sent");
     expect(res.messageId).toMatch(/^SM_/);
@@ -105,7 +118,7 @@ describe("sendTrackedSms — happy path", () => {
       template: "t-sms-stop-prose" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     const rows = await client.db
       .select()
@@ -120,7 +133,7 @@ describe("sendTrackedSms — happy path", () => {
       template: "t-sms-stop-instruction" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     const rows = await client.db
       .select()
@@ -140,14 +153,14 @@ describe("sendTrackedSms — idempotency", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
       idempotencyKey: key,
     });
     const b = await client.smsService.send({
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
       idempotencyKey: key,
     });
     expect(a.smsSendId).toBe(b.smsSendId);
@@ -167,7 +180,7 @@ describe("sendTrackedSms — suppression", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     expect(res.status).toBe("suppressed");
     expect(sent.length).toBe(before); // provider NOT called
@@ -208,7 +221,7 @@ describe("sendTrackedSms — provider failure releases the key", () => {
         template: "t-sms" as never,
         props: {} as never,
         to,
-        userId: `u_${randomUUID()}`,
+        userId: await grantedUser(),
         idempotencyKey: key,
       }),
     ).rejects.toThrow(/boom/);
@@ -226,7 +239,7 @@ describe("sendTrackedSms — provider failure releases the key", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
       idempotencyKey: key,
     });
     expect(res.status).toBe("sent");
@@ -238,9 +251,7 @@ describe("sendTrackedSms — test mode", () => {
   // wires this from validated env + the email side's auto-arm; here we pin the
   // redirect/block behavior itself).
   async function makeTestModeSender(testPhone?: string) {
-    const { createTrackedSmsSender } = await import(
-      "../../../../packages/engine/src/lib/sms-mailer.js"
-    );
+    const { createTrackedSmsSender } = await import("@hogsend/engine");
     return createTrackedSmsSender(
       {
         defaultFrom: "+15005550006",
@@ -264,7 +275,7 @@ describe("sendTrackedSms — test mode", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     expect(res.status).toBe("sent");
     expect(sent[before]?.to).toBe("+15005550099");
@@ -288,7 +299,7 @@ describe("sendTrackedSms — test mode", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     expect(res.status).toBe("skipped");
     expect(res.reason).toBe("test_mode_blocked");
@@ -310,7 +321,7 @@ describe("provider status callbacks — monotonic lifecycle", () => {
       template: "t-sms" as never,
       props: {} as never,
       to,
-      userId: `u_${randomUUID()}`,
+      userId: await grantedUser(),
     });
     const [row] = await client.db
       .select({ id: smsSends.id, messageId: smsSends.messageId })

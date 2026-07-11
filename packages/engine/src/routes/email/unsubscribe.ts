@@ -79,6 +79,7 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
               unsubscribedAll: false,
             }
           : { unsubscribedAll: false },
+        source: "preference_center",
       });
 
       return c.html(

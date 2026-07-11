@@ -43,6 +43,12 @@ export async function upsertEmailPreference(opts: {
     categoryValue?: boolean;
   };
   emitOutbound?: boolean;
+  /**
+   * Grant provenance carried on the `contact.subscribed` emit: `"api"`
+   * (default), `"preference_center"`, `"started_keyword"`, `"import"`.
+   * TCPA record-keeping is the "how" as much as the "when".
+   */
+  source?: string;
 }): Promise<void> {
   const { db, externalId, email, update } = opts;
 
@@ -116,6 +122,32 @@ export async function upsertEmailPreference(opts: {
         email,
         category: update.categoryKey ?? null,
         scope,
+      },
+    }).catch(logger.warn);
+  }
+
+  // The opt-IN mirror: `contact.subscribed` on a genuine grant (resubscribe-all
+  // or a category flip to true) — the consent audit signal for opt-in channels
+  // (the explicit-consent `sms` channel above all). Same choke, same
+  // fire-and-forget semantics, same `emitOutbound: false` escape for bulk
+  // imports. A redundant re-grant re-emits, identical to the opt-out side.
+  const isSubscribe =
+    !isUnsubscribe &&
+    (update.unsubscribedAll === false || update.categoryValue === true);
+  if (isSubscribe && (opts.emitOutbound ?? true)) {
+    const scope: "all" | "category" =
+      update.categoryKey !== undefined ? "category" : "all";
+    void emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "contact.subscribed",
+      payload: {
+        externalId,
+        email,
+        category: update.categoryKey ?? null,
+        scope,
+        source: opts.source ?? "api",
       },
     }).catch(logger.warn);
   }

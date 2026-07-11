@@ -241,6 +241,7 @@ export type OutboundEventType =
   | "contact.updated"
   | "contact.deleted"
   | "contact.unsubscribed"
+  | "contact.subscribed"
   | "email.sent"
   | "email.delivered"
   | "email.opened"
@@ -253,7 +254,9 @@ export type OutboundEventType =
   | "sms.failed"
   | "journey.completed"
   | "bucket.entered"
-  | "bucket.left";
+  | "bucket.left"
+  | "link.clicked"
+  | "link.arrived";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed

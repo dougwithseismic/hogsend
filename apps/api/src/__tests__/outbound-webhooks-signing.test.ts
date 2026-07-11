@@ -202,12 +202,15 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 19-event catalog, in order", () => {
+  it("is exactly the 20-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
       "contact.deleted",
       "contact.unsubscribed",
+      // The opt-IN mirror of contact.unsubscribed (consent audit for the
+      // explicit-opt-in sms channel; carries `source` provenance).
+      "contact.subscribed",
       "email.sent",
       "email.delivered",
       "email.opened",

@@ -73,15 +73,20 @@ export function synthesizeChannelLists(
   }
 
   // The SMS channel is minted when an SMS provider is configured (SMS is NOT a
-  // connector). Opt-out polarity like every channel — an inbound STOP flips
-  // `categories.sms` to false; the tracked SMS sender gates on it. De-duped via
-  // `seen` in case a connector also happened to use the id "sms".
+  // connector). UNLIKE every other channel it is OPT-IN polarity
+  // (`defaultOptIn: false`, not configurable): TCPA/CASL/PECR all require prior
+  // EXPRESS consent for marketing SMS, so a contact is textable only with an
+  // explicit `categories.sms === true` grant (API/SDK/preference-center) or
+  // phone-track consent (an inbound START). The tracked SMS sender fails closed
+  // (`no_consent`) without one; transactional sends are exempt from the consent
+  // gate but never from the STOP list. De-duped via `seen` in case a connector
+  // also happened to use the id "sms".
   if (opts?.sms && !seen.has("sms")) {
     seen.add("sms");
     channels.push({
       id: "sms",
       name: "SMS",
-      defaultOptIn: true,
+      defaultOptIn: false,
       enabled: true,
       kind: "channel",
     });

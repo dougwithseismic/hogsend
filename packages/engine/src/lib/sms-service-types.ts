@@ -28,6 +28,11 @@ export interface SendTrackedSmsOptions<
   /** Denormalized recipient identity, persisted on the sms_sends row. */
   userId?: string;
   category?: string;
+  /**
+   * Skips the consent + topic gates and the frequency cap — NEVER the phone
+   * STOP list or the `unsubscribed_all` master opt-out, which are enforced
+   * unconditionally (system sends must still respect a STOP).
+   */
   skipPreferenceCheck?: boolean;
   /**
    * Caller-supplied idempotency key. A retry with the same key short-circuits to
@@ -40,7 +45,13 @@ export interface SmsTrackedSendResult {
   smsSendId: string;
   /** The provider's neutral message id (Twilio MessageSid). */
   messageId: string;
-  status: "sent" | "suppressed" | "unsubscribed" | "skipped";
+  /**
+   * `"no_consent"` — the recipient has no explicit SMS consent (no
+   * `categories.sms === true` grant and no phone-track consent, or no
+   * resolvable `userId` on a non-transactional send). The consent model is
+   * explicit opt-in; the sender fails closed.
+   */
+  status: "sent" | "suppressed" | "unsubscribed" | "no_consent" | "skipped";
   /**
    * Present only when `status === "skipped"`:
    * - `"frequency_capped"` — the per-recipient frequency cap was hit.

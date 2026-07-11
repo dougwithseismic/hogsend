@@ -45,7 +45,18 @@ export interface SendSmsOptions {
 
 export interface SendSmsResult {
   smsSendId: string;
-  sentAt: string;
+  /**
+   * The pipeline verdict, passed through verbatim: `"sent"`, or a non-delivery
+   * outcome — `"suppressed"` (STOP list), `"unsubscribed"`, `"no_consent"`
+   * (explicit opt-in missing), `"skipped"` (frequency cap / journey suppress /
+   * test mode; see `reason`). Journeys treating every outcome as success
+   * should branch on this.
+   */
+  status: "sent" | "suppressed" | "unsubscribed" | "no_consent" | "skipped";
+  /** Present when `status === "skipped"` — the skip reason. */
+  reason?: string;
+  /** Present only when `status === "sent"`. */
+  sentAt?: string;
 }
 
 /**
@@ -93,7 +104,9 @@ export async function sendSms(opts: SendSmsOptions): Promise<SendSmsResult> {
     const result = await service.send(sendOptions);
     return {
       smsSendId: result.smsSendId,
-      sentAt: new Date().toISOString(),
+      status: result.status,
+      ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.status === "sent" ? { sentAt: new Date().toISOString() } : {}),
     };
   };
 

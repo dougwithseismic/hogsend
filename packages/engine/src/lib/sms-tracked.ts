@@ -130,11 +130,20 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
   });
   const effectiveCategory = options.category ?? templateCategory;
 
-  if (!options.skipPreferenceCheck) {
+  // The suppression/consent gate runs UNCONDITIONALLY: `exempt` (transactional
+  // or skipPreferenceCheck) bypasses only the consent + topic gates inside it —
+  // never the phone STOP list or unsubscribed_all. Twilio 21610 enforces STOP
+  // at the carrier anyway; bypassing it first-party would only produce failed
+  // provider calls and compliance exposure.
+  const exempt =
+    options.skipPreferenceCheck === true ||
+    effectiveCategory === "transactional";
+  {
     const suppression = await checkSmsSuppression(db, {
       phone: options.to,
       userId: options.userId,
       category: effectiveCategory,
+      exempt,
     });
     if (suppression) {
       const rows = await db
@@ -148,8 +157,10 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
           journeyStateId: options.journeyStateId,
           userId: options.userId,
           status: "failed",
+          metadata: { suppressionReason: suppression },
           // A suppressed send does NOT consume the idempotency key — a later
-          // retry (after re-subscribe) can then actually attempt the send.
+          // retry (after re-subscribe / a consent grant) can then actually
+          // attempt the send.
         })
         .returning({ id: smsSends.id });
       const row = rows[0];
@@ -158,12 +169,16 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
         smsSendId: row.id,
         messageId: "",
         status:
-          suppression === "unsubscribed" || suppression === "channel_off"
-            ? "unsubscribed"
-            : "suppressed",
+          suppression === "no_consent"
+            ? "no_consent"
+            : suppression === "unsubscribed" || suppression === "channel_off"
+              ? "unsubscribed"
+              : "suppressed",
       };
     }
+  }
 
+  if (!options.skipPreferenceCheck) {
     if (frequencyCap) {
       const capped = await isSmsFrequencyCapped({
         db,
@@ -385,46 +400,68 @@ type SmsSuppressionReason =
   | "suppressed"
   | "unsubscribed"
   | "channel_off"
+  | "no_consent"
   | null;
 
 /**
- * Resolve whether an SMS send to `phone` must be suppressed. Dual-track:
- *  1. an ACTIVE `sms_suppressions` row (phone STOP / permanent carrier fail) —
- *     the authoritative transport-level opt-out;
- *  2. the contact's `email_preferences` (when `userId` resolves): the global
- *     `unsubscribed_all` master opt-out, the `sms` channel opt-out, and the
- *     topic-category gate. The email-transport `suppressed` flag is NOT
- *     consumed (it is a hard-bounce/complaint signal specific to email).
+ * Resolve whether an SMS send to `phone` must be suppressed. The consent model
+ * is EXPLICIT OPT-IN (TCPA prior-express-consent):
+ *
+ *  1. Phone track (`sms_suppressions`, tri-state, checked UNCONDITIONALLY —
+ *     `exempt` never bypasses it): an ACTIVE row (`resubscribed_at IS NULL`,
+ *     STOP / permanent carrier fail) blocks everything; a RESUBSCRIBED row
+ *     (`resubscribed_at` set — an inbound START or an API grant for a
+ *     phone-only contact) is express phone-level consent; no row is neither.
+ *  2. `unsubscribed_all` on the contact's `email_preferences` — the master
+ *     opt-out, also never bypassed.
+ *  3. `exempt` (transactional / skipPreferenceCheck) short-circuits ONLY the
+ *     consent + topic gates below this point.
+ *  4. The `sms` channel gate: an explicit `categories.sms === false` (STOP /
+ *     preference-center off) blocks even with phone consent; otherwise the
+ *     send needs an explicit grant — `categories.sms === true` (the channel
+ *     registers `defaultOptIn: false`) OR phone-track consent. A send with no
+ *     resolvable `userId` and no phone consent fails CLOSED (`no_consent`).
+ *  5. The topic-category gate (unchanged; topic lists keep their own polarity).
+ *
+ * The email-transport `suppressed` flag is NOT consumed (hard-bounce /
+ * complaint is email-specific).
  */
 async function checkSmsSuppression(
   db: Database,
-  opts: { phone: string; userId?: string; category?: string },
+  opts: {
+    phone: string;
+    userId?: string;
+    category?: string;
+    exempt?: boolean;
+  },
 ): Promise<SmsSuppressionReason> {
-  const active = await db
-    .select({ id: smsSuppressions.id })
+  const phoneRows = await db
+    .select({ resubscribedAt: smsSuppressions.resubscribedAt })
     .from(smsSuppressions)
-    .where(
-      and(
-        eq(smsSuppressions.phone, opts.phone),
-        isNull(smsSuppressions.resubscribedAt),
-      ),
-    )
+    .where(eq(smsSuppressions.phone, opts.phone))
     .limit(1);
-  if (active.length > 0) return "suppressed";
+  const phoneRow = phoneRows[0];
+  if (phoneRow && phoneRow.resubscribedAt === null) return "suppressed";
+  const phoneConsent = phoneRow != null;
 
-  // Without a resolvable contact key there are no per-contact preferences to
-  // consult — the phone suppression list above is the only gate.
-  if (!opts.userId) return null;
+  const prefs = opts.userId
+    ? await readRecipientPreferences(db, { userId: opts.userId })
+    : null;
+  if (prefs?.unsubscribedAll) return "unsubscribed";
 
-  const prefs = await readRecipientPreferences(db, { userId: opts.userId });
-  if (prefs.unsubscribedAll) return "unsubscribed";
+  if (opts.exempt) return null;
 
   const registry = getListRegistry();
-  if (!registry.isSubscribed(prefs.categories, SMS_CHANNEL_ID)) {
-    return "channel_off";
-  }
+  if (prefs?.categories[SMS_CHANNEL_ID] === false) return "channel_off";
+  const granted =
+    (prefs != null &&
+      registry.isSubscribed(prefs.categories, SMS_CHANNEL_ID)) ||
+    phoneConsent;
+  if (!granted) return "no_consent";
+
   if (
     opts.category &&
+    prefs &&
     !registry.isSubscribed(prefs.categories, opts.category)
   ) {
     return "unsubscribed";

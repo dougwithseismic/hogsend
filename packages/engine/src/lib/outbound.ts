@@ -76,6 +76,19 @@ export interface OutboundPayloads {
     category: string | null;
     scope: "all" | "category";
   };
+  /**
+   * A genuine opt-IN (resubscribe-all or a category/channel grant) — the
+   * mirror of `contact.unsubscribed`, emitted from the same preference-write
+   * choke. `source` is the grant provenance: `"api"` (default),
+   * `"preference_center"`, `"started_keyword"`, `"import"`.
+   */
+  "contact.subscribed": {
+    externalId: string | null;
+    email: string | null;
+    category: string | null;
+    scope: "all" | "category";
+    source: string;
+  };
   "email.sent": {
     emailSendId: string;
     messageId: string;

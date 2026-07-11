@@ -47,13 +47,15 @@ describe("phone normalization", () => {
 });
 
 describe("synthesizeChannelLists — sms channel", () => {
-  it("mints an sms channel when configured", () => {
+  it("mints an sms channel when configured — OPT-IN polarity (explicit consent)", () => {
     const channels = synthesizeChannelLists([], { sms: true });
     const sms = channels.find((c) => c.id === "sms");
     expect(sms).toEqual({
       id: "sms",
       name: "SMS",
-      defaultOptIn: true,
+      // TCPA prior-express-consent: a missing preference row means NOT
+      // textable — grants are explicit (API/SDK/preference center/START).
+      defaultOptIn: false,
       enabled: true,
       kind: "channel",
     });

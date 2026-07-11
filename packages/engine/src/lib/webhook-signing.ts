@@ -25,9 +25,14 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 19-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 20-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
+ *
+ * `contact.subscribed` mirrors `contact.unsubscribed` for a genuine opt-IN
+ * (resubscribe-all or a category/channel grant), emitted from the single
+ * preference-write choke with `source` provenance — the consent audit signal
+ * for the explicit-opt-in SMS channel (grants were previously silent).
  *
  * The `sms.*` trio mirrors the email delivery lifecycle for the SMS channel:
  * `sms.sent` (provider-accepted, first-party), `sms.delivered` / `sms.failed`
@@ -47,6 +52,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "contact.updated",
   "contact.deleted",
   "contact.unsubscribed",
+  "contact.subscribed",
   "email.sent",
   "email.delivered",
   "email.opened",

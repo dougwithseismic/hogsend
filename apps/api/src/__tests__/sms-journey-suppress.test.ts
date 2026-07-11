@@ -28,9 +28,8 @@ vi.mock("../../../../packages/engine/src/lib/hatchet.js", () => ({
   },
 }));
 
-const { contacts, journeyStates, smsSends, userEvents } = await import(
-  "@hogsend/db"
-);
+const { contacts, emailPreferences, journeyStates, smsSends, userEvents } =
+  await import("@hogsend/db");
 const { eq, inArray } = await import("drizzle-orm");
 const {
   createHogsendClient,
@@ -76,9 +75,16 @@ const { db } = client;
 
 const RUN = `sms-suppr-${Date.now()}`;
 const createdUsers: string[] = [];
-function newUser(): string {
+// Each test user carries an explicit sms consent grant — the channel is
+// opt-in, and these tests exercise the SUPPRESS gate, not the consent gate.
+async function newUser(): Promise<string> {
   const id = randomUUID();
   createdUsers.push(id);
+  await db.insert(emailPreferences).values({
+    userId: id,
+    email: `${id}@example.com`,
+    categories: { sms: true },
+  });
   return id;
 }
 
@@ -146,6 +152,9 @@ async function countSmsRows(userId: string): Promise<number> {
 
 afterAll(async () => {
   if (createdUsers.length === 0) return;
+  await db
+    .delete(emailPreferences)
+    .where(inArray(emailPreferences.userId, createdUsers));
   await db.delete(smsSends).where(inArray(smsSends.userId, createdUsers));
   await db
     .delete(journeyStates)
@@ -156,7 +165,7 @@ afterAll(async () => {
 
 describe("meta.suppress — SMS send-time enforcement", () => {
   it("re-enrollment inside the window skips the SMS (no provider call, no row, run completes)", async () => {
-    const userId = newUser();
+    const userId = await newUser();
     const phone = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
     const journey = makeSmsSuppressJourney({
       journeyId: `${RUN}-j1`,
@@ -184,7 +193,7 @@ describe("meta.suppress — SMS send-time enforcement", () => {
   });
 
   it("a zero suppress duration leaves the guard inert (both enrollments text)", async () => {
-    const userId = newUser();
+    const userId = await newUser();
     const phone = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
     const journey = makeSmsSuppressJourney({
       journeyId: `${RUN}-j2`,

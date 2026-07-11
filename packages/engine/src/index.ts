@@ -533,6 +533,13 @@ export {
   sendSms,
   setSmsService,
 } from "./lib/sms.js";
+// --- SMS inbound consent helpers (phone-track grant/opt-out) ---
+export {
+  grantPhoneConsent,
+  recordPhoneOptOut,
+} from "./lib/sms-inbound.js";
+// --- SMS mailer factory (the engine-owned tracked sender; mirrors createTrackedMailer) ---
+export { createTrackedSmsSender } from "./lib/sms-mailer.js";
 // --- SMS provider registry (container-held, keyed by meta.id) ---
 export { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
 // --- SMS service (engine-owned tracked SMS sender) ---
