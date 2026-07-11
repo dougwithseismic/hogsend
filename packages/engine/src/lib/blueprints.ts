@@ -307,21 +307,33 @@ export type CreateBlueprintResult =
   | { ok: false; code: "conflict"; error: string }
   | BlueprintInvalidGraphFailure;
 
+export type BlueprintPromotedFailure = {
+  ok: false;
+  code: "promoted";
+  error: string;
+};
+
 export type UpdateBlueprintResult =
   | { ok: true; blueprint: BlueprintRow }
   | BlueprintNotFoundFailure
   | BlueprintInvalidGraphFailure
-  | { ok: false; code: "in_flight"; error: string };
+  | { ok: false; code: "in_flight"; error: string }
+  | BlueprintPromotedFailure;
 
 export type EnableBlueprintResult =
   | { ok: true; blueprint: BlueprintRow }
   | BlueprintNotFoundFailure
-  | { ok: false; code: "promoted"; error: string }
+  | BlueprintPromotedFailure
   | BlueprintInvalidGraphFailure;
 
 export type DisableBlueprintResult =
   | { ok: true; blueprint: BlueprintRow }
   | BlueprintNotFoundFailure;
+
+export type PromoteBlueprintResult =
+  | { ok: true; blueprint: BlueprintRow }
+  | BlueprintNotFoundFailure
+  | { ok: false; code: "already_promoted"; error: string };
 
 export async function findBlueprintRow(opts: {
   db: HogsendClient["db"];
@@ -337,6 +349,15 @@ export async function findBlueprintRow(opts: {
 
 function notFound(id: string): BlueprintNotFoundFailure {
   return { ok: false, code: "not_found", error: `Blueprint "${id}" not found` };
+}
+
+/** Shared "already promoted" description for enable's and promote's errors. */
+function describePromotion(
+  existing: Pick<BlueprintRow, "promotedAt" | "promotedToJourneyId">,
+): string {
+  const target = existing.promotedToJourneyId ?? "unknown journey";
+  const when = existing.promotedAt?.toISOString() ?? "unknown date";
+  return `promoted to code journey "${target}" on ${when}`;
 }
 
 /**
@@ -427,6 +448,13 @@ export async function updateBlueprint(opts: {
 
   const existing = await findBlueprintRow({ db: container.db, id });
   if (!existing) return notFound(id);
+  if (existing.promotedAt) {
+    return {
+      ok: false,
+      code: "promoted",
+      error: `Blueprint "${id}" was ${describePromotion(existing)} — it is frozen and cannot be edited`,
+    };
+  }
 
   let validatedGraph: BlueprintGraph | undefined;
   if (patch.graph !== undefined) {
@@ -497,15 +525,29 @@ export async function updateBlueprint(opts: {
     set.version = existing.version + 1;
   }
 
+  // Guarded on promotedAt IS NULL, not just id: the early check above can be
+  // raced by a concurrent promote landing between that read and this write
+  // (both do async work — registry/graph validation, the in-flight count
+  // query — in between). Closing the race here, not just at the top, is
+  // what actually keeps a promoted blueprint frozen.
   const updated = await container.db
     .update(journeyBlueprints)
     .set(set)
-    .where(eq(journeyBlueprints.id, id))
+    .where(
+      and(eq(journeyBlueprints.id, id), isNull(journeyBlueprints.promotedAt)),
+    )
     .returning();
 
   const row = updated[0];
-  if (!row) return notFound(id);
-  return { ok: true, blueprint: row };
+  if (row) return { ok: true, blueprint: row };
+
+  const raced = await findBlueprintRow({ db: container.db, id });
+  if (!raced) return notFound(id);
+  return {
+    ok: false,
+    code: "promoted",
+    error: `Blueprint "${id}" was ${describePromotion(raced)} — it is frozen and cannot be edited`,
+  };
 }
 
 /**
@@ -527,7 +569,7 @@ export async function enableBlueprint(opts: {
     return {
       ok: false,
       code: "promoted",
-      error: `Blueprint "${id}" was promoted to code (${existing.promotedToJourneyId ?? "unknown journey"}) — the code journey is the source of truth; it cannot be re-enabled`,
+      error: `Blueprint "${id}" was ${describePromotion(existing)} — the code journey is the source of truth; it cannot be re-enabled`,
     };
   }
 
@@ -542,15 +584,30 @@ export async function enableBlueprint(opts: {
     };
   }
 
+  // Guarded on promotedAt IS NULL to close the window between the check
+  // above and this write — a concurrent promote can land while
+  // validateBlueprintGraphForSave is awaited, and without this guard the
+  // blind UPDATE below would silently re-enable a blueprint that just got
+  // promoted, leaving status="enabled" alongside promotedAt/
+  // promotedToJourneyId set.
   const updated = await container.db
     .update(journeyBlueprints)
     .set({ status: "enabled", updatedAt: new Date() })
-    .where(eq(journeyBlueprints.id, id))
+    .where(
+      and(eq(journeyBlueprints.id, id), isNull(journeyBlueprints.promotedAt)),
+    )
     .returning();
 
   const row = updated[0];
-  if (!row) return notFound(id);
-  return { ok: true, blueprint: row };
+  if (row) return { ok: true, blueprint: row };
+
+  const raced = await findBlueprintRow({ db: container.db, id });
+  if (!raced) return notFound(id);
+  return {
+    ok: false,
+    code: "promoted",
+    error: `Blueprint "${id}" was ${describePromotion(raced)} — the code journey is the source of truth; it cannot be re-enabled`,
+  };
 }
 
 /**
@@ -573,4 +630,49 @@ export async function disableBlueprint(opts: {
   const row = updated[0];
   if (!row) return notFound(id);
   return { ok: true, blueprint: row };
+}
+
+/**
+ * Promote — record that a generated code journey is now the source of truth
+ * for this blueprint (spec §11). Stamps `promotedAt`/`promotedToJourneyId`
+ * and disables the blueprint in one update; `enableBlueprint` refuses a
+ * promoted blueprint from then on. This is ONLY the DB state transition —
+ * codegen (blueprint → `defineJourney()` file) lives in the CLI, not here.
+ * NOT idempotent: a second promote is `already_promoted` (the caller decides
+ * whether that's fine or a mistake — the first promotion's target stands).
+ */
+export async function promoteBlueprint(opts: {
+  container: BlueprintServiceContainer;
+  id: string;
+  journeyId: string;
+}): Promise<PromoteBlueprintResult> {
+  const { container, id, journeyId } = opts;
+
+  // A single conditional UPDATE covers both "does it exist" and "is it
+  // already promoted" atomically — no separate pre-fetch on the (common)
+  // success path. The fallback lookup below only runs to tell the two
+  // failure cases apart and build the right error message.
+  const updated = await container.db
+    .update(journeyBlueprints)
+    .set({
+      status: "disabled",
+      promotedAt: new Date(),
+      promotedToJourneyId: journeyId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(eq(journeyBlueprints.id, id), isNull(journeyBlueprints.promotedAt)),
+    )
+    .returning();
+
+  const row = updated[0];
+  if (row) return { ok: true, blueprint: row };
+
+  const existing = await findBlueprintRow({ db: container.db, id });
+  if (!existing) return notFound(id);
+  return {
+    ok: false,
+    code: "already_promoted",
+    error: `Blueprint "${id}" was already ${describePromotion(existing)}`,
+  };
 }
