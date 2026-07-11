@@ -8,7 +8,7 @@ import {
   type SmsTemplateName,
   type SmsTemplateRegistry,
 } from "@hogsend/sms";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
