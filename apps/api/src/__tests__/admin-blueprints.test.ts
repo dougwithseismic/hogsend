@@ -8,7 +8,9 @@
  * incl. the engine-side template/connector registry checks core cannot do),
  * PATCH re-validates + bumps `version` only on graph changes, enable/disable
  * transitions (enable re-validates the STORED graph against the CURRENT
- * registries), the standalone no-id `/validate` dry-run loop, and the graph
+ * registries), promote-to-code (spec §11 — stamps `promotedAt`/
+ * `promotedToJourneyId` + disables in one update; re-enable refused
+ * thereafter), the standalone no-id `/validate` dry-run loop, and the graph
  * route returning the byte-identical shape of the code-journey graph route so
  * Studio's flow view renders either unchanged (spec §3).
  */
@@ -677,6 +679,93 @@ describe("POST /v1/admin/blueprints/:id/enable + /disable", () => {
         (i: { code: string }) => i.code === "unknown_template",
       ),
     ).toBe(true);
+  });
+});
+
+describe("POST /v1/admin/blueprints/:id/promote", () => {
+  it("404s for an unknown blueprint", async () => {
+    const res = await app.request("/v1/admin/blueprints/nonexistent/promote", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ journeyId: "some-journey" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("promotes an enabled blueprint: stamps promotion fields and disables it", async () => {
+    const id = `${RUN}-promote`;
+    expect((await createBlueprint(id, { status: "enabled" })).status).toBe(201);
+
+    const res = await app.request(`/v1/admin/blueprints/${id}/promote`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ journeyId: `${RUN}-promoted-code` }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.blueprint.status).toBe("disabled");
+    expect(body.blueprint.promotedAt).toBeTruthy();
+    expect(body.blueprint.promotedToJourneyId).toBe(`${RUN}-promoted-code`);
+
+    // The detail surface reflects the same transition.
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${id}`, { headers: AUTH_HEADER })
+    ).json();
+    expect(detail.blueprint.status).toBe("disabled");
+    expect(detail.blueprint.promotedAt).toBeTruthy();
+    expect(detail.blueprint.promotedToJourneyId).toBe(`${RUN}-promoted-code`);
+  });
+
+  it("409s when promoting the same blueprint again (first promotion stands)", async () => {
+    const res = await app.request(
+      `/v1/admin/blueprints/${RUN}-promote/promote`,
+      {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ journeyId: "another-journey" }),
+      },
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("already promoted");
+    expect(body.error).toContain(`${RUN}-promoted-code`);
+
+    // The original promotion target was not overwritten.
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${RUN}-promote`, {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    expect(detail.blueprint.promotedToJourneyId).toBe(`${RUN}-promoted-code`);
+  });
+
+  it("still refuses to re-enable a promoted blueprint (409)", async () => {
+    const res = await app.request(
+      `/v1/admin/blueprints/${RUN}-promote/enable`,
+      { method: "POST", headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("source of truth");
+  });
+
+  it("refuses to PATCH a promoted blueprint (409) — the graph stays frozen", async () => {
+    const res = await app.request(`/v1/admin/blueprints/${RUN}-promote`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name: "Renamed after promotion" }),
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("frozen");
+
+    // Not just the response — nothing was actually written.
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${RUN}-promote`, {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    expect(detail.blueprint.name).not.toBe("Renamed after promotion");
   });
 });
 

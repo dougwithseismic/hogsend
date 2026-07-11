@@ -307,6 +307,8 @@ export {
   type EnableBlueprintResult,
   enableBlueprint,
   findBlueprintRow,
+  type PromoteBlueprintResult,
+  promoteBlueprint,
   type SerializedBlueprint,
   serializeBlueprint,
   type UpdateBlueprintPatch,

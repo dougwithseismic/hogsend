@@ -13,7 +13,8 @@
  * Result → status mapping (uniform across handlers):
  *  - `invalid_graph` → 422 with the structured `BlueprintValidationIssue[]`
  *    verbatim (never a caught exception message)
- *  - `not_found` → 404, `conflict`/`promoted`/`in_flight` → 409
+ *  - `not_found` → 404, `conflict`/`promoted`/`already_promoted`/`in_flight`
+ *    → 409
  *
  * A graph-changing update is REJECTED (`in_flight` → 409) while the
  * blueprint has any active/waiting `journeyStates` rows — Hatchet's durable
@@ -40,6 +41,7 @@ import {
   disableBlueprint,
   enableBlueprint,
   findBlueprintRow,
+  promoteBlueprint,
   serializeBlueprint,
   serializedBlueprintSchema,
   updateBlueprint,
@@ -247,7 +249,9 @@ const patchRouteDef = createRoute({
     "blueprint has any active/waiting enrollment, since a graph edit can " +
     "desync Hatchet's replay journal for a run suspended mid-graph. " +
     "Metadata-only edits do not bump and are never blocked. Status " +
-    "transitions go through /enable and /disable, not PATCH.",
+    "transitions go through /enable and /disable, not PATCH. A blueprint " +
+    "promoted to code (see /promote) is frozen and rejects every update " +
+    "(409) — the code journey is the source of truth.",
   request: {
     params: z.object({ id: z.string() }),
     body: {
@@ -365,6 +369,47 @@ const disableRouteDef = createRoute({
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Blueprint not found",
+    },
+  },
+});
+
+const promoteRouteDef = createRoute({
+  method: "post",
+  path: "/{id}/promote",
+  tags: ["Admin — Blueprints"],
+  summary: "Mark a blueprint as promoted to a code journey",
+  description:
+    "Records that a generated code journey is now the source of truth " +
+    "(spec §11): stamps `promotedAt`/`promotedToJourneyId` and disables the " +
+    "blueprint in one update. A promoted blueprint can never be re-enabled. " +
+    "This is ONLY the DB state transition — codegen (blueprint → " +
+    "`defineJourney()` file) happens in the CLI, not here.",
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ journeyId: z.string().min(1) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ blueprint: blueprintSchema }),
+        },
+      },
+      description: "Blueprint promoted and disabled",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Blueprint not found",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Blueprint was already promoted",
     },
   },
 });
@@ -568,7 +613,7 @@ blueprintsRouter.openapi(patchRouteDef, async (c) => {
     if (result.code === "invalid_graph") {
       return c.json({ error: result.error, issues: result.issues }, 422);
     }
-    if (result.code === "in_flight") {
+    if (result.code === "in_flight" || result.code === "promoted") {
       return c.json({ error: result.error }, 409);
     }
     return c.json({ error: result.error }, 404);
@@ -617,6 +662,21 @@ blueprintsRouter.openapi(disableRouteDef, async (c) => {
 
   const result = await disableBlueprint({ container, id });
   if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 200);
+});
+
+blueprintsRouter.openapi(promoteRouteDef, async (c) => {
+  const container = c.get("container");
+  const { id } = c.req.valid("param");
+  const { journeyId } = c.req.valid("json");
+
+  const result = await promoteBlueprint({ container, id, journeyId });
+  if (!result.ok) {
+    if (result.code === "already_promoted") {
+      return c.json({ error: result.error }, 409);
+    }
     return c.json({ error: result.error }, 404);
   }
   return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 200);

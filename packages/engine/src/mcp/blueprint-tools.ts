@@ -250,6 +250,7 @@ export function createJourneyBlueprintTools(
       "Metadata-only edits (name, triggerEvent, exitOn, …) don't bump and are never blocked. " +
       "The id is immutable — graph.journeyId must equal `id`. Status cannot be set here: use enable_journey_blueprint / disable_journey_blueprint. " +
       "Nullable fields (description, triggerWhere, entryPeriod, exitOn) accept null to clear. " +
+      "A blueprint promoted to code is frozen and rejects every update — the code journey is the source of truth. " +
       GRAPH_FORMAT +
       " " +
       ISSUE_LOOP_HINT,
@@ -258,7 +259,11 @@ export function createJourneyBlueprintTools(
       id,
       ...patch
     }): Promise<
-      ToolWriteSuccess | ToolNotFound | ToolInvalidGraph | ToolInFlight
+      | ToolWriteSuccess
+      | ToolNotFound
+      | ToolInvalidGraph
+      | ToolInFlight
+      | ToolPromoted
     > => {
       const result = await updateBlueprint({ container, id, patch });
       if (!result.ok) return result;
