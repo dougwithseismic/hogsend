@@ -363,6 +363,9 @@ function emitChain(
         `${ind}${INDENT}journeyStateId: user.stateId,`,
         `${ind}${INDENT}journeyName: user.journeyName,`,
         `${ind}${INDENT}template: ${str(node.meta.template)},`,
+        // Pass the enrolling user's properties so the template renders
+        // personalized, exactly as the interpreter's send does.
+        `${ind}${INDENT}props: user.properties,`,
         // Always label the send (author's label ?? the node id), exactly as the
         // interpreter does — so two sends of the SAME template on divergent
         // branches derive DISTINCT exactly-once keys instead of colliding (the

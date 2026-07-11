@@ -131,6 +131,9 @@ describe("generateJourneyFile — seed example blueprint", () => {
     expect(output).toContain("userId: user.id,");
     expect(output).toContain("journeyStateId: user.stateId,");
     expect(output).toContain("journeyName: user.journeyName,");
+    // props threads the enrolling user's properties so the template renders
+    // personalized (interpreter parity).
+    expect(output).toContain("props: user.properties,");
     // conditional-true → end-completed: an empty branch, marked as such
     expect(output).toContain("// (the journey ends on this branch)");
   });
