@@ -439,12 +439,22 @@ function emitChain(
       );
       const comments = compiled.flatMap((c) => c.comments);
       const expression = compiled.map((c) => c.expression).join(" && ");
+      // Record the verdict via ctx.once (key `decision:<nodeId>`, exactly the
+      // interpreter's key shape): a decision may read live DB state (event
+      // conditions), and a replay re-evaluating it could flip the branch —
+      // diverging the positional durable journal AND the downstream template
+      // choice. Wrapping freezes the verdict on first evaluation. The TODO-stub
+      // (`false`) case is wrapped identically so the structure is uniform.
+      const varName = uniqueVarName(`decision-${node.id}`, walk.usedVarNames);
       return [
         ...comments.map((comment) => `${ind}${comment}`),
+        `${ind}const ${varName} = await ctx.once(${str(`decision:${node.id}`)}, async () => {`,
+        `${ind}${INDENT}return ${expression};`,
+        `${ind}});`,
         ...emitIfElse(
           walk,
           ind,
-          expression,
+          varName,
           trueEdge.target,
           falseEdge.target,
           depth,

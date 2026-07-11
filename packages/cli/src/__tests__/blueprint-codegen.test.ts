@@ -119,10 +119,16 @@ describe("generateJourneyFile — seed example blueprint", () => {
     );
   });
 
-  it("compiles the exists EventCondition into a ctx.history.hasEvent check", () => {
+  it("compiles the exists EventCondition into a ctx.once-wrapped ctx.history.hasEvent check", () => {
+    // The verdict is recorded once (key `decision:<nodeId>`) so a replay can't
+    // flip the branch; the compiled condition lives inside the once callback.
     expect(output).toContain(
-      'if ((await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).found) {',
+      'const decisionCheckUsedAgain = await ctx.once("decision:check-used-again", async () => {',
     );
+    expect(output).toContain(
+      'return (await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).found;',
+    );
+    expect(output).toContain("if (decisionCheckUsedAgain) {");
   });
 
   it("sends the right template on the false branch, ends on the true branch", () => {
@@ -227,8 +233,12 @@ describe("generateJourneyFile — count EventCondition", () => {
       journeyId: "count-demo",
     });
     expect(output).toContain(
-      'if ((await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).count >= 3) {',
+      'const decisionCheckCount = await ctx.once("decision:check-count", async () => {',
     );
+    expect(output).toContain(
+      'return (await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).count >= 3;',
+    );
+    expect(output).toContain("if (decisionCheckCount) {");
     expect(output).toContain('await ctx.checkpoint("checkpoint-power-user");');
     expectValidTs(output);
   });
@@ -445,8 +455,13 @@ describe("generateJourneyFile — unsupported condition types", () => {
     );
     // the raw condition JSON is carried verbatim in a comment
     expect(output).toContain(`// ${JSON.stringify(propertyCondition)}`);
-    // the stub compiles as the never-true branch
-    expect(output).toContain("if (false /* TODO(promote-to-code)");
+    // the stub compiles as the never-true branch, wrapped in ctx.once like any
+    // other decision so the generated structure is uniform
+    expect(output).toContain(
+      'const decisionCheckPlan = await ctx.once("decision:check-plan", async () => {',
+    );
+    expect(output).toContain("return false /* TODO(promote-to-code)");
+    expect(output).toContain("if (decisionCheckPlan) {");
     expectValidTs(output);
   });
 });
