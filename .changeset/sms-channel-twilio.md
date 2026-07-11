@@ -1,5 +1,6 @@
 ---
 "@hogsend/engine": minor
+"@hogsend/mcp": minor
 "@hogsend/core": minor
 "@hogsend/email": minor
 "@hogsend/db": minor
