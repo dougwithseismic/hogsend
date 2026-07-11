@@ -184,16 +184,18 @@ describe("create_journey_blueprint", () => {
     expect(result.blueprint.createdAt).toBeTruthy();
   });
 
-  it("may create directly enabled, and a per-call createdBy wins over the mount default", async () => {
+  it("may create directly enabled, and a model-supplied createdBy is ignored (mount default wins)", async () => {
     const result = await tools.create_journey_blueprint.handler(
       createInput(`${RUN}-live`, {
         status: "enabled",
+        // The tool input schema strips createdBy, so a prompt cannot attribute
+        // the blueprint to anyone — the mount-bound identity always wins.
         createdBy: "session-42",
       }),
     );
     expect(result).toMatchObject({
       ok: true,
-      blueprint: { status: "enabled", createdBy: "session-42" },
+      blueprint: { status: "enabled", createdBy: "vitest-mcp" },
     });
   });
 

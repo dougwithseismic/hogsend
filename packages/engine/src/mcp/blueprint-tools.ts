@@ -161,9 +161,11 @@ const ISSUE_LOOP_HINT =
 // Input schemas
 // ---------------------------------------------------------------------------
 
-// `source` is NOT an input — this surface stamps "mcp" itself, so provenance
-// (spec §10 Studio oversight) can't be spoofed by a prompt.
-const createInputSchema = blueprintCreateBaseSchema;
+// Neither `source` NOR `createdBy` is an input — this surface stamps "mcp"
+// itself and binds `createdBy` to the mount identity, so provenance (spec §10
+// Studio oversight) can't be spoofed by a prompt attributing a blueprint to
+// someone else.
+const createInputSchema = blueprintCreateBaseSchema.omit({ createdBy: true });
 
 const updateInputSchema = blueprintPatchFieldsSchema
   .extend({ id: z.string().min(1) })
@@ -202,9 +204,11 @@ export interface JourneyBlueprintToolsOptions {
   /** The DI client (or a Pick of db/registry/templates/connectorActionRegistry). */
   container: BlueprintServiceContainer;
   /**
-   * Actor label stamped into `journey_blueprints.createdBy` when a call
-   * doesn't provide one — bind the mounting session's identity here (e.g.
-   * an MCP session id or operator email) for Studio's post-hoc oversight.
+   * Actor label stamped into `journey_blueprints.createdBy` for every create —
+   * bind the mounting session's identity here (e.g. an MCP session id or
+   * operator email) for Studio's post-hoc oversight. It is NOT a tool input:
+   * a model cannot attribute a blueprint to anyone, exactly as `source` is
+   * stamped by the surface.
    */
   createdBy?: string;
 }
@@ -238,7 +242,8 @@ export function createJourneyBlueprintTools(
         input: {
           ...input,
           source: "mcp",
-          createdBy: input.createdBy ?? defaultCreatedBy,
+          // Mount-bound identity always wins — `createdBy` is not a tool input.
+          createdBy: defaultCreatedBy,
         },
       });
       if (!result.ok) return result;
