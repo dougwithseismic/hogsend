@@ -9,6 +9,7 @@
     "segment",
     "discord",
     "telegram",
-    "ai-sdk"
+    "ai-sdk",
+    "mcp"
   ]
 }

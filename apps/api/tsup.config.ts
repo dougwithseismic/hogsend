@@ -13,6 +13,12 @@ export default defineConfig({
     "@hogsend/db",
     "@hogsend/email",
     "@hogsend/engine",
+    // `@hogsend/mcp` ships its library surface as raw `src/*.ts` (like the other
+    // `@hogsend/*` packages), so it MUST be bundled — Node can't resolve its
+    // `.js`-suffixed relative imports against `.ts` sources at runtime. Its own
+    // npm deps (`@hono/mcp`, `@modelcontextprotocol/sdk`) stay external and are
+    // declared as direct deps below so they resolve from node_modules (#263).
+    "@hogsend/mcp",
     "@hogsend/plugin-discord",
     "@hogsend/plugin-posthog",
     "@hogsend/plugin-resend",

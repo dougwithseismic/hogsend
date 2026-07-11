@@ -1,0 +1,51 @@
+{
+  "name": "@hogsend/mcp",
+  "version": "0.41.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/mcp"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "hogsend-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./bin": "./dist/bin.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "clean": "rm -rf node_modules dist .turbo",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hogsend/engine": "workspace:^",
+    "@hono/mcp": "^0.3.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}

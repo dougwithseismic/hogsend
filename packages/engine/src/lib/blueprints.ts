@@ -196,7 +196,8 @@ export const blueprintDurationInputSchema = z.strictObject({
  * not enough — `{ hours: 0 }` (or `{ seconds: 0 }`) still makes
  * `durationToMs(...) === 0`, which silently turns `once_per_period` into
  * `unlimited` (cutoff === now, so every trigger re-enrolls). That is the one
- * place a zero-length duration is a footgun, not a "disabled" contract, so
+ * place a zero-length duration is a footgun, not a "disabled" contract
+ * (unlike `suppress`, where `{}` is the documented "disabled" sentinel), so
  * refine on the summed value, not on presence. Omitting `entryPeriod` entirely
  * stays legal: `checkEntryLimit` defaults an undefined period to 24h.
  */

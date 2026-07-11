@@ -9,6 +9,7 @@ import {
   getRedisIfConnected,
   reportApiReady,
 } from "@hogsend/engine";
+import { mcpRoutes } from "@hogsend/mcp";
 import { discordActions } from "@hogsend/plugin-discord";
 import {
   telegramActions,
@@ -130,6 +131,11 @@ const app = createApp(client, {
   routes: [
     telegramColdConnect.routes,
     ...(discordConnector ? [discordColdConnect.routes] : []),
+    // Hosted MCP server at POST /v1/mcp (admin-gated, stateless). Lets
+    // claude.ai connectors / any Streamable-HTTP MCP client author + observe
+    // Journey Blueprints with the operator's admin API key. This is the
+    // documented consumer mount pattern (`@hogsend/mcp` → createApp `routes`).
+    mcpRoutes(),
   ],
 });
 const { logger, env } = client;
