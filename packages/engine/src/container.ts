@@ -873,6 +873,17 @@ export function createHogsendClient(
           logger,
           stopFooter: opts.sms?.stopFooter,
           optOutReplies: opts.sms?.optOutReplies,
+          // Deploy-wide test-mode coherence: HOGSEND_TEST_MODE is channel-
+          // neutral. "true" forces SMS test mode directly; "auto" arms it
+          // whenever the EMAIL side's test mode is armed (unverified domain),
+          // so a staging deploy that redirects email never live-texts real
+          // numbers. SMS has no domain-verification analog of its own, so
+          // "auto" with email test mode off keeps live sends (PR behavior).
+          testMode: () =>
+            env.HOGSEND_TEST_MODE === "true" ||
+            (env.HOGSEND_TEST_MODE === "auto" &&
+              domainStatus.testModeCached().active),
+          testPhone: env.HOGSEND_TEST_PHONE,
         },
         { provider: smsProvider },
       )

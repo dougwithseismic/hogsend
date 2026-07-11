@@ -232,3 +232,73 @@ describe("sendTrackedSms — provider failure releases the key", () => {
     expect(res.status).toBe("sent");
   });
 });
+
+describe("sendTrackedSms — test mode", () => {
+  // Build a sender directly with an injected test-mode resolver (the container
+  // wires this from validated env + the email side's auto-arm; here we pin the
+  // redirect/block behavior itself).
+  async function makeTestModeSender(testPhone?: string) {
+    const { createTrackedSmsSender } = await import(
+      "../../../../packages/engine/src/lib/sms-mailer.js"
+    );
+    return createTrackedSmsSender(
+      {
+        defaultFrom: "+15005550006",
+        db: client.db,
+        testMode: () => true,
+        testPhone,
+        templates: {
+          "t-sms": { component: TestSms, category: "journey" },
+          // biome-ignore lint/suspicious/noExplicitAny: minimal test registry
+        } as any,
+      },
+      { provider: fakeProvider },
+    );
+  }
+
+  it("redirects the wire to HOGSEND_TEST_PHONE with the original recipient prefixed", async () => {
+    const sender = await makeTestModeSender("+15005550099");
+    const to = uniquePhone();
+    const before = sent.length;
+    const res = await sender.send({
+      template: "t-sms" as never,
+      props: {} as never,
+      to,
+      userId: `u_${randomUUID()}`,
+    });
+    expect(res.status).toBe("sent");
+    expect(sent[before]?.to).toBe("+15005550099");
+    expect(sent[before]?.body).toContain(`[TEST → ${to}]`);
+
+    const rows = await client.db
+      .select()
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, "+15005550099"));
+    expect(rows.at(-1)?.metadata).toMatchObject({
+      testMode: true,
+      originalTo: to,
+    });
+  });
+
+  it("blocks the send when test mode is active but no test phone is set", async () => {
+    const sender = await makeTestModeSender(undefined);
+    const to = uniquePhone();
+    const before = sent.length;
+    const res = await sender.send({
+      template: "t-sms" as never,
+      props: {} as never,
+      to,
+      userId: `u_${randomUUID()}`,
+    });
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("test_mode_blocked");
+    expect(sent.length).toBe(before);
+
+    const rows = await client.db
+      .select()
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, to));
+    expect(rows[0]?.status).toBe("failed");
+    expect(rows[0]?.metadata).toMatchObject({ testMode: true });
+  });
+});

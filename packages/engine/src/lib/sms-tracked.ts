@@ -41,6 +41,10 @@ interface TrackedSmsDeps {
   logger?: Logger;
   /** `false` disables the STOP footer; a string overrides the default text. */
   stopFooter?: string | false;
+  /** Container-wired test-mode resolver (validated env). Absent ⇒ never active. */
+  testMode?: () => boolean;
+  /** Redirect target while test mode is active (env.HOGSEND_TEST_PHONE). */
+  testPhone?: string;
 }
 
 /**
@@ -217,9 +221,11 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
   });
 
   // Test mode: redirect to HOGSEND_TEST_PHONE (block when unset). Preference
-  // checks above stayed keyed to the ORIGINAL recipient.
-  const testActive = process.env.HOGSEND_TEST_MODE === "true";
-  const testPhone = process.env.HOGSEND_TEST_PHONE;
+  // checks above stayed keyed to the ORIGINAL recipient. The resolver is
+  // container-wired (validated env + email-side auto-arm coherence) — never a
+  // raw process.env read here.
+  const testActive = opts.testMode?.() ?? false;
+  const testPhone = opts.testPhone;
   if (testActive && !testPhone) {
     (logger ?? emitLogger).error(
       "SMS test mode active but HOGSEND_TEST_PHONE is unset; send blocked",

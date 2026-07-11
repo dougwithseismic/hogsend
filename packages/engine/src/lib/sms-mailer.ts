@@ -80,6 +80,8 @@ export function createTrackedSmsSender(
           frequencyCap: config.frequencyCap,
           logger: config.logger,
           stopFooter: config.stopFooter,
+          testMode: config.testMode,
+          testPhone: config.testPhone,
           options: {
             templateKey: options.template,
             props: options.props,

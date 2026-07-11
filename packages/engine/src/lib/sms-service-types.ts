@@ -78,6 +78,14 @@ export interface SmsServiceConfig {
    * than none. Operators who disable Twilio's Advanced Opt-Out can enable this.
    */
   optOutReplies?: boolean;
+  /**
+   * Resolves whether SMS test mode is active per send (container-wired from the
+   * validated HOGSEND_TEST_MODE, coherent with the email side's auto-arm).
+   * Absent ⇒ never active.
+   */
+  testMode?: () => boolean;
+  /** The redirect target while test mode is active (env.HOGSEND_TEST_PHONE). */
+  testPhone?: string;
 }
 
 export interface SmsServiceSendOptions<
