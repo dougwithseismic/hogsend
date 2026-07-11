@@ -190,6 +190,23 @@ export const blueprintDurationInputSchema = z.strictObject({
   seconds: z.number().nonnegative().optional(),
 });
 
+/**
+ * `entryPeriod` variant: at least one key required (same refine as core's
+ * graph-node `blueprintDurationSchema`). An empty `{}` would make
+ * `durationToMs({}) === 0`, silently turning `once_per_period` into
+ * `unlimited` — the one place a zero-length duration is a footgun, not a
+ * "disabled" contract. Omitting `entryPeriod` entirely stays legal:
+ * `checkEntryLimit` defaults an undefined period to 24h.
+ */
+export const blueprintEntryPeriodInputSchema =
+  blueprintDurationInputSchema.refine(
+    (d) =>
+      d.hours !== undefined ||
+      d.minutes !== undefined ||
+      d.seconds !== undefined,
+    { message: "entryPeriod must set at least one of hours/minutes/seconds" },
+  );
+
 export const blueprintExitOnInputSchema = z.array(
   z.object({
     event: z.string().min(1),
@@ -227,7 +244,7 @@ export const blueprintCreateBaseSchema = z.object({
   triggerEvent: z.string().min(1),
   triggerWhere: z.array(propertyConditionSchema).optional(),
   entryLimit: blueprintEntryLimitSchema,
-  entryPeriod: blueprintDurationInputSchema.optional(),
+  entryPeriod: blueprintEntryPeriodInputSchema.optional(),
   exitOn: blueprintExitOnInputSchema.optional(),
   suppress: blueprintDurationInputSchema,
   graph: blueprintGraphInputSchema,
@@ -247,7 +264,7 @@ export const blueprintPatchFieldsSchema = z.object({
   triggerEvent: z.string().min(1).optional(),
   triggerWhere: z.array(propertyConditionSchema).nullable().optional(),
   entryLimit: blueprintEntryLimitSchema.optional(),
-  entryPeriod: blueprintDurationInputSchema.nullable().optional(),
+  entryPeriod: blueprintEntryPeriodInputSchema.nullable().optional(),
   exitOn: blueprintExitOnInputSchema.nullable().optional(),
   suppress: blueprintDurationInputSchema.optional(),
   graph: blueprintGraphInputSchema.optional(),

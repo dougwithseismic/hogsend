@@ -318,6 +318,21 @@ describe("POST /v1/admin/blueprints", () => {
     expect(issue.nodeId).toBe("fire-event");
   });
 
+  it("400s an empty {} entryPeriod — it would silently disable once_per_period", async () => {
+    const id = `${RUN}-empty-period`;
+    const res = await createBlueprint(id, {
+      entryLimit: "once_per_period",
+      entryPeriod: {},
+    });
+    expect(res.status).toBe(400);
+
+    // Omitting entryPeriod stays legal (checkEntryLimit defaults to 24h).
+    const omitted = await createBlueprint(id, {
+      entryLimit: "once_per_period",
+    });
+    expect(omitted.status).toBe(201);
+  });
+
   it("409s on a duplicate blueprint id", async () => {
     const id = `${RUN}-dupe`;
     expect((await createBlueprint(id)).status).toBe(201);

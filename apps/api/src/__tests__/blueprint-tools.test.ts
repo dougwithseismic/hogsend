@@ -285,6 +285,45 @@ describe("create_journey_blueprint", () => {
     expect(result.error).toContain("code journey");
   });
 
+  it("rejects an empty {} entryPeriod — durationToMs({}) is 0, which would turn once_per_period into unlimited", async () => {
+    const id = `${RUN}-empty-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { entryLimit: "once_per_period", entryPeriod: {} }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.path.join(".") === "entryPeriod")).toBe(
+      true,
+    );
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("accepts once_per_period without entryPeriod (checkEntryLimit defaults to 24h) and with a real period", async () => {
+    const omitted = await tools.create_journey_blueprint.handler(
+      createInput(`${RUN}-no-period`, { entryLimit: "once_per_period" }),
+    );
+    expect(omitted).toMatchObject({
+      ok: true,
+      blueprint: { entryLimit: "once_per_period", entryPeriod: null },
+    });
+
+    const explicit = await tools.create_journey_blueprint.handler(
+      createInput(`${RUN}-real-period`, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 168 },
+      }),
+    );
+    expect(explicit).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: { hours: 168 } },
+    });
+  });
+
   it("returns invalid_input (not a throw) when the arguments don't parse", async () => {
     const result = await tools.create_journey_blueprint.handler({
       // name + entryLimit + suppress + triggerEvent all missing
@@ -415,6 +454,31 @@ describe("update_journey_blueprint", () => {
       name: "Still fine",
     });
     expect(metaResult).toMatchObject({ ok: true, blueprint: { version: 1 } });
+  });
+
+  it("rejects patching entryPeriod to {} but still accepts null (clear)", async () => {
+    const id = `${RUN}-update-period`;
+    await tools.create_journey_blueprint.handler(
+      createInput(id, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 24 },
+      }),
+    );
+
+    const empty = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: {},
+    });
+    expect(empty).toMatchObject({ ok: false, code: "invalid_input" });
+
+    const cleared = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: null,
+    });
+    expect(cleared).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: null },
+    });
   });
 
   it("returns invalid_input when only `id` is provided", async () => {
