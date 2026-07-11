@@ -20,6 +20,50 @@ const apiKeySchema = z.object({
   createdAt: z.string(),
 });
 
+// The authenticated credential's identity, discriminated on how the request
+// authenticated. The Bearer path echoes the key requireAdmin already resolved
+// (id/name/scopes only — NEVER the key material); the cookie path echoes the
+// session user.
+const selfApiKeyActorSchema = z.object({
+  actor: z.literal("api-key"),
+  id: z.string(),
+  name: z.string(),
+  scopes: z.array(z.string()),
+});
+
+const selfSessionActorSchema = z.object({
+  actor: z.literal("session"),
+  email: z.string(),
+});
+
+const selfRoute = createRoute({
+  method: "get",
+  path: "/self",
+  tags: ["Admin — API Keys"],
+  summary: "Identify the authenticated credential",
+  description:
+    "Returns the identity this request authenticated as — the resolved API " +
+    "key (id, name, scopes; never the key material) for Bearer auth, or the " +
+    "session user's email for cookie auth.",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.discriminatedUnion("actor", [
+            selfApiKeyActorSchema,
+            selfSessionActorSchema,
+          ]),
+        },
+      },
+      description: "The authenticated credential's identity",
+    },
+    401: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "No resolved credential on the request",
+    },
+  },
+});
+
 const listRoute = createRoute({
   method: "get",
   path: "/",
@@ -152,6 +196,34 @@ function serializeKey(row: typeof apiKeys.$inferSelect) {
 }
 
 export const apiKeysRouter = new OpenAPIHono<AppEnv>()
+  // Registered before any param route so a literal "self" can never be
+  // captured as an {id}.
+  .openapi(selfRoute, (c) => {
+    const apiKey = c.get("apiKey");
+    if (apiKey) {
+      return c.json(
+        {
+          actor: "api-key" as const,
+          id: apiKey.id,
+          name: apiKey.name,
+          scopes: apiKey.scopes,
+        },
+        200,
+      );
+    }
+
+    const sessionUser = c.get("user");
+    if (sessionUser) {
+      return c.json(
+        { actor: "session" as const, email: sessionUser.email },
+        200,
+      );
+    }
+
+    // requireAdmin always resolves one of the two before this handler runs —
+    // defensive fallback only.
+    return c.json({ error: "Unauthorized" }, 401);
+  })
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
     const { limit, offset, includeRevoked } = c.req.valid("query");

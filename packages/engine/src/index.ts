@@ -617,6 +617,12 @@ export {
   resetListRegistry,
   setListRegistry,
 } from "./lists/registry-singleton.js";
+// --- Journey blueprints: shared authoring-guide text (tools + @hogsend/mcp) ---
+export {
+  BLUEPRINT_AUTHORING_GUIDE,
+  GRAPH_FORMAT,
+  ISSUE_LOOP_HINT,
+} from "./mcp/authoring-guide.js";
 // --- Journey blueprints: agent-facing authoring tools (spec §9, phase 4) ---
 export {
   type BlueprintToolDefinition,
@@ -626,6 +632,8 @@ export {
   type JourneyBlueprintTools,
   type JourneyBlueprintToolsOptions,
 } from "./mcp/blueprint-tools.js";
+// --- Middleware (consumer-mounted routes, e.g. the @hogsend/mcp hosted route) ---
+export { requireAdmin } from "./middleware/require-admin.js";
 // --- Webhook sources ---
 export {
   type DefinedWebhookSource,

@@ -9,6 +9,19 @@ import { hasScope, requireApiKey } from "./api-key.js";
 // path is closed signup (only the first user can register; see app.ts), so any
 // authenticated session is an intended admin in this single-tenant model.
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
+  // The Bearer path delegates to requireApiKey, which reads `env`/`db` off the
+  // container — and the session path reads `auth`. Now that requireAdmin is a
+  // public export a consumer can mount on their own app, a missing container
+  // would otherwise surface as an opaque `Cannot destructure 'env' of
+  // undefined` 500. Fail loud and named at mount-misuse time instead (this is
+  // NOT an auth outcome — do not turn it into a 401).
+  if (!c.get("container")) {
+    throw new Error(
+      "requireAdmin requires the Hogsend container context — mount it on an " +
+        "app built by createApp, or set the container variable first",
+    );
+  }
+
   const header = c.req.header("authorization");
   if (header?.startsWith("Bearer ")) {
     // Authenticate the key, then REQUIRE `full-admin` scope. Without this,
