@@ -3,8 +3,10 @@ import {
   CONTACT_EMAIL,
   ENGINE_VERSION,
   GITHUB_URL,
+  LINKEDIN_URL,
   NPM_URL,
   SITE_URL,
+  WITHSEISMIC_URL,
 } from "@/lib/site";
 
 /**
@@ -56,9 +58,36 @@ export function OrganizationJsonLd(): JSX.Element {
         "@type": "Organization",
         name: "Hogsend",
         url: SITE_URL,
-        founder: { "@type": "Person", name: "Doug Silkstone" },
+        founder: {
+          "@type": "Person",
+          name: "Doug Silkstone",
+          url: WITHSEISMIC_URL,
+          sameAs: [WITHSEISMIC_URL, LINKEDIN_URL],
+        },
         email: CONTACT_EMAIL,
-        sameAs: [GITHUB_URL],
+        sameAs: [GITHUB_URL, NPM_URL, WITHSEISMIC_URL, LINKEDIN_URL],
+      }}
+    />
+  );
+}
+
+/**
+ * Sitewide WebSite schema — rendered once in app/layout.tsx. Declares the
+ * canonical site name so search engines can surface "Hogsend" as the source.
+ */
+export function WebSiteJsonLd(): JSX.Element {
+  return (
+    <JsonLd
+      data={{
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        name: "Hogsend",
+        url: SITE_URL,
+        publisher: {
+          "@type": "Organization",
+          name: "Hogsend",
+          url: SITE_URL,
+        },
       }}
     />
   );

@@ -24,6 +24,17 @@ export const metadata: Metadata = {
     "they post, and when they go quiet — on the same contact as their " +
     "email and product activity. Welcome new members, win back quiet " +
     "ones, and message them by email or back in Discord.",
+  alternates: { canonical: "/discord" },
+  keywords: [
+    "discord automation",
+    "discord bot",
+    "community lifecycle",
+    "posthog",
+    "lifecycle email",
+    "email automation",
+    "win-back emails",
+    "customer lifecycle",
+  ],
 };
 
 const ICON_SIZE = 20;

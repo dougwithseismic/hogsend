@@ -15,6 +15,17 @@ export const metadata: Metadata = {
   title: "Event naming convention for product analytics",
   description:
     "context.object_action — lowercase snake_case, past tense, one dot of context. The event naming convention every Hogsend event follows, why it disagrees with PostHog's guide on tense, and the anti-patterns it exists to prevent.",
+  alternates: { canonical: "/event-naming" },
+  keywords: [
+    "event naming convention",
+    "product analytics",
+    "posthog",
+    "event tracking",
+    "snake_case events",
+    "analytics best practices",
+    "lifecycle email",
+    "code-first",
+  ],
 };
 
 /* Mirrors the scaffold's src/journeys/constants/ pattern — the convention

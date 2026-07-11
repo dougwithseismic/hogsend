@@ -27,6 +27,17 @@ export const metadata: Metadata = {
   title: "Components — the drop-in kit for the whole lifecycle",
   description:
     "The in-app feed, bell, survey card and preference center are real @hogsend/react + @hogsend/js components. Email, Discord, Telegram and PostHog ride the same journeys and one identity.",
+  alternates: { canonical: "/components" },
+  keywords: [
+    "react components",
+    "in-app notifications",
+    "notification feed",
+    "preference center",
+    "posthog",
+    "lifecycle email",
+    "email automation",
+    "product-led growth",
+  ],
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";

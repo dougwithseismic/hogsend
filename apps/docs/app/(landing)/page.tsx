@@ -59,6 +59,19 @@ export const metadata: Metadata = {
   },
   description:
     "The lifecycle layer for teams on PostHog — you already have the events, this is where you act on them. Lifecycle journeys as TypeScript in your repo: welcome series, trial nudges, win-backs, payment saves, across email, Discord, Slack, and in-app. Free to self-host.",
+  alternates: { canonical: "/" },
+  keywords: [
+    "marketing automation for developers",
+    "lifecycle email",
+    "posthog",
+    "email automation",
+    "typescript",
+    "code-first",
+    "customer lifecycle",
+    "self-hosted",
+    "drip campaigns",
+    "product-led growth",
+  ],
 };
 
 const DISPLAY = "[font-family:var(--ps-display)]";

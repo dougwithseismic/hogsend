@@ -13,6 +13,17 @@ export const metadata: Metadata = {
   title: "About: built from client work",
   description:
     "Hogsend was built by Doug Silkstone after 15+ years of freelance growth engineering — the lifecycle stack he kept rebuilding for clients, shipped as a framework.",
+  alternates: { canonical: "/about" },
+  keywords: [
+    "hogsend",
+    "doug silkstone",
+    "lifecycle email",
+    "growth engineering",
+    "email automation",
+    "code-first",
+    "marketing automation for developers",
+    "self-hosted",
+  ],
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";

@@ -24,6 +24,17 @@ export const metadata: Metadata = {
     "contact as their email and product activity. Journeys reply with " +
     "sendMessage and dm, and a member can bind their Telegram to an email " +
     "with /link.",
+  alternates: { canonical: "/telegram" },
+  keywords: [
+    "telegram automation",
+    "telegram bot",
+    "lifecycle email",
+    "posthog",
+    "email automation",
+    "customer lifecycle",
+    "messaging automation",
+    "community lifecycle",
+  ],
 };
 
 const ICON_SIZE = 20;

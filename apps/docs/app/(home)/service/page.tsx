@@ -26,6 +26,17 @@ export const metadata: Metadata = {
   title: "Done-for-you lifecycle email for PostHog-native startups",
   description:
     "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. Done-for-you at $1,500/month with a three-month minimum, month one is the install — or the install alone as a $2,300 setup week.",
+  alternates: { canonical: "/service" },
+  keywords: [
+    "done-for-you email",
+    "lifecycle email",
+    "posthog",
+    "trial conversion",
+    "win-back emails",
+    "email automation agency",
+    "customer lifecycle",
+    "marketing automation for developers",
+  ],
 };
 
 const MAILTO = `mailto:${CONTACT_EMAIL}`;

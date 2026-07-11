@@ -14,6 +14,17 @@ export const metadata: Metadata = {
   title: "Recipes",
   description:
     "A catalog of lifecycle email recipes in TypeScript — onboarding, carts, dunning, win-backs, human-in-the-loop approvals, and agent-driven flows, each a working journey you can drop into a scaffold.",
+  alternates: { canonical: "/recipes" },
+  keywords: [
+    "lifecycle email recipes",
+    "typescript",
+    "onboarding emails",
+    "cart abandonment",
+    "dunning emails",
+    "win-back emails",
+    "email automation",
+    "drip campaigns",
+  ],
 };
 
 const ICON_SIZE = 20;

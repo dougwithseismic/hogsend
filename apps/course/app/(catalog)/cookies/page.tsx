@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   title: "Cookies",
   description:
     "What this site stores in your browser: a sign-in session cookie and nothing else. No analytics cookies, no banner, click-to-load embeds.",
+  alternates: { canonical: "/cookies" },
 };
 
 type PolicySection = {

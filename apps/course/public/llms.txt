@@ -1,0 +1,23 @@
+# Hogsend Courses
+
+> Free and paid, code-first courses on PostHog, lifecycle messaging, and
+> turning traffic into an audience you own — from the team behind Hogsend
+> (source-available lifecycle email for teams on PostHog). Written for
+> technical founders, growth engineers, and the consultants who set this up
+> for them. The flagship course, "Measure, Keep, and Grow", is a
+> start-to-finish growth program on PostHog + Hogsend with quizzes, videos,
+> calculators, and interactive workbooks.
+> Built by Doug Silkstone (https://withseismic.com).
+
+## Start here
+- [All courses](https://course.hogsend.com)
+- [Pricing](https://course.hogsend.com/pricing)
+
+## Courses
+- [Measure, Keep, and Grow](https://course.hogsend.com/growth-with-posthog)
+- [Becoming a Product Team](https://course.hogsend.com/becoming-a-product-team)
+
+## About
+- [Hogsend](https://hogsend.com)
+- [Documentation](https://docs.hogsend.com)
+- [Built by withseismic.com](https://withseismic.com)

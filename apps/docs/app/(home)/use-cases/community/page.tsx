@@ -16,6 +16,17 @@ export const metadata: Metadata = {
   title: "Community lifecycle with Discord and PostHog",
   description:
     "Treat a Discord server as an event source: link identity to a contact, read a derived last_seen, re-engage quiet members, and classify threads with an agent — all as journeys in your repo.",
+  alternates: { canonical: "/use-cases/community" },
+  keywords: [
+    "community lifecycle",
+    "discord",
+    "posthog",
+    "member re-engagement",
+    "lifecycle email",
+    "email automation",
+    "customer lifecycle",
+    "community automation",
+  ],
 };
 
 const READ_CODE = `// contacts.properties.discord.last_seen is a plain ISO string, derived

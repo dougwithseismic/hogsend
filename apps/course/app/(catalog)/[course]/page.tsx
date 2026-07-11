@@ -53,6 +53,7 @@ import { faqPageJsonLd } from "@/lib/faq-jsonld";
 import { FLAGSHIP_CONTENT_FACTS as FACTS } from "@/lib/flagship-facts";
 import { getSession, isFreeLesson } from "@/lib/gating";
 import { READER_QUOTES } from "@/lib/reader-quotes";
+import { GITHUB_URL, HOGSEND_URL, SITE_URL, WITHSEISMIC_URL } from "@/lib/site";
 
 // Reads the session for owned/completed state, so it's per-request.
 export const dynamic = "force-dynamic";
@@ -330,6 +331,7 @@ export async function generateMetadata(props: {
   return {
     title: course.title,
     description: course.tagline,
+    alternates: { canonical: `/${slug}` },
     openGraph: { title: course.title, description: course.tagline },
   };
 }
@@ -458,6 +460,7 @@ export default async function CourseOverview(props: {
 
   const faqItems = flagship ? buildFaqItems(priceLabel) : [];
   const faqJsonLd = flagship ? faqPageJsonLd(faqItems) : null;
+  const courseUrl = `${SITE_URL}/${course.slug}`;
   const courseJsonLd = !flagship
     ? null
     : {
@@ -465,10 +468,13 @@ export default async function CourseOverview(props: {
         "@type": "Course",
         name: course.title,
         description: course.tagline,
+        url: courseUrl,
+        educationalLevel: course.level,
         provider: {
           "@type": "Organization",
           name: "Hogsend",
-          url: "https://hogsend.com",
+          url: HOGSEND_URL,
+          sameAs: [GITHUB_URL, WITHSEISMIC_URL],
         },
         ...(course.priceLabel
           ? {
@@ -478,6 +484,8 @@ export default async function CourseOverview(props: {
                   price: course.priceLabel.replace(/[^0-9.]/g, ""),
                   priceCurrency: "USD",
                   category: "Paid",
+                  url: courseUrl,
+                  availability: "https://schema.org/InStock",
                 },
               ],
             }
