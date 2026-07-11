@@ -107,6 +107,21 @@ function str(value: string): string {
 }
 
 /**
+ * Neutralize a blueprint-controlled string before interpolating it into a
+ * GENERATED comment. Node ids, condition types, and the condition-JSON echo are
+ * only `z.string().min(1)`: a value carrying a block-comment terminator would
+ * escape the surrounding block comment (an id like `x` + terminator + `||true`
+ * disguises an always-true branch as a comment), and a line terminator would
+ * end a `//` line comment and smuggle code onto the next line. This splits the
+ * terminator and folds every JS line terminator (CR, LF, U+2028, U+2029) plus
+ * tabs to a space, so the interpolated text can never leave comment syntax — at
+ * EVERY comment emission site.
+ */
+function commentSafe(value: string): string {
+  return value.replace(/[\r\n\u2028\u2029\t]/g, " ").replace(/\*\//g, "*\\/");
+}
+
+/**
  * A duration object literal with canonical key order — `{ hours: 48 }`,
  * `{ hours: 1, minutes: 30 }`, or `{}` (a zero/disabled duration).
  */
@@ -196,10 +211,16 @@ export function compileCondition(
   if (condition.type === "event") {
     return { expression: compileEventCondition(condition), comments: [] };
   }
-  const marker = `TODO(promote-to-code): manually port this "${condition.type}" condition from blueprint node "${nodeId}"`;
+  // Both `condition.type` and `nodeId` are blueprint-controlled and land inside
+  // comments (the inline block-comment stub AND the `//` marker line), so they
+  // are sanitized before interpolation; likewise the raw-JSON echo.
+  const marker = `TODO(promote-to-code): manually port this "${commentSafe(condition.type)}" condition from blueprint node "${commentSafe(nodeId)}"`;
   return {
     expression: `false /* ${marker} — see the raw JSON in the comment above */`,
-    comments: [`// ${marker} — raw JSON:`, `// ${JSON.stringify(condition)}`],
+    comments: [
+      `// ${marker} — raw JSON:`,
+      `// ${commentSafe(JSON.stringify(condition))}`,
+    ],
   };
 }
 
@@ -576,7 +597,8 @@ export function generateJourneyFile(
     `import { ${imports.join(", ")} } from "@hogsend/engine";`,
     "",
     "/**",
-    ` * Generated from Journey Blueprint ${str(blueprint.id)} (promote to code).`,
+    // blueprint.id is blueprint-controlled and lands inside this block comment.
+    ` * Generated from Journey Blueprint ${commentSafe(str(blueprint.id))} (promote to code).`,
     " *",
     " * Event names and template keys are emitted as literal strings — swap them",
     " * for your Events/Templates constants if you keep those. Resolve any",

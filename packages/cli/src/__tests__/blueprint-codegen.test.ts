@@ -15,6 +15,52 @@ import {
  * when it carries TODO stubs.
  */
 
+/**
+ * Strip every string/template literal and ALL comments, returning just the
+ * executable code skeleton. Used by the comment-injection tests to prove a
+ * blueprint-controlled payload (which legitimately also appears inside string
+ * literals like the ctx.once key) never escapes a comment into executable code:
+ * if a `*​/` closed a block comment early, the injected tokens would survive
+ * here; if a newline ended a `//` line comment, the smuggled call would too.
+ */
+function codeSkeleton(source: string): string {
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const two = source.slice(i, i + 2);
+    if (two === "//") {
+      const nl = source.indexOf("\n", i);
+      i = nl === -1 ? source.length : nl;
+      continue;
+    }
+    if (two === "/*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === ch) {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 /** Fail the test if `source` is not syntactically valid TypeScript. */
 function expectValidTs(source: string): void {
   const result = ts.transpileModule(source, {
@@ -463,6 +509,92 @@ describe("generateJourneyFile — unsupported condition types", () => {
     expect(output).toContain("return false /* TODO(promote-to-code)");
     expect(output).toContain("if (decisionCheckPlan) {");
     expectValidTs(output);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. comment-injection hardening: blueprint-controlled strings can't escape
+// the comments they're interpolated into
+// ---------------------------------------------------------------------------
+
+describe("generateJourneyFile — comment injection hardening", () => {
+  function decisionGraphWith(
+    nodeId: string,
+    condition: ConditionEval,
+  ): BlueprintGraph {
+    return {
+      journeyId: "inject-demo",
+      nodes: [
+        { id: "start", type: "start", title: "demo.trigger" },
+        {
+          id: nodeId,
+          type: "decision",
+          title: "Adversarial",
+          meta: { conditions: [condition] },
+        },
+        { id: "end-a", type: "end-completed", title: "Done" },
+        { id: "end-b", type: "end-completed", title: "Done" },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: nodeId },
+        { id: "e2", source: nodeId, target: "end-a", kind: "conditional-true" },
+        {
+          id: "e3",
+          source: nodeId,
+          target: "end-b",
+          kind: "conditional-false",
+        },
+      ],
+    };
+  }
+
+  it("neutralizes a */ block-comment escape in a node id, blueprint id, and condition value", () => {
+    // A node id `evil*/||true/*` would, un-neutralized, close the stub's block
+    // comment early and leave `||true` as CODE — a silent always-true branch.
+    const condition: ConditionEval = {
+      type: "property",
+      property: "plan*/||true",
+      operator: "eq",
+      value: "*/alert(1)/*",
+    };
+    const output = generateJourneyFile(
+      makeBlueprint(decisionGraphWith("evil*/||true/*", condition), {
+        id: "bp*/globalThis/*",
+        description: "harmless */ description",
+      }),
+      { journeyId: "inject-demo" },
+    );
+
+    // The source parses (a real escape would leave an unterminated comment or a
+    // syntax break)...
+    expectValidTs(output);
+    // ...and, structurally, NO block-comment terminator escaped: the `||true`
+    // the node id tried to smuggle in never reaches executable code (it would,
+    // as a silent always-true branch, if the `*​/` closed the stub comment
+    // early). The `||` only exists inside the (now-intact) comment + strings.
+    expect(codeSkeleton(output)).not.toContain("||");
+    // The neutralized marker still carries the payload for a human to read.
+    expect(output).toContain("blueprint node ");
+  });
+
+  it("neutralizes a newline injection in a node id (line comment can't be escaped)", () => {
+    const evilNodeId = "boom\n  hacksendPwn();";
+    const output = generateJourneyFile(
+      makeBlueprint(
+        decisionGraphWith(evilNodeId, {
+          type: "property",
+          property: "plan",
+          operator: "eq",
+          value: "pro",
+        }),
+      ),
+      { journeyId: "inject-demo" },
+    );
+    // The raw newline is folded, so the injected call never lands on its own
+    // line as code following a `//` marker — it survives only inside the
+    // (single-line) comment, never in the code skeleton.
+    expectValidTs(output);
+    expect(codeSkeleton(output)).not.toContain("hacksendPwn(");
   });
 });
 
