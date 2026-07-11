@@ -18,15 +18,22 @@ const INTERMEDIATE_STATUSES = new Set([
 ]);
 
 /**
- * Twilio error codes that are PERMANENT failures — the number is dead or has
- * opted out. Drives `sms_suppressions(carrier_permanent)` on the engine side.
+ * Twilio error codes that are PERMANENT failures — the number is dead, not a
+ * mobile, or has opted out. Drives `sms_suppressions(carrier_permanent)` on the
+ * engine side, so classification is deliberately conservative: an ambiguous or
+ * transient-leaning code must NOT auto-suppress a live subscriber.
+ *
+ * Excluded on purpose:
+ * - 30003 (unreachable handset) — phone off / out of coverage; transient.
+ * - 30004 (message blocked) — frequently a one-off carrier content/spam
+ *   filter on a LIVE number, not an opt-out (that is 21610); suppressing on
+ *   it would permanently silence a valid subscriber after a single filtered
+ *   message. Recorded as `unknown` (logged, never suppresses).
  */
 const PERMANENT_ERROR_CODES = new Set([
   "21610", // recipient unsubscribed (STOP)
   "21614", // not a valid mobile number
-  "30003", // unreachable handset
-  "30004", // message blocked
-  "30005", // unknown handset
+  "30005", // unknown handset / nonexistent number
   "30006", // landline / unreachable carrier
 ]);
 

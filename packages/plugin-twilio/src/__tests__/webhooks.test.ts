@@ -82,15 +82,29 @@ describe("toSmsEvent mapping", () => {
       MessageSid: "SM9",
       MessageStatus: "failed",
       To: "+15551112222",
-      ErrorCode: "30003",
-      ErrorMessage: "Unreachable",
+      ErrorCode: "30005", // unknown handset / nonexistent number
+      ErrorMessage: "Unknown destination",
     });
     expect(event.type).toBe("sms.failed");
     expect(event.failure).toEqual({
       class: "permanent",
-      code: "30003",
-      reason: "Unreachable",
+      code: "30005",
+      reason: "Unknown destination",
     });
+  });
+
+  it("does NOT class transient-leaning carrier blocks as permanent (no auto-suppress)", () => {
+    // 30003 = handset off/out of coverage; 30004 = carrier content filter on a
+    // live number. Neither may drive sms_suppressions(carrier_permanent).
+    for (const code of ["30003", "30004"]) {
+      const event = toSmsEvent({
+        MessageSid: "SM9",
+        MessageStatus: "failed",
+        To: "+15551112222",
+        ErrorCode: code,
+      });
+      expect(event.failure?.class).toBe("unknown");
+    }
   });
 
   it("maps an unknown error code to the conservative unknown class", () => {
