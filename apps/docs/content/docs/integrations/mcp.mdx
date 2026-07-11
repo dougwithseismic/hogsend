@@ -1,0 +1,164 @@
+---
+title: MCP server
+description: "The @hogsend/mcp server exposes a running Hogsend instance to MCP clients — Claude Desktop, Cursor, and claude.ai connectors — with three tools (manage_blueprint, hogsend_report, send_test_email), the blueprint authoring-guide resource, and the find_and_fix_bottleneck prompt. It runs over stdio via npx or as a consumer-mounted Streamable HTTP route at POST /v1/mcp, and every call is admin-gated with the operator's own full-admin key."
+---
+
+`@hogsend/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server for Hogsend. It gives an MCP client an agent-facing surface over your instance's admin API — author and operate Journey Blueprints, pull a health report, and send a test email — without a deploy in the loop.
+
+It ships two transports over one tool implementation:
+
+- **stdio** — `npx @hogsend/mcp`, for a local client (Claude Desktop, Cursor, any stdio MCP client).
+- **Streamable HTTP** — a consumer-mounted route at `POST /v1/mcp`, for [claude.ai connectors](#hosted-transport-claudeai-connectors) and any remote Streamable-HTTP client.
+
+Both build the same server, and both talk to the admin API with a `full-admin` key — the stdio bin over real `fetch`, the hosted route in-process through the same `requireAdmin` gate as the rest of the admin surface.
+
+## The surface
+
+| Item | What it does |
+|---|---|
+| `manage_blueprint` (tool) | Author and operate [Journey Blueprints](/docs/cli/blueprints) — `action: create \| update \| validate \| enable \| disable`. JSON-graph journeys stored in the DB and run by the interpreter, no deploy. There is no `promote` action — promoting to code is the [`hogsend blueprints promote`](/docs/cli/blueprints) CLI. |
+| `hogsend_report` (tool) | Read-only health report over existing admin metrics routes — `scope: health \| blueprints \| journeys \| deliverability \| catalog`. Findings carry `severity` / `evidence` / `suggested_action`. See [what the report checks](#what-the-report-checks). |
+| `send_test_email` (tool) | Send one real test email of a registered template — `{ templateKey, to, props? }`. This **delivers to a real inbox**; it is not a dry run. |
+| `hogsend://blueprint-authoring-guide` (resource) | The full blueprint graph vocabulary — node / edge / condition types, durations, structural rules, and the validate→iterate→write workflow. Loaded on demand. |
+| `find_and_fix_bottleneck` (prompt) | A canned, safe workflow: run the report → explain the worst finding → propose a fix as a **draft** blueprint → wait for explicit approval before enabling anything. |
+
+<Callout type="warn">
+  **Every tool requires a `full-admin`-scoped admin key.** Hogsend's admin API authorizes every bearer call at that scope, so a lesser "read"-scoped key is rejected with `403` on every route — even `hogsend_report`, which is read-only in *effect* but not in the key it needs. Treat the key like a production secret: it grants full control of your instance.
+</Callout>
+
+## Local clients (stdio)
+
+The server runs over stdio via `npx` — nothing to install. Point it at your instance with two env vars.
+
+### Claude Desktop
+
+Add the server to `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.your-instance.com",
+        "HOGSEND_ADMIN_KEY": "hsk_your_admin_key"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Cursor uses the same `mcpServers` shape in `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project):
+
+```json
+{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.your-instance.com",
+        "HOGSEND_ADMIN_KEY": "hsk_your_admin_key"
+      }
+    }
+  }
+}
+```
+
+### Configuration
+
+| Setting | Env var | Flag | Default |
+|---|---|---|---|
+| Instance base URL | `HOGSEND_API_URL` | `--url <baseUrl>` | `http://localhost:3002` |
+| Admin API key | `HOGSEND_ADMIN_KEY` (or `ADMIN_API_KEY`) | `--admin-key <key>` | — (required) |
+
+- The key rides the `Authorization: Bearer` header only — it is **never** placed in a URL or query string.
+- A flag overrides its env var per run. With no key configured the bin exits with a clear error rather than starting.
+
+## Hosted transport (claude.ai connectors)
+
+For a remote client like a [claude.ai custom connector](https://support.anthropic.com/en/articles/11175166-about-custom-connectors-via-remote-mcp-servers), the consumer app mounts the hosted transport. `@hogsend/mcp` exports `mcpRoutes()` for `createApp`'s existing `routes` option — the same pattern the cold-connect and Telegram routes use:
+
+```ts
+// src/index.ts
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { mcpRoutes } from "@hogsend/mcp";
+
+const client = createHogsendClient({ journeys, email: { templates } });
+
+const app = createApp(client, {
+  routes: [mcpRoutes()],
+  webhookSources,
+});
+```
+
+That serves the MCP server over Streamable HTTP at:
+
+```
+POST /v1/mcp
+```
+
+The route is stateless (a fresh server per request) and admin-gated by the **same `requireAdmin`** that guards every other admin route. There is no new env flag and no OAuth build — mounting the route is the opt-in. Only `POST` is served — a `GET` or `DELETE` to `/v1/mcp` returns `405 Method Not Allowed` (the server is stateless, so there is no SSE stream to open or session to terminate).
+
+### Bundling requirements
+
+`@hogsend/mcp` ships its library surface as **raw `src/*.ts`** (like the other `@hogsend/*` packages), so a consumer that bundles with tsup **must** do two things or the app boot-crashes on an unresolvable import at runtime:
+
+1. **Bundle `@hogsend/mcp`.** Add it to your `tsup.config.ts` `noExternal` array so its `.js`-suffixed relative imports resolve against the `.ts` sources at build time:
+
+   ```ts
+   // tsup.config.ts
+   noExternal: ["@hogsend/engine", "@hogsend/mcp" /* …other @hogsend/* deps */],
+   ```
+
+2. **Install its runtime deps as your own.** `@hono/mcp` and `@modelcontextprotocol/sdk` stay **external** when `@hogsend/mcp` is bundled, so they must resolve from your `node_modules`. Declare them as direct dependencies:
+
+   ```bash
+   pnpm add @hono/mcp @modelcontextprotocol/sdk
+   ```
+
+<Callout type="info">
+  The hosted route runs **in-process with the caller's own credential**. Each tool call is re-issued back through the same app, forwarding the inbound `Authorization` header, so it re-traverses `requireAdmin` → validation → audit exactly as the caller. There is no privilege bump and no parallel auth path — a request is only ever as authorized as the key it carries.
+</Callout>
+
+### Connecting from claude.ai
+
+Add a custom connector pointing at your instance, and authenticate with a **static header** (currently a beta connector-auth method on claude.ai):
+
+1. Deploy an instance that mounts `mcpRoutes()` (above) and mint a `full-admin` admin key.
+2. In claude.ai, add a custom connector with the URL `https://api.your-instance.com/v1/mcp`.
+3. Set a static header `Authorization: Bearer hsk_your_admin_key`. This is the one place the key is pasted; it rides the header on every request.
+
+### ChatGPT connectors
+
+Not supported in v1. ChatGPT's connector framework requires OAuth, which `@hogsend/mcp` does not implement — the hosted route authenticates with the admin key via `requireAdmin`, not an OAuth flow.
+
+## What the report checks
+
+`hogsend_report` runs pure, unit-tested heuristics over existing admin metrics routes. Pick a `scope`:
+
+| Scope | Backing routes | What it surfaces |
+|---|---|---|
+| `health` | `/v1/admin/readiness` | Incomplete setup — missing env, unconfigured providers, and other readiness failures. |
+| `blueprints` | `/v1/admin/blueprints` | Dead blueprint triggers — an enabled blueprint that has never enrolled anyone. |
+| `journeys` | `/v1/admin/journeys`, `/v1/admin/metrics/journeys[/{id}]` | Dead journey triggers plus send→open→click funnel drop-off on the highest-enrolled journeys. |
+| `deliverability` | `/v1/admin/metrics/emails[/deliverability]` | Bounce / complaint / delivery-rate problems, plus per-template funnel drop-off. |
+| `catalog` | `/v1/admin/templates`, `/v1/admin/events/names` | The registered template keys and observed event names — a vocabulary listing for authoring, not findings. |
+
+Every report envelope also carries the calling credential's identity (`GET /v1/admin/api-keys/self`), so the output says whose key produced it. Thresholds are conservative, and findings are ranked `critical` → `warning` → `info`.
+
+## Security notes
+
+- **The key is a production secret.** It is `full-admin`-scoped — it can author, enable, and disable automations and send real email. Store it the way you store any admin credential.
+- **Never put the key in a URL or query parameter.** Both transports carry it in the `Authorization` header only; the MCP spec bans query-param credentials because they leak into logs.
+- **The hosted route grants no extra privilege.** It runs in-process with the inbound credential and re-checks `requireAdmin` on every call — a caller is only ever as authorized as their own key.
+- **`send_test_email` reaches a real inbox.** It renders the template and dispatches a message with preference checks skipped. Use `manage_blueprint action=validate` or a template preview for non-delivering checks.
+
+## Related
+
+- [`hogsend blueprints`](/docs/cli/blueprints) — list Journey Blueprints and promote them to code-first `defineJourney()` files.
+- [Hogsend for AI agents](/docs/agents) — the vendored Claude Code skills, the `hogsend` CLI, and `/llms.txt`.
+- [Vercel AI SDK](/docs/integrations/ai-sdk) — run an agent *inside* a journey (the complement to operating Hogsend *from* an agent).

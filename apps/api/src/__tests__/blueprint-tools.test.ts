@@ -145,6 +145,25 @@ function createInput(blueprintId: string, overrides: object = {}) {
   };
 }
 
+/** nudgeGraph with the decision node swapped to an event condition carrying
+ * the given `within` window — exercises the event-condition duration schema. */
+function eventConditionGraph(blueprintId: string, within: object) {
+  const graph = nudgeGraph(blueprintId);
+  const decision = graph.nodes.find((n) => n.id === "check-activated");
+  // biome-ignore lint/suspicious/noExplicitAny: test-only graph mutation
+  (decision as any).meta = {
+    conditions: [
+      {
+        type: "event",
+        eventName: `${RUN}.activated`,
+        check: "exists",
+        within,
+      },
+    ],
+  };
+  return graph;
+}
+
 describe("create_journey_blueprint", () => {
   it("creates a draft blueprint, stamping source=mcp and the mount's createdBy", async () => {
     const id = `${RUN}-create`;
@@ -514,6 +533,72 @@ describe("enable_journey_blueprint / disable_journey_blueprint", () => {
       id: `${RUN}-ghost`,
     });
     expect(disable).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("entryPeriod duration (save-time strictness)", () => {
+  it("rejects once_per_period with an empty entryPeriod (invalid_input, no write)", async () => {
+    const id = `${RUN}-empty-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { entryLimit: "once_per_period", entryPeriod: {} }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.path.join(".") === "entryPeriod")).toBe(
+      true,
+    );
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("accepts once_per_period with a real entryPeriod, and suppress {} stays accepted", async () => {
+    const id = `${RUN}-good-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 24 },
+        suppress: {},
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: { hours: 24 }, suppress: {} },
+    });
+  });
+
+  it("rejects an empty entryPeriod on update too", async () => {
+    const id = `${RUN}-update-period`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: {},
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+});
+
+describe("event-condition within window (save-time strictness)", () => {
+  it("rejects a decision condition with within { days: 7 } — the 0ms trap, not silently stripped", async () => {
+    const result = await tools.validate_journey_blueprint.handler({
+      graph: eventConditionGraph(`${RUN}-within-days`, { days: 7 }),
+    });
+    expect(result).toMatchObject({ ok: true, valid: false });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.nodeId === "check-activated")).toBe(
+      true,
+    );
+  });
+
+  it("accepts a decision condition with a real within { hours: 24 }", async () => {
+    const result = await tools.validate_journey_blueprint.handler({
+      graph: eventConditionGraph(`${RUN}-within-hours`, { hours: 24 }),
+    });
+    expect(result).toEqual({ ok: true, valid: true, issues: [] });
   });
 });
 

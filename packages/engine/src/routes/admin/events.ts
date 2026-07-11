@@ -2,6 +2,10 @@ import { contacts, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import {
+  eventNameEntrySchema,
+  listEventNameVocabulary,
+} from "../../lib/event-names.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 
 const eventSchema = z.object({
@@ -114,6 +118,41 @@ const getRoute = createRoute({
   },
 });
 
+const namesRoute = createRoute({
+  method: "get",
+  path: "/names",
+  tags: ["Admin — Events"],
+  summary: "List event names (observed + declared)",
+  description:
+    "Best-effort event-name vocabulary for authoring triggers, waits, and " +
+    "exitOn rules. Event names are an OPEN vocabulary (no closed registry " +
+    "exists anywhere in the engine), so this merges: events actually " +
+    "observed in the event store (with occurrence counts, most recently " +
+    "seen first) and events referenced as code-journey or blueprint " +
+    "triggers. Any other event name is also valid — it just hasn't been " +
+    "seen yet.",
+  request: {
+    query: z.object({
+      // Case-insensitive substring filter on the event name.
+      search: z.string().min(1).optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(100),
+    }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            note: z.string(),
+            events: z.array(eventNameEntrySchema),
+          }),
+        },
+      },
+      description: "Merged observed + declared event-name vocabulary",
+    },
+  },
+});
+
 const exitSchema = z.object({
   journeyId: z.string(),
   stateId: z.string(),
@@ -216,6 +255,22 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
       },
       200,
     );
+  })
+  // Registered before getRoute so the literal "names" is never captured as
+  // an {id}. Delegates to the shared vocabulary helper (lib/event-names.ts)
+  // — the same implementation the blueprint tools' `list_events` serves, so
+  // the HTTP surface and the in-process tool can never drift.
+  .openapi(namesRoute, async (c) => {
+    const { db, registry } = c.get("container");
+    const { search, limit } = c.req.valid("query");
+
+    const { note, events } = await listEventNameVocabulary({
+      db,
+      registry,
+      search,
+      limit,
+    });
+    return c.json({ note, events }, 200);
   })
   .openapi(getRoute, async (c) => {
     const { db } = c.get("container");

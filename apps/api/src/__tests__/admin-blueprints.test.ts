@@ -270,6 +270,7 @@ describe("POST /v1/admin/blueprints", () => {
     expect((await createBlueprint(id)).status).toBe(201);
     const res = await createBlueprint(id);
     expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("conflict");
   });
 
   it("409s when the id collides with a registered code journey", async () => {
@@ -279,6 +280,7 @@ describe("POST /v1/admin/blueprints", () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toContain("code journey");
+    expect(body.code).toBe("conflict");
   });
 });
 
@@ -517,6 +519,8 @@ describe("PATCH /v1/admin/blueprints/:id", () => {
       body: JSON.stringify({ graph }),
     });
     expect(res.status).toBe(409);
+    // The 409 body carries the machine-readable service code (not just a message).
+    expect((await res.json()).code).toBe("in_flight");
 
     const getRes = await app.request(`/v1/admin/blueprints/${id}`, {
       headers: AUTH_HEADER,
@@ -729,6 +733,7 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
     const body = await res.json();
     expect(body.error).toContain("already promoted");
     expect(body.error).toContain(`${RUN}-promoted-code`);
+    expect(body.code).toBe("already_promoted");
 
     // The original promotion target was not overwritten.
     const detail = await (
@@ -747,6 +752,7 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toContain("source of truth");
+    expect(body.code).toBe("promoted");
   });
 
   it("refuses to PATCH a promoted blueprint (409) — the graph stays frozen", async () => {
@@ -758,6 +764,7 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toContain("frozen");
+    expect(body.code).toBe("promoted");
 
     // Not just the response — nothing was actually written.
     const detail = await (

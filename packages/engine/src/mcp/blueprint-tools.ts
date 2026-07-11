@@ -26,9 +26,7 @@
  * down, …) still throw and are the host's problem.
  */
 import type { BlueprintValidationIssue } from "@hogsend/core";
-import { journeyBlueprints, userEvents } from "@hogsend/db";
 import { getTemplateNames } from "@hogsend/email";
-import { count, desc, ilike, max } from "drizzle-orm";
 import { z } from "zod";
 import {
   type BlueprintServiceContainer,
@@ -43,6 +41,8 @@ import {
   updateBlueprint,
   validateBlueprintGraphForSave,
 } from "../lib/blueprints.js";
+import { listEventNameVocabulary } from "../lib/event-names.js";
+import { GRAPH_FORMAT, ISSUE_LOOP_HINT } from "./authoring-guide.js";
 
 // ---------------------------------------------------------------------------
 // Tool shape
@@ -130,27 +130,9 @@ const okWrite = (blueprint: SerializedBlueprint): ToolWriteSuccess => ({
   blueprint,
 });
 
-/**
- * The closed executable vocabulary (spec §6/§7), summarized for the model.
- * Kept in the descriptions of every graph-accepting tool so an agent can
- * author without a docs round-trip.
- */
-const GRAPH_FORMAT =
-  "Graph format: { journeyId, nodes[], edges[] }. journeyId IS the blueprint id. " +
-  'Node: { id, type, title, meta? }. Executable node types (closed vocabulary): "start" (exactly one; the entry point), ' +
-  '"sleep" (meta.duration: { hours?, minutes?, seconds? }), ' +
-  '"wait" (meta: { event, timeout } — wait for the user\'s event or time out; fork with edge kinds "answered"/"timedOut", or use a single unconditional edge), ' +
-  '"send" (meta: { template, idempotencyLabel? } — template MUST be a key from list_email_templates), ' +
-  '"connector" (meta: { connectorId, action } — must be a registered connector action), ' +
-  '"checkpoint", "trigger" (meta: { event } — fires an event through the ingest pipeline), ' +
-  '"decision"/"branch" (meta.conditions: ConditionEval[]; exactly two outgoing edges, kinds "conditional-true" and "conditional-false"), ' +
-  'and terminals "end-completed"/"end-exited"/"end-failed". ' +
-  'Edge: { id, source, target, kind? }. The graph must be acyclic, have exactly one start, and every node must be reachable from start; non-forking nodes have at most one outgoing edge. "sleepUntil", "capture", "digest", and "unknown" nodes are NOT executable in a blueprint. ' +
-  "Trigger/entryLimit/exitOn/suppress live on the blueprint record, not in the graph.";
-
-const ISSUE_LOOP_HINT =
-  "On validation failure you get structured issues [{ nodeId?, edgeId?, path, code, message }] naming exactly what is wrong and where — fix and retry. " +
-  "Tip: iterate with validate_journey_blueprint until valid before writing.";
+// The closed executable vocabulary summary (GRAPH_FORMAT) and the
+// iterate-on-issues hint live in ./authoring-guide.js — shared verbatim with
+// the @hogsend/mcp resource so the two surfaces can never drift.
 
 // ---------------------------------------------------------------------------
 // Input schemas
@@ -337,83 +319,15 @@ export function createJourneyBlueprintTools(
       "Any other event name is also valid — it just hasn't been seen yet. Prefer a listed name over inventing a near-duplicate.",
     inputSchema: listEventsInputSchema,
     run: async ({ search, limit }) => {
-      type EventEntry = {
-        name: string;
-        occurrences: number;
-        lastSeenAt: string | null;
-        usedBy: string[];
-      };
-
-      // Observed vocabulary — grouped scan of user_events, recency-first.
-      // ilike special chars are escaped so a search of "100%" matches
-      // literally instead of becoming a wildcard.
-      const escaped = search?.replace(/[\\%_]/g, (m) => `\\${m}`);
-      const lastSeen = max(userEvents.occurredAt);
-      const observed = await container.db
-        .select({
-          name: userEvents.event,
-          occurrences: count(),
-          lastSeenAt: lastSeen,
-        })
-        .from(userEvents)
-        .where(escaped ? ilike(userEvents.event, `%${escaped}%`) : undefined)
-        .groupBy(userEvents.event)
-        .orderBy(desc(lastSeen))
-        .limit(limit);
-
-      const byName = new Map<string, EventEntry>();
-      for (const row of observed) {
-        byName.set(row.name, {
-          name: row.name,
-          occurrences: Number(row.occurrences),
-          lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
-          usedBy: [],
-        });
-      }
-
-      const matches = (name: string) =>
-        !search || name.toLowerCase().includes(search.toLowerCase());
-      const entryFor = (name: string): EventEntry => {
-        const existing = byName.get(name);
-        if (existing) return existing;
-        const created: EventEntry = {
-          name,
-          occurrences: 0,
-          lastSeenAt: null,
-          usedBy: [],
-        };
-        byName.set(name, created);
-        return created;
-      };
-
-      // Declared vocabulary — code-journey triggers (never observed rows if
-      // nothing fired yet) and blueprint triggers, labeled by consumer.
-      for (const journey of container.registry.getAll()) {
-        const event = journey.trigger?.event;
-        if (!event || !matches(event)) continue;
-        entryFor(event).usedBy.push(`journey:${journey.id}`);
-      }
-      const blueprintRows = await container.db
-        .select({
-          id: journeyBlueprints.id,
-          triggerEvent: journeyBlueprints.triggerEvent,
-          status: journeyBlueprints.status,
-        })
-        .from(journeyBlueprints);
-      for (const bp of blueprintRows) {
-        if (!matches(bp.triggerEvent)) continue;
-        entryFor(bp.triggerEvent).usedBy.push(
-          `blueprint:${bp.id} (${bp.status})`,
-        );
-      }
-
-      return {
-        ok: true as const,
-        note:
-          "Event names are an open vocabulary — this is observed + declared usage, not a closed registry. " +
-          "Reserved namespaces (email.*, journey.*, bucket.*, contact.*) are engine-emitted; don't use them as blueprint trigger events.",
-        events: [...byName.values()],
-      };
+      // Delegates to the shared vocabulary helper (lib/event-names.ts) —
+      // the same implementation GET /v1/admin/events/names serves.
+      const { note, events } = await listEventNameVocabulary({
+        db: container.db,
+        registry: container.registry,
+        search,
+        limit,
+      });
+      return { ok: true as const, note, events };
     },
   });
 

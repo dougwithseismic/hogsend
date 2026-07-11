@@ -15,6 +15,7 @@
     "./worker": "./src/worker.ts",
     "./auth": "./src/lib/auth.ts",
     "./create-admin": "./src/lib/create-admin.ts",
+    "./mcp/authoring-guide": "./src/mcp/authoring-guide.ts",
     "./package.json": "./package.json"
   },
   "files": [
