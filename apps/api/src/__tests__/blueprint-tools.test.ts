@@ -133,6 +133,27 @@ function nudgeGraph(blueprintId: string, template = "welcome") {
   };
 }
 
+/** Minimal graph with a trigger node: enroll → trigger(event) → end. */
+function triggerGraph(blueprintId: string, event: string) {
+  return {
+    journeyId: blueprintId,
+    nodes: [
+      { id: "start", type: "start", title: `${RUN}.enroll` },
+      {
+        id: "fire-event",
+        type: "trigger",
+        title: "Fire event",
+        meta: { event },
+      },
+      { id: "end-ok", type: "end-completed", title: "Done" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "fire-event" },
+      { id: "e2", source: "fire-event", target: "end-ok" },
+    ],
+  };
+}
+
 function createInput(blueprintId: string, overrides: object = {}) {
   return {
     name: "Activation nudge",
@@ -207,6 +228,39 @@ describe("create_journey_blueprint", () => {
     expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
     if (!("issues" in result)) throw new Error("expected issues");
     expect(result.issues.some((i) => i.code === "unknown_template")).toBe(true);
+  });
+
+  it("rejects a reserved-namespace triggerEvent with structured issues and writes nothing", async () => {
+    const id = `${RUN}-reserved-trigger`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { triggerEvent: "email.opened" }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues[0]).toMatchObject({
+      code: "reserved_event",
+      path: ["triggerEvent"],
+    });
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("rejects a trigger NODE that forges a reserved-namespace event", async () => {
+    const id = `${RUN}-reserved-node`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { graph: triggerGraph(id, "bucket.entered") }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(
+      result.issues.some(
+        (i) => i.code === "reserved_event" && i.nodeId === "fire-event",
+      ),
+    ).toBe(true);
   });
 
   it("rejects a duplicate blueprint id with conflict", async () => {
@@ -299,6 +353,42 @@ describe("update_journey_blueprint", () => {
       name: "Nope",
     });
     expect(result).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("rejects patching triggerEvent into a reserved namespace", async () => {
+    const id = `${RUN}-update-reserved`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      triggerEvent: "contact.updated",
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues[0]?.code).toBe("reserved_event");
+
+    const [row] = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row?.triggerEvent).toBe(`${RUN}.enroll`);
+  });
+
+  it("rejects a replacement graph carrying a reserved trigger node", async () => {
+    const id = `${RUN}-update-reserved-node`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      graph: triggerGraph(id, "journey:failed"),
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(
+      result.issues.some(
+        (i) => i.code === "reserved_event" && i.nodeId === "fire-event",
+      ),
+    ).toBe(true);
   });
 
   it("rejects a graph change with in_flight while an enrollment is active or waiting", async () => {

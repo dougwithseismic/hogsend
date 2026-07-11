@@ -5,9 +5,11 @@ import {
   BlueprintUnreachableNodeError,
   type DurationObject,
   evaluateCondition,
+  isReservedEventName,
   type JourneyEdge,
   type JourneyNode,
   type PropertyCondition,
+  RESERVED_EVENT_NAMESPACES,
   serializeBlueprintError,
   validateBlueprintGraph,
 } from "@hogsend/core";
@@ -310,6 +312,17 @@ export async function walkBlueprintGraph(
           "event",
           node.meta?.event,
         );
+        // Save-time validation rejects reserved namespaces since the check
+        // was added, but the graph column is jsonb — a row saved BEFORE the
+        // rule (or written out-of-band) must still never forge an
+        // engine-emitted event through the ingest pipeline.
+        if (isReservedEventName(event)) {
+          throw new BlueprintNodeExecutionError(
+            blueprintId,
+            node.id,
+            `trigger node event "${event}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")})`,
+          );
+        }
         await ctx.trigger({
           event,
           userId: user.id,

@@ -382,6 +382,51 @@ describe("journeyBlueprintInterpreter — tree-walk end-to-end", () => {
     expect(providerSends).toHaveLength(1);
   });
 
+  it("throws at the trigger node when a legacy row forges a reserved-namespace event", async () => {
+    // Rows saved BEFORE the save-time reserved-namespace rule (or written
+    // out-of-band) still pass core's validateBlueprintGraph — the walk itself
+    // must refuse to push an engine-emitted event through ctx.trigger.
+    const badId = `${RUN}-bp-reserved`;
+    const userId = `${RUN}-reserved`;
+    await insertBlueprint({
+      id: badId,
+      graph: {
+        journeyId: badId,
+        nodes: [
+          { id: "start", type: "start", title: "enroll" },
+          {
+            id: "fire-reserved",
+            type: "trigger",
+            title: "Forge engine event",
+            meta: { event: "journey:completed" },
+          },
+          { id: "end-ok", type: "end-completed", title: "Done" },
+        ],
+        edges: [
+          { id: "e1", source: "start", target: "fire-reserved" },
+          { id: "e2", source: "fire-reserved", target: "end-ok" },
+        ],
+      },
+    });
+
+    await expect(
+      interpreterFn()(
+        input(userId, { blueprintId: badId }),
+        makeHatchetCtx(`${RUN}-wfr-reserved`),
+      ),
+    ).rejects.toThrow(/reserved namespace/);
+
+    // The run failed AT the trigger node with the structured error shape.
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
+    const err = JSON.parse(state?.errorMessage ?? "{}");
+    expect(err.nodeId).toBe("fire-reserved");
+    expect(err.message).toContain("reserved namespace");
+  });
+
   it("re-validates the stored graph at execution time (defense-in-depth) and skips unknown blueprints", async () => {
     // A digest node is display-tier-only: validateBlueprintGraph rejects it,
     // so a jsonb graph that bypassed save-time validation must NOT execute.

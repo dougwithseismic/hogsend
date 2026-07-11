@@ -126,6 +126,27 @@ function nudgeGraph(blueprintId: string) {
   };
 }
 
+/** Minimal graph with a trigger node: enroll → trigger(event) → end. */
+function triggerGraph(blueprintId: string, event: string) {
+  return {
+    journeyId: blueprintId,
+    nodes: [
+      { id: "start", type: "start", title: `${RUN}.enroll` },
+      {
+        id: "fire-event",
+        type: "trigger",
+        title: "Fire event",
+        meta: { event },
+      },
+      { id: "end-ok", type: "end-completed", title: "Done" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "fire-event" },
+      { id: "e2", source: "fire-event", target: "end-ok" },
+    ],
+  };
+}
+
 function createBody(
   blueprintId: string,
   overrides: Record<string, unknown> = {},
@@ -263,6 +284,38 @@ describe("POST /v1/admin/blueprints", () => {
     );
     expect(issue).toBeDefined();
     expect(issue.message).toContain("discord:noSuchAction");
+  });
+
+  it("422s a reserved-namespace triggerEvent — engine events cannot trigger a blueprint", async () => {
+    const id = `${RUN}-reserved-trigger`;
+    const res = await createBlueprint(id, { triggerEvent: "email.opened" });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const issue = body.issues.find(
+      (i: { code: string }) => i.code === "reserved_event",
+    );
+    expect(issue).toBeDefined();
+    expect(issue.path).toEqual(["triggerEvent"]);
+
+    // Nothing was saved.
+    const getRes = await app.request(`/v1/admin/blueprints/${id}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(getRes.status).toBe(404);
+  });
+
+  it("422s a trigger NODE that forges a reserved-namespace event", async () => {
+    const id = `${RUN}-reserved-node`;
+    const res = await createBlueprint(id, {
+      graph: triggerGraph(id, "journey:completed"),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const issue = body.issues.find(
+      (i: { code: string }) => i.code === "reserved_event",
+    );
+    expect(issue).toBeDefined();
+    expect(issue.nodeId).toBe("fire-event");
   });
 
   it("409s on a duplicate blueprint id", async () => {
@@ -451,6 +504,28 @@ describe("PATCH /v1/admin/blueprints/:id", () => {
       (n: { id: string }) => n.id === "sleep-3d",
     );
     expect(sleep.meta.duration).toEqual({ hours: 24 });
+  });
+
+  it("422s patching triggerEvent into a reserved namespace, leaving the row untouched", async () => {
+    const id = `${RUN}-patch-reserved`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    const res = await app.request(`/v1/admin/blueprints/${id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ triggerEvent: "journey:completed" }),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.issues[0]).toMatchObject({
+      code: "reserved_event",
+      path: ["triggerEvent"],
+    });
+
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${id}`, { headers: AUTH_HEADER })
+    ).json();
+    expect(detail.blueprint.triggerEvent).toBe(`${RUN}.enroll`);
   });
 
   it("rejects an invalid graph with 422 and leaves the row untouched", async () => {

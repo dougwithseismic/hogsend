@@ -36,8 +36,10 @@ import {
   type BlueprintValidationIssue,
   type BlueprintValidationResult,
   blueprintGraphSchema,
+  isReservedEventName,
   type JourneyGraph,
   journeyGraphSchema,
+  RESERVED_EVENT_NAMESPACES,
   validateBlueprintGraph,
 } from "@hogsend/core";
 import { propertyConditionSchema } from "@hogsend/core/schemas";
@@ -100,8 +102,39 @@ function findRegistryIssues(
         });
       }
     }
+    // Reserved namespaces (email./journey./bucket./contact., dot or colon)
+    // are engine-emitted — a trigger node forging one would feed synthetic
+    // engine events through the full ingest pipeline. Same rule the semantic
+    // link send path enforces; the interpreter re-throws as defense-in-depth.
+    if (node.type === "trigger" && isReservedEventName(node.meta.event)) {
+      issues.push({
+        nodeId: node.id,
+        path: ["nodes", index, "meta", "event"],
+        code: "reserved_event",
+        message: `node "${node.id}": event "${node.meta.event}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")}) — engine-emitted events cannot be forged by a blueprint`,
+      });
+    }
   });
   return issues;
+}
+
+/** The structured `invalid_graph` failure for a reserved trigger EVENT (the
+ * blueprint-record field, not a graph node) — shared by create and update. */
+function reservedTriggerEventFailure(
+  triggerEvent: string,
+): BlueprintInvalidGraphFailure {
+  return {
+    ok: false,
+    code: "invalid_graph",
+    error: "triggerEvent uses a reserved event namespace",
+    issues: [
+      {
+        path: ["triggerEvent"],
+        code: "reserved_event",
+        message: `triggerEvent "${triggerEvent}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")}) — engine-emitted events cannot trigger a blueprint`,
+      },
+    ],
+  };
 }
 
 /**
@@ -371,6 +404,10 @@ export async function createBlueprint(opts: {
 }): Promise<CreateBlueprintResult> {
   const { container, input } = opts;
 
+  if (isReservedEventName(input.triggerEvent)) {
+    return reservedTriggerEventFailure(input.triggerEvent);
+  }
+
   const result = validateBlueprintGraphForSave(input.graph, container);
   if (!result.valid) {
     return {
@@ -445,6 +482,13 @@ export async function updateBlueprint(opts: {
   patch: UpdateBlueprintPatch;
 }): Promise<UpdateBlueprintResult> {
   const { container, id, patch } = opts;
+
+  if (
+    patch.triggerEvent !== undefined &&
+    isReservedEventName(patch.triggerEvent)
+  ) {
+    return reservedTriggerEventFailure(patch.triggerEvent);
+  }
 
   const existing = await findBlueprintRow({ db: container.db, id });
   if (!existing) return notFound(id);

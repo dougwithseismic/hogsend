@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RESERVED_EVENT_NAME_RE } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { trackedLinks } from "@hogsend/db";
 import {
@@ -24,11 +25,6 @@ const STRIP_SEMANTIC_ATTRS_RE = new RegExp(
 );
 
 const SKIP_PATTERNS = ["/v1/email/unsubscribe", "/v1/email/preferences"];
-
-// Engine-owned event vocabularies (both `email.opened` dot-style and
-// `journey:completed` colon-style exist) — a consumer semantic event in these
-// namespaces would corrupt insights or trigger engine-internal logic.
-const RESERVED_EVENT_NAME_RE = /^(?:email|journey|bucket|contact)[.:]/;
 
 // Semantic payloads re-emit on every answer and persist indefinitely — keep
 // them small and scalar (non-scalars don't survive the Hatchet wire anyway).
