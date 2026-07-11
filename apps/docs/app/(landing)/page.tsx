@@ -629,13 +629,13 @@ const POSTHOG_CARDS: { title: string; body: ReactNode }[] = [
 
 /* Channels a journey can reach — plus the honest roadmap. */
 const REACH_NOW = ["Email", "Discord", "Slack", "In-app"];
-const REACH_SOON = ["SMS", "Direct mail", "QR codes"];
+const REACH_SOON = ["SMS", "Direct mail"];
 
 /* The batteries — every one is real, in the scaffold, and demoed on the site
  * (React Email templates → /emails; the React kit + link tracking → /components). */
 const TOOLKIT = [
   "13 React Email templates",
-  "First-party link tracking",
+  "Vanity links, QR codes & link tracking",
   "Open & click tracking",
   "Notification bell",
   "In-app feed",
@@ -1411,6 +1411,38 @@ const AGENT_CHIPS = [
   "Or any agent you prefer",
 ];
 
+/* Runtime journeys — the other half of the agent arc: an agent authors a
+   journey at runtime (a JSON Blueprint) and drives the instance over MCP. */
+const BLUEPRINT_CARDS: { title: string; body: ReactNode }[] = [
+  {
+    title: "Journey Blueprints",
+    body: (
+      <>
+        Agents author journeys as JSON — stored in your database, enrolling
+        users without a deploy. Review and enable them in Studio. When one earns
+        permanence,{" "}
+        <code className="font-mono text-[13px] text-white/75">
+          hogsend blueprints promote
+        </code>{" "}
+        turns it into a code journey in your repo.
+      </>
+    ),
+  },
+  {
+    title: "MCP server",
+    body: (
+      <>
+        <code className="font-mono text-[13px] text-white/75">
+          npx @hogsend/mcp
+        </code>{" "}
+        connects Claude Desktop, Cursor, or claude.ai to your running instance.
+        Create blueprints, run health reports, send test emails — your admin
+        key, your infrastructure.
+      </>
+    ),
+  },
+];
+
 function PsAgents() {
   return (
     <section className="relative border-[#f6483826] border-t">
@@ -1446,6 +1478,27 @@ function PsAgents() {
               <div className="mt-8">{c.mock}</div>
             </div>
           ))}
+        </div>
+
+        <div className="mt-5">
+          <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
+            Or authored at runtime
+          </span>
+          <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
+            {BLUEPRINT_CARDS.map((c) => (
+              <div
+                key={c.title}
+                className="rounded-lg border border-white/10 bg-white/[0.03] p-6"
+              >
+                <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                  {c.title}
+                </h3>
+                <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                  {c.body}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
