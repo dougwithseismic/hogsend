@@ -1,15 +1,68 @@
-import { createDatabase, importJobs } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import type { Database } from "@hogsend/db";
+import { contacts, createDatabase, importJobs } from "@hogsend/db";
+import { and, eq, isNull } from "drizzle-orm";
 import Papa from "papaparse";
 import { resolveOrCreateContact } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
+import { normalizePhone } from "../lib/phone.js";
 
 const BATCH_SIZE = 500;
 
 interface ImportRow {
   externalId?: string;
   email?: string;
+  /** Optional E.164 phone; attached to the resolved contact (SMS channel). */
+  phone?: string;
   properties?: Record<string, unknown>;
+}
+
+/**
+ * True when `err` is the `contacts_phone_unique_idx` partial-unique violation
+ * (another live contact already owns the number). Walks the drizzle cause
+ * chain for PG 23505, mirroring `isSlugUniqueViolation` in lib/links.ts.
+ */
+function isPhoneUniqueViolation(err: unknown): boolean {
+  let candidate: unknown = err;
+  while (candidate && typeof candidate === "object") {
+    const c = candidate as {
+      code?: string;
+      constraint_name?: string;
+      constraint?: string;
+      cause?: unknown;
+    };
+    if (c.code === "23505") {
+      const constraint = c.constraint_name ?? c.constraint ?? "";
+      return constraint.includes("contacts_phone_unique");
+    }
+    candidate = c.cause;
+  }
+  return false;
+}
+
+/**
+ * Best-effort attach a normalized phone to a resolved contact's `phone` column
+ * without minting an identity conflict. Only fills a NULL column, and swallows
+ * ONLY the partial-unique conflict (another live contact already owns that
+ * number) so one duplicate phone never fails the whole import row — any other
+ * DB error rethrows into the row's error accounting instead of silently
+ * dropping the phone (the task runs with retries: 0).
+ */
+async function attachPhone(
+  db: Database,
+  contactId: string,
+  rawPhone: string | undefined,
+): Promise<void> {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return;
+  try {
+    await db
+      .update(contacts)
+      .set({ phone, updatedAt: new Date() })
+      .where(and(eq(contacts.id, contactId), isNull(contacts.phone)));
+  } catch (err) {
+    if (!isPhoneUniqueViolation(err)) throw err;
+    // Unique-index conflict (another contact owns this phone) — leave unset.
+  }
 }
 
 export const importContactsTask = hatchet.task({
@@ -77,7 +130,10 @@ export const importContactsTask = hatchet.task({
             userId: row.externalId,
             email: row.email,
             contactProperties: row.properties,
-          }).then(() => ({ index: i + idx, ok: true }));
+          }).then(async (result) => {
+            await attachPhone(db, result.id, row.phone);
+            return { index: i + idx, ok: true };
+          });
         }),
       );
 
@@ -131,11 +187,12 @@ function parseCsv(data: string): ImportRow[] {
   }
 
   return result.data.map((row) => {
-    const { externalId, email, ...rest } = row;
+    const { externalId, email, phone, ...rest } = row;
     const properties = Object.keys(rest).length > 0 ? rest : undefined;
     return {
       externalId: externalId || undefined,
       email: email || undefined,
+      phone: phone || undefined,
       properties: properties as Record<string, unknown> | undefined,
     };
   });

@@ -1,5 +1,5 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import { type Database, emailPreferences } from "@hogsend/db";
+import { contacts, type Database, emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
@@ -17,6 +17,8 @@ import {
   upsertEmailPreference,
 } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
+import { grantPhoneConsent, recordPhoneOptOut } from "../../lib/sms-inbound.js";
+import { SMS_CHANNEL_ID } from "../../lib/sms-tracked.js";
 import { getListRegistry } from "../../lists/registry-singleton.js";
 import {
   gatePublishableIdentity,
@@ -319,17 +321,62 @@ async function applyListSubscription(opts: {
 
     emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
 
-    await applyListMembership({
-      db,
-      userId,
-      email,
-      lists: { [id]: subscribed },
-    });
+    try {
+      await applyListMembership({
+        db,
+        userId,
+        email,
+        lists: { [id]: subscribed },
+      });
+    } catch (err) {
+      // Phone-track fallback for the explicit-consent `sms` channel: a
+      // phone-only contact has no email, so `email_preferences` cannot hold
+      // its grant — record consent/opt-out on the phone-keyed
+      // `sms_suppressions` track instead (the same record an inbound
+      // START/STOP writes). Only the missing-email failure falls back; any
+      // other error keeps the normal failure path.
+      const fellBack =
+        id === SMS_CHANNEL_ID &&
+        (await applySmsPhoneTrackFallback({ db, contactId, subscribed, err }));
+      if (!fellBack) throw err;
+    }
   } catch (err) {
     return { kind: "failed", message: listMembershipError(err) };
   }
 
   return { kind: "ok" };
+}
+
+/**
+ * The `sms` grant/revoke for a contact `applyListMembership` rejected for
+ * having no email. Returns true when the contact has a phone and the
+ * phone-track write happened; false re-raises the original failure (no phone
+ * either, or a different error entirely).
+ */
+async function applySmsPhoneTrackFallback(opts: {
+  db: Database;
+  contactId: string;
+  subscribed: boolean;
+  err: unknown;
+}): Promise<boolean> {
+  const { db, contactId, subscribed, err } = opts;
+  const message = err instanceof Error ? err.message : "";
+  if (!message.includes("no email")) return false;
+
+  const rows = await db
+    .select({ phone: contacts.phone })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .limit(1);
+  const phone = rows[0]?.phone;
+  if (!phone) return false;
+
+  if (subscribed) {
+    await grantPhoneConsent(db, phone, { reason: "api_grant" });
+  } else {
+    await recordPhoneOptOut(db, phone, "manual");
+  }
+  return true;
 }
 
 // The lists router does NOT re-apply auth internally — the data-plane prefix

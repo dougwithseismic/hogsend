@@ -76,6 +76,19 @@ export interface OutboundPayloads {
     category: string | null;
     scope: "all" | "category";
   };
+  /**
+   * A genuine opt-IN (resubscribe-all or a category/channel grant) — the
+   * mirror of `contact.unsubscribed`, emitted from the same preference-write
+   * choke. `source` is the grant provenance: `"api"` (default),
+   * `"preference_center"`, `"started_keyword"`, `"import"`.
+   */
+  "contact.subscribed": {
+    externalId: string | null;
+    email: string | null;
+    category: string | null;
+    scope: "all" | "category";
+    source: string;
+  };
   "email.sent": {
     emailSendId: string;
     messageId: string;
@@ -151,6 +164,51 @@ export interface OutboundPayloads {
   "email.complained": EmailEventPayload & {
     complaintType?: string;
     reason?: string;
+  };
+  "sms.sent": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    to: string;
+    userId: string | null;
+    category: string | null;
+    journeyStateId: string | null;
+    segments: number | null;
+    sentAt: string;
+  };
+  "sms.delivered": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+  };
+  "sms.failed": {
+    smsSendId: string;
+    messageId: string;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    errorCode?: string;
+    errorReason?: string;
+  };
+  /**
+   * A tracked SMS short link was clicked (first-party, PER-HIT — the SMS
+   * sibling of `email.clicked`). `linkId` is the `tracked_links.id`,
+   * `linkUrl` the original destination. `userId` is null for a raw send with
+   * no resolvable contact.
+   */
+  "sms.clicked": {
+    smsSendId: string;
+    messageId: string | null;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    linkUrl: string;
+    linkId: string;
   };
   "journey.completed": {
     journeyId: string;

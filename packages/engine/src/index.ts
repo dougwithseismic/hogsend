@@ -483,6 +483,7 @@ export {
   type OutboundEventName,
   type OutboundPayloads,
 } from "./lib/outbound.js";
+export { isE164, normalizePhone } from "./lib/phone.js";
 export { getPostHog } from "./lib/posthog.js";
 // --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
 export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
@@ -524,6 +525,42 @@ export {
   SEMANTIC_BURST_DISTINCT_LINKS,
   SEMANTIC_BURST_WINDOW_MS,
 } from "./lib/semantic-click.js";
+// --- SMS ---
+export {
+  getSmsService,
+  type SendSmsOptions as SendSmsJourneyOptions,
+  type SendSmsResult,
+  sendSms,
+  setSmsService,
+} from "./lib/sms.js";
+// --- SMS inbound consent helpers (phone-track grant/opt-out) ---
+export {
+  grantPhoneConsent,
+  recordPhoneOptOut,
+} from "./lib/sms-inbound.js";
+// --- SMS link shortening (pure rewriter; the insert rides the send txn) ---
+export {
+  generateShortCode,
+  isShortCodeCollision,
+  type PendingSmsLink,
+  planSmsLinkRewrite,
+  SHORT_CODE_ALPHABET,
+  SHORT_CODE_LENGTH,
+  type SmsLinkRewritePlan,
+} from "./lib/sms-link-tracking.js";
+// --- SMS mailer factory (the engine-owned tracked sender; mirrors createTrackedMailer) ---
+export { createTrackedSmsSender } from "./lib/sms-mailer.js";
+// --- SMS provider registry (container-held, keyed by meta.id) ---
+export { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
+// --- SMS service (engine-owned tracked SMS sender) ---
+export type {
+  SmsService,
+  SmsServiceConfig,
+  SmsServiceSendOptions,
+  SmsServiceWebhookResult,
+  SmsTrackedSendResult,
+} from "./lib/sms-service-types.js";
+export { SMS_CHANNEL_ID } from "./lib/sms-tracked.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 // --- In-app survey/rating (sendSurvey — producer sugar over sendFeedItem) ---
 export { type SendSurveyOptions, sendSurvey } from "./lib/survey.js";
@@ -547,6 +584,7 @@ export {
   rewriteLinks,
 } from "./lib/tracking.js";
 export {
+  pushSmsTrackingEvent,
   pushTrackingEvent,
   resolveEmailSendContext,
   resolveEmailSendContextByMessageId,
@@ -555,6 +593,7 @@ export {
    * {@link resolveEmailSendContextByMessageId}.
    */
   resolveEmailSendContextByResendId,
+  resolveSmsSendContext,
 } from "./lib/tracking-events.js";
 /**
  * Publishable-key `userToken` mint/verify helpers.

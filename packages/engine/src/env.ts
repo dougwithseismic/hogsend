@@ -121,6 +121,34 @@ export const env = createEnv({
     POSTMARK_MESSAGE_STREAM: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_USER: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_PASS: z.string().min(1).optional(),
+    // --- SMS channel (provider-neutral, BYO SMS provider) ---
+    // The active SMS provider id the container resolves from the
+    // SmsProviderRegistry. Absent → "twilio" when a provider is registered;
+    // with no provider configured the SMS service is an inert throwing stub.
+    SMS_PROVIDER: z.string().optional(),
+    // Neutral E.164 default-from number the tracked SMS sender uses when a send
+    // omits `from` and no messaging-service is pinned.
+    SMS_FROM: z.string().optional(),
+    // The safe phone every redirected SMS is delivered to under
+    // HOGSEND_TEST_MODE=true. When unset while test mode is active, the send is
+    // BLOCKED (recorded, never delivered to the real recipient).
+    HOGSEND_TEST_PHONE: z.string().optional(),
+    // SMS link shortening/tracking is ON by default when SMS is configured.
+    // An enum, NOT z.coerce.boolean — an explicit "false" must actually
+    // disable (coerce treats the string "false" as true; HOGSEND_TEST_MODE
+    // precedent).
+    SMS_LINK_TRACKING: z.enum(["true", "false"]).default("true"),
+    // Full origin short links are minted under (e.g. https://hs.example.com —
+    // a branded short domain routed to this app). Falls back to
+    // API_PUBLIC_URL; the /s/:code route serves either way.
+    SMS_LINK_HOST: z.string().url().optional(),
+    // --- Twilio (default SMS provider, opt-in) ---
+    // A preset provider is built only when BOTH SID + token are present (the
+    // guarded dynamic import in sms-providers-from-env.ts). One of SMS_FROM /
+    // TWILIO_MESSAGING_SERVICE_SID must also be set for sends to succeed.
+    TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+    TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+    TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

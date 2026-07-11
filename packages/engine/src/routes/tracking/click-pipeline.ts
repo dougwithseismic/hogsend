@@ -1,16 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { emailSends, linkClicks, links, trackedLinks } from "@hogsend/db";
+import {
+  emailSends,
+  linkClicks,
+  links,
+  smsSends,
+  trackedLinks,
+} from "@hogsend/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import type { AppEnv } from "../../app.js";
 import { isBotOrPrefetch } from "../../lib/bot-prefetch.js";
 import { generateIdentityToken } from "../../lib/identity-token.js";
 import { emitOutbound } from "../../lib/outbound.js";
-import { EMAIL_LINK_CLICKED } from "../../lib/tracking-event-names.js";
+import {
+  EMAIL_LINK_CLICKED,
+  SMS_LINK_CLICKED,
+} from "../../lib/tracking-event-names.js";
 import {
   pushLinkClickEvent,
+  pushSmsTrackingEvent,
   pushTrackingEvent,
   resolveEmailSendContext,
+  resolveSmsSendContext,
 } from "../../lib/tracking-events.js";
 import { confirmSemanticClickTask } from "../../workflows/confirm-semantic-click.js";
 
@@ -21,6 +32,10 @@ export const clickSelection = {
   id: trackedLinks.id,
   originalUrl: trackedLinks.originalUrl,
   emailSendId: trackedLinks.emailSendId,
+  // The SMS send this per-send short link belongs to (`/s/:code` rewrites).
+  // Selected on EVERY resolver, so an SMS row clicked via its raw
+  // `/v1/t/c/:id` URL still gets full SMS semantics.
+  smsSendId: trackedLinks.smsSendId,
   distinctId: trackedLinks.distinctId,
   source: trackedLinks.source,
   // `event` gates the semantic-confirm dispatch; the confirm task re-reads the
@@ -41,6 +56,7 @@ export type ResolvedClickLink = {
   id: string;
   originalUrl: string;
   emailSendId: string | null;
+  smsSendId: string | null;
   distinctId: string | null;
   source: string | null;
   event: string | null;
@@ -124,6 +140,20 @@ export async function handleTrackedClick(
             })
             .where(
               and(eq(emailSends.id, emailSendId), isNull(emailSends.clickedAt)),
+            ),
+        ]
+      : []),
+    // SMS first-touch mirror: set sms_sends.clickedAt exactly once.
+    ...(link.smsSendId
+      ? [
+          db
+            .update(smsSends)
+            .set({
+              clickedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(eq(smsSends.id, link.smsSendId), isNull(smsSends.clickedAt)),
             ),
         ]
       : []),
@@ -267,6 +297,57 @@ export async function handleTrackedClick(
               templateKey: ctx.templateKey ?? null,
               userId: ctx.userId ?? null,
               to: ctx.to ?? ctx.userEmail ?? "",
+              at: new Date().toISOString(),
+              linkUrl: link.originalUrl,
+              linkId: link.id,
+            },
+          });
+        }
+      })
+      .catch(logger.warn);
+  } else if (link.smsSendId) {
+    // SMS short link (`/s/:code`): re-ingest the first-party
+    // `sms.link_clicked` bus event and emit the per-hit `sms.clicked`
+    // outbound — the SMS sibling of the email branch above. The bus
+    // re-ingest is GATED on `!isBot` (iMessage/WhatsApp/RCS link-preview
+    // bots prefetch texted URLs — a phantom-enrollment risk the email
+    // branch doesn't share because inbox clicks aren't unfurl-prefetched
+    // the same way) AND on a resolved contact key (phone is NOT a contact
+    // `Kind`; a userless raw send has no subject to ingest).
+    const smsSendId = link.smsSendId;
+    void resolveSmsSendContext(db, smsSendId)
+      .then(async (ctx) => {
+        if (!isBot && ctx?.userId) {
+          await pushSmsTrackingEvent({
+            db,
+            hatchet,
+            registry,
+            logger,
+            event: SMS_LINK_CLICKED,
+            smsSendId,
+            properties: { linkUrl: link.originalUrl, linkId: link.id },
+            resolvedContext: ctx,
+          }).catch((err) => {
+            logger.warn("Failed to push sms click tracking event", {
+              linkId: link.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+        // Per-hit outbound — mirrors the email click emit (every destination
+        // gets every click; NO dedupeKey). Gated on a resolved send row only.
+        if (ctx) {
+          await emitOutbound({
+            db,
+            hatchet,
+            logger,
+            event: "sms.clicked",
+            payload: {
+              smsSendId,
+              messageId: ctx.messageId ?? null,
+              templateKey: ctx.templateKey ?? null,
+              userId: ctx.userId ?? null,
+              to: ctx.to,
               at: new Date().toISOString(),
               linkUrl: link.originalUrl,
               linkId: link.id,

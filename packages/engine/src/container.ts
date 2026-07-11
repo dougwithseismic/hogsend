@@ -5,6 +5,7 @@ import type {
   EmailProvider,
   JourneySourceLocation,
   PostHogService,
+  SmsProvider,
   TimeZone,
 } from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
@@ -16,6 +17,7 @@ import {
   type JournalShape,
 } from "@hogsend/db";
 import type { TemplateDefinition, TemplateRegistry } from "@hogsend/email";
+import type { SmsTemplateDefinition, SmsTemplateRegistry } from "@hogsend/sms";
 import { createBucketAccessor } from "./buckets/bucket-access.js";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
@@ -78,6 +80,11 @@ import { createTrackedMailer } from "./lib/mailer.js";
 import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
+import { setSmsService } from "./lib/sms.js";
+import { createTrackedSmsSender } from "./lib/sms-mailer.js";
+import { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
+import { smsProvidersFromEnv } from "./lib/sms-providers-from-env.js";
+import type { SmsService } from "./lib/sms-service-types.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import { synthesizeChannelLists } from "./lists/channels.js";
 import {
@@ -134,6 +141,23 @@ export interface HogsendClient {
    * templates without going through a send. Empty when no templates are wired.
    */
   templates: TemplateRegistry;
+  /**
+   * The engine-owned tracked SMS sender (the SMS sibling of {@link emailService}).
+   * When no SMS provider is configured this is an inert stub whose `send` throws
+   * an actionable error — so an existing deploy without Twilio creds boots clean.
+   */
+  smsService: SmsService;
+  /**
+   * The container-held registry of SMS providers, keyed by `meta.id`. The
+   * `POST /v1/webhooks/sms/:providerId` route resolves the verifying provider
+   * out of this. Empty when no SMS provider is configured.
+   */
+  smsProviders: SmsProviderRegistry;
+  /**
+   * The single resolved active SMS provider the tracked sender delivers through.
+   * Undefined when no SMS provider is configured.
+   */
+  smsProvider?: SmsProvider;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -273,6 +297,46 @@ export interface HogsendClientOptions {
     providers?: EmailProvider[];
     defaultProvider?: string;
     templates?: TemplateRegistry;
+  };
+  /**
+   * SMS is a first-class channel (the SMS sibling of {@link email}). Its config
+   * is grouped here; the engine owns the cohesive SMS pipeline (templates →
+   * render → preference/suppression checks → `sms_sends` write → STOP handling),
+   * and the {@link SmsProvider} (Twilio, …) is only the swappable wire.
+   *
+   * - `provider` — a single SMS provider. Merged LAST (after env presets and
+   *   `providers`), so it wins on id collision.
+   * - `providers` — register MANY providers into the {@link SmsProviderRegistry}
+   *   so `POST /v1/webhooks/sms/:providerId` can verify each one's webhooks.
+   * - `defaultProvider` — the active provider id the tracked sender delivers
+   *   through. Resolves as `defaultProvider ?? SMS_PROVIDER ?? "twilio"`. If it
+   *   names an unregistered provider, the container throws at boot.
+   * - `templates` — the app's SMS template registry (key → component +
+   *   category), threaded into the tracked SMS sender.
+   * - `from` — the E.164 default sender (overrides env `SMS_FROM`).
+   * - `stopFooter` — the compliance footer appended to non-transactional
+   *   bodies; `false` disables it, a string overrides the default text.
+   * - `optOutReplies` — send STOP/START/HELP confirmation replies (default off;
+   *   the carrier already replies and a post-STOP send is blocked).
+   * - `linkTracking` — rewrite bare URLs in rendered bodies to first-party
+   *   short tracked links (`/s/:code`). Default true (overrides env
+   *   `SMS_LINK_TRACKING`).
+   * - `linkHost` — the full origin short links are minted under (overrides
+   *   env `SMS_LINK_HOST`; falls back to `API_PUBLIC_URL`).
+   *
+   * Omitting `sms` entirely (or configuring no provider) installs an inert stub
+   * SMS service — an existing deploy without Twilio creds boots unchanged.
+   */
+  sms?: {
+    provider?: SmsProvider;
+    providers?: SmsProvider[];
+    defaultProvider?: string;
+    templates?: SmsTemplateRegistry;
+    from?: string;
+    stopFooter?: string | false;
+    optOutReplies?: boolean;
+    linkTracking?: boolean;
+    linkHost?: string;
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -498,6 +562,33 @@ function validateListCategory(opts: {
   );
 }
 
+/**
+ * The inert SMS service installed when no SMS provider is configured. `render`
+ * still works (templates need no provider); `send` throws an actionable error;
+ * `handleWebhook` is a no-op (a stray webhook can't dispatch without a provider).
+ */
+function createStubSmsService(): SmsService {
+  const notConfigured = () => {
+    throw new Error(
+      "No SMS provider configured. Set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN and SMS_FROM, or pass sms.provider to createHogsendClient.",
+    );
+  };
+  return {
+    async send() {
+      return notConfigured();
+    },
+    async sendRaw() {
+      return notConfigured();
+    },
+    async render() {
+      return notConfigured();
+    },
+    async handleWebhook(event) {
+      return { type: event.type, handled: false };
+    },
+  };
+}
+
 export function createHogsendClient(
   opts: HogsendClientOptions = {},
 ): HogsendClient {
@@ -563,7 +654,20 @@ export function createHogsendClient(
   // is available here before the connector-action registry is built, and is
   // identical in both the API and worker processes — then registered
   // unconditionally (bypassing ENABLED_LISTS) after the user lists.
-  const channelLists = synthesizeChannelLists(opts.connectorActions ?? []);
+  // Build the SMS provider registry early (before channel synthesis) so the
+  // `sms` opt-out channel is minted iff an SMS provider is actually configured.
+  // Same merge order as email: env presets FIRST, then `providers`, then the
+  // single `provider` LAST (last-writer-wins).
+  const smsProviders = new SmsProviderRegistry([
+    ...smsProvidersFromEnv(env),
+    ...(opts.sms?.providers ?? []),
+    ...(opts.sms?.provider ? [opts.sms.provider] : []),
+  ]);
+  const smsConfigured = smsProviders.count() > 0;
+
+  const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
+    sms: smsConfigured,
+  });
   const listRegistry = buildListRegistry(
     opts.lists ?? [],
     opts.enabledLists ?? env.ENABLED_LISTS,
@@ -723,6 +827,86 @@ export function createHogsendClient(
     );
 
   setEmailService(emailService);
+
+  // --- SMS channel (parallel to the email pipeline above) -------------------
+  // Resolve the active SMS provider: `defaultProvider ?? SMS_PROVIDER ?? "twilio"`.
+  // An EXPLICITLY-requested id that isn't registered throws (mirrors email's
+  // "never silently fall back"). When nothing is configured the registry is
+  // empty and `smsProvider` stays undefined — the tracked sender below becomes
+  // an inert stub so an existing deploy without Twilio creds boots unchanged.
+  const smsTemplates = opts.sms?.templates ?? ({} as SmsTemplateRegistry);
+  const smsActiveId = opts.sms?.defaultProvider ?? env.SMS_PROVIDER ?? "twilio";
+  const smsExplicit = Boolean(opts.sms?.defaultProvider ?? env.SMS_PROVIDER);
+  let smsProvider = smsProviders.get(smsActiveId);
+  // DX: when the active id wasn't explicitly requested and the default "twilio"
+  // isn't registered but EXACTLY ONE provider is, use that one — so a consumer
+  // passing a single `sms.provider` (any id) never has to also set
+  // `defaultProvider`. An explicit id that misses still throws below.
+  if (!smsProvider && !smsExplicit && smsProviders.count() === 1) {
+    smsProvider = smsProviders.getAll()[0];
+  }
+  if (smsExplicit && !smsProvider) {
+    throw new Error(
+      `SMS provider "${smsActiveId}" is not registered (registered: ${
+        smsProviders
+          .getAll()
+          .map((p) => p.meta.id)
+          .join(", ") || "none"
+      }). Set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN and SMS_FROM, or pass sms.provider.`,
+    );
+  }
+
+  // Boot-validate SMS template categories through the SAME fail-closed helper as
+  // email templates (a channel/typo/consent-flip category is as dangerous here).
+  for (const [templateKey, def] of Object.entries(smsTemplates)) {
+    const category = (def as SmsTemplateDefinition | undefined)?.category;
+    if (!category) continue;
+    validateListCategory({
+      owner: `SMS template "${templateKey}"`,
+      category,
+      listRegistry,
+      definedLists,
+      logger,
+    });
+  }
+
+  const smsService: SmsService = smsProvider
+    ? createTrackedSmsSender(
+        {
+          defaultFrom: opts.sms?.from ?? env.SMS_FROM,
+          templates: smsTemplates,
+          db,
+          frequencyCap: defaults.frequencyCap,
+          logger,
+          stopFooter: opts.sms?.stopFooter,
+          optOutReplies: opts.sms?.optOutReplies,
+          // Deploy-wide test-mode coherence: HOGSEND_TEST_MODE is channel-
+          // neutral. "true" forces SMS test mode directly; "auto" arms it
+          // whenever the EMAIL side's test mode is armed (unverified domain),
+          // so a staging deploy that redirects email never live-texts real
+          // numbers. SMS has no domain-verification analog of its own, so
+          // "auto" with email test mode off keeps live sends (PR behavior).
+          testMode: () =>
+            env.HOGSEND_TEST_MODE === "true" ||
+            (env.HOGSEND_TEST_MODE === "auto" &&
+              domainStatus.testModeCached().active),
+          testPhone: env.HOGSEND_TEST_PHONE,
+          // First-party short-link rewriting (ON by default, mirrors email's
+          // always-on tracking). SMS_LINK_HOST swaps in a branded short
+          // domain; API_PUBLIC_URL serves out of the box.
+          linkTracking:
+            opts.sms?.linkTracking ?? env.SMS_LINK_TRACKING !== "false",
+          linkHost: (
+            opts.sms?.linkHost ??
+            env.SMS_LINK_HOST ??
+            env.API_PUBLIC_URL
+          ).replace(/\/+$/, ""),
+        },
+        { provider: smsProvider },
+      )
+    : createStubSmsService();
+
+  setSmsService(smsService);
 
   // Wire better-auth's secondary storage to the SHARED engine Redis (the same
   // singleton backing the PostHog cache + worker heartbeat — never a second
@@ -929,11 +1113,12 @@ export function createHogsendClient(
   for (const connector of connectorList) {
     if (
       (connector.meta.transport ?? "webhook") === "webhook" &&
-      connector.meta.id === "email"
+      (connector.meta.id === "email" || connector.meta.id === "sms")
     ) {
       throw new Error(
-        'Connector id "email" is reserved for the email-provider route ' +
-          "(POST /v1/webhooks/email/:providerId). Rename the connector.",
+        `Connector id "${connector.meta.id}" is reserved for the ` +
+          "email/SMS-provider routes (POST /v1/webhooks/{email,sms}/:providerId). " +
+          "Rename the connector.",
       );
     }
   }
@@ -991,6 +1176,9 @@ export function createHogsendClient(
     emailProvider: provider,
     domainStatus,
     templates,
+    smsService,
+    smsProviders,
+    smsProvider,
     analyticsProviders,
     analytics,
     identity,

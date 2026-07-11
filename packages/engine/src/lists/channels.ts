@@ -46,6 +46,7 @@ function capitalize(id: string): string {
  */
 export function synthesizeChannelLists(
   actions: DefinedConnectorAction[],
+  opts?: { sms?: boolean },
 ): ListMeta[] {
   const channels: ListMeta[] = [
     {
@@ -66,6 +67,26 @@ export function synthesizeChannelLists(
       id: action.connectorId,
       name: capitalize(action.connectorId),
       defaultOptIn: true,
+      enabled: true,
+      kind: "channel",
+    });
+  }
+
+  // The SMS channel is minted when an SMS provider is configured (SMS is NOT a
+  // connector). UNLIKE every other channel it is OPT-IN polarity
+  // (`defaultOptIn: false`, not configurable): TCPA/CASL/PECR all require prior
+  // EXPRESS consent for marketing SMS, so a contact is textable only with an
+  // explicit `categories.sms === true` grant (API/SDK/preference-center) or
+  // phone-track consent (an inbound START). The tracked SMS sender fails closed
+  // (`no_consent`) without one; transactional sends are exempt from the consent
+  // gate but never from the STOP list. De-duped via `seen` in case a connector
+  // also happened to use the id "sms".
+  if (opts?.sms && !seen.has("sms")) {
+    seen.add("sms");
+    channels.push({
+      id: "sms",
+      name: "SMS",
+      defaultOptIn: false,
       enabled: true,
       kind: "channel",
     });

@@ -30,7 +30,8 @@ const SKIP_PATTERNS = ["/v1/email/unsubscribe", "/v1/email/preferences"];
 // them small and scalar (non-scalars don't survive the Hatchet wire anyway).
 const MAX_PROPS_JSON_LENGTH = 2048;
 
-function shouldSkipUrl(url: string): boolean {
+/** Never rewrite unsubscribe/preference URLs (shared with the SMS rewriter). */
+export function shouldSkipUrl(url: string): boolean {
   return SKIP_PATTERNS.some((pattern) => url.includes(pattern));
 }
 

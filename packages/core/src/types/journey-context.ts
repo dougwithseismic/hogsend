@@ -105,6 +105,18 @@ export interface EmailHistoryResult {
   count: number;
 }
 
+export interface SmsHistoryOptions {
+  /** E.164 recipient. */
+  phone: string;
+  template: string;
+}
+
+export interface SmsHistoryResult {
+  sent: boolean;
+  lastSentAt: string | null;
+  count: number;
+}
+
 export interface RecentEventsOptions {
   userId: string;
   /** Restrict to a single event name (use your `Events` constant). Omit for all. */
@@ -361,6 +373,7 @@ export interface JourneyContext {
     hasEvent(opts: HasEventOptions): Promise<HasEventResult>;
     journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
     email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
+    sms(opts: SmsHistoryOptions): Promise<SmsHistoryResult>;
     events(opts: RecentEventsOptions): Promise<RecentEvent[]>;
   };
 }

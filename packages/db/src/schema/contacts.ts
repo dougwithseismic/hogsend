@@ -42,6 +42,16 @@ export const contacts = pgTable(
      */
     discordId: text("discord_id"),
     /**
+     * Nullable E.164 phone number attached to a contact for the SMS channel.
+     * Like external_id/discord_id it is a RESOLVABLE identity key (a `Kind`),
+     * NOT a property — but it is NEVER the canonical text key
+     * (`external_id ?? anonymous_id ?? id`), so it does not participate in the
+     * history re-point. Stored already-normalized (strict E.164) at the resolver
+     * edge. Uniqueness is the partial-unique live-row index below, identical to
+     * contacts_discord_id_unique_idx.
+     */
+    phone: text("phone"),
+    /**
      * Opportunistic IANA-timezone cache (e.g. "America/New_York"). Populated
      * best-effort when a tz is resolved from PostHog person props. PostHog and
      * `properties` jsonb remain authoritative sources — this column sits below
@@ -82,5 +92,8 @@ export const contacts = pgTable(
     uniqueIndex("contacts_discord_id_unique_idx")
       .on(table.discordId)
       .where(sql`discord_id IS NOT NULL AND deleted_at IS NULL`),
+    uniqueIndex("contacts_phone_unique_idx")
+      .on(table.phone)
+      .where(sql`phone IS NOT NULL AND deleted_at IS NULL`),
   ],
 );

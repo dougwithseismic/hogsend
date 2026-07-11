@@ -1,0 +1,104 @@
+---
+title: SMS
+description: A first-class SMS channel through a swappable provider (Twilio by default) — React templates rendered to plain text, explicit TCPA consent, first-party short-link click tracking, and STOP/START handling.
+---
+
+Hogsend sends SMS through a swappable **provider** (Twilio is the reference) with the same split the email channel uses: your templates are content in **your** repo, the engine owns the pipeline, and the provider is a dumb wire.
+
+- **Your templates are content.** SMS templates are React components in your `src/sms/` — same authoring DX as email, rendered to **plain text** before the wire (SMS is text-only).
+- **The engine owns the pipeline.** `@hogsend/engine` provides the journey-facing `sendSms()` and the tracked sender: render → consent/suppression checks → frequency cap → link rewrite → STOP footer → `sms_sends` row → deliver → record status.
+- **The template machinery** lives in `@hogsend/sms`: `renderSmsToText`, the registry helpers, the augmentable `SmsTemplateRegistryMap`, and a GSM-7/UCS-2 segment counter (bodies are billed per 160/70-char segment; the engine records the count on every send).
+- **The SMS provider is a dumb `SmsProvider`.** `@hogsend/plugin-twilio` implements the contract (plain-text send, signature-verified webhooks normalized to a neutral `SmsEvent`). Implement the same interface for any other provider — consent, tracking, and the `sms_sends` pipeline come along for free.
+
+Configuring the channel is **operator opt-in**: with no provider configured the SMS service is an inert stub and `sendSms` throws an actionable error — a deploy without Twilio credentials is unaffected. Texting a contact is **recipient opt-in**: marketing SMS requires an explicit consent grant (see [Consent](#consent-tcpa--ctia)).
+
+## Setup
+
+Install the provider package and set the credentials plus a sender (a from-number OR a Twilio Messaging Service):
+
+```bash
+TWILIO_ACCOUNT_SID=ACxxxx…
+TWILIO_AUTH_TOKEN=your_auth_token
+SMS_FROM=+15551234567              # or TWILIO_MESSAGING_SERVICE_SID=MGxxxx…
+# SMS_LINK_HOST=https://hs.example.com  # branded short domain (optional)
+# HOGSEND_TEST_PHONE=+15557654321  # redirect target while test mode is armed
+```
+
+Wire Twilio's **status callback** and **inbound message** webhooks (on the number or Messaging Service) to:
+
+```
+<API_PUBLIC_URL>/v1/webhooks/sms/twilio
+```
+
+The env preset attaches this URL as the per-send `statusCallback` automatically (skipped on localhost — Twilio rejects loopback callbacks).
+
+Register your templates in **both** entry points, exactly like email:
+
+```ts
+createHogsendClient({ sms: { templates: smsTemplates } });
+```
+
+## Consent (TCPA / CTIA)
+
+The `sms` channel is **explicit opt-in** — TCPA (and CASL/PECR) require prior *express* consent for marketing SMS, so holding a phone number is not permission to text it. A marketing send needs one of:
+
+- an explicit grant: `POST /v1/lists/sms/subscribe`, `PUT /v1/contacts { lists: { sms: true } }`, the JS SDK's `setPreference("sms", true)`, or the preference center (where the SMS row renders OFF until granted);
+- **phone-track consent**: an inbound `START` — texting START *is* express consent, recorded with its timestamp. This also covers phone-only contacts, and the subscribe endpoint falls back to it for a contact with a phone but no email.
+
+Without a grant the send **fails closed** (`no_consent` — recorded, never delivered, the idempotency key not consumed). Transactional sends (`category: "transactional"`) are exempt from the consent gate but **never** from the STOP list or the global opt-out. Every genuine grant emits the `contact.subscribed` outbound event with `source` provenance (`api` / `preference_center` / `started_keyword`) — your consent audit trail.
+
+Already hold express consent from a previous platform? Batch-grant via the subscribe endpoint per contact, and you're migrated.
+
+Inbound `STOP` (and `STOPALL` / `UNSUBSCRIBE` / `CANCEL` / `END` / `QUIT` — whole-message or leading keyword, so "STOP texting me" counts) suppresses the phone in both tracks: the phone-keyed suppression list (authoritative, works for numbers with no contact) and the contact's `sms` channel preference. A STOPped number stays suppressed until it texts `START`. Confirmation replies default off — Twilio's carrier-level opt-out already replies.
+
+## Sending from a journey
+
+```ts
+import { defineJourney, sendSms, isE164 } from "@hogsend/engine";
+
+export const smsWelcome = defineJourney({
+  meta: { id: "sms-welcome", name: "SMS — Welcome", trigger: { event: "user.created" } },
+  run: async (user) => {
+    const phone = user.properties.phone ? String(user.properties.phone) : null;
+    if (!phone || !isE164(phone)) return; // SMS is additive — skip if no phone
+    const result = await sendSms({ to: phone, userId: user.id, template: "welcome-sms" });
+    // result.status: "sent" | "no_consent" | "suppressed" | "unsubscribed" | "skipped"
+  },
+});
+```
+
+`sendSms` is replay-safe exactly like `sendEmail` — a durable replay of the same logical send is absorbed by the idempotency machinery, under a key namespace disjoint from email's (a `sendEmail` and a `sendSms` of the same template under one wait label never collide). The send auto-attributes to the journey enrollment, so transition logs and the `meta.suppress` min-gap guard see it without any extra wiring, and the result carries the pipeline verdict so a journey can branch on non-delivery.
+
+## Templates
+
+```tsx
+// src/sms/welcome-sms.tsx
+import { Text } from "react-email";
+export default function WelcomeSms({ name = "there" }) {
+  return <Text>Hey {name}, welcome!</Text>;
+}
+```
+
+Register in `src/sms/registry.ts`, augment `SmsTemplateRegistryMap` in `src/sms/templates.d.ts`, and an unregistered template key is a **compile error** at the `sendSms` call site. Non-transactional bodies automatically get a `Reply STOP to opt out` footer unless the copy already carries its own opt-out instruction.
+
+## Link tracking
+
+Bare URLs in rendered bodies are rewritten to first-party short links — `<host>/s/<code>` with an 8-char code — riding the same click spine as email links. Why: a full tracking URL eats a third of a 160-char segment, and US carriers filter public shorteners; short codes on your own domain are the practice.
+
+- **On by default**; disable with `SMS_LINK_TRACKING=false`. Point `SMS_LINK_HOST` at a branded short domain (routed to the same app) or let it fall back to `API_PUBLIC_URL`.
+- A click 302s to the original URL and records: per-hit click rows, first-touch `sms_sends.clicked_at`, the per-hit `sms.clicked` outbound event, and the `sms.link_clicked` bus event journeys can trigger on or await — with link-preview bots (iMessage/WhatsApp prefetch) filtered out.
+- Unsubscribe/preference URLs and Hogsend's own tracking URLs are never rewritten; identical URLs share one code; trailing sentence punctuation is never swallowed.
+
+## Delivery + status
+
+`POST /v1/webhooks/sms/:providerId` verifies the provider signature and dispatches the normalized event: `sms.delivered` / `sms.failed` update the send row (monotonic — unordered carrier callbacks can't regress state) and emit outbound. A permanent-class failure (dead number, landline, opted out) auto-suppresses the phone; transient carrier blocks deliberately do not.
+
+Test mode is deploy-coherent with email: `HOGSEND_TEST_MODE=true` (or `auto` while the email side's test mode is armed) redirects every SMS to `HOGSEND_TEST_PHONE` — a staging deploy that redirects email never live-texts real numbers.
+
+## Bring your own provider
+
+Implement `defineSmsProvider()` from `@hogsend/core`: a plain-text `send(options) → { id }` plus `verifyWebhook`/`parseWebhook` normalizing your provider's webhooks to the neutral `SmsEvent`. Mirror `packages/plugin-twilio` for the shape. Everything above the wire — consent, rendering, link tracking, suppression, the `sms_sends` pipeline — is engine-owned and comes along unchanged.
+
+## Not yet (v1 deferrals)
+
+MMS, batch sends, scheduled SMS (journeys can use `ctx.sleepUntil`/`ctx.when`), quiet-hours enforcement, Studio SMS preview, a Blueprint `send_sms` node, and phone as a merge-participating identity key.

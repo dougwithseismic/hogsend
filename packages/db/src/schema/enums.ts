@@ -80,6 +80,17 @@ export const journeyBlueprintSourceEnum = pgEnum("journey_blueprint_source", [
   "api",
 ]);
 
+export const smsSendStatusEnum = pgEnum("sms_send_status", [
+  "queued", // row claimed (INSERT won) — the provider call is in flight; a replay
+  // finding this re-drives the send (safer missed>doubled), mirroring email_sends.
+  "sent", // provider accepted the message — updated to "delivered"/"failed" by the
+  // provider status webhook. No opened/clicked/bounced lifecycle: SMS has no
+  // pixel/link/bounce machinery; carrier "undelivered" folds into "failed" +
+  // error_code.
+  "delivered",
+  "failed",
+]);
+
 export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
   "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
   // satisfied duplicate. A replay finding this re-drives the action (safer

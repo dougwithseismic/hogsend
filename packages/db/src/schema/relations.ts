@@ -23,6 +23,7 @@ import { journeyConfigs } from "./journey-configs.js";
 import { journeyLogs } from "./journey-logs.js";
 import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
+import { smsSends } from "./sms-sends.js";
 import { trackedLinks } from "./tracked-links.js";
 import { userEvents } from "./user-events.js";
 import { webhookDeliveries } from "./webhook-deliveries.js";
@@ -108,6 +109,7 @@ export const journeyStatesRelations = relations(
     }),
     logs: many(journeyLogs),
     emailSends: many(emailSends),
+    smsSends: many(smsSends),
   }),
 );
 
@@ -126,12 +128,24 @@ export const emailSendsRelations = relations(emailSends, ({ one, many }) => ({
   trackedLinks: many(trackedLinks),
 }));
 
+export const smsSendsRelations = relations(smsSends, ({ one, many }) => ({
+  journeyState: one(journeyStates, {
+    fields: [smsSends.journeyStateId],
+    references: [journeyStates.id],
+  }),
+  trackedLinks: many(trackedLinks),
+}));
+
 export const trackedLinksRelations = relations(
   trackedLinks,
   ({ one, many }) => ({
     emailSend: one(emailSends, {
       fields: [trackedLinks.emailSendId],
       references: [emailSends.id],
+    }),
+    smsSend: one(smsSends, {
+      fields: [trackedLinks.smsSendId],
+      references: [smsSends.id],
     }),
     clicks: many(linkClicks),
   }),

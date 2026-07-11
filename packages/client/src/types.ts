@@ -230,7 +230,7 @@ export interface UnsubscribeResult {
 // ---------------------------------------------------------------------------
 
 /**
- * The 14-event outbound catalog. MIRRORS the engine's `WEBHOOK_EVENT_TYPES`
+ * The outbound catalog. MIRRORS the engine's `WEBHOOK_EVENT_TYPES`
  * (`@hogsend/engine` lib/webhook-signing.ts) — the client cannot import the
  * engine, so the union is re-declared here and MUST be kept in sync BY HAND
  * when the engine catalog changes (there is no automated drift check today).
@@ -241,6 +241,7 @@ export type OutboundEventType =
   | "contact.updated"
   | "contact.deleted"
   | "contact.unsubscribed"
+  | "contact.subscribed"
   | "email.sent"
   | "email.delivered"
   | "email.opened"
@@ -248,9 +249,15 @@ export type OutboundEventType =
   | "email.action"
   | "email.bounced"
   | "email.complained"
+  | "sms.sent"
+  | "sms.delivered"
+  | "sms.failed"
+  | "sms.clicked"
   | "journey.completed"
   | "bucket.entered"
-  | "bucket.left";
+  | "bucket.left"
+  | "link.clicked"
+  | "link.arrived";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed

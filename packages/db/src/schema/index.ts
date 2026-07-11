@@ -25,6 +25,8 @@ export * from "./link-clicks.js";
 export * from "./links.js";
 export * from "./provider-credentials.js";
 export * from "./relations.js";
+export * from "./sms-sends.js";
+export * from "./sms-suppressions.js";
 export * from "./tracked-links.js";
 export * from "./user-events.js";
 export * from "./webhook-deliveries.js";

@@ -55,7 +55,9 @@ Created at send time. Plain links dedupe by URL; two semantic links sharing an
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key — used in tracking URL |
-| `email_send_id` | UUID | FK → `email_sends` |
+| `email_send_id` | UUID | FK → `email_sends` (NULL for non-email links) |
+| `sms_send_id` | UUID | FK → `sms_sends` (SMS short links; NULL otherwise) |
+| `short_code` | TEXT | The `/s/:code` handle (SMS-minted rows only; partial unique) |
 | `original_url` | TEXT | The original destination URL |
 | `click_count` | INTEGER | Denormalized click counter |
 | `event` | TEXT | Semantic event name (NULL for plain links) |
@@ -149,6 +151,16 @@ URL: `https://<host>/l/black-friday`.
   same `link_clicks` row, same counter, same events — so counts never split by
   entry path. Unknown/malformed slugs redirect to `API_PUBLIC_URL`
 - Responses carry `slug` + `vanityUrl` (`${API_PUBLIC_URL}/l/:slug`)
+
+### SMS short links — `/s/:code`
+
+The SMS channel mints per-send short links (8-char crypto-random codes on
+`tracked_links.short_code`, `sms_send_id` FK) when the tracked SMS sender
+rewrites bare URLs in a rendered body. `GET /s/:code` (root-mounted,
+unauthenticated) runs the SAME click pipeline: per-hit `link_clicks` +
+`clickCount`, first-touch `sms_sends.clicked_at`, the per-hit `sms.clicked`
+outbound event, and the `sms.link_clicked` bus re-ingest for journeys
+(bot-gated). Full documentation: `docs/sms.md` § Link tracking.
 
 ### QR codes — `GET /v1/admin/links/:id/qr`
 

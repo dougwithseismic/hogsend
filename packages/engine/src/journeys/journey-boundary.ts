@@ -146,10 +146,14 @@ export function supportsEviction(hatchetCtx: unknown): boolean {
 }
 
 /** The kind of side effect a key is derived for — keeps the namespaces apart. */
-export type JourneyKeyKind = "send" | "trigger" | "connector";
+export type JourneyKeyKind = "send" | "smsSend" | "trigger" | "connector";
 
 const KEY_PREFIX: Record<JourneyKeyKind, string> = {
   send: "journeySend",
+  // Disjoint from `send` so a `sendEmail("x")` and a `sendSms("x")` under the
+  // SAME nearest wait label derive DIFFERENT keys and never collide in
+  // registerKey — email + SMS of the same template on one branch is legitimate.
+  smsSend: "journeySmsSend",
   trigger: "journeyTrigger",
   connector: "journeyConnector",
 };

@@ -8,6 +8,7 @@
     "event-naming",
     "webhook-sources",
     "email",
+    "sms",
     "semantic-links",
     "link-tracking",
     "lists",
