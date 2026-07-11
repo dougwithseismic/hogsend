@@ -106,6 +106,10 @@ const PANELS: readonly { id: PanelId; label: string }[] = [
   { id: "discord", label: "Discord" },
 ] as const;
 
+/** Channels on the roadmap — rendered as disabled "soon" tabs beside the live
+ * surfaces so the multi-channel reach reads even before each one is wired in. */
+const SOON_PANELS = ["Slack", "SMS", "Voice agent"] as const;
+
 export function InAppDemoLive({
   signedUp,
   name,
@@ -451,7 +455,7 @@ export function InAppDemoLive({
       <div
         role="tablist"
         aria-label="Where it lands"
-        className="flex items-center gap-6 border-white/[0.08] border-b px-6"
+        className="flex items-center gap-x-4 overflow-x-auto border-white/[0.08] border-b px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {PANELS.map((p) => {
           const isActive = panel === p.id;
@@ -465,7 +469,7 @@ export function InAppDemoLive({
               aria-controls={`live-demo-panel-${p.id}`}
               onClick={() => selectPanel(p.id)}
               className={cn(
-                "-mb-px border-b py-3 text-sm tracking-[-0.02em] transition-colors",
+                "-mb-px shrink-0 border-b py-3 text-sm tracking-[-0.02em] transition-colors",
                 isActive
                   ? "border-accent text-white"
                   : "border-transparent text-white/50 hover:text-white",
@@ -475,6 +479,22 @@ export function InAppDemoLive({
             </button>
           );
         })}
+        {SOON_PANELS.map((label) => (
+          <button
+            key={label}
+            type="button"
+            role="tab"
+            aria-disabled="true"
+            disabled
+            title="Coming soon"
+            className="-mb-px flex shrink-0 cursor-not-allowed items-baseline gap-1 border-transparent border-b py-3 text-sm text-white/30 tracking-[-0.02em]"
+          >
+            {label}
+            <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.06em]">
+              soon
+            </span>
+          </button>
+        ))}
       </div>
       <div
         role="tabpanel"
