@@ -157,6 +157,18 @@ function enginePackagesFromDisk() {
  */
 const ENGINE_LINE = enginePackagesFromDisk();
 
+/**
+ * Read `packages/<name>/package.json` for each name, run `predicate(pkg)`,
+ * and flatten the resulting offender strings (predicate returns `[]` for a
+ * clean package). Shared by the per-package checks below so each stays just
+ * its predicate instead of re-deriving the read/loop/collect boilerplate.
+ */
+function scanPackages(names, predicate) {
+  return names.flatMap((n) =>
+    predicate(readJson(`packages/${n}/package.json`)),
+  );
+}
+
 /** Each check returns null when satisfied, or a precise violation string. */
 const checks = [
   {
@@ -245,16 +257,44 @@ const checks = [
   {
     name: "no @hogsend/* in any publishable package's peerDependencies (force-major trap)",
     fn: () => {
-      const offenders = [];
-      for (const n of ENGINE_LINE) {
-        const pkg = readJson(`packages/${n}/package.json`);
+      const offenders = scanPackages(ENGINE_LINE, (pkg) => {
         const peers = Object.keys(pkg.peerDependencies || {}).filter((k) =>
           k.startsWith("@hogsend/"),
         );
-        if (peers.length)
-          offenders.push(`${pkg.name} peerDeps: ${peers.join(", ")}`);
-      }
+        return peers.length
+          ? [`${pkg.name} peerDeps: ${peers.join(", ")}`]
+          : [];
+      });
       return offenders.length === 0 ? null : offenders.join("; ");
+    },
+  },
+  {
+    // Packages that ship raw `.ts` source (main/types point straight at
+    // `src/`, no build step emitting a `.d.ts` boundary — @hogsend/engine,
+    // @hogsend/cli, ...) are type-checked by the CONSUMER's own `tsc`, deep
+    // into node_modules. A `@types/*` package only in `devDependencies` never
+    // installs for a consumer (devDeps don't propagate), so the moment
+    // reachable source imports a runtime dep whose types live in
+    // `devDependencies`, every downstream consumer's `check-types` breaks the
+    // next time it bumps past that release — while THIS repo's own
+    // check-types stays green (its devDependency is right there). Hit by
+    // @hogsend/engine's `qrcode` import (vanity-links/QR, #385): `hogsend
+    // upgrade` broke pre-existing consumers even though CI was green.
+    name: "raw-source packages keep @types/* alongside their base runtime dep (not devDependencies)",
+    fn: () => {
+      const offenders = scanPackages(ENGINE_LINE, (pkg) => {
+        const entry = pkg.types || pkg.main || "";
+        const isRawSource = /\.tsx?$/.test(entry) && !entry.endsWith(".d.ts");
+        if (!isRawSource) return [];
+        const deps = new Set(Object.keys(pkg.dependencies || {}));
+        const bad = Object.keys(pkg.devDependencies || {}).filter(
+          (k) => k.startsWith("@types/") && deps.has(k.slice("@types/".length)),
+        );
+        return bad.length ? [`${pkg.name}: ${bad.join(", ")}`] : [];
+      });
+      return offenders.length === 0
+        ? null
+        : `move to "dependencies" (raw-source package, devDependencies never reach consumers): ${offenders.join("; ")}`;
     },
   },
   {
@@ -276,14 +316,14 @@ const checks = [
   {
     name: "public packages declare publishConfig.access=public; api stays private",
     fn: () => {
-      const errs = [];
-      for (const n of [...ENGINE_LINE, "create-hogsend"]) {
-        const pkg = readJson(`packages/${n}/package.json`);
+      const errs = scanPackages([...ENGINE_LINE, "create-hogsend"], (pkg) => {
+        const e = [];
         if (pkg.private)
-          errs.push(`${pkg.name} is private:true but should publish`);
+          e.push(`${pkg.name} is private:true but should publish`);
         if (pkg.publishConfig?.access !== "public")
-          errs.push(`${pkg.name} missing publishConfig.access:public`);
-      }
+          e.push(`${pkg.name} missing publishConfig.access:public`);
+        return e;
+      });
       if (!readJson("apps/api/package.json").private)
         errs.push("@hogsend/api must be private");
       return errs.length === 0 ? null : errs.join("; ");
