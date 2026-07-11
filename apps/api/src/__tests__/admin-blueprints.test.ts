@@ -20,7 +20,13 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { createApp, createHogsendClient } = await import("@hogsend/engine");
+const {
+  createApp,
+  createHogsendClient,
+  enableBlueprint,
+  promoteBlueprint,
+  updateBlueprint,
+} = await import("@hogsend/engine");
 const { journeyBlueprints, journeyStates } = await import("@hogsend/db");
 const { eq, like } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
@@ -122,6 +128,27 @@ function nudgeGraph(blueprintId: string) {
         kind: "conditional-false",
       },
       { id: "e5", source: "send-nudge", target: "end-ok" },
+    ],
+  };
+}
+
+/** Minimal graph with a trigger node: enroll → trigger(event) → end. */
+function triggerGraph(blueprintId: string, event: string) {
+  return {
+    journeyId: blueprintId,
+    nodes: [
+      { id: "start", type: "start", title: `${RUN}.enroll` },
+      {
+        id: "fire-event",
+        type: "trigger",
+        title: "Fire event",
+        meta: { event },
+      },
+      { id: "end-ok", type: "end-completed", title: "Done" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "fire-event" },
+      { id: "e2", source: "fire-event", target: "end-ok" },
     ],
   };
 }
@@ -263,6 +290,76 @@ describe("POST /v1/admin/blueprints", () => {
     );
     expect(issue).toBeDefined();
     expect(issue.message).toContain("discord:noSuchAction");
+  });
+
+  it("422s a reserved-namespace triggerEvent — engine events cannot trigger a blueprint", async () => {
+    const id = `${RUN}-reserved-trigger`;
+    const res = await createBlueprint(id, { triggerEvent: "email.opened" });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const issue = body.issues.find(
+      (i: { code: string }) => i.code === "reserved_event",
+    );
+    expect(issue).toBeDefined();
+    expect(issue.path).toEqual(["triggerEvent"]);
+
+    // Nothing was saved.
+    const getRes = await app.request(`/v1/admin/blueprints/${id}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(getRes.status).toBe(404);
+  });
+
+  it("422s a trigger NODE that forges a reserved-namespace event", async () => {
+    const id = `${RUN}-reserved-node`;
+    const res = await createBlueprint(id, {
+      graph: triggerGraph(id, "journey:completed"),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const issue = body.issues.find(
+      (i: { code: string }) => i.code === "reserved_event",
+    );
+    expect(issue).toBeDefined();
+    expect(issue.nodeId).toBe("fire-event");
+  });
+
+  it("400s an empty {} entryPeriod — it would silently disable once_per_period", async () => {
+    const id = `${RUN}-empty-period`;
+    const res = await createBlueprint(id, {
+      entryLimit: "once_per_period",
+      entryPeriod: {},
+    });
+    expect(res.status).toBe(400);
+
+    // Omitting entryPeriod stays legal (checkEntryLimit defaults to 24h).
+    const omitted = await createBlueprint(id, {
+      entryLimit: "once_per_period",
+    });
+    expect(omitted.status).toBe(201);
+  });
+
+  it("400s a zero-value entryPeriod — durationToMs === 0 degrades once_per_period to unlimited", async () => {
+    // Key presence alone is not enough: { hours: 0 } / { seconds: 0 } still
+    // yields a zero cutoff, so the refine must reject non-positive durations.
+    for (const entryPeriod of [
+      { hours: 0 },
+      { seconds: 0 },
+      { hours: 0, minutes: 0, seconds: 0 },
+    ]) {
+      const res = await createBlueprint(`${RUN}-zero-period`, {
+        entryLimit: "once_per_period",
+        entryPeriod,
+      });
+      expect(res.status).toBe(400);
+    }
+
+    // A positive partial-zero duration stays legal.
+    const ok = await createBlueprint(`${RUN}-pos-period`, {
+      entryLimit: "once_per_period",
+      entryPeriod: { hours: 0, minutes: 30 },
+    });
+    expect(ok.status).toBe(201);
   });
 
   it("409s on a duplicate blueprint id", async () => {
@@ -453,6 +550,28 @@ describe("PATCH /v1/admin/blueprints/:id", () => {
       (n: { id: string }) => n.id === "sleep-3d",
     );
     expect(sleep.meta.duration).toEqual({ hours: 24 });
+  });
+
+  it("422s patching triggerEvent into a reserved namespace, leaving the row untouched", async () => {
+    const id = `${RUN}-patch-reserved`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    const res = await app.request(`/v1/admin/blueprints/${id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ triggerEvent: "journey:completed" }),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.issues[0]).toMatchObject({
+      code: "reserved_event",
+      path: ["triggerEvent"],
+    });
+
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${id}`, { headers: AUTH_HEADER })
+    ).json();
+    expect(detail.blueprint.triggerEvent).toBe(`${RUN}.enroll`);
   });
 
   it("rejects an invalid graph with 422 and leaves the row untouched", async () => {
@@ -773,6 +892,83 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
       })
     ).json();
     expect(detail.blueprint.name).not.toBe("Renamed after promotion");
+  });
+
+  it("rejects a direct updateBlueprint on a promoted blueprint (structured 'promoted', both paths)", async () => {
+    // Reuse the `${RUN}-promote` row promoted earlier in this describe.
+    const metaEdit = await updateBlueprint({
+      container,
+      id: `${RUN}-promote`,
+      patch: { name: "Direct rename attempt" },
+    });
+    expect(metaEdit.ok).toBe(false);
+    if (metaEdit.ok) throw new Error("expected metadata update to be refused");
+    expect(metaEdit.code).toBe("promoted");
+
+    // A graph edit is frozen the same way — a promoted blueprint is read-only.
+    const graphEdit = await updateBlueprint({
+      container,
+      id: `${RUN}-promote`,
+      patch: { graph: nudgeGraph(`${RUN}-promote`) },
+    });
+    expect(graphEdit.ok).toBe(false);
+    if (graphEdit.ok) throw new Error("expected graph update to be refused");
+    expect(graphEdit.code).toBe("promoted");
+  });
+});
+
+describe("blueprint service guards — enable/update races (direct calls)", () => {
+  it("refuses to re-enable a promoted blueprint (direct promote→enable sequence)", async () => {
+    const id = `${RUN}-svc-enable-promoted`;
+    expect((await createBlueprint(id, { status: "enabled" })).status).toBe(201);
+
+    const promoted = await promoteBlueprint({
+      container,
+      id,
+      journeyId: `${id}-code`,
+    });
+    expect(promoted.ok).toBe(true);
+
+    // The blind status='enabled' write is guarded on promotedAt IS NULL, so a
+    // promoted row can never be re-enabled even by calling the service directly.
+    const enabled = await enableBlueprint({ container, id });
+    expect(enabled.ok).toBe(false);
+    if (enabled.ok) throw new Error("expected enable to be refused");
+    expect(enabled.code).toBe("promoted");
+  });
+
+  it("returns exactly one version_conflict when two graph edits race", async () => {
+    const id = `${RUN}-svc-version-race`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    const editA = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (editA.nodes[1] as any).meta = { duration: { hours: 24 } };
+    const editB = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (editB.nodes[1] as any).meta = { duration: { hours: 48 } };
+
+    // Both calls read version 1 before either transaction begins; the
+    // blueprint-keyed advisory lock then serializes the two writes, and the
+    // loser's `version = 1` predicate matches zero rows once the winner bumped
+    // to 2 — a structured `version_conflict` instead of a silent lost update.
+    const results = await Promise.all([
+      updateBlueprint({ container, id, patch: { graph: editA } }),
+      updateBlueprint({ container, id, patch: { graph: editB } }),
+    ]);
+
+    const winners = results.filter((r) => r.ok);
+    const conflicts = results.filter(
+      (r) => !r.ok && r.code === "version_conflict",
+    );
+    expect(winners).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+
+    // Version bumped exactly once — no double bump under the race.
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${id}`, { headers: AUTH_HEADER })
+    ).json();
+    expect(detail.blueprint.version).toBe(2);
   });
 });
 

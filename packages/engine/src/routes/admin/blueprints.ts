@@ -81,13 +81,20 @@ const invalidGraphSchema = z.object({
 
 /**
  * 409 body: the neutral error message PLUS the machine-readable service `code`
- * (`conflict` | `in_flight` | `promoted` | `already_promoted`). A programmatic
- * caller (e.g. `@hogsend/mcp`) branches on `code` instead of sniffing the
- * message. `error` stays present and unchanged for existing consumers.
+ * (`conflict` | `in_flight` | `promoted` | `already_promoted` |
+ * `version_conflict`). A programmatic caller (e.g. `@hogsend/mcp`) branches on
+ * `code` instead of sniffing the message. `error` stays present and unchanged
+ * for existing consumers.
  */
 const conflictSchema = z.object({
   error: z.string(),
-  code: z.enum(["conflict", "in_flight", "promoted", "already_promoted"]),
+  code: z.enum([
+    "conflict",
+    "in_flight",
+    "promoted",
+    "already_promoted",
+    "version_conflict",
+  ]),
 });
 
 /** The dry-run validate report — 200 either way (a failed validation is a
@@ -285,7 +292,9 @@ const patchRouteDef = createRoute({
     409: {
       content: { "application/json": { schema: conflictSchema } },
       description:
-        "Graph change rejected — the blueprint has active/waiting enrollments",
+        "Graph change rejected — the blueprint has active/waiting " +
+        "enrollments, was promoted to code, or was edited concurrently " +
+        "(version conflict — re-read and retry)",
     },
     422: {
       content: { "application/json": { schema: invalidGraphSchema } },
@@ -624,7 +633,11 @@ blueprintsRouter.openapi(patchRouteDef, async (c) => {
     if (result.code === "invalid_graph") {
       return c.json({ error: result.error, issues: result.issues }, 422);
     }
-    if (result.code === "in_flight" || result.code === "promoted") {
+    if (
+      result.code === "in_flight" ||
+      result.code === "promoted" ||
+      result.code === "version_conflict"
+    ) {
       return c.json({ error: result.error, code: result.code }, 409);
     }
     return c.json({ error: result.error }, 404);

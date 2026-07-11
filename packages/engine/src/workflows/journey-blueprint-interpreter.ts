@@ -5,9 +5,11 @@ import {
   BlueprintUnreachableNodeError,
   type DurationObject,
   evaluateCondition,
+  isReservedEventName,
   type JourneyEdge,
   type JourneyNode,
   type PropertyCondition,
+  RESERVED_EVENT_NAMESPACES,
   serializeBlueprintError,
   validateBlueprintGraph,
 } from "@hogsend/core";
@@ -310,6 +312,17 @@ export async function walkBlueprintGraph(
           "event",
           node.meta?.event,
         );
+        // Save-time validation rejects reserved namespaces since the check
+        // was added, but the graph column is jsonb — a row saved BEFORE the
+        // rule (or written out-of-band) must still never forge an
+        // engine-emitted event through the ingest pipeline.
+        if (isReservedEventName(event)) {
+          throw new BlueprintNodeExecutionError(
+            blueprintId,
+            node.id,
+            `trigger node event "${event}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")})`,
+          );
+        }
         await ctx.trigger({
           event,
           userId: user.id,
@@ -358,37 +371,12 @@ export async function walkBlueprintGraph(
         // code journey's run() returning normally.
         return null;
 
-      case "end-exited": {
-        // Terminal: flip the row terminal the same way checkExits does, then
-        // abort the run via the SAME control-flow signal a mid-wait exit
-        // uses — the lifecycle catch maps it to { status: "exited" } without
-        // a "failed" write or a journey:failed push. Idempotent on replay
-        // (the guarded update no-ops once terminal).
-        const [exited] = await db
-          .update(journeyStates)
-          .set({
-            status: "exited",
-            exitedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(journeyStates.id, user.stateId),
-              notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
-            ),
-          )
-          .returning({ id: journeyStates.id });
-        if (exited) {
-          logTransition({
-            db,
-            journeyStateId: user.stateId,
-            from: null,
-            to: "end-exited",
-            action: "exited",
-          });
-        }
-        throw new JourneyExitedError(user.stateId);
-      }
+      case "end-exited":
+        // Terminal "exited": the SAME primitive a code journey (and promoted
+        // blueprint code) calls — a guarded flip to "exited" plus the
+        // JourneyExitedError the lifecycle maps to { status: "exited" } without
+        // a "failed" write or a journey:failed push. One mechanism, not two.
+        return ctx.exit();
 
       case "end-failed":
         // Terminal: matches a code journey's thrown error — the lifecycle
@@ -460,6 +448,75 @@ export async function walkBlueprintGraph(
 }
 
 /**
+ * A REPLAY (resume recovered by run id) that can no longer execute — the
+ * blueprint row vanished, or its stored graph now fails execution-time
+ * re-validation — must FAIL the recovered enrollment, not return `skipped`
+ * and leave a waiting/active row stranded non-terminal forever. Recovery is by
+ * the replay-stable Hatchet run id + journeyId, exactly as `executeJourneyRun`
+ * recovers an enrollment; a FRESH (never-enrolled) dispatch recovers nothing
+ * and the caller keeps returning `skipped` unchanged.
+ *
+ * Mirrors the failed path in `executeJourneyRun`: a guarded flip to "failed"
+ * (`notInArray(TERMINAL_STATUSES)`, so an already-terminal row is never
+ * clobbered) plus the same `journey:failed` side effects (structured
+ * errorMessage, failed transition, event push). Returns whether an existing
+ * enrollment was recovered for this run.
+ */
+async function failRecoveredBlueprintEnrollment(opts: {
+  db: Database;
+  blueprintId: string;
+  workflowRunId: string;
+  userId: string;
+  message: string;
+}): Promise<boolean> {
+  const { db, blueprintId, workflowRunId, userId, message } = opts;
+  if (!workflowRunId) return false;
+
+  const recovered = await db.query.journeyStates.findFirst({
+    where: and(
+      eq(journeyStates.hatchetRunId, workflowRunId),
+      eq(journeyStates.journeyId, blueprintId),
+    ),
+  });
+  if (!recovered) return false;
+
+  const [failed] = await db
+    .update(journeyStates)
+    .set({ status: "failed", errorMessage: message, updatedAt: new Date() })
+    .where(
+      and(
+        eq(journeyStates.id, recovered.id),
+        notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
+      ),
+    )
+    .returning({ id: journeyStates.id });
+  // Already terminal — nothing was stranded; the recovery still happened.
+  if (!failed) return true;
+
+  logger.error("blueprint replay failed the recovered enrollment", {
+    blueprintId,
+    stateId: recovered.id,
+    userId,
+    error: message,
+  });
+  logTransition({
+    db,
+    journeyStateId: recovered.id,
+    from: recovered.currentNodeId ?? null,
+    to: null,
+    action: "failed",
+    detail: { error: message },
+  });
+  await hatchet.events.push("journey:failed", {
+    journeyId: blueprintId,
+    stateId: recovered.id,
+    userId,
+    error: message,
+  });
+  return true;
+}
+
+/**
  * The event payload `checkBlueprintTriggers` pushes for each matching enabled
  * blueprint — one push per (blueprint, user) enrollment attempt.
  */
@@ -498,6 +555,11 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
   fn: async (input: BlueprintRunPayload, hatchetCtx) => {
     const db = getDb();
     const blueprintId = input.blueprintId as string;
+    // Recovery anchor: a REPLAY resumes under the SAME run id, so a blueprint
+    // that has since vanished / gone invalid must fail its recovered
+    // enrollment rather than strand it (see failRecoveredBlueprintEnrollment).
+    const workflowRunId = hatchetCtx.workflowRunId();
+    const userId = input.userId as string;
 
     const row = await db.query.journeyBlueprints.findFirst({
       where: eq(journeyBlueprints.id, blueprintId),
@@ -506,7 +568,21 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
       logger.warn("blueprint run skipped: blueprint not found", {
         blueprintId,
       });
-      return { status: "skipped", reason: "blueprint_not_found" };
+      const failed = await failRecoveredBlueprintEnrollment({
+        db,
+        blueprintId,
+        workflowRunId,
+        userId,
+        message: JSON.stringify(
+          serializeBlueprintError(
+            blueprintId,
+            new Error("blueprint row not found at execution time"),
+          ),
+        ),
+      });
+      return failed
+        ? { status: "failed", reason: "blueprint_not_found" }
+        : { status: "skipped", reason: "blueprint_not_found" };
     }
 
     // Defense-in-depth (spec §6): a saved blueprint already passed
@@ -518,7 +594,21 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
         "blueprint run skipped: stored graph failed execution-time validation",
         { blueprintId, issues: validated.issues },
       );
-      return { status: "skipped", reason: "invalid_blueprint_graph" };
+      const failed = await failRecoveredBlueprintEnrollment({
+        db,
+        blueprintId,
+        workflowRunId,
+        userId,
+        message: JSON.stringify(
+          serializeBlueprintError(
+            blueprintId,
+            new Error("stored graph failed execution-time re-validation"),
+          ),
+        ),
+      });
+      return failed
+        ? { status: "failed", reason: "invalid_blueprint_graph" }
+        : { status: "skipped", reason: "invalid_blueprint_graph" };
     }
 
     // Version pin (spec §12): the version this run enrolled under, recorded
@@ -551,6 +641,11 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
       } satisfies EventPayloadInput,
       hatchetCtx,
       extraContext: { __blueprintVersion: enrolledVersion },
+      // Serialize this enrollment insert against a concurrent graph edit
+      // (updateBlueprint takes the SAME advisory lock around its in-flight
+      // count + update) so the run cannot become active between that count and
+      // the graph write — the desync window the in-flight gate exists to close.
+      serializeEnrollment: true,
       // Structured errorMessage (spec §6.1): { blueprintId, nodeId, message }
       // as JSON in the SAME journeyStates.errorMessage field code journeys
       // use, so Studio's error display needs no blueprint-specific branching.

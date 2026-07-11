@@ -50,6 +50,7 @@ Only `EventCondition` decision nodes (`exists`/`not_exists`/`count`) compile to 
 | `--dry-run` | Print the generated file(s) and stop — no git branch, no writes, no promote calls. |
 | `--branch <name>` | Branch to create (default: `promote-blueprint-<id>`, or a timestamped name for a batch). |
 | `--journey-id <id>` | Id for the generated journey (`meta.id`, export name, file name). Only valid when promoting exactly one blueprint; defaults to the blueprint id. |
+| `--allow-reenrollment` | Required alongside `--journey-id` when the new id differs from the blueprint id. The blueprint id **is** the journey id, so renaming it discards the `entryLimit: "once"` history and re-enrolls (re-emails) everyone who already completed the blueprint — pass this to do it intentionally. |
 | `-h, --help` | Show this help. |
 
 ### Examples

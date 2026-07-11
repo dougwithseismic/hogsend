@@ -603,13 +603,45 @@ export type BlueprintDetail = BlueprintBase & {
   recentStates: JourneyState[];
 };
 
-export function listBlueprints() {
-  return api.get<{
-    blueprints: BlueprintListItem[];
-    total: number;
-    limit: number;
-    offset: number;
-  }>("/v1/admin/blueprints", { query: { limit: 100 } });
+/** `paginationQuerySchema.max(100)` is the route's hard per-page ceiling. */
+const BLUEPRINT_PAGE_SIZE = 100;
+/** Stop after this many pages so a runaway total can't hammer the API. */
+const BLUEPRINT_MAX_PAGES = 10;
+
+export type BlueprintListResult = {
+  blueprints: BlueprintListItem[];
+  /** Server-reported grand total (may exceed `blueprints.length` if capped). */
+  total: number;
+  /** True when the hard page cap was hit before `total` was fully fetched. */
+  truncated: boolean;
+};
+
+/**
+ * Page through `GET /v1/admin/blueprints` (per-page max 100) up to a hard cap
+ * so blueprint 101+ isn't silently dropped. `truncated` lets the caller flag
+ * that more rows exist than were fetched instead of showing a short list.
+ */
+export async function listBlueprints(): Promise<BlueprintListResult> {
+  const blueprints: BlueprintListItem[] = [];
+  let total = 0;
+  for (let page = 0; page < BLUEPRINT_MAX_PAGES; page++) {
+    const res = await api.get<{
+      blueprints: BlueprintListItem[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>("/v1/admin/blueprints", {
+      query: {
+        limit: BLUEPRINT_PAGE_SIZE,
+        offset: page * BLUEPRINT_PAGE_SIZE,
+      },
+    });
+    total = res.total;
+    blueprints.push(...res.blueprints);
+    if (res.blueprints.length < BLUEPRINT_PAGE_SIZE) break;
+    if (blueprints.length >= total) break;
+  }
+  return { blueprints, total, truncated: blueprints.length < total };
 }
 
 export function getBlueprint(id: string) {

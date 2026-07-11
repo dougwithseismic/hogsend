@@ -107,6 +107,21 @@ function str(value: string): string {
 }
 
 /**
+ * Neutralize a blueprint-controlled string before interpolating it into a
+ * GENERATED comment. Node ids, condition types, and the condition-JSON echo are
+ * only `z.string().min(1)`: a value carrying a block-comment terminator would
+ * escape the surrounding block comment (an id like `x` + terminator + `||true`
+ * disguises an always-true branch as a comment), and a line terminator would
+ * end a `//` line comment and smuggle code onto the next line. This splits the
+ * terminator and folds every JS line terminator (CR, LF, U+2028, U+2029) plus
+ * tabs to a space, so the interpolated text can never leave comment syntax — at
+ * EVERY comment emission site.
+ */
+function commentSafe(value: string): string {
+  return value.replace(/[\r\n\u2028\u2029\t]/g, " ").replace(/\*\//g, "*\\/");
+}
+
+/**
  * A duration object literal with canonical key order — `{ hours: 48 }`,
  * `{ hours: 1, minutes: 30 }`, or `{}` (a zero/disabled duration).
  */
@@ -196,10 +211,16 @@ export function compileCondition(
   if (condition.type === "event") {
     return { expression: compileEventCondition(condition), comments: [] };
   }
-  const marker = `TODO(promote-to-code): manually port this "${condition.type}" condition from blueprint node "${nodeId}"`;
+  // Both `condition.type` and `nodeId` are blueprint-controlled and land inside
+  // comments (the inline block-comment stub AND the `//` marker line), so they
+  // are sanitized before interpolation; likewise the raw-JSON echo.
+  const marker = `TODO(promote-to-code): manually port this "${commentSafe(condition.type)}" condition from blueprint node "${commentSafe(nodeId)}"`;
   return {
     expression: `false /* ${marker} — see the raw JSON in the comment above */`,
-    comments: [`// ${marker} — raw JSON:`, `// ${JSON.stringify(condition)}`],
+    comments: [
+      `// ${marker} — raw JSON:`,
+      `// ${commentSafe(JSON.stringify(condition))}`,
+    ],
   };
 }
 
@@ -319,10 +340,23 @@ function emitChain(
       return emitChain(walk, singleTarget(walk, node), depth, nextPath);
 
     case "end-completed":
-    case "end-exited":
-    case "end-failed":
-      // Terminal: returning from run() completes the enrollment.
+      // Terminal: running off the end of run() completes the enrollment
+      // (status "completed" + journey:completed) — same as the interpreter.
       return [];
+
+    case "end-exited":
+      // Terminal: ctx.exit() flips the enrollment "exited" and aborts cleanly
+      // — NO journey:completed / journey:failed — mirroring the interpreter's
+      // end-exited node. A plain return would wrongly complete this branch.
+      return [`${ind}await ctx.exit();`];
+
+    case "end-failed": {
+      // Terminal: a thrown error marks the enrollment "failed" and emits
+      // journey:failed, exactly as the interpreter's end-failed node does. A
+      // plain return would wrongly complete this branch.
+      const message = `journey reached the "${node.id}" end-failed terminal`;
+      return [`${ind}throw new Error(${str(message)});`];
+    }
 
     case "sleep":
       return continueFrom(walk, node, depth, nextPath, [
@@ -335,8 +369,11 @@ function emitChain(
       ]);
 
     case "trigger":
+      // userEmail + idempotencyLabel mirror the interpreter's ctx.trigger:
+      // userEmail scopes the pushed event to this user, and the node id keys
+      // the exactly-once so a replay re-pushing this trigger is a no-op.
       return continueFrom(walk, node, depth, nextPath, [
-        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id });`,
+        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id, userEmail: user.email, idempotencyLabel: ${str(node.id)} });`,
       ]);
 
     case "send": {
@@ -348,34 +385,26 @@ function emitChain(
         `${ind}${INDENT}journeyStateId: user.stateId,`,
         `${ind}${INDENT}journeyName: user.journeyName,`,
         `${ind}${INDENT}template: ${str(node.meta.template)},`,
+        // Pass the enrolling user's properties so the template renders
+        // personalized, exactly as the interpreter's send does.
+        `${ind}${INDENT}props: user.properties,`,
+        // Always label the send (author's label ?? the node id), exactly as the
+        // interpreter does — so two sends of the SAME template on divergent
+        // branches derive DISTINCT exactly-once keys instead of colliding (the
+        // engine throws an intra-run key-collision otherwise).
+        `${ind}${INDENT}idempotencyLabel: ${str(node.meta.idempotencyLabel ?? node.id)},`,
+        `${ind}});`,
       ];
-      if (node.meta.idempotencyLabel !== undefined) {
-        lines.push(
-          `${ind}${INDENT}idempotencyLabel: ${str(node.meta.idempotencyLabel)},`,
-        );
-      }
-      lines.push(`${ind}});`);
       return continueFrom(walk, node, depth, nextPath, lines);
     }
 
-    case "connector": {
+    case "connector":
       walk.usesConnector = true;
-      const args = [
-        `connectorId: ${str(node.meta.connectorId)}`,
-        `action: ${str(node.meta.action)}`,
-      ];
-      // Not in the blueprint connector meta schema (v1), but honored if a
-      // future vocabulary version carries it.
-      const { idempotencyLabel } = node.meta as typeof node.meta & {
-        idempotencyLabel?: string;
-      };
-      if (idempotencyLabel !== undefined) {
-        args.push(`idempotencyLabel: ${str(idempotencyLabel)}`);
-      }
+      // idempotencyLabel = the node id, exactly as the interpreter passes it
+      // (connector meta carries no label in v1) — branch-stable exactly-once.
       return continueFrom(walk, node, depth, nextPath, [
-        `${ind}await sendConnectorAction({ ${args.join(", ")} });`,
+        `${ind}await sendConnectorAction({ connectorId: ${str(node.meta.connectorId)}, action: ${str(node.meta.action)}, idempotencyLabel: ${str(node.id)} });`,
       ]);
-    }
 
     case "wait": {
       const out = outgoingEdges(walk, node.id);
@@ -432,12 +461,22 @@ function emitChain(
       );
       const comments = compiled.flatMap((c) => c.comments);
       const expression = compiled.map((c) => c.expression).join(" && ");
+      // Record the verdict via ctx.once (key `decision:<nodeId>`, exactly the
+      // interpreter's key shape): a decision may read live DB state (event
+      // conditions), and a replay re-evaluating it could flip the branch —
+      // diverging the positional durable journal AND the downstream template
+      // choice. Wrapping freezes the verdict on first evaluation. The TODO-stub
+      // (`false`) case is wrapped identically so the structure is uniform.
+      const varName = uniqueVarName(`decision-${node.id}`, walk.usedVarNames);
       return [
         ...comments.map((comment) => `${ind}${comment}`),
+        `${ind}const ${varName} = await ctx.once(${str(`decision:${node.id}`)}, async () => {`,
+        `${ind}${INDENT}return ${expression};`,
+        `${ind}});`,
         ...emitIfElse(
           walk,
           ind,
-          expression,
+          varName,
           trueEdge.target,
           falseEdge.target,
           depth,
@@ -558,7 +597,8 @@ export function generateJourneyFile(
     `import { ${imports.join(", ")} } from "@hogsend/engine";`,
     "",
     "/**",
-    ` * Generated from Journey Blueprint ${str(blueprint.id)} (promote to code).`,
+    // blueprint.id is blueprint-controlled and lands inside this block comment.
+    ` * Generated from Journey Blueprint ${commentSafe(str(blueprint.id))} (promote to code).`,
     " *",
     " * Event names and template keys are emitted as literal strings — swap them",
     " * for your Events/Templates constants if you keep those. Resolve any",

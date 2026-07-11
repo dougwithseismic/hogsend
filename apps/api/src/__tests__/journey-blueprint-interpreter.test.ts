@@ -382,6 +382,51 @@ describe("journeyBlueprintInterpreter — tree-walk end-to-end", () => {
     expect(providerSends).toHaveLength(1);
   });
 
+  it("throws at the trigger node when a legacy row forges a reserved-namespace event", async () => {
+    // Rows saved BEFORE the save-time reserved-namespace rule (or written
+    // out-of-band) still pass core's validateBlueprintGraph — the walk itself
+    // must refuse to push an engine-emitted event through ctx.trigger.
+    const badId = `${RUN}-bp-reserved`;
+    const userId = `${RUN}-reserved`;
+    await insertBlueprint({
+      id: badId,
+      graph: {
+        journeyId: badId,
+        nodes: [
+          { id: "start", type: "start", title: "enroll" },
+          {
+            id: "fire-reserved",
+            type: "trigger",
+            title: "Forge engine event",
+            meta: { event: "journey:completed" },
+          },
+          { id: "end-ok", type: "end-completed", title: "Done" },
+        ],
+        edges: [
+          { id: "e1", source: "start", target: "fire-reserved" },
+          { id: "e2", source: "fire-reserved", target: "end-ok" },
+        ],
+      },
+    });
+
+    await expect(
+      interpreterFn()(
+        input(userId, { blueprintId: badId }),
+        makeHatchetCtx(`${RUN}-wfr-reserved`),
+      ),
+    ).rejects.toThrow(/reserved namespace/);
+
+    // The run failed AT the trigger node with the structured error shape.
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
+    const err = JSON.parse(state?.errorMessage ?? "{}");
+    expect(err.nodeId).toBe("fire-reserved");
+    expect(err.message).toContain("reserved namespace");
+  });
+
   it("re-validates the stored graph at execution time (defense-in-depth) and skips unknown blueprints", async () => {
     // A digest node is display-tier-only: validateBlueprintGraph rejects it,
     // so a jsonb graph that bypassed save-time validation must NOT execute.
@@ -420,6 +465,144 @@ describe("journeyBlueprintInterpreter — tree-walk end-to-end", () => {
       .from(journeyStates)
       .where(like(journeyStates.userId, `${RUN}-bad%`));
     expect(states).toHaveLength(0);
+  });
+
+  it("fails (not strands) a recovered enrollment when the blueprint row vanished on replay", async () => {
+    // A run suspended mid-graph resumes under the SAME run id, but the
+    // blueprint row was deleted in the meantime: the recovery-by-run-id path
+    // finds the waiting enrollment and the fn must flip it "failed", never
+    // leave it stranded non-terminal.
+    const goneId = `${RUN}-bp-gone`;
+    const userId = `${RUN}-gone`;
+    const wfr = `${RUN}-wfr-gone`;
+    await db.insert(journeyStates).values({
+      userId,
+      userEmail: `${userId}@example.com`,
+      journeyId: goneId,
+      currentNodeId: "sleep-3d",
+      status: "waiting",
+      context: { __blueprintVersion: 1 },
+      hatchetRunId: wfr,
+    });
+
+    const result = (await interpreterFn()(
+      input(userId, { blueprintId: goneId }),
+      makeHatchetCtx(wfr),
+    )) as { status: string; reason: string };
+    expect(result).toEqual({ status: "failed", reason: "blueprint_not_found" });
+
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
+    const err = JSON.parse(state?.errorMessage ?? "{}");
+    expect(err.blueprintId).toBe(goneId);
+    expect(err.message).toContain("not found");
+  });
+
+  it("end-exited terminal exits the enrollment via ctx.exit (status exited, no fail/complete)", async () => {
+    const blueprintId = `${RUN}-bp-exit-node`;
+    const userId = `${RUN}-exit-node`;
+    await insertBlueprint({
+      id: blueprintId,
+      graph: {
+        journeyId: blueprintId,
+        nodes: [
+          { id: "start", type: "start", title: `${RUN}.enroll` },
+          { id: "bail", type: "end-exited", title: "Exit" },
+        ],
+        edges: [{ id: "e1", source: "start", target: "bail" }],
+      },
+    });
+
+    const result = (await interpreterFn()(
+      input(userId, { blueprintId }),
+      makeHatchetCtx(`${RUN}-wfr-exit-node`),
+    )) as { status: string };
+    expect(result.status).toBe("exited");
+
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("exited");
+    expect(state?.exitedAt).not.toBeNull();
+  });
+
+  it("end-failed terminal fails the enrollment (status failed + structured error)", async () => {
+    const blueprintId = `${RUN}-bp-fail-node`;
+    const userId = `${RUN}-fail-node`;
+    await insertBlueprint({
+      id: blueprintId,
+      graph: {
+        journeyId: blueprintId,
+        nodes: [
+          { id: "start", type: "start", title: `${RUN}.enroll` },
+          { id: "boom", type: "end-failed", title: "Fail" },
+        ],
+        edges: [{ id: "e1", source: "start", target: "boom" }],
+      },
+    });
+
+    await expect(
+      interpreterFn()(
+        input(userId, { blueprintId }),
+        makeHatchetCtx(`${RUN}-wfr-fail-node`),
+      ),
+    ).rejects.toThrow();
+
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
+    const err = JSON.parse(state?.errorMessage ?? "{}");
+    expect(err.nodeId).toBe("boom");
+  });
+
+  it("fails a recovered enrollment when the stored graph fails re-validation on replay", async () => {
+    // Same stranding hazard via the invalid-graph branch: the row was saved
+    // out-of-band with a display-tier node, and a replay must fail — not skip
+    // and strand — the recovered enrollment.
+    const badId = `${RUN}-bp-bad-replay`;
+    const userId = `${RUN}-bad-replay`;
+    const wfr = `${RUN}-wfr-bad-replay`;
+    await insertBlueprint({
+      id: badId,
+      graph: {
+        journeyId: badId,
+        nodes: [
+          { id: "start", type: "start", title: "enroll" },
+          { id: "digest-1", type: "digest", title: "Digest" },
+        ],
+        edges: [{ id: "e1", source: "start", target: "digest-1" }],
+      },
+    });
+    await db.insert(journeyStates).values({
+      userId,
+      userEmail: `${userId}@example.com`,
+      journeyId: badId,
+      currentNodeId: "start",
+      status: "active",
+      context: { __blueprintVersion: 1 },
+      hatchetRunId: wfr,
+    });
+
+    const result = (await interpreterFn()(
+      input(userId, { blueprintId: badId }),
+      makeHatchetCtx(wfr),
+    )) as { status: string; reason: string };
+    expect(result).toEqual({
+      status: "failed",
+      reason: "invalid_blueprint_graph",
+    });
+
+    const [state] = await db
+      .select({ status: journeyStates.status })
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
   });
 });
 
