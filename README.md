@@ -88,6 +88,16 @@ export const wentDormant = defineBucket({
 
 ---
 
+## Journey Blueprints
+
+Journeys don't have to live in code. A **Journey Blueprint** is a lifecycle journey authored as a JSON graph, stored in the database (`journey_blueprints`), and run by the engine's generic interpreter — it goes live the moment you enable it, no deploy. Blueprints run through the same enrollment guards, durable execution, and terminal states as code journeys; they exist so an agent or the admin API can author and change a journey at runtime.
+
+Author them with the [MCP server](https://docs.hogsend.com/docs/integrations/mcp) (`@hogsend/mcp`, the `manage_blueprint` tool) or the `/v1/admin/blueprints` API; Studio observes them and toggles enable/disable (it doesn't author). When one has proven itself, `hogsend blueprints promote` turns it into a real `defineJourney()` file and freezes the blueprint — the committed code becomes the source of truth.
+
+> Full guide: **[Journey Blueprints](https://docs.hogsend.com/docs/guides/journey-blueprints)** | **[MCP server](https://docs.hogsend.com/docs/integrations/mcp)**
+
+---
+
 ## Sources & destinations
 
 Hogsend sits between whatever emits events and wherever you want them to land. Journeys and buckets are the reactive middle.
@@ -328,6 +338,7 @@ curl -H "Authorization: Bearer $ADMIN_API_KEY" \
 | Product analytics | PostHog (`@hogsend/plugin-posthog`) |
 | Email templates | React Email |
 | CLI | TypeScript on Node (`@hogsend/cli`) |
+| MCP server | `@hogsend/mcp` — stdio (`npx @hogsend/mcp`) + hosted `POST /v1/mcp`, for Claude Desktop / Cursor / claude.ai |
 | Deploy | Railway (one-click), Docker Compose, or bring-your-own |
 
 Plugins are standalone packages — create your own for Slack, Twilio, or any service. See **[Creating Plugins](https://docs.hogsend.com/docs/guides/plugins)**.

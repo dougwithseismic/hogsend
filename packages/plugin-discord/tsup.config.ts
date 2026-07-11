@@ -5,7 +5,10 @@ export default defineConfig({
   format: ["esm"],
   target: "node22",
   outDir: "dist",
-  dts: true,
+  // The published package ships raw src/ (exports/files never include dist),
+  // so declaration output is dead weight — and the DTS worker type-checks the
+  // whole engine graph, OOMing at Node's default heap as the engine grows.
+  dts: false,
   clean: true,
   splitting: false,
   sourcemap: true,

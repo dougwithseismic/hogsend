@@ -133,6 +133,27 @@ function nudgeGraph(blueprintId: string, template = "welcome") {
   };
 }
 
+/** Minimal graph with a trigger node: enroll → trigger(event) → end. */
+function triggerGraph(blueprintId: string, event: string) {
+  return {
+    journeyId: blueprintId,
+    nodes: [
+      { id: "start", type: "start", title: `${RUN}.enroll` },
+      {
+        id: "fire-event",
+        type: "trigger",
+        title: "Fire event",
+        meta: { event },
+      },
+      { id: "end-ok", type: "end-completed", title: "Done" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "fire-event" },
+      { id: "e2", source: "fire-event", target: "end-ok" },
+    ],
+  };
+}
+
 function createInput(blueprintId: string, overrides: object = {}) {
   return {
     name: "Activation nudge",
@@ -143,6 +164,25 @@ function createInput(blueprintId: string, overrides: object = {}) {
     graph: nudgeGraph(blueprintId),
     ...overrides,
   };
+}
+
+/** nudgeGraph with the decision node swapped to an event condition carrying
+ * the given `within` window — exercises the event-condition duration schema. */
+function eventConditionGraph(blueprintId: string, within: object) {
+  const graph = nudgeGraph(blueprintId);
+  const decision = graph.nodes.find((n) => n.id === "check-activated");
+  // biome-ignore lint/suspicious/noExplicitAny: test-only graph mutation
+  (decision as any).meta = {
+    conditions: [
+      {
+        type: "event",
+        eventName: `${RUN}.activated`,
+        check: "exists",
+        within,
+      },
+    ],
+  };
+  return graph;
 }
 
 describe("create_journey_blueprint", () => {
@@ -163,16 +203,18 @@ describe("create_journey_blueprint", () => {
     expect(result.blueprint.createdAt).toBeTruthy();
   });
 
-  it("may create directly enabled, and a per-call createdBy wins over the mount default", async () => {
+  it("may create directly enabled, and a model-supplied createdBy is ignored (mount default wins)", async () => {
     const result = await tools.create_journey_blueprint.handler(
       createInput(`${RUN}-live`, {
         status: "enabled",
+        // The tool input schema strips createdBy, so a prompt cannot attribute
+        // the blueprint to anyone — the mount-bound identity always wins.
         createdBy: "session-42",
       }),
     );
     expect(result).toMatchObject({
       ok: true,
-      blueprint: { status: "enabled", createdBy: "session-42" },
+      blueprint: { status: "enabled", createdBy: "vitest-mcp" },
     });
   });
 
@@ -209,6 +251,39 @@ describe("create_journey_blueprint", () => {
     expect(result.issues.some((i) => i.code === "unknown_template")).toBe(true);
   });
 
+  it("rejects a reserved-namespace triggerEvent with structured issues and writes nothing", async () => {
+    const id = `${RUN}-reserved-trigger`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { triggerEvent: "email.opened" }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues[0]).toMatchObject({
+      code: "reserved_event",
+      path: ["triggerEvent"],
+    });
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("rejects a trigger NODE that forges a reserved-namespace event", async () => {
+    const id = `${RUN}-reserved-node`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { graph: triggerGraph(id, "bucket.entered") }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(
+      result.issues.some(
+        (i) => i.code === "reserved_event" && i.nodeId === "fire-event",
+      ),
+    ).toBe(true);
+  });
+
   it("rejects a duplicate blueprint id with conflict", async () => {
     const id = `${RUN}-dupe`;
     const first = await tools.create_journey_blueprint.handler(createInput(id));
@@ -229,6 +304,45 @@ describe("create_journey_blueprint", () => {
     expect(result).toMatchObject({ ok: false, code: "conflict" });
     if (result.ok) throw new Error("expected failure");
     expect(result.error).toContain("code journey");
+  });
+
+  it("rejects an empty {} entryPeriod — durationToMs({}) is 0, which would turn once_per_period into unlimited", async () => {
+    const id = `${RUN}-empty-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { entryLimit: "once_per_period", entryPeriod: {} }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.path.join(".") === "entryPeriod")).toBe(
+      true,
+    );
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("accepts once_per_period without entryPeriod (checkEntryLimit defaults to 24h) and with a real period", async () => {
+    const omitted = await tools.create_journey_blueprint.handler(
+      createInput(`${RUN}-no-period`, { entryLimit: "once_per_period" }),
+    );
+    expect(omitted).toMatchObject({
+      ok: true,
+      blueprint: { entryLimit: "once_per_period", entryPeriod: null },
+    });
+
+    const explicit = await tools.create_journey_blueprint.handler(
+      createInput(`${RUN}-real-period`, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 168 },
+      }),
+    );
+    expect(explicit).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: { hours: 168 } },
+    });
   });
 
   it("returns invalid_input (not a throw) when the arguments don't parse", async () => {
@@ -301,6 +415,42 @@ describe("update_journey_blueprint", () => {
     expect(result).toMatchObject({ ok: false, code: "not_found" });
   });
 
+  it("rejects patching triggerEvent into a reserved namespace", async () => {
+    const id = `${RUN}-update-reserved`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      triggerEvent: "contact.updated",
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues[0]?.code).toBe("reserved_event");
+
+    const [row] = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row?.triggerEvent).toBe(`${RUN}.enroll`);
+  });
+
+  it("rejects a replacement graph carrying a reserved trigger node", async () => {
+    const id = `${RUN}-update-reserved-node`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      graph: triggerGraph(id, "journey:failed"),
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_graph" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(
+      result.issues.some(
+        (i) => i.code === "reserved_event" && i.nodeId === "fire-event",
+      ),
+    ).toBe(true);
+  });
+
   it("rejects a graph change with in_flight while an enrollment is active or waiting", async () => {
     const id = `${RUN}-update-inflight`;
     await tools.create_journey_blueprint.handler(createInput(id));
@@ -325,6 +475,31 @@ describe("update_journey_blueprint", () => {
       name: "Still fine",
     });
     expect(metaResult).toMatchObject({ ok: true, blueprint: { version: 1 } });
+  });
+
+  it("rejects patching entryPeriod to {} but still accepts null (clear)", async () => {
+    const id = `${RUN}-update-period`;
+    await tools.create_journey_blueprint.handler(
+      createInput(id, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 24 },
+      }),
+    );
+
+    const empty = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: {},
+    });
+    expect(empty).toMatchObject({ ok: false, code: "invalid_input" });
+
+    const cleared = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: null,
+    });
+    expect(cleared).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: null },
+    });
   });
 
   it("returns invalid_input when only `id` is provided", async () => {
@@ -514,6 +689,72 @@ describe("enable_journey_blueprint / disable_journey_blueprint", () => {
       id: `${RUN}-ghost`,
     });
     expect(disable).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("entryPeriod duration (save-time strictness)", () => {
+  it("rejects once_per_period with an empty entryPeriod (invalid_input, no write)", async () => {
+    const id = `${RUN}-empty-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, { entryLimit: "once_per_period", entryPeriod: {} }),
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.path.join(".") === "entryPeriod")).toBe(
+      true,
+    );
+
+    const row = await db
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id));
+    expect(row).toHaveLength(0);
+  });
+
+  it("accepts once_per_period with a real entryPeriod, and suppress {} stays accepted", async () => {
+    const id = `${RUN}-good-period`;
+    const result = await tools.create_journey_blueprint.handler(
+      createInput(id, {
+        entryLimit: "once_per_period",
+        entryPeriod: { hours: 24 },
+        suppress: {},
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      blueprint: { entryPeriod: { hours: 24 }, suppress: {} },
+    });
+  });
+
+  it("rejects an empty entryPeriod on update too", async () => {
+    const id = `${RUN}-update-period`;
+    await tools.create_journey_blueprint.handler(createInput(id));
+
+    const result = await tools.update_journey_blueprint.handler({
+      id,
+      entryPeriod: {},
+    });
+    expect(result).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+});
+
+describe("event-condition within window (save-time strictness)", () => {
+  it("rejects a decision condition with within { days: 7 } — the 0ms trap, not silently stripped", async () => {
+    const result = await tools.validate_journey_blueprint.handler({
+      graph: eventConditionGraph(`${RUN}-within-days`, { days: 7 }),
+    });
+    expect(result).toMatchObject({ ok: true, valid: false });
+    if (!("issues" in result)) throw new Error("expected issues");
+    expect(result.issues.some((i) => i.nodeId === "check-activated")).toBe(
+      true,
+    );
+  });
+
+  it("accepts a decision condition with a real within { hours: 24 }", async () => {
+    const result = await tools.validate_journey_blueprint.handler({
+      graph: eventConditionGraph(`${RUN}-within-hours`, { hours: 24 }),
+    });
+    expect(result).toEqual({ ok: true, valid: true, issues: [] });
   });
 });
 

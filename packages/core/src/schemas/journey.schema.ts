@@ -18,19 +18,36 @@ export const propertyConditionSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
+/**
+ * The `within` rolling-window duration on an event condition. Strict keys and
+ * at-least-one-key when present: `durationToMs` ignores unknown keys, so a
+ * loose `{ days: 7 }` (no such key) or an explicit `{}` would silently become a
+ * 0ms window — the condition then evaluates against an empty time range and the
+ * branch never fires. `within` omitted entirely stays fine (no window). Kept as
+ * a field-level schema (not applied to `eventConditionSchema` itself) so the
+ * schema stays a plain object usable as a `discriminatedUnion` member.
+ */
+const eventWithinSchema = z
+  .strictObject({
+    hours: z.number().optional(),
+    minutes: z.number().optional(),
+    seconds: z.number().optional(),
+  })
+  .refine(
+    (d) =>
+      d.hours !== undefined ||
+      d.minutes !== undefined ||
+      d.seconds !== undefined,
+    { message: "within must set at least one of hours/minutes/seconds" },
+  );
+
 export const eventConditionSchema = z.object({
   type: z.literal("event"),
   eventName: z.string(),
   check: z.enum(["exists", "not_exists", "count"]),
   operator: z.enum(["gt", "gte", "lt", "lte", "eq"]).optional(),
   value: z.number().optional(),
-  within: z
-    .object({
-      hours: z.number().optional(),
-      minutes: z.number().optional(),
-      seconds: z.number().optional(),
-    })
-    .optional(),
+  within: eventWithinSchema.optional(),
 });
 
 export const emailEngagementConditionSchema = z.object({

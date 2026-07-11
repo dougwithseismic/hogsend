@@ -4,6 +4,7 @@ import {
   defaultBranchName,
   JOURNEY_ID_WITH_MULTIPLE,
   parsePromoteArgs,
+  reenrollmentNeedsAck,
   registerJourneyInIndex,
 } from "../commands/blueprints.js";
 import { camelCase } from "../lib/blueprint-codegen.js";
@@ -255,6 +256,46 @@ describe("parsePromoteArgs", () => {
     expect(() =>
       parsePromoteArgs(["bp-a", "--journey-id", "../evil"], "/d"),
     ).toThrow(/invalid --journey-id/);
+  });
+
+  it("parses --allow-reenrollment (default false)", () => {
+    expect(parsePromoteArgs(["bp-a"], "/d").allowReenrollment).toBe(false);
+    expect(
+      parsePromoteArgs(["bp-a", "--allow-reenrollment"], "/d")
+        .allowReenrollment,
+    ).toBe(true);
+  });
+});
+
+describe("reenrollmentNeedsAck", () => {
+  it("refuses a renaming --journey-id without the acknowledgment", () => {
+    expect(
+      reenrollmentNeedsAck({
+        blueprintId: "activation-nudge-blueprint",
+        journeyId: "activation-nudge",
+        allowReenrollment: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows a renaming --journey-id when acknowledged", () => {
+    expect(
+      reenrollmentNeedsAck({
+        blueprintId: "activation-nudge-blueprint",
+        journeyId: "activation-nudge",
+        allowReenrollment: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("needs no acknowledgment when the journey id matches the blueprint id", () => {
+    expect(
+      reenrollmentNeedsAck({
+        blueprintId: "activation-nudge",
+        journeyId: "activation-nudge",
+        allowReenrollment: false,
+      }),
+    ).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/cli",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -41,7 +41,6 @@
     "@hogsend/studio": "workspace:^",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^25.9.1",
-    "@types/papaparse": "^5.5.2",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "vitest": "^4.1.7"
@@ -53,6 +52,7 @@
     "@clack/prompts": "^1.5.0",
     "@hogsend/db": "workspace:^",
     "@hogsend/engine": "workspace:^",
+    "@types/papaparse": "^5.5.2",
     "better-auth": "^1.6.11",
     "papaparse": "^5.5.3",
     "picocolors": "^1.1.1"

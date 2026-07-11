@@ -203,6 +203,15 @@ export function JourneysView() {
         </div>
       ) : null}
 
+      {!isPending && !isError && blueprintsQuery.data?.truncated ? (
+        <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-white/70">
+          Showing the first{" "}
+          {formatNumber(blueprintsQuery.data.blueprints.length)} of{" "}
+          {formatNumber(blueprintsQuery.data.total)} blueprints — refine in MCP
+          to see the rest.
+        </div>
+      ) : null}
+
       {isPending ? (
         <TableSkeleton />
       ) : isError ? (
@@ -214,18 +223,24 @@ export function JourneysView() {
           }}
         />
       ) : rows.length === 0 ? (
-        <EmptyState
-          title="No journeys registered"
-          description="Journeys are defined in code with defineJourney(), or as JSON blueprints created via MCP — either way, they'll show up here."
-          action={
-            <>
-              <DocLink href={links.journeys}>How to create a journey</DocLink>
-              <DocLink href={links.recipes} variant="ghost">
-                Recipes
-              </DocLink>
-            </>
-          }
-        />
+        // Don't flash the empty state while blueprints are still loading and
+        // there are zero code journeys — the first blueprint page may fill it.
+        blueprintsQuery.isPending ? (
+          <TableSkeleton />
+        ) : (
+          <EmptyState
+            title="No journeys registered"
+            description="Journeys are defined in code with defineJourney(), or as JSON blueprints created via MCP — either way, they'll show up here."
+            action={
+              <>
+                <DocLink href={links.journeys}>How to create a journey</DocLink>
+                <DocLink href={links.recipes} variant="ghost">
+                  Recipes
+                </DocLink>
+              </>
+            }
+          />
+        )
       ) : (
         <div className="rounded-lg border bg-white/[0.015]">
           <Table>

@@ -3,7 +3,7 @@ title: hogsend blueprints
 description: List Journey Blueprints and promote them to code-first defineJourney() files — generates the file, registers it, and marks the blueprint promoted.
 ---
 
-Journey Blueprints are JSON-authored journeys (created via the MCP tools, Studio, or the admin API) stored in the database and executed by the generic interpreter — no deploy needed to go live. `hogsend blueprints` lists them and promotes one or more to real, git-committed code.
+Journey Blueprints are JSON-authored journeys (created via the [MCP tools](/docs/integrations/mcp), Studio, or the admin API) stored in the database and executed by the generic interpreter — no deploy needed to go live. `hogsend blueprints` lists them and promotes one or more to real, git-committed code.
 
 ```bash
 hogsend blueprints list [options]
@@ -50,6 +50,7 @@ Only `EventCondition` decision nodes (`exists`/`not_exists`/`count`) compile to 
 | `--dry-run` | Print the generated file(s) and stop — no git branch, no writes, no promote calls. |
 | `--branch <name>` | Branch to create (default: `promote-blueprint-<id>`, or a timestamped name for a batch). |
 | `--journey-id <id>` | Id for the generated journey (`meta.id`, export name, file name). Only valid when promoting exactly one blueprint; defaults to the blueprint id. |
+| `--allow-reenrollment` | Required alongside `--journey-id` when the new id differs from the blueprint id. The blueprint id **is** the journey id, so renaming it discards the `entryLimit: "once"` history and re-enrolls (re-emails) everyone who already completed the blueprint — pass this to do it intentionally. |
 | `-h, --help` | Show this help. |
 
 ### Examples

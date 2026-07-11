@@ -281,6 +281,18 @@ export interface JourneyContext {
   trigger(opts: TriggerOptions): Promise<void>;
 
   /**
+   * Terminate this enrollment as **exited** — not completed, not failed. Flips
+   * the state row to `"exited"` and aborts `run()` cleanly via the same
+   * `JourneyExitedError` an `exitOn` match raises, so NO `journey:completed` and
+   * NO `journey:failed` event fires and no later side effect runs. This is the
+   * orchestration primitive a blueprint `end-exited` terminal (and the code it
+   * promotes to) drives; a plain `return` from `run()` completes instead, and a
+   * thrown error fails. Never returns. The optional `reason` is recorded on the
+   * best-effort transition log only.
+   */
+  exit(reason?: string): Promise<never>;
+
+  /**
    * The current instant, memoized across replays where the engine supports it
    * (returns the same `Date` on every replay of the same task run). Use it for
    * any timestamp that must stay stable across a replay — e.g. a value written

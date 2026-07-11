@@ -15,6 +15,52 @@ import {
  * when it carries TODO stubs.
  */
 
+/**
+ * Strip every string/template literal and ALL comments, returning just the
+ * executable code skeleton. Used by the comment-injection tests to prove a
+ * blueprint-controlled payload (which legitimately also appears inside string
+ * literals like the ctx.once key) never escapes a comment into executable code:
+ * if a `*​/` closed a block comment early, the injected tokens would survive
+ * here; if a newline ended a `//` line comment, the smuggled call would too.
+ */
+function codeSkeleton(source: string): string {
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const two = source.slice(i, i + 2);
+    if (two === "//") {
+      const nl = source.indexOf("\n", i);
+      i = nl === -1 ? source.length : nl;
+      continue;
+    }
+    if (two === "/*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === ch) {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 /** Fail the test if `source` is not syntactically valid TypeScript. */
 function expectValidTs(source: string): void {
   const result = ts.transpileModule(source, {
@@ -119,10 +165,16 @@ describe("generateJourneyFile — seed example blueprint", () => {
     );
   });
 
-  it("compiles the exists EventCondition into a ctx.history.hasEvent check", () => {
+  it("compiles the exists EventCondition into a ctx.once-wrapped ctx.history.hasEvent check", () => {
+    // The verdict is recorded once (key `decision:<nodeId>`) so a replay can't
+    // flip the branch; the compiled condition lives inside the once callback.
     expect(output).toContain(
-      'if ((await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).found) {',
+      'const decisionCheckUsedAgain = await ctx.once("decision:check-used-again", async () => {',
     );
+    expect(output).toContain(
+      'return (await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).found;',
+    );
+    expect(output).toContain("if (decisionCheckUsedAgain) {");
   });
 
   it("sends the right template on the false branch, ends on the true branch", () => {
@@ -131,8 +183,17 @@ describe("generateJourneyFile — seed example blueprint", () => {
     expect(output).toContain("userId: user.id,");
     expect(output).toContain("journeyStateId: user.stateId,");
     expect(output).toContain("journeyName: user.journeyName,");
+    // props threads the enrolling user's properties so the template renders
+    // personalized (interpreter parity).
+    expect(output).toContain("props: user.properties,");
     // conditional-true → end-completed: an empty branch, marked as such
     expect(output).toContain("// (the journey ends on this branch)");
+  });
+
+  it("labels an unlabelled send with its node id (mirrors the interpreter)", () => {
+    // send-nudge carries no author idempotencyLabel → the node id is used, so
+    // two sends of the same template on divergent branches never collide.
+    expect(output).toContain('idempotencyLabel: "send-nudge",');
   });
 
   it("builds the meta object from the row fields", () => {
@@ -218,8 +279,12 @@ describe("generateJourneyFile — count EventCondition", () => {
       journeyId: "count-demo",
     });
     expect(output).toContain(
-      'if ((await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).count >= 3) {',
+      'const decisionCheckCount = await ctx.once("decision:check-count", async () => {',
     );
+    expect(output).toContain(
+      'return (await ctx.history.hasEvent({ userId: user.id, event: "feature.used" })).count >= 3;',
+    );
+    expect(output).toContain("if (decisionCheckCount) {");
     expect(output).toContain('await ctx.checkpoint("checkpoint-power-user");');
     expectValidTs(output);
   });
@@ -285,9 +350,9 @@ describe("generateJourneyFile — wait node forks", () => {
     expect(output).toContain("if (npsWait.timedOut) {");
     // timedOut branch → reminder send with its idempotencyLabel
     expect(output).toContain('idempotencyLabel: "nps-reminder",');
-    // answered branch → the trigger
+    // answered branch → the trigger, with userEmail + node-id label
     expect(output).toContain(
-      'await ctx.trigger({ event: "nps.recorded", userId: user.id });',
+      'await ctx.trigger({ event: "nps.recorded", userId: user.id, userEmail: user.email, idempotencyLabel: "trigger-answered" });',
     );
     expectValidTs(output);
   });
@@ -319,6 +384,68 @@ describe("generateJourneyFile — wait node forks", () => {
     expect(output).not.toContain("const waitReply");
     expect(output).not.toContain(".timedOut");
     expectValidTs(output);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2c. terminal nodes compile faithfully (end-completed / end-exited / end-failed)
+// ---------------------------------------------------------------------------
+
+describe("generateJourneyFile — terminal nodes", () => {
+  // A wait fork routes one branch to end-exited and the other to end-failed,
+  // and a single-edge wait ends at end-completed — so one graph exercises all
+  // three terminals without a decision node.
+  const terminalsGraph: BlueprintGraph = {
+    journeyId: "terminals-demo",
+    nodes: [
+      { id: "start", type: "start", title: "demo.trigger" },
+      {
+        id: "await-reply",
+        type: "wait",
+        title: "Wait for a reply",
+        meta: { event: "demo.replied", timeout: { hours: 24 } },
+      },
+      { id: "exit-here", type: "end-exited", title: "Bail out" },
+      { id: "fail-here", type: "end-failed", title: "Hard fail" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "await-reply" },
+      {
+        id: "e2",
+        source: "await-reply",
+        target: "exit-here",
+        kind: "answered",
+      },
+      {
+        id: "e3",
+        source: "await-reply",
+        target: "fail-here",
+        kind: "timedOut",
+      },
+    ],
+  };
+
+  it("compiles end-exited to await ctx.exit() and end-failed to a throw", () => {
+    const output = generateJourneyFile(makeBlueprint(terminalsGraph), {
+      journeyId: "terminals-demo",
+    });
+    // end-exited: the orchestration primitive, NOT a plain return.
+    expect(output).toContain("await ctx.exit();");
+    // end-failed: an idiomatic throw whose message names the node.
+    expect(output).toContain(
+      'throw new Error("journey reached the \\"fail-here\\" end-failed terminal");',
+    );
+    expectValidTs(output);
+  });
+
+  it("keeps end-completed as a plain fall-through (no ctx.exit / no throw)", () => {
+    const output = generateJourneyFile(seedBlueprint, {
+      journeyId: "activation-nudge",
+    });
+    // The seed's conditional-true edge ends on end-completed — an empty branch.
+    expect(output).toContain("// (the journey ends on this branch)");
+    expect(output).not.toContain("ctx.exit()");
+    expect(output).not.toContain("end-failed terminal");
   });
 });
 
@@ -374,9 +501,100 @@ describe("generateJourneyFile — unsupported condition types", () => {
     );
     // the raw condition JSON is carried verbatim in a comment
     expect(output).toContain(`// ${JSON.stringify(propertyCondition)}`);
-    // the stub compiles as the never-true branch
-    expect(output).toContain("if (false /* TODO(promote-to-code)");
+    // the stub compiles as the never-true branch, wrapped in ctx.once like any
+    // other decision so the generated structure is uniform
+    expect(output).toContain(
+      'const decisionCheckPlan = await ctx.once("decision:check-plan", async () => {',
+    );
+    expect(output).toContain("return false /* TODO(promote-to-code)");
+    expect(output).toContain("if (decisionCheckPlan) {");
     expectValidTs(output);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. comment-injection hardening: blueprint-controlled strings can't escape
+// the comments they're interpolated into
+// ---------------------------------------------------------------------------
+
+describe("generateJourneyFile — comment injection hardening", () => {
+  function decisionGraphWith(
+    nodeId: string,
+    condition: ConditionEval,
+  ): BlueprintGraph {
+    return {
+      journeyId: "inject-demo",
+      nodes: [
+        { id: "start", type: "start", title: "demo.trigger" },
+        {
+          id: nodeId,
+          type: "decision",
+          title: "Adversarial",
+          meta: { conditions: [condition] },
+        },
+        { id: "end-a", type: "end-completed", title: "Done" },
+        { id: "end-b", type: "end-completed", title: "Done" },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: nodeId },
+        { id: "e2", source: nodeId, target: "end-a", kind: "conditional-true" },
+        {
+          id: "e3",
+          source: nodeId,
+          target: "end-b",
+          kind: "conditional-false",
+        },
+      ],
+    };
+  }
+
+  it("neutralizes a */ block-comment escape in a node id, blueprint id, and condition value", () => {
+    // A node id `evil*/||true/*` would, un-neutralized, close the stub's block
+    // comment early and leave `||true` as CODE — a silent always-true branch.
+    const condition: ConditionEval = {
+      type: "property",
+      property: "plan*/||true",
+      operator: "eq",
+      value: "*/alert(1)/*",
+    };
+    const output = generateJourneyFile(
+      makeBlueprint(decisionGraphWith("evil*/||true/*", condition), {
+        id: "bp*/globalThis/*",
+        description: "harmless */ description",
+      }),
+      { journeyId: "inject-demo" },
+    );
+
+    // The source parses (a real escape would leave an unterminated comment or a
+    // syntax break)...
+    expectValidTs(output);
+    // ...and, structurally, NO block-comment terminator escaped: the `||true`
+    // the node id tried to smuggle in never reaches executable code (it would,
+    // as a silent always-true branch, if the `*​/` closed the stub comment
+    // early). The `||` only exists inside the (now-intact) comment + strings.
+    expect(codeSkeleton(output)).not.toContain("||");
+    // The neutralized marker still carries the payload for a human to read.
+    expect(output).toContain("blueprint node ");
+  });
+
+  it("neutralizes a newline injection in a node id (line comment can't be escaped)", () => {
+    const evilNodeId = "boom\n  hacksendPwn();";
+    const output = generateJourneyFile(
+      makeBlueprint(
+        decisionGraphWith(evilNodeId, {
+          type: "property",
+          property: "plan",
+          operator: "eq",
+          value: "pro",
+        }),
+      ),
+      { journeyId: "inject-demo" },
+    );
+    // The raw newline is folded, so the injected call never lands on its own
+    // line as code following a `//` marker — it survives only inside the
+    // (single-line) comment, never in the code skeleton.
+    expectValidTs(output);
+    expect(codeSkeleton(output)).not.toContain("hacksendPwn(");
   });
 });
 
@@ -543,7 +761,7 @@ describe("generateJourneyFile — meta extras and connectors", () => {
       'import { defineJourney, sendConnectorAction } from "@hogsend/engine";',
     );
     expect(output).toContain(
-      'await sendConnectorAction({ connectorId: "discord", action: "sendChannelMessage" });',
+      'await sendConnectorAction({ connectorId: "discord", action: "sendChannelMessage", idempotencyLabel: "notify-discord" });',
     );
     expect(output).not.toContain("sendEmail");
     expectValidTs(output);

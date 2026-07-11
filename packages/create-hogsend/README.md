@@ -18,9 +18,9 @@ pnpm dlx create-hogsend my-app
 3. Installs dependencies with the chosen package manager (`--no-install` to
    skip).
 
-The emitted app pins all `@hogsend/*` packages to a single engine version line
-(`ENGINE_VERSION` in `src/template-manifest.ts`, currently matching
-`@hogsend/engine` `0.0.1`).
+The emitted app pins all `@hogsend/*` packages to a single engine version line —
+the `@hogsend/engine` line current at publish time, recorded as `ENGINE_VERSION`
+in `src/template-manifest.ts`.
 
 ## CLI options
 

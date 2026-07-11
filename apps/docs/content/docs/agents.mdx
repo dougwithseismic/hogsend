@@ -3,7 +3,7 @@ title: Hogsend for AI agents
 description: The agent-ready surface — 14 vendorable Claude Code skills in every scaffolded app, the hogsend skills CLI, and /llms.txt as the stable machine entrypoint.
 ---
 
-Hogsend is built to be operated by coding agents as much as by people. Three
+Hogsend is built to be operated by coding agents as much as by people. Four
 surfaces make that work:
 
 1. **Skills** — 14 agent-executable playbooks vendored into every scaffolded
@@ -11,7 +11,11 @@ surfaces make that work:
    to author journeys, drive the CLI, and wire your product to the instance.
 2. **The `hogsend` CLI** — every data command takes `--json` and prints exactly
    one machine-readable JSON document, designed for programmatic use.
-3. **`/llms.txt`** — a stable plain-text entrypoint at
+3. **The [MCP server](/docs/integrations/mcp)** — `@hogsend/mcp` exposes a
+   running instance to MCP clients (Claude Desktop, Cursor, claude.ai
+   connectors): tools to author and operate [Journey Blueprints](/docs/guides/journey-blueprints),
+   a read-only health report, and a test-email send, all admin-key-gated.
+4. **`/llms.txt`** — a stable plain-text entrypoint at
    [`https://hogsend.com/llms.txt`](https://hogsend.com/llms.txt)
    that an agent can fetch to orient itself: what Hogsend is, where the docs
    live, and which skills exist.

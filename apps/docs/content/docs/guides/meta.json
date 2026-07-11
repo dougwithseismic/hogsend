@@ -2,6 +2,7 @@
   "title": "Building",
   "pages": [
     "journeys",
+    "journey-blueprints",
     "buckets",
     "events",
     "event-naming",

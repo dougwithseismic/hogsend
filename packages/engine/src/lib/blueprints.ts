@@ -36,8 +36,10 @@ import {
   type BlueprintValidationIssue,
   type BlueprintValidationResult,
   blueprintGraphSchema,
+  isReservedEventName,
   type JourneyGraph,
   journeyGraphSchema,
+  RESERVED_EVENT_NAMESPACES,
   validateBlueprintGraph,
 } from "@hogsend/core";
 import { propertyConditionSchema } from "@hogsend/core/schemas";
@@ -46,6 +48,7 @@ import { getTemplateNames } from "@hogsend/email";
 import { z } from "@hono/zod-openapi";
 import { and, count, eq, inArray, isNull } from "drizzle-orm";
 import type { HogsendClient } from "../container.js";
+import { blueprintGraphLock } from "./blueprint-lock.js";
 
 export type BlueprintRow = typeof journeyBlueprints.$inferSelect;
 /** The opaque jsonb type of the `graph` column (db cannot import core). */
@@ -100,8 +103,39 @@ function findRegistryIssues(
         });
       }
     }
+    // Reserved namespaces (email./journey./bucket./contact., dot or colon)
+    // are engine-emitted — a trigger node forging one would feed synthetic
+    // engine events through the full ingest pipeline. Same rule the semantic
+    // link send path enforces; the interpreter re-throws as defense-in-depth.
+    if (node.type === "trigger" && isReservedEventName(node.meta.event)) {
+      issues.push({
+        nodeId: node.id,
+        path: ["nodes", index, "meta", "event"],
+        code: "reserved_event",
+        message: `node "${node.id}": event "${node.meta.event}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")}) — engine-emitted events cannot be forged by a blueprint`,
+      });
+    }
   });
   return issues;
+}
+
+/** The structured `invalid_graph` failure for a reserved trigger EVENT (the
+ * blueprint-record field, not a graph node) — shared by create and update. */
+function reservedTriggerEventFailure(
+  triggerEvent: string,
+): BlueprintInvalidGraphFailure {
+  return {
+    ok: false,
+    code: "invalid_graph",
+    error: "triggerEvent uses a reserved event namespace",
+    issues: [
+      {
+        path: ["triggerEvent"],
+        code: "reserved_event",
+        message: `triggerEvent "${triggerEvent}" uses a reserved namespace (${RESERVED_EVENT_NAMESPACES.join("/")}) — engine-emitted events cannot trigger a blueprint`,
+      },
+    ],
+  };
 }
 
 /**
@@ -157,6 +191,25 @@ export const blueprintDurationInputSchema = z.strictObject({
   seconds: z.number().nonnegative().optional(),
 });
 
+/**
+ * `entryPeriod` variant: requires a POSITIVE duration. Key presence alone is
+ * not enough — `{ hours: 0 }` (or `{ seconds: 0 }`) still makes
+ * `durationToMs(...) === 0`, which silently turns `once_per_period` into
+ * `unlimited` (cutoff === now, so every trigger re-enrolls). That is the one
+ * place a zero-length duration is a footgun, not a "disabled" contract
+ * (unlike `suppress`, where `{}` is the documented "disabled" sentinel), so
+ * refine on the summed value, not on presence. Omitting `entryPeriod` entirely
+ * stays legal: `checkEntryLimit` defaults an undefined period to 24h.
+ */
+export const blueprintEntryPeriodInputSchema =
+  blueprintDurationInputSchema.refine(
+    (d) => (d.hours ?? 0) + (d.minutes ?? 0) + (d.seconds ?? 0) > 0,
+    {
+      message:
+        "entryPeriod must be a positive duration (hours/minutes/seconds)",
+    },
+  );
+
 export const blueprintExitOnInputSchema = z.array(
   z.object({
     event: z.string().min(1),
@@ -194,7 +247,7 @@ export const blueprintCreateBaseSchema = z.object({
   triggerEvent: z.string().min(1),
   triggerWhere: z.array(propertyConditionSchema).optional(),
   entryLimit: blueprintEntryLimitSchema,
-  entryPeriod: blueprintDurationInputSchema.optional(),
+  entryPeriod: blueprintEntryPeriodInputSchema.optional(),
   exitOn: blueprintExitOnInputSchema.optional(),
   suppress: blueprintDurationInputSchema,
   graph: blueprintGraphInputSchema,
@@ -214,7 +267,7 @@ export const blueprintPatchFieldsSchema = z.object({
   triggerEvent: z.string().min(1).optional(),
   triggerWhere: z.array(propertyConditionSchema).nullable().optional(),
   entryLimit: blueprintEntryLimitSchema.optional(),
-  entryPeriod: blueprintDurationInputSchema.nullable().optional(),
+  entryPeriod: blueprintEntryPeriodInputSchema.nullable().optional(),
   exitOn: blueprintExitOnInputSchema.nullable().optional(),
   suppress: blueprintDurationInputSchema.optional(),
   graph: blueprintGraphInputSchema.optional(),
@@ -313,11 +366,23 @@ export type BlueprintPromotedFailure = {
   error: string;
 };
 
+/**
+ * Optimistic-concurrency loss: a concurrent graph edit committed a version bump
+ * between this caller reading the row and its guarded update — retryable (re-read
+ * and re-apply the edit onto the new version). Maps to 409, like `in_flight`.
+ */
+export type BlueprintVersionConflictFailure = {
+  ok: false;
+  code: "version_conflict";
+  error: string;
+};
+
 export type UpdateBlueprintResult =
   | { ok: true; blueprint: BlueprintRow }
   | BlueprintNotFoundFailure
   | BlueprintInvalidGraphFailure
   | { ok: false; code: "in_flight"; error: string }
+  | BlueprintVersionConflictFailure
   | BlueprintPromotedFailure;
 
 export type EnableBlueprintResult =
@@ -370,6 +435,10 @@ export async function createBlueprint(opts: {
   input: CreateBlueprintInput;
 }): Promise<CreateBlueprintResult> {
   const { container, input } = opts;
+
+  if (isReservedEventName(input.triggerEvent)) {
+    return reservedTriggerEventFailure(input.triggerEvent);
+  }
 
   const result = validateBlueprintGraphForSave(input.graph, container);
   if (!result.valid) {
@@ -434,10 +503,15 @@ export async function createBlueprint(opts: {
 }
 
 /**
- * Partial update. A `graph` change is re-validated the same way create is
- * and bumps `version` by 1 (in-flight runs stay pinned to the version they
- * enrolled under, spec §12). Metadata-only edits do not bump. Status
- * transitions go through enable/disable, not here.
+ * Partial update. A `graph` change is re-validated the same way create is and
+ * bumps `version` by 1 (in-flight runs stay pinned to the version they enrolled
+ * under, spec §12). The graph write runs in a transaction under a
+ * blueprint-keyed advisory lock so its in-flight count + update is atomic
+ * against a concurrent enrollment insert (which takes the same lock) and is
+ * guarded on the version read (`version_conflict` on a concurrent edit) and on
+ * `promotedAt IS NULL` (`promoted` on a concurrent promote). Metadata-only edits
+ * do not bump, need no lock, and are never blocked. Status transitions go
+ * through enable/disable, not here.
  */
 export async function updateBlueprint(opts: {
   container: BlueprintServiceContainer;
@@ -445,6 +519,13 @@ export async function updateBlueprint(opts: {
   patch: UpdateBlueprintPatch;
 }): Promise<UpdateBlueprintResult> {
   const { container, id, patch } = opts;
+
+  if (
+    patch.triggerEvent !== undefined &&
+    isReservedEventName(patch.triggerEvent)
+  ) {
+    return reservedTriggerEventFailure(patch.triggerEvent);
+  }
 
   const existing = await findBlueprintRow({ db: container.db, id });
   if (!existing) return notFound(id);
@@ -482,11 +563,62 @@ export async function updateBlueprint(opts: {
       };
     }
     validatedGraph = result.graph;
+  }
 
-    // Graph edits are unsafe while a run is suspended mid-graph (positional
-    // replay journal, see module header) — block it outright rather than
-    // relying on a version pin that can't actually protect a resume.
-    const [inFlight] = await container.db
+  const set: Partial<typeof journeyBlueprints.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.description !== undefined) set.description = patch.description;
+  if (patch.triggerEvent !== undefined) set.triggerEvent = patch.triggerEvent;
+  if (patch.triggerWhere !== undefined) set.triggerWhere = patch.triggerWhere;
+  if (patch.entryLimit !== undefined) set.entryLimit = patch.entryLimit;
+  if (patch.entryPeriod !== undefined) set.entryPeriod = patch.entryPeriod;
+  if (patch.exitOn !== undefined) set.exitOn = patch.exitOn;
+  if (patch.suppress !== undefined) set.suppress = patch.suppress;
+
+  // Metadata-only edit: no graph, no version bump, no in-flight hazard (the
+  // node sequence is untouched, so no suspended run can desync). One guarded
+  // update on `promotedAt IS NULL` closes the promote race the early check
+  // above cannot (registry validation / reads happen in between).
+  if (validatedGraph === undefined) {
+    const updated = await container.db
+      .update(journeyBlueprints)
+      .set(set)
+      .where(
+        and(eq(journeyBlueprints.id, id), isNull(journeyBlueprints.promotedAt)),
+      )
+      .returning();
+    const row = updated[0];
+    if (row) return { ok: true, blueprint: row };
+    const raced = await findBlueprintRow({ db: container.db, id });
+    if (!raced) return notFound(id);
+    return {
+      ok: false,
+      code: "promoted",
+      error: `Blueprint "${id}" was ${describePromotion(raced)} — it is frozen and cannot be edited`,
+    };
+  }
+
+  // Graph edit. Two hazards, both closed inside one transaction under a
+  // blueprint-keyed advisory lock (the enrollment insert path takes the SAME
+  // lock — blueprint-lock.ts):
+  //  1. in-flight: a run must not become active/waiting BETWEEN the count and
+  //     the write, or a graph edit lands under a just-started run and desyncs
+  //     its positional Hatchet replay journal. The lock serializes the
+  //     count+update against enrollment inserts, so the count is authoritative.
+  //  2. lost update: two concurrent graph edits serialize on the lock, and the
+  //     `version = existing.version` predicate makes the loser (whose read
+  //     predates the winner's bump) match zero rows and return
+  //     `version_conflict` instead of overwriting the winner's graph.
+  // The `promotedAt IS NULL` predicate additionally closes the promote race.
+  set.graph = validatedGraph as unknown as BlueprintGraphColumn;
+  set.version = existing.version + 1;
+
+  return container.db.transaction(async (tx) => {
+    await tx.execute(blueprintGraphLock(id));
+
+    const [inFlight] = await tx
       .select({ count: count() })
       .from(journeyStates)
       .where(
@@ -503,51 +635,44 @@ export async function updateBlueprint(opts: {
         error: `Cannot edit this blueprint's graph while ${inFlight.count} enrollment(s) are active or waiting — editing a live graph can desync Hatchet's replay journal for an in-flight run. Wait for enrollments to drain, or disable the blueprint and let them finish, before editing the graph.`,
       };
     }
-  }
 
-  const set: Partial<typeof journeyBlueprints.$inferInsert> = {
-    updatedAt: new Date(),
-  };
-  if (patch.name !== undefined) set.name = patch.name;
-  if (patch.description !== undefined) set.description = patch.description;
-  if (patch.triggerEvent !== undefined) set.triggerEvent = patch.triggerEvent;
-  if (patch.triggerWhere !== undefined) set.triggerWhere = patch.triggerWhere;
-  if (patch.entryLimit !== undefined) set.entryLimit = patch.entryLimit;
-  if (patch.entryPeriod !== undefined) set.entryPeriod = patch.entryPeriod;
-  if (patch.exitOn !== undefined) set.exitOn = patch.exitOn;
-  if (patch.suppress !== undefined) set.suppress = patch.suppress;
-  if (validatedGraph !== undefined) {
-    set.graph = validatedGraph as unknown as BlueprintGraphColumn;
-    // Version bump rule: any update carrying `graph` bumps (documented in
-    // the module header). Safe to bump unconditionally here — the in-flight
-    // check above already rejected this request if any run could observe
-    // the change mid-flight.
-    set.version = existing.version + 1;
-  }
+    const updated = await tx
+      .update(journeyBlueprints)
+      .set(set)
+      .where(
+        and(
+          eq(journeyBlueprints.id, id),
+          isNull(journeyBlueprints.promotedAt),
+          eq(journeyBlueprints.version, existing.version),
+        ),
+      )
+      .returning();
+    const row = updated[0];
+    if (row) return { ok: true, blueprint: row };
 
-  // Guarded on promotedAt IS NULL, not just id: the early check above can be
-  // raced by a concurrent promote landing between that read and this write
-  // (both do async work — registry/graph validation, the in-flight count
-  // query — in between). Closing the race here, not just at the top, is
-  // what actually keeps a promoted blueprint frozen.
-  const updated = await container.db
-    .update(journeyBlueprints)
-    .set(set)
-    .where(
-      and(eq(journeyBlueprints.id, id), isNull(journeyBlueprints.promotedAt)),
-    )
-    .returning();
-
-  const row = updated[0];
-  if (row) return { ok: true, blueprint: row };
-
-  const raced = await findBlueprintRow({ db: container.db, id });
-  if (!raced) return notFound(id);
-  return {
-    ok: false,
-    code: "promoted",
-    error: `Blueprint "${id}" was ${describePromotion(raced)} — it is frozen and cannot be edited`,
-  };
+    // Zero rows: blueprints are never hard-deleted, so the id still exists —
+    // the guard that failed is `promotedAt` (a concurrent promote) or `version`
+    // (a concurrent graph edit committed its bump). Re-read inside the txn
+    // (READ COMMITTED sees the committed winner) to return the precise code.
+    const [raced] = await tx
+      .select()
+      .from(journeyBlueprints)
+      .where(eq(journeyBlueprints.id, id))
+      .limit(1);
+    if (!raced) return notFound(id);
+    if (raced.promotedAt) {
+      return {
+        ok: false,
+        code: "promoted",
+        error: `Blueprint "${id}" was ${describePromotion(raced)} — it is frozen and cannot be edited`,
+      };
+    }
+    return {
+      ok: false,
+      code: "version_conflict",
+      error: `Blueprint "${id}" changed under you (version ${existing.version} → ${raced.version}) — re-read it and re-apply your edit onto the current graph.`,
+    };
+  });
 }
 
 /**
