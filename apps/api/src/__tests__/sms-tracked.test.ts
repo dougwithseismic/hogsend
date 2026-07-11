@@ -302,3 +302,45 @@ describe("sendTrackedSms — test mode", () => {
     expect(rows[0]?.metadata).toMatchObject({ testMode: true });
   });
 });
+
+describe("provider status callbacks — monotonic lifecycle", () => {
+  it("a late 'sent' callback does not regress a 'delivered' row", async () => {
+    const to = uniquePhone();
+    await client.smsService.send({
+      template: "t-sms" as never,
+      props: {} as never,
+      to,
+      userId: `u_${randomUUID()}`,
+    });
+    const [row] = await client.db
+      .select({ id: smsSends.id, messageId: smsSends.messageId })
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, to));
+    const messageId = row?.messageId ?? "";
+    expect(messageId).toMatch(/^SM_/);
+
+    // Twilio callbacks are unordered HTTP requests: delivered first…
+    await client.smsService.handleWebhook({
+      type: "sms.delivered",
+      messageId,
+      phone: to,
+      occurredAt: new Date().toISOString(),
+      raw: {},
+    });
+    // …then a delayed 'sent' echo, which must NOT regress the status.
+    await client.smsService.handleWebhook({
+      type: "sms.sent",
+      messageId,
+      phone: to,
+      occurredAt: new Date().toISOString(),
+      raw: {},
+    });
+
+    const [after] = await client.db
+      .select({ status: smsSends.status, deliveredAt: smsSends.deliveredAt })
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, to));
+    expect(after?.status).toBe("delivered");
+    expect(after?.deliveredAt).not.toBeNull();
+  });
+});

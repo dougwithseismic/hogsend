@@ -12,7 +12,7 @@ import {
   renderSmsToText,
   type SmsTemplateName,
 } from "@hogsend/sms";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
@@ -30,16 +30,37 @@ import { sendTrackedSms } from "./sms-tracked.js";
 
 const emitLogger = createLogger(process.env.LOG_LEVEL);
 
-/** SMS event → the `sms_sends` timestamp column + status string it sets. */
+type SmsSendStatus = "queued" | "sent" | "delivered" | "failed";
+
+/**
+ * SMS event → the `sms_sends` timestamp column + status it sets, plus the
+ * statuses it may LEGALLY transition from. Twilio status callbacks are separate
+ * unordered HTTP requests (a delayed `sent` can land after `delivered`), so the
+ * update is guarded monotonic: a callback that does not ADVANCE the lifecycle
+ * matches zero rows and is dropped — which also makes duplicate callbacks
+ * emit-once (the atomic guarded UPDATE is the dedup).
+ */
 const WEBHOOK_TO_SMS_STATUS: Partial<
   Record<
     SmsEventType,
-    { field: "sentAt" | "deliveredAt" | "failedAt"; status: string }
+    {
+      field: "sentAt" | "deliveredAt" | "failedAt";
+      status: SmsSendStatus;
+      allowedFrom: SmsSendStatus[];
+    }
   >
 > = {
-  "sms.sent": { field: "sentAt", status: "sent" },
-  "sms.delivered": { field: "deliveredAt", status: "delivered" },
-  "sms.failed": { field: "failedAt", status: "failed" },
+  "sms.sent": { field: "sentAt", status: "sent", allowedFrom: ["queued"] },
+  "sms.delivered": {
+    field: "deliveredAt",
+    status: "delivered",
+    allowedFrom: ["queued", "sent"],
+  },
+  "sms.failed": {
+    field: "failedAt",
+    status: "failed",
+    allowedFrom: ["queued", "sent"],
+  },
 };
 
 /**
@@ -140,30 +161,39 @@ export function createTrackedSmsSender(
     switch (event.type) {
       case "sms.sent":
         // First-party `sms.sent` already emitted from the tracked sender — the
-        // provider echo only updates DB status.
+        // provider echo only updates DB status (and only from `queued`).
         await updateSmsStatus(event.type, event.messageId);
         break;
-      case "sms.delivered":
-        await updateSmsStatus(event.type, event.messageId);
+      case "sms.delivered": {
         // Provider webhook is the SINGLE source for delivered (no first-party
-        // signal) — emit outbound.
-        await emitProviderSmsEvent("sms.delivered", event.messageId);
+        // signal) — emit outbound, but only when the guarded UPDATE actually
+        // advanced the row (a duplicate/late callback emits nothing).
+        const ctx = await updateSmsStatus(event.type, event.messageId);
+        if (ctx) {
+          await emitProviderSmsEvent("sms.delivered", event.messageId, ctx);
+        }
         break;
-      case "sms.failed":
-        await updateSmsStatus(event.type, event.messageId, {
+      }
+      case "sms.failed": {
+        const ctx = await updateSmsStatus(event.type, event.messageId, {
           errorCode: event.failure?.code,
           errorReason: event.failure?.reason,
         });
-        await emitProviderSmsEvent("sms.failed", event.messageId, {
-          errorCode: event.failure?.code,
-          errorReason: event.failure?.reason,
-        });
+        if (ctx) {
+          await emitProviderSmsEvent("sms.failed", event.messageId, ctx, {
+            errorCode: event.failure?.code,
+            errorReason: event.failure?.reason,
+          });
+        }
         // A permanent carrier failure auto-suppresses the number (mirrors email
-        // permanent-bounce auto-suppress) so we stop paying to text a dead line.
+        // permanent-bounce auto-suppress) so we stop paying to text a dead
+        // line. Independent of the status guard — the suppression signal holds
+        // even when callbacks arrive out of order.
         if (event.failure?.class === "permanent") {
           await suppressPermanent(event.phone);
         }
         break;
+      }
       case "sms.inbound":
         if (db) {
           await handleInboundSms(event, {
@@ -187,24 +217,42 @@ export function createTrackedSmsSender(
     return false;
   }
 
+  /**
+   * Guarded-monotonic status update. Returns the advanced row's emit context,
+   * or null when the callback did not advance the lifecycle (duplicate,
+   * out-of-order, or unknown messageId) — the `.returning()` doubles as the
+   * single query the outbound emit needs, so there is no second lookup.
+   */
   async function updateSmsStatus(
     eventType: SmsEventType,
     messageId: string,
     extra?: { errorCode?: string; errorReason?: string },
-  ): Promise<void> {
-    if (!db || !messageId) return;
+  ): Promise<SmsSendEmitContext | null> {
+    if (!db || !messageId) return null;
     const mapping = WEBHOOK_TO_SMS_STATUS[eventType];
-    if (!mapping) return;
-    await db
+    if (!mapping) return null;
+    const rows = await db
       .update(smsSends)
       .set({
-        status: mapping.status as typeof smsSends.$inferSelect.status,
+        status: mapping.status,
         [mapping.field]: new Date(),
         ...(extra?.errorCode ? { errorCode: extra.errorCode } : {}),
         ...(extra?.errorReason ? { errorReason: extra.errorReason } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(smsSends.messageId, messageId));
+      .where(
+        and(
+          eq(smsSends.messageId, messageId),
+          inArray(smsSends.status, mapping.allowedFrom),
+        ),
+      )
+      .returning({
+        smsSendId: smsSends.id,
+        templateKey: smsSends.templateKey,
+        userId: smsSends.userId,
+        toPhone: smsSends.toPhone,
+      });
+    return rows[0] ?? null;
   }
 
   async function suppressPermanent(phone: string): Promise<void> {
@@ -224,77 +272,65 @@ export function createTrackedSmsSender(
       });
   }
 
-  function emitProviderSmsEvent(
+  /**
+   * Emit the single-source provider events. `sms.delivered`/`sms.failed` have
+   * no first-party signal, and Twilio aggressively retries callbacks — the
+   * guarded UPDATE upstream already makes this emit-once per transition, and
+   * the dedupeKey backstops any endpoint-level replay.
+   */
+  async function emitProviderSmsEvent(
     event: "sms.delivered" | "sms.failed",
     messageId: string,
+    ctx: SmsSendEmitContext,
     extra?: { errorCode?: string; errorReason?: string },
-  ): void {
+  ): Promise<void> {
     if (!db) return;
-    const database = db;
-    void resolveSmsSendByMessageId(database, messageId)
-      .then((ctx) => {
-        if (!ctx) return;
-        const base = {
-          smsSendId: ctx.smsSendId,
-          messageId,
-          templateKey: ctx.templateKey,
-          userId: ctx.userId,
-          to: ctx.toPhone,
-          at: new Date().toISOString(),
-        };
-        if (event === "sms.failed") {
-          return emitOutbound({
-            db: database,
-            hatchet,
-            logger,
-            event: "sms.failed",
-            payload: {
-              ...base,
-              ...(extra?.errorCode ? { errorCode: extra.errorCode } : {}),
-              ...(extra?.errorReason ? { errorReason: extra.errorReason } : {}),
-            },
-          });
-        }
-        return emitOutbound({
-          db: database,
+    const base = {
+      smsSendId: ctx.smsSendId,
+      messageId,
+      templateKey: ctx.templateKey,
+      userId: ctx.userId,
+      to: ctx.toPhone,
+      at: new Date().toISOString(),
+    };
+    try {
+      if (event === "sms.failed") {
+        await emitOutbound({
+          db,
+          hatchet,
+          logger,
+          event: "sms.failed",
+          dedupeKey: `sms.failed:${ctx.smsSendId}`,
+          payload: {
+            ...base,
+            ...(extra?.errorCode ? { errorCode: extra.errorCode } : {}),
+            ...(extra?.errorReason ? { errorReason: extra.errorReason } : {}),
+          },
+        });
+      } else {
+        await emitOutbound({
+          db,
           hatchet,
           logger,
           event: "sms.delivered",
+          dedupeKey: `sms.delivered:${ctx.smsSendId}`,
           payload: base,
         });
-      })
-      .catch((err: unknown) => {
-        logger.warn(`emitOutbound ${event} failed`, {
-          messageId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      }
+    } catch (err: unknown) {
+      logger.warn(`emitOutbound ${event} failed`, {
+        messageId,
+        error: err instanceof Error ? err.message : String(err),
       });
+    }
   }
 
   return service;
 }
 
-interface SmsSendByMessageId {
+interface SmsSendEmitContext {
   smsSendId: string;
   templateKey: string | null;
   userId: string | null;
   toPhone: string;
-}
-
-/** Resolve a send row by the provider message id (the only webhook handle). */
-async function resolveSmsSendByMessageId(
-  db: Database,
-  messageId: string,
-): Promise<SmsSendByMessageId | null> {
-  const rows = await db
-    .select({
-      smsSendId: smsSends.id,
-      templateKey: smsSends.templateKey,
-      userId: smsSends.userId,
-      toPhone: smsSends.toPhone,
-    })
-    .from(smsSends)
-    .where(eq(smsSends.messageId, messageId))
-    .limit(1);
-  return rows[0] ?? null;
 }
