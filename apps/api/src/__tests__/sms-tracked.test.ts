@@ -1,11 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { defineSmsProvider, type SendSmsOptions } from "@hogsend/core";
-import { emailPreferences, smsSends, smsSuppressions } from "@hogsend/db";
-import { createHogsendClient, type HogsendClient } from "@hogsend/engine";
-import { eq } from "drizzle-orm";
+import type { HogsendClient } from "@hogsend/engine";
 import React from "react";
 import { Text } from "react-email";
 import { beforeAll, describe, expect, it } from "vitest";
+
+// DB-touching test (mirrors links-vanity): the tracked SMS pipeline writes real
+// sms_sends/sms_suppressions rows, so point at the real docker TimescaleDB
+// BEFORE importing the engine — env is captured at module import time.
+process.env.DATABASE_URL =
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
+
+const { emailPreferences, smsSends, smsSuppressions } = await import(
+  "@hogsend/db"
+);
+const { eq } = await import("drizzle-orm");
+const { createHogsendClient } = await import("@hogsend/engine");
 
 // A fake SMS provider that records every send and can be toggled to throw, so we
 // exercise the engine's tracked pipeline (DB rows, idempotency, suppression)

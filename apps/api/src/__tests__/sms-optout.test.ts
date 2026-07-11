@@ -1,11 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { defineSmsProvider, type SmsEvent } from "@hogsend/core";
-import { contacts, emailPreferences, smsSuppressions } from "@hogsend/db";
-import { createHogsendClient, type HogsendClient } from "@hogsend/engine";
-import { and, eq, isNull } from "drizzle-orm";
+import type { HogsendClient } from "@hogsend/engine";
 import React from "react";
 import { Text } from "react-email";
 import { beforeAll, describe, expect, it } from "vitest";
+
+// DB-touching test (mirrors links-vanity): inbound STOP/START writes real
+// sms_suppressions/contacts/email_preferences rows, so point at the real docker
+// TimescaleDB BEFORE importing the engine — env is captured at module import.
+process.env.DATABASE_URL =
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
+
+const { contacts, emailPreferences, smsSuppressions } = await import(
+  "@hogsend/db"
+);
+const { and, eq, isNull } = await import("drizzle-orm");
+const { createHogsendClient } = await import("@hogsend/engine");
 
 const replies: Array<{ to: string; body: string }> = [];
 const fakeProvider = defineSmsProvider({
