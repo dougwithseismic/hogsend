@@ -473,6 +473,75 @@ export async function walkBlueprintGraph(
 }
 
 /**
+ * A REPLAY (resume recovered by run id) that can no longer execute — the
+ * blueprint row vanished, or its stored graph now fails execution-time
+ * re-validation — must FAIL the recovered enrollment, not return `skipped`
+ * and leave a waiting/active row stranded non-terminal forever. Recovery is by
+ * the replay-stable Hatchet run id + journeyId, exactly as `executeJourneyRun`
+ * recovers an enrollment; a FRESH (never-enrolled) dispatch recovers nothing
+ * and the caller keeps returning `skipped` unchanged.
+ *
+ * Mirrors the failed path in `executeJourneyRun`: a guarded flip to "failed"
+ * (`notInArray(TERMINAL_STATUSES)`, so an already-terminal row is never
+ * clobbered) plus the same `journey:failed` side effects (structured
+ * errorMessage, failed transition, event push). Returns whether an existing
+ * enrollment was recovered for this run.
+ */
+async function failRecoveredBlueprintEnrollment(opts: {
+  db: Database;
+  blueprintId: string;
+  workflowRunId: string;
+  userId: string;
+  message: string;
+}): Promise<boolean> {
+  const { db, blueprintId, workflowRunId, userId, message } = opts;
+  if (!workflowRunId) return false;
+
+  const recovered = await db.query.journeyStates.findFirst({
+    where: and(
+      eq(journeyStates.hatchetRunId, workflowRunId),
+      eq(journeyStates.journeyId, blueprintId),
+    ),
+  });
+  if (!recovered) return false;
+
+  const [failed] = await db
+    .update(journeyStates)
+    .set({ status: "failed", errorMessage: message, updatedAt: new Date() })
+    .where(
+      and(
+        eq(journeyStates.id, recovered.id),
+        notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
+      ),
+    )
+    .returning({ id: journeyStates.id });
+  // Already terminal — nothing was stranded; the recovery still happened.
+  if (!failed) return true;
+
+  logger.error("blueprint replay failed the recovered enrollment", {
+    blueprintId,
+    stateId: recovered.id,
+    userId,
+    error: message,
+  });
+  logTransition({
+    db,
+    journeyStateId: recovered.id,
+    from: recovered.currentNodeId ?? null,
+    to: null,
+    action: "failed",
+    detail: { error: message },
+  });
+  await hatchet.events.push("journey:failed", {
+    journeyId: blueprintId,
+    stateId: recovered.id,
+    userId,
+    error: message,
+  });
+  return true;
+}
+
+/**
  * The event payload `checkBlueprintTriggers` pushes for each matching enabled
  * blueprint — one push per (blueprint, user) enrollment attempt.
  */
@@ -511,6 +580,11 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
   fn: async (input: BlueprintRunPayload, hatchetCtx) => {
     const db = getDb();
     const blueprintId = input.blueprintId as string;
+    // Recovery anchor: a REPLAY resumes under the SAME run id, so a blueprint
+    // that has since vanished / gone invalid must fail its recovered
+    // enrollment rather than strand it (see failRecoveredBlueprintEnrollment).
+    const workflowRunId = hatchetCtx.workflowRunId();
+    const userId = input.userId as string;
 
     const row = await db.query.journeyBlueprints.findFirst({
       where: eq(journeyBlueprints.id, blueprintId),
@@ -519,7 +593,21 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
       logger.warn("blueprint run skipped: blueprint not found", {
         blueprintId,
       });
-      return { status: "skipped", reason: "blueprint_not_found" };
+      const failed = await failRecoveredBlueprintEnrollment({
+        db,
+        blueprintId,
+        workflowRunId,
+        userId,
+        message: JSON.stringify(
+          serializeBlueprintError(
+            blueprintId,
+            new Error("blueprint row not found at execution time"),
+          ),
+        ),
+      });
+      return failed
+        ? { status: "failed", reason: "blueprint_not_found" }
+        : { status: "skipped", reason: "blueprint_not_found" };
     }
 
     // Defense-in-depth (spec §6): a saved blueprint already passed
@@ -531,7 +619,21 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
         "blueprint run skipped: stored graph failed execution-time validation",
         { blueprintId, issues: validated.issues },
       );
-      return { status: "skipped", reason: "invalid_blueprint_graph" };
+      const failed = await failRecoveredBlueprintEnrollment({
+        db,
+        blueprintId,
+        workflowRunId,
+        userId,
+        message: JSON.stringify(
+          serializeBlueprintError(
+            blueprintId,
+            new Error("stored graph failed execution-time re-validation"),
+          ),
+        ),
+      });
+      return failed
+        ? { status: "failed", reason: "invalid_blueprint_graph" }
+        : { status: "skipped", reason: "invalid_blueprint_graph" };
     }
 
     // Version pin (spec §12): the version this run enrolled under, recorded
