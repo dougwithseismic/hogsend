@@ -149,8 +149,13 @@ function tsLiteral(value: unknown): string {
   }
 }
 
-/** `"send-nudge"` → `"sendNudge"`; always a valid identifier. */
-function camelCase(id: string): string {
+/**
+ * `"send-nudge"` → `"sendNudge"`; always a valid identifier. Exported — the
+ * `blueprints promote` CLI command needs the EXACT same naming to register
+ * the generated export in `src/journeys/index.ts`; importing this instead of
+ * re-implementing it means the two can never drift.
+ */
+export function camelCase(id: string): string {
   const parts = id.split(/[^A-Za-z0-9]+/).filter((part) => part.length > 0);
   const joined = parts
     .map((part, index) =>

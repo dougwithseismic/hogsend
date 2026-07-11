@@ -1,3 +1,4 @@
+import { blueprintsCommand } from "./blueprints.js";
 import { campaignsCommand } from "./campaigns.js";
 import { connectCommand } from "./connect.js";
 import { contactsCommand } from "./contacts.js";
@@ -30,6 +31,7 @@ import { webhooksCommand } from "./webhooks.js";
 export const commands: Command[] = [
   doctorCommand,
   journeysCommand,
+  blueprintsCommand,
   contactsCommand,
   importCommand,
   statsCommand,
