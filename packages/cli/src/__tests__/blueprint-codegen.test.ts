@@ -304,9 +304,9 @@ describe("generateJourneyFile — wait node forks", () => {
     expect(output).toContain("if (npsWait.timedOut) {");
     // timedOut branch → reminder send with its idempotencyLabel
     expect(output).toContain('idempotencyLabel: "nps-reminder",');
-    // answered branch → the trigger, labelled with the node id
+    // answered branch → the trigger, with userEmail + node-id label
     expect(output).toContain(
-      'await ctx.trigger({ event: "nps.recorded", userId: user.id, idempotencyLabel: "trigger-answered" });',
+      'await ctx.trigger({ event: "nps.recorded", userId: user.id, userEmail: user.email, idempotencyLabel: "trigger-answered" });',
     );
     expectValidTs(output);
   });

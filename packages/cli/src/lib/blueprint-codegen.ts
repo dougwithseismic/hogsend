@@ -348,10 +348,11 @@ function emitChain(
       ]);
 
     case "trigger":
-      // idempotencyLabel = the node id, exactly as the interpreter passes it,
-      // so a replay re-pushing this trigger is a no-op.
+      // userEmail + idempotencyLabel mirror the interpreter's ctx.trigger:
+      // userEmail scopes the pushed event to this user, and the node id keys
+      // the exactly-once so a replay re-pushing this trigger is a no-op.
       return continueFrom(walk, node, depth, nextPath, [
-        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id, idempotencyLabel: ${str(node.id)} });`,
+        `${ind}await ctx.trigger({ event: ${str(node.meta.event)}, userId: user.id, userEmail: user.email, idempotencyLabel: ${str(node.id)} });`,
       ]);
 
     case "send": {
