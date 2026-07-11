@@ -19,7 +19,10 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { getRuntimeSpecMeta } from "../../journeys/spec/runtime-spec-store.js";
+import {
+  getRuntimeSpecMeta,
+  getRuntimeSpecStore,
+} from "../../journeys/spec/runtime-spec-store.js";
 import { rate, TRUNC_SQL } from "../../lib/metrics-sql.js";
 import { errorSchema } from "../../lib/schemas.js";
 
@@ -440,7 +443,17 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
       }
     }
 
-    const allJourneys = registry.getAll();
+    // Boot-time journeys PLUS runtime-added DB specs (in the runtime store,
+    // not yet in the registry) — Studio's Journeys list renders THIS response,
+    // so a just-created journey must appear here without a restart.
+    await getRuntimeSpecStore()
+      .refreshIfStale(db, Date.now(), 5000)
+      .catch(() => {});
+    const runtimeOnly = getRuntimeSpecStore()
+      .all()
+      .filter((s) => !registry.has(s.spec.id))
+      .map((s) => ({ id: s.spec.id, ...s.spec.meta }));
+    const allJourneys = [...registry.getAll(), ...runtimeOnly];
     const journeys = allJourneys.map((j) => {
       const counts = countMap.get(j.id) ?? {};
       const enrolled =
