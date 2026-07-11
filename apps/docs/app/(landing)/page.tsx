@@ -523,6 +523,7 @@ function PsHero() {
                 [
                   "posthog",
                   "resend",
+                  "twilio",
                   "stripe",
                   "railway",
                   "typescript",
@@ -628,8 +629,8 @@ const POSTHOG_CARDS: { title: string; body: ReactNode }[] = [
 ];
 
 /* Channels a journey can reach — plus the honest roadmap. */
-const REACH_NOW = ["Email", "Discord", "Slack", "In-app"];
-const REACH_SOON = ["SMS", "Direct mail"];
+const REACH_NOW = ["Email", "SMS", "Discord", "Slack", "In-app"];
+const REACH_SOON = ["Voice agents", "Direct mail"];
 
 /* The batteries — every one is real, in the scaffold, and demoed on the site
  * (React Email templates → /emails; the React kit + link tracking → /components). */
@@ -732,6 +733,10 @@ function PsPostHogPitch() {
                 </PitchChip>
               ))}
             </div>
+            <p className="mt-3 text-[12px] text-white/35 leading-5 tracking-[-0.02em]">
+              Voice agents land on Vapi and Deepgram — same journey, same
+              contact.
+            </p>
           </div>
 
           <div>
