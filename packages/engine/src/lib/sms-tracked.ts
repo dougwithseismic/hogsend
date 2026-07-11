@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { SmsProvider } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
-import { smsSends, smsSuppressions } from "@hogsend/db";
+import { smsSends, smsSuppressions, trackedLinks } from "@hogsend/db";
 import {
   countSmsSegments,
   getSmsTemplate,
@@ -23,6 +24,11 @@ import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
 import { readRecipientPreferences } from "./preferences.js";
 import { isSmsFrequencyCapped } from "./sms-frequency-cap.js";
+import {
+  isShortCodeCollision,
+  planSmsLinkRewrite,
+  type SmsLinkRewritePlan,
+} from "./sms-link-tracking.js";
 import type {
   SendTrackedSmsOptions,
   SmsTrackedSendResult,
@@ -45,6 +51,10 @@ interface TrackedSmsDeps {
   testMode?: () => boolean;
   /** Redirect target while test mode is active (env.HOGSEND_TEST_PHONE). */
   testPhone?: string;
+  /** Rewrite bare URLs to first-party short tracked links. Default true. */
+  linkTracking?: boolean;
+  /** Full origin short links are minted under; rewriting is skipped if absent. */
+  linkHost?: string;
 }
 
 /**
@@ -90,35 +100,61 @@ export async function sendTrackedSms<K extends SmsTemplateName>(
   return boundary.memoize([key], () => sendTrackedSmsInner(keyed));
 }
 
+/**
+ * The result for a keyed send that found an already-DISPATCHED row under its
+ * key: `sent` (or `delivered` — the webhook advanced it) is a satisfied
+ * duplicate. Any other status is defensively skipped (a `failed` row releases
+ * its key, so it can't actually collide).
+ */
+function duplicateResult(row: {
+  id: string;
+  status: string;
+}): SmsTrackedSendResult {
+  return {
+    smsSendId: row.id,
+    messageId: "",
+    status:
+      row.status === "sent" || row.status === "delivered" ? "sent" : "skipped",
+  };
+}
+
 async function sendTrackedSmsInner<K extends SmsTemplateName>(
   opts: TrackedSmsDeps & { options: SendTrackedSmsOptions<K> },
 ): Promise<SmsTrackedSendResult> {
-  const { db, provider, registry, frequencyCap, logger, stopFooter, options } =
-    opts;
+  const {
+    db,
+    provider,
+    registry,
+    frequencyCap,
+    logger,
+    stopFooter,
+    linkTracking,
+    linkHost,
+    options,
+  } = opts;
 
-  // Idempotency short-circuit: a terminal `sent` prior row is a satisfied
+  // Idempotency short-circuit: a dispatched prior row is a satisfied
   // duplicate; an orphaned `queued` row (crash before the provider returned) is
-  // REUSED and re-driven. A `failed` row released its key, so it never collides.
-  let reuseRowId: string | undefined;
+  // REUSED and re-driven — with its STORED body (see below). A `failed` row
+  // released its key, so it never collides.
+  let reuseRow: { id: string; body: string; toPhone: string } | undefined;
   if (options.idempotencyKey) {
     const existing = await db
-      .select({ id: smsSends.id, status: smsSends.status })
+      .select({
+        id: smsSends.id,
+        status: smsSends.status,
+        body: smsSends.body,
+        toPhone: smsSends.toPhone,
+      })
       .from(smsSends)
       .where(eq(smsSends.idempotencyKey, options.idempotencyKey))
       .limit(1);
     const prior = existing[0];
     if (prior) {
       if (prior.status === "queued") {
-        reuseRowId = prior.id;
+        reuseRow = prior;
       } else {
-        return {
-          smsSendId: prior.id,
-          messageId: "",
-          status: prior.status === "sent" ? "sent" : "skipped",
-          ...(prior.status === "sent"
-            ? {}
-            : { reason: "frequency_capped" as const }),
-        };
+        return duplicateResult(prior);
       }
     }
   }
@@ -224,110 +260,177 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
     }
   }
 
-  // Render React → text, then append the compliance STOP footer for non-
-  // transactional bodies unless disabled or the body already carries an
-  // opt-out instruction.
-  const rawBody = await renderSmsToText(element);
-  const body = applyStopFooter({
-    body: rawBody,
-    category: effectiveCategory,
-    skipPreferenceCheck: options.skipPreferenceCheck,
-    stopFooter,
-  });
-
   // Test mode: redirect to HOGSEND_TEST_PHONE (block when unset). Preference
   // checks above stayed keyed to the ORIGINAL recipient. The resolver is
   // container-wired (validated env + email-side auto-arm coherence) — never a
   // raw process.env read here.
   const testActive = opts.testMode?.() ?? false;
   const testPhone = opts.testPhone;
-  if (testActive && !testPhone) {
-    (logger ?? emitLogger).error(
-      "SMS test mode active but HOGSEND_TEST_PHONE is unset; send blocked",
-      { originalTo: options.to, templateKey: options.templateKey },
-    );
-    const rows = await db
-      .insert(smsSends)
-      .values({
-        templateKey: options.templateKey,
-        fromPhone: options.from,
-        toPhone: options.to,
-        body,
-        category: effectiveCategory,
-        journeyStateId: options.journeyStateId,
-        userId: options.userId,
-        status: "failed",
-        metadata: { testMode: true, originalTo: options.to },
-      })
-      .returning({ id: smsSends.id });
-    const row = rows[0];
-    if (!row) throw new Error("Failed to insert sms_sends row");
-    return {
-      smsSendId: row.id,
-      messageId: "",
-      status: "skipped",
-      reason: "test_mode_blocked",
-    };
-  }
-  const wireTo = testActive && testPhone ? testPhone : options.to;
-  const wireBody =
-    testActive && testPhone ? `[TEST → ${options.to}] ${body}` : body;
 
-  // Insert the queued row (reuse an orphan on replay). Concurrent-insert loser
-  // re-reads the winner, mirroring the email pipeline.
   let smsSendId: string;
-  if (reuseRowId) {
-    smsSendId = reuseRowId;
+  let wireTo: string;
+  let wireBody: string;
+
+  if (reuseRow) {
+    // Re-drive of an orphaned queued row (crash replay): wire the STORED body
+    // verbatim — it already carries the rewritten short links, footer, and any
+    // test prefix from the first drive, and its tracked_links rows were
+    // committed atomically with it. Re-rendering + re-rewriting here would
+    // mint duplicate tracked rows with fresh codes on every replay.
+    if (testActive && !testPhone) {
+      (logger ?? emitLogger).error(
+        "SMS test mode active but HOGSEND_TEST_PHONE is unset; send blocked",
+        { originalTo: options.to, templateKey: options.templateKey },
+      );
+      return {
+        smsSendId: reuseRow.id,
+        messageId: "",
+        status: "skipped",
+        reason: "test_mode_blocked",
+      };
+    }
+    smsSendId = reuseRow.id;
+    wireTo = testActive && testPhone ? testPhone : reuseRow.toPhone;
+    wireBody = reuseRow.body;
   } else {
-    const baseInsert = db.insert(smsSends).values({
-      templateKey: options.templateKey,
-      fromPhone: options.from,
-      toPhone: wireTo,
-      body: wireBody,
-      category: effectiveCategory,
-      journeyStateId: options.journeyStateId,
-      userId: options.userId,
-      status: "queued",
-      idempotencyKey: options.idempotencyKey,
-      ...(testActive && testPhone
-        ? { metadata: { testMode: true, originalTo: options.to } }
-        : {}),
-    });
+    // Render React → text, rewrite bare URLs to first-party short links, then
+    // append the compliance STOP footer. The rewrite sits BEFORE the footer +
+    // test prefix (neither carries URLs) so ONE final string flows to the
+    // stored row, the segment count, and the provider wire. `derive` is
+    // re-runnable — a short-code unique collision rolls the transaction back
+    // and replans with fresh codes.
+    const rawBody = await renderSmsToText(element);
+    const rewriteEnabled = linkTracking !== false && Boolean(linkHost);
+    const derive = (): { plan: SmsLinkRewritePlan; body: string } => {
+      const plan: SmsLinkRewritePlan = rewriteEnabled
+        ? planSmsLinkRewrite({ body: rawBody, linkHost: linkHost as string })
+        : { body: rawBody, links: [] };
+      return {
+        plan,
+        body: applyStopFooter({
+          body: plan.body,
+          category: effectiveCategory,
+          skipPreferenceCheck: options.skipPreferenceCheck,
+          stopFooter,
+        }),
+      };
+    };
+    let attempt = derive();
 
-    const insertRows = options.idempotencyKey
-      ? await baseInsert
-          .onConflictDoNothing({ target: smsSends.idempotencyKey })
-          .returning({ id: smsSends.id })
-      : await baseInsert.returning({ id: smsSends.id });
+    if (testActive && !testPhone) {
+      (logger ?? emitLogger).error(
+        "SMS test mode active but HOGSEND_TEST_PHONE is unset; send blocked",
+        { originalTo: options.to, templateKey: options.templateKey },
+      );
+      const rows = await db
+        .insert(smsSends)
+        .values({
+          templateKey: options.templateKey,
+          fromPhone: options.from,
+          toPhone: options.to,
+          body: attempt.body,
+          category: effectiveCategory,
+          journeyStateId: options.journeyStateId,
+          userId: options.userId,
+          status: "failed",
+          metadata: { testMode: true, originalTo: options.to },
+        })
+        .returning({ id: smsSends.id });
+      const row = rows[0];
+      if (!row) throw new Error("Failed to insert sms_sends row");
+      return {
+        smsSendId: row.id,
+        messageId: "",
+        status: "skipped",
+        reason: "test_mode_blocked",
+      };
+    }
 
-    const inserted = insertRows[0];
-    if (!inserted && options.idempotencyKey) {
+    const applyTestPrefix = (body: string): string =>
+      testActive && testPhone ? `[TEST → ${options.to}] ${body}` : body;
+    wireTo = testActive && testPhone ? testPhone : options.to;
+    wireBody = applyTestPrefix(attempt.body);
+
+    // Insert the queued row AND its tracked_links in ONE transaction: the FK
+    // forces the order, and atomicity means no queued row ever exists whose
+    // short codes have no tracked rows (a crash window that would send dead
+    // links), while a code collision rolls back cleanly for a full replan.
+    // The concurrent idempotency-key LOSER adopts the winner's stored
+    // body/toPhone — its own rewritten codes were rolled back with the losing
+    // insert.
+    let resolvedId: string | undefined;
+    for (let tries = 0; tries < 3 && resolvedId === undefined; tries++) {
+      const rowId = randomUUID();
+      const pending = attempt.plan.links;
+      let inserted = false;
+      try {
+        inserted = await db.transaction(async (tx) => {
+          const baseInsert = tx.insert(smsSends).values({
+            id: rowId,
+            templateKey: options.templateKey,
+            fromPhone: options.from,
+            toPhone: wireTo,
+            body: wireBody,
+            category: effectiveCategory,
+            journeyStateId: options.journeyStateId,
+            userId: options.userId,
+            status: "queued",
+            idempotencyKey: options.idempotencyKey,
+            ...(testActive && testPhone
+              ? { metadata: { testMode: true, originalTo: options.to } }
+              : {}),
+          });
+          const insertRows = options.idempotencyKey
+            ? await baseInsert
+                .onConflictDoNothing({ target: smsSends.idempotencyKey })
+                .returning({ id: smsSends.id })
+            : await baseInsert.returning({ id: smsSends.id });
+          if (!insertRows[0]) return false;
+          if (pending.length > 0) {
+            await tx.insert(trackedLinks).values(
+              pending.map((link) => ({
+                smsSendId: rowId,
+                source: "sms",
+                originalUrl: link.originalUrl,
+                shortCode: link.shortCode,
+              })),
+            );
+          }
+          return true;
+        });
+      } catch (err) {
+        if (!isShortCodeCollision(err) || tries === 2) throw err;
+        attempt = derive();
+        wireBody = applyTestPrefix(attempt.body);
+        continue;
+      }
+
+      if (inserted) {
+        resolvedId = rowId;
+        break;
+      }
+      // Idempotency-key loser: adopt the winner (nothing of ours committed).
       const winner = await db
-        .select({ id: smsSends.id, status: smsSends.status })
+        .select({
+          id: smsSends.id,
+          status: smsSends.status,
+          body: smsSends.body,
+          toPhone: smsSends.toPhone,
+        })
         .from(smsSends)
-        .where(eq(smsSends.idempotencyKey, options.idempotencyKey))
+        .where(eq(smsSends.idempotencyKey, options.idempotencyKey ?? ""))
         .limit(1);
       const won = winner[0];
-      if (won) {
-        if (won.status !== "queued") {
-          return {
-            smsSendId: won.id,
-            messageId: "",
-            status: won.status === "sent" ? "sent" : "skipped",
-            ...(won.status === "sent"
-              ? {}
-              : { reason: "frequency_capped" as const }),
-          };
-        }
-        smsSendId = won.id;
-      } else {
-        throw new Error("Failed to insert sms_sends row");
-      }
-    } else if (!inserted) {
-      throw new Error("Failed to insert sms_sends row");
-    } else {
-      smsSendId = inserted.id;
+      if (!won) throw new Error("Failed to insert sms_sends row");
+      if (won.status !== "queued") return duplicateResult(won);
+      resolvedId = won.id;
+      wireBody = won.body;
+      wireTo = testActive && testPhone ? testPhone : won.toPhone;
     }
+    if (resolvedId === undefined) {
+      throw new Error("Failed to insert sms_sends row");
+    }
+    smsSendId = resolvedId;
   }
 
   try {

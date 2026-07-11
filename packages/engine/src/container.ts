@@ -318,6 +318,11 @@ export interface HogsendClientOptions {
    *   bodies; `false` disables it, a string overrides the default text.
    * - `optOutReplies` — send STOP/START/HELP confirmation replies (default off;
    *   the carrier already replies and a post-STOP send is blocked).
+   * - `linkTracking` — rewrite bare URLs in rendered bodies to first-party
+   *   short tracked links (`/s/:code`). Default true (overrides env
+   *   `SMS_LINK_TRACKING`).
+   * - `linkHost` — the full origin short links are minted under (overrides
+   *   env `SMS_LINK_HOST`; falls back to `API_PUBLIC_URL`).
    *
    * Omitting `sms` entirely (or configuring no provider) installs an inert stub
    * SMS service — an existing deploy without Twilio creds boots unchanged.
@@ -330,6 +335,8 @@ export interface HogsendClientOptions {
     from?: string;
     stopFooter?: string | false;
     optOutReplies?: boolean;
+    linkTracking?: boolean;
+    linkHost?: string;
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -884,6 +891,16 @@ export function createHogsendClient(
             (env.HOGSEND_TEST_MODE === "auto" &&
               domainStatus.testModeCached().active),
           testPhone: env.HOGSEND_TEST_PHONE,
+          // First-party short-link rewriting (ON by default, mirrors email's
+          // always-on tracking). SMS_LINK_HOST swaps in a branded short
+          // domain; API_PUBLIC_URL serves out of the box.
+          linkTracking:
+            opts.sms?.linkTracking ?? env.SMS_LINK_TRACKING !== "false",
+          linkHost: (
+            opts.sms?.linkHost ??
+            env.SMS_LINK_HOST ??
+            env.API_PUBLIC_URL
+          ).replace(/\/+$/, ""),
         },
         { provider: smsProvider },
       )

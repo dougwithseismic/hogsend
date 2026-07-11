@@ -15,6 +15,7 @@ import { feedRouter } from "./feed/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
 import { trackingRouter } from "./tracking/index.js";
+import { shortLinkRouter } from "./tracking/short.js";
 import { vanityRouter } from "./tracking/vanity.js";
 import { registerWebhookRoutes } from "./webhooks/index.js";
 
@@ -140,6 +141,11 @@ export function registerRoutes(
   // `${API_PUBLIC_URL}/l/:slug`. Unauthenticated like the rest of the tracking
   // surface (vanity links land in chats/posts/print).
   app.route("/", vanityRouter);
+
+  // SMS short link redirect — root-mounted so the texted URL stays short
+  // (`${SMS_LINK_HOST ?? API_PUBLIC_URL}/s/:code`); every character counts
+  // against the GSM-7 segment budget. Unauthenticated like /l.
+  app.route("/", shortLinkRouter);
 
   // Generic connector dispatch (oauth/interactions/ingress) — the static
   // `connectors/` prefix is registered BEFORE the `:sourceId` webhook catch-all

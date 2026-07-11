@@ -288,7 +288,8 @@ describe("grant via POST /v1/lists/sms/subscribe", () => {
       expect(envelope.type).toBe("contact.subscribed");
       expect(envelope.data.category).toBe("sms");
       expect(envelope.data.source).toBe("api");
-    });
+      // Generous timeout: the emit is fire-and-forget off the write path.
+    }, 5000);
   });
 
   it("falls back to the phone track for a phone-only contact (no email)", async () => {

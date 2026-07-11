@@ -128,11 +128,12 @@ export const emailSendsRelations = relations(emailSends, ({ one, many }) => ({
   trackedLinks: many(trackedLinks),
 }));
 
-export const smsSendsRelations = relations(smsSends, ({ one }) => ({
+export const smsSendsRelations = relations(smsSends, ({ one, many }) => ({
   journeyState: one(journeyStates, {
     fields: [smsSends.journeyStateId],
     references: [journeyStates.id],
   }),
+  trackedLinks: many(trackedLinks),
 }));
 
 export const trackedLinksRelations = relations(
@@ -141,6 +142,10 @@ export const trackedLinksRelations = relations(
     emailSend: one(emailSends, {
       fields: [trackedLinks.emailSendId],
       references: [emailSends.id],
+    }),
+    smsSend: one(smsSends, {
+      fields: [trackedLinks.smsSendId],
+      references: [smsSends.id],
     }),
     clicks: many(linkClicks),
   }),

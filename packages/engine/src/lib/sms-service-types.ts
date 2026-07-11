@@ -97,6 +97,17 @@ export interface SmsServiceConfig {
   testMode?: () => boolean;
   /** The redirect target while test mode is active (env.HOGSEND_TEST_PHONE). */
   testPhone?: string;
+  /**
+   * Rewrite bare URLs in rendered bodies to first-party short tracked links
+   * (`/s/:code`). Default true (mirrors email's always-on tracking).
+   */
+  linkTracking?: boolean;
+  /**
+   * Full origin the short links are minted under (no trailing slash). The
+   * container resolves `sms.linkHost ?? SMS_LINK_HOST ?? API_PUBLIC_URL`.
+   * Rewriting is skipped when absent.
+   */
+  linkHost?: string;
 }
 
 export interface SmsServiceSendOptions<

@@ -36,6 +36,9 @@ export const smsSends = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
+    // First-click timestamp, set exactly once by the click pipeline
+    // (WHERE clicked_at IS NULL) — mirrors email_sends.clickedAt.
+    clickedAt: timestamp("clicked_at", { withTimezone: true }),
     // Carrier failure classification from the provider status webhook.
     errorCode: text("error_code"),
     errorReason: text("error_reason"),

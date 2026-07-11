@@ -12,6 +12,7 @@ import {
 import { timestamps } from "./_shared.js";
 import { emailSends } from "./email-sends.js";
 import { links } from "./links.js";
+import { smsSends } from "./sms-sends.js";
 
 export const trackedLinks = pgTable(
   "tracked_links",
@@ -24,6 +25,16 @@ export const trackedLinks = pgTable(
     emailSendId: uuid("email_send_id").references(() => emailSends.id, {
       onDelete: "cascade",
     }),
+    // The SMS send this per-send rewritten link belongs to (`source: "sms"`).
+    // NULL for email/managed/ad-hoc links. Cascade like emailSendId — the SMS
+    // sibling of the email-link attribution column.
+    smsSendId: uuid("sms_send_id").references(() => smsSends.id, {
+      onDelete: "cascade",
+    }),
+    // The public short handle served at `GET /s/:code` — set ONLY on
+    // SMS-minted rows (8-char lowercase base32, crypto-random, GSM-7-safe).
+    // NULL for every other source; uniqueness via the partial index below.
+    shortCode: text("short_code"),
     // The managed `links` row this click-counter belongs to, when the link was
     // minted via `mintLink` (Studio / Discord / share links). NULL for email's
     // per-send rewritten links (they resolve identity from `email_sends`). ON
@@ -58,6 +69,10 @@ export const trackedLinks = pgTable(
   },
   (table) => [
     index("tracked_links_email_send_id_idx").on(table.emailSendId),
+    index("tracked_links_sms_send_id_idx").on(table.smsSendId),
+    uniqueIndex("tracked_links_short_code_unique")
+      .on(table.shortCode)
+      .where(sql`${table.shortCode} IS NOT NULL`),
     index("tracked_links_link_id_idx").on(table.linkId),
     // A managed link has AT MOST ONE QR scan row (`source = 'qr'`), minted
     // lazily on first QR request. The partial unique index makes the lazy

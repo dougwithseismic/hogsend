@@ -1,6 +1,11 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import { type Database, emailSends, journeyStates } from "@hogsend/db";
+import {
+  type Database,
+  emailSends,
+  journeyStates,
+  smsSends,
+} from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import { type IngestResult, ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
@@ -246,6 +251,107 @@ export async function pushLinkClickEvent(
         source: opts.source,
         linkType: opts.linkType,
         linkUrl: opts.linkUrl,
+      },
+      source: "tracking",
+      idempotencyKey: opts.idempotencyKey,
+    },
+  });
+}
+
+export interface SmsSendContext {
+  /**
+   * The resolved contact key: the enrollment's userId, else the send row's
+   * denormalized userId, else NULL. Deliberately NO phone fallback — phone is
+   * not a merge-participating contact `Kind`, so a phone-keyed ingest would
+   * fork an orphan contact.
+   */
+  userId: string | null;
+  userEmail: string | null;
+  templateKey: string | null;
+  messageId: string | null;
+  to: string;
+}
+
+/**
+ * The SMS sibling of {@link resolveEmailSendContext}: one LEFT JOIN from
+ * `sms_sends` to `journey_states` giving the click pipeline the identity +
+ * template context for the bus re-ingest and the `sms.clicked` outbound emit.
+ */
+export async function resolveSmsSendContext(
+  db: Database,
+  smsSendId: string | null,
+): Promise<SmsSendContext | null> {
+  if (!smsSendId) return null;
+  const rows = await db
+    .select({
+      toPhone: smsSends.toPhone,
+      templateKey: smsSends.templateKey,
+      messageId: smsSends.messageId,
+      sendUserId: smsSends.userId,
+      userId: journeyStates.userId,
+      userEmail: journeyStates.userEmail,
+    })
+    .from(smsSends)
+    .leftJoin(journeyStates, eq(smsSends.journeyStateId, journeyStates.id))
+    .where(eq(smsSends.id, smsSendId))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    userId: row.userId ?? row.sendUserId ?? null,
+    userEmail: row.userEmail ?? null,
+    templateKey: row.templateKey,
+    messageId: row.messageId,
+    to: row.toPhone,
+  };
+}
+
+export interface PushSmsTrackingEventOpts {
+  db: Database;
+  hatchet: HatchetClient;
+  registry: JourneyRegistry;
+  logger: Logger;
+  event: string;
+  smsSendId: string;
+  properties?: Record<string, unknown>;
+  /** Pre-resolved send context (including null) skips the duplicate read. */
+  resolvedContext?: SmsSendContext | null;
+  idempotencyKey?: string;
+}
+
+/**
+ * Re-push a first-party SMS tracking event (short-link click) onto the
+ * INTERNAL bus for journey routing + `userEvents` persistence — the SMS
+ * sibling of {@link pushTrackingEvent}. Returns undefined without ingesting
+ * when the send has no resolvable contact key (`ingestEvent` throws on a
+ * zero-key event, and phone is not a contact key).
+ */
+export async function pushSmsTrackingEvent(
+  opts: PushSmsTrackingEventOpts,
+): Promise<IngestResult | undefined> {
+  const { db, hatchet, registry, logger, event, smsSendId } = opts;
+
+  const ctx =
+    opts.resolvedContext !== undefined
+      ? opts.resolvedContext
+      : await resolveSmsSendContext(db, smsSendId);
+  if (!ctx?.userId) return undefined;
+
+  return await ingestEvent({
+    db,
+    registry,
+    hatchet,
+    logger,
+    event: {
+      event,
+      userId: ctx.userId,
+      userEmail: ctx.userEmail ?? undefined,
+      eventProperties: {
+        smsSendId,
+        templateKey: ctx.templateKey,
+        ...opts.properties,
       },
       source: "tracking",
       idempotencyKey: opts.idempotencyKey,

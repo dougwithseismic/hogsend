@@ -538,6 +538,16 @@ export {
   grantPhoneConsent,
   recordPhoneOptOut,
 } from "./lib/sms-inbound.js";
+// --- SMS link shortening (pure rewriter; the insert rides the send txn) ---
+export {
+  generateShortCode,
+  isShortCodeCollision,
+  type PendingSmsLink,
+  planSmsLinkRewrite,
+  SHORT_CODE_ALPHABET,
+  SHORT_CODE_LENGTH,
+  type SmsLinkRewritePlan,
+} from "./lib/sms-link-tracking.js";
 // --- SMS mailer factory (the engine-owned tracked sender; mirrors createTrackedMailer) ---
 export { createTrackedSmsSender } from "./lib/sms-mailer.js";
 // --- SMS provider registry (container-held, keyed by meta.id) ---
@@ -574,6 +584,7 @@ export {
   rewriteLinks,
 } from "./lib/tracking.js";
 export {
+  pushSmsTrackingEvent,
   pushTrackingEvent,
   resolveEmailSendContext,
   resolveEmailSendContextByMessageId,
@@ -582,6 +593,7 @@ export {
    * {@link resolveEmailSendContextByMessageId}.
    */
   resolveEmailSendContextByResendId,
+  resolveSmsSendContext,
 } from "./lib/tracking-events.js";
 /**
  * Publishable-key `userToken` mint/verify helpers.

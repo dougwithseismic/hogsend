@@ -252,6 +252,7 @@ export type OutboundEventType =
   | "sms.sent"
   | "sms.delivered"
   | "sms.failed"
+  | "sms.clicked"
   | "journey.completed"
   | "bucket.entered"
   | "bucket.left"

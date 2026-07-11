@@ -20,3 +20,9 @@ export const LINK_CLICKED = "link.clicked" as const;
 // "did a known user scan this QR?". Bus + outbound both define `linkId` as the
 // managed `links.id` and carry `trackedLinkId` separately (no legacy split).
 export const LINK_ARRIVED = "link.arrived" as const;
+
+// First-party BUS event for an SMS short-link click (`/s/:code`) — the SMS
+// sibling of `email.link_clicked`, re-ingested through `ingestEvent` so
+// journeys can trigger / `ctx.waitForEvent` on a click of a link texted to
+// THIS user. The per-hit OUTBOUND counterpart is `sms.clicked`.
+export const SMS_LINK_CLICKED = "sms.link_clicked" as const;

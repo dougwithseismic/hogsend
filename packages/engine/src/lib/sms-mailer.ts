@@ -103,6 +103,8 @@ export function createTrackedSmsSender(
           stopFooter: config.stopFooter,
           testMode: config.testMode,
           testPhone: config.testPhone,
+          linkTracking: config.linkTracking,
+          linkHost: config.linkHost,
           options: {
             templateKey: options.template,
             props: options.props,

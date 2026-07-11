@@ -4,7 +4,7 @@ import { color } from "../lib/output.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
- * The 20-event outbound catalog, VENDORED from the engine's
+ * The 21-event outbound catalog, VENDORED from the engine's
  * `WEBHOOK_EVENT_TYPES` (lib/webhook-signing.ts). The CLI cannot import the
  * engine, so the tuple is re-declared here and MUST be kept in sync BY HAND when
  * the engine catalog changes. The `webhook.test` sentinel is NOT a member.
@@ -25,6 +25,7 @@ const WEBHOOK_EVENT_TYPES = [
   "sms.sent",
   "sms.delivered",
   "sms.failed",
+  "sms.clicked",
   "link.clicked",
   "link.arrived",
   "journey.completed",

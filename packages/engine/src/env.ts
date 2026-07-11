@@ -133,6 +133,15 @@ export const env = createEnv({
     // HOGSEND_TEST_MODE=true. When unset while test mode is active, the send is
     // BLOCKED (recorded, never delivered to the real recipient).
     HOGSEND_TEST_PHONE: z.string().optional(),
+    // SMS link shortening/tracking is ON by default when SMS is configured.
+    // An enum, NOT z.coerce.boolean — an explicit "false" must actually
+    // disable (coerce treats the string "false" as true; HOGSEND_TEST_MODE
+    // precedent).
+    SMS_LINK_TRACKING: z.enum(["true", "false"]).default("true"),
+    // Full origin short links are minted under (e.g. https://hs.example.com —
+    // a branded short domain routed to this app). Falls back to
+    // API_PUBLIC_URL; the /s/:code route serves either way.
+    SMS_LINK_HOST: z.string().url().optional(),
     // --- Twilio (default SMS provider, opt-in) ---
     // A preset provider is built only when BOTH SID + token are present (the
     // guarded dynamic import in sms-providers-from-env.ts). One of SMS_FROM /

@@ -194,6 +194,22 @@ export interface OutboundPayloads {
     errorCode?: string;
     errorReason?: string;
   };
+  /**
+   * A tracked SMS short link was clicked (first-party, PER-HIT — the SMS
+   * sibling of `email.clicked`). `linkId` is the `tracked_links.id`,
+   * `linkUrl` the original destination. `userId` is null for a raw send with
+   * no resolvable contact.
+   */
+  "sms.clicked": {
+    smsSendId: string;
+    messageId: string | null;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    linkUrl: string;
+    linkId: string;
+  };
   "journey.completed": {
     journeyId: string;
     journeyName: string;
