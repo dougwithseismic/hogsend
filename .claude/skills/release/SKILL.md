@@ -43,16 +43,18 @@ npm login                                   # a maintainer account with @hogsend
 npm whoami                                  # confirm you're authed
 cd packages/<new-package>
 pnpm --filter @hogsend/<new-package> build  # if it ships a built dist (e.g. studio) — ensure dist is fresh
-npm publish --access public
+pnpm publish --access public --no-git-checks
 ```
-A 404 on the `PUT` = not authed / not authorized to create in the `@hogsend` scope. A 403 "cannot publish over previously published versions" = it's already there (success). After it exists once, future versions publish via CI normally. You **cannot** pre-set an OIDC Trusted Publisher on a package that doesn't exist yet, so the first publish can't be tokenless either — do it manually, then add the Trusted Publisher (npmjs.com → package → Settings).
+🚨 **`pnpm publish`, NEVER raw `npm publish`** (learned the hard way on `@hogsend/mcp@0.41.0`, 2026-07-11): raw `npm publish` ships `workspace:^` dependency specifiers VERBATIM into the tarball — the package "publishes fine" but every standalone `npm/pnpm install` of it fails with `Unsupported URL Type "workspace:"`. Only `pnpm publish` rewrites `workspace:^` to the real `^X.Y.Z` at pack time (CI's `changeset publish` flow also handles this — the trap is exclusively the manual path). Versions are immutable, so the broken one can only be `npm deprecate`d, not fixed. After publishing, ALWAYS verify with a standalone install from a scratch dir (`npm i @hogsend/<new-package>` outside the workspace), not just a registry GET.
+
+A 404 on the `PUT` = not authed / not authorized to create in the `@hogsend` scope. A 403 "cannot publish over previously published versions" = it's already there (success). If the account uses passkey/browser 2FA, run the publish interactively (npm opens the browser); a non-interactive shell gets `EOTP`. After it exists once, future versions publish via CI normally. You **cannot** pre-set an OIDC Trusted Publisher on a package that doesn't exist yet, so the first publish can't be tokenless either — do it manually, then add the Trusted Publisher (npmjs.com → package → Settings).
 
 🚨 **`@hogsend/plugin-postmark` is exactly such a brand-new package — its FIRST publish MUST be MANUAL.** It's a new `@hogsend/*` name (the opt-in Postmark `EmailProvider`), so the CI publish token cannot CREATE it. Publish it by hand once, on the engine version line:
 ```bash
 npm login                                            # maintainer with @hogsend create rights
 npm whoami
 pnpm --filter @hogsend/plugin-postmark build
-cd packages/plugin-postmark && npm publish --access public
+cd packages/plugin-postmark && pnpm publish --access public --no-git-checks
 ```
 Then verify it on the registry (`curl -s https://registry.npmjs.org/@hogsend%2fplugin-postmark | head -c 300`) BEFORE relying on CI for it, and add an OIDC Trusted Publisher. After it exists once, future versions publish via CI on the engine line like everything else. It is opt-in and NOT scaffold-pinned, so a missing first publish does NOT break `npx create-hogsend` (unlike `@hogsend/client`) — but a consumer doing `pnpm add @hogsend/plugin-postmark` will 404 until the manual publish lands.
 
@@ -101,7 +103,7 @@ The changeset `linked` group used to be `[engine, db, core, cli, client]`, but i
 Both `@hogsend/cli` and `@hogsend/client` are now **on the engine version line** (shipped at `0.7.0`). They're listed in `HOGSEND_PACKAGES` and pinned by the scaffold as `^{{ENGINE_VERSION}}`. They must be bumped to the engine version every release — but via EXPLICIT changeset entries, NOT the `linked` group (which is disbanded — see the gotcha above).
 
 - **The scaffold DEPENDS on `@hogsend/cli` and `@hogsend/client`.** Keep them in `template/_package.json` deps (`^{{ENGINE_VERSION}}`) and in `HOGSEND_PACKAGES` (`template-manifest.ts`). The verification harness (`packages/create-hogsend/scripts/verify-scaffold.sh`) packs both — they're in its `PACKAGES=(...)` array — and **builds them before packing** (`pnpm --filter @hogsend/cli build`, `pnpm --filter @hogsend/client build`) because both ship `dist/` (client ships only `dist`; cli ships `dist` + `src`). With cli on `0.6.0` the produced tarball is `hogsend-cli-0.6.0.tgz`, matching `copy.ts`'s `rewriteTarballDeps` (`hogsend-<name>-${ENGINE_VERSION}.tgz`).
-- 🚨 **`@hogsend/client`'s FIRST npm publish must be MANUAL.** It's a brand-new `@hogsend/*` package, so the CI publish token cannot CREATE it (see the New-package gotcha above). Publish it by hand once — `cd packages/client && pnpm --filter @hogsend/client build && npm publish --access public` — and verify it on the registry **before** `create-hogsend` ships with the `^{{ENGINE_VERSION}}` pin that depends on it. Otherwise a public scaffold install 404s. After it exists once, future versions publish via CI on the engine line.
+- 🚨 **`@hogsend/client`'s FIRST npm publish must be MANUAL.** It's a brand-new `@hogsend/*` package, so the CI publish token cannot CREATE it (see the New-package gotcha above). Publish it by hand once — `cd packages/client && pnpm --filter @hogsend/client build && pnpm publish --access public --no-git-checks` — and verify it on the registry **before** `create-hogsend` ships with the `^{{ENGINE_VERSION}}` pin that depends on it. Otherwise a public scaffold install 404s. After it exists once, future versions publish via CI on the engine line.
 
 ### Vendored agent skills (packages/cli/skills) — content-audited
 
