@@ -1,0 +1,69 @@
+---
+title: hogsend blueprints
+description: List Journey Blueprints and promote them to code-first defineJourney() files — generates the file, registers it, and marks the blueprint promoted.
+---
+
+Journey Blueprints are JSON-authored journeys (created via the MCP tools, Studio, or the admin API) stored in the database and executed by the generic interpreter — no deploy needed to go live. `hogsend blueprints` lists them and promotes one or more to real, git-committed code.
+
+```bash
+hogsend blueprints list [options]
+hogsend blueprints promote [id...] [options]
+```
+
+## `blueprints list`
+
+```bash
+hogsend blueprints list
+```
+
+Shows every blueprint's id, name, status, trigger event, and promotion state.
+
+| Option | Description |
+|---|---|
+| `--status <s>` | Filter by status (`draft` \| `enabled` \| `disabled`). |
+| `--limit <n>` | Page size (default 50). |
+| `--offset <n>` | Page offset (default 0). |
+| `-h, --help` | Show this help. |
+
+## `blueprints promote`
+
+```bash
+hogsend blueprints promote                                  # interactive picker
+hogsend blueprints promote activation-nudge-blueprint --journey-id activation-nudge
+hogsend blueprints promote bp-a bp-b --dry-run
+```
+
+For each blueprint id: fetches its stored graph, re-validates it against the current template/connector registries, and — if it passes — generates a `defineJourney()` TypeScript file from it (the same primitives a hand-authored journey uses: `ctx.sleep`, `ctx.waitForEvent`, `sendEmail`, `ctx.trigger`, `if`/`else` for decision nodes). A blueprint that's 404, already promoted, or fails validation is **skipped**, not aborted — the rest of the batch still proceeds.
+
+Once every blueprint in the batch has generated successfully, `promote` creates a **new git branch**, writes the generated file(s) into `src/journeys/`, registers each one in `src/journeys/index.ts` (import, the `journeys` array, and the scaffold's re-export line), and prints the staged diff. After you confirm, it calls the admin API to mark each blueprint promoted (disabled — the generated code is now the source of truth) and cannot be re-enabled.
+
+**`promote` never commits or pushes.** Review the diff yourself, then commit and push when you're happy with it. Declining (or cancelling) the confirmation discards the branch and its changes automatically.
+
+Only `EventCondition` decision nodes (`exists`/`not_exists`/`count`) compile to real code (`ctx.history.hasEvent(...)`) — every other condition type (property, composite, email-engagement, channel-identity) generates an honest `// TODO(promote-to-code)` stub with the original condition JSON, since there's no equivalent hand-authorable primitive for those yet. Search the generated file for `TODO(promote-to-code)` before enabling it.
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--cwd <dir>` | Consumer app root (default: current directory). Must contain `package.json` and `src/journeys/index.ts`. |
+| `--yes`, `-y` | Skip the confirmation prompt. Required when not running interactively. |
+| `--dry-run` | Print the generated file(s) and stop — no git branch, no writes, no promote calls. |
+| `--branch <name>` | Branch to create (default: `promote-blueprint-<id>`, or a timestamped name for a batch). |
+| `--journey-id <id>` | Id for the generated journey (`meta.id`, export name, file name). Only valid when promoting exactly one blueprint; defaults to the blueprint id. |
+| `-h, --help` | Show this help. |
+
+### Examples
+
+```bash
+# See what's out there
+hogsend blueprints list
+
+# Promote one, naming the generated journey
+hogsend blueprints promote activation-nudge-blueprint --journey-id activation-nudge
+
+# Preview a batch without touching anything
+hogsend blueprints promote bp-a bp-b --dry-run
+
+# Non-interactive (CI / an agent)
+hogsend blueprints promote bp-a --yes
+```
