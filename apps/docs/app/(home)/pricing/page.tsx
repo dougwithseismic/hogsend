@@ -33,9 +33,11 @@ const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
 const ZERO_DOLLAR_ITEMS: ReactNode[] = [
   "The engine and all 11 packages",
   "10 production journeys in the scaffold",
-  "Buckets, lists, campaigns",
+  "Journey Blueprints — agent-authored journeys, promotable to code",
+  "Buckets, lists, campaigns + broadcasts",
   "Durable execution (Hatchet)",
-  "First-party open/click tracking",
+  "Digest + throttle journey primitives",
+  "First-party open & link tracking — vanity links, QR codes, click attribution",
   "Suppression + preference center",
   "13 React Email templates",
   <>
@@ -45,6 +47,7 @@ const ZERO_DOLLAR_ITEMS: ReactNode[] = [
   "Outbound destinations (PostHog, Segment, Slack, signed webhooks)",
   "Studio",
   "CLI + Claude Code skills",
+  "MCP server — author journeys from Claude Desktop or claude.ai",
   <>
     Every future version (
     <code className="font-mono text-sm">pnpm up &quot;@hogsend/*&quot;</code>)

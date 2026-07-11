@@ -1,0 +1,90 @@
+---
+title: Journey Blueprints
+description: JSON-graph journeys stored in the database and run by a generic interpreter — authored by agents or the admin API, enabled without a deploy, and promotable to code.
+---
+
+A Journey Blueprint is a lifecycle journey authored as a JSON graph, stored in the database, and executed by the engine's generic interpreter. Where a [code journey](/docs/guides/journeys) is a TypeScript `defineJourney()` function you commit and deploy, a blueprint is a row in `journey_blueprints` that goes live the moment you enable it — no build, no redeploy.
+
+Blueprints exist so an agent or an operator can author and change a journey at runtime. They run through the same lifecycle as code journeys — same enrollment guards, same durable execution, same journey context primitives, same terminal states — so an enrolled user can't tell the two apart. The differences are where the journey lives (a DB row vs. your repo) and how much of the vocabulary it can express.
+
+## Blueprints vs. code journeys
+
+Both are journeys; pick by who authors it and how much control flow it needs.
+
+| | Blueprint | Code journey |
+|---|---|---|
+| Authored by | An agent (MCP) or the admin API, at runtime | You, in TypeScript, committed to git |
+| Stored in | `journey_blueprints` (a DB row) | `src/journeys/` (your repo) |
+| Goes live via | Enable — no deploy | A deploy |
+| Source of truth | The DB row | Your code |
+| Vocabulary | A closed set of graph nodes | The full `ctx` primitive set |
+| Shape | Acyclic graph, no loops (v1) | Arbitrary TypeScript control flow |
+
+Reach for a blueprint when a journey should be authored or adjusted without a code change — an agent drafting an automation, an operator turning one on. Reach for a code journey when you want it reviewed and versioned with the rest of your product, or when it needs primitives the graph can't express: `ctx.sleepUntil`, `ctx.when`, digests, throttles, `ctx.once`, or any branching richer than a single binary decision. A blueprint's executable vocabulary is deliberately a subset — `sleepUntil`, `capture`, and `digest` nodes are rejected at save time.
+
+When a blueprint has earned its place, [promote it to code](#promote-to-code) and it becomes an ordinary `defineJourney()` file.
+
+## The graph
+
+A blueprint's `graph` is `{ journeyId, nodes[], edges[] }`. The `journeyId` **is** the blueprint id — one id, one namespace (it can't collide with a registered code journey, and it's immutable after create). Nodes are a closed, executable vocabulary:
+
+| Node | Does |
+|---|---|
+| `start` | The single entry point (exactly one per graph). |
+| `sleep` | Durable sleep for a fixed duration. |
+| `wait` | Wait for the user's event or time out; forks on `answered` / `timedOut`. |
+| `send` | Send a registered email template. |
+| `connector` | Fire a registered connector action (Discord, Telegram). |
+| `trigger` | Push an event through the ingest pipeline. |
+| `decision` / `branch` | Binary fork on a condition (`conditional-true` / `conditional-false`). |
+| `checkpoint` | Observability marker. |
+| `end-completed` / `end-exited` / `end-failed` | Terminals. |
+
+Durations everywhere are `{ hours?, minutes?, seconds? }` — there is no `days` key (write `{ hours: 72 }`). The graph must be acyclic, have exactly one `start`, and keep every node reachable. Every write is validated at save time — schema, structure, and the template/connector registries — so an invalid graph is never stored; a failed validation returns structured issues naming the node and field to fix.
+
+The full vocabulary — every node, edge kind, condition type, and the validate → iterate → write workflow — is the `hogsend://blueprint-authoring-guide` [MCP resource](/docs/integrations/mcp), loaded on demand by an authoring agent.
+
+## Enrollment guards
+
+The trigger and guards live on the blueprint **record**, not in the graph, and behave identically to a code journey's `meta` — the interpreter builds the same `JourneyMeta` and runs the same guard functions:
+
+- **`triggerEvent`** (plus optional **`triggerWhere`** property conditions) — the event that enrolls a user.
+- **`entryLimit`** — `once`, `once_per_period` (paired with an **`entryPeriod`** duration), or `unlimited`.
+- **`exitOn`** — events that abort an in-flight run, even mid-sleep.
+- **`suppress`** — a quiet period after a completed run (`{}` disables it).
+
+See [Enrollment guards](/docs/guides/journeys#enrollment-guards) for the exact evaluation order — it's shared code.
+
+## Lifecycle
+
+A blueprint moves through four states:
+
+- **`draft`** — created but not enrolling. Editable. (A blueprint may also be created directly `enabled`.)
+- **`enabled`** — live; new matching events enroll users. Enabling re-validates the stored graph against the *current* template and connector registries, so a template unregistered since save is caught here, not at 2 a.m. mid-run.
+- **`disabled`** — new enrollments stop on the next event; in-flight runs keep going (the same way a code journey behaves when its `enabled` flag flips off).
+- **promoted** — frozen. Once a blueprint is [promoted to code](#promote-to-code), the generated code journey is the source of truth; the blueprint is read-only and can never be edited or re-enabled.
+
+Editing the graph bumps its `version`. A graph edit is **rejected while any enrollment is active or waiting** — changing the node sequence out from under a suspended run would desync its durable replay journal — so drain the enrollments or disable and let them finish before editing a live graph. Metadata-only edits (name, trigger, guards) are always allowed.
+
+## How they're authored
+
+Three surfaces write blueprints; all share one validation and storage path, so nothing drifts between them.
+
+- **MCP** — the [`manage_blueprint`](/docs/integrations/mcp) tool from `@hogsend/mcp`, with `action: create | update | validate | enable | disable`. This is the agent-facing path: an agent iterates against `validate` (a dry run that returns the same structured issues without writing) until the graph is valid, then creates it. There is no `promote` action — promotion is a CLI step.
+- **Admin API** — the `/v1/admin/blueprints` routes, for programmatic control outside an MCP client.
+- **Studio** — observe, enable, and disable only. Studio does **not** author blueprints.
+
+### In Studio
+
+Blueprints share the **Journeys** view with code journeys — one table, a `Kind` column (`Code` / `Blueprint`) telling them apart, with each blueprint's enrolled / active / completed counts alongside. Opening one shows its flow diagram, the trigger event and status, its most recent enrollments, and an **Enable / Disable** toggle. A promoted blueprint shows as read-only with a link to the code journey that replaced it. There is no graph editor in Studio — authoring stays with agents and the admin API.
+
+## Promote to code
+
+When a blueprint has proven itself, [`hogsend blueprints promote`](/docs/cli/blueprints) turns it into a real `defineJourney()` file: it re-validates the stored graph, generates the TypeScript (the same primitives a hand-authored journey uses — `ctx.sleep`, `ctx.waitForEvent`, `sendEmail`, `ctx.trigger`, `if`/`else` for decision nodes), registers it in `src/journeys/`, and marks the blueprint promoted. From then on the committed code is the source of truth and the blueprint is frozen. The CLI never commits or pushes — you review the diff first. See [`hogsend blueprints`](/docs/cli/blueprints) for the full flow.
+
+## Related
+
+- [Journeys](/docs/guides/journeys) — code-first `defineJourney()` journeys and every `ctx` primitive.
+- [MCP server](/docs/integrations/mcp) — `manage_blueprint`, the authoring-guide resource, and the hosted transport.
+- [`hogsend blueprints`](/docs/cli/blueprints) — list and promote blueprints from the CLI.
+- [Hogsend for AI agents](/docs/agents) — the full agent-facing surface.
