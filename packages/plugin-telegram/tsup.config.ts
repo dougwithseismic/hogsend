@@ -5,7 +5,10 @@ export default defineConfig({
   format: ["esm"],
   target: "node22",
   outDir: "dist",
-  dts: true,
+  // The published package ships raw src/ (exports/files never include dist),
+  // so declaration output is dead weight — same engine-type-graph OOM class
+  // as plugin-discord.
+  dts: false,
   clean: true,
   splitting: false,
   sourcemap: true,
