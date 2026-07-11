@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
+  assertReenrollmentAck,
   defaultBranchName,
   JOURNEY_ID_WITH_MULTIPLE,
   parsePromoteArgs,
@@ -255,6 +256,46 @@ describe("parsePromoteArgs", () => {
     expect(() =>
       parsePromoteArgs(["bp-a", "--journey-id", "../evil"], "/d"),
     ).toThrow(/invalid --journey-id/);
+  });
+
+  it("parses --allow-reenrollment (default false)", () => {
+    expect(parsePromoteArgs(["bp-a"], "/d").allowReenrollment).toBe(false);
+    expect(
+      parsePromoteArgs(["bp-a", "--allow-reenrollment"], "/d")
+        .allowReenrollment,
+    ).toBe(true);
+  });
+});
+
+describe("assertReenrollmentAck", () => {
+  it("refuses a renaming --journey-id without the acknowledgment", () => {
+    expect(() =>
+      assertReenrollmentAck({
+        blueprintId: "activation-nudge-blueprint",
+        journeyId: "activation-nudge",
+        allowReenrollment: false,
+      }),
+    ).toThrow(/--allow-reenrollment/);
+  });
+
+  it("allows a renaming --journey-id when acknowledged", () => {
+    expect(() =>
+      assertReenrollmentAck({
+        blueprintId: "activation-nudge-blueprint",
+        journeyId: "activation-nudge",
+        allowReenrollment: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("needs no acknowledgment when the journey id matches the blueprint id", () => {
+    expect(() =>
+      assertReenrollmentAck({
+        blueprintId: "activation-nudge",
+        journeyId: "activation-nudge",
+        allowReenrollment: false,
+      }),
+    ).not.toThrow();
   });
 });
 

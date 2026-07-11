@@ -55,6 +55,11 @@ promote options:
   --journey-id <id>   Id for the generated journey (meta.id, export name, file
                       name). Only valid when promoting exactly ONE blueprint;
                       defaults to the blueprint id.
+  --allow-reenrollment
+                      Required alongside --journey-id when the new id differs
+                      from the blueprint id: renaming discards the entryLimit
+                      "once" history and re-enrolls (re-emails) everyone who
+                      already completed the blueprint.
 
 Global options (handled by the router): --url, --admin-key, --json, -h/--help.
 
@@ -288,12 +293,37 @@ export const JOURNEY_ID_WITH_MULTIPLE =
 /** journeyId doubles as the generated file name — keep it path-safe. */
 const JOURNEY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+/** The refusal message when --journey-id renames the journey without the ack. */
+export function reenrollmentRefusal(
+  blueprintId: string,
+  journeyId: string,
+): string {
+  return `--journey-id "${journeyId}" renames the journey away from the blueprint id "${blueprintId}": the blueprint id IS the journey id, so this re-enrolls every user who already completed the blueprint and re-sends their emails. Pass --allow-reenrollment to do this intentionally.`;
+}
+
+/**
+ * The blueprint id IS the journey id, and that continuity is what lets the
+ * entryLimit "once" history survive promotion. A --journey-id that differs from
+ * the blueprint id silently breaks it, so refuse unless --allow-reenrollment is
+ * also passed. A matching id (the default) needs no acknowledgment.
+ */
+export function assertReenrollmentAck(opts: {
+  blueprintId: string;
+  journeyId: string;
+  allowReenrollment: boolean;
+}): void {
+  if (opts.journeyId !== opts.blueprintId && !opts.allowReenrollment) {
+    throw new Error(reenrollmentRefusal(opts.blueprintId, opts.journeyId));
+  }
+}
+
 export interface PromoteFlags {
   cwd: string;
   yes: boolean;
   dryRun: boolean;
   branch: string | undefined;
   journeyId: string | undefined;
+  allowReenrollment: boolean;
   ids: string[];
   help: boolean;
 }
@@ -316,6 +346,7 @@ export function parsePromoteArgs(
       "dry-run": { type: "boolean", default: false },
       branch: { type: "string" },
       "journey-id": { type: "string" },
+      "allow-reenrollment": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -337,6 +368,7 @@ export function parsePromoteArgs(
     dryRun: values["dry-run"] ?? false,
     branch: values.branch,
     journeyId,
+    allowReenrollment: values["allow-reenrollment"] ?? false,
     ids,
     help: values.help ?? false,
   };
@@ -622,6 +654,22 @@ async function runPromote(ctx: CommandContext, argv: string[]): Promise<void> {
     ) as string[];
     if (flags.journeyId !== undefined && ids.length > 1) {
       ctx.out.fail(JOURNEY_ID_WITH_MULTIPLE);
+    }
+  }
+
+  // A --journey-id that renames the journey away from the blueprint id discards
+  // the entryLimit "once" history (the blueprint id IS the journey id) — refuse
+  // unless the operator explicitly acknowledges the re-enrollment. --journey-id
+  // is single-blueprint only, so ids[0] is the one being renamed.
+  if (flags.journeyId !== undefined && ids[0]) {
+    try {
+      assertReenrollmentAck({
+        blueprintId: ids[0],
+        journeyId: flags.journeyId,
+        allowReenrollment: flags.allowReenrollment,
+      });
+    } catch (err) {
+      ctx.out.fail(errorMessage(err));
     }
   }
 
