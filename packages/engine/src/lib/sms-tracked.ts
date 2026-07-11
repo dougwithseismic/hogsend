@@ -165,7 +165,8 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
   }
 
   // Render React → text, then append the compliance STOP footer for non-
-  // transactional bodies unless disabled or the body already mentions STOP.
+  // transactional bodies unless disabled or the body already carries an
+  // opt-out instruction.
   const rawBody = await renderSmsToText(element);
   const body = applyStopFooter({
     body: rawBody,
@@ -393,7 +394,10 @@ function applyStopFooter(opts: {
   if (opts.stopFooter === false) return opts.body;
   if (opts.skipPreferenceCheck) return opts.body;
   if (opts.category === "transactional") return opts.body;
-  if (/\bstop\b/i.test(opts.body)) return opts.body;
+  // Skip only when the body already carries an opt-out INSTRUCTION ("Reply
+  // STOP…", "Text STOP…"), not when prose merely contains the word "stop" —
+  // "Don't stop now!" must still get the compliance footer.
+  if (/\b(?:reply|text|send)\s+stop\b/i.test(opts.body)) return opts.body;
   const footer = opts.stopFooter ?? "Reply STOP to opt out";
   return `${opts.body}\n\n${footer}`;
 }

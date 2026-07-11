@@ -42,6 +42,15 @@ const fakeProvider = defineSmsProvider({
 const TestSms = (props: { name?: string }) =>
   React.createElement(Text, null, `Hi ${props.name ?? "there"} from tests`);
 
+// Marketing prose that happens to contain the bare word "stop" — must STILL
+// get the compliance footer (only an opt-out INSTRUCTION suppresses it).
+const StopProseSms = () =>
+  React.createElement(Text, null, "Don't stop leveling up your funnel!");
+
+// A body that already carries its own opt-out instruction — no double footer.
+const StopInstructionSms = () =>
+  React.createElement(Text, null, "Sale ends Friday. Reply STOP to cancel.");
+
 let client: HogsendClient;
 
 beforeAll(() => {
@@ -51,6 +60,11 @@ beforeAll(() => {
       from: "+15005550006",
       templates: {
         "t-sms": { component: TestSms, category: "journey" },
+        "t-sms-stop-prose": { component: StopProseSms, category: "journey" },
+        "t-sms-stop-instruction": {
+          component: StopInstructionSms,
+          category: "journey",
+        },
         // biome-ignore lint/suspicious/noExplicitAny: minimal test registry
       } as any,
     },
@@ -83,6 +97,37 @@ describe("sendTrackedSms — happy path", () => {
     expect(rows[0]?.segments).toBeGreaterThanOrEqual(1);
     // STOP footer appended for a non-transactional body.
     expect(rows[0]?.body).toMatch(/Reply STOP to opt out/);
+  });
+
+  it("appends the footer even when prose contains the bare word 'stop'", async () => {
+    const to = uniquePhone();
+    await client.smsService.send({
+      template: "t-sms-stop-prose" as never,
+      props: {} as never,
+      to,
+      userId: `u_${randomUUID()}`,
+    });
+    const rows = await client.db
+      .select()
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, to));
+    expect(rows[0]?.body).toMatch(/Reply STOP to opt out/);
+  });
+
+  it("skips the footer when the body already carries an opt-out instruction", async () => {
+    const to = uniquePhone();
+    await client.smsService.send({
+      template: "t-sms-stop-instruction" as never,
+      props: {} as never,
+      to,
+      userId: `u_${randomUUID()}`,
+    });
+    const rows = await client.db
+      .select()
+      .from(smsSends)
+      .where(eq(smsSends.toPhone, to));
+    expect(rows[0]?.body).toMatch(/Reply STOP to cancel/);
+    expect(rows[0]?.body).not.toMatch(/Reply STOP to opt out/);
   });
 });
 
