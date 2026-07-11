@@ -371,37 +371,12 @@ export async function walkBlueprintGraph(
         // code journey's run() returning normally.
         return null;
 
-      case "end-exited": {
-        // Terminal: flip the row terminal the same way checkExits does, then
-        // abort the run via the SAME control-flow signal a mid-wait exit
-        // uses — the lifecycle catch maps it to { status: "exited" } without
-        // a "failed" write or a journey:failed push. Idempotent on replay
-        // (the guarded update no-ops once terminal).
-        const [exited] = await db
-          .update(journeyStates)
-          .set({
-            status: "exited",
-            exitedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(journeyStates.id, user.stateId),
-              notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
-            ),
-          )
-          .returning({ id: journeyStates.id });
-        if (exited) {
-          logTransition({
-            db,
-            journeyStateId: user.stateId,
-            from: null,
-            to: "end-exited",
-            action: "exited",
-          });
-        }
-        throw new JourneyExitedError(user.stateId);
-      }
+      case "end-exited":
+        // Terminal "exited": the SAME primitive a code journey (and promoted
+        // blueprint code) calls — a guarded flip to "exited" plus the
+        // JourneyExitedError the lifecycle maps to { status: "exited" } without
+        // a "failed" write or a journey:failed push. One mechanism, not two.
+        return ctx.exit();
 
       case "end-failed":
         // Terminal: matches a code journey's thrown error — the lifecycle

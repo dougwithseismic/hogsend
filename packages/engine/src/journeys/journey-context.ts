@@ -1089,6 +1089,38 @@ export function createJourneyContext(
       });
     },
 
+    async exit(reason?: string): Promise<never> {
+      // Terminal "exited": a guarded flip (never clobber an already-terminal
+      // row) plus the SAME JourneyExitedError control-flow signal a mid-wait
+      // exitOn raises — the run lifecycle maps it to { status: "exited" } with
+      // no "failed"/"completed" write and no journey:* event. This is the
+      // single mechanism the blueprint interpreter's end-exited node drives too
+      // (and the form promote-to-code emits), so there is one path, not two.
+      const now = new Date();
+      const [exited] = await db
+        .update(journeyStates)
+        .set({ status: "exited", exitedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(journeyStates.id, stateId),
+            notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
+          ),
+        )
+        .returning({ id: journeyStates.id });
+      if (exited) {
+        // Fire-and-forget exit transition (best-effort; never affects the run).
+        logTransition({
+          db,
+          journeyStateId: stateId,
+          from: getJourneyBoundary()?.currentLabel ?? null,
+          to: "end-exited",
+          action: "exited",
+          ...(reason ? { detail: { reason } } : {}),
+        });
+      }
+      throw new JourneyExitedError(stateId);
+    },
+
     async now() {
       return refreshNow();
     },

@@ -501,6 +501,66 @@ describe("journeyBlueprintInterpreter — tree-walk end-to-end", () => {
     expect(err.message).toContain("not found");
   });
 
+  it("end-exited terminal exits the enrollment via ctx.exit (status exited, no fail/complete)", async () => {
+    const blueprintId = `${RUN}-bp-exit-node`;
+    const userId = `${RUN}-exit-node`;
+    await insertBlueprint({
+      id: blueprintId,
+      graph: {
+        journeyId: blueprintId,
+        nodes: [
+          { id: "start", type: "start", title: `${RUN}.enroll` },
+          { id: "bail", type: "end-exited", title: "Exit" },
+        ],
+        edges: [{ id: "e1", source: "start", target: "bail" }],
+      },
+    });
+
+    const result = (await interpreterFn()(
+      input(userId, { blueprintId }),
+      makeHatchetCtx(`${RUN}-wfr-exit-node`),
+    )) as { status: string };
+    expect(result.status).toBe("exited");
+
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("exited");
+    expect(state?.exitedAt).not.toBeNull();
+  });
+
+  it("end-failed terminal fails the enrollment (status failed + structured error)", async () => {
+    const blueprintId = `${RUN}-bp-fail-node`;
+    const userId = `${RUN}-fail-node`;
+    await insertBlueprint({
+      id: blueprintId,
+      graph: {
+        journeyId: blueprintId,
+        nodes: [
+          { id: "start", type: "start", title: `${RUN}.enroll` },
+          { id: "boom", type: "end-failed", title: "Fail" },
+        ],
+        edges: [{ id: "e1", source: "start", target: "boom" }],
+      },
+    });
+
+    await expect(
+      interpreterFn()(
+        input(userId, { blueprintId }),
+        makeHatchetCtx(`${RUN}-wfr-fail-node`),
+      ),
+    ).rejects.toThrow();
+
+    const [state] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(state?.status).toBe("failed");
+    const err = JSON.parse(state?.errorMessage ?? "{}");
+    expect(err.nodeId).toBe("boom");
+  });
+
   it("fails a recovered enrollment when the stored graph fails re-validation on replay", async () => {
     // Same stranding hazard via the invalid-graph branch: the row was saved
     // out-of-band with a display-tier node, and a replay must fail — not skip

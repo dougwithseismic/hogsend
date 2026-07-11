@@ -319,10 +319,23 @@ function emitChain(
       return emitChain(walk, singleTarget(walk, node), depth, nextPath);
 
     case "end-completed":
-    case "end-exited":
-    case "end-failed":
-      // Terminal: returning from run() completes the enrollment.
+      // Terminal: running off the end of run() completes the enrollment
+      // (status "completed" + journey:completed) — same as the interpreter.
       return [];
+
+    case "end-exited":
+      // Terminal: ctx.exit() flips the enrollment "exited" and aborts cleanly
+      // — NO journey:completed / journey:failed — mirroring the interpreter's
+      // end-exited node. A plain return would wrongly complete this branch.
+      return [`${ind}await ctx.exit();`];
+
+    case "end-failed": {
+      // Terminal: a thrown error marks the enrollment "failed" and emits
+      // journey:failed, exactly as the interpreter's end-failed node does. A
+      // plain return would wrongly complete this branch.
+      const message = `journey reached the "${node.id}" end-failed terminal`;
+      return [`${ind}throw new Error(${str(message)});`];
+    }
 
     case "sleep":
       return continueFrom(walk, node, depth, nextPath, [

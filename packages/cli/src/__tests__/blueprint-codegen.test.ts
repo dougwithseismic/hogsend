@@ -323,6 +323,68 @@ describe("generateJourneyFile — wait node forks", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 2c. terminal nodes compile faithfully (end-completed / end-exited / end-failed)
+// ---------------------------------------------------------------------------
+
+describe("generateJourneyFile — terminal nodes", () => {
+  // A wait fork routes one branch to end-exited and the other to end-failed,
+  // and a single-edge wait ends at end-completed — so one graph exercises all
+  // three terminals without a decision node.
+  const terminalsGraph: BlueprintGraph = {
+    journeyId: "terminals-demo",
+    nodes: [
+      { id: "start", type: "start", title: "demo.trigger" },
+      {
+        id: "await-reply",
+        type: "wait",
+        title: "Wait for a reply",
+        meta: { event: "demo.replied", timeout: { hours: 24 } },
+      },
+      { id: "exit-here", type: "end-exited", title: "Bail out" },
+      { id: "fail-here", type: "end-failed", title: "Hard fail" },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "await-reply" },
+      {
+        id: "e2",
+        source: "await-reply",
+        target: "exit-here",
+        kind: "answered",
+      },
+      {
+        id: "e3",
+        source: "await-reply",
+        target: "fail-here",
+        kind: "timedOut",
+      },
+    ],
+  };
+
+  it("compiles end-exited to await ctx.exit() and end-failed to a throw", () => {
+    const output = generateJourneyFile(makeBlueprint(terminalsGraph), {
+      journeyId: "terminals-demo",
+    });
+    // end-exited: the orchestration primitive, NOT a plain return.
+    expect(output).toContain("await ctx.exit();");
+    // end-failed: an idiomatic throw whose message names the node.
+    expect(output).toContain(
+      'throw new Error("journey reached the \\"fail-here\\" end-failed terminal");',
+    );
+    expectValidTs(output);
+  });
+
+  it("keeps end-completed as a plain fall-through (no ctx.exit / no throw)", () => {
+    const output = generateJourneyFile(seedBlueprint, {
+      journeyId: "activation-nudge",
+    });
+    // The seed's conditional-true edge ends on end-completed — an empty branch.
+    expect(output).toContain("// (the journey ends on this branch)");
+    expect(output).not.toContain("ctx.exit()");
+    expect(output).not.toContain("end-failed terminal");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. non-EventCondition decisions become honest TODO stubs
 // ---------------------------------------------------------------------------
 
