@@ -564,6 +564,11 @@ export const journeyBlueprintInterpreter = hatchet.durableTask({
       } satisfies EventPayloadInput,
       hatchetCtx,
       extraContext: { __blueprintVersion: enrolledVersion },
+      // Serialize this enrollment insert against a concurrent graph edit
+      // (updateBlueprint takes the SAME advisory lock around its in-flight
+      // count + update) so the run cannot become active between that count and
+      // the graph write — the desync window the in-flight gate exists to close.
+      serializeEnrollment: true,
       // Structured errorMessage (spec §6.1): { blueprintId, nodeId, message }
       // as JSON in the SAME journeyStates.errorMessage field code journeys
       // use, so Studio's error display needs no blueprint-specific branching.

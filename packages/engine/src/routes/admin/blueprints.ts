@@ -274,7 +274,9 @@ const patchRouteDef = createRoute({
     409: {
       content: { "application/json": { schema: errorSchema } },
       description:
-        "Graph change rejected — the blueprint has active/waiting enrollments",
+        "Graph change rejected — the blueprint has active/waiting " +
+        "enrollments, was promoted to code, or was edited concurrently " +
+        "(version conflict — re-read and retry)",
     },
     422: {
       content: { "application/json": { schema: invalidGraphSchema } },
@@ -613,7 +615,11 @@ blueprintsRouter.openapi(patchRouteDef, async (c) => {
     if (result.code === "invalid_graph") {
       return c.json({ error: result.error, issues: result.issues }, 422);
     }
-    if (result.code === "in_flight" || result.code === "promoted") {
+    if (
+      result.code === "in_flight" ||
+      result.code === "promoted" ||
+      result.code === "version_conflict"
+    ) {
       return c.json({ error: result.error }, 409);
     }
     return c.json({ error: result.error }, 404);

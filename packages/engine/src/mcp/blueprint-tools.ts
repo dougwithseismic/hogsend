@@ -118,6 +118,11 @@ type ToolNotFound = { ok: false; code: "not_found"; error: string };
 type ToolConflict = { ok: false; code: "conflict"; error: string };
 type ToolPromoted = { ok: false; code: "promoted"; error: string };
 type ToolInFlight = { ok: false; code: "in_flight"; error: string };
+type ToolVersionConflict = {
+  ok: false;
+  code: "version_conflict";
+  error: string;
+};
 type ToolInvalidGraph = {
   ok: false;
   code: "invalid_graph";
@@ -263,6 +268,7 @@ export function createJourneyBlueprintTools(
       | ToolNotFound
       | ToolInvalidGraph
       | ToolInFlight
+      | ToolVersionConflict
       | ToolPromoted
     > => {
       const result = await updateBlueprint({ container, id, patch });

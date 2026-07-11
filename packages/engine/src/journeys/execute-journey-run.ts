@@ -18,6 +18,7 @@ import {
 } from "@hogsend/db";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
+import { blueprintGraphLock } from "../lib/blueprint-lock.js";
 import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
@@ -122,24 +123,48 @@ export async function insertEnrollment(opts: {
   journeyId: string;
   context: Record<string, unknown>;
   hatchetRunId?: string;
+  /**
+   * Blueprint runs serialize this insert against a concurrent GRAPH EDIT via a
+   * transaction-scoped advisory lock — `updateBlueprint` takes the SAME lock
+   * ({@link blueprintGraphLock}) around its in-flight count + guarded update,
+   * so an enrollment cannot become active/waiting in the window between that
+   * count and update. Code journeys have no mutable graph, so they insert
+   * lock-free (the default).
+   */
+  serializeWithGraphLock?: boolean;
 }): Promise<JourneyStateRow | undefined> {
-  const [row] = await opts.db
-    .insert(journeyStates)
-    .values({
-      userId: opts.userId,
-      userEmail: opts.userEmail,
-      journeyId: opts.journeyId,
-      currentNodeId: "start",
-      status: "active",
-      context: opts.context,
-      hatchetRunId: opts.hatchetRunId,
-    })
-    .onConflictDoNothing({
-      target: [journeyStates.userId, journeyStates.journeyId],
-      where: sql`status IN ('active', 'waiting')`,
-    })
-    .returning();
-  return row;
+  const values = {
+    userId: opts.userId,
+    userEmail: opts.userEmail,
+    journeyId: opts.journeyId,
+    currentNodeId: "start",
+    status: "active" as const,
+    context: opts.context,
+    hatchetRunId: opts.hatchetRunId,
+  };
+  const onConflict = {
+    target: [journeyStates.userId, journeyStates.journeyId],
+    where: sql`status IN ('active', 'waiting')`,
+  };
+
+  if (!opts.serializeWithGraphLock) {
+    const [row] = await opts.db
+      .insert(journeyStates)
+      .values(values)
+      .onConflictDoNothing(onConflict)
+      .returning();
+    return row;
+  }
+
+  return opts.db.transaction(async (tx) => {
+    await tx.execute(blueprintGraphLock(opts.journeyId));
+    const [row] = await tx
+      .insert(journeyStates)
+      .values(values)
+      .onConflictDoNothing(onConflict)
+      .returning();
+    return row;
+  });
 }
 
 export interface ExecuteJourneyRunOptions {
@@ -162,6 +187,13 @@ export interface ExecuteJourneyRunOptions {
    * interpreter pins `__blueprintVersion` here (spec §12).
    */
   extraContext?: Record<string, unknown>;
+  /**
+   * Serialize the enrollment insert against a concurrent blueprint graph edit
+   * with a transaction-scoped advisory lock (spec §12). Set by the blueprint
+   * interpreter — the blueprint id IS the journeyId, so the lock key matches
+   * `updateBlueprint`'s. Code journeys leave it unset (no mutable graph).
+   */
+  serializeEnrollment?: boolean;
   /**
    * Serialize a run failure into `journeyStates.errorMessage`. Defaults to the
    * error's message; the blueprint interpreter writes the structured
@@ -295,6 +327,7 @@ export async function executeJourneyRun(
         ? { ...properties, ...options.extraContext }
         : properties,
       hatchetRunId: workflowRunId,
+      serializeWithGraphLock: options.serializeEnrollment,
     });
     if (!state) {
       return { status: "skipped", reason: "already_active" };

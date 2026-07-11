@@ -20,7 +20,13 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { createApp, createHogsendClient } = await import("@hogsend/engine");
+const {
+  createApp,
+  createHogsendClient,
+  enableBlueprint,
+  promoteBlueprint,
+  updateBlueprint,
+} = await import("@hogsend/engine");
 const { journeyBlueprints, journeyStates } = await import("@hogsend/db");
 const { eq, like } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
@@ -856,6 +862,61 @@ describe("POST /v1/admin/blueprints/:id/promote", () => {
       })
     ).json();
     expect(detail.blueprint.name).not.toBe("Renamed after promotion");
+  });
+});
+
+describe("blueprint service guards — enable/update races (direct calls)", () => {
+  it("refuses to re-enable a promoted blueprint (direct promote→enable sequence)", async () => {
+    const id = `${RUN}-svc-enable-promoted`;
+    expect((await createBlueprint(id, { status: "enabled" })).status).toBe(201);
+
+    const promoted = await promoteBlueprint({
+      container,
+      id,
+      journeyId: `${id}-code`,
+    });
+    expect(promoted.ok).toBe(true);
+
+    // The blind status='enabled' write is guarded on promotedAt IS NULL, so a
+    // promoted row can never be re-enabled even by calling the service directly.
+    const enabled = await enableBlueprint({ container, id });
+    expect(enabled.ok).toBe(false);
+    if (enabled.ok) throw new Error("expected enable to be refused");
+    expect(enabled.code).toBe("promoted");
+  });
+
+  it("returns exactly one version_conflict when two graph edits race", async () => {
+    const id = `${RUN}-svc-version-race`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    const editA = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (editA.nodes[1] as any).meta = { duration: { hours: 24 } };
+    const editB = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (editB.nodes[1] as any).meta = { duration: { hours: 48 } };
+
+    // Both calls read version 1 before either transaction begins; the
+    // blueprint-keyed advisory lock then serializes the two writes, and the
+    // loser's `version = 1` predicate matches zero rows once the winner bumped
+    // to 2 — a structured `version_conflict` instead of a silent lost update.
+    const results = await Promise.all([
+      updateBlueprint({ container, id, patch: { graph: editA } }),
+      updateBlueprint({ container, id, patch: { graph: editB } }),
+    ]);
+
+    const winners = results.filter((r) => r.ok);
+    const conflicts = results.filter(
+      (r) => !r.ok && r.code === "version_conflict",
+    );
+    expect(winners).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+
+    // Version bumped exactly once — no double bump under the race.
+    const detail = await (
+      await app.request(`/v1/admin/blueprints/${id}`, { headers: AUTH_HEADER })
+    ).json();
+    expect(detail.blueprint.version).toBe(2);
   });
 });
 
