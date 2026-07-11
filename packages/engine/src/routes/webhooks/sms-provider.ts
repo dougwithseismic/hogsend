@@ -33,8 +33,12 @@ export async function dispatchSmsProviderWebhook(
   const headers = headersToRecord(c.req.raw.headers);
 
   // Canonical public URL the provider signed: API_PUBLIC_URL + path (+ query).
+  // Twilio's HMAC covers the URL string byte-for-byte, so normalize the one
+  // operator-controlled degree of freedom — a trailing slash on
+  // API_PUBLIC_URL would otherwise 401 EVERY callback and inbound STOP.
   const requestUrl = new URL(c.req.url);
-  const url = `${env.API_PUBLIC_URL}${requestUrl.pathname}${requestUrl.search}`;
+  const base = env.API_PUBLIC_URL.replace(/\/+$/, "");
+  const url = `${base}${requestUrl.pathname}${requestUrl.search}`;
 
   try {
     const event = await provider.verifyWebhook({ payload, headers, url });
