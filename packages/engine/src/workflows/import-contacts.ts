@@ -17,10 +17,35 @@ interface ImportRow {
 }
 
 /**
+ * True when `err` is the `contacts_phone_unique_idx` partial-unique violation
+ * (another live contact already owns the number). Walks the drizzle cause
+ * chain for PG 23505, mirroring `isSlugUniqueViolation` in lib/links.ts.
+ */
+function isPhoneUniqueViolation(err: unknown): boolean {
+  let candidate: unknown = err;
+  while (candidate && typeof candidate === "object") {
+    const c = candidate as {
+      code?: string;
+      constraint_name?: string;
+      constraint?: string;
+      cause?: unknown;
+    };
+    if (c.code === "23505") {
+      const constraint = c.constraint_name ?? c.constraint ?? "";
+      return constraint.includes("contacts_phone_unique");
+    }
+    candidate = c.cause;
+  }
+  return false;
+}
+
+/**
  * Best-effort attach a normalized phone to a resolved contact's `phone` column
  * without minting an identity conflict. Only fills a NULL column, and swallows
- * the partial-unique conflict (another live contact already owns that number) so
- * one duplicate phone never fails the whole import row.
+ * ONLY the partial-unique conflict (another live contact already owns that
+ * number) so one duplicate phone never fails the whole import row — any other
+ * DB error rethrows into the row's error accounting instead of silently
+ * dropping the phone (the task runs with retries: 0).
  */
 async function attachPhone(
   db: Database,
@@ -34,7 +59,8 @@ async function attachPhone(
       .update(contacts)
       .set({ phone, updatedAt: new Date() })
       .where(and(eq(contacts.id, contactId), isNull(contacts.phone)));
-  } catch {
+  } catch (err) {
+    if (!isPhoneUniqueViolation(err)) throw err;
     // Unique-index conflict (another contact owns this phone) — leave unset.
   }
 }
