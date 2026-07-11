@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/js",
-  "version": "0.42.0",
+  "version": "0.43.0",
   "type": "module",
   "license": "MIT",
   "description": "Zero-dependency browser core SDK for Hogsend: identity, event capture, preferences, the in-app feed, banners, toasts, and the reactive store.",
