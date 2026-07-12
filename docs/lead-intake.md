@@ -90,3 +90,14 @@ identity to attach the lead to.
 - Journeys can trigger on `lead.submitted` (speed-to-lead flows), and the
   CRM plugin layer (plan §Phase 4) pushes the lead into the client's CRM with
   the same canonical identity.
+
+## Conversion points + ad-platform feedback
+
+Declare which events count as valued conversions (`defineConversion`) and
+where they dispatch (`defineConversionDestination` — `@hogsend/plugin-meta-capi`
+is the reference). See `apps/api/src/conversions/index.ts` for the shipped
+examples (`deal-sold`, `deal-quoted`, `lead-submitted`) and
+docs/revenue-attribution-plan.md §5 for the architecture: fired conversions
+are recorded durably, enriched with the contact's recovered click evidence
+(fbclid + click timestamp → `fbc`), and delivered by a retrying Hatchet task
+with a deterministic `event_id` so platforms dedup.

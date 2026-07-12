@@ -2,6 +2,7 @@ import { createHogsendClient, createWorker } from "@hogsend/engine";
 import { discordActions } from "@hogsend/plugin-discord";
 import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
 import { buckets } from "./buckets/index.js";
+import { conversions } from "./conversions/index.js";
 import {
   buildDiscordConnector,
   discordDestination,
@@ -17,6 +18,7 @@ async function main() {
 
   const client = createHogsendClient({
     journeys,
+    conversions,
     buckets,
     lists,
     email: { templates },
