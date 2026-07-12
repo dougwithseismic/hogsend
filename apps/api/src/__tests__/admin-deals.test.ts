@@ -141,7 +141,9 @@ describe("admin deals ledger", () => {
     if (!gbp) return;
     expect(gbp.soldRevenueLifetime).toBeGreaterThanOrEqual(30000);
     expect(gbp.soldRevenue30d).toBeGreaterThanOrEqual(10000);
-    expect(gbp.soldRevenueLifetime).toBeGreaterThanOrEqual(gbp.soldRevenue30d);
+    expect(gbp.soldRevenueLifetime).toBeGreaterThanOrEqual(
+      gbp.soldRevenue30d ?? 0,
+    );
     expect(gbp.openPipelineValue).toBeGreaterThanOrEqual(5000);
     expect(gbp.averageOrderValue).toBeGreaterThan(0);
     expect(body.avgTimeToCloseHours).not.toBeNull();
