@@ -59,6 +59,12 @@ const listRoute = createRoute({
       limit: z.coerce.number().min(1).max(100).default(50),
       offset: z.coerce.number().min(0).default(0),
       search: z.string().optional(),
+      // Long-tail value filters (plan §4b.3): the "find my value customers"
+      // query surface.
+      minRevenue: z.coerce.number().optional(),
+      dealStage: z
+        .enum(["lead", "contacted", "survey_booked", "quoted", "sold", "lost"])
+        .optional(),
     }),
   },
   responses: {
@@ -224,13 +230,37 @@ const serializeContact = (row: typeof contacts.$inferSelect) =>
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
-    const { limit, offset, search } = c.req.valid("query");
+    const { limit, offset, search, minRevenue, dealStage } =
+      c.req.valid("query");
 
     const searchFilter = search ? contactSearchFilter(search) : undefined;
 
-    const where = searchFilter
-      ? and(searchFilter, isNull(contacts.deletedAt))
-      : isNull(contacts.deletedAt);
+    // Valued events are keyed by the contact's canonical event key
+    // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
+    // resolves. Served by the partial user_events_valued_user_idx.
+    const revenueFilter =
+      minRevenue !== undefined
+        ? sql`(
+            select coalesce(sum(ue.value), 0)
+            from user_events ue
+            where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
+              and ue.value is not null
+          ) >= ${minRevenue}`
+        : undefined;
+    const dealStageFilter = dealStage
+      ? sql`exists (
+          select 1 from deals d
+          where d.contact_id = ${contacts.id}
+            and d.canonical_stage = ${dealStage}
+        )`
+      : undefined;
+
+    const where = and(
+      isNull(contacts.deletedAt),
+      ...(searchFilter ? [searchFilter] : []),
+      ...(revenueFilter ? [revenueFilter] : []),
+      ...(dealStageFilter ? [dealStageFilter] : []),
+    );
 
     const [rows, totalRows] = await Promise.all([
       db

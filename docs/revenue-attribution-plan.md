@@ -31,7 +31,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 **Phase 4b — Studio revenue surfaces** *(operator steer 2026-07-12: close the revenue loop visibly — the deals projection is the ledger; show it)*
 - [x] **4b.1 Admin deals API.** `GET /v1/admin/deals` (filter by stage/provider/value/date, sorted) + `GET /v1/admin/deals/stats` (per-currency: sold revenue 30d/lifetime, open pipeline value, AOV, avg time-to-close, counts per canonical stage) over the `deals` projection.
 - [x] **4b.2 Studio: revenue front and center.** Overview stats (sold 30d/lifetime, pipeline, AOV) + a Deals view — pipeline board grouped by canonical stage (the kanban) with a table fallback, filterable.
-- [ ] **4b.3 Contact long-tail filtering.** Admin contacts list + Studio filters: revenue ≥ X (valued-events rollup), has deal in stage, touched channel — the "find my value customers" query surface.
+- [x] **4b.3 Contact long-tail filtering.** Admin contacts list + Studio filters: revenue ≥ X (valued-events rollup), has deal in stage, touched channel — the "find my value customers" query surface.
 - *(Not building: a `defineFunnel` primitive — canonical stages + buckets cover it; revisit only if practice proves otherwise. Audience push to ad platforms + ML scoring live in Phase 8.)*
 
 **Phase 5 — Conversion definitions + Meta CAPI**

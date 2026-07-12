@@ -153,4 +153,37 @@ describe("admin deals ledger", () => {
     const res = await app.request("/v1/admin/deals/stats");
     expect(res.status).toBe(401);
   });
+
+  it("contacts long-tail filter: dealStage=sold + minRevenue narrows to value customers", async () => {
+    // Our seeded contact has sold deals but NO valued events — dealStage
+    // filter must find it, minRevenue must exclude it.
+    const byStage = await app.request(
+      `/v1/admin/contacts?dealStage=sold&search=${encodeURIComponent(EMAIL)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(byStage.status).toBe(200);
+    const stageBody = (await byStage.json()) as {
+      contacts: Array<{ email: string | null }>;
+    };
+    expect(stageBody.contacts.some((c) => c.email === EMAIL)).toBe(true);
+
+    const byRevenue = await app.request(
+      `/v1/admin/contacts?minRevenue=1&search=${encodeURIComponent(EMAIL)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(byRevenue.status).toBe(200);
+    const revenueBody = (await byRevenue.json()) as {
+      contacts: Array<{ email: string | null }>;
+    };
+    expect(revenueBody.contacts.some((c) => c.email === EMAIL)).toBe(false);
+
+    const byLostStage = await app.request(
+      `/v1/admin/contacts?dealStage=contacted&search=${encodeURIComponent(EMAIL)}`,
+      { headers: AUTH_HEADER },
+    );
+    const lostBody = (await byLostStage.json()) as {
+      contacts: Array<{ email: string | null }>;
+    };
+    expect(lostBody.contacts.some((c) => c.email === EMAIL)).toBe(false);
+  });
 });

@@ -824,13 +824,28 @@ export type ContactPreferences = {
   categories: Record<string, boolean>;
 } | null;
 
-export function listContacts(search: string | undefined) {
+export type ContactListFilters = {
+  search?: string;
+  /** Long-tail value filter: sum of the contact's valued events ≥ this. */
+  minRevenue?: number;
+  /** Has a deal currently in this canonical stage. */
+  dealStage?: string;
+};
+
+export function listContacts(filters: ContactListFilters = {}) {
   return api.get<{
     contacts: Contact[];
     total: number;
     limit: number;
     offset: number;
-  }>("/v1/admin/contacts", { query: { search, limit: 50 } });
+  }>("/v1/admin/contacts", {
+    query: {
+      search: filters.search || undefined,
+      minRevenue: filters.minRevenue,
+      dealStage: filters.dealStage || undefined,
+      limit: 50,
+    },
+  });
 }
 
 /** Per-currency revenue rollup over the contact's valued events. */
@@ -1622,7 +1637,7 @@ export const qk = {
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
-  contacts: (search: string) => ["contacts", search] as const,
+  contacts: (filters: ContactListFilters) => ["contacts", filters] as const,
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,
   contactTimeline: (id: string) => ["contact-timeline", id] as const,
