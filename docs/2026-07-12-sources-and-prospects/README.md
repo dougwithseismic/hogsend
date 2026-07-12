@@ -26,8 +26,8 @@ This was scoped from a three-part investigation: a code-truth audit of the engin
   **No new ingestion surface is required.**
 
 - **Two assumptions from the original design thread were wrong in code** — and they are the real work:
-  1. *"Fail-closed consent already covers cold — SMS/voice auto-block, only cold email flows."* **False today.** Email is opt-out (sends by default — which is legal for cold email), but connectors are *also* opt-out and the connector send gate **fails open**; SMS/voice don't exist on this branch at all. The protective posture is a **gap**, not a shipped feature — and it is legally load-bearing.
-  2. *Phone as an identity key* — does not exist on this branch.
+  1. *"Fail-closed consent already covers cold — SMS/voice auto-block, only cold email flows."* **Partly true on `main`.** The audit ran on an older branch where SMS didn't exist; on `main` (this worktree's base) **SMS already registers `defaultOptIn:false` and its tracked sender fails closed (`no_consent`)** — so cold SMS *is* blocked. Email is opt-out (legal for cold email). The remaining gap is **connectors** (still opt-out, though reachable only via an opt-in account link) and the lack of a **provenance-aware** cold gate. So the posture is *mostly* there — the work is provenance + a small cold gate, not a from-scratch consent engine.
+  2. *Phone as an identity key* — `contacts.phone` exists on `main` (partial-unique), but phone is **not** yet a merge-participating identity `Kind`.
 
 - **The build blocks are source-agnostic.** Clay has no public read API — outbound is an HTTP-column `POST` per row, async and retry-heavy (⇒ our endpoint must be idempotent). Attio has a real REST API, signed webhooks, and Automations with a first-class "Send HTTP Request" block, plus write-back via record upsert + notes. Everything else (HubSpot, Salesforce, Outreach, Zapier/Make/n8n) is covered on day one by a **generic webhook source**.
 

@@ -30,7 +30,7 @@ Therefore these channels are things a contact **earns** by opting in during a jo
 
 The machinery already exists — the work is to point it the right way for cold contacts.
 
-1. **Channel polarity** (`packages/engine/src/lists/`). `ListRegistry.isSubscribed(categories, id)` treats `defaultOptIn:false` as **"subscribed only when the category is explicitly `true`"** — i.e. fail-closed. Cold channels (SMS/voice/connectors) are authored / synthesized with `defaultOptIn:false` via the new `coldChannels` config in `synthesizeChannelLists` (Phase 0.2). The default for existing channels stays `true`, so **nothing already shipped changes behaviour**.
+1. **Channel polarity** (`packages/engine/src/lists/`). `ListRegistry.isSubscribed(categories, id)` treats `defaultOptIn:false` as **"subscribed only when the category is explicitly `true`"** — i.e. fail-closed. **SMS already ships this way on `main`** (`synthesizeChannelLists` registers `sms` as `defaultOptIn:false`, non-configurable — TCPA), and its tracked sender fails closed on `no_consent`. Phase 0.2 extends the same polarity switch to **connector** channels via a `coldChannels` config, defaulting to today's `true` so **nothing already shipped changes behaviour**.
 
 2. **The send gate** (`checkActionAudience` in `packages/engine/src/lib/connector-actions.ts`). Today it fails **open** on an unresolved recipient (allows the send). For a **cold/sourced** contact on a non-email channel we flip it to fail **closed** (Phase 0.3): an unresolved ref or a not-explicitly-opted-in channel → **skip** (`channel_unsubscribed`). Non-cold contacts keep today's behaviour — no regression.
 
