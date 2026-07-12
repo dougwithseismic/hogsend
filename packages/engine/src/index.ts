@@ -696,6 +696,13 @@ export {
   getContactSourceRegistry,
   setContactSourceRegistry,
 } from "./sources/registry.js";
+export {
+  normalizeWebhookContactEvent,
+  type WebhookContactPayload,
+  type WebhookContactSourceOptions,
+  webhookContactPayloadSchema,
+  webhookContactSource,
+} from "./sources/webhook-source.js";
 // --- Webhook sources ---
 export {
   type DefinedWebhookSource,
