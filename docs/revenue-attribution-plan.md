@@ -24,7 +24,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 - [x] **4.2 Stage maps + deals projection.** Per-client `(pipelineId, stageId) → canonical stage` config; canonical `crm.*` valued events; `deals` projection + `crm_links` + `crm_sync_cursors` migrations; monotonic-stage rule; new event types → `WEBHOOK_EVENT_TYPES` + both vendored catalogs.
 - [x] **4.3 Reconciliation poll.** Hatchet task walking provider cursors; heals webhook gaps; idempotent with 4.2 events.
 - [~] **4.4 `packages/plugin-ghl`.** Built + fixture-tested (push/webhook/poll/hydrate, fail-closed shared-secret webhooks). SEAM ASK: a GHL sandbox (PIT token + location id) for a live end-to-end pass before production; verify PIT-vs-OAuth auth reality while at it.
-- [ ] **4.5 `packages/plugin-attio`.** Reuse sources-and-prospects transport if merged; else build to seam (`[~]`) with Fake + record the ask. `record.updated` webhook → `hydrate`.
+- [~] **4.5 `packages/plugin-attio`.** Built + fixture-tested: signed (HMAC-SHA256 `attio-signature`) thin webhooks hydrated through the REST API, currency-value + stage extraction, person-assert pushLead, best-effort email recovery via associated people. SEAM ASKS: (1) live Attio workspace pass; (2) when `feat/sources-prospects-p1` merges, fold this HTTP transport with its Attio contact source/write-back client.
 - [ ] **4.6 `packages/plugin-hubspot`.** Private-app token + `deal.propertyChange` subscription → hydrate fetch.
 - [ ] **4.7 `sendLeadToCrm()` helper.** Journey/service-level push with idempotency key; docs.
 
