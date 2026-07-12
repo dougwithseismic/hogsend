@@ -1,6 +1,56 @@
 # Revenue tracking & attribution — the plan
 
-> Status: **planned** (2026-07-12). Research basis: `docs/research/solar-on-steroids/` (blueprint + six reports + critic).
+> Status: **in build** (autonomous loop, branch `feat/revenue-attribution`). Research basis: `docs/research/solar-on-steroids/` (blueprint + six reports + critic).
+
+## Execution checklist
+
+Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Worked strictly top-to-bottom; one commit per feature; phase-boundary simplify pass commits separately. Prose context for every item is in the phase sections below.
+
+**Phase 1 — Value on the spine**
+- [ ] **1.1 `value`/`currency` on events.** Migration adding `user_events.value numeric` + `user_events.currency char(3)`; `IngestEvent` type + ingest zod schema in `@hogsend/core`/engine; `ingestEvent()` threads them; `ctx.trigger` accepts them.
+- [ ] **1.2 SDK + client surface.** `@hogsend/js` / `@hogsend/client` / `@hogsend/mcp` event types accept `value`/`currency`; vendored type copies synced.
+- [ ] **1.3 PostHog-defer reversal.** Delete the CAPI-defer NOTE in `packages/engine/src/destinations/define-destination.ts`; amend `docs/product-spec.md`; destinations fan-out (PostHog preset) passes `value`/`currency` through.
+- [ ] **1.4 Revenue rollup.** Per-contact revenue (SQL view or query helper) + admin stats endpoint + Studio contact-detail revenue surface.
+
+**Phase 2 — Ad-click / touch capture**
+- [ ] **2.1 Click-ID capture in `@hogsend/js`.** Allowlist (`fbclid,gclid,gbraid,wbraid,ttclid,msclkid,li_fat_id,twclid,rdt_cid,epik,sccid` + `utm_*`) read at load → arrival event `{ clickIds, utm, landingPage, referrer }` on the anon identity; last-touch set persisted in the anon store; `getAttributionFields()` helper exported for hidden-field passthrough.
+- [ ] **2.2 Touchpoint classifier.** `@hogsend/core` helper defining the touchpoint event-class list (arrivals, `email.link_clicked`, `sms.clicked`, `email.action`, vanity arrivals, `lead.submitted`); used later by attribution + reporting.
+
+**Phase 3 — Lead intake**
+- [ ] **3.1 `lead.submitted` canonical event + recipes.** Event constant + documented property shape (answers, qualification, hidden click-ID passthrough, optional `value`); consumer example webhook source in `apps/api`; docs recipes for Heyflow/Perspective/generic forms. NOT building a form engine.
+
+**Phase 4 — `CRMProvider`** *(coordinate with `feat/sources-prospects-p1` — reuse its Attio transport + `writeBack` seam; migration numbering will collide with its `0047` — whoever merges second regenerates)*
+- [ ] **4.1 Contract + registry + route.** `defineCrmProvider()` in core; registry + container resolution; `POST /v1/webhooks/crm/:providerId` (reserve `crm` source id).
+- [ ] **4.2 Stage maps + deals projection.** Per-client `(pipelineId, stageId) → canonical stage` config; canonical `crm.*` valued events; `deals` projection + `crm_links` + `crm_sync_cursors` migrations; monotonic-stage rule; new event types → `WEBHOOK_EVENT_TYPES` + both vendored catalogs.
+- [ ] **4.3 Reconciliation poll.** Hatchet task walking provider cursors; heals webhook gaps; idempotent with 4.2 events.
+- [ ] **4.4 `packages/plugin-ghl`.** OAuth/PIT auth, contact+opportunity push, `OpportunityStageUpdate` webhook (value-in-payload), poll fallback.
+- [ ] **4.5 `packages/plugin-attio`.** Reuse sources-and-prospects transport if merged; else build to seam (`[~]`) with Fake + record the ask. `record.updated` webhook → `hydrate`.
+- [ ] **4.6 `packages/plugin-hubspot`.** Private-app token + `deal.propertyChange` subscription → hydrate fetch.
+- [ ] **4.7 `sendLeadToCrm()` helper.** Journey/service-level push with idempotency key; docs.
+
+**Phase 5 — Conversion definitions + Meta CAPI**
+- [ ] **5.0 Verify Meta platform claims.** The §"Verify before Phase 5" list (Offline API discontinuation, window changes, Conversion Leads thresholds, AEM) against current Meta docs; record findings inline here.
+- [ ] **5.1 `defineConversion()` (code-first) + `conversions` table.** Trigger = event name + condition (reuse condition engine / where-builder); `valueSource`; evaluation inside `ingestEvent()` post-store; fired instances recorded.
+- [ ] **5.2 `defineConversionDestination()` + dispatch.** Sibling registry to destinations; `dispatches` log (unique `event_id`); durable Hatchet dispatch task with retries.
+- [ ] **5.3 `packages/plugin-meta-capi`.** `event_id = hash(contactId+defId+trigger)`; `fbc` from stored fbclid + arrival ts; SHA-256 em/ph; EMQ params; `action_source`; pixel-coexistence dedup documented.
+- [ ] **5.4 Wire + docs.** Conversions → destinations end-to-end; consumer example (journey conversion + campaign conversion).
+
+**Phase 6 — `@hogsend/attribution`**
+- [ ] **6.1 Models + credits.** Package with pure-function models (first/last/lastNonDirect/linear/timeDecay/positionU/positionW/blended); compute ALL models at conversion time into `attribution_credits` (migration); per-definition windows.
+- [ ] **6.2 Studio reporting.** Revenue-by-model per journey/campaign/channel; contact timeline with credits; model-comparison view.
+
+**Phase 7 — Spend + ROAS**
+- [ ] **7.1 Meta spend ingestion.** `ad_spend` daily rows + ad metadata via Meta Insights (Hatchet cron); ad-account config. Build to seam with a Fake if no ad-account creds (record ask).
+- [ ] **7.2 ROAS reports.** CPL / cost-per-quote / cost-per-sale / ROAS by campaign/ad; admin endpoints + Studio.
+
+**Phase 8 — Moat-wideners** *(each may spawn its own plan; build what's in-repo, seam the rest)*
+- [ ] **8.1 Public proof feed.** Org-scoped public stats endpoint + embeddable feed/leaderboard with anonymity tiers.
+- [ ] **8.2 Google + LinkedIn destinations.** Enhanced Conversions for Leads / offline gclid; LinkedIn CAPI.
+- [ ] **8.3 GDPR lead-gen mode.** PII TTL split + consent-gated stitching (extends sources-and-prospects consent work).
+- [ ] **8.4 Workspace scoping design doc.** Design-only deliverable; gates agency licensing, not core.
+
+---
+
 >
 > Goal: Hogsend natively owns the money path — leads in → journeys/CRM → **valued events** → multi-model attribution → conversion feedback to ad platforms — with zero load-bearing dependency on PostHog or any third party. PostHog remains an optional fan-out *recipient* of our revenue data, never the pipe.
 
