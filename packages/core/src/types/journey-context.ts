@@ -117,6 +117,19 @@ export interface SmsHistoryResult {
   count: number;
 }
 
+export interface VoiceHistoryOptions {
+  /** E.164 callee. */
+  phone: string;
+  /** The voice-agent key to scope the history to. */
+  agent: string;
+}
+
+export interface VoiceHistoryResult {
+  called: boolean;
+  lastCalledAt: string | null;
+  count: number;
+}
+
 export interface RecentEventsOptions {
   userId: string;
   /** Restrict to a single event name (use your `Events` constant). Omit for all. */
@@ -374,6 +387,7 @@ export interface JourneyContext {
     journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
     email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
     sms(opts: SmsHistoryOptions): Promise<SmsHistoryResult>;
+    voice(opts: VoiceHistoryOptions): Promise<VoiceHistoryResult>;
     events(opts: RecentEventsOptions): Promise<RecentEvent[]>;
   };
 }

@@ -5,6 +5,7 @@ import { registerEmailProviderRoutes } from "./email-provider.js";
 import { resendWebhookRouter } from "./resend.js";
 import { registerSmsProviderRoutes } from "./sms-provider.js";
 import { registerWebhookSourceRoutes } from "./sources.js";
+import { registerVoiceProviderRoutes } from "./voice-provider.js";
 
 export interface RegisterWebhookRoutesOptions {
   webhookConnectors: DefinedConnector[]; // pre-filtered to transport "webhook"
@@ -20,9 +21,12 @@ export function registerWebhookRoutes(
   //     `email/` prefix — MUST come before the catch-all),
   //  3. the `/v1/webhooks/sms/:providerId` id-dispatched route (static `sms/`
   //     prefix — MUST come before the catch-all),
-  //  4. the `/v1/webhooks/:sourceId` consumer-source catch-all (LAST).
+  //  4. the `/v1/webhooks/voice/:providerId` id-dispatched route (static
+  //     `voice/` prefix — MUST come before the catch-all),
+  //  5. the `/v1/webhooks/:sourceId` consumer-source catch-all (LAST).
   app.route("/v1/webhooks", resendWebhookRouter);
   registerEmailProviderRoutes(app);
   registerSmsProviderRoutes(app);
+  registerVoiceProviderRoutes(app);
   registerWebhookSourceRoutes(app, opts.webhookConnectors);
 }

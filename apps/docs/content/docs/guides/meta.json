@@ -9,6 +9,7 @@
     "webhook-sources",
     "email",
     "sms",
+    "voice",
     "semantic-links",
     "link-tracking",
     "lists",

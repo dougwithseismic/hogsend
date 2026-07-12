@@ -168,6 +168,44 @@ export function sendTestEmail(key: string, to: string) {
   );
 }
 
+// --- Voice agents --------------------------------------------------------
+
+export type VoiceAgentCatalogEntry = {
+  key: string;
+  category: string | null;
+  description: string | null;
+  sourcePath: string | null;
+};
+
+export function listVoiceAgents() {
+  return api.get<{ agents: VoiceAgentCatalogEntry[] }>(
+    "/v1/admin/voice-agents",
+  );
+}
+
+export type VoiceAgentConfig = {
+  systemPrompt: string;
+  firstMessage?: string;
+  voice?: Record<string, unknown>;
+  model?: Record<string, unknown>;
+  tools?: Array<Record<string, unknown>>;
+  dataSchema?: Record<string, unknown>;
+  endCallPhrases?: string[];
+  maxDurationSec?: number;
+};
+
+export type VoiceAgentPreview = {
+  key: string;
+  category: string | null;
+  config: VoiceAgentConfig;
+};
+
+export function getVoiceAgentPreview(key: string) {
+  return api.get<VoiceAgentPreview>(
+    `/v1/admin/voice-agents/${encodeURIComponent(key)}/preview`,
+  );
+}
+
 export type TemplateReport = {
   templateKey: string;
   window: { from: string | null; to: string | null };
@@ -1597,6 +1635,8 @@ export const qk = {
   templates: ["templates"] as const,
   templatePreview: (key: string) => ["template-preview", key] as const,
   templateReport: (key: string) => ["template-report", key] as const,
+  voiceAgents: ["voice-agents"] as const,
+  voiceAgentPreview: (key: string) => ["voice-agent-preview", key] as const,
   journeyMetrics: ["journey-metrics"] as const,
   journeys: ["journeys"] as const,
   journeyFunnel: (id: string) => ["journey-funnel", id] as const,

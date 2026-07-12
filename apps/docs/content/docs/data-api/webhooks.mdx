@@ -27,7 +27,7 @@ Every delivery carries a `Webhook-Id` header. All deliveries that belong to one 
 
 ## The event catalog
 
-Hogsend emits a fixed catalog of **21 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
+Hogsend emits a fixed catalog of **27 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
 
 | Event type | Fires when |
 |---|---|
@@ -47,6 +47,12 @@ Hogsend emits a fixed catalog of **21 event types**. When you create an endpoint
 | `sms.delivered` | The carrier confirms SMS delivery (provider webhook) |
 | `sms.failed` | An SMS delivery fails (provider webhook, with the carrier error) |
 | `sms.clicked` | A first-party SMS short link (`/s/:code`) is clicked — **per-hit** |
+| `voice.call_started` | An AI voice call started ringing |
+| `voice.call_ended` | A voice call ended normally — carries the outcome |
+| `voice.no_answer` | A voice call was not answered |
+| `voice.voicemail` | A voice call reached voicemail |
+| `voice.failed` | A voice call failed (telephony/pipeline fault) |
+| `voice.data_collected` | Structured data was extracted from a call — carries `data` |
 | `journey.completed` | A contact finishes a journey run |
 | `bucket.entered` | A contact enters a real-time audience bucket |
 | `bucket.left` | A contact leaves a bucket |
@@ -137,6 +143,7 @@ The full per-event field lists are the `OutboundPayloads` interface in `packages
 - **`contact.unsubscribed`** carries `{ externalId, email, category, scope }` where `scope` is `"all"` or `"category"`.
 - **`contact.subscribed`** carries the same shape plus `source` — the grant provenance (`"api"`, `"preference_center"`, `"started_keyword"`).
 - **`sms.sent`** carries `{ smsSendId, messageId, templateKey, to, userId, category, journeyStateId, segments, sentAt }`; **`sms.delivered` / `sms.failed`** carry `{ smsSendId, messageId, templateKey, userId, to, at }` (`sms.failed` adds `errorCode`/`errorReason`); **`sms.clicked`** adds `linkUrl` and `linkId`.
+- **`voice.call_started`** carries `{ voiceCallId, providerCallId, agentKey, to, userId, journeyStateId, startedAt }`; **`voice.call_ended` / `voice.no_answer` / `voice.voicemail` / `voice.failed`** carry `{ voiceCallId, agentKey, userId, to, at, reason, durationSec }` (`voice.failed` adds `errorCode`/`errorReason`); **`voice.data_collected`** carries `{ voiceCallId, agentKey, userId, to, at, data }`.
 - **`email.sent`** carries `{ emailSendId, messageId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`. `messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …) — it replaced `resendId`, which lingers as a `@deprecated` alias for one minor.
 - **`email.delivered` / `email.opened` / `email.complained`** carry the common email shape `{ emailSendId, messageId, templateKey, userId, to, at }`.
 - **`email.clicked`** adds `linkUrl` and `linkId`; **`email.bounced`** adds `bounceType` and `bounceReason`.

@@ -46,7 +46,7 @@ function capitalize(id: string): string {
  */
 export function synthesizeChannelLists(
   actions: DefinedConnectorAction[],
-  opts?: { sms?: boolean },
+  opts?: { sms?: boolean; voice?: boolean },
 ): ListMeta[] {
   const channels: ListMeta[] = [
     {
@@ -86,6 +86,24 @@ export function synthesizeChannelLists(
     channels.push({
       id: "sms",
       name: "SMS",
+      defaultOptIn: false,
+      enabled: true,
+      kind: "channel",
+    });
+  }
+
+  // The voice channel is minted when a voice provider is configured. Like SMS it
+  // is OPT-IN polarity (`defaultOptIn: false`, not configurable) — and it is the
+  // STRICTEST channel: TCPA requires prior express WRITTEN consent for AI/
+  // prerecorded marketing calls, so a contact is callable only with an explicit
+  // `categories.voice === true` grant. The tracked voice caller fails closed
+  // (`no_consent`) without one; transactional calls are exempt from the consent
+  // gate but never from the DNC list. De-duped in case a connector used "voice".
+  if (opts?.voice && !seen.has("voice")) {
+    seen.add("voice");
+    channels.push({
+      id: "voice",
+      name: "Voice",
       defaultOptIn: false,
       enabled: true,
       kind: "channel",

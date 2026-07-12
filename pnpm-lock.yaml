@@ -68,9 +68,15 @@ importers:
       '@hogsend/plugin-twilio':
         specifier: workspace:^
         version: link:../../packages/plugin-twilio
+      '@hogsend/plugin-vapi':
+        specifier: workspace:^
+        version: link:../../packages/plugin-vapi
       '@hogsend/sms':
         specifier: workspace:^
         version: link:../../packages/sms
+      '@hogsend/voice':
+        specifier: workspace:^
+        version: link:../../packages/voice
       '@hono/mcp':
         specifier: ^0.3.1
         version: 0.3.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(hono-rate-limiter@0.5.3(hono@4.12.22))(hono@4.12.22)(zod@4.4.3)
@@ -642,6 +648,9 @@ importers:
       '@hogsend/sms':
         specifier: workspace:^
         version: link:../sms
+      '@hogsend/voice':
+        specifier: workspace:^
+        version: link:../voice
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.22)
@@ -715,6 +724,9 @@ importers:
       '@hogsend/plugin-twilio':
         specifier: workspace:^
         version: link:../plugin-twilio
+      '@hogsend/plugin-vapi':
+        specifier: workspace:^
+        version: link:../plugin-vapi
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
@@ -968,6 +980,31 @@ importers:
         specifier: ^4.1.7
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.15.3)(happy-dom@20.10.6)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/plugin-vapi:
+    dependencies:
+      '@hogsend/core':
+        specifier: workspace:^
+        version: link:../core
+      '@hogsend/voice':
+        specifier: workspace:^
+        version: link:../voice
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:^
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.15.3
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.15.3)(happy-dom@20.10.6)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/react:
     dependencies:
       '@hogsend/js':
@@ -1124,6 +1161,28 @@ importers:
         version: 6.4.3(@types/node@22.15.3)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
 
   packages/typescript-config: {}
+
+  packages/voice:
+    dependencies:
+      '@hogsend/core':
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:^
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.15.3
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.15.3)(happy-dom@20.10.6)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
 packages:
 

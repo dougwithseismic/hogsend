@@ -27,6 +27,7 @@ import { telegramLinked } from "./telegram-linked.js";
 import { telegramOnboarding } from "./telegram-onboarding.js";
 import { telegramWelcome } from "./telegram-welcome.js";
 import { testOnboarding } from "./test-onboarding.js";
+import { voiceLeadQualifier } from "./voice-lead-qualifier.js";
 
 /**
  * All defined journeys for this app. Passed to `createHogsendClient({ journeys })`
@@ -62,6 +63,7 @@ export const journeys: DefinedJourney[] = [
   demoLaunch,
   demoTrialNudge,
   smsWelcome,
+  voiceLeadQualifier,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
@@ -95,4 +97,5 @@ export {
   telegramOnboarding,
   telegramWelcome,
   testOnboarding,
+  voiceLeadQualifier,
 };

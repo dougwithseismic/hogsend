@@ -1,0 +1,112 @@
+---
+title: Voice
+description: A first-class voice channel — AI phone agents (Vapi by default) that place and answer calls to do outreach, collect data, sell, and book appointments, with mid-call tool calls, strict TCPA consent, and post-call outcomes on the same journey spine.
+---
+
+Hogsend places and answers phone calls through a swappable AI-voice **provider** ([Vapi](https://vapi.ai) is the reference) with the same split the email/SMS channels use: your **agents** are content in **your** repo, the engine owns the pipeline, and the provider is a dumb wire.
+
+Voice is **not** "SMS with audio". The media, turn-taking, and the STT → LLM → TTS loop all run in the provider's cloud; Hogsend is the **control plane** — it authors the agent, starts the call, **serves the agent's tool calls mid-call** (this is where booking, selling, and data collection actually happen), and ingests the outcome onto the same journey spine your email/SMS steps already use.
+
+- **Your agents are content.** A voice agent is a `defineVoiceAgent()` definition in your `src/voice/` — a system prompt, first message, voice, the tools it may call, and a JSON schema of the data to extract. It's a `.ts` config, not React.
+- **The engine owns the pipeline.** `@hogsend/engine` provides the journey-facing `startCall()` and the tracked caller: agent synthesis → consent/DNC checks → calling-hours guard → frequency cap → `voice_calls` row → `provider.startCall` → status + outcome persistence → mid-call tool dispatch.
+- **The provider is a dumb `VoiceProvider`.** `@hogsend/plugin-vapi` implements the contract. Vapi is the turnkey default because it owns telephony + orchestration and **composes Deepgram (STT) + ElevenLabs (TTS)** under the hood — so you don't forfeit their quality. Implement the same interface for any other provider.
+
+Configuring the channel is **operator opt-in**: with no provider configured the voice service is an inert stub and `startCall` throws — a deploy without Vapi credentials is unaffected. Calling a contact is **recipient opt-in**: marketing calls require an explicit consent grant (see [Consent](#consent-tcpa)).
+
+## Setup
+
+Set the Vapi credentials plus a phone-number id to place calls from:
+
+```bash
+VAPI_API_KEY=your_vapi_private_key
+VAPI_PHONE_NUMBER_ID=your_vapi_phone_number_id
+# VAPI_WEBHOOK_SECRET=your_server_secret   # verified fail-closed when set
+# VOICE_FROM=+15551234567                  # default caller id (optional)
+# HOGSEND_TEST_PHONE=+15557654321          # redirect while test mode is armed
+```
+
+Point Vapi's assistant/account **server URL** at `<API_PUBLIC_URL>/v1/webhooks/voice/vapi` — the env preset sets this on each transient assistant automatically (skipped on localhost). When `VAPI_WEBHOOK_SECRET` is set, webhooks are verified (`X-Vapi-Secret` or `Authorization: Bearer`) fail-closed; without it they're accepted unverified, so secure the endpoint by other means.
+
+Register your agents + tools in **both** entry points, like email/SMS:
+
+```ts
+createHogsendClient({ voice: { agents: voiceAgents, tools: voiceTools } });
+```
+
+## Authoring an agent
+
+```ts
+// src/voice/appointment-setter.ts
+import { defineVoiceAgent } from "@hogsend/voice";
+
+export const appointmentSetter = defineVoiceAgent({
+  category: "journey",
+  build: (p: { businessName: string }) => ({
+    // Build prompts from PROPS (`${p.x}`) — a `{{variable}}` placeholder needs a
+    // matching `variables` bag on startCall or the provider leaves it literal.
+    systemPrompt: `You book demos for ${p.businessName}. Disclose you are an automated AI assistant, then book via bookAppointment.`,
+    firstMessage: `Hi, this is the automated assistant for ${p.businessName}.`,
+    voice: { provider: "11labs", voiceId: "burt" },
+    // Latest fast, NON-reasoning model — voice needs low time-to-first-token (a
+    // reasoning model pauses audibly). Drop to claude-haiku-4-5-20251001 for lowest latency.
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    tools: [{ name: "bookAppointment", parameters: { type: "object", properties: { slotIso: { type: "string" } }, required: ["slotIso"] } }],
+    dataSchema: { type: "object", properties: { interested: { type: "boolean" } } },
+    // record defaults OFF (two-party-consent safe); set record: true to enable.
+  }),
+});
+```
+
+Register in `src/voice/registry.ts`, augment `VoiceAgentRegistryMap` in `src/voice/templates.d.ts`, and an unregistered agent key is a **compile error** at the `startCall` call site. Mid-call **tools** are `defineVoiceTool({ spec, handler })` — the `spec` (name + JSON-schema params) goes to the provider; the `handler` runs on the engine's synchronous dispatch path while the call is live (keep it fast — the provider blocks the call on the reply).
+
+## Consent (TCPA)
+
+Voice is the **strictest-regulated** channel — TCPA requires prior express **written** consent for AI/prerecorded marketing calls, so holding a phone number is not permission to call it (and there is no "number implies consent" track like SMS's START). A marketing call needs an explicit `categories.voice === true` grant: `POST /v1/lists/voice/subscribe`, `PUT /v1/contacts { lists: { voice: true } }`, the JS SDK's `setPreference("voice", true)`, or the preference center (where the Voice row renders OFF until granted).
+
+Without a grant the call **fails closed** (`no_consent` — recorded, never placed, the idempotency key not consumed). Transactional calls (`category: "transactional"`) are exempt from the consent gate but **never** from the internal DNC list or the global opt-out.
+
+The engine enforces the compliance controls it can: an internal **DNC** (`voice_suppressions` — a mid-call opt-out tool via `getVoiceService().recordOptOut(ctx.phone)`, or an admin write, and the number is never dialed again); **calling hours** (8am–9pm, enforced against the contact's `timezone` property when known); **recording OFF by default** (a two-party-consent safeguard — set `record: true` per agent); and **E.164 normalization** before every DNC check. National/state DNC scrubbing, written-consent capture, and the AI-disclosure opening line remain your responsibility.
+
+## Calling from a journey
+
+```ts
+import { defineJourney, startCall, isE164 } from "@hogsend/engine";
+
+export const voiceLeadQualifier = defineJourney({
+  meta: { id: "voice-lead-qualifier", name: "Voice — Lead qualifier", trigger: { event: "lead.created" } },
+  run: async (user, ctx) => {
+    const phone = user.properties.phone ? String(user.properties.phone) : null;
+    if (!phone || !isE164(phone)) return;
+
+    const result = await startCall({ to: phone, userId: user.id, agent: "appointment-setter", props: { businessName: "Acme" } });
+    // result.status: "started" | "no_consent" | "suppressed" | "unsubscribed" | "skipped"
+
+    // Wait for the outcome the webhook ingests, then branch (e.g. fall back to SMS).
+    const { timedOut, properties } = await ctx.waitForEvent({ event: "voice.call_ended", timeout: { minutes: 10 } });
+  },
+});
+```
+
+`startCall` is replay-safe exactly like `sendEmail`/`sendSms` — a durable replay of the same logical call is absorbed by the idempotency machinery under a key namespace disjoint from email's and SMS's, so a call is never double-dialed on replay. The result carries the pipeline verdict so a journey can branch on non-connect.
+
+## Mid-call tools + outcomes
+
+`POST /v1/webhooks/voice/:providerId` handles three things:
+
+- A **tool call** — the engine resolves the tool by name (scoped to the live call, authorized against the agent's declared tools, deduped by the provider tool-call id so a retry never double-books), runs your handler with the call context (contact, phone, variables), and replies **synchronously** with the result the agent reads back. This is where booking / selling / lookups / data-saves run.
+- A **call outcome** — on call end the engine persists the transcript, recording, summary, and provider-**extracted structured data**, then pushes `voice.call_ended` (+ `voice.no_answer` / `voice.voicemail` / `voice.failed`, and a derived `voice.data_collected` carrying the extracted fields, which are also written to the contact's properties) onto the journey bus so a `ctx.waitForEvent` wakes. These also fan out to your outbound webhook subscribers.
+- An **inbound call** — Vapi asks who should answer; the engine returns your configured `voice: { inboundAgent }`, creating an inbound `voice_calls` row.
+
+Test mode is deploy-coherent with email/SMS: `HOGSEND_TEST_MODE=true` (or `auto`) redirects every call to `HOGSEND_TEST_PHONE`.
+
+## Model selection
+
+Vapi is provider-agnostic (OpenAI / Anthropic / Google / Groq / custom) — pick the brain per agent via `model: { provider, model }`. The default is the latest fast Claude, `claude-sonnet-4-6`, because voice demands a **non-reasoning** model: a reasoning/thinking model's time-to-first-token becomes audible pauses that get callers to hang up. Keep reasoning off for the user-facing turn; use it only for offline post-call analysis.
+
+## Bring your own provider
+
+Implement `defineVoiceProvider()` from `@hogsend/core`: `startCall(options) → { id }` (mapping the neutral `VoiceAgentConfig` to your vendor's assistant shape), `verifyWebhook`/`parseWebhook` normalizing webhooks to `VoiceWebhookParsed` (`event` | `tool_call` | `assistant_request`), `encodeToolResults`, and `encodeAssistantResponse`. Mirror `packages/plugin-vapi`. Everything above the wire — consent, DNC, calling-hours, agent synthesis, tool dispatch, the `voice_calls` pipeline — is engine-owned and comes along unchanged.
+
+## Not yet (v1 deferrals)
+
+Per-number inbound routing (a single `inboundAgent` answers all inbound today), ElevenLabs-Agents + Deepgram providers, a Blueprint `place_call` node, live audio streaming, and phone as a merge-participating identity key.

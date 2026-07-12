@@ -91,6 +91,18 @@ export const smsSendStatusEnum = pgEnum("sms_send_status", [
   "failed",
 ]);
 
+export const voiceCallStatusEnum = pgEnum("voice_call_status", [
+  "queued", // row claimed (INSERT won) — the provider startCall is in flight; a
+  // replay finding this re-drives (safer missed>doubled), mirroring sms_sends.
+  "ringing", // provider accepted the call, the callee's phone is ringing.
+  "in_progress", // the callee answered — the agent conversation is live.
+  "completed", // the call ended normally (hangup) — terminal, carries the outcome.
+  "no_answer", // the callee did not pick up — terminal.
+  "voicemail", // the call reached voicemail — terminal.
+  "failed", // the provider/telephony faulted, or startCall threw — terminal. The
+  // idempotency key is released so a retry genuinely re-attempts.
+]);
+
 export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
   "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
   // satisfied duplicate. A replay finding this re-drives the action (safer

@@ -1,5 +1,5 @@
 import type { Database } from "@hogsend/db";
-import { emailSends, journeyStates, smsSends } from "@hogsend/db";
+import { emailSends, journeyStates, smsSends, voiceCalls } from "@hogsend/db";
 import { and, eq, gte, ne } from "drizzle-orm";
 import type { JourneyBoundary } from "../journeys/journey-boundary.js";
 import { recordOnce } from "../journeys/record-once.js";
@@ -64,6 +64,33 @@ export async function hasRecentJourneySmsSend(opts: {
 }
 
 /**
+ * The voice leg of {@link hasRecentJourneySend}: same cross-enrollment EXISTS
+ * over `voice_calls` keyed by recipient phone. `meta.suppress` gaps voice calls
+ * exactly as it gaps email + SMS.
+ */
+export async function hasRecentJourneyVoiceCall(opts: {
+  db: Database;
+  journeyId: string;
+  to: string;
+  since: Date;
+}): Promise<boolean> {
+  const rows = await opts.db
+    .select({ id: voiceCalls.id })
+    .from(voiceCalls)
+    .innerJoin(journeyStates, eq(voiceCalls.journeyStateId, journeyStates.id))
+    .where(
+      and(
+        eq(journeyStates.journeyId, opts.journeyId),
+        eq(voiceCalls.toNumber, opts.to),
+        gte(voiceCalls.createdAt, opts.since),
+        ne(voiceCalls.status, "failed"),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * The RECORDED-once journey-suppress verdict for a boundary send. Returns
  * `{ suppressed }` — `true` means the tracked mailer must skip the send
  * (`journey_suppressed`, no provider call, no `email_sends` row).
@@ -86,7 +113,7 @@ export async function checkJourneySuppress(opts: {
   to: string;
   idempotencyKey: string | undefined;
   /** Which channel's send history the min-gap EXISTS runs against. */
-  channel?: "email" | "sms";
+  channel?: "email" | "sms" | "voice";
   /** Injectable clock for tests; defaults to the live wall clock. */
   now?: number;
 }): Promise<{ suppressed: boolean }> {
@@ -109,7 +136,11 @@ export async function checkJourneySuppress(opts: {
     compute: async () => {
       const since = new Date((opts.now ?? Date.now()) - suppressMs);
       const hasRecent =
-        opts.channel === "sms" ? hasRecentJourneySmsSend : hasRecentJourneySend;
+        opts.channel === "sms"
+          ? hasRecentJourneySmsSend
+          : opts.channel === "voice"
+            ? hasRecentJourneyVoiceCall
+            : hasRecentJourneySend;
       return {
         suppressed: await hasRecent({ db, journeyId, to, since }),
       };

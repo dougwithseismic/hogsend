@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 21-event catalog, in order", () => {
+  it("is exactly the 27-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -224,6 +224,14 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "sms.delivered",
       "sms.failed",
       "sms.clicked",
+      // Voice lifecycle (AI phone agents; call_ended carries the outcome,
+      // data_collected carries the extracted structured data).
+      "voice.call_started",
+      "voice.call_ended",
+      "voice.no_answer",
+      "voice.voicemail",
+      "voice.failed",
+      "voice.data_collected",
       "journey.completed",
       "bucket.entered",
       "bucket.left",
