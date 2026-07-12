@@ -337,9 +337,11 @@ function ContactCell({
 
 function DealsTable({
   stages,
+  funnel,
   onOpenContact,
 }: {
   stages: string[];
+  funnel?: string;
   onOpenContact: (contactId: string) => void;
 }) {
   const [stage, setStage] = useState("");
@@ -486,6 +488,7 @@ function DealsTable({
   const filters: DealListFilters = {
     stage: stage || undefined,
     provider: provider || undefined,
+    funnel,
     search: search || undefined,
     minValue: minValue ? Number(minValue) : undefined,
     sort,
@@ -804,16 +807,19 @@ export function DealsView() {
   const [tab, setTab] = useState<"deals" | "conversions">("deals");
   const [metric, setMetric] = useState<ChartMetric>("soldRevenue");
   const [openContactId, setOpenContactId] = useState<string | null>(null);
+  // undefined = the engine's default funnel.
+  const [funnel, setFunnel] = useState<string | undefined>(undefined);
 
   const statsQuery = useQuery({
-    queryKey: qk.dealsStats,
-    queryFn: getDealsStats,
+    queryKey: qk.dealsStats(funnel),
+    queryFn: () => getDealsStats(funnel),
   });
   const timeseriesQuery = useQuery({
-    queryKey: qk.dealsTimeseries(60),
-    queryFn: () => getDealsTimeseries(60),
+    queryKey: qk.dealsTimeseries(60, funnel),
+    queryFn: () => getDealsTimeseries(60, funnel),
   });
 
+  const funnelCatalog = statsQuery.data?.funnels ?? [];
   const primary = statsQuery.data?.currencies[0];
   // Column/filter order = the deployment's configured ladder (from /stats).
   const stageOrder = statsQuery.data?.stageOrder ?? DEFAULT_STAGES;
@@ -845,6 +851,29 @@ export function DealsView() {
         title="Deals"
         description="The revenue dashboard — every CRM deal and fired conversion, with the money front and center."
       />
+
+      {funnelCatalog.length > 1 ? (
+        <div className="flex flex-wrap gap-1">
+          {funnelCatalog.map((f) => {
+            const active =
+              (funnel ?? statsQuery.data?.funnelId ?? "default") === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFunnel(f.id)}
+                className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                  active
+                    ? "border-accent/50 bg-accent-tint text-white"
+                    : "border-white/[0.08] text-white/55 hover:text-white/85"
+                }`}
+              >
+                {f.name ?? stageLabel(f.id)}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {statsQuery.isPending ? (
         <CardsSkeleton count={4} />
@@ -1003,7 +1032,14 @@ export function DealsView() {
       </div>
 
       {tab === "deals" ? (
-        <DealsTable stages={stageOrder} onOpenContact={setOpenContactId} />
+        // Explicit funnel scope even before any pill click — the stats cards
+        // above are default-scoped, so the table must be too.
+        <DealsTable
+          key={funnel ?? statsQuery.data?.funnelId ?? "default"}
+          stages={stageOrder}
+          funnel={funnel ?? statsQuery.data?.funnelId ?? "default"}
+          onOpenContact={setOpenContactId}
+        />
       ) : (
         <ConversionsTable onOpenContact={setOpenContactId} />
       )}

@@ -1,10 +1,5 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type {
-  AnalyticsProvider,
-  CrmStageEvent,
-  CrmStageMap,
-  PipelineLadder,
-} from "@hogsend/core";
+import type { AnalyticsProvider, CrmStageEvent } from "@hogsend/core";
 import { DEFAULT_PIPELINE_LADDER, resolveCanonicalStage } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { contacts, type Database } from "@hogsend/db";
@@ -15,6 +10,7 @@ import {
   ensureCrmLinks,
   resolveCrmLinkedContact,
 } from "./crm-deals.js";
+import type { FunnelRegistry } from "./funnel-registry.js";
 import { ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
@@ -46,9 +42,8 @@ export async function ingestCrmStageEvents(opts: {
   analytics?: AnalyticsProvider;
   providerId: string;
   events: CrmStageEvent[];
-  stageMap?: CrmStageMap;
-  /** The deployment's canonical funnel; defaults to the built-in five. */
-  ladder?: PipelineLadder;
+  /** Funnel routing (which funnel claims each (provider, pipeline)). */
+  funnels?: FunnelRegistry;
 }): Promise<{ ingested: number; skipped: number }> {
   const {
     db,
@@ -58,9 +53,8 @@ export async function ingestCrmStageEvents(opts: {
     analytics,
     providerId,
     events,
-    stageMap,
+    funnels,
   } = opts;
-  const ladder = opts.ladder ?? DEFAULT_PIPELINE_LADDER;
   let ingested = 0;
   let skipped = 0;
 
@@ -108,7 +102,15 @@ export async function ingestCrmStageEvents(opts: {
       }
       await ensureCrmLinks({ db, providerId, contactId, event });
 
-      const canonicalStage = resolveCanonicalStage(stageMap, event, ladder);
+      // Which funnel claims this (provider, pipeline)? Its ladder + stage
+      // map drive resolution. The container always registers a "default"
+      // funnel, so the built-in fallback only covers direct callers.
+      const funnel = funnels?.resolve(providerId, event.pipelineId);
+      const funnelId = funnel?.meta.id ?? null;
+      const ladder = funnel?.ladder ?? DEFAULT_PIPELINE_LADDER;
+      const map = funnel?.meta.sources[providerId];
+
+      const canonicalStage = resolveCanonicalStage(map, event, ladder);
       if (!canonicalStage) {
         logger.warn("crm stage unmapped — recording native ids only", {
           provider: providerId,
@@ -149,6 +151,7 @@ export async function ingestCrmStageEvents(opts: {
             ...(event.stageName ? { stage_name: event.stageName } : {}),
             ...(event.status ? { status: event.status } : {}),
             ...(canonicalStage ? { canonical_stage: canonicalStage } : {}),
+            ...(funnelId ? { funnel_id: funnelId } : {}),
           },
           ...(event.value
             ? {
@@ -178,12 +181,14 @@ export async function ingestCrmStageEvents(opts: {
         event,
         canonicalStage,
         ladder,
+        funnelId,
       });
 
       const outboundPayload = {
         provider: providerId,
         dealId: event.dealId,
         pipelineId: event.pipelineId ?? null,
+        funnelId,
         canonicalStage,
         value: applied.value,
         currency: applied.currency,
@@ -234,6 +239,7 @@ export async function ingestCrmStageEvents(opts: {
               crm: providerId,
               deal_id: event.dealId,
               ...(event.pipelineId ? { pipeline_id: event.pipelineId } : {}),
+              ...(funnelId ? { funnel_id: funnelId } : {}),
               canonical_stage: stage,
             },
             ...(applied.value !== null

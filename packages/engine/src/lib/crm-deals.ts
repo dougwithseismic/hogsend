@@ -101,11 +101,14 @@ export async function applyCrmStageEvent(opts: {
   contactId: string;
   event: CrmStageEvent;
   canonicalStage: CanonicalStage | null;
-  /** The deployment's canonical funnel; defaults to the built-in five. */
+  /** The claiming funnel's ladder; defaults to the built-in five. */
   ladder?: PipelineLadder;
+  /** The claiming funnel's id (stamped on the deal). */
+  funnelId?: string | null;
 }): Promise<AppliedStageChange> {
   const { db, logger, providerId, contactId, event, canonicalStage } = opts;
   const ladder = opts.ladder ?? DEFAULT_PIPELINE_LADDER;
+  const funnelId = opts.funnelId ?? null;
   const occurredAt = new Date(event.occurredAt);
   const rank = canonicalStage
     ? canonicalStageRank(canonicalStage, ladder)
@@ -116,6 +119,7 @@ export async function applyCrmStageEvent(opts: {
     externalId: event.dealId,
     contactId,
     pipelineId: event.pipelineId ?? null,
+    funnelId,
     stageId: event.stageId,
     canonicalStage: canonicalStage ?? ladder.stages[0],
     stageRank: rank !== null && rank >= 0 ? rank : 0,
@@ -178,6 +182,33 @@ export async function applyCrmStageEvent(opts: {
       };
     }
 
+    // A deal belongs to ONE funnel. A stage event that routes to a DIFFERENT
+    // funnel (the CRM moved the deal across pipelines) must not apply another
+    // ladder's ranks/designations to this row — that mints phantom money
+    // events and can flip sold→lost. The stage change still lands on the
+    // event spine; the projection ignores it and says so.
+    if (
+      funnelId &&
+      existing.funnelId !== null &&
+      existing.funnelId !== funnelId
+    ) {
+      logger.warn("cross-funnel stage event ignored by the deals projection", {
+        provider: providerId,
+        dealId: event.dealId,
+        dealFunnel: existing.funnelId,
+        eventFunnel: funnelId,
+        stageId: event.stageId,
+      });
+      return {
+        dealId: existing.id,
+        freshQuoted: false,
+        freshSold: false,
+        value: existing.value,
+        currency: existing.currency,
+        canonicalStage: existing.canonicalStage,
+      };
+    }
+
     const set: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
     // Latest value always lands (quotes get revised), independent of stage
     // direction.
@@ -186,13 +217,47 @@ export async function applyCrmStageEvent(opts: {
       set.currency = event.value.currency?.toUpperCase() ?? existing.currency;
     }
 
+    // Adoption: a pre-funnel row (funnelId null) joins the claiming funnel —
+    // but its stored rank was computed on ANOTHER ladder's scale, so re-base
+    // it from the stage NAME in the new ladder before any comparison. A
+    // stage the new ladder doesn't know can't be re-based: leave the row
+    // untouched rather than guess.
+    let existingRank = existing.stageRank;
+    if (funnelId && existing.funnelId === null) {
+      if (existing.canonicalStage !== "lost") {
+        const rebased = canonicalStageRank(existing.canonicalStage, ladder);
+        if (rebased === null) {
+          logger.warn(
+            "pre-funnel deal stage is foreign to the claiming funnel — projection untouched",
+            {
+              provider: providerId,
+              dealId: event.dealId,
+              dealStage: existing.canonicalStage,
+              funnel: funnelId,
+            },
+          );
+          return {
+            dealId: existing.id,
+            freshQuoted: false,
+            freshSold: false,
+            value: existing.value,
+            currency: existing.currency,
+            canonicalStage: existing.canonicalStage,
+          };
+        }
+        existingRank = rebased;
+        set.stageRank = rebased;
+      }
+      set.funnelId = funnelId;
+    }
+
     let freshQuoted = false;
     let freshSold = false;
     const advances =
       canonicalStage !== null &&
       canonicalStage !== "lost" &&
       rank !== null &&
-      rank > existing.stageRank &&
+      rank > existingRank &&
       existing.canonicalStage !== "lost";
     const losing =
       canonicalStage === "lost" &&

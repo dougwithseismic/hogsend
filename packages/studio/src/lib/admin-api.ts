@@ -1655,8 +1655,9 @@ export const qk = {
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
-  dealsStats: ["deals-stats"] as const,
-  dealsTimeseries: (days: number) => ["deals-timeseries", days] as const,
+  dealsStats: (funnel?: string) => ["deals-stats", funnel ?? null] as const,
+  dealsTimeseries: (days: number, funnel?: string) =>
+    ["deals-timeseries", days, funnel ?? null] as const,
   conversions: (filters: ConversionListFilters) =>
     ["conversions", filters] as const,
   conversionsStats: ["conversions-stats"] as const,
@@ -1673,6 +1674,7 @@ export type Deal = {
   contactId: string;
   contactEmail: string | null;
   pipelineId: string | null;
+  funnelId: string | null;
   stageId: string | null;
   canonicalStage: string;
   value: number | null;
@@ -1697,6 +1699,7 @@ export type DealSort =
 export type DealListFilters = {
   stage?: string;
   provider?: string;
+  funnel?: string;
   search?: string;
   minValue?: number;
   sort?: DealSort;
@@ -1706,6 +1709,10 @@ export type DealListFilters = {
 };
 
 export type DealsStats = {
+  /** The funnel these stats are scoped to (older engines omit it). */
+  funnelId?: string;
+  /** Every registered funnel — the switcher catalog (older engines omit). */
+  funnels?: Array<{ id: string; name: string | null; stageOrder: string[] }>;
   /** Configured ladder in rank order, `lost` last (older engines omit it). */
   stageOrder?: string[];
   stages: Record<string, number>;
@@ -1734,6 +1741,7 @@ export function listDeals(filters: DealListFilters) {
     query: {
       stage: filters.stage || undefined,
       provider: filters.provider || undefined,
+      funnel: filters.funnel || undefined,
       search: filters.search || undefined,
       minValue: filters.minValue,
       sort: filters.sort,
@@ -1744,8 +1752,10 @@ export function listDeals(filters: DealListFilters) {
   });
 }
 
-export function getDealsStats() {
-  return api.get<DealsStats>("/v1/admin/deals/stats");
+export function getDealsStats(funnel?: string) {
+  return api.get<DealsStats>("/v1/admin/deals/stats", {
+    query: { funnel: funnel || undefined },
+  });
 }
 
 export type SeriesPoint = { date: string; value: number };
@@ -1760,9 +1770,9 @@ export type DealsTimeseries = {
   };
 };
 
-export function getDealsTimeseries(days = 60) {
+export function getDealsTimeseries(days = 60, funnel?: string) {
   return api.get<DealsTimeseries>("/v1/admin/deals/timeseries", {
-    query: { days },
+    query: { days, funnel: funnel || undefined },
   });
 }
 

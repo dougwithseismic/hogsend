@@ -328,3 +328,65 @@ export function resolveCanonicalStage(
   if (event.status === "lost") return "lost";
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Funnels — the code-first primitive over ladders + stage maps, plural
+// ---------------------------------------------------------------------------
+
+/** The reserved funnel id the `crm.{stages,stageMaps}` sugar synthesizes. */
+export const DEFAULT_FUNNEL_ID = "default";
+
+/**
+ * A funnel authored like a journey: YOUR ordered stage ladder plus which CRM
+ * traffic feeds it. `sources` is per-provider — the stage map whose pipeline
+ * keys are ALSO the claim: this funnel owns those native pipelines (`"*"`
+ * claims the provider's remainder). One deployment runs MANY funnels
+ * (residential vs commercial, sales vs expansion); ingest routes each stage
+ * event to the funnel that claims its (provider, pipeline).
+ */
+export interface FunnelMeta {
+  /** Stable id — stamped on deals (`funnel_id`) and event properties. */
+  id: string;
+  name?: string;
+  /** Ordered positive stages; index = monotonic rank. Never "lost". */
+  stages: string[];
+  /** The stage that mints `crm.deal_quoted`. See {@link PipelineLadder}. */
+  quotedStage?: string;
+  /** The stage that mints `crm.deal_sold`. Defaults to the LAST stage. */
+  soldStage?: string;
+  /**
+   * Per provider: native `(pipelineId|'*') → stageId → THIS funnel's stage`.
+   * The pipeline keys double as the funnel's traffic claim.
+   */
+  sources: Record<string, CrmStageMap>;
+}
+
+export interface DefinedFunnel {
+  meta: FunnelMeta;
+  /** The normalized ladder (rank order + money-stage designations). */
+  ladder: PipelineLadder;
+}
+
+/**
+ * Validating factory — normalizes the ladder and checks every mapped stage
+ * value against it at definition time, so a typo throws with the exact path
+ * (funnels are plain-string-typed; this replaces the compiler).
+ */
+export function defineFunnel(meta: FunnelMeta): DefinedFunnel {
+  if (!meta.id) throw new Error("defineFunnel: id is required");
+  const ladder = normalizePipelineLadder(meta);
+  for (const [providerId, map] of Object.entries(meta.sources)) {
+    for (const [pipelineId, stageEntries] of Object.entries(map)) {
+      for (const [stageId, canonical] of Object.entries(stageEntries)) {
+        if (canonical !== "lost" && !ladder.stages.includes(canonical)) {
+          throw new Error(
+            `funnel "${meta.id}" sources.${providerId}.${pipelineId}.${stageId} ` +
+              `maps to "${canonical}", which is not in its stages ` +
+              `[${ladder.stages.join(", ")}] (or "lost")`,
+          );
+        }
+      }
+    }
+  }
+  return { meta, ladder };
+}

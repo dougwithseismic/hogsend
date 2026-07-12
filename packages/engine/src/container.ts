@@ -6,6 +6,7 @@ import type {
   CrmProvider,
   CrmStageMap,
   DefinedConversion,
+  DefinedFunnel,
   EmailProvider,
   JourneySourceLocation,
   PipelineLadder,
@@ -13,7 +14,7 @@ import type {
   SmsProvider,
   TimeZone,
 } from "@hogsend/core";
-import { normalizePipelineLadder } from "@hogsend/core";
+import { DEFAULT_FUNNEL_ID, normalizePipelineLadder } from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
@@ -87,6 +88,7 @@ import type {
   EmailService,
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
+import { FunnelRegistry } from "./lib/funnel-registry.js";
 import { hatchet } from "./lib/hatchet.js";
 import {
   createIdentityService,
@@ -195,12 +197,18 @@ export interface HogsendClient {
   /** Per-provider native→canonical stage maps (`opts.crm.stageMaps`). */
   crmStageMaps: Record<string, CrmStageMap>;
   /**
-   * The deployment's canonical funnel — `opts.crm.{stages,quotedStage,
-   * soldStage}` normalized + validated at boot ({@link normalizePipelineLadder});
-   * defaults to the built-in five-stage ladder. Admin deals stats/Studio
-   * render THIS ladder.
+   * The DEFAULT funnel's ladder — `opts.crm.{stages,quotedStage,soldStage}`
+   * normalized + validated at boot ({@link normalizePipelineLadder});
+   * defaults to the built-in five-stage ladder. Back-compat surface; the
+   * full picture is {@link funnels}.
    */
   crmLadder: PipelineLadder;
+  /**
+   * The funnel registry (§5b.4): every `defineFunnel` plus the synthesized
+   * `"default"` carrying the crm sugar. Routes stage events by
+   * (provider, pipeline) claim; admin stats/Studio render per funnel.
+   */
+  funnels: FunnelRegistry;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -438,6 +446,13 @@ export interface HogsendClientOptions {
      */
     soldStage?: string;
   };
+  /**
+   * Funnels as code-first primitives (§5b.4) — `defineFunnel` results. Each
+   * claims CRM traffic via its `sources` pipeline keys; overlapping claims
+   * throw at boot. The `crm.{stages,stageMaps}` group above is sugar for a
+   * single `"default"` funnel and composes with these.
+   */
+  funnels?: DefinedFunnel[];
   /**
    * The analytics provider(s) — provider-neutral since the
    * `AnalyticsProvider` contract (the analytics sibling of `EmailProvider`;
@@ -799,12 +814,52 @@ export function createHogsendClient(
       }
     }
   }
+  // Funnels (§5b.4): authored `defineFunnel`s plus a synthesized "default"
+  // carrying the crm.{stages,stageMaps} sugar — unless the consumer authored
+  // their own default. The registry ctor throws on overlapping pipeline
+  // claims and duplicate ids.
+  const authoredFunnels = opts.funnels ?? [];
+  const authoredDefault = authoredFunnels.some(
+    (f) => f.meta.id === DEFAULT_FUNNEL_ID,
+  );
+  const crmSugarPresent = Boolean(
+    opts.crm?.stages ||
+      opts.crm?.quotedStage ||
+      opts.crm?.soldStage ||
+      opts.crm?.stageMaps,
+  );
+  if (authoredDefault && crmSugarPresent) {
+    logger.warn(
+      'crm.{stages,quotedStage,soldStage,stageMaps} are IGNORED because a funnel with id "default" is authored — move that config into the funnel',
+    );
+  }
+  const funnels = new FunnelRegistry([
+    ...authoredFunnels,
+    ...(authoredDefault
+      ? []
+      : [
+          {
+            meta: {
+              id: DEFAULT_FUNNEL_ID,
+              stages: [...crmLadder.stages],
+              ...(crmLadder.quotedStage
+                ? { quotedStage: crmLadder.quotedStage }
+                : {}),
+              ...(crmLadder.soldStage
+                ? { soldStage: crmLadder.soldStage }
+                : {}),
+              sources: crmStageMaps,
+            },
+            ladder: crmLadder,
+          },
+        ]),
+  ]);
+
   // Process singleton for the crm-reconcile cron (runs in BOTH API and worker;
   // the cron reads it because task fns have no client reference).
   setCrmSyncConfig({
     registry: crmProviders,
-    stageMaps: crmStageMaps,
-    ladder: crmLadder,
+    funnels,
   });
 
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
@@ -1368,6 +1423,7 @@ export function createHogsendClient(
     crmProviders,
     crmStageMaps,
     crmLadder,
+    funnels,
     analyticsProviders,
     analytics,
     identity,
