@@ -9,6 +9,7 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   noExternal: [
+    "@hogsend/attribution",
     "@hogsend/core",
     "@hogsend/db",
     "@hogsend/email",
