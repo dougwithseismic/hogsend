@@ -29,6 +29,10 @@ import {
   ContactProvenanceLostError,
   resolveOrCreateContact,
 } from "./contacts.js";
+import {
+  evaluateConversionsAtIngest,
+  getConversionRegistry,
+} from "./conversions.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -369,6 +373,7 @@ export async function ingestEvent(opts: {
   // replay re-pushing the same trigger hits the onConflictDoNothing early-return
   // below — the push, checkExits, contact upsert, and alias never re-fire.
   let idempotentInsertId: string | undefined;
+  let insertedRow: { id: string; occurredAt: Date } | undefined;
   if (event.idempotencyKey) {
     const result = await db
       .insert(userEvents)
@@ -385,22 +390,27 @@ export async function ingestEvent(opts: {
       .onConflictDoNothing({
         target: userEvents.idempotencyKey,
       })
-      .returning({ id: userEvents.id });
+      .returning({ id: userEvents.id, occurredAt: userEvents.occurredAt });
 
     if (result.length === 0) {
       return { stored: false, exits: [], contactKey: resolvedKey };
     }
     idempotentInsertId = result[0]?.id;
+    insertedRow = result[0];
   } else {
-    await db.insert(userEvents).values({
-      userId: resolvedKey,
-      event: event.event,
-      properties: event.eventProperties,
-      value,
-      currency,
-      source: event.source ?? null,
-      ...(occurredAt ? { occurredAt } : {}),
-    });
+    const result = await db
+      .insert(userEvents)
+      .values({
+        userId: resolvedKey,
+        event: event.event,
+        properties: event.eventProperties,
+        value,
+        currency,
+        source: event.source ?? null,
+        ...(occurredAt ? { occurredAt } : {}),
+      })
+      .returning({ id: userEvents.id, occurredAt: userEvents.occurredAt });
+    insertedRow = result[0];
   }
 
   // (2b) §5.3 — fire the provider-neutral identity merge at the two resolver
@@ -560,6 +570,39 @@ export async function ingestEvent(opts: {
       userId: resolvedKey,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+
+  // (5c) Conversion-point evaluation (plan §5.1) — fires AFTER the push
+  // settled (a failed publish compensating-deletes the event row, and the
+  // conversions FK cascades with it, so a rolled-back event never leaves a
+  // fired conversion behind). Best-effort like buckets/blueprints: the event
+  // is already durable, so a conversion failure warns rather than failing the
+  // caller; the unique (definition, event) index makes any replay a no-op.
+  if (insertedRow) {
+    try {
+      await evaluateConversionsAtIngest({
+        db,
+        logger,
+        registry: getConversionRegistry(),
+        event: {
+          name: event.event,
+          source: event.source ?? null,
+          properties: event.eventProperties,
+          value,
+          currency,
+          occurredAt: insertedRow.occurredAt,
+        },
+        eventRowId: insertedRow.id,
+        contactId,
+        userKey: resolvedKey,
+      });
+    } catch (err) {
+      logger.warn("Conversion evaluation failed", {
+        event: event.event,
+        userId: resolvedKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // (6) Real-time bucket membership re-evaluation (Section 6.1). NOT part of the

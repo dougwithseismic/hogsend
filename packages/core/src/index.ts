@@ -26,6 +26,14 @@ export {
   type PropertyMatcher,
 } from "./conditions/index.js";
 export {
+  type ConversionMeta,
+  type ConversionValueSource,
+  conversionSourceAllowed,
+  type DefinedConversion,
+  defineConversion,
+  resolveConversionValue,
+} from "./conversions.js";
+export {
   type DurationObject,
   days,
   durationToMs,

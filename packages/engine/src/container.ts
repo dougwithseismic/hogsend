@@ -4,6 +4,7 @@ import type {
   AnalyticsProvider,
   CrmProvider,
   CrmStageMap,
+  DefinedConversion,
   EmailProvider,
   JourneySourceLocation,
   PostHogService,
@@ -61,6 +62,10 @@ import {
   setAnalyticsEventMirror,
 } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import {
+  ConversionRegistry,
+  setConversionRegistry,
+} from "./lib/conversions.js";
 import { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
 import { setCrmSyncConfig } from "./lib/crm-registry-singleton.js";
 import {
@@ -360,6 +365,12 @@ export interface HogsendClientOptions {
    * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
    * it implements `poll`. No "active" selection — many CRMs sync at once.
    */
+  /**
+   * Code-first conversion-point definitions (plan §5.1) — `defineConversion`
+   * results. Evaluated inside `ingestEvent` after every fresh event insert;
+   * fired instances land in the `conversions` table.
+   */
+  conversions?: DefinedConversion[];
   crm?: {
     provider?: CrmProvider;
     providers?: CrmProvider[];
@@ -711,6 +722,10 @@ export function createHogsendClient(
     registry: crmProviders,
     stageMaps: opts.crm?.stageMaps ?? {},
   });
+
+  // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
+  // the API and worker processes.
+  setConversionRegistry(new ConversionRegistry(opts.conversions ?? []));
 
   const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
     sms: smsConfigured,

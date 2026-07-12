@@ -367,6 +367,15 @@ export {
 } from "./lib/connector-state.js";
 // --- Contacts identity (resolve/create — used by connector member-link) ---
 export { resolveOrCreateContact } from "./lib/contacts.js";
+// --- Conversion points (plan §5.1): registry + ingest-time evaluation ---
+export {
+  ConversionRegistry,
+  evaluateConversionsAtIngest,
+  type FiredConversion,
+  getConversionRegistry,
+  resetConversionRegistry,
+  setConversionRegistry,
+} from "./lib/conversions.js";
 export {
   AdminAlreadyExistsError,
   type CreatedAdmin,
