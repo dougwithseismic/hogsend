@@ -94,6 +94,14 @@ import {
 } from "./lists/define-list.js";
 import { buildListRegistry, type ListRegistry } from "./lists/registry.js";
 import {
+  contactSourceToWebhookSource,
+  type DefinedContactSource,
+} from "./sources/define-contact-source.js";
+import {
+  buildContactSourceRegistry,
+  type ContactSourceRegistry,
+} from "./sources/registry.js";
+import {
   type DefinedWebhookSource,
   webhookSourceToConnector,
 } from "./webhook-sources/define-webhook-source.js";
@@ -223,6 +231,13 @@ export interface HogsendClient {
    * `/v1/connectors/:id/*` routes read `get(id).handlers`.
    */
   connectorRegistry: ConnectorRegistry;
+  /**
+   * The contact-source registry (Clay/Attio/generic-webhook origins), keyed by
+   * `meta.id`. `isProspectSource()` classifies a contact's `contacts.source` as
+   * a cold prospect origin; the cold posture + write-back travel with each
+   * entry. Installed as the process singleton in BOTH the API and worker.
+   */
+  contactSourceRegistry: ContactSourceRegistry;
   /**
    * The connector OUTBOUND ACTION registry, keyed by `${connectorId}:${name}`.
    * Holds the journey-callable imperative actions (Discord post / broadcast /
@@ -412,6 +427,15 @@ export interface HogsendClientOptions {
    * Still also accepted by `createApp({ webhookSources })`.
    */
   webhookSources?: DefinedWebhookSource[];
+  /**
+   * Code-defined CONTACT SOURCES (`defineContactSource()`) — Clay/Attio/generic
+   * webhook origins of cold "prospects". Each is lifted onto the webhook-source
+   * umbrella (served at `POST /v1/webhooks/:sourceId`, provenance-stamped from
+   * `meta.id`) AND registered in the {@link ContactSourceRegistry} so the engine
+   * can classify sourced contacts + resolve their cold posture / write-back.
+   * Wire in BOTH `index.ts` and `worker.ts`. Defaults to none.
+   */
+  contactSources?: DefinedContactSource[];
   /**
    * Auto-register the shipped webhook-source PRESETS (Clerk, Supabase, Stripe,
    * Segment) for every preset whose env secret is configured (gated further by
@@ -1108,6 +1132,11 @@ export function createHogsendClient(
   const connectorList = [
     ...(enablePresets ? connectorsFromEnv(env) : []),
     ...(opts.webhookSources ?? []).map(webhookSourceToConnector),
+    // Contact sources ride the SAME webhook path (provenance stamped from
+    // meta.id); lift to a webhook source, then onto the connector umbrella.
+    ...(opts.contactSources ?? [])
+      .map(contactSourceToWebhookSource)
+      .map(webhookSourceToConnector),
     ...(opts.connectors ?? []),
   ];
   for (const connector of connectorList) {
@@ -1126,6 +1155,12 @@ export function createHogsendClient(
   setConnectorRegistry(connectorRegistry);
   logger.debug(
     `Connector registry loaded: ${connectorRegistry.count()} connectors`,
+  );
+
+  // Build + install the contact-source registry (prospect classification + cold
+  // posture + write-back), keyed by meta.id. Runs in BOTH the API and worker.
+  const contactSourceRegistry = buildContactSourceRegistry(
+    opts.contactSources ?? [],
   );
 
   // Build + install the connector ACTION registry (outbound imperative actions),
@@ -1189,6 +1224,7 @@ export function createHogsendClient(
     listRegistry,
     campaigns: opts.campaigns ?? [],
     connectorRegistry,
+    contactSourceRegistry,
     connectorActionRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
