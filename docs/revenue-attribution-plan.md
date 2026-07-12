@@ -30,7 +30,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 
 **Phase 5 — Conversion definitions + Meta CAPI**
 - [ ] **5.0 Verify Meta platform claims.** The §"Verify before Phase 5" list (Offline API discontinuation, window changes, Conversion Leads thresholds, AEM) against current Meta docs; record findings inline here.
-- [ ] **5.1 `defineConversion()` (code-first) + `conversions` table.** Trigger = event name + condition (reuse condition engine / where-builder); `valueSource`; evaluation inside `ingestEvent()` post-store; fired instances recorded.
+- [ ] **5.1 `defineConversion()` (code-first) + `conversions` table.** Trigger = event name + condition (reuse condition engine / where-builder); `valueSource`; evaluation inside `ingestEvent()` post-store; fired instances recorded. MUST support restricting triggers by `user_events.source` — browser (pk_/`inapp`) events can carry a forged `value`, so money-bearing conversion points should default to server-side sources (webhook sources, `crm`, `api`).
 - [ ] **5.2 `defineConversionDestination()` + dispatch.** Sibling registry to destinations; `dispatches` log (unique `event_id`); durable Hatchet dispatch task with retries.
 - [ ] **5.3 `packages/plugin-meta-capi`.** `event_id = hash(contactId+defId+trigger)`; `fbc` from stored fbclid + arrival ts; SHA-256 em/ph; EMQ params; `action_source`; pixel-coexistence dedup documented.
 - [ ] **5.4 Wire + docs.** Conversions → destinations end-to-end; consumer example (journey conversion + campaign conversion).
