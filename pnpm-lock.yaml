@@ -897,6 +897,28 @@ importers:
         specifier: ^4.1.7
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.15.3)(happy-dom@20.10.6)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/plugin-meta-capi:
+    dependencies:
+      '@hogsend/core':
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:^
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.15.3
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.15.3)(happy-dom@20.10.6)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/plugin-posthog:
     dependencies:
       '@hogsend/core':
