@@ -52,6 +52,22 @@ export const contacts = pgTable(
      */
     phone: text("phone"),
     /**
+     * PROVENANCE — the Source id that first created this contact: a Contact
+     * Source id ("clay" / "attio" / "webhook:*") or the pipeline origin the
+     * first event carried (mirrors `user_events.source` — "api"/"posthog"/…).
+     * A contact whose `source` names a registered Contact Source AND that holds
+     * no channel consent is a cold "prospect". Best-effort metadata, NOT a
+     * resolvable identity key — never participates in key resolution or merge
+     * selection. First-touch: stamped once on create (or the first fill-in-link
+     * that supplies one), never overwritten. NULL for pre-existing contacts.
+     */
+    source: text("source"),
+    /**
+     * The instant {@link source} was first stamped (the create instant of a
+     * sourced contact). NULL whenever `source` is NULL.
+     */
+    sourcedAt: timestamp("sourced_at", { withTimezone: true }),
+    /**
      * Opportunistic IANA-timezone cache (e.g. "America/New_York"). Populated
      * best-effort when a tz is resolved from PostHog person props. PostHog and
      * `properties` jsonb remain authoritative sources — this column sits below

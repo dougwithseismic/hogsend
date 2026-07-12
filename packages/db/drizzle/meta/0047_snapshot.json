@@ -1,5 +1,5 @@
 {
-  "id": "7d304584-a52a-4299-b6ef-cbd30b397258",
+  "id": "1b89509d-93a3-4228-8cca-ba3b9edba1d1",
   "prevId": "9707d81e-c29d-442e-95c9-240de392e6ab",
   "version": "7",
   "dialect": "postgresql",
@@ -2237,6 +2237,18 @@
         "phone": {
           "name": "phone",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sourced_at": {
+          "name": "sourced_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -4783,18 +4795,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "value": {
-          "name": "value",
-          "type": "numeric(14, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "currency": {
-          "name": "currency",
-          "type": "char(3)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "source": {
           "name": "source",
           "type": "text",
@@ -4816,28 +4816,6 @@
         }
       },
       "indexes": {
-        "user_events_valued_user_idx": {
-          "name": "user_events_valued_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "occurred_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"user_events\".\"value\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "user_events_user_id_idx": {
           "name": "user_events_user_id_idx",
           "columns": [

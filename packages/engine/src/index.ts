@@ -731,6 +731,32 @@ export {
 } from "./middleware/rate-limit.js";
 // --- Middleware (consumer-mounted routes, e.g. the @hogsend/mcp hosted route) ---
 export { requireAdmin } from "./middleware/require-admin.js";
+// --- Contact sources (Clay/Attio/generic-webhook → cold prospects) ---
+export {
+  type ColdChannelPosture,
+  type ColdPosture,
+  type ContactSourceMeta,
+  type ContactWriteBack,
+  contactSourceToWebhookSource,
+  type DefinedContactSource,
+  defaultColdPosture,
+  defineContactSource,
+  isColdChannelAllowed,
+  resolveColdPosture,
+} from "./sources/define-contact-source.js";
+export {
+  buildContactSourceRegistry,
+  ContactSourceRegistry,
+  getContactSourceRegistry,
+  setContactSourceRegistry,
+} from "./sources/registry.js";
+export {
+  normalizeWebhookContactEvent,
+  type WebhookContactPayload,
+  type WebhookContactSourceOptions,
+  webhookContactPayloadSchema,
+  webhookContactSource,
+} from "./sources/webhook-source.js";
 // --- Webhook sources ---
 export {
   type DefinedWebhookSource,

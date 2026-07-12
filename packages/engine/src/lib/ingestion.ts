@@ -312,6 +312,10 @@ export async function ingestEvent(opts: {
       contactId: event.contactId,
       contactProperties: event.contactProperties,
       restrictToAnonymous: opts.restrictToAnonymous,
+      // First-touch contact provenance from the event's pipeline origin — a
+      // Contact Source ("clay"/"attio") or "api"/"posthog"/…; only stamped when
+      // the contact is created (or first fill-in-linked) with no prior source.
+      source: event.source,
     });
   } catch (err) {
     // Provenance pin pointed at a hard-deleted/unfollowable subject: drop the
