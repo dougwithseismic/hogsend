@@ -1,5 +1,9 @@
-import type { CanonicalStage, CrmStageEvent } from "@hogsend/core";
-import { canonicalStageRank } from "@hogsend/core";
+import type {
+  CanonicalStage,
+  CrmStageEvent,
+  PipelineLadder,
+} from "@hogsend/core";
+import { canonicalStageRank, DEFAULT_PIPELINE_LADDER } from "@hogsend/core";
 import { crmLinks, type Database, deals } from "@hogsend/db";
 import { and, eq } from "drizzle-orm";
 import type { Logger } from "./logger.js";
@@ -75,9 +79,9 @@ export async function ensureCrmLinks(opts: {
 
 export interface AppliedStageChange {
   dealId: string;
-  /** The deal FIRST reached canonical quoted with this event. */
+  /** The deal FIRST reached the ladder's quote stage with this event. */
   freshQuoted: boolean;
-  /** The deal FIRST reached canonical sold with this event. */
+  /** The deal FIRST reached the ladder's sold stage with this event. */
   freshSold: boolean;
   /** Current projected value after this event. */
   value: number | null;
@@ -97,10 +101,15 @@ export async function applyCrmStageEvent(opts: {
   contactId: string;
   event: CrmStageEvent;
   canonicalStage: CanonicalStage | null;
+  /** The deployment's canonical funnel; defaults to the built-in five. */
+  ladder?: PipelineLadder;
 }): Promise<AppliedStageChange> {
   const { db, logger, providerId, contactId, event, canonicalStage } = opts;
+  const ladder = opts.ladder ?? DEFAULT_PIPELINE_LADDER;
   const occurredAt = new Date(event.occurredAt);
-  const rank = canonicalStage ? canonicalStageRank(canonicalStage) : null;
+  const rank = canonicalStage
+    ? canonicalStageRank(canonicalStage, ladder)
+    : null;
 
   const insertValues = {
     provider: providerId,
@@ -108,14 +117,14 @@ export async function applyCrmStageEvent(opts: {
     contactId,
     pipelineId: event.pipelineId ?? null,
     stageId: event.stageId,
-    canonicalStage: canonicalStage ?? "lead",
+    canonicalStage: canonicalStage ?? ladder.stages[0],
     stageRank: rank !== null && rank >= 0 ? rank : 0,
     value: event.value?.amount ?? null,
     currency: event.value?.currency?.toUpperCase() ?? null,
-    // Quoted marks the deal ACTUALLY reaching quoted — a deal first observed
-    // at sold does not retro-claim a quote event.
-    quotedAt: canonicalStage === "quoted" ? occurredAt : null,
-    soldAt: canonicalStage === "sold" ? occurredAt : null,
+    // quotedAt marks the deal ACTUALLY reaching the quote stage — a deal
+    // first observed at sold does not retro-claim a quote event.
+    quotedAt: canonicalStage === ladder.quotedStage ? occurredAt : null,
+    soldAt: canonicalStage === ladder.soldStage ? occurredAt : null,
     lostAt: canonicalStage === "lost" ? occurredAt : null,
     lastStageAt: occurredAt,
   };
@@ -186,7 +195,8 @@ export async function applyCrmStageEvent(opts: {
       rank > existing.stageRank &&
       existing.canonicalStage !== "lost";
     const losing =
-      canonicalStage === "lost" && existing.canonicalStage !== "sold";
+      canonicalStage === "lost" &&
+      existing.canonicalStage !== (ladder.soldStage ?? "sold");
 
     if (advances) {
       set.canonicalStage = canonicalStage;
@@ -194,11 +204,11 @@ export async function applyCrmStageEvent(opts: {
       set.stageId = event.stageId;
       set.pipelineId = event.pipelineId ?? existing.pipelineId;
       set.lastStageAt = occurredAt;
-      if (canonicalStage === "quoted" && existing.quotedAt === null) {
+      if (canonicalStage === ladder.quotedStage && existing.quotedAt === null) {
         set.quotedAt = occurredAt;
         freshQuoted = true;
       }
-      if (canonicalStage === "sold" && existing.soldAt === null) {
+      if (canonicalStage === ladder.soldStage && existing.soldAt === null) {
         set.soldAt = occurredAt;
         freshSold = true;
       }

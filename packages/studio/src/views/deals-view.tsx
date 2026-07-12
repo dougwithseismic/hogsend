@@ -20,28 +20,21 @@ import { formatDateTime, formatNumber } from "@/lib/format";
  * deals projection + a pipeline board grouped by canonical stage.
  */
 
-const STAGES = [
+/** Fallback for engines that predate the configurable ladder. */
+const DEFAULT_STAGES = [
   "lead",
   "contacted",
   "survey_booked",
   "quoted",
   "sold",
   "lost",
-] as const;
-
-const STAGE_LABELS: Record<string, string> = {
-  lead: "Lead",
-  contacted: "Contacted",
-  survey_booked: "Survey booked",
-  quoted: "Quoted",
-  sold: "Sold",
-  lost: "Lost",
-};
-
-const STAGE_FILTER_OPTIONS = [
-  { value: "", label: "All stages" },
-  ...STAGES.map((s) => ({ value: s, label: STAGE_LABELS[s] ?? s })),
 ];
+
+/** Humanize a stage id: "survey_booked" / "poc-review" → "Survey booked". */
+function stageLabel(stage: string): string {
+  const words = stage.replace(/[_-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 function money(amount: number, currency: string | null): string {
   if (currency) {
@@ -104,10 +97,16 @@ export function DealsView() {
 
   const primary = statsQuery.data?.currencies[0];
   const deals = dealsQuery.data?.deals ?? [];
-  const board = STAGES.map((s) => ({
+  // Column order = the deployment's configured ladder (served by /stats).
+  const stages = statsQuery.data?.stageOrder ?? DEFAULT_STAGES;
+  const board = stages.map((s) => ({
     stage: s,
     deals: deals.filter((d) => d.canonicalStage === s),
   }));
+  const stageFilterOptions = [
+    { value: "", label: "All stages" },
+    ...stages.map((s) => ({ value: s, label: stageLabel(s) })),
+  ];
 
   return (
     <div className="space-y-6">
@@ -174,7 +173,7 @@ export function DealsView() {
             onChange={(e) => setStage(e.target.value)}
             aria-label="Filter by stage"
           >
-            {STAGE_FILTER_OPTIONS.map((o) => (
+            {stageFilterOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -214,7 +213,7 @@ export function DealsView() {
             <div key={s} className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-medium uppercase tracking-wide text-white/50">
-                  {STAGE_LABELS[s]}
+                  {stageLabel(s)}
                 </h3>
                 <span className="text-xs text-white/40">{column.length}</span>
               </div>

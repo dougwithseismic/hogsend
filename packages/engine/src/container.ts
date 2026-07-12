@@ -8,10 +8,12 @@ import type {
   DefinedConversion,
   EmailProvider,
   JourneySourceLocation,
+  PipelineLadder,
   PostHogService,
   SmsProvider,
   TimeZone,
 } from "@hogsend/core";
+import { normalizePipelineLadder } from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
@@ -192,6 +194,13 @@ export interface HogsendClient {
   crmProviders: CrmProviderRegistry;
   /** Per-provider native→canonical stage maps (`opts.crm.stageMaps`). */
   crmStageMaps: Record<string, CrmStageMap>;
+  /**
+   * The deployment's canonical funnel — `opts.crm.{stages,quotedStage,
+   * soldStage}` normalized + validated at boot ({@link normalizePipelineLadder});
+   * defaults to the built-in five-stage ladder. Admin deals stats/Studio
+   * render THIS ladder.
+   */
+  crmLadder: PipelineLadder;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -406,9 +415,28 @@ export interface HogsendClientOptions {
      * Per-provider stage maps: native `(pipelineId|'*') → stageId → canonical
      * stage`. Config-as-data — onboarding a client's pipeline is an edit here,
      * not a deploy. Unmapped stages record native ids and warn (the provider's
-     * won/lost status hint still resolves sold/lost).
+     * won/lost status hint still resolves sold/lost). Every mapped value must
+     * be a ladder stage or `"lost"` — validated at boot.
      */
     stageMaps?: Record<string, CrmStageMap>;
+    /**
+     * YOUR canonical funnel, in rank order (e.g. `["trial", "demo", "poc",
+     * "won"]`) — replaces the built-in `lead → contacted → survey_booked →
+     * quoted → sold`. `"lost"` stays the implicit terminal. Zero migration:
+     * only new stage events re-rank.
+     */
+    stages?: string[];
+    /**
+     * Which stage mints `crm.deal_quoted` (the money-signal event). Custom
+     * ladders default to a stage literally named "quoted" when present, else
+     * none. The EVENT name never changes — only which stage means it.
+     */
+    quotedStage?: string;
+    /**
+     * Which stage mints `crm.deal_sold` (revenue realized; blocks `lost`
+     * overwrites). Custom ladders default to their LAST stage.
+     */
+    soldStage?: string;
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -753,11 +781,30 @@ export function createHogsendClient(
     ...(opts.crm?.providers ?? []),
     ...(opts.crm?.provider ? [opts.crm.provider] : []),
   ]);
+  // The deployment's canonical funnel (§5b.1) — normalize + validate the
+  // ladder, then validate every stage-map value against it (CanonicalStage is
+  // plain string, so this boot check replaces the compiler).
+  const crmLadder = normalizePipelineLadder(opts.crm);
+  const crmStageMaps = opts.crm?.stageMaps ?? {};
+  for (const [providerId, map] of Object.entries(crmStageMaps)) {
+    for (const [pipelineId, stageEntries] of Object.entries(map)) {
+      for (const [stageId, canonical] of Object.entries(stageEntries)) {
+        if (canonical !== "lost" && !crmLadder.stages.includes(canonical)) {
+          throw new Error(
+            `crm.stageMaps.${providerId}.${pipelineId}.${stageId} maps to ` +
+              `"${canonical}", which is not in the configured ladder ` +
+              `[${crmLadder.stages.join(", ")}] (or "lost")`,
+          );
+        }
+      }
+    }
+  }
   // Process singleton for the crm-reconcile cron (runs in BOTH API and worker;
   // the cron reads it because task fns have no client reference).
   setCrmSyncConfig({
     registry: crmProviders,
-    stageMaps: opts.crm?.stageMaps ?? {},
+    stageMaps: crmStageMaps,
+    ladder: crmLadder,
   });
 
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
@@ -1319,7 +1366,8 @@ export function createHogsendClient(
     smsProviders,
     smsProvider,
     crmProviders,
-    crmStageMaps: opts.crm?.stageMaps ?? {},
+    crmStageMaps,
+    crmLadder,
     analyticsProviders,
     analytics,
     identity,
