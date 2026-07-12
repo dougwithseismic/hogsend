@@ -1,0 +1,7 @@
+---
+"@hogsend/engine": minor
+"@hogsend/studio": minor
+"@hogsend/core": minor
+---
+
+Studio revenue dashboard + conversion delivery visibility. The Deals page is rebuilt to survive a thousand deals: a TRUE reached-stage pipeline funnel (deals that got to each stage or beyond, with drop-off percentages — not current-position counts), a multi-metric 60-day chart (sold revenue per currency / deals sold / quotes issued / new deals), and sortable, column-configurable, paginated tables for both deals and **conversions** — the conversions tab shows every fired conversion point with per-destination delivery state (delivered/pending/failed chips + attempt counts + the platform error on hover) and a destination health strip, answering "did Meta actually receive the sale?". Contacts in both tables click through to the full contact drawer (timeline, revenue, preferences). New admin endpoints: `GET /v1/admin/conversions` (+ `/stats`) and `GET /v1/admin/deals/timeseries`; the deals list gains `search` (LIKE-escaped email match) and whitelisted `sort`/`dir`; deals stats gain `reached` funnel counts. Day bucketing is forced to UTC so chart keys are timezone-independent. Ladders where `quotedStage === soldStage` now throw at boot (one stage can't mint both money events). Also fixes the shared BarChart primitive, whose bars collapsed to zero height everywhere (flex `items-end` left columns auto-height, so percentage heights resolved against nothing).

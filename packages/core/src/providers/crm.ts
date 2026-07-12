@@ -113,6 +113,11 @@ export function normalizePipelineLadder(input?: {
       throw new Error(`crm.${name} "${value}" is not in crm.stages`);
     }
   }
+  if (quotedStage !== undefined && quotedStage === soldStage) {
+    throw new Error(
+      `crm.quotedStage and crm.soldStage are both "${quotedStage}" — one stage cannot mint both money events`,
+    );
+  }
   return { stages, quotedStage, soldStage };
 }
 

@@ -19,22 +19,8 @@ import {
 } from "@/components/ui/table";
 import { getDealsStats, listContacts, qk } from "@/lib/admin-api";
 import { formatRelative } from "@/lib/format";
+import { DEFAULT_STAGES, stageLabel } from "@/lib/stages";
 import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
-
-/** Fallback for engines that predate the configurable ladder. */
-const DEFAULT_DEAL_STAGES = [
-  "lead",
-  "contacted",
-  "survey_booked",
-  "quoted",
-  "sold",
-  "lost",
-];
-
-function stageLabel(stage: string): string {
-  const words = stage.replace(/[_-]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
 
 export function ContactsView() {
   const [searchInput, setSearchInput] = useState("");
@@ -52,7 +38,7 @@ export function ContactsView() {
   });
   const dealStageOptions = [
     { value: "", label: "Any deal stage" },
-    ...(statsQuery.data?.stageOrder ?? DEFAULT_DEAL_STAGES).map((s) => ({
+    ...(statsQuery.data?.stageOrder ?? DEFAULT_STAGES).map((s) => ({
       value: s,
       label: `Deal: ${stageLabel(s).toLowerCase()}`,
     })),

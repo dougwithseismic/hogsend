@@ -1656,6 +1656,10 @@ export const qk = {
   campaignStats: (id: string) => ["campaign-stats", id] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
   dealsStats: ["deals-stats"] as const,
+  dealsTimeseries: (days: number) => ["deals-timeseries", days] as const,
+  conversions: (filters: ConversionListFilters) =>
+    ["conversions", filters] as const,
+  conversionsStats: ["conversions-stats"] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -1680,16 +1684,33 @@ export type Deal = {
   createdAt: string;
 };
 
+export type DealSort =
+  | "lastStageAt"
+  | "value"
+  | "stage"
+  | "provider"
+  | "contactEmail"
+  | "quotedAt"
+  | "soldAt"
+  | "createdAt";
+
 export type DealListFilters = {
   stage?: string;
   provider?: string;
+  search?: string;
   minValue?: number;
+  sort?: DealSort;
+  dir?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
 };
 
 export type DealsStats = {
   /** Configured ladder in rank order, `lost` last (older engines omit it). */
   stageOrder?: string[];
   stages: Record<string, number>;
+  /** True funnel: deals that reached each stage or beyond (older engines omit). */
+  reached?: Record<string, number>;
   currencies: Array<{
     currency: string | null;
     soldRevenue30d: number;
@@ -1713,12 +1734,99 @@ export function listDeals(filters: DealListFilters) {
     query: {
       stage: filters.stage || undefined,
       provider: filters.provider || undefined,
+      search: filters.search || undefined,
       minValue: filters.minValue,
-      limit: 200,
+      sort: filters.sort,
+      dir: filters.dir,
+      limit: filters.limit ?? 50,
+      offset: filters.offset ?? 0,
     },
   });
 }
 
 export function getDealsStats() {
   return api.get<DealsStats>("/v1/admin/deals/stats");
+}
+
+export type SeriesPoint = { date: string; value: number };
+
+export type DealsTimeseries = {
+  days: number;
+  revenue: Array<{ currency: string | null; points: SeriesPoint[] }>;
+  counts: {
+    sold: SeriesPoint[];
+    quoted: SeriesPoint[];
+    created: SeriesPoint[];
+  };
+};
+
+export function getDealsTimeseries(days = 60) {
+  return api.get<DealsTimeseries>("/v1/admin/deals/timeseries", {
+    query: { days },
+  });
+}
+
+export type ConversionDispatchState = {
+  destinationId: string;
+  status: string;
+  attempts: number;
+  lastError: string | null;
+  deliveredAt: string | null;
+};
+
+export type ConversionRow = {
+  id: string;
+  definitionId: string;
+  contactId: string;
+  contactEmail: string | null;
+  value: number | null;
+  currency: string | null;
+  occurredAt: string;
+  dispatches: ConversionDispatchState[];
+};
+
+export type ConversionListFilters = {
+  definitionId?: string;
+  dispatchStatus?: "pending" | "delivered" | "failed";
+  sort?: "occurredAt" | "value" | "definitionId";
+  dir?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
+};
+
+export function listConversions(filters: ConversionListFilters) {
+  return api.get<{
+    conversions: ConversionRow[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/conversions", {
+    query: {
+      definitionId: filters.definitionId || undefined,
+      dispatchStatus: filters.dispatchStatus,
+      sort: filters.sort,
+      dir: filters.dir,
+      limit: filters.limit ?? 50,
+      offset: filters.offset ?? 0,
+    },
+  });
+}
+
+export type ConversionsStats = {
+  definitions: Array<{
+    definitionId: string;
+    count30d: number;
+    countLifetime: number;
+    lastFiredAt: string | null;
+  }>;
+  destinations: Array<{
+    destinationId: string;
+    pending: number;
+    delivered: number;
+    failed: number;
+  }>;
+};
+
+export function getConversionsStats() {
+  return api.get<ConversionsStats>("/v1/admin/conversions/stats");
 }
