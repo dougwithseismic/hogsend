@@ -29,6 +29,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "Growth", href: "/growth-metrics" },
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
+      { label: "Paid acquisition", href: "/paid" },
       { label: "Campaigns", href: "/campaigns" },
       { label: "Integrations", href: "/integrations" },
       { label: "Discord", href: "/discord" },

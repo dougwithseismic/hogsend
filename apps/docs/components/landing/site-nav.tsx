@@ -51,6 +51,11 @@ export const USE_CASE_LINKS: MenuItem[] = [
     href: "/recipes/category/conversion#failed-payment-dunning",
   },
   {
+    label: "Paid acquisition",
+    description: "Send Meta the sale, not the click — values, real click IDs.",
+    href: "/paid",
+  },
+  {
     label: "Campaigns",
     description: "One-off broadcasts to a list — scheduled, cancelable.",
     href: "/campaigns",
