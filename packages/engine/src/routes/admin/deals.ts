@@ -1,6 +1,18 @@
+import { DEFAULT_FUNNEL_ID } from "@hogsend/core";
 import { contacts, deals } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, asc, count, desc, eq, gte, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AppEnv } from "../../app.js";
 
@@ -8,8 +20,18 @@ import type { AppEnv } from "../../app.js";
  * Admin deals API (docs/revenue-attribution-plan.md §4b.1) — the ledger view
  * over the `deals` projection: filterable list for the Studio pipeline board
  * + the revenue stats block (per-currency, never cross-summed). Stages are
- * the deployment's configured ladder (`client.crmLadder`), not a fixed enum.
+ * per-funnel ladders (`client.funnels`), not a fixed enum; the `funnel`
+ * param scopes every read (the default funnel also matches pre-funnel
+ * null rows).
  */
+
+/** Scope a query to one funnel; "default" absorbs pre-funnel null rows. */
+function funnelFilter(funnel: string | undefined) {
+  if (!funnel) return [];
+  return funnel === DEFAULT_FUNNEL_ID
+    ? [or(eq(deals.funnelId, funnel), isNull(deals.funnelId))]
+    : [eq(deals.funnelId, funnel)];
+}
 
 const dealSchema = z.object({
   id: z.string(),
@@ -18,6 +40,7 @@ const dealSchema = z.object({
   contactId: z.string(),
   contactEmail: z.string().nullable(),
   pipelineId: z.string().nullable(),
+  funnelId: z.string().nullable(),
   stageId: z.string().nullable(),
   canonicalStage: z.string(),
   value: z.number().nullable(),
@@ -39,6 +62,8 @@ const listRoute = createRoute({
       // Plain string: valid stages are the deployment's configured ladder.
       stage: z.string().optional(),
       provider: z.string().optional(),
+      /** Scope to one funnel id ("default" includes pre-funnel rows). */
+      funnel: z.string().optional(),
       /** Contact email substring match. */
       search: z.string().optional(),
       minValue: z.coerce.number().optional(),
@@ -79,8 +104,18 @@ const listRoute = createRoute({
 });
 
 const statsSchema = z.object({
-  /** The configured ladder in rank order, `lost` last — render columns in
-   * THIS order. */
+  /** The funnel these stats are scoped to. */
+  funnelId: z.string(),
+  /** Every registered funnel — the Studio switcher's catalog. */
+  funnels: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string().nullable(),
+      stageOrder: z.array(z.string()),
+    }),
+  ),
+  /** The scoped funnel's ladder in rank order, `lost` last — render columns
+   * in THIS order. */
   stageOrder: z.array(z.string()),
   /** Counts per canonical stage (current projection state). */
   stages: z.record(z.string(), z.number()),
@@ -112,10 +147,22 @@ const statsRoute = createRoute({
   path: "/stats",
   tags: ["Admin"],
   summary: "Revenue stats over the deals ledger",
+  request: {
+    query: z.object({
+      /** Funnel to scope to; defaults to the default funnel. */
+      funnel: z.string().optional(),
+    }),
+  },
   responses: {
     200: {
       content: { "application/json": { schema: statsSchema } },
-      description: "Front-and-center revenue numbers",
+      description: "Front-and-center revenue numbers, per funnel",
+    },
+    404: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "Unknown funnel id",
     },
   },
 });
@@ -147,6 +194,8 @@ const timeseriesRoute = createRoute({
   request: {
     query: z.object({
       days: z.coerce.number().min(7).max(180).default(60),
+      /** Scope to one funnel id ("default" includes pre-funnel rows). */
+      funnel: z.string().optional(),
     }),
   },
   responses: {
@@ -161,6 +210,7 @@ const timeseriesRoute = createRoute({
 function dealFilters(query: {
   stage?: string;
   provider?: string;
+  funnel?: string;
   search?: string;
   minValue?: number;
   maxValue?: number;
@@ -169,6 +219,7 @@ function dealFilters(query: {
   return [
     ...(query.stage ? [eq(deals.canonicalStage, query.stage)] : []),
     ...(query.provider ? [eq(deals.provider, query.provider)] : []),
+    ...funnelFilter(query.funnel),
     // EXISTS keeps the count query join-free. LIKE metachars in the input
     // are escaped so "first_last" doesn't wildcard-match "firstXlast".
     ...(query.search
@@ -227,6 +278,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
           contactId: deal.contactId,
           contactEmail,
           pipelineId: deal.pipelineId,
+          funnelId: deal.funnelId,
           stageId: deal.stageId,
           canonicalStage: deal.canonicalStage,
           value: deal.value,
@@ -246,7 +298,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
   })
   .openapi(timeseriesRoute, async (c) => {
     const { db } = c.get("container");
-    const { days } = c.req.valid("query");
+    const { days, funnel } = c.req.valid("query");
     // Window starts at the FIRST bucket's UTC midnight (today − days-1) so
     // every fetched point has a client-side day key — no orphaned edge day.
     const start = new Date();
@@ -263,7 +315,12 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
       db
         .select({ day: dayOf(col), n: count() })
         .from(deals)
-        .where(sql`${col} is not null and ${col} >= ${since}::timestamptz`)
+        .where(
+          and(
+            sql`${col} is not null and ${col} >= ${since}::timestamptz`,
+            ...funnelFilter(funnel),
+          ),
+        )
         .groupBy(dayOf(col))
         .orderBy(dayOf(col));
 
@@ -276,7 +333,10 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
         })
         .from(deals)
         .where(
-          sql`${deals.soldAt} is not null and ${deals.soldAt} >= ${since}::timestamptz`,
+          and(
+            sql`${deals.soldAt} is not null and ${deals.soldAt} >= ${since}::timestamptz`,
+            ...funnelFilter(funnel),
+          ),
         )
         .groupBy(deals.currency, dayOf(deals.soldAt))
         .orderBy(dayOf(deals.soldAt)),
@@ -314,7 +374,15 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(statsRoute, async (c) => {
-    const { db, crmLadder } = c.get("container");
+    const { db, funnels } = c.get("container");
+    const funnelId = c.req.valid("query").funnel ?? DEFAULT_FUNNEL_ID;
+    const funnel = funnels.get(funnelId);
+    if (!funnel) {
+      return c.json({ error: `Unknown funnel "${funnelId}"` }, 404);
+    }
+    const ladder = funnel.ladder;
+    const scope = funnelFilter(funnelId);
+    const scopeWhere = scope.length > 0 ? and(...scope) : undefined;
     // ISO string + explicit cast: a raw Date param inside a sql`` fragment
     // serializes as a JS date string postgres cannot parse.
     const thirtyDaysAgo = new Date(
@@ -325,10 +393,12 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
       db
         .select({ stage: deals.canonicalStage, n: count() })
         .from(deals)
+        .where(scopeWhere)
         .groupBy(deals.canonicalStage),
       db
         .select({ rank: deals.stageRank, n: count() })
         .from(deals)
+        .where(scopeWhere)
         .groupBy(deals.stageRank),
       db
         .select({
@@ -341,6 +411,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
           openPipelineCount: sql<number>`count(*) filter (where ${deals.soldAt} is null and ${deals.canonicalStage} != 'lost')::int`,
         })
         .from(deals)
+        .where(scopeWhere)
         .groupBy(deals.currency),
       db
         .select({
@@ -349,10 +420,10 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
           >`avg(extract(epoch from (${deals.soldAt} - ${deals.createdAt})) / 3600)::float8`,
         })
         .from(deals)
-        .where(sql`${deals.soldAt} is not null`),
+        .where(and(sql`${deals.soldAt} is not null`, ...scope)),
     ]);
 
-    const stageOrder = [...crmLadder.stages, "lost"];
+    const stageOrder = [...ladder.stages, "lost"];
     const stages: Record<string, number> = {};
     for (const stage of stageOrder) {
       stages[stage] = 0;
@@ -361,7 +432,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
 
     // reached[stage_i] = deals whose monotonic rank got to i or beyond.
     const reached: Record<string, number> = {};
-    crmLadder.stages.forEach((stage, i) => {
+    ladder.stages.forEach((stage, i) => {
       reached[stage] = rankRows.reduce(
         (sum, row) => (row.rank >= i ? sum + Number(row.n) : sum),
         0,
@@ -370,6 +441,12 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
 
     return c.json(
       {
+        funnelId,
+        funnels: funnels.getAll().map((f) => ({
+          id: f.meta.id,
+          name: f.meta.name ?? null,
+          stageOrder: [...f.ladder.stages, "lost"],
+        })),
         stageOrder,
         stages,
         reached,

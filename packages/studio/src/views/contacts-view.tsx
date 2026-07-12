@@ -32,8 +32,8 @@ export function ContactsView() {
 
   // The deployment's configured pipeline ladder drives the stage options.
   const statsQuery = useQuery({
-    queryKey: qk.dealsStats,
-    queryFn: getDealsStats,
+    queryKey: qk.dealsStats(),
+    queryFn: () => getDealsStats(),
     staleTime: 60_000,
   });
   const dealStageOptions = [

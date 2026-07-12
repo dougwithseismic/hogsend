@@ -88,29 +88,51 @@ contact's timeline, and the `deals` table projects the latest state per deal:
 provider, pipeline, native stage, **canonical stage**, value, and the
 timestamps that matter (`quotedAt`, `soldAt`, `lostAt`).
 
-### Canonical stages — your ladder, not ours
+### Funnels — code-first, and plural
 
-Every CRM names its pipeline differently. Hogsend maps native stages onto a
-canonical, ordered ladder. The default:
+Every CRM names its pipeline differently, and one business often runs
+several pipelines at once. A **funnel** is a first-class primitive authored
+like a journey: your ordered stage ladder, which money stages mint the money
+events, and which CRM traffic feeds it:
+
+```ts title="src/funnels/index.ts"
+import { defineFunnel } from "@hogsend/engine";
+
+export const residential = defineFunnel({
+  id: "residential",
+  stages: ["lead", "contacted", "survey_booked", "quoted", "sold"],
+  quotedStage: "quoted",  // mints crm.deal_quoted
+  soldStage: "sold",      // mints crm.deal_sold (default: the last stage)
+  sources: {
+    // Per provider: native pipeline → native stage → YOUR stage. The
+    // pipeline keys double as the claim — this funnel owns them.
+    ghl: { residential: { "quote-sent": "quoted", "job-won": "sold" } },
+  },
+});
+
+createHogsendClient({ funnels: [residential, commercial] });
+```
+
+Ingest routes every stage event to the funnel that claims its
+(provider, pipeline) — an exact pipeline claim beats a provider-wide `"*"`,
+and two funnels claiming the same pipeline throw at boot (when promoting a
+pipeline out of `crm.stageMaps` into a dedicated funnel, remove it from
+`stageMaps` in the same change or boot fails on the double claim). Deals
+carry `funnel_id`, the money events carry it as a property (so conversion
+points and journeys scope per funnel with a `where`), and Studio's dashboard
+gets a funnel switcher. A deal belongs to one funnel for life: a stage event
+arriving from another funnel's pipeline still lands on the event timeline
+but never rewrites the deal's projection.
+
+Rank comes from array order; `lost` stays the implicit terminal; a typo in a
+stage map throws at boot with the exact path. Single-pipeline deployments
+can skip `defineFunnel` entirely — the shorthand
+`crm: { stages, quotedStage, soldStage, stageMaps }` is sugar for one
+`"default"` funnel. The default ladder:
 
 ```
 lead → contacted → survey_booked → quoted → sold        (and: lost)
 ```
-
-The ladder is **yours to define** — a SaaS funnel replaces it wholesale:
-
-```ts
-crm: {
-  stages: ["trial", "demo", "poc", "won"],
-  quotedStage: "poc",   // which stage mints crm.deal_quoted
-  soldStage: "won",     // default: the last stage
-  stageMaps: { ... },   // native stage ids → YOUR ladder (boot-validated)
-}
-```
-
-Rank comes from array order; `lost` stays the implicit terminal. Zero
-migration — only new stage events re-rank. Studio's board and filters render
-whatever ladder you configure.
 
 The projection is **monotonic**: a late-arriving lower-stage webhook can
 never regress a deal that's already further along, and `lost` never

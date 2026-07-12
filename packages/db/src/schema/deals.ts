@@ -33,6 +33,11 @@ export const deals = pgTable(
       .references(() => contacts.id, { onDelete: "cascade" }),
     /** Native pipeline id (multi-pipeline CRMs). */
     pipelineId: text("pipeline_id"),
+    /**
+     * The `defineFunnel` id that claimed this deal's (provider, pipeline).
+     * Null = ingested before funnels existed (reads treat null as "default").
+     */
+    funnelId: text("funnel_id"),
     /** Native stage id of the last APPLIED change. */
     stageId: text("stage_id"),
     /**
@@ -65,6 +70,7 @@ export const deals = pgTable(
     ),
     index("deals_contact_idx").on(table.contactId),
     index("deals_stage_idx").on(table.canonicalStage),
+    index("deals_funnel_idx").on(table.funnelId),
   ],
 );
 

@@ -18,16 +18,8 @@ export async function dispatchCrmProviderWebhook(
   c: Context<AppEnv>,
   providerId: string,
 ) {
-  const {
-    crmProviders,
-    crmStageMaps,
-    crmLadder,
-    db,
-    registry,
-    hatchet,
-    logger,
-    analytics,
-  } = c.get("container");
+  const { crmProviders, funnels, db, registry, hatchet, logger, analytics } =
+    c.get("container");
 
   const provider = crmProviders.get(providerId);
   if (!provider) {
@@ -51,8 +43,7 @@ export async function dispatchCrmProviderWebhook(
       analytics,
       providerId,
       events,
-      stageMap: crmStageMaps[providerId],
-      ladder: crmLadder,
+      funnels,
     });
     logger.info("CRM provider webhook processed", {
       providerId,
