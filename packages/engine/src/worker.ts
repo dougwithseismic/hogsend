@@ -24,6 +24,7 @@ import {
 import { bucketReconcileTask } from "./workflows/bucket-reconcile.js";
 import { checkAlertsTask } from "./workflows/check-alerts.js";
 import { confirmSemanticClickTask } from "./workflows/confirm-semantic-click.js";
+import { crmReconcileTask } from "./workflows/crm-reconcile.js";
 import {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
@@ -127,6 +128,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     checkAlertsTask,
     bucketReconcileTask,
     bucketBackfillTask,
+    crmReconcileTask,
     ...journeyTasks,
     ...bucketTasks,
     ...bucketReactionTasks,

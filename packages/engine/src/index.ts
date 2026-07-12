@@ -386,6 +386,11 @@ export {
   ingestCrmStageEvents,
 } from "./lib/crm-ingest.js";
 export { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
+export {
+  getCrmSyncConfig,
+  resetCrmSyncConfig,
+  setCrmSyncConfig,
+} from "./lib/crm-registry-singleton.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Discord gateway-worker liveness heartbeat (Studio status) ---
@@ -745,6 +750,10 @@ export {
   checkAlertsTask,
   surfaceStrandedWaiting,
 } from "./workflows/check-alerts.js";
+export {
+  crmReconcileTask,
+  runCrmReconcile,
+} from "./workflows/crm-reconcile.js";
 // --- Outbound webhooks: durable delivery task + reaper (Section 1.5) ---
 export {
   deliverWebhookTask,

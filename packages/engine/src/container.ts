@@ -62,6 +62,7 @@ import {
 } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
+import { setCrmSyncConfig } from "./lib/crm-registry-singleton.js";
 import {
   createDomainStatusService,
   type DomainStatusService,
@@ -704,6 +705,12 @@ export function createHogsendClient(
     ...(opts.crm?.providers ?? []),
     ...(opts.crm?.provider ? [opts.crm.provider] : []),
   ]);
+  // Process singleton for the crm-reconcile cron (runs in BOTH API and worker;
+  // the cron reads it because task fns have no client reference).
+  setCrmSyncConfig({
+    registry: crmProviders,
+    stageMaps: opts.crm?.stageMaps ?? {},
+  });
 
   const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
     sms: smsConfigured,
