@@ -454,7 +454,16 @@ export async function ingestEvent(opts: {
       mirrorProvider.capture({
         distinctId: resolvedKey,
         event: event.event,
-        properties: event.eventProperties,
+        // The revenue spine fans out with the event: `value`/`currency` ride as
+        // plain properties so the analytics tool (PostHog et al.) can sum
+        // revenue without a Hogsend round-trip. Property-bag keys of the same
+        // name lose to the first-class columns.
+        properties: {
+          ...event.eventProperties,
+          ...(value !== null
+            ? { value, ...(currency ? { currency } : {}) }
+            : {}),
+        },
       });
     } catch (err) {
       logger.debug("event mirror capture failed (non-fatal)", {

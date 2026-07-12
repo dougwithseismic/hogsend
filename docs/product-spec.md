@@ -843,9 +843,10 @@ This means:
   durably — dashboards can show email funnel metrics alongside product metrics.
 - You can build PostHog cohorts like "users who opened the welcome email but
   haven't recorded a lap".
-- Those cohorts can feed PostHog's Meta Conversions API integration for ad
-  targeting (ad-platform CAPI stays deferred to PostHog's CDP — destinations are
-  for event fan-out, not CAPI).
+- Ad-platform conversion forwarding (Meta CAPI, Google Enhanced Conversions) is
+  Hogsend-native via the conversion-destination layer (see
+  docs/revenue-attribution-plan.md) — the money path has no third-party CDP
+  dependency. PostHog cohorts remain useful for exploratory audience work.
 - Journey conditions can reference previous journey engagement ("did they open the
   last email?").
 
@@ -983,7 +984,7 @@ journey_engine.errors.count — action failures per hour
 ## What's NOT in V1
 
 - **Visual journey builder** — journeys are `.ts` files. Read-only graph visualization is a nice-to-have; render with mermaid from the typed object if you want it.
-- **Ad platform audience sync** — use PostHog's existing Meta Conversions API integration. Build custom audience push when you need it.
+- **Ad platform audience sync** — custom-audience push is future work; valued conversion events (Meta CAPI et al.) are Hogsend-native per docs/revenue-attribution-plan.md, not deferred to any CDP.
 - **A/B testing** — defer. When you need it: randomly assign variant in action node, store in context, track by variant in logs.
 - **In-app notifications** — future channel adapter. Add a `push_in_app` action type when ready.
 - **Multi-tenant** — single-tenant for now. Multi-tenant (managed hosting) is a monetization unlock, not a V1 feature.
