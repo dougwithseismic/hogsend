@@ -22,6 +22,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
     "@hatchet-dev/typescript-sdk": "^1.22.3",
+    "@hogsend/attribution": "^{{ENGINE_VERSION}}",
     "@hogsend/cli": "^{{ENGINE_VERSION}}",
     "@hogsend/client": "^{{ENGINE_VERSION}}",
     "@hogsend/core": "^{{ENGINE_VERSION}}",
