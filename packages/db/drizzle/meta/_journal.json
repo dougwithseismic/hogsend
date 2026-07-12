@@ -330,6 +330,20 @@
       "when": 1783781251972,
       "tag": "0046_ambiguous_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1783846538021,
+      "tag": "0047_marvelous_brood",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1783851521962,
+      "tag": "0048_crazy_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

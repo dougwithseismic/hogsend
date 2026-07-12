@@ -24,7 +24,9 @@ export default defineConfig({
     "@hogsend/plugin-resend",
     "@hogsend/plugin-telegram",
     "@hogsend/plugin-twilio",
+    "@hogsend/plugin-vapi",
     "@hogsend/sms",
+    "@hogsend/voice",
   ],
   // discord.js + twilio are real runtime deps resolved from node_modules —
   // pulled via dynamic import (twilio through the engine's guarded preset), so

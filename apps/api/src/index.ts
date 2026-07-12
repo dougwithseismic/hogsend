@@ -29,6 +29,7 @@ import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { voiceAgents, voiceTools } from "./voice/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const discordConnector = buildDiscordConnector();
@@ -41,6 +42,9 @@ const client = createHogsendClient({
   // SMS channel — Twilio provider is auto-built from TWILIO_* env; with no creds
   // the SMS service is an inert stub and sendSms throws an actionable error.
   sms: { templates: smsTemplates },
+  // Voice channel — Vapi provider is auto-built from VAPI_* env; with no creds
+  // the voice service is an inert stub and startCall throws an actionable error.
+  voice: { agents: voiceAgents, tools: voiceTools },
   // Discord INBOUND connector (gateway transport) — only when configured. The
   // engine's `/v1/connectors/discord/{oauth,interactions,ingress}` + admin
   // connect-info/member-link routes dispatch into it from the registry.

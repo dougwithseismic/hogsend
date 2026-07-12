@@ -59,14 +59,15 @@ The `--url`, `--admin-key`, and `--json` flags are the shared global flags handl
 
 ## Event types
 
-`--event` accepts any of the 21 catalog events:
+`--event` accepts any of the 27 catalog events:
 
 ```text
 contact.created, contact.updated, contact.deleted, contact.unsubscribed,
 contact.subscribed, email.sent, email.delivered, email.opened, email.clicked,
 email.action, email.bounced, email.complained, sms.sent, sms.delivered,
-sms.failed, sms.clicked, journey.completed, bucket.entered, bucket.left,
-link.clicked, link.arrived
+sms.failed, sms.clicked, voice.call_started, voice.call_ended, voice.no_answer,
+voice.voicemail, voice.failed, voice.data_collected, journey.completed,
+bucket.entered, bucket.left, link.clicked, link.arrived
 ```
 
 An unknown event type fails fast before any request is sent.

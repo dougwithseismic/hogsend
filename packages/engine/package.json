@@ -38,6 +38,7 @@
     "@hogsend/plugin-posthog": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
     "@hogsend/sms": "workspace:^",
+    "@hogsend/voice": "workspace:^",
     "@hono/node-server": "^2.0.4",
     "@hono/zod-openapi": "^1.4.0",
     "@openrouter/ai-sdk-provider": "^2.9.1",
@@ -63,7 +64,8 @@
   },
   "optionalDependencies": {
     "@hogsend/plugin-postmark": "workspace:^",
-    "@hogsend/plugin-twilio": "workspace:^"
+    "@hogsend/plugin-twilio": "workspace:^",
+    "@hogsend/plugin-vapi": "workspace:^"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

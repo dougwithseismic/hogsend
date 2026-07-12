@@ -47,6 +47,18 @@ x-app-env: &app-env
   RESEND_API_KEY: ${RESEND_API_KEY:?set RESEND_API_KEY in .env}
   RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@hogsend.com}
   RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+  # SMS (Twilio) — opt-in; empty leaves the SMS service an inert stub.
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  SMS_FROM: ${SMS_FROM:-}
+  TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+  HOGSEND_TEST_PHONE: ${HOGSEND_TEST_PHONE:-}
+  # Voice (Vapi) — opt-in; empty leaves the voice service an inert stub.
+  VAPI_API_KEY: ${VAPI_API_KEY:-}
+  VAPI_PHONE_NUMBER_ID: ${VAPI_PHONE_NUMBER_ID:-}
+  VAPI_WEBHOOK_SECRET: ${VAPI_WEBHOOK_SECRET:-}
+  VOICE_PROVIDER: ${VOICE_PROVIDER:-vapi}
+  VOICE_FROM: ${VOICE_FROM:-}
   # Hatchet contract — bring-your-own token (no auto-mint). hatchet-lite on the
   # internal network speaks insecure gRPC, hence tls_strategy=none. For Hatchet
   # Cloud override HOST_PORT to the Cloud address and TLS_STRATEGY to tls.

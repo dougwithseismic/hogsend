@@ -11,6 +11,7 @@ import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { voiceAgents, voiceTools } from "./voice/index.js";
 
 async function main() {
   const discordConnector = buildDiscordConnector();
@@ -23,6 +24,9 @@ async function main() {
     // SMS templates must mirror the API (same registry rule as email) so the
     // worker's tracked SMS sender resolves the same keys journeys send.
     sms: { templates: smsTemplates },
+    // Voice agents/tools must mirror the API so the worker's tracked voice
+    // caller synthesizes the same agents journeys call via startCall.
+    voice: { agents: voiceAgents, tools: voiceTools },
     // Mirror the API's connector/destination registration so the worker's
     // process-singleton registries match (the ingest pipeline runs here too).
     connectors: [

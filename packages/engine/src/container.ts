@@ -7,6 +7,7 @@ import type {
   PostHogService,
   SmsProvider,
   TimeZone,
+  VoiceProvider,
 } from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
@@ -18,6 +19,7 @@ import {
 } from "@hogsend/db";
 import type { TemplateDefinition, TemplateRegistry } from "@hogsend/email";
 import type { SmsTemplateDefinition, SmsTemplateRegistry } from "@hogsend/sms";
+import type { VoiceAgentRegistry, VoiceToolRegistry } from "@hogsend/voice";
 import { createBucketAccessor } from "./buckets/bucket-access.js";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
@@ -86,6 +88,11 @@ import { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
 import { smsProvidersFromEnv } from "./lib/sms-providers-from-env.js";
 import type { SmsService } from "./lib/sms-service-types.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
+import { setVoiceService } from "./lib/voice.js";
+import { createTrackedVoiceCaller } from "./lib/voice-caller.js";
+import { VoiceProviderRegistry } from "./lib/voice-provider-registry.js";
+import { voiceProvidersFromEnv } from "./lib/voice-providers-from-env.js";
+import type { VoiceService } from "./lib/voice-service-types.js";
 import { synthesizeChannelLists } from "./lists/channels.js";
 import {
   type DefinedList,
@@ -158,6 +165,29 @@ export interface HogsendClient {
    * Undefined when no SMS provider is configured.
    */
   smsProvider?: SmsProvider;
+  /**
+   * The engine-owned tracked voice caller (the voice sibling of
+   * {@link smsService}). When no voice provider is configured this is an inert
+   * stub whose `startCall` throws an actionable error — so an existing deploy
+   * without Vapi creds boots clean.
+   */
+  voiceService: VoiceService;
+  /**
+   * The container-held registry of voice providers, keyed by `meta.id`. The
+   * `POST /v1/webhooks/voice/:providerId` route resolves the verifying provider
+   * out of this. Empty when no voice provider is configured.
+   */
+  voiceProviders: VoiceProviderRegistry;
+  /**
+   * The single resolved active voice provider the tracked caller places calls
+   * through. Undefined when no voice provider is configured.
+   */
+  voiceProvider?: VoiceProvider;
+  /**
+   * The app's voice-agent registry (key → definition). Read by the admin
+   * voice-agent preview route + Studio; empty when no `voice.agents` are passed.
+   */
+  voiceAgents: VoiceAgentRegistry;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -337,6 +367,40 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * Voice is a first-class channel (the voice sibling of {@link sms}). Its config
+   * is grouped here; the engine owns the cohesive voice pipeline (agent synthesis
+   * → consent/DNC checks → `voice_calls` write → `provider.startCall` → status +
+   * outcome persistence → mid-call tool dispatch), and the {@link VoiceProvider}
+   * (Vapi, …) is only the swappable wire.
+   *
+   * - `provider` — a single voice provider. Merged LAST (after env presets and
+   *   `providers`) so it wins on `meta.id`.
+   * - `providers` — register MANY providers into the {@link VoiceProviderRegistry}
+   *   so `POST /v1/webhooks/voice/:providerId` can verify each one's webhooks.
+   * - `defaultProvider` — the active provider id the tracked caller places
+   *   through. Resolves as `defaultProvider ?? VOICE_PROVIDER ?? "vapi"`.
+   * - `agents` — the app's voice-agent registry (key → definition), threaded into
+   *   the tracked caller for per-call agent synthesis.
+   * - `tools` — the app's voice-tool registry (name → executable tool) the
+   *   mid-call dispatcher resolves against.
+   * - `from` — the E.164 default caller id (overrides env `VOICE_FROM`).
+   *
+   * Omitting `voice` entirely (or configuring no provider) installs an inert stub
+   * voice service — an existing deploy without Vapi creds boots unchanged.
+   */
+  voice?: {
+    provider?: VoiceProvider;
+    providers?: VoiceProvider[];
+    defaultProvider?: string;
+    agents?: VoiceAgentRegistry;
+    tools?: VoiceToolRegistry;
+    from?: string;
+    /** The agent that answers INBOUND calls; absent ⇒ inbound calls declined. */
+    inboundAgent?: string;
+    /** Props for the inbound agent's `build`. */
+    inboundProps?: Record<string, unknown>;
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -589,6 +653,37 @@ function createStubSmsService(): SmsService {
   };
 }
 
+/**
+ * The inert voice service installed when no voice provider is configured.
+ * `startCall`/`dispatchToolCalls` throw an actionable error; `handleWebhook` is a
+ * no-op (a stray webhook can't dispatch without a provider).
+ */
+function createStubVoiceService(): VoiceService {
+  const notConfigured = () => {
+    throw new Error(
+      "No voice provider configured. Set VAPI_API_KEY/VAPI_PHONE_NUMBER_ID, or pass voice.provider to createHogsendClient.",
+    );
+  };
+  return {
+    async startCall() {
+      return notConfigured();
+    },
+    async dispatchToolCalls() {
+      return notConfigured();
+    },
+    async handleAssistantRequest() {
+      return null;
+    },
+    async recordOptOut() {
+      // No-op without a provider (nothing to gate); the DB write is harmless to
+      // skip since no calls are placed anyway.
+    },
+    async handleWebhook(event) {
+      return { type: event.type, handled: false };
+    },
+  };
+}
+
 export function createHogsendClient(
   opts: HogsendClientOptions = {},
 ): HogsendClient {
@@ -665,8 +760,18 @@ export function createHogsendClient(
   ]);
   const smsConfigured = smsProviders.count() > 0;
 
+  // The voice provider registry, built the same way + early for the same reason
+  // (the `voice` opt-in channel is minted iff a voice provider is configured).
+  const voiceProviders = new VoiceProviderRegistry([
+    ...voiceProvidersFromEnv(env),
+    ...(opts.voice?.providers ?? []),
+    ...(opts.voice?.provider ? [opts.voice.provider] : []),
+  ]);
+  const voiceConfigured = voiceProviders.count() > 0;
+
   const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
     sms: smsConfigured,
+    voice: voiceConfigured,
   });
   const listRegistry = buildListRegistry(
     opts.lists ?? [],
@@ -908,6 +1013,63 @@ export function createHogsendClient(
 
   setSmsService(smsService);
 
+  // --- Voice channel (parallel to the SMS pipeline above) -------------------
+  // Resolve the active voice provider: `defaultProvider ?? VOICE_PROVIDER ??
+  // "vapi"`. An EXPLICITLY-requested id that isn't registered throws; when
+  // nothing is configured the registry is empty and the caller becomes an inert
+  // stub so an existing deploy without Vapi creds boots unchanged.
+  const voiceAgents = opts.voice?.agents ?? ({} as VoiceAgentRegistry);
+  const voiceActiveId =
+    opts.voice?.defaultProvider ?? env.VOICE_PROVIDER ?? "vapi";
+  const voiceExplicit = Boolean(
+    opts.voice?.defaultProvider ?? env.VOICE_PROVIDER,
+  );
+  let voiceProvider = voiceProviders.get(voiceActiveId);
+  if (!voiceProvider && !voiceExplicit && voiceProviders.count() === 1) {
+    voiceProvider = voiceProviders.getAll()[0];
+  }
+  if (voiceExplicit && !voiceProvider) {
+    throw new Error(
+      `Voice provider "${voiceActiveId}" is not registered (registered: ${
+        voiceProviders
+          .getAll()
+          .map((p) => p.meta.id)
+          .join(", ") || "none"
+      }). Set VAPI_API_KEY/VAPI_PHONE_NUMBER_ID, or pass voice.provider.`,
+    );
+  }
+
+  const voiceService: VoiceService = voiceProvider
+    ? createTrackedVoiceCaller(
+        {
+          defaultFrom: opts.voice?.from ?? env.VOICE_FROM,
+          agents: voiceAgents,
+          ...(opts.voice?.tools ? { tools: opts.voice.tools } : {}),
+          db,
+          frequencyCap: defaults.frequencyCap,
+          logger,
+          providerId: voiceProvider.meta.id,
+          // Deploy-wide test-mode coherence, exactly like SMS: "true" forces
+          // voice test mode; "auto" arms it whenever the email side's test mode
+          // is armed (unverified domain) so a staging deploy never live-dials.
+          testMode: () =>
+            env.HOGSEND_TEST_MODE === "true" ||
+            (env.HOGSEND_TEST_MODE === "auto" &&
+              domainStatus.testModeCached().active),
+          testPhone: env.HOGSEND_TEST_PHONE,
+          ...(opts.voice?.inboundAgent
+            ? { inboundAgent: opts.voice.inboundAgent as never }
+            : {}),
+          ...(opts.voice?.inboundProps
+            ? { inboundProps: opts.voice.inboundProps }
+            : {}),
+        },
+        { provider: voiceProvider },
+      )
+    : createStubVoiceService();
+
+  setVoiceService(voiceService);
+
   // Wire better-auth's secondary storage to the SHARED engine Redis (the same
   // singleton backing the PostHog cache + worker heartbeat — never a second
   // pool). Passing `secondaryStorage` flips better-auth's rate-limit store from
@@ -1113,11 +1275,13 @@ export function createHogsendClient(
   for (const connector of connectorList) {
     if (
       (connector.meta.transport ?? "webhook") === "webhook" &&
-      (connector.meta.id === "email" || connector.meta.id === "sms")
+      (connector.meta.id === "email" ||
+        connector.meta.id === "sms" ||
+        connector.meta.id === "voice")
     ) {
       throw new Error(
         `Connector id "${connector.meta.id}" is reserved for the ` +
-          "email/SMS-provider routes (POST /v1/webhooks/{email,sms}/:providerId). " +
+          "email/SMS/voice-provider routes (POST /v1/webhooks/{email,sms,voice}/:providerId). " +
           "Rename the connector.",
       );
     }
@@ -1179,6 +1343,10 @@ export function createHogsendClient(
     smsService,
     smsProviders,
     smsProvider,
+    voiceService,
+    voiceProviders,
+    voiceProvider,
+    voiceAgents,
     analyticsProviders,
     analytics,
     identity,

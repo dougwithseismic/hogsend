@@ -629,6 +629,28 @@ export {
   type UserTokenPayload,
   verifyUserToken,
 } from "./lib/user-token.js";
+// --- Voice (journey-facing startCall + service singleton) ---
+export {
+  getVoiceService,
+  type StartCallOptions as StartVoiceCallOptions,
+  type StartCallResult as StartVoiceCallResult,
+  setVoiceService,
+  startCall,
+} from "./lib/voice.js";
+// --- Voice caller factory (the engine-owned tracked caller; mirrors createTrackedSmsSender) ---
+export { createTrackedVoiceCaller } from "./lib/voice-caller.js";
+// --- Voice provider registry (container-held, keyed by meta.id) ---
+export { VoiceProviderRegistry } from "./lib/voice-provider-registry.js";
+// --- Voice service (engine-owned tracked voice caller) ---
+export type {
+  StartTrackedCallOptions,
+  VoiceService,
+  VoiceServiceConfig,
+  VoiceServiceWebhookResult,
+  VoiceTrackedResult,
+} from "./lib/voice-service-types.js";
+export { dispatchVoiceToolCalls } from "./lib/voice-tools.js";
+export { VOICE_CHANNEL_ID } from "./lib/voice-tracked.js";
 // --- Outbound webhooks: signing core (Section 1.2) ---
 export {
   generateWebhookSecret,

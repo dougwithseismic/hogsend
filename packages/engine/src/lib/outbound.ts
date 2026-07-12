@@ -57,6 +57,16 @@ interface BucketEventPayload {
   source: string;
 }
 
+interface VoiceOutcomePayload {
+  voiceCallId: string;
+  agentKey: string | null;
+  userId: string | null;
+  to: string;
+  at: string;
+  reason: string | null;
+  durationSec: number | null;
+}
+
 /**
  * The typed per-event payload map. `data` in each delivered envelope is exactly
  * `OutboundPayloads[E]` for the emitted event `E`. Producers (the 12 hook
@@ -209,6 +219,30 @@ export interface OutboundPayloads {
     at: string;
     linkUrl: string;
     linkId: string;
+  };
+  "voice.call_started": {
+    voiceCallId: string;
+    providerCallId: string;
+    agentKey: string | null;
+    to: string;
+    userId: string | null;
+    journeyStateId: string | null;
+    startedAt: string;
+  };
+  "voice.call_ended": VoiceOutcomePayload;
+  "voice.no_answer": VoiceOutcomePayload;
+  "voice.voicemail": VoiceOutcomePayload;
+  "voice.failed": VoiceOutcomePayload & {
+    errorCode?: string;
+    errorReason?: string;
+  };
+  "voice.data_collected": {
+    voiceCallId: string;
+    agentKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    data: Record<string, unknown>;
   };
   "journey.completed": {
     journeyId: string;

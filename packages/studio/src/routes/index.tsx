@@ -21,6 +21,7 @@ import { SettingsView } from "@/views/settings-view";
 import { SetupView } from "@/views/setup-view";
 import { SuppressionsView } from "@/views/suppressions-view";
 import { TemplatesView } from "@/views/templates-view";
+import { VoiceAgentsView } from "@/views/voice-agents-view";
 
 const rootRoute = createRootRoute({
   component: AppShell,
@@ -48,6 +49,12 @@ const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/templates",
   component: TemplatesView,
+});
+
+const voiceAgentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/voice-agents",
+  component: VoiceAgentsView,
 });
 
 const linksRoute = createRoute({
@@ -147,6 +154,7 @@ const routeTree = rootRoute.addChildren([
   eventsRoute,
   sendsRoute,
   templatesRoute,
+  voiceAgentsRoute,
   linksRoute,
   qrCodesRoute,
   campaignsRoute,

@@ -44,6 +44,7 @@ import {
   journeyStates,
   smsSends,
   userEvents,
+  voiceCalls,
 } from "@hogsend/db";
 import {
   and,
@@ -1233,6 +1234,28 @@ export function createJourneyContext(
           lastSentAt:
             result?.lastSentAt instanceof Date
               ? result.lastSentAt.toISOString()
+              : null,
+          count: total,
+        };
+      },
+
+      async voice({ phone, agent }) {
+        const [result] = await db
+          .select({
+            count: count(),
+            lastCalledAt: max(voiceCalls.startedAt),
+          })
+          .from(voiceCalls)
+          .where(
+            and(eq(voiceCalls.toNumber, phone), eq(voiceCalls.agentKey, agent)),
+          );
+
+        const total = result?.count ?? 0;
+        return {
+          called: total > 0,
+          lastCalledAt:
+            result?.lastCalledAt instanceof Date
+              ? result.lastCalledAt.toISOString()
               : null,
           count: total,
         };

@@ -149,6 +149,23 @@ export const env = createEnv({
     TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
     TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
     TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+    // --- Voice channel (BYO provider; Vapi is the default reference) ---
+    // Active voice-provider id — the key that selects one entry from the
+    // VoiceProviderRegistry. Absent → "vapi" when a provider is registered;
+    // with no provider configured the voice service is an inert throwing stub.
+    VOICE_PROVIDER: z.string().optional(),
+    // Neutral E.164 default caller-id the tracked caller uses when a call omits
+    // `from` (the provider may also pin one via its phone-number id).
+    VOICE_FROM: z.string().optional(),
+    // --- Vapi (default voice provider, opt-in) ---
+    // A preset provider is built only when BOTH the API key + a phone-number id
+    // are present (the guarded dynamic import in voice-providers-from-env.ts).
+    VAPI_API_KEY: z.string().min(1).optional(),
+    VAPI_PHONE_NUMBER_ID: z.string().min(1).optional(),
+    // Shared secret echoed as X-Vapi-Secret on every webhook; when set, voice
+    // webhooks are verified fail-closed and it is attached to each assistant's
+    // server.secret. Strongly recommended in production.
+    VAPI_WEBHOOK_SECRET: z.string().min(1).optional(),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

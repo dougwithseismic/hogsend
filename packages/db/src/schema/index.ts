@@ -29,5 +29,8 @@ export * from "./sms-sends.js";
 export * from "./sms-suppressions.js";
 export * from "./tracked-links.js";
 export * from "./user-events.js";
+export * from "./voice-calls.js";
+export * from "./voice-suppressions.js";
+export * from "./voice-tool-calls.js";
 export * from "./webhook-deliveries.js";
 export * from "./webhook-endpoints.js";
