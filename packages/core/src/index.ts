@@ -1,4 +1,8 @@
 export {
+  CLICK_ID_PARAM_NAMES,
+  type ClickIdParamName,
+} from "./attribution/click-ids.js";
+export {
   isTouchpointEvent,
   TOUCHPOINT_EVENT_CLASSES,
   TOUCHPOINT_EVENTS,
@@ -34,6 +38,12 @@ export {
   RESERVED_EVENT_NAMESPACES,
 } from "./events.js";
 export * from "./journey-graph/index.js";
+export {
+  buildLeadSubmission,
+  LEAD_SUBMITTED,
+  type LeadSubmissionEvent,
+  type LeadSubmissionInput,
+} from "./leads.js";
 export * from "./providers/index.js";
 export {
   BucketRegistry,

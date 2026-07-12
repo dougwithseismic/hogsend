@@ -22,3 +22,11 @@ describe("touchpoint classifier ↔ engine tracking event names", () => {
     }
   });
 });
+
+describe("click-ID allowlist ↔ @hogsend/js copy", () => {
+  it("core CLICK_ID_PARAM_NAMES and js CLICK_ID_PARAMS are identical (hand-synced)", async () => {
+    const { CLICK_ID_PARAM_NAMES } = await import("@hogsend/core");
+    const { CLICK_ID_PARAMS } = await import("@hogsend/js");
+    expect([...CLICK_ID_PARAM_NAMES]).toEqual([...CLICK_ID_PARAMS]);
+  });
+});
