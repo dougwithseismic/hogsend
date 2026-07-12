@@ -7,7 +7,7 @@
 Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Worked strictly top-to-bottom; one commit per feature; phase-boundary simplify pass commits separately. Prose context for every item is in the phase sections below.
 
 **Phase 1 — Value on the spine**
-- [ ] **1.1 `value`/`currency` on events.** Migration adding `user_events.value numeric` + `user_events.currency char(3)`; `IngestEvent` type + ingest zod schema in `@hogsend/core`/engine; `ingestEvent()` threads them; `ctx.trigger` accepts them.
+- [x] **1.1 `value`/`currency` on events.** Migration adding `user_events.value numeric` + `user_events.currency char(3)`; `IngestEvent` type + ingest zod schema in `@hogsend/core`/engine; `ingestEvent()` threads them; `ctx.trigger` accepts them.
 - [ ] **1.2 SDK + client surface.** `@hogsend/js` / `@hogsend/client` / `@hogsend/mcp` event types accept `value`/`currency`; vendored type copies synced.
 - [ ] **1.3 PostHog-defer reversal.** Delete the CAPI-defer NOTE in `packages/engine/src/destinations/define-destination.ts`; amend `docs/product-spec.md`; destinations fan-out (PostHog preset) passes `value`/`currency` through.
 - [ ] **1.4 Revenue rollup.** Per-contact revenue (SQL view or query helper) + admin stats endpoint + Studio contact-detail revenue surface.

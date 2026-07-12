@@ -1026,6 +1026,8 @@ export function createJourneyContext(
       userId: targetUserId,
       userEmail: targetEmail,
       properties,
+      value,
+      currency,
       idempotencyLabel,
     }) {
       // Keep the PUBLIC `TriggerOptions.properties` field name (decision #13 —
@@ -1065,6 +1067,8 @@ export function createJourneyContext(
             userId: targetUserId,
             userEmail: targetEmail ?? userEmail,
             eventProperties: properties ?? {},
+            value,
+            currency,
             // Cross-journey trigger (ctx.trigger).
             source: "journey",
             ...(idempotencyKey ? { idempotencyKey } : {}),

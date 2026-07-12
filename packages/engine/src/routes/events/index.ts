@@ -20,6 +20,16 @@ const eventRequestSchema = z.object({
   anonymousId: z.string().min(1).max(200).optional(),
   eventProperties: z.record(z.string(), z.unknown()).optional(),
   contactProperties: z.record(z.string(), z.unknown()).optional(),
+  // The event's monetary worth (order total, deal value). First-class — lands
+  // on `user_events.value`, the column revenue rollups, conversion definitions,
+  // and attribution credits read. Negative = refunds/adjustments.
+  value: z.number().finite().optional(),
+  // ISO-4217 alpha code for `value` (uppercased at ingest). Ignored without
+  // `value`.
+  currency: z
+    .string()
+    .regex(/^[A-Za-z]{3}$/)
+    .optional(),
   lists: z.record(z.string(), z.boolean()).optional(),
   idempotencyKey: z.string().optional(),
   timestamp: z.string().datetime().optional(),
@@ -121,6 +131,8 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
           anonymousId: body.anonymousId,
           eventProperties: body.eventProperties ?? {},
           contactProperties: body.contactProperties,
+          value: body.value,
+          currency: body.currency,
           idempotencyKey,
           // §2.5: caller-supplied event time (backfill/replay). The validated
           // ISO string is coerced to a Date inside ingestEvent.

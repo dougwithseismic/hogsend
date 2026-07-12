@@ -1,6 +1,9 @@
+import { isNotNull } from "drizzle-orm";
 import {
+  char,
   index,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -16,6 +19,13 @@ export const userEvents = pgTable(
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
+    // The event's own monetary worth (a deal value on `crm.deal_sold`, an order
+    // total on `order.completed`) — first-class so revenue is SQL-aggregable,
+    // never buried in the properties bag. Negative values are legal (refunds).
+    value: numeric("value", { precision: 14, scale: 2, mode: "number" }),
+    // ISO-4217 alpha code, uppercased at ingest. Nullable independently of
+    // `value` for backfill tolerance, but the ingest paths always set both.
+    currency: char("currency", { length: 3 }),
     // Where the event entered the pipeline: a webhook source id ("posthog",
     // "stripe", …), "api", "studio", a connector id, "journey", etc. Nullable —
     // events ingested before this column existed have no recorded origin.
@@ -26,6 +36,11 @@ export const userEvents = pgTable(
       .notNull(),
   },
   (table) => [
+    // Partial index serving revenue-per-contact rollups without bloating the
+    // hot path (valued events are a small fraction of the table).
+    index("user_events_valued_user_idx")
+      .on(table.userId, table.occurredAt)
+      .where(isNotNull(table.value)),
     index("user_events_user_id_idx").on(table.userId),
     index("user_events_event_idx").on(table.event),
     index("user_events_source_idx").on(table.source),

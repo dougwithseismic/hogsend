@@ -57,6 +57,15 @@ export interface IngestEvent {
   eventProperties: Record<string, unknown>;
   /** D2: → `contacts.properties` merge ONLY. */
   contactProperties?: Record<string, unknown>;
+  /**
+   * The event's own monetary worth (deal value, order total). Stored on the
+   * first-class `user_events.value` column — the revenue spine every rollup,
+   * conversion definition, and attribution credit reads from. Non-finite
+   * numbers are dropped (with a warn) rather than failing the ingest.
+   */
+  value?: number;
+  /** ISO-4217 alpha code for `value`; uppercased here. Defaults to null. */
+  currency?: string;
   idempotencyKey?: string;
   /**
    * Caller-supplied event time (§2.5 `timestamp`). When set, `user_events`
@@ -326,6 +335,34 @@ export async function ingestEvent(opts: {
   // falls back to the `occurred_at` DB default (ingest instant).
   const occurredAt = event.occurredAt ? new Date(event.occurredAt) : undefined;
 
+  // Money normalization — permissive at the spine (webhook sources feed this
+  // path with arbitrary payloads): a non-finite value or malformed currency is
+  // dropped with a warn, never a failed ingest. Currency without value is
+  // meaningless and dropped; value without currency stores with null currency
+  // (single-currency deploys omit it everywhere).
+  let value: number | null = null;
+  let currency: string | null = null;
+  if (event.value !== undefined) {
+    if (typeof event.value === "number" && Number.isFinite(event.value)) {
+      value = event.value;
+      if (event.currency !== undefined) {
+        const code = event.currency.trim().toUpperCase();
+        if (/^[A-Z]{3}$/.test(code)) {
+          currency = code;
+        } else {
+          logger.warn("ingestEvent: dropping malformed currency", {
+            event: event.event,
+            currency: event.currency,
+          });
+        }
+      }
+    } else {
+      logger.warn("ingestEvent: dropping non-finite value", {
+        event: event.event,
+      });
+    }
+  }
+
   // (2) Idempotency dedup + `user_events` insert keyed on the resolved key, with
   // ONLY eventProperties in the properties bag (D2). `ctx.trigger` now supplies a
   // deterministic key (`journeyTrigger:<runAnchor>:<site>:<event>`), so a journey
@@ -339,6 +376,8 @@ export async function ingestEvent(opts: {
         userId: resolvedKey,
         event: event.event,
         properties: event.eventProperties,
+        value,
+        currency,
         source: event.source ?? null,
         idempotencyKey: event.idempotencyKey,
         ...(occurredAt ? { occurredAt } : {}),
@@ -357,6 +396,8 @@ export async function ingestEvent(opts: {
       userId: resolvedKey,
       event: event.event,
       properties: event.eventProperties,
+      value,
+      currency,
       source: event.source ?? null,
       ...(occurredAt ? { occurredAt } : {}),
     });
