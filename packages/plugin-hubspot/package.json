@@ -1,6 +1,7 @@
 {
   "name": "@hogsend/plugin-hubspot",
   "version": "0.43.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "description": "HubSpot CrmProvider for Hogsend: lead push, deal.propertyChange webhooks with hydrate (value-by-fetch), reconciliation poll.",
@@ -19,9 +20,6 @@
     "src",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup",
     "check-types": "tsc --noEmit",

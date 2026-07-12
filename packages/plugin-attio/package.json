@@ -1,6 +1,7 @@
 {
   "name": "@hogsend/plugin-attio",
   "version": "0.43.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "description": "Attio CrmProvider for Hogsend: lead push (person+deal assert), signed record.updated webhooks with hydrate (Attio payloads are thin), value + stage extraction.",
@@ -19,9 +20,6 @@
     "src",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup",
     "check-types": "tsc --noEmit",

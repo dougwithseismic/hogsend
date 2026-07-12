@@ -1,6 +1,7 @@
 {
   "name": "@hogsend/plugin-ghl",
   "version": "0.43.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "description": "GoHighLevel CrmProvider for Hogsend: lead push, pipeline stage-change webhooks (value-in-payload), reconciliation poll, hydrate.",
@@ -19,9 +20,6 @@
     "src",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup",
     "check-types": "tsc --noEmit",
