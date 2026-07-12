@@ -50,6 +50,8 @@ const RUN = `e2e-${Date.now()}`;
 const EMAIL = `${RUN}-a@example.com`;
 const EXTERNAL_ID = `${RUN}-crm-1`;
 const IDEMPOTENCY_KEY = `${RUN}-row-42`;
+const KEYLESS_EMAIL = `${RUN}-keyless@example.com`;
+const KEYLESS_EXTERNAL_ID = `${RUN}-crm-keyless`;
 
 function post(body: unknown, secret = "s3cret-token") {
   return app.request("/v1/webhooks/acme-crm", {
@@ -71,8 +73,12 @@ const payload = {
 };
 
 afterAll(async () => {
-  await db.delete(userEvents).where(inArray(userEvents.userId, [EXTERNAL_ID]));
-  await db.delete(contacts).where(inArray(contacts.email, [EMAIL]));
+  await db
+    .delete(userEvents)
+    .where(inArray(userEvents.userId, [EXTERNAL_ID, KEYLESS_EXTERNAL_ID]));
+  await db
+    .delete(contacts)
+    .where(inArray(contacts.email, [EMAIL, KEYLESS_EMAIL]));
 });
 
 describe("generic webhook contact source — end-to-end", () => {
@@ -128,5 +134,29 @@ describe("generic webhook contact source — end-to-end", () => {
       .from(contacts)
       .where(and(eq(contacts.email, EMAIL), eq(contacts.source, "acme-crm")));
     expect(dupes).toHaveLength(1);
+  });
+
+  it("without an idempotency_key, a re-POST DOES re-ingest (documented contract)", async () => {
+    const keyless = {
+      event: "prospect.sourced",
+      email: KEYLESS_EMAIL,
+      external_id: KEYLESS_EXTERNAL_ID,
+    };
+    expect((await post(keyless)).status).toBe(200);
+    expect((await post(keyless)).status).toBe(200);
+
+    // Two events — no dedup key ⇒ no onConflictDoNothing short-circuit.
+    const events = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, KEYLESS_EXTERNAL_ID));
+    expect(events).toHaveLength(2);
+    // ...but still ONE contact (identity resolves to the same row). So a
+    // retry-heavy source (Clay) MUST supply idempotency_key to avoid re-enroll.
+    const rows = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.email, KEYLESS_EMAIL));
+    expect(rows).toHaveLength(1);
   });
 });

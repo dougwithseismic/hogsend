@@ -1163,6 +1163,24 @@ export function createHogsendClient(
     opts.contactSources ?? [],
   );
 
+  // Fail-loud at boot on a contact source with no secret: a `match` auth is OPEN
+  // when the env value is empty, which for a contact source means an
+  // UNAUTHENTICATED identity-write endpoint (it mints/enriches contacts and can
+  // trigger outbound journeys). Warn so the operator catches the omission before
+  // it ships. Mirrors the webhook route's secret resolution (env ?? process.env).
+  for (const src of opts.contactSources ?? []) {
+    if (src.auth.type !== "match") continue;
+    const secret =
+      (env[src.auth.envKey as keyof typeof env] as string | undefined) ??
+      process.env[src.auth.envKey];
+    if (!secret) {
+      logger.warn(
+        `Contact source "${src.meta.id}" has no secret set (env ${src.auth.envKey}) — ` +
+          "its webhook currently accepts UNAUTHENTICATED contact writes. Set the secret.",
+      );
+    }
+  }
+
   // Build + install the connector ACTION registry (outbound imperative actions),
   // the action sibling of the connector registry above. Runs in BOTH the API and
   // worker (both call createHogsendClient), so `sendConnectorAction()` resolves
