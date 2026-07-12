@@ -547,6 +547,17 @@ export async function resolveOrCreateContact(opts: {
    * `restrictToAnonymous`.
    */
   contactId?: string;
+  /**
+   * PROVENANCE (best-effort metadata, NOT an identity key): the Source id that
+   * created this contact — a Contact Source id ("clay"/"attio") or the ingest
+   * `source`. First-touch: written on create, and on a fill-in-link/merge that
+   * supplies one ONLY when the resolved row has none; never overwrites an
+   * existing value. NEVER participates in key resolution or survivor selection,
+   * so it cannot steer identity — a safe non-identity column threaded alongside.
+   */
+  source?: string;
+  /** Timestamp paired with {@link source}; defaults to now() at create time. */
+  sourcedAt?: Date;
 }): Promise<{
   id: string;
   /**
@@ -583,6 +594,8 @@ export async function resolveOrCreateContact(opts: {
   const anonymousId = opts.anonymousId?.trim() || undefined;
   const discordId = opts.discordId?.trim() || undefined;
   const contactId = opts.contactId?.trim() || undefined;
+  const source = opts.source?.trim() || undefined;
+  const sourcedAt = opts.sourcedAt;
   // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
   // only shape a token-less pk_ key can produce — the gate 403s any
   // email/userId without a verified userToken before we get here). An identified
@@ -651,6 +664,10 @@ export async function resolveOrCreateContact(opts: {
           email: email ?? null,
           anonymousId: anonymousId ?? null,
           discordId: discordId ?? null,
+          // First-touch provenance: stamp source (+ paired sourcedAt) on the
+          // brand-new row; both stay null when no source was supplied.
+          source: source ?? null,
+          sourcedAt: source ? (sourcedAt ?? new Date()) : null,
           // §2.1: explicit null clears a key — never persist a null-valued prop.
           properties: stripNulls(patch),
         })
@@ -685,6 +702,8 @@ export async function resolveOrCreateContact(opts: {
           discordId,
           patch,
           hasPatch,
+          source,
+          sourcedAt,
         });
       return {
         id,
@@ -712,6 +731,8 @@ export async function resolveOrCreateContact(opts: {
         discordId,
         patch,
         hasPatch,
+        source,
+        sourcedAt,
       });
     return {
       id,
@@ -732,6 +753,9 @@ interface ResolveCtx {
   discordId?: string;
   patch: Record<string, unknown>;
   hasPatch: boolean;
+  /** First-touch provenance (see {@link resolveOrCreateContact} `source`). */
+  source?: string;
+  sourcedAt?: Date;
 }
 
 /**
@@ -785,6 +809,12 @@ async function fillInLink(
     set.anonymousId = ctx.anonymousId;
     nextAnonymousId = ctx.anonymousId;
     promoted.push({ kind: "anonymous", value: ctx.anonymousId });
+  }
+  // First-touch provenance: only stamp when the row has none, so an inbound
+  // contact that a Source later re-touches keeps its original origin.
+  if (ctx.source && !row.source) {
+    set.source = ctx.source;
+    set.sourcedAt = ctx.sourcedAt ?? new Date();
   }
   if (ctx.hasPatch) {
     set.properties = mergePropertiesSql(ctx.patch);
@@ -983,6 +1013,25 @@ async function mergeContacts(
     const fromLoser = losers.find((l) => l.discordId)?.discordId;
     const next = ctx.discordId ?? fromLoser;
     if (next) survivorSet.discordId = next;
+  }
+  // Provenance (best-effort): the survivor keeps its own source; only when it
+  // has none does it adopt the call's, else the earliest-sourced loser's — so a
+  // merge never erases a recorded origin but also never invents survivor state.
+  if (!survivor.source) {
+    const sourcedLoser = losers
+      .filter((l) => l.source)
+      .sort(
+        (a, b) =>
+          (a.sourcedAt?.getTime() ?? Number.POSITIVE_INFINITY) -
+          (b.sourcedAt?.getTime() ?? Number.POSITIVE_INFINITY),
+      )[0];
+    const nextSource = ctx.source ?? sourcedLoser?.source ?? undefined;
+    if (nextSource) {
+      survivorSet.source = nextSource;
+      survivorSet.sourcedAt = ctx.source
+        ? (ctx.sourcedAt ?? new Date())
+        : (sourcedLoser?.sourcedAt ?? new Date());
+    }
   }
 
   // (viii) Soft-delete the losers FIRST — frees their external_id/email/
@@ -1450,6 +1499,9 @@ export async function upsertContact(opts: {
   anonymousId?: string;
   discordId?: string;
   properties?: Record<string, unknown>;
+  /** First-touch provenance (see {@link resolveOrCreateContact} `source`). */
+  source?: string;
+  sourcedAt?: Date;
 }): Promise<{
   id: string;
   resolvedKey: string;
@@ -1468,6 +1520,8 @@ export async function upsertContact(opts: {
     anonymousId: opts.anonymousId,
     discordId: opts.discordId,
     contactProperties: opts.properties,
+    source: opts.source,
+    sourcedAt: opts.sourcedAt,
   });
 }
 
