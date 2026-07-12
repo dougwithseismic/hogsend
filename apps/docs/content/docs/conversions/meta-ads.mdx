@@ -1,72 +1,109 @@
 ---
 title: Meta (Facebook & Instagram)
-description: Forward server-side conversions to the Meta Conversions API via PostHog's Meta Ads Conversions destination.
+description: Feed valued conversions to the Meta Conversions API first-party with @hogsend/plugin-meta-capi — deterministic dedup, reconstructed fbc, CRM-grade action_source.
 ---
 
-Meta's **Conversions API (CAPI)** receives conversions server-side so you keep attribution even when the browser Pixel is blocked by ad blockers, iOS, or cookie restrictions. PostHog's **Meta Ads Conversions** destination is the easiest way to feed it.
-
-<Callout type="info">
-  New here? Read [the overview](/docs/conversions) first — it covers how identity and deduplication work across all platforms. This page is Meta-specific.
-</Callout>
+Meta's **Conversions API (CAPI)** receives conversions server-side, so you
+keep attribution even when the browser Pixel is blocked by ad blockers, iOS,
+or cookie restrictions. `@hogsend/plugin-meta-capi` is Hogsend's native
+destination for it: every fired [conversion point](/docs/conversions) with
+`destinations: ["meta-capi"]` becomes one CAPI event, delivered by the
+engine's durable dispatch with retries and deterministic dedup.
 
 ## What you need
 
 | Credential | Where to get it |
 |---|---|
-| **Access Token** | Meta **Events Manager** → your dataset/pixel → **Settings** → **Conversions API** → **Generate access token**. Copy it immediately (it's shown once). |
 | **Pixel ID** (Dataset ID) | Events Manager → your dataset → **Settings**. Use the **same** Pixel ID your browser Pixel uses so server + browser events reconcile. |
+| **Access Token** | Events Manager → your dataset → **Settings** → **Conversions API** → **Generate access token**. Self-serve — no App Review or Meta app needed. Copy it immediately (it's shown once). |
 
-Full token guide: [developers.facebook.com/docs/marketing-api/conversions-api/get-started](https://developers.facebook.com/docs/marketing-api/conversions-api/get-started)
+## Setup
 
-## Create the destination
+```ts title="src/index.ts / src/worker.ts"
+import { createMetaCapiDestination } from "@hogsend/plugin-meta-capi";
 
-In PostHog: **Data → Destinations → Create a new destination**, search **Meta**, pick **Meta Ads Conversions**, click **+ Create**. Paste the Access Token and Pixel ID, add your event matchers, then **Create & enable**.
+const client = createHogsendClient({
+  conversions,
+  conversionDestinations: [
+    createMetaCapiDestination({
+      pixelId: process.env.META_PIXEL_ID!,
+      accessToken: process.env.META_CAPI_TOKEN!,
+      // eventNames: { "deal-sold": "Purchase", "lead-submitted": "Lead" },
+      // testEventCode: "TEST1234",   // while validating — remove for live
+    }),
+  ],
+});
+```
 
-## What PostHog maps automatically
+Then point conversion points at it: `destinations: ["meta-capi"]` on each
+`defineConversion` that should reach Meta.
 
-You don't write any hashing or click-id logic — the form arrives pre-filled:
+## What the plugin sends
 
-| Meta field | PostHog default | Purpose |
+One server event per fired conversion:
+
+| CAPI field | Value | Why it matters |
 |---|---|---|
-| `event_name` | `{event.event}` | Map to a Meta standard event (see below) |
-| `event_id` | `{event.uuid}` | Deduplication key vs. the browser Pixel |
-| `event_time` | `{toInt(toUnixTimestamp(event.timestamp))}` | Unix seconds, GMT |
-| `action_source` | `Website` | Where the conversion happened |
-| `user_data.em` | `{sha256Hex(lower(person.properties.email))}` | Hashed email — top matcher |
-| `user_data.fn` / `ln` | `{sha256Hex(lower(person.properties.first_name))}` … | Hashed name |
-| `user_data.fbc` | rebuilt from `fbclid` / `$initial_fbclid` | The ad click-id — top matcher |
-| `user_data.client_user_agent` | `{event.properties.$raw_user_agent}` | Browser UA (best-effort) |
-| `custom_data.price` / `currency` | `{event.properties.price}` / `USD` | Conversion value for ROAS |
+| `event_name` | Per-definition `eventNames` mapping; else `Purchase` when the conversion has a value, `Lead` when it doesn't | Meta optimizes best against standard event names |
+| `event_id` | The engine's deterministic dedup id (`sha256(contact:definition:event-row)`) | Stable across retries; a browser Pixel sending the same id dedups against it |
+| `event_time` | The conversion's `occurredAt`, Unix seconds | Honest timing, even for backfilled CRM events |
+| `action_source` | `system_generated` | The home for CRM/offline conversions since Meta retired the Offline Conversions API (May 2025) |
+| `user_data.em` / `ph` / `external_id` | SHA-256 hashed per Meta's normalization (email lowercased/trimmed; phone digits-only) | The top match-quality signals |
+| `user_data.fbc` | **Reconstructed** as `fb.1.<click_ts>.<fbclid>` from the stored click evidence | The ad click-id — sent plain per spec, never fabricated |
+| `custom_data.value` / `currency` | The conversion's resolved value | What ROAS and value-based bidding read |
 
-## Mapping to Meta standard events
+**`fbc` is real or absent.** The engine recovers the contact's most recent
+`campaign.arrived` touchpoint before the conversion — the `fbclid` *and the
+actual click timestamp* captured first-party by `@hogsend/js`. No Meta click
+on record → no `fbc`, because a fabricated one poisons match quality.
 
-Meta optimizes best against its **standard event** names. Set the **Event name** field to map your PostHog event, e.g.:
+## Match quality
 
-| Your PostHog event | Meta standard event |
-|---|---|
-| `purchase` | `Purchase` |
-| `subscription_created` | `Subscribe` |
-| `trial_started` | `StartTrial` |
-| `user_signed_up` | `CompleteRegistration` |
-| `lead_captured` | `Lead` |
+The two highest-impact matchers are hashed email and `fbc`. Both are already
+flowing if you've wired the front of the loop:
 
-Custom events also work, but standard events unlock more optimization options.
+- Run `@hogsend/js` on your landing pages so ad clicks fire
+  `campaign.arrived` (captures `fbclid` with its timestamp).
+- Use [lead intake](/docs/guides/lead-intake) hidden fields so the browser
+  session stitches to the email-anchored contact.
 
-## Match quality (EMQ)
+## Conversion Leads (optimizing on funnel stages)
 
-Meta scores **Event Match Quality** 0–10. Aim for **6+**. The two highest-impact matchers are hashed `email` and `fbc` — both come from the person profile, so:
-
-- Run the PostHog browser snippet so `$initial_fbclid` is captured on ad landings.
-- `identify()` users with `email` early.
+Meta's **Conversion Leads** performance goal optimizes lead campaigns on
+what leads *become*, not just that they arrived. It wants your funnel stages
+as CRM events: define one conversion point per stage
+(`lead-submitted` → `contacted` → `quoted` → `sold`), map each to the stage
+name you configure in Events Manager's **Leads Funnel** via `eventNames`, and
+send them all to `meta-capi`. Meta's stated requirements: roughly 200+ leads
+a month and a lead→stage conversion rate between 1–40%. This works for
+website-form leads, not just Instant Forms.
 
 ## Testing
 
-Events Manager → your dataset → **Test Events**. Add the **Test Event Code** to the destination config (PostHog exposes a field for it), fire a conversion, and confirm it shows up. Remove the test code before going live.
+Set `testEventCode` in the config, fire a conversion (e.g. re-ingest a
+`crm.deal_sold` stage change in a dev environment), and watch it appear in
+Events Manager → **Test Events**. Delivery state is also on your side:
+`conversion_dispatches` records attempts, the platform's `fbtrace_id`
+receipt, and any error. Remove the test code before going live.
 
-<Callout type="warn">
-  Meta requires a verified Business and a dataset/pixel in good standing. In the EU, only forward conversions for users who've consented to ad tracking — gate your app's PostHog conversion `capture` call (or the destination's event matcher) on your consent flag.
-</Callout>
+## Deduplication vs the browser Pixel
 
-## Deduplication
+If you also run Meta's browser Pixel for the same conversion, have the Pixel
+send the same `event_id` — Meta counts each conversion once (within ~48h,
+matching on `event_name` + `event_id`). If CAPI via Hogsend is the only
+source for that conversion (typical for CRM-stage events — the browser never
+sees a deal close), there's nothing to dedupe.
 
-If you **also** run Meta's browser Pixel, make it send the **same** `event_id` as the server event so Meta counts each conversion once (within ~48h). If PostHog is your only source for that conversion, there's nothing to dedupe.
+## Alternative: via PostHog
+
+PostHog's **Meta Ads Conversions** destination can forward PostHog-captured
+events to CAPI instead — Hogsend's analytics mirror keeps PostHog populated
+(including `value`/`currency`), so the plumbing exists. Prefer the native
+plugin when the conversion carries money or CRM stage evidence: it sends the
+engine's deterministic `event_id`, the recovered first-party click, and
+`action_source: system_generated` — none of which a mirror can reconstruct
+as faithfully. The PostHog route remains a fine choice for
+browser-context-rich, value-less events, and is the documented path for
+[Google](/docs/conversions/google-ads), [TikTok](/docs/conversions/tiktok),
+[LinkedIn](/docs/conversions/linkedin), and
+[Reddit](/docs/conversions/reddit) until those get native destinations.

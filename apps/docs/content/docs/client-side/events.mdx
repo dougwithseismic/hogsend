@@ -141,6 +141,28 @@ export const onChangelogClick = defineJourney({
   A `pk_` publishable key is fail-closed on origin: the `requirePublishableOrIngest` gate requires the key's `allowedOrigins` to list the request `Origin`. No allowlist, no `Origin` header, or an unlisted origin returns `403`.
 </Callout>
 
+## Ad-click attribution (`campaign.arrived`)
+
+When a visitor lands with a click ID (`fbclid`, `gclid`, `ttclid`,
+`msclkid`, `li_fat_id`, `rdt_cid`, …) or `utm_*` params in the URL, the SDK
+fires **`campaign.arrived`** automatically on init, carrying the click IDs,
+UTMs, landing page, and referrer as event properties — the touchpoint the
+[revenue loop](/docs/guides/revenue) later recovers as click evidence for
+[conversion feedback](/docs/conversions) (e.g. Meta's `fbc` needs the
+`fbclid` *and* the real click timestamp this event records).
+
+- Fires once per landing signature per session (a `sessionStorage` guard);
+  the ingest `idempotencyKey` (`campaign-arrival:<anon>:<sig>:<UTC day>`)
+  backstops multi-tab races server-side.
+- Every attributed landing overwrites the persisted **last-touch** set, even
+  when the event itself dedups.
+- `hogsend.getAttributionFields()` returns the current set as a flat map
+  (`hs_anonymous_id`, click IDs, `utm_*`, `hs_landing_page`,
+  `hs_captured_at`) — built for [lead-form hidden
+  fields](/docs/guides/lead-intake).
+- `captureAttribution: false` in the config turns auto-capture off.
+- Inert on unattributed landings (no click ID, no `utm_*`).
+
 ## Arrival capture (`hs_ref`)
 
 When a visitor lands from a tracked link or QR code whose link opted into
