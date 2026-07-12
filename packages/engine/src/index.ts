@@ -372,6 +372,12 @@ export {
   type CreatedAdmin,
   createAdminUser,
 } from "./lib/create-admin.js";
+// --- CRM sync (provider registry + the stage-event spine sink) ---
+export {
+  CRM_STAGE_CHANGED,
+  ingestCrmStageEvents,
+} from "./lib/crm-ingest.js";
+export { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Discord gateway-worker liveness heartbeat (Studio status) ---

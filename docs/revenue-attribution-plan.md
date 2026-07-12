@@ -20,7 +20,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 - [x] **3.1 `lead.submitted` canonical event + recipes.** Event constant + documented property shape (answers, qualification, hidden click-ID passthrough, optional `value`); consumer example webhook source in `apps/api`; docs recipes for Heyflow/Perspective/generic forms. NOT building a form engine.
 
 **Phase 4 — `CRMProvider`** *(coordinate with `feat/sources-prospects-p1` — reuse its Attio transport + `writeBack` seam; migration numbering will collide with its `0047` — whoever merges second regenerates)*
-- [ ] **4.1 Contract + registry + route.** `defineCrmProvider()` in core; registry + container resolution; `POST /v1/webhooks/crm/:providerId` (reserve `crm` source id).
+- [x] **4.1 Contract + registry + route.** (Email-keyed identity in this slice; `crm_links` alias resolution lands with 4.2.) `defineCrmProvider()` in core; registry + container resolution; `POST /v1/webhooks/crm/:providerId` (reserve `crm` source id).
 - [ ] **4.2 Stage maps + deals projection.** Per-client `(pipelineId, stageId) → canonical stage` config; canonical `crm.*` valued events; `deals` projection + `crm_links` + `crm_sync_cursors` migrations; monotonic-stage rule; new event types → `WEBHOOK_EVENT_TYPES` + both vendored catalogs.
 - [ ] **4.3 Reconciliation poll.** Hatchet task walking provider cursors; heals webhook gaps; idempotent with 4.2 events.
 - [ ] **4.4 `packages/plugin-ghl`.** OAuth/PIT auth, contact+opportunity push, `OpportunityStageUpdate` webhook (value-in-payload), poll fallback.

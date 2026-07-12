@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import type { DefinedConnector } from "../../connectors/define-connector.js";
+import { registerCrmProviderRoutes } from "./crm-provider.js";
 import { registerEmailProviderRoutes } from "./email-provider.js";
 import { resendWebhookRouter } from "./resend.js";
 import { registerSmsProviderRoutes } from "./sms-provider.js";
@@ -20,9 +21,12 @@ export function registerWebhookRoutes(
   //     `email/` prefix — MUST come before the catch-all),
   //  3. the `/v1/webhooks/sms/:providerId` id-dispatched route (static `sms/`
   //     prefix — MUST come before the catch-all),
-  //  4. the `/v1/webhooks/:sourceId` consumer-source catch-all (LAST).
+  //  4. the `/v1/webhooks/crm/:providerId` id-dispatched route (static `crm/`
+  //     prefix — MUST come before the catch-all),
+  //  5. the `/v1/webhooks/:sourceId` consumer-source catch-all (LAST).
   app.route("/v1/webhooks", resendWebhookRouter);
   registerEmailProviderRoutes(app);
   registerSmsProviderRoutes(app);
+  registerCrmProviderRoutes(app);
   registerWebhookSourceRoutes(app, opts.webhookConnectors);
 }

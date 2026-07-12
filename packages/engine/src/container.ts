@@ -2,6 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
+  CrmProvider,
   EmailProvider,
   JourneySourceLocation,
   PostHogService,
@@ -59,6 +60,7 @@ import {
   setAnalyticsEventMirror,
 } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
 import {
   createDomainStatusService,
   type DomainStatusService,
@@ -158,6 +160,14 @@ export interface HogsendClient {
    * Undefined when no SMS provider is configured.
    */
   smsProvider?: SmsProvider;
+  /**
+   * The container-held registry of CRM providers, keyed by `meta.id`. The
+   * `POST /v1/webhooks/crm/:providerId` route resolves the verifying provider
+   * out of this and the reconciliation poll walks it. Unlike email/SMS there
+   * is no single "active" CRM — many sync concurrently; `pushLead` callers
+   * name the provider. Empty when none configured.
+   */
+  crmProviders: CrmProviderRegistry;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -337,6 +347,18 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
+   * layer that pushes leads INTO client CRMs and lands pipeline stage changes
+   * + deal values back on the event spine as `crm.stage_changed`. Register
+   * one (`provider`) or many (`providers`); each is webhook-served at
+   * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
+   * it implements `poll`. No "active" selection — many CRMs sync at once.
+   */
+  crm?: {
+    provider?: CrmProvider;
+    providers?: CrmProvider[];
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -664,6 +686,14 @@ export function createHogsendClient(
     ...(opts.sms?.provider ? [opts.sms.provider] : []),
   ]);
   const smsConfigured = smsProviders.count() > 0;
+
+  // CRM sync providers (§Phase 4). No env presets yet — CRM credentials are
+  // per-deployment enough that construction stays consumer-side; the single
+  // `provider` merges LAST (wins an id collision with `providers`).
+  const crmProviders = new CrmProviderRegistry([
+    ...(opts.crm?.providers ?? []),
+    ...(opts.crm?.provider ? [opts.crm.provider] : []),
+  ]);
 
   const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
     sms: smsConfigured,
@@ -1113,11 +1143,13 @@ export function createHogsendClient(
   for (const connector of connectorList) {
     if (
       (connector.meta.transport ?? "webhook") === "webhook" &&
-      (connector.meta.id === "email" || connector.meta.id === "sms")
+      (connector.meta.id === "email" ||
+        connector.meta.id === "sms" ||
+        connector.meta.id === "crm")
     ) {
       throw new Error(
         `Connector id "${connector.meta.id}" is reserved for the ` +
-          "email/SMS-provider routes (POST /v1/webhooks/{email,sms}/:providerId). " +
+          "email/SMS/CRM-provider routes (POST /v1/webhooks/{email,sms,crm}/:providerId). " +
           "Rename the connector.",
       );
     }
@@ -1179,6 +1211,7 @@ export function createHogsendClient(
     smsService,
     smsProviders,
     smsProvider,
+    crmProviders,
     analyticsProviders,
     analytics,
     identity,
