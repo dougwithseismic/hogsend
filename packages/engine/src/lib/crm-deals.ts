@@ -138,83 +138,91 @@ export async function applyCrmStageEvent(opts: {
     };
   }
 
-  const existingRows = await db
-    .select()
-    .from(deals)
-    .where(
-      and(eq(deals.provider, providerId), eq(deals.externalId, event.dealId)),
-    )
-    .limit(1);
-  const existing = existingRows[0];
-  if (!existing) {
-    // Unreachable outside a delete race; surface rather than throw.
-    logger.warn("crm deal projection row vanished mid-apply", {
-      provider: providerId,
-      dealId: event.dealId,
-    });
+  // The monotonic guard is compute-then-write, so the read must be
+  // serialized against the webhook/poll race (API + worker processes can
+  // apply different stage events to the same deal concurrently — an
+  // unguarded late `quoted` committing after `sold` would regress it).
+  // SELECT ... FOR UPDATE holds the row until this event's write commits.
+  return db.transaction(async (tx) => {
+    const existingRows = await tx
+      .select()
+      .from(deals)
+      .where(
+        and(eq(deals.provider, providerId), eq(deals.externalId, event.dealId)),
+      )
+      .limit(1)
+      .for("update");
+    const existing = existingRows[0];
+    if (!existing) {
+      // Unreachable outside a delete race; surface rather than throw.
+      logger.warn("crm deal projection row vanished mid-apply", {
+        provider: providerId,
+        dealId: event.dealId,
+      });
+      return {
+        dealId: "",
+        freshQuoted: false,
+        freshSold: false,
+        value: insertValues.value,
+        currency: insertValues.currency,
+        canonicalStage,
+      };
+    }
+
+    const set: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
+    // Latest value always lands (quotes get revised), independent of stage
+    // direction.
+    if (event.value) {
+      set.value = event.value.amount;
+      set.currency = event.value.currency?.toUpperCase() ?? existing.currency;
+    }
+
+    let freshQuoted = false;
+    let freshSold = false;
+    const advances =
+      canonicalStage !== null &&
+      canonicalStage !== "lost" &&
+      rank !== null &&
+      rank > existing.stageRank &&
+      existing.canonicalStage !== "lost";
+    const losing =
+      canonicalStage === "lost" && existing.canonicalStage !== "sold";
+
+    if (advances) {
+      set.canonicalStage = canonicalStage;
+      set.stageRank = rank;
+      set.stageId = event.stageId;
+      set.pipelineId = event.pipelineId ?? existing.pipelineId;
+      set.lastStageAt = occurredAt;
+      if (canonicalStage === "quoted" && existing.quotedAt === null) {
+        set.quotedAt = occurredAt;
+        freshQuoted = true;
+      }
+      if (canonicalStage === "sold" && existing.soldAt === null) {
+        set.soldAt = occurredAt;
+        freshSold = true;
+      }
+    } else if (losing) {
+      set.canonicalStage = "lost";
+      set.stageId = event.stageId;
+      set.lastStageAt = occurredAt;
+      if (existing.lostAt === null) set.lostAt = occurredAt;
+    }
+
+    const updated = await tx
+      .update(deals)
+      .set(set)
+      .where(eq(deals.id, existing.id))
+      .returning();
+    const row = updated[0] ?? existing;
+
     return {
-      dealId: "",
-      freshQuoted: false,
-      freshSold: false,
-      value: insertValues.value,
-      currency: insertValues.currency,
+      dealId: row.id,
+      freshQuoted,
+      freshSold,
+      value: row.value,
+      currency: row.currency,
       canonicalStage,
     };
-  }
-
-  const set: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
-  // Latest value always lands (quotes get revised), independent of stage
-  // direction.
-  if (event.value) {
-    set.value = event.value.amount;
-    set.currency = event.value.currency?.toUpperCase() ?? existing.currency;
-  }
-
-  let freshQuoted = false;
-  let freshSold = false;
-  const advances =
-    canonicalStage !== null &&
-    canonicalStage !== "lost" &&
-    rank !== null &&
-    rank > existing.stageRank &&
-    existing.canonicalStage !== "lost";
-  const losing =
-    canonicalStage === "lost" && existing.canonicalStage !== "sold";
-
-  if (advances) {
-    set.canonicalStage = canonicalStage;
-    set.stageRank = rank;
-    set.stageId = event.stageId;
-    set.pipelineId = event.pipelineId ?? existing.pipelineId;
-    set.lastStageAt = occurredAt;
-    if (canonicalStage === "quoted" && existing.quotedAt === null) {
-      set.quotedAt = occurredAt;
-      freshQuoted = true;
-    }
-    if (canonicalStage === "sold" && existing.soldAt === null) {
-      set.soldAt = occurredAt;
-      freshSold = true;
-    }
-  } else if (losing) {
-    set.canonicalStage = "lost";
-    set.stageId = event.stageId;
-    set.lastStageAt = occurredAt;
-    if (existing.lostAt === null) set.lostAt = occurredAt;
-  }
-
-  const updated = await db
-    .update(deals)
-    .set(set)
-    .where(eq(deals.id, existing.id))
-    .returning();
-  const row = updated[0] ?? existing;
-
-  return {
-    dealId: row.id,
-    freshQuoted,
-    freshSold,
-    value: row.value,
-    currency: row.currency,
-    canonicalStage,
-  };
+  });
 }

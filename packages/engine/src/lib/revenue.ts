@@ -1,5 +1,16 @@
 import { type Database, userEvents } from "@hogsend/db";
-import { and, count, eq, isNotNull, max, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  eq,
+  isNotNull,
+  isNull,
+  max,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 
 /**
  * Revenue rollups over the event spine — pure reads of the first-class
@@ -7,6 +18,33 @@ import { and, count, eq, isNotNull, max, sql } from "drizzle-orm";
  * `user_events_valued_user_idx`). Totals are grouped per currency and NEVER
  * summed across currencies (a GBP deal and a USD deal don't add).
  */
+
+/**
+ * Events whose `value` must NOT count toward revenue: one CRM deal's value
+ * rides `crm.stage_changed` on EVERY stage change plus the once-per-stage
+ * money events, so summing them all counts one sale several times over —
+ * and a quote is unrealized money, not revenue. Only `crm.deal_sold` (and
+ * any other valued event) contributes. Keep the admin contacts `minRevenue`
+ * subquery (routes/admin/contacts.ts) in sync with this list.
+ */
+export const REVENUE_EXCLUDED_EVENTS = [
+  "crm.stage_changed",
+  "crm.deal_quoted",
+] as const;
+
+/**
+ * Rollup trust gate: browser (`pk_`/`inapp`) events can carry any value
+ * anyone mints, so they never count toward revenue — the same trust tier
+ * the conversion-point forged-value guard enforces. `source` null =
+ * engine-written, trusted.
+ */
+export function trustedValuedEventFilter() {
+  return and(
+    isNotNull(userEvents.value),
+    notInArray(userEvents.event, [...REVENUE_EXCLUDED_EVENTS]),
+    or(isNull(userEvents.source), ne(userEvents.source, "inapp")),
+  );
+}
 
 export interface ContactRevenueTotal {
   /** ISO-4217 code, or null for valued events ingested without a currency. */
@@ -39,7 +77,7 @@ export async function getContactRevenue(opts: {
       lastAt: max(userEvents.occurredAt),
     })
     .from(userEvents)
-    .where(and(eq(userEvents.userId, opts.key), isNotNull(userEvents.value)))
+    .where(and(eq(userEvents.userId, opts.key), trustedValuedEventFilter()))
     .groupBy(userEvents.currency);
 
   let lastValuedAt: Date | null = null;

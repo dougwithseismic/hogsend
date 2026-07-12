@@ -116,6 +116,24 @@ describe("conversion dispatch", () => {
         source: "inapp",
       },
     });
+    // 1b) a LATER click-ID-less arrival (utm-only newsletter landing) must
+    // not shadow the real ad click — recovery scans back past it.
+    await ingestEvent({
+      db,
+      registry,
+      hatchet,
+      logger,
+      event: {
+        event: "campaign.arrived",
+        userEmail: EMAIL,
+        eventProperties: {
+          utm_source: "newsletter",
+          landing_page: "https://x.com/blog",
+        },
+        occurredAt: "2026-07-11T09:00:00.000Z",
+        source: "inapp",
+      },
+    });
     // 2) the sale (server-side) fires the conversion + dispatch row
     await ingestEvent({
       db,

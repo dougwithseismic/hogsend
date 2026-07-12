@@ -5,7 +5,7 @@ process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const { contacts, deals } = await import("@hogsend/db");
-const { eq, inArray } = await import("drizzle-orm");
+const { inArray } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
 const mockHatchet = {

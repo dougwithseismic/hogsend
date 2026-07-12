@@ -187,7 +187,9 @@ export function createHubspotProvider(
         // header-only
       }
       const presented = headers["x-hubspot-secret"] ?? fromQuery;
-      if (presented !== config.webhookSecret) {
+      const a = Buffer.from(presented ?? "");
+      const b = Buffer.from(config.webhookSecret);
+      if (!presented || a.length !== b.length || !timingSafeEqual(a, b)) {
         throw new Error("HubSpot webhook secret mismatch");
       }
       return;

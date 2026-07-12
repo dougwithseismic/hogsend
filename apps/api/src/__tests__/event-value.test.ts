@@ -35,6 +35,7 @@ const RUN = `evv-${Date.now()}`;
 
 afterAll(async () => {
   await db.delete(userEvents).where(eq(userEvents.event, `${RUN}.event`));
+  await db.delete(userEvents).where(eq(userEvents.userId, `${RUN}-d`));
   for (const suffix of ["a", "b", "c", "d"]) {
     await db
       .delete(contacts)
@@ -135,6 +136,46 @@ describe("event value/currency — the revenue spine", () => {
     );
     expect(body.revenue.totals).toHaveLength(2);
     expect(body.revenue.lastValuedAt).toBeTruthy();
+  });
+
+  it("revenue rollups count one CRM deal once and ignore browser-minted values", async () => {
+    // One deal's value rides several timeline rows (stage_changed per change
+    // + the once-per-stage money events). Only crm.deal_sold may count —
+    // quotes are unrealized, the rest are duplicates. inapp (pk_) values are
+    // forgeable and never count.
+    const send = (event: string, value: number, source: string) =>
+      ingestEvent({
+        db,
+        registry,
+        hatchet,
+        logger,
+        event: {
+          event,
+          userId: `${RUN}-d`,
+          eventProperties: {},
+          value,
+          currency: "GBP",
+          idempotencyKey: `${RUN}-d-${event}-${value}`,
+          source,
+        },
+      });
+    await send("crm.stage_changed", 15900, "crm");
+    await send("crm.deal_quoted", 15900, "crm");
+    await send("crm.stage_changed", 17124, "crm");
+    await send("crm.deal_sold", 17124, "crm");
+    await send(`${RUN}.event`, 9999999, "inapp"); // forged browser value
+
+    const detail = await app.request(
+      `/v1/admin/contacts/${encodeURIComponent(`${RUN}-d`)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(detail.status).toBe(200);
+    const body = (await detail.json()) as {
+      revenue: { totals: { currency: string | null; total: number }[] };
+    };
+    expect(body.revenue.totals).toEqual([
+      { currency: "GBP", total: 17124, count: 1 },
+    ]);
   });
 
   it("ingestEvent (webhook-source path) is permissive: malformed currency drops, value survives; negative values (refunds) store", async () => {

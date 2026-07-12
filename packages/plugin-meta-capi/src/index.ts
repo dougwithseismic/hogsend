@@ -55,6 +55,11 @@ export function hashEmail(email: string): string {
   return sha256(email.trim().toLowerCase());
 }
 
+/**
+ * Meta wants digits-only WITH country code (E.164 minus the `+`). Store
+ * phones E.164 (lead intake does); a national-format "07700900123" hashes
+ * to a non-matching value — this function cannot guess the country.
+ */
 export function hashPhone(phone: string): string {
   return sha256(phone.replace(/[^0-9]/g, ""));
 }

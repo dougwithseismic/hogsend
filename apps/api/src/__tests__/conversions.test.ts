@@ -35,6 +35,16 @@ const browserConversion = defineConversion({
   sources: "any",
 });
 
+// The first-class value column is visible to `where` as `value` — the
+// "only quotes over £10k" gate (money events carry no property twin).
+const valueGateConversion = defineConversion({
+  id: `${RUN}-value-gate`,
+  trigger: {
+    event: `${RUN}.quote`,
+    where: (b) => b.prop("value").gte(10000),
+  },
+});
+
 const mockHatchet = {
   durableTask: vi.fn(() => ({
     run: vi.fn(),
@@ -48,7 +58,12 @@ const mockHatchet = {
 } as unknown as HogsendClient["hatchet"];
 
 const container = createHogsendClient({
-  conversions: [saleConversion, bigQuoteConversion, browserConversion],
+  conversions: [
+    saleConversion,
+    bigQuoteConversion,
+    browserConversion,
+    valueGateConversion,
+  ],
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);
@@ -62,6 +77,7 @@ afterAll(async () => {
         `${RUN}-sale`,
         `${RUN}-big-quote`,
         `${RUN}-browser-ok`,
+        `${RUN}-value-gate`,
       ]),
     );
   await db.delete(userEvents).where(eq(userEvents.userId, USER));
@@ -138,6 +154,32 @@ describe("conversion points at ingest", () => {
     const fired = await firedFor(`${RUN}-big-quote`);
     expect(fired).toHaveLength(1);
     expect(fired[0]).toMatchObject({ value: 50, currency: "GBP" });
+  });
+
+  it("where can gate on the first-class value column", async () => {
+    const quote = (value: number, key: string) =>
+      ingestEvent({
+        db,
+        registry,
+        hatchet,
+        logger,
+        event: {
+          event: `${RUN}.quote`,
+          userId: USER,
+          eventProperties: {},
+          value,
+          currency: "GBP",
+          idempotencyKey: `${RUN}-quote-${key}`,
+          source: "crm",
+        },
+      });
+    await quote(5000, "small");
+    expect(await firedFor(`${RUN}-value-gate`)).toHaveLength(0);
+
+    await quote(12000, "big");
+    const fired = await firedFor(`${RUN}-value-gate`);
+    expect(fired).toHaveLength(1);
+    expect(fired[0]).toMatchObject({ value: 12000, currency: "GBP" });
   });
 
   it("the forged-value guard: default definitions ignore browser (inapp) events; sources:'any' opts in", async () => {

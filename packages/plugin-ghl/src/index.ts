@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   type CrmLeadInput,
   type CrmMoney,
@@ -136,7 +137,14 @@ export function createGhlProvider(config: GhlProviderConfig): CrmProvider {
       // no usable URL — header-only
     }
     const presented = fromHeader ?? fromQuery;
-    if (!config.webhookSecret || presented !== config.webhookSecret) {
+    const a = Buffer.from(presented ?? "");
+    const b = Buffer.from(config.webhookSecret ?? "");
+    if (
+      !config.webhookSecret ||
+      !presented ||
+      a.length !== b.length ||
+      !timingSafeEqual(a, b)
+    ) {
       throw new Error("GHL webhook secret mismatch");
     }
   }

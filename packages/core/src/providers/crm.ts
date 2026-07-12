@@ -181,6 +181,13 @@ export interface CrmProvider {
   /**
    * Fetch the current state of one deal — the value-by-fetch path for CRMs
    * whose webhooks only say "something changed" (HubSpot, Attio, Monday).
+   *
+   * NOTE: the ENGINE never calls this. A thin-webhook provider must hydrate
+   * INSIDE its own `verifyWebhook`/`parseWebhook` before returning events
+   * (as the HubSpot/Attio references do) — a `crm.deal_sold` returned
+   * without `value` fires its conversion at null value, and the once-per-
+   * stage money event will not re-fire when the value arrives later. This
+   * member exists for ops tooling and provider-internal reuse.
    */
   hydrate?(dealId: string): Promise<{
     stageId: string;

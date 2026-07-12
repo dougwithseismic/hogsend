@@ -365,14 +365,6 @@ export interface HogsendClientOptions {
     linkHost?: string;
   };
   /**
-   * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
-   * layer that pushes leads INTO client CRMs and lands pipeline stage changes
-   * + deal values back on the event spine as `crm.stage_changed`. Register
-   * one (`provider`) or many (`providers`); each is webhook-served at
-   * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
-   * it implements `poll`. No "active" selection — many CRMs sync at once.
-   */
-  /**
    * Code-first conversion-point definitions (plan §5.1) — `defineConversion`
    * results. Evaluated inside `ingestEvent` after every fresh event insert;
    * fired instances land in the `conversions` table.
@@ -384,6 +376,14 @@ export interface HogsendClientOptions {
    * by id from `defineConversion({ destinations })`.
    */
   conversionDestinations?: ConversionDestination[];
+  /**
+   * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
+   * layer that pushes leads INTO client CRMs and lands pipeline stage changes
+   * + deal values back on the event spine as `crm.stage_changed`. Register
+   * one (`provider`) or many (`providers`); each is webhook-served at
+   * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
+   * it implements `poll`. No "active" selection — many CRMs sync at once.
+   */
   crm?: {
     provider?: CrmProvider;
     providers?: CrmProvider[];

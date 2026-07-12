@@ -36,10 +36,6 @@ export class ConversionDestinationRegistry {
   get(id: string): ConversionDestination | undefined {
     return this.byId.get(id);
   }
-
-  count(): number {
-    return this.byId.size;
-  }
 }
 
 const singleton = createOptionalSingleton<ConversionDestinationRegistry>();
@@ -93,7 +89,11 @@ export async function createConversionDispatches(opts: {
 /**
  * Recover the contact's click context: the most recent `campaign.arrived`
  * touchpoint at-or-before the conversion carrying at least one allowlisted
- * click ID. `occurredAt` doubles as the click timestamp (`fbc` needs it).
+ * click ID. A later click-ID-less arrival (a `utm_*`-only newsletter landing)
+ * must not shadow a real ad click, so we scan back past it; only when NO
+ * arrival carries a click ID does the latest one stand (for `landingPage`).
+ * The chosen arrival's `occurredAt` doubles as the click timestamp (`fbc`
+ * needs the real one).
  */
 export async function recoverClickContext(opts: {
   db: Database;
@@ -114,20 +114,37 @@ export async function recoverClickContext(opts: {
       ),
     )
     .orderBy(desc(userEvents.occurredAt))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return { clickIds: {} };
+    .limit(25);
+  if (rows.length === 0) return { clickIds: {} };
 
-  const properties = (row.properties ?? {}) as Record<string, unknown>;
-  const clickIds: Record<string, string> = {};
-  for (const param of CLICK_ID_PARAM_NAMES) {
-    const value = properties[param];
-    if (typeof value === "string" && value) clickIds[param] = value;
+  const extractClickIds = (row: (typeof rows)[number]) => {
+    const properties = (row.properties ?? {}) as Record<string, unknown>;
+    const clickIds: Record<string, string> = {};
+    for (const param of CLICK_ID_PARAM_NAMES) {
+      const value = properties[param];
+      if (typeof value === "string" && value) clickIds[param] = value;
+    }
+    return clickIds;
+  };
+
+  let chosen = rows[0] as (typeof rows)[number];
+  let clickIds = extractClickIds(chosen);
+  if (Object.keys(clickIds).length === 0) {
+    for (const row of rows.slice(1)) {
+      const candidate = extractClickIds(row);
+      if (Object.keys(candidate).length > 0) {
+        chosen = row;
+        clickIds = candidate;
+        break;
+      }
+    }
   }
-  const landingPage = properties.landing_page;
+
+  const landingPage = (chosen.properties as Record<string, unknown> | null)
+    ?.landing_page;
   return {
     clickIds,
-    clickAt: row.occurredAt.getTime(),
+    clickAt: chosen.occurredAt.getTime(),
     ...(typeof landingPage === "string" ? { landingPage } : {}),
   };
 }

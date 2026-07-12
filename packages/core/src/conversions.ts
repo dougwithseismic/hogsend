@@ -32,7 +32,12 @@ export interface ConversionMeta {
   /** The event that fires this conversion point. */
   trigger: {
     event: string;
-    /** Property conditions — array or the same builder journeys use. */
+    /**
+     * Property conditions — array or the same builder journeys use. The
+     * event's first-class `value`/`currency` are visible as `value`/
+     * `currency` (they win a property-name collision), so value gates like
+     * `(b) => b.prop("value").gte(10000)` work on money events.
+     */
     where?: JourneyWhere;
   };
   /**
