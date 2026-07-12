@@ -11,6 +11,7 @@ export * from "./connector-deliveries.js";
 export * from "./connector-link-codes.js";
 export * from "./contact-aliases.js";
 export * from "./contacts.js";
+export * from "./conversion-dispatches.js";
 export * from "./conversions.js";
 export * from "./dead-letter-queue.js";
 export * from "./deals.js";

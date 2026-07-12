@@ -2,6 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
+  ConversionDestination,
   CrmProvider,
   CrmStageMap,
   DefinedConversion,
@@ -63,6 +64,11 @@ import {
 } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import {
+  ConversionDestinationRegistry,
+  setConversionDestinations,
+  setConversionDispatchTask,
+} from "./lib/conversion-dispatch.js";
+import {
   ConversionRegistry,
   setConversionRegistry,
 } from "./lib/conversions.js";
@@ -106,6 +112,7 @@ import {
   type DefinedWebhookSource,
   webhookSourceToConnector,
 } from "./webhook-sources/define-webhook-source.js";
+import { dispatchConversionTask } from "./workflows/dispatch-conversion.js";
 
 export interface HogsendDefaults {
   /** Global fallback IANA timezone for scheduling. Defaults to "UTC". */
@@ -371,6 +378,12 @@ export interface HogsendClientOptions {
    * fired instances land in the `conversions` table.
    */
   conversions?: DefinedConversion[];
+  /**
+   * Conversion DESTINATIONS (plan §5.2) — ad-platform feedback providers
+   * (`defineConversionDestination`; Meta CAPI is the reference). Referenced
+   * by id from `defineConversion({ destinations })`.
+   */
+  conversionDestinations?: ConversionDestination[];
   crm?: {
     provider?: CrmProvider;
     providers?: CrmProvider[];
@@ -726,6 +739,15 @@ export function createHogsendClient(
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
   // the API and worker processes.
   setConversionRegistry(new ConversionRegistry(opts.conversions ?? []));
+  setConversionDestinations(
+    new ConversionDestinationRegistry(opts.conversionDestinations ?? []),
+  );
+  // The durable dispatch task reference (composition root — the lib module
+  // cannot import the workflow without a cycle). Left UNSET under a hatchet
+  // override so tests never touch real gRPC; dispatch rows stay pending.
+  if (!opts.overrides?.hatchet) {
+    setConversionDispatchTask(dispatchConversionTask);
+  }
 
   const channelLists = synthesizeChannelLists(opts.connectorActions ?? [], {
     sms: smsConfigured,

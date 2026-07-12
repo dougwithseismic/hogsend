@@ -30,6 +30,10 @@ import {
   resolveOrCreateContact,
 } from "./contacts.js";
 import {
+  conversionEventId,
+  enqueueConversionDispatches,
+} from "./conversion-dispatch.js";
+import {
   evaluateConversionsAtIngest,
   getConversionRegistry,
 } from "./conversions.js";
@@ -580,7 +584,7 @@ export async function ingestEvent(opts: {
   // caller; the unique (definition, event) index makes any replay a no-op.
   if (insertedRow) {
     try {
-      await evaluateConversionsAtIngest({
+      const fired = await evaluateConversionsAtIngest({
         db,
         logger,
         registry: getConversionRegistry(),
@@ -596,6 +600,24 @@ export async function ingestEvent(opts: {
         contactId,
         userKey: resolvedKey,
       });
+      // Fan fired conversions out to their ad-platform destinations (§5.2):
+      // idempotent dispatch rows + one durable task per fresh row. The
+      // deterministic event_id is stable across retries AND re-evaluations.
+      for (const firedConversion of fired) {
+        const destinationIds = firedConversion.definition.meta.destinations;
+        if (!destinationIds || destinationIds.length === 0) continue;
+        await enqueueConversionDispatches({
+          db,
+          logger,
+          conversionId: firedConversion.conversionId,
+          eventId: conversionEventId({
+            contactId,
+            definitionId: firedConversion.definition.meta.id,
+            eventRowId: insertedRow.id,
+          }),
+          destinationIds,
+        });
+      }
     } catch (err) {
       logger.warn("Conversion evaluation failed", {
         event: event.event,

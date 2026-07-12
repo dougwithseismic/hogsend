@@ -29,6 +29,7 @@ import {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
+import { dispatchConversionTask } from "./workflows/dispatch-conversion.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { importSuppressionsTask } from "./workflows/import-suppressions.js";
 import { journeyBlueprintInterpreter } from "./workflows/journey-blueprint-interpreter.js";
@@ -129,6 +130,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     bucketReconcileTask,
     bucketBackfillTask,
     crmReconcileTask,
+    dispatchConversionTask,
     ...journeyTasks,
     ...bucketTasks,
     ...bucketReactionTasks,

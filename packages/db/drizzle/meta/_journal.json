@@ -351,6 +351,13 @@
       "when": 1783877675294,
       "tag": "0049_wonderful_morlocks",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1783878105944,
+      "tag": "0050_public_beast",
+      "breakpoints": true
     }
   ]
 }

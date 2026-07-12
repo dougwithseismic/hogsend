@@ -367,6 +367,18 @@ export {
 } from "./lib/connector-state.js";
 // --- Contacts identity (resolve/create — used by connector member-link) ---
 export { resolveOrCreateContact } from "./lib/contacts.js";
+// --- Conversion dispatch (plan §5.2): destinations registry + delivery ---
+export {
+  ConversionDestinationRegistry,
+  conversionEventId,
+  createConversionDispatches,
+  deliverConversionDispatch,
+  enqueueConversionDispatches,
+  getConversionDestinations,
+  recoverClickContext,
+  resetConversionDestinations,
+  setConversionDestinations,
+} from "./lib/conversion-dispatch.js";
 // --- Conversion points (plan §5.1): registry + ingest-time evaluation ---
 export {
   ConversionRegistry,
