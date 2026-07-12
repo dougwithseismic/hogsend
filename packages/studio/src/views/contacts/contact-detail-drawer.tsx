@@ -22,7 +22,7 @@ import {
   updateContactPreferences,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 
 const TIMELINE_ICON = {
   event: Zap,
@@ -253,13 +253,7 @@ export function ContactDetailDrawer({
             {(() => {
               const revenue = contactQuery.data?.revenue;
               if (!revenue || revenue.totals.length === 0) return null;
-              const fmt = (total: number, currency: string | null) =>
-                currency
-                  ? new Intl.NumberFormat(undefined, {
-                      style: "currency",
-                      currency,
-                    }).format(total)
-                  : total.toLocaleString();
+              const fmt = formatCurrency;
               return (
                 <section>
                   <h3 className="eyebrow mb-3 text-white/50">Revenue</h3>

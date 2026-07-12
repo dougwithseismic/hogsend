@@ -33,8 +33,11 @@ export function BarChart({
 
   return (
     <div className="space-y-2">
+      {/* Columns must STRETCH to the container height (no items-end) or the
+          bars' percentage heights resolve against an auto-height parent and
+          collapse to zero. */}
       <div
-        className="flex items-end gap-1 rounded-md border border-hairline-faint bg-white/[0.015] p-3"
+        className="flex gap-1 rounded-md border border-hairline-faint bg-white/[0.015] p-3"
         style={{ height }}
       >
         {data.map((point) => {

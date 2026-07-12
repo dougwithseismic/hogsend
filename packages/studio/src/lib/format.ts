@@ -57,6 +57,34 @@ export function formatNumber(value: number | null | undefined): string {
   return value.toLocaleString();
 }
 
+/**
+ * Money with its ISO currency symbol; a plain locale number when the
+ * currency is absent/unknown. `maximumFractionDigits: 0` for dashboard
+ * figures; leave unset where cents matter (the contact revenue drawer).
+ */
+export function formatCurrency(
+  amount: number,
+  currency: string | null,
+  opts?: { maximumFractionDigits?: number },
+): string {
+  if (currency) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        ...(opts?.maximumFractionDigits !== undefined
+          ? { maximumFractionDigits: opts.maximumFractionDigits }
+          : {}),
+      }).format(amount);
+    } catch {
+      // Unknown code — fall through to the plain number.
+    }
+  }
+  return formatNumber(
+    opts?.maximumFractionDigits === 0 ? Math.round(amount) : amount,
+  );
+}
+
 /** Seconds → human duration ("2h 5m", "45s"). */
 export function formatDuration(secs: number | null | undefined): string {
   if (secs === null || secs === undefined || Number.isNaN(secs)) return "—";

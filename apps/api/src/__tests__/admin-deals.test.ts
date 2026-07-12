@@ -149,6 +149,87 @@ describe("admin deals ledger", () => {
     expect(body.avgTimeToCloseHours).not.toBeNull();
   });
 
+  it("search filters by contact email; timeseries buckets sold revenue by day", async () => {
+    const bySearch = await app.request(
+      `/v1/admin/deals?provider=${RUN}&search=${encodeURIComponent(RUN)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(bySearch.status).toBe(200);
+    const searchBody = (await bySearch.json()) as { total: number };
+    expect(searchBody.total).toBe(4);
+    const miss = await app.request(
+      `/v1/admin/deals?provider=${RUN}&search=nobody-matches-this`,
+      { headers: AUTH_HEADER },
+    );
+    expect(((await miss.json()) as { total: number }).total).toBe(0);
+
+    const ts = await app.request("/v1/admin/deals/timeseries?days=30", {
+      headers: AUTH_HEADER,
+    });
+    expect(ts.status).toBe(200);
+    const tsBody = (await ts.json()) as {
+      days: number;
+      revenue: Array<{
+        currency: string | null;
+        points: Array<{ date: string; value: number }>;
+      }>;
+      counts: {
+        sold: Array<{ date: string; value: number }>;
+        quoted: Array<{ date: string; value: number }>;
+        created: Array<{ date: string; value: number }>;
+      };
+    };
+    expect(tsBody.days).toBe(30);
+    const gbpSeries = tsBody.revenue.find((c) => c.currency === "GBP");
+    // The recent sold deal (today UTC, £10k) must appear in today's bucket;
+    // the January one is outside the window.
+    const today = new Date().toISOString().slice(0, 10);
+    const todayPoint = gbpSeries?.points.find((p) => p.date === today);
+    expect(todayPoint?.value).toBeGreaterThanOrEqual(10000);
+    expect(
+      gbpSeries?.points.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.date)),
+    ).toBe(true);
+    // Activity counts: today has at least our sold + quoted + created seeds.
+    expect(
+      tsBody.counts.sold.find((p) => p.date === today)?.value,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      tsBody.counts.quoted.find((p) => p.date === today)?.value,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      tsBody.counts.created.find((p) => p.date === today)?.value,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it("sorts by whitelisted columns and serves reached funnel counts", async () => {
+    const byValue = await app.request(
+      `/v1/admin/deals?provider=${RUN}&sort=value&dir=desc`,
+      { headers: AUTH_HEADER },
+    );
+    const valueBody = (await byValue.json()) as {
+      deals: Array<{ value: number | null }>;
+    };
+    const values = valueBody.deals.map((d) => d.value ?? -1);
+    expect(values).toEqual([...values].sort((a, b) => b - a));
+
+    const stats = await app.request("/v1/admin/deals/stats", {
+      headers: AUTH_HEADER,
+    });
+    const statsBody = (await stats.json()) as {
+      stageOrder: string[];
+      reached: Record<string, number>;
+    };
+    // Reached counts are non-increasing down the ladder (a TRUE funnel) and
+    // sold-reached covers our two sold seeds.
+    const ladder = statsBody.stageOrder.filter((s) => s !== "lost");
+    for (let i = 1; i < ladder.length; i++) {
+      const prev = statsBody.reached[ladder[i - 1] as string] ?? 0;
+      const curr = statsBody.reached[ladder[i] as string] ?? 0;
+      expect(curr).toBeLessThanOrEqual(prev);
+    }
+    expect(statsBody.reached.sold).toBeGreaterThanOrEqual(2);
+  });
+
   it("requires admin auth", async () => {
     const res = await app.request("/v1/admin/deals/stats");
     expect(res.status).toBe(401);

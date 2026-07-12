@@ -154,6 +154,17 @@ describe("configurable pipeline ladder (5b.1)", () => {
         overrides: { hatchet: mockHatchet },
       }),
     ).toThrow(/not in crm.stages/);
+    expect(() =>
+      createHogsendClient({
+        crm: {
+          provider: saasCrm,
+          stages: ["a", "b"],
+          quotedStage: "b",
+          soldStage: "b",
+        },
+        overrides: { hatchet: mockHatchet },
+      }),
+    ).toThrow(/cannot mint both/);
   });
 
   it("mid-ladder stages record without money events; the designated quote stage mints crm.deal_quoted", async () => {
