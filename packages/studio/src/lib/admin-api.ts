@@ -833,10 +833,18 @@ export function listContacts(search: string | undefined) {
   }>("/v1/admin/contacts", { query: { search, limit: 50 } });
 }
 
+/** Per-currency revenue rollup over the contact's valued events. */
+export type ContactRevenue = {
+  totals: { currency: string | null; total: number; count: number }[];
+  lastValuedAt: string | null;
+};
+
 export function getContact(id: string) {
-  return api.get<{ contact: Contact; preferences: ContactPreferences }>(
-    `/v1/admin/contacts/${encodeURIComponent(id)}`,
-  );
+  return api.get<{
+    contact: Contact;
+    preferences: ContactPreferences;
+    revenue: ContactRevenue;
+  }>(`/v1/admin/contacts/${encodeURIComponent(id)}`);
 }
 
 export type ContactActivity = {

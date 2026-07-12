@@ -101,6 +101,42 @@ describe("event value/currency — the revenue spine", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rolls valued events up per currency on GET /v1/admin/contacts/:id", async () => {
+    // Second valued event for the same contact in a different currency — the
+    // rollup must NOT sum across currencies.
+    const res = await app.request("/v1/events", {
+      method: "POST",
+      headers: AUTH_HEADER,
+      body: JSON.stringify({
+        name: `${RUN}.event`,
+        userId: `${RUN}-a`,
+        value: 500,
+        currency: "USD",
+      }),
+    });
+    expect(res.status).toBe(202);
+
+    const detail = await app.request(
+      `/v1/admin/contacts/${encodeURIComponent(`${RUN}-a`)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(detail.status).toBe(200);
+    const body = (await detail.json()) as {
+      revenue: {
+        totals: { currency: string | null; total: number; count: number }[];
+        lastValuedAt: string | null;
+      };
+    };
+    expect(body.revenue.totals).toEqual(
+      expect.arrayContaining([
+        { currency: "GBP", total: 13302.5, count: 1 },
+        { currency: "USD", total: 500, count: 1 },
+      ]),
+    );
+    expect(body.revenue.totals).toHaveLength(2);
+    expect(body.revenue.lastValuedAt).toBeTruthy();
+  });
+
   it("ingestEvent (webhook-source path) is permissive: malformed currency drops, value survives; negative values (refunds) store", async () => {
     await ingestEvent({
       db,

@@ -10,7 +10,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 - [x] **1.1 `value`/`currency` on events.** Migration adding `user_events.value numeric` + `user_events.currency char(3)`; `IngestEvent` type + ingest zod schema in `@hogsend/core`/engine; `ingestEvent()` threads them; `ctx.trigger` accepts them.
 - [x] **1.2 SDK + client surface.** `@hogsend/js` / `@hogsend/client` / `@hogsend/mcp` event types accept `value`/`currency`; vendored type copies synced.
 - [x] **1.3 PostHog-defer reversal.** Delete the CAPI-defer NOTE in `packages/engine/src/destinations/define-destination.ts`; amend `docs/product-spec.md`; destinations fan-out (PostHog preset) passes `value`/`currency` through.
-- [ ] **1.4 Revenue rollup.** Per-contact revenue (SQL view or query helper) + admin stats endpoint + Studio contact-detail revenue surface.
+- [x] **1.4 Revenue rollup.** Per-contact revenue (SQL view or query helper) + admin stats endpoint + Studio contact-detail revenue surface.
 
 **Phase 2 — Ad-click / touch capture**
 - [ ] **2.1 Click-ID capture in `@hogsend/js`.** Allowlist (`fbclid,gclid,gbraid,wbraid,ttclid,msclkid,li_fat_id,twclid,rdt_cid,epik,sccid` + `utm_*`) read at load → arrival event `{ clickIds, utm, landingPage, referrer }` on the anon identity; last-touch set persisted in the anon store; `getAttributionFields()` helper exported for hidden-field passthrough.

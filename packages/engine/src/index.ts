@@ -516,6 +516,12 @@ export {
 } from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
+// --- Revenue rollups (the event spine's value/currency columns) ---
+export {
+  type ContactRevenue,
+  type ContactRevenueTotal,
+  getContactRevenue,
+} from "./lib/revenue.js";
 // --- PostHog destination seed (idempotent; ENABLE_POSTHOG_DESTINATION) ---
 export { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 export {

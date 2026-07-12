@@ -10,6 +10,7 @@ import {
   serializePrefs,
 } from "../../lib/contacts.js";
 import { emitOutbound } from "../../lib/outbound.js";
+import { getContactRevenue } from "../../lib/revenue.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -34,6 +35,19 @@ const preferencesSchema = z
     categories: z.record(z.string(), z.boolean()),
   })
   .nullable();
+
+// Revenue rollup over the contact's valued events (`user_events.value`),
+// grouped per currency — never summed across currencies.
+const revenueSchema = z.object({
+  totals: z.array(
+    z.object({
+      currency: z.string().nullable(),
+      total: z.number(),
+      count: z.number(),
+    }),
+  ),
+  lastValuedAt: z.string().nullable(),
+});
 
 const listRoute = createRoute({
   method: "get",
@@ -79,10 +93,11 @@ const getRoute = createRoute({
           schema: z.object({
             contact: contactSchema,
             preferences: preferencesSchema,
+            revenue: revenueSchema,
           }),
         },
       },
-      description: "Contact with preferences",
+      description: "Contact with preferences and revenue rollup",
     },
     404: {
       content: {
@@ -249,16 +264,24 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
 
     // email_preferences.user_id uses external_id when present, else the contact
     // uuid as the deterministic fallback (risk 10 — email-only contacts).
-    const prefRows = await db
-      .select()
-      .from(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
-      .limit(1);
+    const [prefRows, revenue] = await Promise.all([
+      db
+        .select()
+        .from(emailPreferences)
+        .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+        .limit(1),
+      // Valued events are keyed by the contact's canonical event key — the
+      // same precedence ingestEvent resolves (`external ?? anon ?? id`).
+      getContactRevenue({
+        db,
+        key: contact.externalId ?? contact.anonymousId ?? contact.id,
+      }),
+    ]);
 
     const prefs = prefRows[0] ? serializePrefs(prefRows[0]) : null;
 
     return c.json(
-      { contact: serializeContact(contact), preferences: prefs },
+      { contact: serializeContact(contact), preferences: prefs, revenue },
       200,
     );
   })
