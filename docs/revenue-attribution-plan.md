@@ -14,7 +14,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 
 **Phase 2 — Ad-click / touch capture**
 - [x] **2.1 Click-ID capture in `@hogsend/js`.** Allowlist (`fbclid,gclid,gbraid,wbraid,ttclid,msclkid,li_fat_id,twclid,rdt_cid,epik,sccid` + `utm_*`) read at load → arrival event `{ clickIds, utm, landingPage, referrer }` on the anon identity; last-touch set persisted in the anon store; `getAttributionFields()` helper exported for hidden-field passthrough.
-- [ ] **2.2 Touchpoint classifier.** `@hogsend/core` helper defining the touchpoint event-class list (arrivals, `email.link_clicked`, `sms.clicked`, `email.action`, vanity arrivals, `lead.submitted`); used later by attribution + reporting.
+- [x] **2.2 Touchpoint classifier.** `@hogsend/core` helper defining the touchpoint event-class list (arrivals, `email.link_clicked`, `sms.clicked`, `email.action`, vanity arrivals, `lead.submitted`); used later by attribution + reporting.
 
 **Phase 3 — Lead intake**
 - [ ] **3.1 `lead.submitted` canonical event + recipes.** Event constant + documented property shape (answers, qualification, hidden click-ID passthrough, optional `value`); consumer example webhook source in `apps/api`; docs recipes for Heyflow/Perspective/generic forms. NOT building a form engine.

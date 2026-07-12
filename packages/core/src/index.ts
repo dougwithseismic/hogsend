@@ -1,4 +1,12 @@
 export {
+  isTouchpointEvent,
+  TOUCHPOINT_EVENT_CLASSES,
+  TOUCHPOINT_EVENTS,
+  type TouchpointChannel,
+  type TouchpointClass,
+  touchpointChannel,
+} from "./attribution/touchpoints.js";
+export {
   type CampaignWhere,
   type CohortBuilder,
   type ConditionContext,

@@ -589,6 +589,14 @@ export {
   prepareTrackedHtml,
   rewriteLinks,
 } from "./lib/tracking.js";
+// --- First-party tracking event names (touchpoint-classed in @hogsend/core) ---
+export {
+  EMAIL_LINK_CLICKED,
+  EMAIL_OPENED,
+  LINK_ARRIVED,
+  LINK_CLICKED,
+  SMS_LINK_CLICKED,
+} from "./lib/tracking-event-names.js";
 export {
   pushSmsTrackingEvent,
   pushTrackingEvent,
