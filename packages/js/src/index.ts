@@ -6,6 +6,17 @@
  */
 
 export type {
+  ClickIdParam,
+  ParsedAttribution,
+  StoredAttribution,
+} from "./attribution/index.js";
+export {
+  ATTRIBUTION_STORAGE_KEY,
+  buildAttributionFields,
+  CLICK_ID_PARAMS,
+  parseAttribution,
+} from "./attribution/index.js";
+export type {
   Banner,
   BannerClient,
   BannerClientOptions,

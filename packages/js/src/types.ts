@@ -79,6 +79,16 @@ export interface HogsendConfig {
    * SPAs that route before init and call {@link Hogsend.captureRef} manually.
    */
   captureRef?: boolean;
+  /**
+   * Campaign/ad-click attribution auto-capture. When the landing URL carries
+   * an allowlisted click ID (`fbclid`, `gclid`, `ttclid`, …) or any `utm_*`
+   * param, the SDK fires ONE `campaign.arrived` event (per landing signature,
+   * per session/day) with the params as flat properties, and persists the set
+   * as the last-touch attribution readable via
+   * {@link Hogsend.getAttributionFields}. Default true — inert on
+   * non-campaign pageloads.
+   */
+  captureAttribution?: boolean;
 }
 
 /** Result of a single {@link Hogsend.capture}. */
@@ -241,6 +251,14 @@ export interface Hogsend {
    * Never throws.
    */
   captureRef(ref?: string): Promise<boolean>;
+  /**
+   * The persisted last-touch attribution (click IDs, `utm_*`, landing page)
+   * plus the anon id, flattened for hidden-field passthrough into a
+   * third-party form (Heyflow/Perspective/…) so the eventual lead webhook
+   * carries identity + click IDs back to the engine. `{ hs_anonymous_id }`
+   * alone when nothing has been captured.
+   */
+  getAttributionFields(): Record<string, string>;
 
   // ── consumers of the spine ──
   /** v2 — default feedId "in_app". Throws "not implemented in v1". */

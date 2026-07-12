@@ -57,12 +57,14 @@
     "build": "tsup",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
-    "clean": "rm -rf node_modules dist .turbo"
+    "clean": "rm -rf node_modules dist .turbo",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
-    "tsup": "^8.5.1"
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22"
