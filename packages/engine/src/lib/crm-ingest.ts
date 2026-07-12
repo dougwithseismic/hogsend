@@ -3,8 +3,9 @@ import type {
   AnalyticsProvider,
   CrmStageEvent,
   CrmStageMap,
+  PipelineLadder,
 } from "@hogsend/core";
-import { resolveCanonicalStage } from "@hogsend/core";
+import { DEFAULT_PIPELINE_LADDER, resolveCanonicalStage } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { contacts, type Database } from "@hogsend/db";
 import { eq } from "drizzle-orm";
@@ -46,6 +47,8 @@ export async function ingestCrmStageEvents(opts: {
   providerId: string;
   events: CrmStageEvent[];
   stageMap?: CrmStageMap;
+  /** The deployment's canonical funnel; defaults to the built-in five. */
+  ladder?: PipelineLadder;
 }): Promise<{ ingested: number; skipped: number }> {
   const {
     db,
@@ -57,6 +60,7 @@ export async function ingestCrmStageEvents(opts: {
     events,
     stageMap,
   } = opts;
+  const ladder = opts.ladder ?? DEFAULT_PIPELINE_LADDER;
   let ingested = 0;
   let skipped = 0;
 
@@ -104,7 +108,7 @@ export async function ingestCrmStageEvents(opts: {
       }
       await ensureCrmLinks({ db, providerId, contactId, event });
 
-      const canonicalStage = resolveCanonicalStage(stageMap, event);
+      const canonicalStage = resolveCanonicalStage(stageMap, event, ladder);
       if (!canonicalStage) {
         logger.warn("crm stage unmapped — recording native ids only", {
           provider: providerId,
@@ -173,6 +177,7 @@ export async function ingestCrmStageEvents(opts: {
         contactId,
         event,
         canonicalStage,
+        ladder,
       });
 
       const outboundPayload = {
@@ -206,7 +211,14 @@ export async function ingestCrmStageEvents(opts: {
           ...(applied.freshSold ? [CRM_DEAL_SOLD] : []),
         ];
       for (const moneyEvent of moneyEvents) {
-        const stage = moneyEvent === CRM_DEAL_QUOTED ? "quoted" : "sold";
+        // The idempotency key keeps the SEMANTIC literal (stable across
+        // ladder edits); the event property carries the ladder's actual
+        // stage id (what a custom funnel calls it, e.g. "won").
+        const semantic = moneyEvent === CRM_DEAL_QUOTED ? "quoted" : "sold";
+        const stage =
+          (moneyEvent === CRM_DEAL_QUOTED
+            ? ladder.quotedStage
+            : ladder.soldStage) ?? semantic;
         await ingestEvent({
           db,
           registry,
@@ -231,7 +243,7 @@ export async function ingestCrmStageEvents(opts: {
                 }
               : {}),
             occurredAt: event.occurredAt,
-            idempotencyKey: `crm-canonical:${providerId}:${event.dealId}:${stage}`,
+            idempotencyKey: `crm-canonical:${providerId}:${event.dealId}:${semantic}`,
             source: "crm",
           },
         });
@@ -241,7 +253,7 @@ export async function ingestCrmStageEvents(opts: {
           logger,
           event: moneyEvent,
           payload: outboundPayload,
-          dedupeKey: `crm-canonical:${providerId}:${event.dealId}:${stage}`,
+          dedupeKey: `crm-canonical:${providerId}:${event.dealId}:${semantic}`,
         }).catch((err) => logger.warn("crm outbound emit failed", { err }));
       }
     } catch (err) {

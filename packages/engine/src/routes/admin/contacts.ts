@@ -62,9 +62,8 @@ const listRoute = createRoute({
       // Long-tail value filters (plan §4b.3): the "find my value customers"
       // query surface.
       minRevenue: z.coerce.number().optional(),
-      dealStage: z
-        .enum(["lead", "contacted", "survey_booked", "quoted", "sold", "lost"])
-        .optional(),
+      // Plain string: valid stages are the deployment's configured ladder.
+      dealStage: z.string().optional(),
     }),
   },
   responses: {

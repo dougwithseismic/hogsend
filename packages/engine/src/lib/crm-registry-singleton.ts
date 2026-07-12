@@ -1,4 +1,4 @@
-import type { CrmStageMap } from "@hogsend/core";
+import type { CrmStageMap, PipelineLadder } from "@hogsend/core";
 import type { CrmProviderRegistry } from "./crm-provider-registry.js";
 import { createOptionalSingleton } from "./singleton.js";
 
@@ -11,6 +11,8 @@ import { createOptionalSingleton } from "./singleton.js";
 export interface CrmSyncConfig {
   registry: CrmProviderRegistry;
   stageMaps: Record<string, CrmStageMap>;
+  /** The deployment's canonical funnel (normalized at boot). */
+  ladder: PipelineLadder;
 }
 
 const singleton = createOptionalSingleton<CrmSyncConfig>();

@@ -1,4 +1,3 @@
-import { CANONICAL_STAGES, type CanonicalStage } from "@hogsend/core";
 import { contacts, deals } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
@@ -7,10 +6,9 @@ import type { AppEnv } from "../../app.js";
 /**
  * Admin deals API (docs/revenue-attribution-plan.md §4b.1) — the ledger view
  * over the `deals` projection: filterable list for the Studio pipeline board
- * + the revenue stats block (per-currency, never cross-summed).
+ * + the revenue stats block (per-currency, never cross-summed). Stages are
+ * the deployment's configured ladder (`client.crmLadder`), not a fixed enum.
  */
-
-const STAGE_VALUES = [...CANONICAL_STAGES, "lost"] as [string, ...string[]];
 
 const dealSchema = z.object({
   id: z.string(),
@@ -37,7 +35,8 @@ const listRoute = createRoute({
   summary: "List deals (the revenue ledger)",
   request: {
     query: z.object({
-      stage: z.enum(STAGE_VALUES).optional(),
+      // Plain string: valid stages are the deployment's configured ladder.
+      stage: z.string().optional(),
       provider: z.string().optional(),
       minValue: z.coerce.number().optional(),
       maxValue: z.coerce.number().optional(),
@@ -64,6 +63,9 @@ const listRoute = createRoute({
 });
 
 const statsSchema = z.object({
+  /** The configured ladder in rank order, `lost` last — render columns in
+   * THIS order. */
+  stageOrder: z.array(z.string()),
   /** Counts per canonical stage (current projection state). */
   stages: z.record(z.string(), z.number()),
   /** Per-currency money blocks — never summed across currencies. */
@@ -161,7 +163,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(statsRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, crmLadder } = c.get("container");
     // ISO string + explicit cast: a raw Date param inside a sql`` fragment
     // serializes as a JS date string postgres cannot parse.
     const thirtyDaysAgo = new Date(
@@ -195,14 +197,16 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
         .where(sql`${deals.soldAt} is not null`),
     ]);
 
+    const stageOrder = [...crmLadder.stages, "lost"];
     const stages: Record<string, number> = {};
-    for (const stage of [...CANONICAL_STAGES, "lost" as CanonicalStage]) {
+    for (const stage of stageOrder) {
       stages[stage] = 0;
     }
     for (const row of stageRows) stages[row.stage] = Number(row.n);
 
     return c.json(
       {
+        stageOrder,
         stages,
         currencies: currencyRows
           .map((row) => ({

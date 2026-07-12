@@ -21,6 +21,7 @@ export async function dispatchCrmProviderWebhook(
   const {
     crmProviders,
     crmStageMaps,
+    crmLadder,
     db,
     registry,
     hatchet,
@@ -51,6 +52,7 @@ export async function dispatchCrmProviderWebhook(
       providerId,
       events,
       stageMap: crmStageMaps[providerId],
+      ladder: crmLadder,
     });
     logger.info("CRM provider webhook processed", {
       providerId,

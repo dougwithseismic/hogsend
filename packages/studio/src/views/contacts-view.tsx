@@ -17,19 +17,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { listContacts, qk } from "@/lib/admin-api";
+import { getDealsStats, listContacts, qk } from "@/lib/admin-api";
 import { formatRelative } from "@/lib/format";
 import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
-const DEAL_STAGE_OPTIONS = [
-  { value: "", label: "Any deal stage" },
-  { value: "lead", label: "Deal: lead" },
-  { value: "contacted", label: "Deal: contacted" },
-  { value: "survey_booked", label: "Deal: survey booked" },
-  { value: "quoted", label: "Deal: quoted" },
-  { value: "sold", label: "Deal: sold" },
-  { value: "lost", label: "Deal: lost" },
+/** Fallback for engines that predate the configurable ladder. */
+const DEFAULT_DEAL_STAGES = [
+  "lead",
+  "contacted",
+  "survey_booked",
+  "quoted",
+  "sold",
+  "lost",
 ];
+
+function stageLabel(stage: string): string {
+  const words = stage.replace(/[_-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 export function ContactsView() {
   const [searchInput, setSearchInput] = useState("");
@@ -38,6 +43,20 @@ export function ContactsView() {
   const [minRevenue, setMinRevenue] = useState<number | undefined>(undefined);
   const [dealStage, setDealStage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // The deployment's configured pipeline ladder drives the stage options.
+  const statsQuery = useQuery({
+    queryKey: qk.dealsStats,
+    queryFn: getDealsStats,
+    staleTime: 60_000,
+  });
+  const dealStageOptions = [
+    { value: "", label: "Any deal stage" },
+    ...(statsQuery.data?.stageOrder ?? DEFAULT_DEAL_STAGES).map((s) => ({
+      value: s,
+      label: `Deal: ${stageLabel(s).toLowerCase()}`,
+    })),
+  ];
 
   // Debounce the text filters so we don't fire a request per keystroke.
   useEffect(() => {
@@ -96,7 +115,7 @@ export function ContactsView() {
             onChange={(e) => setDealStage(e.target.value)}
             aria-label="Filter by deal stage"
           >
-            {DEAL_STAGE_OPTIONS.map((o) => (
+            {dealStageOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>

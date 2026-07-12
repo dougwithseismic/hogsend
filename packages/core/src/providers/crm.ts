@@ -21,11 +21,11 @@
 // ---------------------------------------------------------------------------
 
 /**
- * The canonical funnel every client's arbitrary pipeline maps ONTO, in rank
- * order. `lost` is terminal-negative and unranked. Stage progression is
- * monotonic in the engine's deals projection: a late-arriving lower-rank
- * event never regresses a deal (heals webhook+poll double-detection and
- * out-of-order delivery).
+ * The DEFAULT canonical funnel — what a deployment gets with no ladder
+ * config. `lost` is terminal-negative, reserved, and never part of a ladder.
+ * Stage progression is monotonic in the engine's deals projection: a
+ * late-arriving lower-rank event never regresses a deal (heals webhook+poll
+ * double-detection and out-of-order delivery).
  */
 export const CANONICAL_STAGES = [
   "lead",
@@ -35,12 +35,99 @@ export const CANONICAL_STAGES = [
   "sold",
 ] as const;
 
-export type CanonicalStage = (typeof CANONICAL_STAGES)[number] | "lost";
+/**
+ * A canonical stage id. Ladder-defined per deployment (see
+ * {@link PipelineLadder}) plus the reserved terminal `"lost"` — so plain
+ * `string`; the engine validates stage-map values against the configured
+ * ladder at boot instead of the compiler.
+ */
+export type CanonicalStage = string;
 
-/** Rank for monotonic progression; `lost` maps to -1 (terminal-negative). */
-export function canonicalStageRank(stage: CanonicalStage): number {
+/**
+ * The deployment's canonical funnel: YOUR ordered stage ids (first = entry),
+ * plus which stages mint the two money events. The event NAMES stay stable
+ * across any ladder (`crm.deal_quoted` = "a money signal was issued",
+ * `crm.deal_sold` = "revenue realized"); the ladder only picks WHICH stage
+ * means which. Configured via `createHogsendClient({ crm: { stages,
+ * quotedStage, soldStage } })`; defaults to {@link DEFAULT_PIPELINE_LADDER}.
+ */
+export interface PipelineLadder {
+  /** Ordered positive stages; index = monotonic rank. Never contains "lost". */
+  stages: readonly string[];
+  /** The stage that mints `crm.deal_quoted`. Absent = no quote signal. */
+  quotedStage?: string;
+  /** The stage that mints `crm.deal_sold` (and blocks `lost` overwrites). */
+  soldStage?: string;
+}
+
+export const DEFAULT_PIPELINE_LADDER: PipelineLadder = {
+  stages: CANONICAL_STAGES,
+  quotedStage: "quoted",
+  soldStage: "sold",
+};
+
+/**
+ * Validate + normalize ladder config. Custom `stages` default `soldStage` to
+ * the LAST stage (a funnel ends in the sale) and `quotedStage` to a stage
+ * literally named "quoted" when present; explicit designations override.
+ * Throws on: empty/duplicate/reserved stage ids, or a designation not in
+ * `stages`.
+ */
+export function normalizePipelineLadder(input?: {
+  stages?: string[];
+  quotedStage?: string;
+  soldStage?: string;
+}): PipelineLadder {
+  const stages = input?.stages ?? [...DEFAULT_PIPELINE_LADDER.stages];
+  if (stages.length === 0) {
+    throw new Error("crm.stages must contain at least one stage");
+  }
+  const seen = new Set<string>();
+  for (const stage of stages) {
+    if (!stage || stage === "lost") {
+      throw new Error(
+        `crm.stages contains reserved/empty stage id ${JSON.stringify(stage)} — "lost" is the implicit terminal`,
+      );
+    }
+    if (seen.has(stage)) {
+      throw new Error(`crm.stages contains duplicate stage id "${stage}"`);
+    }
+    seen.add(stage);
+  }
+  const usingDefaults = !input?.stages;
+  const quotedStage =
+    input?.quotedStage ??
+    (usingDefaults
+      ? DEFAULT_PIPELINE_LADDER.quotedStage
+      : stages.includes("quoted")
+        ? "quoted"
+        : undefined);
+  const soldStage =
+    input?.soldStage ??
+    (usingDefaults ? DEFAULT_PIPELINE_LADDER.soldStage : stages.at(-1));
+  for (const [name, value] of [
+    ["quotedStage", quotedStage],
+    ["soldStage", soldStage],
+  ] as const) {
+    if (value !== undefined && !seen.has(value)) {
+      throw new Error(`crm.${name} "${value}" is not in crm.stages`);
+    }
+  }
+  return { stages, quotedStage, soldStage };
+}
+
+/**
+ * Rank for monotonic progression against a ladder; `lost` maps to -1
+ * (terminal-negative) and an id not in the ladder maps to `null` (unranked —
+ * the projection records it without advancing).
+ */
+export function canonicalStageRank(
+  stage: CanonicalStage,
+  ladder: PipelineLadder = DEFAULT_PIPELINE_LADDER,
+): number | null {
   if (stage === "lost") return -1;
-  return CANONICAL_STAGES.indexOf(stage);
+  const idx = ladder.stages.indexOf(stage);
+  return idx >= 0 ? idx : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,18 +306,20 @@ export type CrmStageMap = Record<string, Record<string, CanonicalStage>>;
 
 /**
  * Resolve a stage event to its canonical stage: exact pipeline entry first,
- * then the `"*"` fallback, then the provider's won/lost status hint, else
- * `null` (unmapped — the engine surfaces it, never silently drops).
+ * then the `"*"` fallback, then the provider's won/lost status hint (won =
+ * the ladder's designated sold stage), else `null` (unmapped — the engine
+ * surfaces it, never silently drops).
  */
 export function resolveCanonicalStage(
   map: CrmStageMap | undefined,
   event: Pick<CrmStageEvent, "pipelineId" | "stageId" | "status">,
+  ladder: PipelineLadder = DEFAULT_PIPELINE_LADDER,
 ): CanonicalStage | null {
   const fromMap =
     (event.pipelineId ? map?.[event.pipelineId]?.[event.stageId] : undefined) ??
     map?.["*"]?.[event.stageId];
   if (fromMap) return fromMap;
-  if (event.status === "won") return "sold";
+  if (event.status === "won") return ladder.soldStage ?? null;
   if (event.status === "lost") return "lost";
   return null;
 }

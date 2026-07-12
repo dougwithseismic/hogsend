@@ -88,25 +88,42 @@ contact's timeline, and the `deals` table projects the latest state per deal:
 provider, pipeline, native stage, **canonical stage**, value, and the
 timestamps that matter (`quotedAt`, `soldAt`, `lostAt`).
 
-### Canonical stages
+### Canonical stages — your ladder, not ours
 
 Every CRM names its pipeline differently. Hogsend maps native stages onto a
-canonical, ordered set:
+canonical, ordered ladder. The default:
 
 ```
 lead → contacted → survey_booked → quoted → sold        (and: lost)
 ```
 
-The projection is **monotonic**: a late-arriving `contacted` webhook can
-never regress a deal that's already `sold`, and `lost` never overwrites
-`sold`. Out-of-order delivery and webhook/poll double-detection heal
-themselves.
+The ladder is **yours to define** — a SaaS funnel replaces it wholesale:
 
-Two stages mint **money events** on the contact's timeline, each carrying the
-deal's value first-class:
+```ts
+crm: {
+  stages: ["trial", "demo", "poc", "won"],
+  quotedStage: "poc",   // which stage mints crm.deal_quoted
+  soldStage: "won",     // default: the last stage
+  stageMaps: { ... },   // native stage ids → YOUR ladder (boot-validated)
+}
+```
 
-- **`crm.deal_quoted`** — the mid-funnel money signal (cost-per-quote).
-- **`crm.deal_sold`** — the revenue conversion.
+Rank comes from array order; `lost` stays the implicit terminal. Zero
+migration — only new stage events re-rank. Studio's board and filters render
+whatever ladder you configure.
+
+The projection is **monotonic**: a late-arriving lower-stage webhook can
+never regress a deal that's already further along, and `lost` never
+overwrites the sold stage. Out-of-order delivery and webhook/poll
+double-detection heal themselves.
+
+Two designated stages mint **money events** on the contact's timeline, each
+carrying the deal's value first-class — the event names stay stable across
+any ladder (journeys and conversion points never chase your naming):
+
+- **`crm.deal_quoted`** — the mid-funnel money signal (cost-per-quote),
+  minted by `quotedStage`.
+- **`crm.deal_sold`** — the revenue conversion, minted by `soldStage`.
 
 Both (plus `crm.stage_changed`) are on the
 [outbound webhook catalog](/docs/data-api/webhooks) and can trigger journeys

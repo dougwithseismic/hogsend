@@ -1687,6 +1687,8 @@ export type DealListFilters = {
 };
 
 export type DealsStats = {
+  /** Configured ladder in rank order, `lost` last (older engines omit it). */
+  stageOrder?: string[];
   stages: Record<string, number>;
   currencies: Array<{
     currency: string | null;

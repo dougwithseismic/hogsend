@@ -60,6 +60,7 @@ export async function runCrmReconcile(deps: {
         providerId,
         events: result.events,
         stageMap: config.stageMaps[providerId],
+        ladder: config.ladder,
       });
       ingested += sink.ingested;
       polled++;
