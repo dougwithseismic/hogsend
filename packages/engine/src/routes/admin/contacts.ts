@@ -10,6 +10,7 @@ import {
   serializePrefs,
 } from "../../lib/contacts.js";
 import { emitOutbound } from "../../lib/outbound.js";
+import { getContactRevenue } from "../../lib/revenue.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -35,6 +36,19 @@ const preferencesSchema = z
   })
   .nullable();
 
+// Revenue rollup over the contact's valued events (`user_events.value`),
+// grouped per currency — never summed across currencies.
+const revenueSchema = z.object({
+  totals: z.array(
+    z.object({
+      currency: z.string().nullable(),
+      total: z.number(),
+      count: z.number(),
+    }),
+  ),
+  lastValuedAt: z.string().nullable(),
+});
+
 const listRoute = createRoute({
   method: "get",
   path: "/",
@@ -45,6 +59,12 @@ const listRoute = createRoute({
       limit: z.coerce.number().min(1).max(100).default(50),
       offset: z.coerce.number().min(0).default(0),
       search: z.string().optional(),
+      // Long-tail value filters (plan §4b.3): the "find my value customers"
+      // query surface.
+      minRevenue: z.coerce.number().optional(),
+      dealStage: z
+        .enum(["lead", "contacted", "survey_booked", "quoted", "sold", "lost"])
+        .optional(),
     }),
   },
   responses: {
@@ -79,10 +99,11 @@ const getRoute = createRoute({
           schema: z.object({
             contact: contactSchema,
             preferences: preferencesSchema,
+            revenue: revenueSchema,
           }),
         },
       },
-      description: "Contact with preferences",
+      description: "Contact with preferences and revenue rollup",
     },
     404: {
       content: {
@@ -209,13 +230,42 @@ const serializeContact = (row: typeof contacts.$inferSelect) =>
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
-    const { limit, offset, search } = c.req.valid("query");
+    const { limit, offset, search, minRevenue, dealStage } =
+      c.req.valid("query");
 
     const searchFilter = search ? contactSearchFilter(search) : undefined;
 
-    const where = searchFilter
-      ? and(searchFilter, isNull(contacts.deletedAt))
-      : isNull(contacts.deletedAt);
+    // Valued events are keyed by the contact's canonical event key
+    // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
+    // resolves. Served by the partial user_events_valued_user_idx.
+    // Exclusions mirror lib/revenue.ts (REVENUE_EXCLUDED_EVENTS + the
+    // browser trust gate): one deal's value rides several CRM rows, and
+    // pk_-minted values are forgeable.
+    const revenueFilter =
+      minRevenue !== undefined
+        ? sql`(
+            select coalesce(sum(ue.value), 0)
+            from user_events ue
+            where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
+              and ue.value is not null
+              and ue.event not in ('crm.stage_changed', 'crm.deal_quoted')
+              and (ue.source is null or ue.source <> 'inapp')
+          ) >= ${minRevenue}`
+        : undefined;
+    const dealStageFilter = dealStage
+      ? sql`exists (
+          select 1 from deals d
+          where d.contact_id = ${contacts.id}
+            and d.canonical_stage = ${dealStage}
+        )`
+      : undefined;
+
+    const where = and(
+      isNull(contacts.deletedAt),
+      ...(searchFilter ? [searchFilter] : []),
+      ...(revenueFilter ? [revenueFilter] : []),
+      ...(dealStageFilter ? [dealStageFilter] : []),
+    );
 
     const [rows, totalRows] = await Promise.all([
       db
@@ -249,16 +299,24 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
 
     // email_preferences.user_id uses external_id when present, else the contact
     // uuid as the deterministic fallback (risk 10 — email-only contacts).
-    const prefRows = await db
-      .select()
-      .from(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
-      .limit(1);
+    const [prefRows, revenue] = await Promise.all([
+      db
+        .select()
+        .from(emailPreferences)
+        .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+        .limit(1),
+      // Valued events are keyed by the contact's canonical event key — the
+      // same precedence ingestEvent resolves (`external ?? anon ?? id`).
+      getContactRevenue({
+        db,
+        key: contact.externalId ?? contact.anonymousId ?? contact.id,
+      }),
+    ]);
 
     const prefs = prefRows[0] ? serializePrefs(prefRows[0]) : null;
 
     return c.json(
-      { contact: serializeContact(contact), preferences: prefs },
+      { contact: serializeContact(contact), preferences: prefs, revenue },
       200,
     );
   })

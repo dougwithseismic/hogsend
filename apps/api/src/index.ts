@@ -18,6 +18,7 @@ import {
 } from "@hogsend/plugin-telegram";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
+import { conversions } from "./conversions/index.js";
 import {
   buildDiscordConnector,
   discordColdConnect,
@@ -35,6 +36,7 @@ const discordConnector = buildDiscordConnector();
 
 const client = createHogsendClient({
   journeys,
+  conversions,
   buckets,
   lists,
   email: { templates },

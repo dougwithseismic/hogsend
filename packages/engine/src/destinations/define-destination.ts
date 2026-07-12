@@ -21,9 +21,13 @@ import type { OutboundEventName } from "../lib/outbound.js";
  * into the process {@link getDestinationRegistry} the delivery task reads.
  *
  * NOTE: `defineDestination` is for event FAN-OUT to product/data tools
- * (PostHog, Segment, Slack, a CRM, a warehouse). It is NOT the home for
- * ad-platform conversion forwarding (CAPI) — that stays deferred to PostHog CDP;
- * Hogsend just fires the events.
+ * (PostHog, Segment, Slack, a CRM, a warehouse). Ad-platform conversion
+ * forwarding (Meta CAPI, Google Enhanced Conversions) is Hogsend-native but
+ * lives in its own sibling layer (`defineConversionDestination`, per
+ * docs/revenue-attribution-plan.md) — it needs identifier hashing, click-id
+ * joins, and deterministic event_id idempotency this generic pipe deliberately
+ * does not have. It is NOT deferred to any third-party CDP: the money path has
+ * no external dependency.
  */
 
 /** A live `webhook_endpoints` row, as read by the delivery task. */

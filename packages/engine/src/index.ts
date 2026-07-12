@@ -367,11 +367,51 @@ export {
 } from "./lib/connector-state.js";
 // --- Contacts identity (resolve/create — used by connector member-link) ---
 export { resolveOrCreateContact } from "./lib/contacts.js";
+// --- Conversion dispatch (plan §5.2): destinations registry + delivery ---
+export {
+  ConversionDestinationRegistry,
+  conversionEventId,
+  createConversionDispatches,
+  deliverConversionDispatch,
+  enqueueConversionDispatches,
+  getConversionDestinations,
+  recoverClickContext,
+  resetConversionDestinations,
+  setConversionDestinations,
+} from "./lib/conversion-dispatch.js";
+// --- Conversion points (plan §5.1): registry + ingest-time evaluation ---
+export {
+  ConversionRegistry,
+  evaluateConversionsAtIngest,
+  type FiredConversion,
+  getConversionRegistry,
+  resetConversionRegistry,
+  setConversionRegistry,
+} from "./lib/conversions.js";
 export {
   AdminAlreadyExistsError,
   type CreatedAdmin,
   createAdminUser,
 } from "./lib/create-admin.js";
+// --- CRM sync (provider registry + the stage-event spine sink) ---
+export {
+  type AppliedStageChange,
+  applyCrmStageEvent,
+  ensureCrmLinks,
+  resolveCrmLinkedContact,
+} from "./lib/crm-deals.js";
+export {
+  CRM_DEAL_QUOTED,
+  CRM_DEAL_SOLD,
+  CRM_STAGE_CHANGED,
+  ingestCrmStageEvents,
+} from "./lib/crm-ingest.js";
+export { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
+export {
+  getCrmSyncConfig,
+  resetCrmSyncConfig,
+  setCrmSyncConfig,
+} from "./lib/crm-registry-singleton.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Discord gateway-worker liveness heartbeat (Studio status) ---
@@ -516,6 +556,12 @@ export {
 } from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
+// --- Revenue rollups (the event spine's value/currency columns) ---
+export {
+  type ContactRevenue,
+  type ContactRevenueTotal,
+  getContactRevenue,
+} from "./lib/revenue.js";
 // --- PostHog destination seed (idempotent; ENABLE_POSTHOG_DESTINATION) ---
 export { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 export {
@@ -583,6 +629,14 @@ export {
   prepareTrackedHtml,
   rewriteLinks,
 } from "./lib/tracking.js";
+// --- First-party tracking event names (touchpoint-classed in @hogsend/core) ---
+export {
+  EMAIL_LINK_CLICKED,
+  EMAIL_OPENED,
+  LINK_ARRIVED,
+  LINK_CLICKED,
+  SMS_LINK_CLICKED,
+} from "./lib/tracking-event-names.js";
 export {
   pushSmsTrackingEvent,
   pushTrackingEvent,
@@ -743,6 +797,10 @@ export {
   checkAlertsTask,
   surfaceStrandedWaiting,
 } from "./workflows/check-alerts.js";
+export {
+  crmReconcileTask,
+  runCrmReconcile,
+} from "./workflows/crm-reconcile.js";
 // --- Outbound webhooks: durable delivery task + reaper (Section 1.5) ---
 export {
   deliverWebhookTask,

@@ -20,6 +20,10 @@ export interface QueuedEvent {
   userToken?: string;
   idempotencyKey?: string;
   timestamp?: string;
+  /** Event's monetary worth → `user_events.value` (revenue spine). */
+  value?: number;
+  /** ISO-4217 alpha code for `value`. */
+  currency?: string;
 }
 
 export interface QueueOptions {

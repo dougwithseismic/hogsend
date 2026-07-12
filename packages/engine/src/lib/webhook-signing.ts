@@ -71,6 +71,9 @@ export const WEBHOOK_EVENT_TYPES = [
   "bucket.left",
   "link.clicked",
   "link.arrived",
+  "crm.stage_changed",
+  "crm.deal_quoted",
+  "crm.deal_sold",
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

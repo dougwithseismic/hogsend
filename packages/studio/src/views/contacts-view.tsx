@@ -8,6 +8,7 @@ import {
   TableSkeleton,
 } from "@/components/states";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -20,20 +21,41 @@ import { listContacts, qk } from "@/lib/admin-api";
 import { formatRelative } from "@/lib/format";
 import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
+const DEAL_STAGE_OPTIONS = [
+  { value: "", label: "Any deal stage" },
+  { value: "lead", label: "Deal: lead" },
+  { value: "contacted", label: "Deal: contacted" },
+  { value: "survey_booked", label: "Deal: survey booked" },
+  { value: "quoted", label: "Deal: quoted" },
+  { value: "sold", label: "Deal: sold" },
+  { value: "lost", label: "Deal: lost" },
+];
+
 export function ContactsView() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [minRevenueInput, setMinRevenueInput] = useState("");
+  const [minRevenue, setMinRevenue] = useState<number | undefined>(undefined);
+  const [dealStage, setDealStage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Debounce the search box so we don't fire a request per keystroke.
+  // Debounce the text filters so we don't fire a request per keystroke.
   useEffect(() => {
-    const t = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    const t = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setMinRevenue(minRevenueInput ? Number(minRevenueInput) : undefined);
+    }, 300);
     return () => window.clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, minRevenueInput]);
 
+  const filters = {
+    search: search || undefined,
+    minRevenue,
+    dealStage: dealStage || undefined,
+  };
   const query = useQuery({
-    queryKey: qk.contacts(search),
-    queryFn: () => listContacts(search || undefined),
+    queryKey: qk.contacts(filters),
+    queryFn: () => listContacts(filters),
     placeholderData: keepPreviousData,
   });
 
@@ -46,17 +68,41 @@ export function ContactsView() {
         description="Search contacts and review their full activity timeline."
       />
 
-      <div className="relative max-w-sm">
-        <Search
-          className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40"
-          strokeWidth={1.5}
-        />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-sm">
+          <Search
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40"
+            strokeWidth={1.5}
+          />
+          <Input
+            placeholder="Search by email or external ID…"
+            className="pl-9"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
         <Input
-          placeholder="Search by email or external ID…"
-          className="pl-9"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
+          className="w-40"
+          placeholder="Min revenue"
+          inputMode="numeric"
+          value={minRevenueInput}
+          onChange={(e) =>
+            setMinRevenueInput(e.target.value.replace(/[^0-9.]/g, ""))
+          }
         />
+        <div className="w-48">
+          <Select
+            value={dealStage}
+            onChange={(e) => setDealStage(e.target.value)}
+            aria-label="Filter by deal stage"
+          >
+            {DEAL_STAGE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       {query.isPending ? (

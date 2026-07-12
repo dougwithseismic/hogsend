@@ -93,6 +93,8 @@ function ingest(
     source?: string;
     idempotencyKey?: string;
     eventProperties: Record<string, unknown>;
+    value?: number;
+    currency?: string;
   },
   eventMirror: { enabled: boolean; allow?: string[]; deny?: string[] },
 ) {
@@ -134,6 +136,26 @@ describe("mirrors under the resolved key", () => {
       distinctId: u,
       event: "feature.used",
       properties: { plan: "pro" },
+    });
+  });
+
+  it("fans value/currency out as capture properties on a valued event", async () => {
+    const u = userId("u1-value");
+    const res = await ingest(
+      {
+        event: "order.completed",
+        userId: u,
+        eventProperties: { plan: "pro" },
+        value: 149.99,
+        currency: "gbp",
+      },
+      { enabled: true },
+    );
+    expect(res.stored).toBe(true);
+    expect(capture).toHaveBeenCalledWith({
+      distinctId: u,
+      event: "order.completed",
+      properties: { plan: "pro", value: 149.99, currency: "GBP" },
     });
   });
 });

@@ -824,19 +824,42 @@ export type ContactPreferences = {
   categories: Record<string, boolean>;
 } | null;
 
-export function listContacts(search: string | undefined) {
+export type ContactListFilters = {
+  search?: string;
+  /** Long-tail value filter: sum of the contact's valued events ≥ this. */
+  minRevenue?: number;
+  /** Has a deal currently in this canonical stage. */
+  dealStage?: string;
+};
+
+export function listContacts(filters: ContactListFilters = {}) {
   return api.get<{
     contacts: Contact[];
     total: number;
     limit: number;
     offset: number;
-  }>("/v1/admin/contacts", { query: { search, limit: 50 } });
+  }>("/v1/admin/contacts", {
+    query: {
+      search: filters.search || undefined,
+      minRevenue: filters.minRevenue,
+      dealStage: filters.dealStage || undefined,
+      limit: 50,
+    },
+  });
 }
 
+/** Per-currency revenue rollup over the contact's valued events. */
+export type ContactRevenue = {
+  totals: { currency: string | null; total: number; count: number }[];
+  lastValuedAt: string | null;
+};
+
 export function getContact(id: string) {
-  return api.get<{ contact: Contact; preferences: ContactPreferences }>(
-    `/v1/admin/contacts/${encodeURIComponent(id)}`,
-  );
+  return api.get<{
+    contact: Contact;
+    preferences: ContactPreferences;
+    revenue: ContactRevenue;
+  }>(`/v1/admin/contacts/${encodeURIComponent(id)}`);
 }
 
 export type ContactActivity = {
@@ -1614,7 +1637,7 @@ export const qk = {
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
-  contacts: (search: string) => ["contacts", search] as const,
+  contacts: (filters: ContactListFilters) => ["contacts", filters] as const,
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,
   contactTimeline: (id: string) => ["contact-timeline", id] as const,
@@ -1631,4 +1654,69 @@ export const qk = {
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,
+  deals: (filters: DealListFilters) => ["deals", filters] as const,
+  dealsStats: ["deals-stats"] as const,
 };
+
+// ---------------------------------------------------------------------------
+// Deals — the revenue ledger (docs/revenue-attribution-plan.md §4b)
+// ---------------------------------------------------------------------------
+
+export type Deal = {
+  id: string;
+  provider: string;
+  externalId: string;
+  contactId: string;
+  contactEmail: string | null;
+  pipelineId: string | null;
+  stageId: string | null;
+  canonicalStage: string;
+  value: number | null;
+  currency: string | null;
+  quotedAt: string | null;
+  soldAt: string | null;
+  lostAt: string | null;
+  lastStageAt: string | null;
+  createdAt: string;
+};
+
+export type DealListFilters = {
+  stage?: string;
+  provider?: string;
+  minValue?: number;
+};
+
+export type DealsStats = {
+  stages: Record<string, number>;
+  currencies: Array<{
+    currency: string | null;
+    soldRevenue30d: number;
+    soldRevenueLifetime: number;
+    soldCount30d: number;
+    soldCountLifetime: number;
+    openPipelineValue: number;
+    openPipelineCount: number;
+    averageOrderValue: number | null;
+  }>;
+  avgTimeToCloseHours: number | null;
+};
+
+export function listDeals(filters: DealListFilters) {
+  return api.get<{
+    deals: Deal[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/deals", {
+    query: {
+      stage: filters.stage || undefined,
+      provider: filters.provider || undefined,
+      minValue: filters.minValue,
+      limit: 200,
+    },
+  });
+}
+
+export function getDealsStats() {
+  return api.get<DealsStats>("/v1/admin/deals/stats");
+}

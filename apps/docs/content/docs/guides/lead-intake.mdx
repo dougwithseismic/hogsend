@@ -1,0 +1,114 @@
+---
+title: Lead intake
+description: Any form vendor → the canonical lead.submitted event — identity-stitched to the visitor's ad-click session, value-bearing, idempotent across webhook retries.
+---
+
+Hogsend deliberately ships no form builder. Any form tool that can POST a
+webhook — Heyflow, Perspective, Framer forms, Webflow, Typeform, a custom
+React form — becomes a lead source in three steps. The result is the canonical
+**`lead.submitted`** event: identity-stitched to the visitor's browser session
+(and its [`campaign.arrived`](/docs/guides/revenue#ad-click-capture) ad-click
+touchpoints), optionally value-bearing, and idempotent across vendor webhook
+retries.
+
+## The three pieces
+
+**1. `@hogsend/js` plants the attribution.** On an attributed landing (a click
+ID or `utm_*` in the URL) the browser SDK fires `campaign.arrived`
+automatically and persists the attribution set as last-touch.
+`hogsend.getAttributionFields()` returns a flat map to copy into the form's
+**hidden fields**: `hs_anonymous_id`, any click IDs (`fbclid`, `gclid`, …),
+`utm_*`, `hs_landing_page`, `hs_captured_at`.
+
+**2. A webhook source receives the submission.** `defineWebhookSource` +
+`buildLeadSubmission` (both exported by `@hogsend/engine`) normalize the
+vendor payload into an ingestable event:
+
+```ts title="src/webhook-sources/lead-form.ts"
+import { buildLeadSubmission, defineWebhookSource } from "@hogsend/engine";
+
+export const leadFormSource = defineWebhookSource({
+  meta: {
+    id: "lead-form",
+    name: "Lead form",
+    auth: { header: "x-lead-form-secret", envKey: "LEAD_FORM_WEBHOOK_SECRET" },
+  },
+  transform: (payload) =>
+    buildLeadSubmission({ payload: payload as Record<string, unknown> }),
+});
+```
+
+Registered like any [webhook source](/docs/guides/webhook-sources), it's
+served at `POST /v1/webhooks/lead-form` with shared-secret header auth.
+
+**3. `buildLeadSubmission` splits the fields.** `hs_anonymous_id` becomes the
+`anonymousId` identity key — the email-anchored contact adopts the browser
+session, so pre-submit ad clicks and the lead land on **one contact**. Click
+IDs and `utm_*` ride as event properties under the same names
+`campaign.arrived` uses; the remaining fields are stored as form answers; and
+`value`/`currency` (e.g. from a quote-calculator step) ride first-class on the
+event, so the lead is revenue-trackable from the very first touch.
+
+## The generic recipe (any vendor)
+
+1. Render the form with hidden inputs populated from
+   `hogsend.getAttributionFields()` (SPA: populate on mount; static HTML: a
+   two-line inline script).
+2. Point the vendor's webhook at
+   `https://<your-api>/v1/webhooks/lead-form` with the header
+   `x-lead-form-secret: $LEAD_FORM_WEBHOOK_SECRET`.
+3. Map the vendor's payload to a flat field map (most vendors already POST
+   one):
+
+```jsonc
+{
+  "email": "lead@example.com",
+  "phone": "+447700900123",
+  "name": "Jane Doe",
+  "submission_id": "vendor-submission-uuid",
+  "value": 12500,                    // e.g. the calculator's quote estimate
+  "currency": "GBP",
+  "own_home": "yes",                 // any remaining fields = form answers
+  "property_type": "detached",
+  "hs_anonymous_id": "…",            // ← from getAttributionFields()
+  "fbclid": "…",
+  "utm_source": "facebook",
+  "hs_landing_page": "https://example.com/solar/quote",
+  "hs_captured_at": "2026-07-12T09:00:00.000Z"
+}
+```
+
+`submission_id` dedups vendor retries (it becomes the
+`lead-submitted:<id>` idempotency key). A payload with neither `email` nor
+`hs_anonymous_id` is skipped — there is no identity to attach the lead to.
+
+## Vendor notes
+
+- **Heyflow** — native webhooks POST a flat answers map; hidden fields are
+  "system fields"/URL-parameter fields, so `getAttributionFields()` values can
+  also arrive via URL params appended to the flow link. Partial-submit
+  webhooks work with the same source (send a distinct `submission_id`).
+- **Perspective** — fires its webhook when a visitor converts to a lead; UTMs
+  and click IDs pass through hidden fields populated from the embedding
+  page's URL (Perspective forwards URL params). If the funnel lives on the
+  vendor's domain, append `getAttributionFields()` as URL params on the CTA
+  that links to the funnel.
+- **Custom form (same page)** — don't `hogsend.capture("lead.submitted", …)`
+  from the browser. POST server-side to your own endpoint and forward to the
+  webhook source: a browser-originated event is `pk_`-trust-tier, and
+  money-bearing [conversion points](/docs/conversions) reject browser sources
+  by default (the forged-value guard).
+
+## What you get downstream
+
+- The contact exists (email-anchored) with the browser session attached —
+  `campaign.arrived` touchpoints, later email/SMS clicks, and the lead all on
+  one timeline.
+- Journeys can trigger on `lead.submitted` — speed-to-lead flows, qualification
+  sequences, long-term nurture.
+- Declaring `lead.submitted` as a [conversion point](/docs/conversions) feeds
+  it back to ad platforms (Meta CAPI) with the recovered click evidence, so
+  the platform optimizes toward people who become *leads*, not people who
+  click.
+- The [revenue spine](/docs/guides/revenue) picks up the `value` for
+  per-contact revenue and the deals ledger once a CRM stage confirms it.

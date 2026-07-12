@@ -250,6 +250,44 @@ export function ContactDetailDrawer({
               </div>
             </dl>
 
+            {(() => {
+              const revenue = contactQuery.data?.revenue;
+              if (!revenue || revenue.totals.length === 0) return null;
+              const fmt = (total: number, currency: string | null) =>
+                currency
+                  ? new Intl.NumberFormat(undefined, {
+                      style: "currency",
+                      currency,
+                    }).format(total)
+                  : total.toLocaleString();
+              return (
+                <section>
+                  <h3 className="eyebrow mb-3 text-white/50">Revenue</h3>
+                  <dl className="grid grid-cols-2 gap-3">
+                    {revenue.totals.map((t) => (
+                      <div key={t.currency ?? "none"}>
+                        <dt className="text-xs text-white/50">
+                          {t.currency ?? "No currency"} · {t.count}{" "}
+                          {t.count === 1 ? "event" : "events"}
+                        </dt>
+                        <dd className="text-sm font-medium text-white">
+                          {fmt(t.total, t.currency)}
+                        </dd>
+                      </div>
+                    ))}
+                    {revenue.lastValuedAt ? (
+                      <div>
+                        <dt className="text-xs text-white/50">Last valued</dt>
+                        <dd className="text-sm text-white">
+                          {formatDateTime(revenue.lastValuedAt)}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </section>
+              );
+            })()}
+
             <section>
               <h3 className="eyebrow mb-3 text-white/50">Preferences</h3>
               {listsQuery.isPending ? (

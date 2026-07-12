@@ -63,6 +63,13 @@ export interface TriggerOptions {
   userEmail?: string;
   properties?: Record<string, unknown>;
   /**
+   * The event's monetary worth (deal value, order total) — stored on the
+   * first-class `user_events.value` revenue column, not in `properties`.
+   */
+  value?: number;
+  /** ISO-4217 alpha code for `value` (uppercased at ingest). */
+  currency?: string;
+  /**
    * Disambiguates a trigger's exactly-once idempotency key when the SAME event
    * is triggered more than once in one journey enrollment on divergent branches.
    * Normally the engine auto-derives the key from the nearest authored wait

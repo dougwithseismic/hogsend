@@ -6,6 +6,14 @@
  * (poll default) and pipes its `onItems`/`onMetadata` into the feed-store.
  */
 
+import {
+  ATTRIBUTION_STORAGE_KEY,
+  arrivalSignature,
+  buildAttributionFields,
+  parseAttribution,
+  type StoredAttribution,
+  toArrivalProperties,
+} from "./attribution/index.js";
 import type { BannerClient, BannerStore } from "./banner/index.js";
 import {
   createBannerClient,
@@ -22,6 +30,7 @@ import type {
 } from "./feed/index.js";
 import { createFeedClient, createFeedStore } from "./feed/index.js";
 import { createIdentityStore } from "./identity/identity-store.js";
+import { resolveStorage } from "./identity/storage.js";
 import { createPreferencesClient } from "./preferences/index.js";
 import type { RealtimeChannel, RealtimeTransport } from "./realtime/index.js";
 import { createPollTransport, createSseTransport } from "./realtime/index.js";
@@ -282,6 +291,62 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   // Auto-capture on init (default on; inert when the URL carries no hs_ref).
   if (resolved.captureRef) autoCaptureRef();
 
+  // ── Campaign/ad-click attribution (docs/revenue-attribution-plan.md §2) ──
+  // Same storage adapter the identity store resolves (localStorage → memory).
+  const attributionStorage = resolveStorage(resolved.storage);
+
+  function readStoredAttribution(): StoredAttribution | null {
+    const raw = attributionStorage.get(ATTRIBUTION_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as StoredAttribution;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fire `campaign.arrived` for an attributed landing (click ID or utm_* in
+   * the URL) and persist the set as last-touch. Once per landing signature
+   * per session (sessionStorage guard); the ingest idempotencyKey
+   * (`campaign-arrival:<anon>:<sig>:<UTC day>`) backstops multi-tab races and
+   * caps same-day re-clicks server-side.
+   */
+  function autoCaptureAttribution(): void {
+    if (typeof location === "undefined") return;
+    const parsed = parseAttribution(
+      location.href,
+      typeof document !== "undefined" ? document.referrer : "",
+    );
+    if (!parsed) return;
+
+    const sig = arrivalSignature(parsed);
+    const stored: StoredAttribution = {
+      ...parsed,
+      capturedAt: new Date().toISOString(),
+    };
+    // Last-touch: every attributed landing overwrites, even when the event
+    // itself dedups — a later form submit should carry the freshest touch.
+    attributionStorage.set(ATTRIBUTION_STORAGE_KEY, JSON.stringify(stored));
+
+    try {
+      const guardKey = `hs_arrival_${sig}`;
+      if (typeof sessionStorage !== "undefined") {
+        if (sessionStorage.getItem(guardKey)) return;
+        sessionStorage.setItem(guardKey, "1");
+      }
+    } catch {
+      // Session guard unavailable (private mode) — the server key still dedups.
+    }
+
+    const day = new Date().toISOString().slice(0, 10);
+    void spine.capture("campaign.arrived", toArrivalProperties(parsed), {
+      idempotencyKey: `campaign-arrival:${identity.getAnonymousId()}:${sig}:${day}`,
+    });
+  }
+
+  if (resolved.captureAttribution) autoCaptureAttribution();
+
   async function identify(userId: string, traits?: Properties): Promise<void> {
     identity.setUserId(userId);
     const userToken = identity.getUserToken();
@@ -304,6 +369,11 @@ export function createHogsend(config: HogsendConfig): Hogsend {
       spine.capture(event, properties, opts),
     flush: () => spine.flush(),
     captureRef,
+    getAttributionFields: () =>
+      buildAttributionFields(
+        readStoredAttribution(),
+        identity.getAnonymousId(),
+      ),
 
     feed,
     preferences: () => preferencesClient,

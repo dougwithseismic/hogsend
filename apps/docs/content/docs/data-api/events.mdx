@@ -24,6 +24,8 @@ One of `email` or `userId` is required.
   "eventProperties": { "source": "web" },     // → the event row + journey trigger.where / exitOn
   "contactProperties": { "plan": "pro" },      // → the contact record only
   "lists": { "product-updates": true },
+  "value": 149.00,                             // first-class monetary worth (revenue spine)
+  "currency": "GBP",
   "idempotencyKey": "evt_signup_user_123",
   "timestamp": "2026-01-15T10:30:00.000Z"
 }
@@ -38,6 +40,8 @@ One of `email` or `userId` is required.
 | `eventProperties` | `Record<string, unknown>` | No | Stored on the event row; what `trigger.where` and `exitOn` evaluate. **Does not touch the contact.** |
 | `contactProperties` | `Record<string, unknown>` | No | Merged onto `contacts.properties`. **Does not touch the event.** What buckets segment on. |
 | `lists` | `Record<string, boolean>` | No | List membership applied after ingest (requires a resolvable email) |
+| `value` | `number` | No | The event's monetary worth (order total, deal value). First-class — lands on `user_events.value`, feeding [revenue rollups](/docs/guides/revenue) and [conversion points](/docs/conversions); not a property. Must be finite |
+| `currency` | `string` | No | ISO-4217 alpha code for `value` (3 letters, uppercased at ingest). Ignored without `value` |
 | `idempotencyKey` | `string` | No | Dedup key. A replay within the window returns `stored: false` and does not re-ingest |
 | `timestamp` | `string` | No | ISO 8601. Backdates `user_events.occurred_at` for backfill / replay (defaults to now) |
 

@@ -1,0 +1,183 @@
+---
+title: Revenue tracking
+description: "First-class value on events, the deals ledger with canonical stages, per-contact revenue, and the Studio surfaces — know what every contact and campaign is actually worth."
+---
+
+Lifecycle marketing without revenue data is flying blind: you can see opens,
+clicks, and journeys completing, but not which of it made money. Hogsend
+closes that loop with a **revenue spine** that runs through the whole engine:
+
+1. **`value` + `currency` are first-class on every event** — not a property
+   convention, a real column the engine can aggregate, filter, and feed to
+   [conversion points](/docs/conversions).
+2. **A deals ledger** projects CRM stage changes into canonical, monotonic
+   pipeline stages — who is quoted, who bought, for how much.
+3. **Per-contact revenue** rolls up from valued events, so the contacts list
+   can answer "show me the people worth over £5k".
+4. **Studio** puts it front and center: a Deals board and revenue stats, and
+   long-tail value filters on Contacts.
+
+## Value on events
+
+Any event can carry a monetary worth. It lands on `user_events.value`
+(`numeric(14,2)`) with an ISO-4217 `currency`, distinct from the property
+bags:
+
+```bash title="HTTP"
+curl -X POST $API/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "order.completed", "email": "ada@example.com",
+        "value": 149.00, "currency": "GBP",
+        "eventProperties": { "sku": "starter" } }'
+```
+
+```ts title="@hogsend/client (server)"
+await hogsend.events.send({
+  name: "order.completed",
+  email: "ada@example.com",
+  value: 149,
+  currency: "GBP",
+});
+```
+
+```ts title="@hogsend/js (browser)"
+hogsend.capture("checkout.completed", { sku: "starter" }, {
+  value: 149,
+  currency: "GBP",
+});
+```
+
+Malformed money is dropped, not stored: non-finite numbers are rejected at
+the schema, and `currency` is uppercased and ignored without a `value`.
+Totals are **never summed across currencies** — every rollup is per-currency.
+
+<Callout type="warn">
+  Browser events are `pk_`-trust-tier: anyone can mint them with any value.
+  They're stored — but [conversion points](/docs/conversions) reject
+  browser-sourced events by default (the forged-value guard) and revenue
+  rollups skip browser-minted values for the same reason, so a spoofed
+  `value` reaches neither an ad platform nor your reporting. Send
+  money-bearing events server-side.
+</Callout>
+
+## Ad-click capture
+
+Revenue attribution starts at the ad click. When a visitor lands with a click
+ID (`fbclid`, `gclid`, `ttclid`, `msclkid`, `li_fat_id`, `rdt_cid`, …) or
+`utm_*` params in the URL, `@hogsend/js` fires **`campaign.arrived`**
+automatically — one event per distinct attribution set per session — and
+persists the set as last-touch. That single event is what later powers:
+
+- **identity stitching** — [lead intake](/docs/guides/lead-intake) ties the
+  browser session to the email-anchored contact, so the click and the buyer
+  are one person;
+- **click-evidence recovery** — when a conversion fires, the engine finds the
+  contact's most recent `campaign.arrived` and hands its click IDs (with the
+  real click timestamp) to [conversion destinations](/docs/conversions) like
+  Meta CAPI.
+
+`hogsend.getAttributionFields()` exposes the current set for form hidden
+fields — see [Lead intake](/docs/guides/lead-intake).
+
+## The deals ledger
+
+Deals are a **projection, not a second source of truth**. CRM stage changes
+arrive as events (webhook or reconciliation poll), each one is stored on the
+contact's timeline, and the `deals` table projects the latest state per deal:
+provider, pipeline, native stage, **canonical stage**, value, and the
+timestamps that matter (`quotedAt`, `soldAt`, `lostAt`).
+
+### Canonical stages
+
+Every CRM names its pipeline differently. Hogsend maps native stages onto a
+canonical, ordered set:
+
+```
+lead → contacted → survey_booked → quoted → sold        (and: lost)
+```
+
+The projection is **monotonic**: a late-arriving `contacted` webhook can
+never regress a deal that's already `sold`, and `lost` never overwrites
+`sold`. Out-of-order delivery and webhook/poll double-detection heal
+themselves.
+
+Two stages mint **money events** on the contact's timeline, each carrying the
+deal's value first-class:
+
+- **`crm.deal_quoted`** — the mid-funnel money signal (cost-per-quote).
+- **`crm.deal_sold`** — the revenue conversion.
+
+Both (plus `crm.stage_changed`) are on the
+[outbound webhook catalog](/docs/data-api/webhooks) and can trigger journeys
+like any other event — a post-sale onboarding journey triggers on
+`crm.deal_sold` with zero extra wiring.
+
+### Connecting a CRM
+
+The `CrmProvider` contract (`defineCrmProvider` from `@hogsend/engine`) is a
+thin wire: verify + parse the CRM's webhook into normalized stage events, and
+optionally `poll` (reconciliation sweep, cron every 10 minutes) and `hydrate`
+(fetch full records for thin webhooks). Providers register on the client and
+receive webhooks at `POST /v1/webhooks/crm/:providerId`:
+
+```ts title="src/index.ts"
+const client = createHogsendClient({
+  crm: {
+    providers: [myCrmProvider],
+    stageMaps: {
+      "my-crm": { "New Enquiry": "lead", "Survey Booked": "survey_booked",
+                  "Quote Sent": "quoted", "Job Won": "sold" },
+    },
+  },
+});
+```
+
+Identity resolves without guesswork: a `crm_links` alias map ties the CRM's
+contact/deal IDs to the Hogsend contact (established when the lead is pushed
+or first seen), with email fallback — so an email-less stage webhook still
+lands on the right person. The repo carries reference provider
+implementations for GoHighLevel, Attio, and HubSpot
+(`packages/plugin-ghl`, `plugin-attio`, `plugin-hubspot`).
+
+## Per-contact revenue
+
+Every contact's valued events roll up to per-currency totals — surfaced on
+`GET /v1/admin/contacts/{id}` and in the Studio contact drawer. Only
+**realized** money counts: the rollup skips `crm.deal_quoted` and
+`crm.stage_changed` rows (one deal's value rides several timeline events —
+counting them all would multiply a single sale) and browser-minted values
+(forgeable). A sold deal contributes exactly once, via `crm.deal_sold`. The
+contacts list API gains two long-tail filters:
+
+- **`minRevenue`** — only contacts whose valued events sum to at least this
+  much (per-currency).
+- **`dealStage`** — only contacts with a deal currently at a canonical stage
+  (e.g. everyone sitting at `quoted`).
+
+Combine them with the existing property/bucket filters to find your value
+customers: *"quoted over £10k, hasn't opened the last two emails"* is a
+filter, not a spreadsheet afternoon.
+
+## Studio surfaces
+
+- **Deals** (`/deals`) — revenue stats up top (sold last 30 days, lifetime,
+  open pipeline, average order value, average time-to-close — all
+  per-currency), then the pipeline board: six canonical-stage columns with
+  every deal's value, provider, and age. The "who is in which bucket" view.
+- **Contacts** — the `minRevenue` and `dealStage` filters, plus a revenue
+  block in the contact detail drawer showing per-currency totals and the
+  valued-event history.
+
+## Closing the loop
+
+Revenue in Hogsend isn't just reporting — it feeds back out:
+
+- [Conversion points](/docs/conversions) declare which events (e.g.
+  `crm.deal_sold`) are conversions, resolve their value, and dispatch them to
+  ad platforms with recovered click evidence, so Meta/Google optimize toward
+  **revenue**, not clicks.
+- The analytics mirror forwards `value`/`currency` on captured events, so
+  your PostHog dashboards see the same numbers.
+- Journeys trigger on money events — the engine that sent the nurture
+  sequence knows the moment it paid off.

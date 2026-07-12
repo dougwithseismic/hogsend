@@ -60,6 +60,10 @@ export function createEventSpine(opts: EventSpineOptions): EventSpine {
           ? { idempotencyKey: captureOpts.idempotencyKey }
           : {}),
         ...(captureOpts?.timestamp ? { timestamp: captureOpts.timestamp } : {}),
+        ...(captureOpts?.value !== undefined
+          ? { value: captureOpts.value }
+          : {}),
+        ...(captureOpts?.currency ? { currency: captureOpts.currency } : {}),
       });
       return {
         stored: true,

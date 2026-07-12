@@ -281,11 +281,15 @@ describe("sendTrackedSms — test mode", () => {
     expect(sent[before]?.to).toBe("+15005550099");
     expect(sent[before]?.body).toContain(`[TEST → ${to}]`);
 
+    // Select THIS send's row by id — the shared dev DB accumulates rows on the
+    // constant test phone across runs, and an unordered `.at(-1)` picks an
+    // arbitrary heap row (the long-standing flake in this suite).
     const rows = await client.db
       .select()
       .from(smsSends)
-      .where(eq(smsSends.toPhone, "+15005550099"));
-    expect(rows.at(-1)?.metadata).toMatchObject({
+      .where(eq(smsSends.id, res.smsSendId));
+    expect(rows[0]?.toPhone).toBe("+15005550099");
+    expect(rows[0]?.metadata).toMatchObject({
       testMode: true,
       originalTo: to,
     });

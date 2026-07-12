@@ -1,4 +1,16 @@
 export {
+  CLICK_ID_PARAM_NAMES,
+  type ClickIdParamName,
+} from "./attribution/click-ids.js";
+export {
+  isTouchpointEvent,
+  TOUCHPOINT_EVENT_CLASSES,
+  TOUCHPOINT_EVENTS,
+  type TouchpointChannel,
+  type TouchpointClass,
+  touchpointChannel,
+} from "./attribution/touchpoints.js";
+export {
   type CampaignWhere,
   type CohortBuilder,
   type ConditionContext,
@@ -14,6 +26,14 @@ export {
   type PropertyMatcher,
 } from "./conditions/index.js";
 export {
+  type ConversionMeta,
+  type ConversionValueSource,
+  conversionSourceAllowed,
+  type DefinedConversion,
+  defineConversion,
+  resolveConversionValue,
+} from "./conversions.js";
+export {
   type DurationObject,
   days,
   durationToMs,
@@ -26,6 +46,12 @@ export {
   RESERVED_EVENT_NAMESPACES,
 } from "./events.js";
 export * from "./journey-graph/index.js";
+export {
+  buildLeadSubmission,
+  LEAD_SUBMITTED,
+  type LeadSubmissionEvent,
+  type LeadSubmissionInput,
+} from "./leads.js";
 export * from "./providers/index.js";
 export {
   BucketRegistry,

@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 21-event catalog, in order", () => {
+  it("is exactly the 24-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -234,6 +234,11 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       // Landing-confirmed arrival (opt-in hs_ref + POST /v1/t/arrive): the
       // subset of link.clicked that carries the VISITOR's identity.
       "link.arrived",
+      // CRM revenue spine (plan §4.2): raw stage changes + the once-per-deal
+      // canonical money events.
+      "crm.stage_changed",
+      "crm.deal_quoted",
+      "crm.deal_sold",
     ]);
   });
 
