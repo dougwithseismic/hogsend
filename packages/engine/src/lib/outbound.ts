@@ -220,6 +220,32 @@ export interface OutboundPayloads {
   };
   "bucket.entered": BucketEventPayload;
   "bucket.left": BucketEventPayload & { reason?: string };
+  /**
+   * A CRM pipeline change landed on the spine (webhook or reconciliation
+   * poll). Native identifiers — the canonical stage may be null when the
+   * per-provider stage map has no entry (surfaced, never dropped).
+   */
+  "crm.stage_changed": CrmDealEventPayload & {
+    stageId: string;
+    stageName: string | null;
+    status: string | null;
+  };
+  /** A deal FIRST reached canonical `quoted`. Value = quote value. */
+  "crm.deal_quoted": CrmDealEventPayload;
+  /** A deal FIRST reached canonical `sold`. Value = deal value. */
+  "crm.deal_sold": CrmDealEventPayload;
+}
+
+/** Shared payload for the `crm.*` outbound family. */
+export interface CrmDealEventPayload {
+  provider: string;
+  dealId: string;
+  pipelineId: string | null;
+  canonicalStage: string | null;
+  value: number | null;
+  currency: string | null;
+  userId: string | null;
+  at: string;
 }
 
 /**

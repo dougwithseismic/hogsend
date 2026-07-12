@@ -12,6 +12,7 @@ export * from "./connector-link-codes.js";
 export * from "./contact-aliases.js";
 export * from "./contacts.js";
 export * from "./dead-letter-queue.js";
+export * from "./deals.js";
 export * from "./email-preferences.js";
 export * from "./email-sends.js";
 export * from "./enums.js";

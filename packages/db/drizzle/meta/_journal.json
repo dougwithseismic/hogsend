@@ -337,6 +337,13 @@
       "when": 1783871067015,
       "tag": "0047_curly_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1783874840271,
+      "tag": "0048_fearless_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

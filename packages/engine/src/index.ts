@@ -374,6 +374,14 @@ export {
 } from "./lib/create-admin.js";
 // --- CRM sync (provider registry + the stage-event spine sink) ---
 export {
+  type AppliedStageChange,
+  applyCrmStageEvent,
+  ensureCrmLinks,
+  resolveCrmLinkedContact,
+} from "./lib/crm-deals.js";
+export {
+  CRM_DEAL_QUOTED,
+  CRM_DEAL_SOLD,
   CRM_STAGE_CHANGED,
   ingestCrmStageEvents,
 } from "./lib/crm-ingest.js";

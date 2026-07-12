@@ -197,3 +197,33 @@ export interface CrmProvider {
 export function defineCrmProvider(provider: CrmProvider): CrmProvider {
   return provider;
 }
+
+// ---------------------------------------------------------------------------
+// Stage maps (config-as-data: native pipeline/stage → canonical stage)
+// ---------------------------------------------------------------------------
+
+/**
+ * A provider's stage map: outer key = native pipeline id (`"*"` matches any
+ * pipeline), inner key = native stage id → canonical stage. Authored
+ * code-first on `createHogsendClient({ crm: { stageMaps } })`; onboarding a
+ * client's arbitrary pipeline is a config edit, not a deploy.
+ */
+export type CrmStageMap = Record<string, Record<string, CanonicalStage>>;
+
+/**
+ * Resolve a stage event to its canonical stage: exact pipeline entry first,
+ * then the `"*"` fallback, then the provider's won/lost status hint, else
+ * `null` (unmapped — the engine surfaces it, never silently drops).
+ */
+export function resolveCanonicalStage(
+  map: CrmStageMap | undefined,
+  event: Pick<CrmStageEvent, "pipelineId" | "stageId" | "status">,
+): CanonicalStage | null {
+  const fromMap =
+    (event.pipelineId ? map?.[event.pipelineId]?.[event.stageId] : undefined) ??
+    map?.["*"]?.[event.stageId];
+  if (fromMap) return fromMap;
+  if (event.status === "won") return "sold";
+  if (event.status === "lost") return "lost";
+  return null;
+}

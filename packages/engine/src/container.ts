@@ -3,6 +3,7 @@ import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
   CrmProvider,
+  CrmStageMap,
   EmailProvider,
   JourneySourceLocation,
   PostHogService,
@@ -168,6 +169,8 @@ export interface HogsendClient {
    * name the provider. Empty when none configured.
    */
   crmProviders: CrmProviderRegistry;
+  /** Per-provider native→canonical stage maps (`opts.crm.stageMaps`). */
+  crmStageMaps: Record<string, CrmStageMap>;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -359,6 +362,13 @@ export interface HogsendClientOptions {
   crm?: {
     provider?: CrmProvider;
     providers?: CrmProvider[];
+    /**
+     * Per-provider stage maps: native `(pipelineId|'*') → stageId → canonical
+     * stage`. Config-as-data — onboarding a client's pipeline is an edit here,
+     * not a deploy. Unmapped stages record native ids and warn (the provider's
+     * won/lost status hint still resolves sold/lost).
+     */
+    stageMaps?: Record<string, CrmStageMap>;
   };
   /**
    * The analytics provider(s) — provider-neutral since the
@@ -1212,6 +1222,7 @@ export function createHogsendClient(
     smsProviders,
     smsProvider,
     crmProviders,
+    crmStageMaps: opts.crm?.stageMaps ?? {},
     analyticsProviders,
     analytics,
     identity,

@@ -21,7 +21,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 
 **Phase 4 — `CRMProvider`** *(coordinate with `feat/sources-prospects-p1` — reuse its Attio transport + `writeBack` seam; migration numbering will collide with its `0047` — whoever merges second regenerates)*
 - [x] **4.1 Contract + registry + route.** (Email-keyed identity in this slice; `crm_links` alias resolution lands with 4.2.) `defineCrmProvider()` in core; registry + container resolution; `POST /v1/webhooks/crm/:providerId` (reserve `crm` source id).
-- [ ] **4.2 Stage maps + deals projection.** Per-client `(pipelineId, stageId) → canonical stage` config; canonical `crm.*` valued events; `deals` projection + `crm_links` + `crm_sync_cursors` migrations; monotonic-stage rule; new event types → `WEBHOOK_EVENT_TYPES` + both vendored catalogs.
+- [x] **4.2 Stage maps + deals projection.** Per-client `(pipelineId, stageId) → canonical stage` config; canonical `crm.*` valued events; `deals` projection + `crm_links` + `crm_sync_cursors` migrations; monotonic-stage rule; new event types → `WEBHOOK_EVENT_TYPES` + both vendored catalogs.
 - [ ] **4.3 Reconciliation poll.** Hatchet task walking provider cursors; heals webhook gaps; idempotent with 4.2 events.
 - [ ] **4.4 `packages/plugin-ghl`.** OAuth/PIT auth, contact+opportunity push, `OpportunityStageUpdate` webhook (value-in-payload), poll fallback.
 - [ ] **4.5 `packages/plugin-attio`.** Reuse sources-and-prospects transport if merged; else build to seam (`[~]`) with Fake + record the ask. `record.updated` webhook → `hydrate`.

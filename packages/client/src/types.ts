@@ -265,7 +265,10 @@ export type OutboundEventType =
   | "bucket.entered"
   | "bucket.left"
   | "link.clicked"
-  | "link.arrived";
+  | "link.arrived"
+  | "crm.stage_changed"
+  | "crm.deal_quoted"
+  | "crm.deal_sold";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed
