@@ -1,6 +1,6 @@
 import { attributionCredits, conversions } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, eq, gte, sql, sum } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 /**
