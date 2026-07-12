@@ -1,0 +1,41 @@
+{
+  "name": "@hogsend/plugin-hubspot",
+  "version": "0.43.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "HubSpot CrmProvider for Hogsend: lead push, deal.propertyChange webhooks with hydrate (value-by-fetch), reconciliation poll.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/plugin-hubspot"
+  },
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {
+    "@hogsend/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:^",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
+  }
+}
