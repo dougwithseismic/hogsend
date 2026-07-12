@@ -26,7 +26,13 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 - [~] **4.4 `packages/plugin-ghl`.** Built + fixture-tested (push/webhook/poll/hydrate, fail-closed shared-secret webhooks). SEAM ASK: a GHL sandbox (PIT token + location id) for a live end-to-end pass before production; verify PIT-vs-OAuth auth reality while at it.
 - [~] **4.5 `packages/plugin-attio`.** Built + fixture-tested: signed (HMAC-SHA256 `attio-signature`) thin webhooks hydrated through the REST API, currency-value + stage extraction, person-assert pushLead, best-effort email recovery via associated people. SEAM ASKS: (1) live Attio workspace pass; (2) when `feat/sources-prospects-p1` merges, fold this HTTP transport with its Attio contact source/write-back client.
 - [~] **4.6 `packages/plugin-hubspot`.** Built + fixture-tested: v3-signature (or shared-secret) fail-closed webhooks, dealstage-change hydrate (amount/currency/won + contact email), search-then-create pushLead, `hs_lastmodifieddate` poll. SEAM ASK: live HubSpot sandbox pass (and confirm whether the deployment uses developer-app webhooks vs workflow webhooks).
-- [ ] **4.7 `sendLeadToCrm()` helper.** Journey/service-level push with idempotency key; docs.
+- [ ] **4.7 `sendLeadToCrm()` helper.** DEFERRED (operator steer 2026-07-12: plugins stay as unpublished proof-of-capability; no further plugin investment). Revisit only if a deployment needs engine-side lead push.
+
+**Phase 4b — Studio revenue surfaces** *(operator steer 2026-07-12: close the revenue loop visibly — the deals projection is the ledger; show it)*
+- [ ] **4b.1 Admin deals API.** `GET /v1/admin/deals` (filter by stage/provider/value/date, sorted) + `GET /v1/admin/deals/stats` (per-currency: sold revenue 30d/lifetime, open pipeline value, AOV, avg time-to-close, counts per canonical stage) over the `deals` projection.
+- [ ] **4b.2 Studio: revenue front and center.** Overview stats (sold 30d/lifetime, pipeline, AOV) + a Deals view — pipeline board grouped by canonical stage (the kanban) with a table fallback, filterable.
+- [ ] **4b.3 Contact long-tail filtering.** Admin contacts list + Studio filters: revenue ≥ X (valued-events rollup), has deal in stage, touched channel — the "find my value customers" query surface.
+- *(Not building: a `defineFunnel` primitive — canonical stages + buckets cover it; revisit only if practice proves otherwise. Audience push to ad platforms + ML scoring live in Phase 8.)*
 
 **Phase 5 — Conversion definitions + Meta CAPI**
 - [ ] **5.0 Verify Meta platform claims.** The §"Verify before Phase 5" list (Offline API discontinuation, window changes, Conversion Leads thresholds, AEM) against current Meta docs; record findings inline here.
