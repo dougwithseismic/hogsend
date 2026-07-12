@@ -1,6 +1,7 @@
 export * from "./alert-history.js";
 export * from "./alert-rules.js";
 export * from "./api-keys.js";
+export * from "./attribution-credits.js";
 export * from "./audit-logs.js";
 export * from "./auth.js";
 export * from "./bucket-configs.js";

@@ -29,6 +29,7 @@ import {
   type ConversionRow,
   type DealListFilters,
   type DealSort,
+  getAttribution,
   getConversionsStats,
   getDealsStats,
   getDealsTimeseries,
@@ -791,6 +792,157 @@ function ConversionsTable({
 }
 
 // ---------------------------------------------------------------------------
+// Attribution tab — the credit ledger, pivoted (§6.2)
+// ---------------------------------------------------------------------------
+
+const MODEL_LABELS: Record<string, string> = {
+  first: "First touch",
+  last: "Last touch",
+  lastNonDirect: "Last non-form",
+  linear: "Linear",
+  timeDecay: "Time decay",
+  positionU: "Position (U)",
+  positionW: "Position (W)",
+  blended: "Blended",
+};
+const MODEL_ORDER = Object.keys(MODEL_LABELS);
+
+function AttributionPanel() {
+  const [model, setModel] = useState("blended");
+  const query = useQuery({
+    queryKey: qk.attribution(90),
+    queryFn: () => getAttribution(90),
+  });
+
+  const rows = query.data?.rows ?? [];
+  // One currency at a time — pick the biggest book, never cross-sum.
+  const byCurrency = new Map<string | null, number>();
+  for (const row of rows) {
+    byCurrency.set(
+      row.currency,
+      (byCurrency.get(row.currency) ?? 0) + row.value,
+    );
+  }
+  const currency =
+    [...byCurrency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const scoped = rows.filter((r) => r.currency === currency);
+  const channels = [...new Set(scoped.map((r) => r.channel))].sort();
+  const models = MODEL_ORDER.filter((m) => scoped.some((r) => r.model === m));
+  const cell = (m: string, ch: string) =>
+    scoped.find((r) => r.model === m && r.channel === ch);
+  const selected = channels
+    .map((ch) => ({ channel: ch, row: cell(model, ch) }))
+    .sort((a, b) => (b.row?.value ?? 0) - (a.row?.value ?? 0));
+  const maxValue = Math.max(...selected.map((s) => s.row?.value ?? 0), 1);
+
+  if (query.isPending) return <TableSkeleton rows={6} />;
+  if (query.isError) {
+    return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
+  }
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title="No attribution credits yet"
+        description="Credits are written when a conversion point fires for a contact with touchpoints (ad clicks, email/SMS clicks, lead forms) in its lookback window."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="w-52">
+          <Select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            aria-label="Attribution model"
+          >
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {MODEL_LABELS[m] ?? m}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <span className="text-xs text-white/40">
+          Last {query.data?.days} days
+          {currency ? ` · ${currency}` : ""} · all models computed at conversion
+          time
+        </span>
+      </div>
+
+      <div className="space-y-2.5">
+        {selected.map(({ channel, row }) => (
+          <div key={channel} className="space-y-1">
+            <div className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="text-white/70 capitalize">{channel}</span>
+              <span className="flex items-baseline gap-3 tabular-nums">
+                <span className="text-xs text-white/45">
+                  {(row?.conversions ?? 0).toFixed(1)} conversions
+                </span>
+                <span className="font-medium text-white/90">
+                  {money(row?.value ?? 0, currency)}
+                </span>
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className="h-full rounded-full bg-accent/70"
+                style={{ width: `${((row?.value ?? 0) / maxValue) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-white/[0.08]">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/[0.08] text-left text-xs uppercase tracking-wide text-white/40">
+              <th className="px-3 py-2.5 font-medium">Channel</th>
+              {models.map((m) => (
+                <th
+                  key={m}
+                  className={`px-3 py-2.5 text-right font-medium ${
+                    m === model ? "text-white" : ""
+                  }`}
+                >
+                  {MODEL_LABELS[m] ?? m}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {channels.map((ch) => (
+              <tr
+                key={ch}
+                className="border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.02]"
+              >
+                <td className="px-3 py-2.5 text-white/70 capitalize">{ch}</td>
+                {models.map((m) => (
+                  <td
+                    key={m}
+                    className={`px-3 py-2.5 text-right tabular-nums ${
+                      m === model ? "text-white/90" : "text-white/50"
+                    }`}
+                  >
+                    {money(cell(m, ch)?.value ?? 0, currency)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-white/35">
+        Same conversions, eight opinions about who earned them — a channel that
+        only looks good under one model is telling you something.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The dashboard
 // ---------------------------------------------------------------------------
 
@@ -804,7 +956,9 @@ const CHART_METRICS: Array<{ key: ChartMetric; label: string }> = [
 ];
 
 export function DealsView() {
-  const [tab, setTab] = useState<"deals" | "conversions">("deals");
+  const [tab, setTab] = useState<"deals" | "conversions" | "attribution">(
+    "deals",
+  );
   const [metric, setMetric] = useState<ChartMetric>("soldRevenue");
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   // undefined = the engine's default funnel.
@@ -1014,6 +1168,7 @@ export function DealsView() {
           [
             ["deals", "Deals"],
             ["conversions", "Conversions"],
+            ["attribution", "Attribution"],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -1040,8 +1195,10 @@ export function DealsView() {
           funnel={funnel ?? statsQuery.data?.funnelId ?? "default"}
           onOpenContact={setOpenContactId}
         />
-      ) : (
+      ) : tab === "conversions" ? (
         <ConversionsTable onOpenContact={setOpenContactId} />
+      ) : (
+        <AttributionPanel />
       )}
 
       <ContactDetailDrawer

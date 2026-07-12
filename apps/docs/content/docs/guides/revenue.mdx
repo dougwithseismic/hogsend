@@ -208,6 +208,32 @@ filter, not a spreadsheet afternoon.
   block in the contact detail drawer showing per-currency totals and the
   valued-event history.
 
+## Multi-model attribution
+
+Every conversion writes an **attribution credit ledger** at the moment it
+fires: the engine reads the contact's touchpoint path (ad clicks, email/SMS
+clicks, lead forms) inside the conversion point's lookback window
+(`attributionWindowDays`, default 90) and persists **all eight models'**
+allocations — first touch, last touch, last non-form, linear, time decay,
+position-U, position-W, and blended. Because every model is stored up
+front, switching models in reporting is instant and consistent — history is
+never re-derived under new rules.
+
+The Studio dashboard's **Attribution** tab shows credited revenue per
+channel under any model, and the full model-comparison matrix side by side.
+A channel that only looks good under one model is telling you something.
+The models themselves live in `@hogsend/attribution` as pure functions —
+usable in your own code:
+
+```ts
+import { computeCredits } from "@hogsend/attribution";
+
+computeCredits("timeDecay", touchpoints, {
+  conversionAt: Date.now(),
+  halfLifeDays: 7,
+});
+```
+
 ## Closing the loop
 
 Revenue in Hogsend isn't just reporting — it feeds back out:

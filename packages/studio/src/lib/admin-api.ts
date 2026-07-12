@@ -1661,6 +1661,8 @@ export const qk = {
   conversions: (filters: ConversionListFilters) =>
     ["conversions", filters] as const,
   conversionsStats: ["conversions-stats"] as const,
+  attribution: (days: number, definitionId?: string) =>
+    ["attribution", days, definitionId ?? null] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -1820,6 +1822,22 @@ export function listConversions(filters: ConversionListFilters) {
       offset: filters.offset ?? 0,
     },
   });
+}
+
+export type AttributionRow = {
+  model: string;
+  channel: string;
+  currency: string | null;
+  value: number;
+  conversions: number;
+  touches: number;
+};
+
+export function getAttribution(days = 90, definitionId?: string) {
+  return api.get<{ days: number; rows: AttributionRow[] }>(
+    "/v1/admin/attribution",
+    { query: { days, definitionId: definitionId || undefined } },
+  );
 }
 
 export type ConversionsStats = {

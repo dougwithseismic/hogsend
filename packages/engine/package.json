@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@hatchet-dev/typescript-sdk": "^1.22.3",
+    "@hogsend/attribution": "workspace:^",
     "@hogsend/core": "workspace:^",
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",
