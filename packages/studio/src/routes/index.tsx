@@ -9,6 +9,7 @@ import { BucketsView } from "@/views/buckets-view";
 import { CampaignDetailView } from "@/views/campaign-detail-view";
 import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
+import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
 import { IntegrationsView } from "@/views/integrations-view";
 import { JourneyDetailView } from "@/views/journey-detail-view";
@@ -54,6 +55,12 @@ const linksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/links",
   component: LinksView,
+});
+
+const dealsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/deals",
+  component: DealsView,
 });
 
 const qrCodesRoute = createRoute({
@@ -149,6 +156,7 @@ const routeTree = rootRoute.addChildren([
   templatesRoute,
   linksRoute,
   qrCodesRoute,
+  dealsRoute,
   campaignsRoute,
   campaignDetailRoute,
   journeysRoute,
