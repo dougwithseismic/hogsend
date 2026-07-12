@@ -21,6 +21,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
     "@hatchet-dev/typescript-sdk": "^1.22.3",
+    "@hogsend/attribution": "workspace:^",
     "@hogsend/core": "workspace:^",
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",

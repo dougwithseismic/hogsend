@@ -25,6 +25,7 @@ import {
   getAnalytics,
   getAnalyticsEventMirror,
 } from "./analytics-singleton.js";
+import { recordAttributionCredits } from "./attribution.js";
 import {
   ContactProvenanceLostError,
   resolveOrCreateContact,
@@ -604,23 +605,49 @@ export async function ingestEvent(opts: {
         contactId,
         userKey: resolvedKey,
       });
-      // Fan fired conversions out to their ad-platform destinations (§5.2):
-      // idempotent dispatch rows + one durable task per fresh row. The
-      // deterministic event_id is stable across retries AND re-evaluations.
       for (const firedConversion of fired) {
+        // Fan fired conversions out to their ad-platform destinations
+        // (§5.2) FIRST — the pending dispatch row is the recoverable
+        // anchor, and the conversion row won't re-fire on replay, so
+        // nothing may run ahead of it and throw. The deterministic
+        // event_id is stable across retries AND re-evaluations.
         const destinationIds = firedConversion.definition.meta.destinations;
-        if (!destinationIds || destinationIds.length === 0) continue;
-        await enqueueConversionDispatches({
-          db,
-          logger,
-          conversionId: firedConversion.conversionId,
-          eventId: conversionEventId({
-            contactId,
-            definitionId: firedConversion.definition.meta.id,
-            eventRowId: insertedRow.id,
-          }),
-          destinationIds,
-        });
+        if (destinationIds && destinationIds.length > 0) {
+          await enqueueConversionDispatches({
+            db,
+            logger,
+            conversionId: firedConversion.conversionId,
+            eventId: conversionEventId({
+              contactId,
+              definitionId: firedConversion.definition.meta.id,
+              eventRowId: insertedRow.id,
+            }),
+            destinationIds,
+          });
+        }
+
+        // The attribution ledger (§6.1): every model's credits over the
+        // contact's touchpoint path, written once at conversion time.
+        // Pure reporting — individually isolated so a transient ledger
+        // failure can never cost a dispatch or a later conversion.
+        try {
+          await recordAttributionCredits({
+            db,
+            logger,
+            conversionId: firedConversion.conversionId,
+            userKey: resolvedKey,
+            value: firedConversion.value,
+            currency: firedConversion.currency,
+            occurredAt: insertedRow.occurredAt,
+            windowDays:
+              firedConversion.definition.meta.attributionWindowDays ?? 90,
+          });
+        } catch (err) {
+          logger.warn("attribution credit write failed", {
+            conversionId: firedConversion.conversionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     } catch (err) {
       logger.warn("Conversion evaluation failed", {

@@ -53,8 +53,8 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 - [x] **5b.4 `defineFunnel` — funnels as a code-first primitive, plural** *(operator steer 2026-07-12: "code-first but the ladder is config" + "multiple funnels")*. A funnel is authored like a journey: `defineFunnel({ id, stages, quotedStage?, soldStage?, sources: { [provider]: stageMap-with-pipeline-claims } })`, registered via `createHogsendClient({ funnels })`. Ingest resolves which funnel claims each (provider, pipeline) — exact pipeline key beats `"*"`; overlapping claims throw at boot. `deals.funnel_id` (nullable text, migration); money events + `crm.stage_changed` + outbound payloads carry `funnel_id` so conversions/journeys scope per funnel via `where`. The `crm.{stages,quotedStage,soldStage,stageMaps}` config from 5b.1 becomes sugar for a single `"default"` funnel (zero breaking; ships in the same 0.44.0). Admin stats/timeseries/list gain a `funnel` param; stats serve the funnel catalog; Studio dashboard gets a funnel switcher. Event NAMES stay engine-owned (stable catalog).
 
 **Phase 6 — `@hogsend/attribution`**
-- [ ] **6.1 Models + credits.** Package with pure-function models (first/last/lastNonDirect/linear/timeDecay/positionU/positionW/blended); compute ALL models at conversion time into `attribution_credits` (migration); per-definition windows.
-- [ ] **6.2 Studio reporting.** Revenue-by-model per journey/campaign/channel; contact timeline with credits; model-comparison view.
+- [x] **6.1 Models + credits.** Package with pure-function models (first/last/lastNonDirect/linear/timeDecay/positionU/positionW/blended); compute ALL models at conversion time into `attribution_credits` (migration); per-definition windows.
+- [x] **6.2 Studio reporting.** Revenue-by-model per journey/campaign/channel; contact timeline with credits; model-comparison view.
 
 **Phase 7 — Spend + ROAS**
 - [ ] **7.1 Meta spend ingestion.** `ad_spend` daily rows + ad metadata via Meta Insights (Hatchet cron); ad-account config. Build to seam with a Fake if no ad-account creds (record ask).
