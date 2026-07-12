@@ -26,6 +26,8 @@ export class EventsResource {
         anonymousId: input.anonymousId,
         eventProperties: input.eventProperties,
         contactProperties: input.contactProperties,
+        value: input.value,
+        currency: input.currency,
         lists: input.lists,
         idempotencyKey: input.idempotencyKey,
       },

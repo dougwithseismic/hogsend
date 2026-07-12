@@ -95,6 +95,13 @@ export interface CaptureOptions {
   idempotencyKey?: string;
   /** ISO timestamp override; defaults to capture time. */
   timestamp?: string;
+  /**
+   * The event's monetary worth (order total, deal value). First-class on the
+   * engine's `user_events.value` revenue column, not a property.
+   */
+  value?: number;
+  /** ISO-4217 alpha code for `value` (3 letters; uppercased at ingest). */
+  currency?: string;
 }
 
 /** A single list/category the contact can opt in/out of. */

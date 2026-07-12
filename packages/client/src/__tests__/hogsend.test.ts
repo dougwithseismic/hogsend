@@ -183,6 +183,8 @@ describe("events", () => {
       name: "signup",
       eventProperties: { plan: "pro" },
       contactProperties: { country: "GB" },
+      value: 99.5,
+      currency: "GBP",
     });
     expect(res).toEqual({ stored: true, exits: [] });
     expect(calls[0]?.method).toBe("POST");
@@ -192,6 +194,8 @@ describe("events", () => {
       userId: "u_1",
       eventProperties: { plan: "pro" },
       contactProperties: { country: "GB" },
+      value: 99.5,
+      currency: "GBP",
     });
   });
 

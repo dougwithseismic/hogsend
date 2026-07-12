@@ -201,6 +201,14 @@ export type SendEventInput = Identity & {
   name: string;
   eventProperties?: Record<string, unknown>;
   contactProperties?: Record<string, unknown>;
+  /**
+   * The event's monetary worth (order total, deal value). First-class on the
+   * engine's `user_events.value` revenue column — the field rollups,
+   * conversion definitions, and attribution read. Negative = refund.
+   */
+  value?: number;
+  /** ISO-4217 alpha code for `value` (3 letters; uppercased at ingest). */
+  currency?: string;
   lists?: Record<string, boolean>;
   idempotencyKey?: string;
   /**
