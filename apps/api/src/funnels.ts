@@ -9,10 +9,16 @@ export const commercialFunnel = defineFunnel({
   id: "commercial",
   name: "Commercial",
   stages: [
-    "enquiry",
+    // Event trigger: a server-side enquiry event opens the deal directly —
+    // the CRM binding below moves it from there (hybrid funnel).
+    { id: "enquiry", on: "commercial.enquiry_received" },
     "site_visit",
     { id: "proposal", milestone: "quoted" },
-    { id: "contract_signed", milestone: "won" },
+    {
+      id: "contract_signed",
+      on: "commercial.contract_signed",
+      milestone: "won",
+    },
   ],
   bindings: [
     crmPipeline({

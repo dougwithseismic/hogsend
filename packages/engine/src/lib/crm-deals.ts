@@ -18,6 +18,10 @@ import type { Logger } from "./logger.js";
  * value wins — quotes get revised).
  */
 
+/** The synthetic provider id for deals minted by funnel event triggers —
+ * reserved (a `CrmProvider` may not register under it). */
+export const EVENTS_DEAL_PROVIDER = "events";
+
 /** Resolve a CRM contact via the alias map: contact link, then deal link. */
 export async function resolveCrmLinkedContact(opts: {
   db: Database;
@@ -92,19 +96,31 @@ export interface AppliedStageChange {
 /**
  * Apply one stage event to the projection. `canonicalStage` is the engine's
  * stage-map resolution (null = unmapped: native fields still record, the
- * canonical stage holds).
+ * canonical stage holds). `event` is the minimal projection input — the CRM
+ * path passes a full {@link CrmStageEvent}; the event-trigger path builds
+ * one synthetically (providerId "events").
  */
 export async function applyCrmStageEvent(opts: {
   db: Database;
   logger: Logger;
   providerId: string;
   contactId: string;
-  event: CrmStageEvent;
+  event: Pick<
+    CrmStageEvent,
+    "dealId" | "stageId" | "pipelineId" | "value" | "occurredAt"
+  >;
   canonicalStage: CanonicalStage | null;
   /** The claiming funnel's ladder; defaults to the built-in five. */
   ladder?: PipelineLadder;
   /** The claiming funnel's id (stamped on the deal). */
   funnelId?: string | null;
+  /**
+   * Skip the "latest value wins" update when the deal is already terminal
+   * (sold/lost). The event-trigger path sets this — a new-cycle trigger
+   * colliding with a closed synthetic row must not clobber its realized
+   * value. CRM paths keep the default (post-sale value revisions are real).
+   */
+  protectTerminalValue?: boolean;
 }): Promise<AppliedStageChange> {
   const { db, logger, providerId, contactId, event, canonicalStage } = opts;
   const ladder = opts.ladder ?? DEFAULT_PIPELINE_LADDER;
@@ -211,8 +227,9 @@ export async function applyCrmStageEvent(opts: {
 
     const set: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
     // Latest value always lands (quotes get revised), independent of stage
-    // direction.
-    if (event.value) {
+    // direction — unless the caller protects terminal rows (see opts).
+    const terminal = existing.soldAt !== null || existing.lostAt !== null;
+    if (event.value && !(opts.protectTerminalValue && terminal)) {
       set.value = event.value.amount;
       set.currency = event.value.currency?.toUpperCase() ?? existing.currency;
     }

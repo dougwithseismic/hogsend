@@ -1,4 +1,5 @@
 import type { CrmProvider } from "@hogsend/core";
+import { EVENTS_DEAL_PROVIDER } from "./crm-deals.js";
 
 /**
  * Container-held registry of CRM providers, keyed by `provider.meta.id`. The
@@ -18,6 +19,11 @@ export class CrmProviderRegistry {
   }
 
   register(provider: CrmProvider): void {
+    if (provider.meta.id === EVENTS_DEAL_PROVIDER) {
+      throw new Error(
+        `CRM provider id "${EVENTS_DEAL_PROVIDER}" is reserved for deals minted by funnel event triggers`,
+      );
+    }
     this.byId.set(provider.meta.id, provider);
   }
 

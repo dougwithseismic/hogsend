@@ -1,4 +1,8 @@
-import type { DefinedFunnel, FunnelBinding } from "@hogsend/core";
+import type {
+  DefinedFunnel,
+  FunnelBinding,
+  FunnelTransition,
+} from "@hogsend/core";
 import { DEFAULT_FUNNEL_ID } from "@hogsend/core";
 
 /** A resolved claim: the owning funnel + the binding that matched (absent
@@ -6,6 +10,12 @@ import { DEFAULT_FUNNEL_ID } from "@hogsend/core";
 export interface ResolvedFunnelClaim {
   funnel: DefinedFunnel;
   binding?: FunnelBinding;
+}
+
+/** One event→stage rule bound to its owning funnel. */
+export interface FunnelTransitionMatch {
+  funnel: DefinedFunnel;
+  transition: FunnelTransition;
 }
 
 /**
@@ -20,6 +30,10 @@ export class FunnelRegistry {
   private byId = new Map<string, DefinedFunnel>();
   /** `${provider}:${pipelineId}` (or `${provider}:*`) → funnel + binding. */
   private claims = new Map<string, ResolvedFunnelClaim>();
+  /** Event name → the transitions (across funnels) it can fire. */
+  private transitions = new Map<string, FunnelTransitionMatch[]>();
+  /** Trigger events wired to a quoted/won milestone stage. */
+  private milestoneTriggers = new Set<string>();
 
   constructor(funnels: DefinedFunnel[] = []) {
     for (const funnel of funnels) {
@@ -38,7 +52,32 @@ export class FunnelRegistry {
         }
         this.claims.set(key, { funnel, binding });
       }
+      for (const transition of funnel.transitions) {
+        const list = this.transitions.get(transition.event) ?? [];
+        list.push({ funnel, transition });
+        this.transitions.set(transition.event, list);
+        if (
+          transition.stageId === funnel.ladder.quotedStage ||
+          transition.stageId === funnel.ladder.soldStage
+        ) {
+          this.milestoneTriggers.add(transition.event);
+        }
+      }
     }
+  }
+
+  /** Event→stage rules listening on this event name (empty when none). */
+  transitionsFor(event: string): FunnelTransitionMatch[] {
+    return this.transitions.get(event) ?? [];
+  }
+
+  /**
+   * Trigger events wired to a money-milestone stage in ANY funnel. Their
+   * value is handed to the minted `deal.quoted`/`deal.sold`, so revenue
+   * rollups exclude the raw trigger rows (else one sale counts twice).
+   */
+  milestoneTriggerEvents(): string[] {
+    return [...this.milestoneTriggers];
   }
 
   /** Route one stage event: exact pipeline claim → provider `"*"` → default. */
