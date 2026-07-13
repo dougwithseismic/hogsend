@@ -36,7 +36,7 @@ const RUN = `evv-${Date.now()}`;
 afterAll(async () => {
   await db.delete(userEvents).where(eq(userEvents.event, `${RUN}.event`));
   await db.delete(userEvents).where(eq(userEvents.userId, `${RUN}-d`));
-  for (const suffix of ["a", "b", "c", "d"]) {
+  for (const suffix of ["a", "b", "c", "d", "refund"]) {
     await db
       .delete(contacts)
       .where(eq(contacts.externalId, `${RUN}-${suffix}`));
@@ -179,6 +179,9 @@ describe("event value/currency — the revenue spine", () => {
   });
 
   it("ingestEvent (webhook-source path) is permissive: malformed currency drops, value survives; negative values (refunds) store", async () => {
+    // Own user key: lastEventFor takes the last row of an UNORDERED select,
+    // so sharing the previous test's key makes "last" physical-order
+    // roulette (the CI flake).
     await ingestEvent({
       db,
       registry,
@@ -186,13 +189,13 @@ describe("event value/currency — the revenue spine", () => {
       logger,
       event: {
         event: `${RUN}.event`,
-        userId: `${RUN}-d`,
+        userId: `${RUN}-refund`,
         eventProperties: {},
         value: -250,
         currency: "quid",
       },
     });
-    const row = await lastEventFor(`${RUN}-d`);
+    const row = await lastEventFor(`${RUN}-refund`);
     expect(row?.value).toBe(-250);
     expect(row?.currency).toBeNull();
   });
