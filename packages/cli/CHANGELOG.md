@@ -1,5 +1,42 @@
 # @hogsend/cli
 
+## 0.44.0
+
+### Minor Changes
+
+- a2b49fd: Impact — journey & event attribution, influence, and incrementality (docs/attribution-impact-plan.md, Phases 1–5):
+  - **Scope-dimensional credit**: `email_sends.campaign_id` (real column, backfilled from idempotency keys); journey/campaign scope stamped onto every touch event; `attribution_credits` gains journey/campaign/template/funnel columns with a pre-stamp fallback join; `ConversionMeta.scope` persisted and filterable; `GET /v1/admin/attribution` grows `groupBy=journey|campaign|template` plus credit filters; Studio gets a group-by picker and a journey-detail attributed-revenue card.
+  - **Windows & honesty**: per-channel attribution windows on `defineConversion` (`windows: { email: days(5), … }`, forward-only); last-touch labeled as the incumbent-comparable headline; cross-scope overlap read-out (what single-credit reporting would double-count); the email click bus re-ingest is now bot-gated (SafeLinks-style scanner sweeps no longer mint touches or trigger journeys — stats writes unchanged).
+  - **The non-monetary half**: `influenced` (model-invariant coverage, multi-counted by design) beside attributed; milestones documented as a convention; a first-reach `funnel_progress` reporting projection over event-native funnel transitions (per-contact per-stage timestamps, same gates as the deal mover); `GET /v1/admin/funnels/:id/progression` reports per-transition conversion + velocity with exposed-vs-unexposed splits, labeled correlational.
+  - **Incrementality**: per-journey holdouts (`holdout: { percent }` on journey meta) — deterministic hash diversion in the enrollment guard chain, `held_out` state rows, `journey.heldout` spine + outbound events; `GET /v1/admin/journeys/:id/lift` with beta-binomial win probability, a 10-combined-conversion suppression floor, and a small-sample flag; optional global control group (`GLOBAL_CONTROL_PERCENT`) withholding non-transactional email/SMS sends with a `contact.control_group` marker; PostHog person-property fan-out for both.
+  - **Day-one story**: `POST /v1/admin/attribution/backfill` + `hogsend attribution backfill` (idempotent history replay; guarded recompute); built-in zero-config `revenue` conversion (wildcard trigger, quote events excluded, opt-out via `HOGSEND_DEFAULT_REVENUE_CONVERSION=false`); attribution readiness rows on `GET /v1/admin/readiness`; the first-week guide at docs/conversions/impact.
+
+  Migrations 0051–0055. New outbound events `journey.heldout` and `contact.control_group` (catalog + vendored copies updated).
+
+- 5949f25: Event-native funnels — deals move on YOUR events, CRM demoted to one optional producer. A stage entry's `on` trigger(s) (`{ id: "subscribed", on: "subscription.created", milestone: "won" }`, with the journey-style `where` builder and a `sources` trust allowlist that denies browser `inapp` events by default) move the contact's open deal in that funnel: an open CRM-born row is moved in place, no deal yet mints a synthetic `provider: "events"` row (zero migration; `deal_id` event property for explicit multi-deal; a closed deal holds — re-entry is deferred, not destructive), `lostOn` only ever closes an existing deal. Money milestones ride projection freshness — whichever producer reaches quoted/won first mints `deal.quoted`/`deal.sold` once per deal ever (source `"funnel"` from event triggers, `"crm"` from the CRM sink) — and a CRM leg seeing a native deal id for the first time ADOPTS the contact's open event-minted row (the implicit single-deal row; `deal_id`-addressed rows stay separate by design) instead of shadowing it, so the "event opens it, CRM closes it" hybrid flow works both ways. Machinery event names renamed while unreleased: `crm.stage_changed` → `funnel.stage_changed`, `crm.deal_quoted` → `deal.quoted`, `crm.deal_sold` → `deal.sold` (outbound catalog + vendored CLI/client copies in lockstep); `deal.`/`funnel.` join the reserved namespaces (semantic links/blueprints reject them — a consumer-authored `deal.sold` would forge revenue). Revenue rollups exclude milestone-trigger events' raw values (the mint carries the money — one sale counts once), and contact merges now re-point `deals`/`crm_links` onto the survivor (previously a merged contact's open deal was orphaned and a duplicate deal cycle could mint twice).
+- 820cceb: The revenue spine: first-class value on events, ad-click attribution capture, lead intake, a CRM deals ledger, conversion points, and server-side ad-platform feedback.
+  - **Value on events**: `user_events` gains first-class `value numeric(14,2)` + `currency char(3)` — settable via `POST /v1/events`, `@hogsend/client` (`events.send({ value, currency })`), and `@hogsend/js` (`capture(name, props, { value, currency })`). Malformed money is dropped at ingest; every rollup is per-currency, never cross-summed. The analytics mirror forwards both.
+  - **Ad-click attribution capture** (`@hogsend/js`): attributed landings (allowlisted click IDs — `fbclid`, `gclid`, `gbraid`, `wbraid`, `ttclid`, `msclkid`, `li_fat_id`, `twclid`, `rdt_cid`, `epik`, `sccid` — or `utm_*`) auto-fire **`campaign.arrived`** with a sessionStorage + server-idempotency dedup guard, persist the set as last-touch, and expose `getAttributionFields()` for form hidden fields. `@hogsend/core` ships the canonical click-ID allowlist and touchpoint event classifier.
+  - **Lead intake**: `buildLeadSubmission` (`@hogsend/core`) normalizes any form vendor's webhook into the canonical **`lead.submitted`** event — `hs_anonymous_id` hidden-field identity stitching (browser session + ad clicks + lead land on ONE contact), first-class value passthrough, `submission_id` retry dedup.
+  - **CRM deals ledger**: the `CrmProvider` contract (`defineCrmProvider`) with per-provider stage maps onto canonical stages (`lead → contacted → survey_booked → quoted → sold`, plus `lost`); webhooks at `POST /v1/webhooks/crm/:providerId` plus a 10-minute reconciliation poll; a **monotonic deals projection** (late webhooks never regress `sold`; `lost` never overwrites `sold`) minting once-per-deal-per-stage money events **`deal.quoted`** / **`deal.sold`** (+ `funnel.stage_changed`) on the outbound catalog; `crm_links` alias identity so email-less CRM webhooks still resolve the right contact. Reference providers for GoHighLevel, Attio, and HubSpot live in-repo (unpublished).
+  - **Conversion points**: `defineConversion` — declare WHICH events count as valued conversions (condition `where` sees the first-class `value`, so "quotes over £10k" works), with a forged-value guard (browser/`pk_` events rejected by default), three value sources (event / fixed / property), and recorded-once semantics (unique on definition + event row).
+  - **Conversion destinations**: `defineConversionDestination` + a durable dispatch pipeline — per-destination rows unique on (destination, event_id), a retrying Hatchet task, deterministic `event_id = sha256(contact:definition:eventRow)`, and click-evidence recovery (the contact's latest `campaign.arrived` at-or-before the conversion). New **`@hogsend/plugin-meta-capi`**: Meta Conversions API destination with per-Meta-spec hashing, `fbc` reconstructed from the real stored click (never fabricated), `action_source: system_generated`, and per-definition event naming for Conversion Leads funnel stages.
+  - **Admin + Studio revenue surfaces**: `GET /v1/admin/deals` + `/stats` (per-currency sold 30d/lifetime, open pipeline, AOV, avg time-to-close); contacts list gains `minRevenue` + `dealStage` long-tail filters and a per-contact revenue rollup; Studio ships a **Deals** pipeline board with revenue stats and the new contact value filters.
+
+### Patch Changes
+
+- Updated dependencies [1f72740]
+- Updated dependencies [b4669d8]
+- Updated dependencies [a2b49fd]
+- Updated dependencies [0a1e2b7]
+- Updated dependencies [55f7439]
+- Updated dependencies [5949f25]
+- Updated dependencies [ea059c5]
+- Updated dependencies [820cceb]
+- Updated dependencies [13dfcba]
+  - @hogsend/engine@0.44.0
+  - @hogsend/db@0.44.0
+
 ## 0.43.0
 
 ### Minor Changes
