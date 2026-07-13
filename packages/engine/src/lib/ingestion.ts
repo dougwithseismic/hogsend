@@ -38,6 +38,8 @@ import {
   evaluateConversionsAtIngest,
   getConversionRegistry,
 } from "./conversions.js";
+import { getCrmSyncConfig } from "./crm-registry-singleton.js";
+import { recordFunnelProgressAtIngest } from "./funnel-progress.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -652,6 +654,35 @@ export async function ingestEvent(opts: {
       }
     } catch (err) {
       logger.warn("Conversion evaluation failed", {
+        event: event.event,
+        userId: resolvedKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // (5d) Event-funnel progression (impact plan §3.3) — first-reach
+    // `funnel_progress` rows for funnels whose stages are event matchers.
+    // Same best-effort stance as conversions: the event is durable; a
+    // projection failure warns, and the unique (contact, funnel, stage)
+    // index makes any replay a no-op.
+    try {
+      await recordFunnelProgressAtIngest({
+        db,
+        logger,
+        funnels: getCrmSyncConfig()?.funnels,
+        event: {
+          name: event.event,
+          properties: event.eventProperties,
+          value,
+          currency,
+          occurredAt: insertedRow.occurredAt,
+        },
+        eventRowId: insertedRow.id,
+        contactId,
+        userKey: resolvedKey,
+      });
+    } catch (err) {
+      logger.warn("Funnel progression write failed", {
         event: event.event,
         userId: resolvedKey,
         error: err instanceof Error ? err.message : String(err),

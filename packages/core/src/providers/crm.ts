@@ -16,6 +16,10 @@
  * projection, conversion evaluation, ad-platform dispatch — is engine-owned.
  */
 
+import { normalizeWhere } from "../conditions/index.js";
+import type { PropertyCondition } from "../types/conditions.js";
+import type { JourneyWhere } from "../types/journey.js";
+
 // ---------------------------------------------------------------------------
 // Canonical funnel stages
 // ---------------------------------------------------------------------------
@@ -337,12 +341,32 @@ export function resolveCanonicalStage(
 export const DEFAULT_FUNNEL_ID = "default";
 
 /**
- * A funnel authored like a journey: YOUR ordered stage ladder plus which CRM
- * traffic feeds it. `sources` is per-provider — the stage map whose pipeline
- * keys are ALSO the claim: this funnel owns those native pipelines (`"*"`
- * claims the provider's remainder). One deployment runs MANY funnels
- * (residential vs commercial, sales vs expansion); ingest routes each stage
- * event to the funnel that claims its (provider, pipeline).
+ * An EVENT stage source (docs/attribution-impact-plan.md §3.3): the stage is
+ * reached when the contact emits `event` (optionally narrowed by `where`,
+ * same builder journeys use). The B2C sibling of a CRM stage claim — a SaaS
+ * self-serve funnel and a sales pipeline are the same primitive with
+ * different stage sources.
+ */
+export interface EventStageSource {
+  event: string;
+  where?: JourneyWhere;
+}
+
+/**
+ * A funnel authored like a journey: YOUR ordered stage ladder plus what
+ * feeds each stage. Two stage sources, freely mixable:
+ *
+ *  - `sources` (CRM claims) — per provider: the stage map whose pipeline
+ *    keys are ALSO the claim: this funnel owns those native pipelines
+ *    (`"*"` claims the provider's remainder). Ingest routes each stage
+ *    event to the funnel that claims its (provider, pipeline).
+ *  - `events` (event matchers, §3.3) — stage → `{ event, where? }`; the
+ *    engine writes a first-reach `funnel_progress` row at ingest. No CRM
+ *    required — B2C order flows and activation ladders are pure `events`
+ *    funnels.
+ *
+ * One deployment runs MANY funnels (residential vs commercial, sales vs
+ * expansion, self-serve vs sales-led).
  */
 export interface FunnelMeta {
   /** Stable id — stamped on deals (`funnel_id`) and event properties. */
@@ -356,15 +380,30 @@ export interface FunnelMeta {
   soldStage?: string;
   /**
    * Per provider: native `(pipelineId|'*') → stageId → THIS funnel's stage`.
-   * The pipeline keys double as the funnel's traffic claim.
+   * The pipeline keys double as the funnel's traffic claim. Optional — a
+   * pure event funnel has none.
    */
-  sources: Record<string, CrmStageMap>;
+  sources?: Record<string, CrmStageMap>;
+  /** Event stage sources: stage → matcher (§3.3). Optional. */
+  events?: Record<string, EventStageSource>;
+}
+
+/** One normalized event-stage matcher on a defined funnel. */
+export interface FunnelEventStage {
+  stage: string;
+  /** The stage's index in the ladder (monotonic rank). */
+  rank: number;
+  event: string;
+  /** The matcher's `where`, normalized to conditions at definition time. */
+  where: PropertyCondition[] | undefined;
 }
 
 export interface DefinedFunnel {
   meta: FunnelMeta;
   /** The normalized ladder (rank order + money-stage designations). */
   ladder: PipelineLadder;
+  /** Normalized `meta.events` matchers (empty for CRM-only funnels). */
+  eventStages: FunnelEventStage[];
 }
 
 /**
@@ -375,7 +414,7 @@ export interface DefinedFunnel {
 export function defineFunnel(meta: FunnelMeta): DefinedFunnel {
   if (!meta.id) throw new Error("defineFunnel: id is required");
   const ladder = normalizePipelineLadder(meta);
-  for (const [providerId, map] of Object.entries(meta.sources)) {
+  for (const [providerId, map] of Object.entries(meta.sources ?? {})) {
     for (const [pipelineId, stageEntries] of Object.entries(map)) {
       for (const [stageId, canonical] of Object.entries(stageEntries)) {
         if (canonical !== "lost" && !ladder.stages.includes(canonical)) {
@@ -388,5 +427,22 @@ export function defineFunnel(meta: FunnelMeta): DefinedFunnel {
       }
     }
   }
-  return { meta, ladder };
+  const eventStages: FunnelEventStage[] = Object.entries(meta.events ?? {}).map(
+    ([stage, source]) => {
+      const rank = ladder.stages.indexOf(stage);
+      if (rank === -1) {
+        throw new Error(
+          `funnel "${meta.id}" events.${stage} is not in its stages ` +
+            `[${ladder.stages.join(", ")}]`,
+        );
+      }
+      return {
+        stage,
+        rank,
+        event: source.event,
+        where: normalizeWhere(source.where),
+      };
+    },
+  );
+  return { meta, ladder, eventStages };
 }

@@ -851,6 +851,7 @@ export function createHogsendClient(
               sources: crmStageMaps,
             },
             ladder: crmLadder,
+            eventStages: [],
           },
         ]),
   ]);

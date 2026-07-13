@@ -108,7 +108,7 @@ export async function ingestCrmStageEvents(opts: {
       const funnel = funnels?.resolve(providerId, event.pipelineId);
       const funnelId = funnel?.meta.id ?? null;
       const ladder = funnel?.ladder ?? DEFAULT_PIPELINE_LADDER;
-      const map = funnel?.meta.sources[providerId];
+      const map = funnel?.meta.sources?.[providerId];
 
       const canonicalStage = resolveCanonicalStage(map, event, ladder);
       if (!canonicalStage) {
