@@ -1875,6 +1875,19 @@ export type AttributionOverlap = {
   scopeSummedValue: number;
 };
 
+/**
+ * Influenced (§3.1) — model-invariant coverage per scope key: conversions
+ * with ≥1 touch from the scope, at FULL value. Multi-counted across scopes
+ * by design (reach, not credit — never sums to total).
+ */
+export type AttributionInfluenced = {
+  key: string;
+  label: string | null;
+  currency: string | null;
+  conversions: number;
+  value: number;
+};
+
 export function getAttribution(
   days = 90,
   definitionId?: string,
@@ -1889,6 +1902,8 @@ export function getAttribution(
     totals?: AttributionTotals[];
     /** Older engines omit it. */
     overlap?: AttributionOverlap[];
+    /** Older engines omit it. */
+    influenced?: AttributionInfluenced[];
   }>("/v1/admin/attribution", {
     query: {
       days,

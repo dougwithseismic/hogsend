@@ -59,6 +59,25 @@ const totalsSchema = z.object({
 });
 
 /**
+ * Influenced (impact plan §3.1) — the model-invariant COVERAGE number
+ * (Dreamdata semantics): a conversion is influenced by a scope when the
+ * contact had ≥1 touchpoint from it inside the window. Deliberately
+ * multi-counted across scopes — it answers "which conversions did this
+ * journey touch at all", never sums to total, and is presented as reach,
+ * not credit.
+ */
+const influencedSchema = z.object({
+  key: z.string(),
+  /** Human label where the key is opaque (campaign name); else null. */
+  label: z.string().nullable(),
+  currency: z.string().nullable(),
+  /** Conversions with ≥1 touch from this scope (full count, not weighted). */
+  conversions: z.number(),
+  /** FULL value of those conversions (not fractional credit). */
+  value: z.number(),
+});
+
+/**
  * Overlap transparency (impact plan §2.3, the anti-Braze): no incumbent
  * dedupes credit across journeys/campaigns — Braze documents conversion
  * rates over 100%. Our fractional models already sum to 1 per conversion
@@ -107,6 +126,7 @@ const summaryRoute = createRoute({
             rows: z.array(rowSchema),
             totals: z.array(totalsSchema),
             overlap: z.array(overlapSchema),
+            influenced: z.array(influencedSchema),
           }),
         },
       },
@@ -169,12 +189,47 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
         attributionCredits.currency,
       );
 
+    // Influenced (§3.1): one row per (scope key, conversion) via DISTINCT,
+    // then full conversion count + value per key. Any single model
+    // enumerates the credited path; weight is ignored by construction.
+    const influencedClaims = db.$with("influenced_claims").as(
+      db
+        .selectDistinct({
+          conversionId: attributionCredits.conversionId,
+          key: sql<string>`${groupCol}::text`.as("key"),
+        })
+        .from(attributionCredits)
+        .where(
+          and(
+            eq(attributionCredits.model, "linear"),
+            gte(attributionCredits.convertedAt, sinceTs),
+            isNotNull(groupCol),
+          ),
+        ),
+    );
+    const influenced = await db
+      .with(influencedClaims)
+      .select({
+        key: influencedClaims.key,
+        currency: conversions.currency,
+        conversions: count(),
+        value: sql<number>`coalesce(sum(${conversions.value}), 0)::float8`,
+      })
+      .from(influencedClaims)
+      .innerJoin(conversions, eq(conversions.id, influencedClaims.conversionId))
+      .where(and(...definitionFilter))
+      .groupBy(influencedClaims.key, conversions.currency);
+
     // Campaign keys are opaque uuids — resolve names server-side so every
     // client renders the same labels. Other dimensions are already readable.
     const labels = new Map<string, string>();
     if (groupBy === "campaign") {
       const ids = [
-        ...new Set(rows.map((r) => r.key).filter((k): k is string => !!k)),
+        ...new Set(
+          [...rows.map((r) => r.key), ...influenced.map((r) => r.key)].filter(
+            (k): k is string => !!k,
+          ),
+        ),
       ];
       if (ids.length > 0) {
         const named = await db
@@ -266,6 +321,13 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
           multiScopeConversions: row.multiScopeConversions,
           value: row.value,
           scopeSummedValue: row.scopeSummedValue,
+        })),
+        influenced: influenced.map((row) => ({
+          key: row.key,
+          label: labels.get(row.key) ?? null,
+          currency: row.currency,
+          conversions: Number(row.conversions),
+          value: row.value,
         })),
       },
       200,

@@ -889,6 +889,13 @@ function AttributionPanel() {
   const overlap = query.data?.overlap?.find((o) => o.currency === currency);
   const doubleCounted = overlap ? overlap.scopeSummedValue - overlap.value : 0;
 
+  // Influenced (§3.1): coverage per key, this currency only.
+  const influencedByKey = new Map(
+    (query.data?.influenced ?? [])
+      .filter((i) => i.currency === currency)
+      .map((i) => [i.key, i]),
+  );
+
   // The scope controls stay mounted through every state — an empty scope
   // (e.g. a conversion point whose conversions are all direct) must leave
   // the user a way back to "All conversion points".
@@ -1060,6 +1067,9 @@ function AttributionPanel() {
                       {MODEL_LABELS[m] ?? m}
                     </th>
                   ))}
+                  <th className="px-3 py-2.5 text-right font-medium text-white/60">
+                    Influenced
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1085,6 +1095,14 @@ function AttributionPanel() {
                         {money(cell(m, k)?.value ?? 0, currency)}
                       </td>
                     ))}
+                    <td className="px-3 py-2.5 text-right tabular-nums text-white/60">
+                      {(() => {
+                        const inf = influencedByKey.get(k ?? "");
+                        return inf
+                          ? `${money(inf.value, currency)} · ${inf.conversions}`
+                          : "—";
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1101,6 +1119,9 @@ function AttributionPanel() {
           <p className="text-xs text-white/35">
             Same conversions, eight opinions about who earned them — a channel
             that only looks good under one model is telling you something.
+            Influenced is coverage, not credit: full value of every conversion
+            this {dimension} touched at all. It multi-counts across {dimension}s
+            by design and never sums to the total.
           </p>
         </>
       )}

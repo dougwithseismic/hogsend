@@ -493,6 +493,35 @@ describe("attribution scope columns (impact plan 1.3)", () => {
     };
     expect(templateBody.overlap[0]?.scopeSummedValue).toBe(2700);
   });
+
+  it("reports influenced (3.1): full value per touching scope, multi-counted by design", async () => {
+    const res = await app.request(
+      `/v1/admin/attribution?days=365&definitionId=${RUN}-scope-sale&groupBy=journey`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as {
+      influenced: Array<{
+        key: string;
+        currency: string | null;
+        conversions: number;
+        value: number;
+      }>;
+    };
+    // Both journeys touched the ONE £900 conversion — each shows the FULL
+    // value (coverage, not credit; sums to £1800 across scopes on purpose).
+    // The campaign-scoped touch has no journey, so no null-key row exists.
+    const byKey = new Map(body.influenced.map((i) => [i.key, i]));
+    expect(byKey.size).toBe(2);
+    expect(byKey.get(`${RUN}-journey`)).toMatchObject({
+      currency: "GBP",
+      conversions: 1,
+      value: 900,
+    });
+    expect(byKey.get(`${RUN}-fallback-journey`)).toMatchObject({
+      conversions: 1,
+      value: 900,
+    });
+  });
 });
 
 describe("per-channel attribution windows (impact plan 2.1)", () => {
