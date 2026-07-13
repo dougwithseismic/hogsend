@@ -73,21 +73,29 @@ export function defineConversion(meta: ConversionMeta): DefinedConversion {
 }
 
 /**
- * The source gate: `inapp` (browser, pk_) is denied unless explicitly
- * allowed; a configured allowlist takes precedence. `source` is null for
- * pre-provenance events — treated as server-side (only the engine writes
- * null-source events).
+ * The shared ingest-source gate: `inapp` (browser, pk_) is denied unless
+ * explicitly allowed; a configured allowlist takes precedence. `source` is
+ * null for pre-provenance events — treated as server-side (only the engine
+ * writes null-source events). Used by conversions AND funnel event triggers
+ * (one gate concept, one implementation).
  */
-export function conversionSourceAllowed(
-  def: DefinedConversion,
+export function sourceAllowed(
+  sources: string[] | "any" | undefined,
   source: string | null | undefined,
 ): boolean {
-  const sources = def.meta.sources;
   if (sources === "any") return true;
   if (Array.isArray(sources)) {
     return source != null && sources.includes(source);
   }
   return source !== "inapp";
+}
+
+/** {@link sourceAllowed} over a conversion definition's allowlist. */
+export function conversionSourceAllowed(
+  def: DefinedConversion,
+  source: string | null | undefined,
+): boolean {
+  return sourceAllowed(def.meta.sources, source);
 }
 
 /**

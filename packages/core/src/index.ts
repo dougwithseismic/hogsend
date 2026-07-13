@@ -32,6 +32,7 @@ export {
   type DefinedConversion,
   defineConversion,
   resolveConversionValue,
+  sourceAllowed,
 } from "./conversions.js";
 export {
   type DurationObject,

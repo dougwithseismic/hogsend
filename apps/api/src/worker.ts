@@ -9,6 +9,7 @@ import {
   setDiscordDb,
 } from "./discord.js";
 import { templates } from "./emails/index.js";
+import { funnels } from "./funnels.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
@@ -21,6 +22,9 @@ async function main() {
     conversions,
     buckets,
     lists,
+    // Mirror the API's funnel registration (registry-mirror rule) so webhook
+    // and reconcile-poll paths stamp the same funnel ids.
+    funnels,
     email: { templates },
     // SMS templates must mirror the API (same registry rule as email) so the
     // worker's tracked SMS sender resolves the same keys journeys send.

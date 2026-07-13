@@ -6,8 +6,13 @@ process.env.DATABASE_URL =
 
 const { contacts, crmLinks, deals, userEvents } = await import("@hogsend/db");
 const { eq, inArray } = await import("drizzle-orm");
-const { createApp, createHogsendClient, defineCrmProvider, defineFunnel } =
-  await import("@hogsend/engine");
+const {
+  createApp,
+  createHogsendClient,
+  crmPipeline,
+  defineCrmProvider,
+  defineFunnel,
+} = await import("@hogsend/engine");
 
 const RUN = `crmf-${Date.now()}`;
 const EMAIL_RES = `${RUN}-res@example.com`;
@@ -35,33 +40,43 @@ const crm = defineCrmProvider({
   },
 });
 
-/** Two funnels on ONE provider, split by native pipeline. */
+/** Two funnels on ONE provider, split by native pipeline. Residential's
+ * all-string stages exercise the legacy milestone defaults (quoted = the
+ * literal "quoted", sold = last); commercial's object entries exercise
+ * explicit milestones. */
 const residential = defineFunnel({
   id: "residential",
   name: "Residential",
   stages: ["lead", "quoted", "sold"],
-  quotedStage: "quoted",
-  sources: {
-    funnelcrm: {
-      "p-res": { "s-new": "lead", "s-quote": "quoted", "s-won": "sold" },
-    },
-  },
+  bindings: [
+    crmPipeline({
+      provider: "funnelcrm",
+      pipeline: "p-res",
+      stages: { "s-new": "lead", "s-quote": "quoted", "s-won": "sold" },
+    }),
+  ],
 });
 const commercial = defineFunnel({
   id: "commercial",
   name: "Commercial",
-  stages: ["enquiry", "site_visit", "proposal", "won"],
-  quotedStage: "proposal",
-  sources: {
-    funnelcrm: {
-      "p-com": {
+  stages: [
+    "enquiry",
+    "site_visit",
+    { id: "proposal", milestone: "quoted" },
+    { id: "won", milestone: "won" },
+  ],
+  bindings: [
+    crmPipeline({
+      provider: "funnelcrm",
+      pipeline: "p-com",
+      stages: {
         "s-enq": "enquiry",
         "s-visit": "site_visit",
         "s-prop": "proposal",
         "s-close": "won",
       },
-    },
-  },
+    }),
+  ],
 });
 
 const mockHatchet = {
@@ -142,7 +157,13 @@ describe("multiple funnels (5b.4)", () => {
           defineFunnel({
             id: "rival",
             stages: ["a", "b"],
-            sources: { funnelcrm: { "p-res": { "s-x": "a" } } },
+            bindings: [
+              crmPipeline({
+                provider: "funnelcrm",
+                pipeline: "p-res",
+                stages: { "s-x": "a" },
+              }),
+            ],
           }),
         ],
         overrides: { hatchet: mockHatchet },
@@ -378,5 +399,218 @@ describe("multiple funnels (5b.4)", () => {
     expect(listBody.deals.every((d) => d.funnelId === "residential")).toBe(
       true,
     );
+  });
+
+  it("callback-form bindings run arbitrary resolve logic; unknown outputs record without advancing", async () => {
+    const cbEmail = `${RUN}-cb@example.com`;
+    const callbackFunnel = defineFunnel({
+      id: "cb",
+      stages: ["one", { id: "two", milestone: "won" }],
+      bindings: [
+        crmPipeline({
+          provider: "funnelcrm",
+          pipeline: "p-cb",
+          resolve: (e) => {
+            if (e.stageId === "explode") throw new Error("boom");
+            return e.stageId === "advance"
+              ? "two"
+              : e.stageId === "mystery"
+                ? "not-a-stage" // runtime-unknown output → record, don't advance
+                : "one";
+          },
+        }),
+      ],
+    });
+    const cbContainer = createHogsendClient({
+      crm: { provider: crm },
+      funnels: [callbackFunnel],
+      overrides: { hatchet: mockHatchet },
+    });
+    const cbApp = createApp(cbContainer);
+    const cbPost = (events: unknown) =>
+      cbApp.request("/v1/webhooks/crm/funnelcrm", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-funnelcrm-secret": "shhh",
+        },
+        body: JSON.stringify(events),
+      });
+
+    expect(
+      (
+        await cbPost([
+          stageEvent({
+            deal: `${RUN}-d-cb`,
+            email: cbEmail,
+            pipeline: "p-cb",
+            stageId: "anything",
+            at: "2026-07-12T15:00:00.000Z",
+          }),
+          stageEvent({
+            deal: `${RUN}-d-cb`,
+            email: cbEmail,
+            pipeline: "p-cb",
+            stageId: "mystery",
+            at: "2026-07-12T15:30:00.000Z",
+          }),
+        ])
+      ).status,
+    ).toBe(200);
+
+    const rows = await db
+      .select()
+      .from(deals)
+      .where(eq(deals.externalId, `${RUN}-d-cb`));
+    // "anything" → callback mapped to "one"; "mystery" resolved to a stage
+    // outside the ladder → rank null → the raw event lands on the spine but
+    // the projection holds its last APPLIED change.
+    expect(rows[0]).toMatchObject({
+      funnelId: "cb",
+      canonicalStage: "one",
+      stageRank: 0,
+      stageId: "anything",
+    });
+    expect(rows[0]?.soldAt).toBeNull();
+
+    // A THROWING resolve is contained: the raw stage change still lands on
+    // the spine (the transition is not lost) and the projection is untouched.
+    expect(
+      (
+        await cbPost([
+          stageEvent({
+            deal: `${RUN}-d-cb`,
+            email: cbEmail,
+            pipeline: "p-cb",
+            stageId: "explode",
+            at: "2026-07-12T15:45:00.000Z",
+          }),
+        ])
+      ).status,
+    ).toBe(200);
+    const cbContactRow = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.email, cbEmail));
+    const cbSpine = await db
+      .select()
+      .from(userEvents)
+      .where(eq(userEvents.userId, cbContactRow[0]?.id as string));
+    expect(cbSpine.filter((e) => e.event === "crm.stage_changed")).toHaveLength(
+      3,
+    );
+    const midway = await db
+      .select()
+      .from(deals)
+      .where(eq(deals.externalId, `${RUN}-d-cb`));
+    expect(midway[0]).toMatchObject({ canonicalStage: "one", stageRank: 0 });
+
+    expect(
+      (
+        await cbPost([
+          stageEvent({
+            deal: `${RUN}-d-cb`,
+            email: cbEmail,
+            pipeline: "p-cb",
+            stageId: "advance",
+            at: "2026-07-12T16:00:00.000Z",
+            value: 500,
+          }),
+        ])
+      ).status,
+    ).toBe(200);
+    const after = await db
+      .select()
+      .from(deals)
+      .where(eq(deals.externalId, `${RUN}-d-cb`));
+    expect(after[0]).toMatchObject({ canonicalStage: "two", stageRank: 1 });
+    expect(after[0]?.soldAt).not.toBeNull();
+
+    // Cleanup this test's contact (outside the shared afterAll emails).
+    const cbContact = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.email, cbEmail));
+    const cbIds = cbContact.map((r) => r.id);
+    if (cbIds.length > 0) {
+      await db.delete(userEvents).where(inArray(userEvents.userId, cbIds));
+      await db.delete(deals).where(inArray(deals.contactId, cbIds));
+      await db.delete(crmLinks).where(inArray(crmLinks.contactId, cbIds));
+      await db.delete(contacts).where(inArray(contacts.id, cbIds));
+    }
+  });
+
+  it('a funnel\'s "*" binding is a per-stage fallback for its exact-pipeline bindings', async () => {
+    // The pre-bindings sugar shape: a shared won-stage in "*" plus
+    // pipeline-specific extras. An exact-pipeline event whose stage id only
+    // exists in the "*" map must still resolve (old resolveCanonicalStage
+    // semantics: exact entry, then the same funnel's "*" entry).
+    const wcEmail = `${RUN}-wc@example.com`;
+    const wcFunnel = defineFunnel({
+      id: "wc",
+      stages: ["open", { id: "closed", milestone: "won" }],
+      bindings: [
+        crmPipeline({
+          provider: "funnelcrm",
+          pipeline: "p-wc",
+          stages: { "s-special": "open" },
+        }),
+        crmPipeline({
+          provider: "funnelcrm",
+          pipeline: "*",
+          stages: { "s-shared-won": "closed" },
+        }),
+      ],
+    });
+    const wcContainer = createHogsendClient({
+      crm: { provider: crm },
+      funnels: [wcFunnel],
+      overrides: { hatchet: mockHatchet },
+    });
+    const wcApp = createApp(wcContainer);
+    expect(
+      (
+        await wcApp.request("/v1/webhooks/crm/funnelcrm", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-funnelcrm-secret": "shhh",
+          },
+          body: JSON.stringify([
+            stageEvent({
+              deal: `${RUN}-d-wc`,
+              email: wcEmail,
+              pipeline: "p-wc",
+              stageId: "s-shared-won",
+              at: "2026-07-12T17:00:00.000Z",
+              value: 777,
+            }),
+          ]),
+        })
+      ).status,
+    ).toBe(200);
+
+    const rows = await db
+      .select()
+      .from(deals)
+      .where(eq(deals.externalId, `${RUN}-d-wc`));
+    expect(rows[0]).toMatchObject({
+      funnelId: "wc",
+      canonicalStage: "closed",
+      stageRank: 1,
+    });
+    expect(rows[0]?.soldAt).not.toBeNull();
+
+    const wcContact = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.email, wcEmail));
+    const wcIds = wcContact.map((r) => r.id);
+    if (wcIds.length > 0) {
+      await db.delete(userEvents).where(inArray(userEvents.userId, wcIds));
+      await db.delete(deals).where(inArray(deals.contactId, wcIds));
+      await db.delete(crmLinks).where(inArray(crmLinks.contactId, wcIds));
+      await db.delete(contacts).where(inArray(contacts.id, wcIds));
+    }
   });
 });

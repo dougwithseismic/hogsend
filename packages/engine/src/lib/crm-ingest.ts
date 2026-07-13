@@ -1,6 +1,6 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { AnalyticsProvider, CrmStageEvent } from "@hogsend/core";
-import { DEFAULT_PIPELINE_LADDER, resolveCanonicalStage } from "@hogsend/core";
+import { DEFAULT_PIPELINE_LADDER } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { contacts, type Database } from "@hogsend/db";
 import { eq } from "drizzle-orm";
@@ -102,15 +102,61 @@ export async function ingestCrmStageEvents(opts: {
       }
       await ensureCrmLinks({ db, providerId, contactId, event });
 
-      // Which funnel claims this (provider, pipeline)? Its ladder + stage
-      // map drive resolution. The container always registers a "default"
-      // funnel, so the built-in fallback only covers direct callers.
-      const funnel = funnels?.resolve(providerId, event.pipelineId);
+      // Which funnel claims this (provider, pipeline)? The matched binding
+      // translates native stage ids; a miss falls through to the SAME
+      // funnel's provider-`"*"` binding (a `"*"` map doubles as a per-stage
+      // fallback for the funnel's own pipeline-specific bindings), then the
+      // universal won/lost status hint. The container always registers a
+      // "default" funnel, so the built-in fallback only covers direct
+      // callers.
+      const claimed = funnels?.resolve(providerId, event.pipelineId);
+      const funnel = claimed?.funnel;
       const funnelId = funnel?.meta.id ?? null;
       const ladder = funnel?.ladder ?? DEFAULT_PIPELINE_LADDER;
-      const map = funnel?.meta.sources[providerId];
 
-      const canonicalStage = resolveCanonicalStage(map, event, ladder);
+      // Callback-form resolvers are arbitrary consumer code: a throw must
+      // not swallow the event (the route 200s and the poll cursor advances
+      // regardless — the transition would be lost forever), and an output
+      // outside the ladder must not be stamped verbatim onto a fresh deal.
+      const resolveVia = (
+        binding: NonNullable<typeof claimed>["binding"],
+      ): string | null => {
+        if (!binding) return null;
+        try {
+          const out = binding.resolve(event);
+          if (out === null || out === "lost" || ladder.stages.includes(out)) {
+            return out;
+          }
+          logger.warn("funnel binding resolved to a stage outside the ladder", {
+            funnel: funnelId,
+            provider: providerId,
+            stageId: event.stageId,
+            resolved: out,
+          });
+        } catch (error) {
+          logger.warn("funnel binding resolve threw — treating as unmapped", {
+            funnel: funnelId,
+            provider: providerId,
+            stageId: event.stageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return null;
+      };
+      const wildcardBinding =
+        claimed?.binding?.pipeline === "*"
+          ? undefined
+          : funnel?.meta.bindings?.find(
+              (b) => b.provider === providerId && b.pipeline === "*",
+            );
+      const canonicalStage =
+        resolveVia(claimed?.binding) ??
+        resolveVia(wildcardBinding) ??
+        (event.status === "won"
+          ? (ladder.soldStage ?? null)
+          : event.status === "lost"
+            ? "lost"
+            : null);
       if (!canonicalStage) {
         logger.warn("crm stage unmapped — recording native ids only", {
           provider: providerId,
