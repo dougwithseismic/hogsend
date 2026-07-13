@@ -849,7 +849,7 @@ function AttributionPanel() {
   // dimension (a transactional click under "By journey").
   const keyOf = (r: AttributionRow) => r.key ?? r.channel ?? null;
   const keys = [...new Set(scoped.map(keyOf))].sort((a, b) =>
-    (a ?? "￿").localeCompare(b ?? "￿"),
+    a === null ? 1 : b === null ? -1 : a.localeCompare(b),
   );
   const labelOf = (k: string | null) =>
     k === null
