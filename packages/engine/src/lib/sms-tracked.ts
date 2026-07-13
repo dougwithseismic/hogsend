@@ -19,6 +19,7 @@ import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import type { FrequencyCapConfig } from "./email-service-types.js";
 import { hatchet } from "./hatchet.js";
+import { isGlobalControl } from "./holdout.js";
 import { checkJourneySuppress } from "./journey-suppress.js";
 import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
@@ -215,6 +216,40 @@ async function sendTrackedSmsInner<K extends SmsTemplateName>(
   }
 
   if (!options.skipPreferenceCheck) {
+    // Global control group (impact plan §4.3) — the SMS leg of the email
+    // gate in tracked.ts: same deterministic bucket, same key precedence
+    // (userId when known, else the recipient address), same marker emit
+    // (per-endpoint deduped on the contact key), so a contact with a stable
+    // userId is controlled consistently across channels.
+    if (effectiveCategory !== "transactional") {
+      const controlKey = options.userId ?? options.to;
+      if (isGlobalControl(controlKey)) {
+        logger?.info("sms skipped: control_group", { to: options.to });
+        void emitOutbound({
+          db,
+          hatchet,
+          logger: logger ?? emitLogger,
+          event: "contact.control_group",
+          dedupeKey: `contact.control_group:${controlKey.toLowerCase()}`,
+          payload: {
+            userId: options.userId ?? null,
+            email: null,
+            at: new Date().toISOString(),
+          },
+        }).catch((err: unknown) => {
+          (logger ?? emitLogger).warn("control_group marker emit failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return {
+          smsSendId: "",
+          messageId: "",
+          status: "skipped",
+          reason: "control_group",
+        };
+      }
+    }
+
     if (frequencyCap) {
       const capped = await isSmsFrequencyCapped({
         db,

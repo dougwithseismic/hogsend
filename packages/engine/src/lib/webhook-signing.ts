@@ -55,6 +55,9 @@ export const WEBHOOK_EVENT_TYPES = [
   "contact.deleted",
   "contact.unsubscribed",
   "contact.subscribed",
+  // Global control group membership (impact plan §4.3) — emitted once per
+  // contact key on the first withheld send.
+  "contact.control_group",
   "email.sent",
   "email.delivered",
   "email.opened",

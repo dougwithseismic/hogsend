@@ -250,6 +250,7 @@ export type OutboundEventType =
   | "contact.deleted"
   | "contact.unsubscribed"
   | "contact.subscribed"
+  | "contact.control_group"
   | "email.sent"
   | "email.delivered"
   | "email.opened"

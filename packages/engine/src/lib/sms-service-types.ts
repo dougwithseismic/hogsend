@@ -59,8 +59,14 @@ export interface SmsTrackedSendResult {
    *   recent SMS to this recipient from the same journey.
    * - `"test_mode_blocked"` — test mode active but no `HOGSEND_TEST_PHONE`, so
    *   the send was blocked rather than delivered to the real recipient.
+   * - `"control_group"` — the recipient is in the global control group
+   *   (impact plan §4.3); non-transactional sends are withheld.
    */
-  reason?: "frequency_capped" | "journey_suppressed" | "test_mode_blocked";
+  reason?:
+    | "frequency_capped"
+    | "journey_suppressed"
+    | "test_mode_blocked"
+    | "control_group";
 }
 
 // ---------------------------------------------------------------------------

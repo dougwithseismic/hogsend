@@ -153,9 +153,40 @@ export const posthogDestination = defineDestination({
         return setCapture(data.externalId, { [flag]: true });
       }
 
+      if (envelope.type === "contact.control_group") {
+        // Global control group membership (impact plan §4.4): a person flag
+        // so PostHog insights/experiments can slice program-level lift. The
+        // engine owns assignment (deterministic, durable-path); PostHog gets
+        // the raw material. Identity-less sends carry no addressable key.
+        const data =
+          envelope.data as unknown as OutboundPayloads["contact.control_group"];
+        if (!data.userId) return null;
+        return setCapture(data.userId, { hogsend_control_group: true });
+      }
+
       // contact.deleted: PostHog person deletion is a private-API operation,
       // not a capture — out of scope for this rail.
       return null;
+    }
+
+    // Holdout membership as a person property (impact plan §4.4): when
+    // person sync is on, journey.heldout becomes a per-journey $set flag
+    // (`hogsend_holdout_<journeyId>: true`) so PostHog can slice any insight
+    // by holdout membership. With sync off it falls through to the generic
+    // event capture below — the event stream alone still records diversion.
+    if (envelope.type === "journey.heldout" && config.syncPersons === true) {
+      const heldout =
+        envelope.data as unknown as OutboundPayloads["journey.heldout"];
+      return captureRequest({
+        host,
+        apiKey: config.apiKey,
+        event: "$set",
+        distinctId: heldout.userId,
+        timestamp: envelope.timestamp,
+        properties: {
+          $set: { [`hogsend_holdout_${heldout.journeyId}`]: true },
+        },
+      });
     }
 
     const data = envelope.data as {

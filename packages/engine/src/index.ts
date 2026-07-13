@@ -462,7 +462,12 @@ export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";
 export { hatchet } from "./lib/hatchet.js";
-export { holdoutBucket, isHeldOut } from "./lib/holdout.js";
+export {
+  globalControlPercent,
+  holdoutBucket,
+  isGlobalControl,
+  isHeldOut,
+} from "./lib/holdout.js";
 // --- Identity service (resolve/merge + analytics merge propagation, §7) ---
 export {
   createIdentityService,

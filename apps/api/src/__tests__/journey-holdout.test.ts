@@ -32,19 +32,25 @@ const { mockFnHolder, hatchetMock } = vi.hoisted(() => {
 vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
 vi.mock("../lib/hatchet.js", () => hatchetMock());
 
-const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
+const { contacts, emailSends, journeyStates, userEvents } = await import(
+  "@hogsend/db"
+);
 const { and, eq, inArray, like } = await import("drizzle-orm");
 const {
   betaWinProbability,
   computeLift,
   createApp,
   createHogsendClient,
+  createTrackedMailer,
   defineJourney,
   holdoutBucket,
+  isGlobalControl,
   isHeldOut,
   setJourneyRegistry,
 } = await import("@hogsend/engine");
+type EmailProvider = import("@hogsend/engine").EmailProvider;
 const { JourneyRegistry } = await import("@hogsend/core/registry");
+const { templates } = await import("../emails/index.js");
 
 const container = createHogsendClient();
 const app = createApp(container);
@@ -219,5 +225,103 @@ describe("lift statistics (4.2)", () => {
     expect(body.suppressed).toBe(true);
     expect(body.winProbability).toBeNull();
     expect(body.smallSample).toBe(true);
+  });
+});
+
+describe("global control group (4.3)", () => {
+  const providerSends: string[] = [];
+  const provider: EmailProvider = {
+    meta: { id: "resend", name: "control-test" },
+    capabilities: { nativeTracking: false },
+    send: async (opts) => {
+      providerSends.push(String(opts.to));
+      return { id: `ctl-msg-${providerSends.length}` };
+    },
+    sendBatch: async () => ({ results: [] }),
+    verifyWebhook: () => {
+      throw new Error("unused");
+    },
+    parseWebhook: () => {
+      throw new Error("unused");
+    },
+  };
+  const mailer = createTrackedMailer(
+    {
+      defaultFrom: "Hogsend <noreply@hogsend.com>",
+      // biome-ignore lint/suspicious/noExplicitAny: real container db threaded in
+      db: db as any,
+      templates,
+    },
+    { provider },
+  );
+
+  /** An email deterministically inside/outside the 15% control bucket. */
+  function findEmail(controlled: boolean): string {
+    process.env.GLOBAL_CONTROL_PERCENT = "15";
+    try {
+      for (let i = 0; i < 2000; i++) {
+        const candidate = `${RUN}-c${i}@example.com`;
+        if (isGlobalControl(candidate) === controlled) return candidate;
+      }
+      throw new Error("no candidate found");
+    } finally {
+      delete process.env.GLOBAL_CONTROL_PERCENT;
+    }
+  }
+
+  afterAll(async () => {
+    delete process.env.GLOBAL_CONTROL_PERCENT;
+    await db.delete(emailSends).where(like(emailSends.toEmail, `${RUN}-c%`));
+  });
+
+  it("withholds non-transactional sends for controlled contacts, delivers transactional, and is off by default", async () => {
+    const controlled = findEmail(true);
+    const uncontrolled = findEmail(false);
+
+    // OFF by default: no env ⇒ everyone sends.
+    const offResult = await mailer.send({
+      template: "welcome" as never,
+      props: { name: "Ada" } as never,
+      to: controlled,
+      category: "journey",
+    });
+    expect(offResult.status).toBe("sent");
+
+    process.env.GLOBAL_CONTROL_PERCENT = "15";
+    try {
+      // Controlled + marketing: withheld, no provider call, no row.
+      const before = providerSends.length;
+      const withheld = await mailer.send({
+        template: "welcome" as never,
+        props: { name: "Ada" } as never,
+        to: controlled,
+        category: "journey",
+      });
+      expect(withheld).toMatchObject({
+        status: "skipped",
+        reason: "control_group",
+      });
+      expect(providerSends.length).toBe(before);
+
+      // Controlled + transactional category: still delivers.
+      const transactional = await mailer.send({
+        template: "welcome" as never,
+        props: { name: "Ada" } as never,
+        to: controlled,
+        category: "transactional",
+      });
+      expect(transactional.status).toBe("sent");
+
+      // Uncontrolled contact: unaffected.
+      const normal = await mailer.send({
+        template: "welcome" as never,
+        props: { name: "Ada" } as never,
+        to: uncontrolled,
+        category: "journey",
+      });
+      expect(normal.status).toBe("sent");
+    } finally {
+      delete process.env.GLOBAL_CONTROL_PERCENT;
+    }
   });
 });

@@ -15,6 +15,7 @@ const WEBHOOK_EVENT_TYPES = [
   "contact.deleted",
   "contact.unsubscribed",
   "contact.subscribed",
+  "contact.control_group",
   "email.sent",
   "email.delivered",
   "email.opened",

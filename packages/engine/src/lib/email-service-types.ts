@@ -88,8 +88,15 @@ export interface TrackedSendResult {
    * - `"test_mode_blocked"` — test mode was active but no redirect address
    *   resolved (no `HOGSEND_TEST_EMAIL` / `STUDIO_ADMIN_EMAIL`), so the send was
    *   blocked rather than delivered to the real recipient.
+   * - `"control_group"` — the recipient is in the global control group
+   *   (impact plan §4.3): non-transactional sends are withheld so
+   *   program-level lift is measurable. Transactional mail still delivers.
    */
-  reason?: "frequency_capped" | "journey_suppressed" | "test_mode_blocked";
+  reason?:
+    | "frequency_capped"
+    | "journey_suppressed"
+    | "test_mode_blocked"
+    | "control_group";
 }
 
 /**

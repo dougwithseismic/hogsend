@@ -30,6 +30,7 @@ import {
 } from "./email-service-types.js";
 import { isFrequencyCapped } from "./frequency-cap.js";
 import { hatchet } from "./hatchet.js";
+import { isGlobalControl } from "./holdout.js";
 import { checkJourneySuppress } from "./journey-suppress.js";
 import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
@@ -231,6 +232,42 @@ async function sendTrackedEmailInner<K extends TemplateName>(
             ? "unsubscribed"
             : "suppressed",
       });
+    }
+
+    // Global control group (impact plan §4.3) — a deterministic contact-level
+    // bucket excluded from every non-transactional send so program-level lift
+    // is measurable. Runs INSIDE the non-system branch and additionally
+    // exempts the transactional category (control contacts still get
+    // receipts/resets). No provider call, no row — mirrors the frequency-cap
+    // skip. The outbound marker is per-endpoint deduped on the contact key,
+    // so the first suppressed send publishes membership exactly once.
+    if (effectiveCategory !== "transactional") {
+      const controlKey = options.userId ?? options.to;
+      if (isGlobalControl(controlKey)) {
+        logger?.info("send skipped: control_group", { to: options.to });
+        void emitOutbound({
+          db,
+          hatchet,
+          logger: logger ?? emitLogger,
+          event: "contact.control_group",
+          dedupeKey: `contact.control_group:${controlKey.toLowerCase()}`,
+          payload: {
+            userId: options.userId ?? null,
+            email: options.to,
+            at: new Date().toISOString(),
+          },
+        }).catch((err: unknown) => {
+          (logger ?? emitLogger).warn("control_group marker emit failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return trackedSendResult({
+          emailSendId: "",
+          messageId: "",
+          status: "skipped",
+          reason: "control_group",
+        });
+      }
     }
 
     // Frequency cap — consulted only for non-system sends (system mail sets

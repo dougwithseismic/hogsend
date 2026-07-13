@@ -218,6 +218,16 @@ export interface OutboundPayloads {
     userEmail: string;
     completedAt: string;
   };
+  /**
+   * Global control group membership (impact plan §4.3) — emitted once per
+   * contact key (per-endpoint dedupe) on the first withheld send. `userId`
+   * is null for identity-less sends; `email` null on the SMS leg.
+   */
+  "contact.control_group": {
+    userId: string | null;
+    email: string | null;
+    at: string;
+  };
   /** Holdout diversion (impact plan §4.1) — the counterfactual as data. */
   "journey.heldout": {
     journeyId: string;
