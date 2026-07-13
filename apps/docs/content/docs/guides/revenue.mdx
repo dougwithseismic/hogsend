@@ -82,75 +82,110 @@ fields — see [Lead intake](/docs/guides/lead-intake).
 
 ## The deals ledger
 
-Deals are a **projection, not a second source of truth**. CRM stage changes
-arrive as events (webhook or reconciliation poll), each one is stored on the
-contact's timeline, and the `deals` table projects the latest state per deal:
-provider, pipeline, native stage, **canonical stage**, value, and the
+Deals are a **projection, not a second source of truth**. Stage changes
+arrive as events — your own server-side events, or a CRM's webhooks/poll —
+each one is stored on the contact's timeline, and the `deals` table projects
+the latest state per deal: provider, **canonical stage**, value, and the
 timestamps that matter (`quotedAt`, `soldAt`, `lostAt`).
 
-### Funnels — code-first, and plural
+### Funnels — event-native, code-first, plural
 
-Every CRM names its pipeline differently, and one business often runs
-several pipelines at once. A **funnel** is a first-class primitive authored
-like a journey: your ordered stage ladder, which money stages mint the money
-events, and which CRM traffic feeds it:
+A **funnel** is a first-class primitive authored like a journey: your
+ordered stages, the money milestones among them, and the **events that move
+a contact between them**. No CRM required:
 
 ```ts title="src/funnels/index.ts"
-import { defineFunnel } from "@hogsend/engine";
+import { crmPipeline, defineFunnel } from "@hogsend/engine";
 
-export const residential = defineFunnel({
-  id: "residential",
-  stages: ["lead", "contacted", "survey_booked", "quoted", "sold"],
-  quotedStage: "quoted",  // mints deal.quoted
-  soldStage: "sold",      // mints deal.sold (default: the last stage)
-  sources: {
-    // Per provider: native pipeline → native stage → YOUR stage. The
-    // pipeline keys double as the claim — this funnel owns them.
-    ghl: { residential: { "quote-sent": "quoted", "job-won": "sold" } },
-  },
+export const selfServe = defineFunnel({
+  id: "self-serve",
+  stages: [
+    { id: "trial", on: "trial.started" },
+    "activated",                       // plain string = no event trigger
+    { id: "quoted", milestone: "quoted",   // mints deal.quoted
+      on: { event: "quote.sent", where: (b) => b.prop("total").gte(1000) } },
+    { id: "subscribed", milestone: "won",  // mints deal.sold
+      on: "subscription.created" },
+  ],
+  lostOn: "subscription.cancelled",
+  // Trust allowlist for event triggers (like defineConversion.sources).
+  // Default: every source EXCEPT browser `inapp` — a pk_ event can't
+  // forge a stage jump.
+  sources: ["stripe", "api"],
+  // Optional CRM leg — composable bindings, not a config tree. The
+  // (provider, pipeline) pair is the traffic claim; `stages` maps native
+  // stage ids to YOUR stages (or pass `resolve: (e) => ...` for logic).
+  bindings: [
+    crmPipeline({ provider: "ghl", pipeline: "residential",
+      stages: { "quote-sent": "quoted", "job-won": "subscribed" } }),
+  ],
 });
 
-createHogsendClient({ funnels: [residential, commercial] });
+createHogsendClient({ funnels: [selfServe, commercial] });
 ```
 
-Ingest routes every stage event to the funnel that claims its
-(provider, pipeline) — an exact pipeline claim beats a provider-wide `"*"`,
-and two funnels claiming the same pipeline throw at boot (when promoting a
-pipeline out of `crm.stageMaps` into a dedicated funnel, remove it from
-`stageMaps` in the same change or boot fails on the double claim). Deals
-carry `funnel_id`, the money events carry it as a property (so conversion
-points and journeys scope per funnel with a `where`), and Studio's dashboard
-gets a funnel switcher. A deal belongs to one funnel for life: a stage event
-arriving from another funnel's pipeline still lands on the event timeline
-but never rewrites the deal's projection.
+**When a contact triggers a stage's `on` event** (source-gated, `where`
+passing), their open deal in that funnel moves — whichever producer created
+it. No deal yet? One is minted under the synthetic `events` provider (one
+per contact per funnel; an explicit `deal_id` event property addresses
+multi-deal cases; once that one deal closes, a later trigger holds rather
+than opening a second cycle — re-entry is deliberately deferred). `lostOn`
+only ever closes an existing deal. And the hybrid flow works both ways: an
+event can open the deal and the CRM close it — the CRM leg **adopts** the
+contact's open event-minted deal (the implicit single-deal row;
+`deal_id`-addressed rows stay separate by design) the first time it sees
+the native deal id, instead of shadowing it with a sibling.
 
-Rank comes from array order; `lost` stays the implicit terminal; a typo in a
-stage map throws at boot with the exact path. Single-pipeline deployments
-can skip `defineFunnel` entirely — the shorthand
-`crm: { stages, quotedStage, soldStage, stageMaps }` is sugar for one
-`"default"` funnel. The default ladder:
+**Milestones** sit on the stage they describe: `milestone: "quoted"` mints
+`deal.quoted` (the mid-funnel money signal), `milestone: "won"` mints
+`deal.sold` (revenue realized) — once per deal, ever, valued from the deal.
+A funnel with no `won` milestone never mints `deal.sold` and contributes
+£0 realized revenue: stages and counts still work (note: such a funnel's
+terminal-stage deals read as "open pipeline" in stats — a cosmetic count
+wrinkle, plus whatever value its trigger events carried). All-string
+`stages` keep legacy defaults (sold = the last stage, quoted = a stage
+literally named `"quoted"`); the moment ANY entry is an object, milestones
+are explicit-only.
+
+CRM traffic routes to the funnel whose binding claims its
+(provider, pipeline) — exact beats provider-wide `"*"`, overlapping claims
+throw at boot, a funnel's own `"*"` binding doubles as a per-stage fallback
+for its pipeline-specific maps. Deals carry `funnel_id`, the money events
+carry it as a property (so conversion points and journeys scope per funnel
+with a `where`), and Studio's dashboard gets a funnel switcher. A deal
+belongs to one funnel for life: a stage event arriving from another
+funnel's pipeline still lands on the event timeline but never rewrites the
+deal's projection.
+
+Rank comes from array order; `lost` stays the implicit terminal; a typo in
+a binding's stage map throws at boot with the exact path. Single-pipeline
+CRM deployments can skip `defineFunnel` entirely — the shorthand
+`crm: { stages, stageMaps }` is sugar for one `"default"` funnel (its
+`stages` takes the same entries). The default ladder:
 
 ```
 lead → contacted → survey_booked → quoted → sold        (and: lost)
 ```
 
-The projection is **monotonic**: a late-arriving lower-stage webhook can
+The projection is **monotonic**: a late-arriving lower-stage event can
 never regress a deal that's already further along, and `lost` never
 overwrites the sold stage. Out-of-order delivery and webhook/poll
 double-detection heal themselves.
 
-Two designated stages mint **money events** on the contact's timeline, each
-carrying the deal's value first-class — the event names stay stable across
-any ladder (journeys and conversion points never chase your naming):
-
-- **`deal.quoted`** — the mid-funnel money signal (cost-per-quote),
-  minted by `quotedStage`.
-- **`deal.sold`** — the revenue conversion, minted by `soldStage`.
-
-Both (plus `funnel.stage_changed`) are on the
-[outbound webhook catalog](/docs/data-api/webhooks) and can trigger journeys
-like any other event — a post-sale onboarding journey triggers on
-`deal.sold` with zero extra wiring.
+The money events stay stable across any ladder (journeys and conversion
+points never chase your naming): **`deal.quoted`**, **`deal.sold`**. Both
+land on the contact's timeline from every producer and can trigger
+journeys like any other event — a post-sale onboarding journey triggers on
+`deal.sold` with zero extra wiring. All three machinery events (plus
+`funnel.stage_changed`) are on the
+[outbound webhook catalog](/docs/data-api/webhooks); note that
+`funnel.stage_changed` itself only reaches the timeline (and journeys) for
+CRM-produced changes — for event-driven moves the triggering event IS the
+timeline row, and `funnel.stage_changed` goes outbound only. One
+accounting rule to know: any event **name** wired to a milestone stage is
+excluded from revenue rollups (its value arrives via the minted money
+event, so a sale counts exactly once); non-milestone triggers keep their
+values in the rollups.
 
 ### Connecting a CRM
 
@@ -164,9 +199,12 @@ receive webhooks at `POST /v1/webhooks/crm/:providerId`:
 const client = createHogsendClient({
   crm: {
     providers: [myCrmProvider],
+    // Native (pipeline → stage → YOUR stage); "*" = any pipeline.
     stageMaps: {
-      "my-crm": { "New Enquiry": "lead", "Survey Booked": "survey_booked",
-                  "Quote Sent": "quoted", "Job Won": "sold" },
+      "my-crm": {
+        "*": { "New Enquiry": "lead", "Survey Booked": "survey_booked",
+               "Quote Sent": "quoted", "Job Won": "sold" },
+      },
     },
   },
 });
@@ -183,11 +221,12 @@ implementations for GoHighLevel, Attio, and HubSpot
 
 Every contact's valued events roll up to per-currency totals — surfaced on
 `GET /v1/admin/contacts/{id}` and in the Studio contact drawer. Only
-**realized** money counts: the rollup skips `deal.quoted` and
-`funnel.stage_changed` rows (one deal's value rides several timeline events —
-counting them all would multiply a single sale) and browser-minted values
-(forgeable). A sold deal contributes exactly once, via `deal.sold`. The
-contacts list API gains two long-tail filters:
+**realized** money counts: the rollup skips `deal.quoted`,
+`funnel.stage_changed`, and any funnel **milestone trigger** rows (one
+deal's value rides several timeline events — counting them all would
+multiply a single sale) and browser-minted values (forgeable). A sold deal
+contributes exactly once, via `deal.sold`. The contacts list API gains two
+long-tail filters:
 
 - **`minRevenue`** — only contacts whose valued events sum to at least this
   much (per-currency).

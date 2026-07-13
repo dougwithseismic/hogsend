@@ -356,9 +356,10 @@ export type FunnelTriggerSpec =
 
 /**
  * Money milestones. `"quoted"` mints `deal.quoted` (the mid-funnel money
- * signal); `"won"` mints `deal.sold` (revenue realized). A funnel with no
- * `"won"` stage is non-monetary: it never mints money events and contributes
- * nothing to revenue rollups.
+ * signal); `"won"` mints `deal.sold` (revenue realized). Each mints only
+ * when its stage exists: a funnel with no `"won"` stage never mints
+ * `deal.sold` and contributes nothing to revenue rollups (a quoted-only
+ * funnel still mints `deal.quoted`, which rollups exclude as unrealized).
  */
 export type FunnelMilestone = "quoted" | "won";
 
