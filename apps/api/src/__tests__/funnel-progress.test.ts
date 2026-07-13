@@ -7,10 +7,15 @@ process.env.DATABASE_URL =
 const { contacts, funnelProgress, userEvents } = await import("@hogsend/db");
 const { defineFunnel } = await import("@hogsend/core");
 const { eq, inArray } = await import("drizzle-orm");
-const { createHogsendClient, ingestEvent } = await import("@hogsend/engine");
+const { createApp, createHogsendClient, ingestEvent } = await import(
+  "@hogsend/engine"
+);
 
 const RUN = `fnl-${Date.now()}`;
 const USER = `${RUN}-user`;
+/** Second contact for the exposed-vs-unexposed split (never exposed). */
+const USER2 = `${RUN}-user2`;
+const JOURNEY = `${RUN}-welcome`;
 
 /**
  * Event-ladder funnel (impact plan §3.3): pure `events` stages, no CRM
@@ -46,35 +51,42 @@ const container = createHogsendClient({
   funnels: [selfServe],
   overrides: { hatchet: mockHatchet },
 });
+const app = createApp(container);
 const { db, registry, hatchet, logger } = container;
+
+const AUTH_HEADER = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };
 
 afterAll(async () => {
   await db
     .delete(funnelProgress)
     .where(eq(funnelProgress.funnelId, `${RUN}-self-serve`));
-  await db.delete(userEvents).where(inArray(userEvents.userId, [USER]));
-  await db.delete(contacts).where(eq(contacts.externalId, USER));
+  await db.delete(userEvents).where(inArray(userEvents.userId, [USER, USER2]));
+  await db.delete(contacts).where(inArray(contacts.externalId, [USER, USER2]));
 });
 
 const send = (opts: {
   event: string;
   at: string;
   properties?: Record<string, unknown>;
-}) =>
-  ingestEvent({
+  userId?: string;
+  source?: string;
+}) => {
+  const userId = opts.userId ?? USER;
+  return ingestEvent({
     db,
     registry,
     hatchet,
     logger,
     event: {
       event: opts.event,
-      userId: USER,
+      userId,
       eventProperties: opts.properties ?? {},
       occurredAt: opts.at,
-      idempotencyKey: `${RUN}:${opts.event}:${opts.at}`,
-      source: "server",
+      idempotencyKey: `${RUN}:${userId}:${opts.event}:${opts.at}`,
+      source: opts.source ?? "server",
     },
   });
+};
 
 describe("event-ladder funnel progression (impact plan 3.3)", () => {
   it("writes first-reach rows per stage, honors where, and dedups repeats", async () => {
@@ -128,5 +140,72 @@ describe("event-ladder funnel progression (impact plan 3.3)", () => {
         events: { c: { event: "x" } },
       }),
     ).toThrow(/events\.c is not in its stages/);
+  });
+
+  it("serves progression + velocity with exposed-vs-unexposed splits (3.4)", async () => {
+    // USER (from the first test) reached all three stages. Give them a
+    // journey-stamped touch BEFORE activation; USER2 signs up, never
+    // activates, never touched.
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-02T09:00:00.000Z",
+      source: "tracking",
+      properties: { journeyId: JOURNEY, templateKey: "welcome" },
+    });
+    await send({
+      event: "user.signup",
+      at: "2026-07-01T12:00:00.000Z",
+      userId: USER2,
+    });
+
+    const res = await app.request(
+      `/v1/admin/funnels/${RUN}-self-serve/progression?days=365&journeyId=${JOURNEY}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      stages: Array<{ stage: string; rank: number; reached: number }>;
+      transitions: Array<{
+        from: string;
+        to: string;
+        all: {
+          entered: number;
+          converted: number;
+          rate: number;
+          medianDays: number | null;
+        };
+        exposed?: {
+          entered: number;
+          converted: number;
+          medianDays: number | null;
+        };
+        unexposed?: { entered: number; converted: number };
+      }>;
+      correlational: true;
+    };
+
+    expect(body.correlational).toBe(true);
+    expect(body.stages).toEqual([
+      { stage: "signed_up", rank: 0, reached: 2 },
+      { stage: "activated", rank: 1, reached: 1 },
+      { stage: "subscribed", rank: 2, reached: 1 },
+    ]);
+
+    const first = body.transitions[0];
+    expect(first).toMatchObject({ from: "signed_up", to: "activated" });
+    expect(first?.all).toMatchObject({ entered: 2, converted: 1, rate: 0.5 });
+    // Velocity: signup 07-01 09:00 → activation 07-03 09:00 = 2 days.
+    expect(first?.all.medianDays).toBeCloseTo(2, 5);
+    // Exposure split: USER touched by the journey before activating;
+    // USER2 untouched and unconverted.
+    expect(first?.exposed).toMatchObject({ entered: 1, converted: 1 });
+    expect(first?.exposed?.medianDays).toBeCloseTo(2, 5);
+    expect(first?.unexposed).toMatchObject({ entered: 1, converted: 0 });
+
+    const unknown = await app.request(
+      "/v1/admin/funnels/nope/progression?days=30",
+      { headers: AUTH_HEADER },
+    );
+    expect(unknown.status).toBe(404);
   });
 });
