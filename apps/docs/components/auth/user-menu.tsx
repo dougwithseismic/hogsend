@@ -48,8 +48,16 @@ export function UserMenu() {
   }, [open]);
 
   // Reserve the avatar's footprint while the session loads — no nav shift.
+  // `hidden sm:block` matches the signed-out link's breakpoints: on mobile the
+  // resolved states render nothing (signed-out) or pop the avatar (signed-in),
+  // so reserving space there would guarantee a shift for the common case.
   if (isPending) {
-    return <div className="size-8 rounded-full bg-white/[0.04]" aria-hidden />;
+    return (
+      <div
+        className="hidden size-8 rounded-full bg-white/[0.04] sm:block"
+        aria-hidden
+      />
+    );
   }
 
   if (!session) {
@@ -113,7 +121,11 @@ export function UserMenu() {
               role="menuitem"
               onClick={async () => {
                 setOpen(false);
-                await signOut();
+                try {
+                  await signOut();
+                } catch {
+                  return; // failed sign-out: stay signed in, no redirect
+                }
                 router.push("/");
                 router.refresh();
               }}

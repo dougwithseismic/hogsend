@@ -53,10 +53,12 @@ const STATUS_LABELS: Record<string, string> = {
   unknown: "—",
 };
 
+/** Lenient by design — upstream data is sanitized, but a bad date must never
+ *  turn into an Intl RangeError that 500s the whole portal. */
 function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
-    new Date(iso),
-  );
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 }
 
 /** Course-account-style stacked section: hairline top border + display title. */
@@ -159,8 +161,15 @@ export default async function PortalPage(): Promise<JSX.Element> {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {services.map((s) => (
-                <ServiceCard key={`${s.plan}-${s.purchasedAt}`} service={s} />
+              {services.map((s, i) => (
+                <ServiceCard
+                  // plan+date can collide (same plan bought twice in one
+                  // second) — the index disambiguates. Server-rendered once,
+                  // never reordered client-side, so index keys are safe here.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static list
+                  key={`${s.plan}-${s.purchasedAt}-${i}`}
+                  service={s}
+                />
               ))}
             </div>
           )}
@@ -170,7 +179,12 @@ export default async function PortalPage(): Promise<JSX.Element> {
           title="Course all-access"
           description="Measure → Keep → Grow — included with the setup week and done-for-you."
         >
-          {course.allAccess ? (
+          {course === null ? (
+            <p className="text-sm text-white/60">
+              Couldn&apos;t check your course access just now — refresh in a
+              moment.
+            </p>
+          ) : course.allAccess ? (
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/40 bg-white/[0.02] p-5">
               <div>
                 <p className="font-medium text-sm text-white">

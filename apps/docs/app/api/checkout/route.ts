@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { postToHogsendApi } from "@/lib/hogsend-api";
 import { isCheckoutTier } from "@/lib/pricing";
 
 export const runtime = "nodejs";
@@ -46,41 +47,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const apiUrl = process.env.HOGSEND_INGEST_URL;
-  const checkoutSecret = process.env.SERVICE_CHECKOUT_SECRET;
-  // Checkout not wired (no API base or shared secret) → booking fallback.
-  if (!apiUrl || !checkoutSecret) {
+  // Unconfigured env, 409 (tier not purchasable — price unset), API down, or
+  // malformed reply → the booking form, never a dead end.
+  const data = await postToHogsendApi<{ url?: unknown }>("/checkout", {
+    tier,
+    email: session.user.email,
+    userId: session.user.id,
+  });
+  if (typeof data?.url !== "string") {
     return NextResponse.redirect(`${base}/service#enquire`, 303);
   }
-
-  let url: string | undefined;
-  try {
-    const res = await fetch(`${apiUrl.replace(/\/+$/, "")}/checkout`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${checkoutSecret}`,
-      },
-      body: JSON.stringify({
-        tier,
-        email: session.user.email,
-        userId: session.user.id,
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json().catch(() => null)) as {
-        url?: unknown;
-      } | null;
-      if (typeof data?.url === "string") url = data.url;
-    }
-  } catch {
-    // network/upstream failure → fall through to the booking fallback
-  }
-
-  // 409 (tier not purchasable — price unset), API down, or malformed reply →
-  // the booking form, never a dead end.
-  if (!url) {
-    return NextResponse.redirect(`${base}/service#enquire`, 303);
-  }
-  return NextResponse.redirect(url, 303);
+  return NextResponse.redirect(data.url, 303);
 }

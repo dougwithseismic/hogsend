@@ -15,9 +15,15 @@ export function SignOutButton() {
       disabled={pending}
       onClick={async () => {
         setPending(true);
-        await signOut();
-        router.push("/");
-        router.refresh();
+        try {
+          await signOut();
+          router.push("/");
+          router.refresh();
+        } finally {
+          // A failed sign-out (flaky network) must not strand the button in
+          // "Signing out…" — reset so the user can retry.
+          setPending(false);
+        }
       }}
       className="inline-flex h-10 items-center rounded-[8px] border border-white/[0.12] px-4 font-medium text-sm text-white/80 transition-colors hover:border-white/30 hover:text-white disabled:opacity-60"
     >

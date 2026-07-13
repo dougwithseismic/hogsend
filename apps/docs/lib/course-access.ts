@@ -28,7 +28,14 @@ export type CourseAccess = {
   ownedCount: number;
 };
 
-export async function getCourseAccess(userId: string): Promise<CourseAccess> {
+/**
+ * Null means "couldn't read" (table missing, transient DB error) — the portal
+ * renders a soft retry state. A paying all-access customer must never be
+ * shown the not-owned upsell because of a database blip.
+ */
+export async function getCourseAccess(
+  userId: string,
+): Promise<CourseAccess | null> {
   try {
     const rows = await db
       .select({ courseSlug: purchase.courseSlug })
@@ -37,8 +44,6 @@ export async function getCourseAccess(userId: string): Promise<CourseAccess> {
     const slugs = new Set(rows.map((r) => r.courseSlug));
     return { allAccess: slugs.has(ALL_ACCESS_SLUG), ownedCount: slugs.size };
   } catch {
-    // Table missing (a docs instance pointed at a non-course DB) or transient
-    // DB error — the portal shows the not-owned state rather than 500ing.
-    return { allAccess: false, ownedCount: 0 };
+    return null;
   }
 }
