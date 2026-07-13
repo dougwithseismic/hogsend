@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend studio)
+PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio)
 
 TARBALLS=""
 APP_PARENT=""
