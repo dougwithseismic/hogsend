@@ -39,6 +39,15 @@ type IngestEventBody = {
   anonymousId?: string;
   contactProperties?: Record<string, unknown>;
   eventProperties?: Record<string, unknown>;
+  /**
+   * First-class monetary worth of the event, in MAJOR currency units (e.g. 49
+   * for $49), plus its ISO-4217 `currency`. The engine's revenue/attribution
+   * spine reads these top-level fields — not an `amount` property. Server-
+   * forwarded events are trusted, so the value is recorded; a browser-tier
+   * event's value would be guarded out.
+   */
+  value?: number;
+  currency?: string;
   lists?: Record<string, boolean>;
 };
 
