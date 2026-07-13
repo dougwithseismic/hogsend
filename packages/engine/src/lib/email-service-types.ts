@@ -45,6 +45,12 @@ export interface SendTrackedEmailOptions<
   to: string;
   subject?: string;
   journeyStateId?: string;
+  /**
+   * Campaign identity for campaign-dispatched sends, persisted on the
+   * email_sends row (attribution scope + stats). NULL for journey /
+   * transactional sends.
+   */
+  campaignId?: string;
   /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
   userId?: string;
   userEmail?: string;
@@ -159,6 +165,8 @@ export interface EmailServiceSendOptions<
   from?: string;
   subject?: string;
   journeyStateId?: string;
+  /** Campaign identity for campaign-dispatched sends (see SendTrackedEmailOptions). */
+  campaignId?: string;
   /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
   userId?: string;
   userEmail?: string;

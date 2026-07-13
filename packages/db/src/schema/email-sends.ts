@@ -8,6 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
+import { campaigns } from "./campaigns.js";
 import { emailSendStatusEnum } from "./enums.js";
 import { journeyStates } from "./journey-states.js";
 
@@ -17,6 +18,13 @@ export const emailSends = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id"),
     journeyStateId: uuid("journey_state_id").references(() => journeyStates.id),
+    // Campaign identity for campaign-dispatched sends (NULL for journey /
+    // transactional sends). The idempotency key still encodes
+    // `campaign:<id>[:<step>]:<email>` for dedup, but this column is the
+    // queryable carrier: suppressed sends write no idempotency key at all, so
+    // key-parsing can never recover them — the column can. Backfilled from
+    // existing keys by migration 0051.
+    campaignId: uuid("campaign_id").references(() => campaigns.id),
     // Denormalized recipient identity, set at send time. Lets reporting attribute
     // a send to a contact without joining journey_states, and captures journeyless
     // (raw/batch) sends that have no journey linkage. Both nullable.
@@ -64,6 +72,7 @@ export const emailSends = pgTable(
     index("email_sends_status_idx").on(table.status),
     index("email_sends_created_at_idx").on(table.createdAt),
     index("email_sends_journey_state_id_idx").on(table.journeyStateId),
+    index("email_sends_campaign_id_idx").on(table.campaignId),
     index("email_sends_user_id_idx").on(table.userId),
     // Serves the provider-webhook by-message resolver
     // (resolveEmailSendContextByMessageId) — previously a seq-scan.

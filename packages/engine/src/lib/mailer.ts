@@ -148,6 +148,7 @@ export function createTrackedMailer(
             to: options.to,
             subject: options.subject,
             journeyStateId: options.journeyStateId,
+            campaignId: options.campaignId,
             userId: options.userId,
             userEmail: options.userEmail,
             category: options.category,
