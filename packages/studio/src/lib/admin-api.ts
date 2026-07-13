@@ -1661,8 +1661,20 @@ export const qk = {
   conversions: (filters: ConversionListFilters) =>
     ["conversions", filters] as const,
   conversionsStats: ["conversions-stats"] as const,
-  attribution: (days: number, definitionId?: string) =>
-    ["attribution", days, definitionId ?? null] as const,
+  attribution: (
+    days: number,
+    definitionId?: string,
+    groupBy?: AttributionGroupBy,
+    scope?: { journeyId?: string; campaignId?: string },
+  ) =>
+    [
+      "attribution",
+      days,
+      definitionId ?? null,
+      groupBy ?? "channel",
+      scope?.journeyId ?? null,
+      scope?.campaignId ?? null,
+    ] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -1824,9 +1836,21 @@ export function listConversions(filters: ConversionListFilters) {
   });
 }
 
+/** The rollup dimension (impact plan §1.5). */
+export type AttributionGroupBy =
+  | "channel"
+  | "journey"
+  | "campaign"
+  | "template";
+
 export type AttributionRow = {
   model: string;
-  channel: string;
+  /** The grouped dimension's value; null = credits with no scope on it. */
+  key: string | null;
+  /** Server-resolved label where the key is opaque (campaign name). */
+  label: string | null;
+  /** Back-compat: present when groupBy=channel (older engines always). */
+  channel?: string;
   currency: string | null;
   value: number;
   conversions: number;
@@ -1842,14 +1866,26 @@ export type AttributionTotals = {
   attributedConversions: number;
 };
 
-export function getAttribution(days = 90, definitionId?: string) {
+export function getAttribution(
+  days = 90,
+  definitionId?: string,
+  groupBy: AttributionGroupBy = "channel",
+  scope?: { journeyId?: string; campaignId?: string },
+) {
   return api.get<{
     days: number;
+    groupBy?: AttributionGroupBy;
     rows: AttributionRow[];
     /** Older engines omit it. */
     totals?: AttributionTotals[];
   }>("/v1/admin/attribution", {
-    query: { days, definitionId: definitionId || undefined },
+    query: {
+      days,
+      definitionId: definitionId || undefined,
+      groupBy,
+      journeyId: scope?.journeyId,
+      campaignId: scope?.campaignId,
+    },
   });
 }
 

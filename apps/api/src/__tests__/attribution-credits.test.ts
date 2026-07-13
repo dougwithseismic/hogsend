@@ -389,4 +389,45 @@ describe("attribution scope columns (impact plan 1.3)", () => {
       scopeJourneyId: `${RUN}-journey`,
     });
   });
+
+  it("rolls the ledger up by journey and filters credits by journeyId (1.5)", async () => {
+    type GroupedBody = {
+      groupBy: string;
+      rows: Array<{
+        model: string;
+        key: string | null;
+        value: number;
+        conversions: number;
+      }>;
+    };
+
+    // groupBy=journey: the £900 conversion's linear credits split 1/3 per
+    // touch — one journey-scoped, one campaign-scoped (key null here), one
+    // fallback-journey-scoped.
+    const grouped = await app.request(
+      `/v1/admin/attribution?days=365&definitionId=${RUN}-scope-sale&groupBy=journey`,
+      { headers: AUTH_HEADER },
+    );
+    expect(grouped.status).toBe(200);
+    const groupedBody = (await grouped.json()) as GroupedBody;
+    expect(groupedBody.groupBy).toBe("journey");
+    const linear = groupedBody.rows.filter((r) => r.model === "linear");
+    const byKey = new Map(linear.map((r) => [r.key, r]));
+    expect(byKey.get(`${RUN}-journey`)?.value).toBeCloseTo(300, 1);
+    expect(byKey.get(`${RUN}-fallback-journey`)?.value).toBeCloseTo(300, 1);
+    // The campaign touch has no journey — explicit null bucket, never hidden.
+    expect(byKey.get(null)?.value).toBeCloseTo(300, 1);
+
+    // journeyId filter narrows credits to that journey's touches only.
+    const filtered = await app.request(
+      `/v1/admin/attribution?days=365&definitionId=${RUN}-scope-sale&groupBy=template&journeyId=${RUN}-journey`,
+      { headers: AUTH_HEADER },
+    );
+    const filteredBody = (await filtered.json()) as GroupedBody;
+    const filteredLinear = filteredBody.rows.filter(
+      (r) => r.model === "linear",
+    );
+    expect(filteredLinear).toHaveLength(1);
+    expect(filteredLinear[0]).toMatchObject({ key: "welcome" });
+  });
 });

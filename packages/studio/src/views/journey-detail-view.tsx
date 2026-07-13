@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import {
+  getAttribution,
   getJourney,
   getJourneyState,
   getJourneyTemplates,
@@ -36,7 +37,7 @@ import {
   setJourneyEnabled,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import { JourneyFlow } from "./journeys/journey-flow";
 
 const PAGE_SIZE = 25;
@@ -66,6 +67,75 @@ function JsonBlock({ value }: { value: unknown }) {
     <pre className="max-h-64 overflow-auto rounded-md border bg-black/30 p-3 font-mono text-xs text-white/70">
       {JSON.stringify(value, null, 2)}
     </pre>
+  );
+}
+
+/**
+ * Attributed revenue this journey's touches earned across the credit ledger
+ * (impact plan §1.5) — per template, under the blended model, with the model
+ * caveat spelled out. Hidden entirely until the journey has any credits, so
+ * a non-revenue journey's page stays uncluttered.
+ */
+function JourneyRevenueCard({ journeyId }: { journeyId: string }) {
+  const query = useQuery({
+    queryKey: qk.attribution(90, undefined, "template", { journeyId }),
+    queryFn: () => getAttribution(90, undefined, "template", { journeyId }),
+  });
+
+  const rows = (query.data?.rows ?? []).filter((r) => r.model === "blended");
+  if (query.isPending || query.isError || rows.length === 0) return null;
+
+  const byCurrency = new Map<string | null, number>();
+  for (const row of rows) {
+    byCurrency.set(
+      row.currency,
+      (byCurrency.get(row.currency) ?? 0) + row.value,
+    );
+  }
+  const currency =
+    [...byCurrency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const scoped = rows
+    .filter((r) => r.currency === currency)
+    .sort((a, b) => b.value - a.value);
+  const total = scoped.reduce((sum, r) => sum + r.value, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Attributed revenue</CardTitle>
+        <p className="text-xs text-white/40">
+          {formatCurrency(total, currency)} credited to this journey's touches
+          in the last 90 days (blended model). Fractional credit — other
+          journeys and campaigns on the same conversions hold the rest.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Template</TableHead>
+              <TableHead className="text-right">Conversions</TableHead>
+              <TableHead className="text-right">Value</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {scoped.map((row) => (
+              <TableRow key={row.key ?? "__none__"}>
+                <TableCell className="font-mono text-xs">
+                  {row.label ?? row.key ?? "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.conversions.toFixed(1)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatCurrency(row.value, currency)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -466,6 +536,7 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
               selected. */}
           <JourneyFlow journeyId={journeyId} journey={journey} />
 
+          <JourneyRevenueCard journeyId={journeyId} />
           <JourneyEmailsCard journeyId={journeyId} />
           <JourneyStatesBrowser journeyId={journeyId} />
 
