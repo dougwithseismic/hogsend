@@ -1,7 +1,13 @@
-import { apiKeys } from "@hogsend/db";
+import {
+  apiKeys,
+  attributionCredits,
+  conversions,
+  userEvents,
+} from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { count, isNull } from "drizzle-orm";
+import { count, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { trustedValuedEventFilter } from "../../lib/revenue.js";
 
 /**
  * First-time setup readiness — a NON-BLOCKING checklist for Studio's Setup view.
@@ -171,6 +177,95 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
         : "Optional — connect PostHog to capture events and person properties.",
       docsUrl: DOCS,
     });
+
+    // 7–10. Attribution readiness (impact plan §5.4) — the "how's it doing"
+    // wires, in causal order: arrivals → valued events → conversions →
+    // credits. ALL optional-tier: attribution never blocks setup-`ready`;
+    // the detail text names the exact missing wire. Cheap existence probes,
+    // each degrading alone on a DB hiccup.
+    const exists = async (probe: () => Promise<unknown[]>) => {
+      try {
+        return (await probe()).length > 0;
+      } catch {
+        return null;
+      }
+    };
+    const [hasArrivals, hasValued, hasConversions, hasCredits] =
+      await Promise.all([
+        exists(() =>
+          db
+            .select({ id: userEvents.id })
+            .from(userEvents)
+            .where(
+              inArray(userEvents.event, ["campaign.arrived", "link.arrived"]),
+            )
+            .limit(1),
+        ),
+        exists(() =>
+          db
+            .select({ id: userEvents.id })
+            .from(userEvents)
+            .where(trustedValuedEventFilter())
+            .limit(1),
+        ),
+        exists(() =>
+          db.select({ id: conversions.id }).from(conversions).limit(1),
+        ),
+        exists(() =>
+          db
+            .select({ id: attributionCredits.id })
+            .from(attributionCredits)
+            .limit(1),
+        ),
+      ]);
+    const probeCheck = (
+      id: string,
+      label: string,
+      seen: boolean | null,
+      okDetail: string,
+      missingDetail: string,
+    ): Check => ({
+      id,
+      label,
+      status: seen === true ? "ok" : "optional",
+      detail:
+        seen === null
+          ? "Couldn't probe — check the database connection."
+          : seen
+            ? okDetail
+            : missingDetail,
+      docsUrl: `${DOCS}/conversions/impact`,
+    });
+    checks.push(
+      probeCheck(
+        "attribution_arrivals",
+        "Arrival capture",
+        hasArrivals,
+        "Landing arrivals are being captured.",
+        "No arrivals yet — add @hogsend/js to your landing pages (2 minutes) so ad/UTM touches earn credit.",
+      ),
+      probeCheck(
+        "attribution_valued_events",
+        "Valued events",
+        hasValued,
+        "Trusted valued events are flowing.",
+        "No valued events yet — point one revenue webhook (Stripe, orders) at a source with value + currency.",
+      ),
+      probeCheck(
+        "attribution_conversions",
+        "Conversions firing",
+        hasConversions,
+        "Conversion points are firing.",
+        "No conversions yet — the built-in revenue definition fires on any trusted valued event; or author defineConversion.",
+      ),
+      probeCheck(
+        "attribution_credits",
+        "Attribution credits",
+        hasCredits,
+        "The credit ledger is accruing.",
+        "No credits yet — credits appear once a converting contact has touchpoints; run `hogsend attribution backfill` to credit existing history.",
+      ),
+    );
 
     const doneCount = checks.filter((ch) => ch.status === "ok").length;
     // "ready" ignores optional rows — only outstanding "action" items block it.
