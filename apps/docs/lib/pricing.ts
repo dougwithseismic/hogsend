@@ -1,40 +1,23 @@
 /**
- * Service-tier pricing — the single source of truth for how each paid tier
- * *converts* and (for self-serve tiers) which Stripe Price funds the charge.
+ * Service-tier definitions — the source of truth for how each tier *converts*
+ * (self-serve checkout, a booked call, or a plain link).
  *
- * Display prose still lives in the page copy (service/pricing pages), but the
- * machine-relevant facts a checkout reads — the Stripe mode, the Price env var,
- * and the `plan` tag the dogfood `stripe-services` webhook maps to a funnel —
- * live here so the amount a customer is charged can't drift from the wiring
- * without touching one file. Price ids are read from env (never committed),
- * exactly like the course paywall: an unset var makes that tier non-purchasable
- * and the CTA falls back to the booking form, so an unconfigured deploy
- * degrades gracefully rather than dead-ending.
+ * This site holds NO Stripe config. Checkout sessions are created by the Hono
+ * API (the dogfood's `POST /checkout`), which owns the Stripe secret key + price
+ * ids; here we only need to know which tiers are self-serve (render a checkout
+ * button) vs consultative (route to the booking form). The docs `/api/checkout`
+ * route verifies the visitor's session and forwards the tier id — the API maps
+ * it to a price, mode, and plan.
  *
- * `SERVICE_TIERS` carries no PII and reads no env at module load, so it is safe
- * to import from client components for display. Env is read ONLY inside
- * `tierPriceId()`, which the server checkout route calls.
+ * Reads no env at module load, carries no secrets — safe to import anywhere.
  */
 
 export type ServiceTierId = "self-host" | "managed" | "setup" | "done-for-you";
 
-/**
- * The `plan` tag stamped on the Stripe session/subscription metadata. It MUST
- * be one of the three the dogfood `stripe-services` webhook maps to a deal
- * (`managed | setup | dfy`); anything else the webhook ignores.
- */
-export type ServicePlan = "managed" | "setup" | "dfy";
-
 /** How a tier converts a visitor. */
 export type ConvertMode =
-  /** Self-serve Stripe Checkout — subscription (recurring) or one-time payment. */
-  | {
-      kind: "checkout";
-      stripeMode: "subscription" | "payment";
-      /** Name of the env var holding the Stripe Price id (id stays in env). */
-      priceEnvVar: string;
-      plan: ServicePlan;
-    }
+  /** Self-serve Stripe Checkout (the API decides subscription vs one-time). */
+  | { kind: "checkout" }
   /** Consultative — routes to the on-page "request a call" inquiry form. */
   | { kind: "book" }
   /** A plain internal link (self-host → the docs). */
@@ -63,24 +46,14 @@ export const SERVICE_TIERS: Record<ServiceTierId, ServiceTier> = {
     name: "Managed instance",
     price: "$149",
     suffix: "/month",
-    convert: {
-      kind: "checkout",
-      stripeMode: "subscription",
-      priceEnvVar: "STRIPE_PRICE_SERVICE_MANAGED",
-      plan: "managed",
-    },
+    convert: { kind: "checkout" },
   },
   setup: {
     id: "setup",
     name: "Setup week",
     price: "$2,300",
     suffix: "one-time",
-    convert: {
-      kind: "checkout",
-      stripeMode: "payment",
-      priceEnvVar: "STRIPE_PRICE_SERVICE_SETUP",
-      plan: "setup",
-    },
+    convert: { kind: "checkout" },
   },
   "done-for-you": {
     id: "done-for-you",
@@ -91,20 +64,11 @@ export const SERVICE_TIERS: Record<ServiceTierId, ServiceTier> = {
   },
 };
 
-/** Narrow an arbitrary form value to a known tier, or undefined. */
-export function toServiceTier(value: unknown): ServiceTier | undefined {
-  return typeof value === "string" && value in SERVICE_TIERS
-    ? SERVICE_TIERS[value as ServiceTierId]
-    : undefined;
-}
-
-/**
- * The Stripe Price id funding a checkout tier, read from its mapped env var.
- * Server-only (reads process.env). Returns undefined for non-checkout tiers or
- * when the env var is unset — the caller then falls back to the booking form.
- */
-export function tierPriceId(tier: ServiceTier): string | undefined {
-  return tier.convert.kind === "checkout"
-    ? process.env[tier.convert.priceEnvVar]
-    : undefined;
+/** True when `value` is a known self-serve checkout tier (Managed / Setup). */
+export function isCheckoutTier(value: unknown): value is ServiceTierId {
+  return (
+    typeof value === "string" &&
+    value in SERVICE_TIERS &&
+    SERVICE_TIERS[value as ServiceTierId].convert.kind === "checkout"
+  );
 }
