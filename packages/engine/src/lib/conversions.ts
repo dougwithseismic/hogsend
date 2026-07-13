@@ -2,6 +2,7 @@ import type { DefinedConversion } from "@hogsend/core";
 import {
   conversionSourceAllowed,
   evaluatePropertyConditions,
+  overlayEventMoney,
   resolveConversionValue,
 } from "@hogsend/core";
 import { conversions, type Database } from "@hogsend/db";
@@ -82,22 +83,15 @@ export async function evaluateConversionsAtIngest(opts: {
       });
       continue;
     }
-    // `where` sees the event's first-class value/currency as `value`/
-    // `currency` (money events like deal.quoted carry no property twin),
-    // so "quotes over £10k" is expressible; the columns win a name collision.
     if (
       def.where &&
-      def.where.length > 0 &&
       !evaluatePropertyConditions({
         conditions: def.where,
-        properties:
-          event.value !== null
-            ? {
-                ...event.properties,
-                value: event.value,
-                ...(event.currency ? { currency: event.currency } : {}),
-              }
-            : event.properties,
+        properties: overlayEventMoney(
+          event.properties,
+          event.value,
+          event.currency,
+        ),
       })
     ) {
       continue;

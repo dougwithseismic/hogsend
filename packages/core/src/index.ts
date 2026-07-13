@@ -31,6 +31,7 @@ export {
   conversionSourceAllowed,
   type DefinedConversion,
   defineConversion,
+  overlayEventMoney,
   resolveConversionValue,
   sourceAllowed,
 } from "./conversions.js";

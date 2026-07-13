@@ -99,6 +99,22 @@ export function conversionSourceAllowed(
 }
 
 /**
+ * The `where` money overlay: conditions see the event's first-class
+ * `value`/`currency` as properties (money events carry no property twin),
+ * so "quotes over £10k" is expressible — the columns win a name collision.
+ * Shared by conversion `where` and funnel-trigger `where`.
+ */
+export function overlayEventMoney(
+  properties: Record<string, unknown>,
+  value: number | null,
+  currency: string | null,
+): Record<string, unknown> {
+  return value !== null
+    ? { ...properties, value, ...(currency ? { currency } : {}) }
+    : properties;
+}
+
+/**
  * Resolve the conversion's value from the fired event. Returns nulls when
  * the configured source yields nothing (a conversion may legitimately be
  * value-less — e.g. a schedule-booked signal).
