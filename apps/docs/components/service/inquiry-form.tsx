@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { type FormEvent, type JSX, useId, useState } from "react";
 import { useSession } from "@/lib/auth-client";
 
@@ -40,6 +41,11 @@ export function ServiceInquiryForm(): JSX.Element {
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [touchedFromSession, setTouchedFromSession] = useState(false);
+  // Explicit consent, same as the subscribe/demo forms: a required terms
+  // checkbox gates submission (the enquiry IS a real, consented sign-up), and
+  // an optional product-updates opt-in.
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [productNotes, setProductNotes] = useState(false);
 
   // Prefill name/email from an existing SSO session once it resolves, without
   // clobbering anything the visitor has already typed.
@@ -50,7 +56,7 @@ export function ServiceInquiryForm(): JSX.Element {
   }
 
   const emailValid = EMAIL_PATTERN.test(email.trim());
-  const canSubmit = emailValid && status !== "submitting";
+  const canSubmit = emailValid && termsAccepted && status !== "submitting";
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
@@ -68,6 +74,8 @@ export function ServiceInquiryForm(): JSX.Element {
           email: email.trim(),
           company: company.trim() || undefined,
           message: message.trim() || undefined,
+          termsAccepted,
+          productNotes,
         }),
       });
       setStatus(res.ok ? "done" : "error");
@@ -161,6 +169,49 @@ export function ServiceInquiryForm(): JSX.Element {
           className={`${inputClass} resize-y`}
           placeholder="Trials stall before activation, and we never win cancels back…"
         />
+      </div>
+
+      <div className="flex flex-col gap-2.5 text-left">
+        <label className="flex items-start gap-2.5 text-white/50 text-xs leading-5">
+          <input
+            type="checkbox"
+            required
+            checked={termsAccepted}
+            onChange={(e) => setTermsAccepted(e.target.checked)}
+            disabled={status === "submitting"}
+            className="mt-1 size-3.5 shrink-0 accent-accent"
+          />
+          <span>
+            I agree to the{" "}
+            <Link
+              href="/terms"
+              className="underline underline-offset-2 transition-colors hover:text-white/70"
+            >
+              terms
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/privacy"
+              className="underline underline-offset-2 transition-colors hover:text-white/70"
+            >
+              privacy policy
+            </Link>
+            . I&apos;ll follow up by email.
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5 text-white/50 text-xs leading-5">
+          <input
+            type="checkbox"
+            checked={productNotes}
+            onChange={(e) => setProductNotes(e.target.checked)}
+            disabled={status === "submitting"}
+            className="mt-1 size-3.5 shrink-0 accent-accent"
+          />
+          <span>
+            Send me product notes when something ships. Optional — unsubscribe
+            is one click either way.
+          </span>
+        </label>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-4">

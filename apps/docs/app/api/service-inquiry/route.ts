@@ -36,6 +36,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   let company: string | undefined;
   let message: string | undefined;
   let submissionId: string | undefined;
+  let termsAccepted = false;
+  let productNotes = false;
   try {
     const body = (await request.json()) as {
       email?: unknown;
@@ -43,12 +45,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       company?: unknown;
       message?: unknown;
       submissionId?: unknown;
+      termsAccepted?: unknown;
+      productNotes?: unknown;
     };
     email = body?.email;
     name = boundedText(body?.name, NAME_MAX);
     company = boundedText(body?.company, COMPANY_MAX);
     message = boundedText(body?.message, MESSAGE_MAX);
     submissionId = boundedText(body?.submissionId, SUBMISSION_ID_MAX);
+    termsAccepted = body?.termsAccepted === true;
+    productNotes = body?.productNotes === true;
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
@@ -71,10 +77,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       eventProperties: {
         source: "docs-service",
         plan: "dfy",
+        // Consent audit trail, recorded at the point of capture.
+        termsAccepted,
         ...(name ? { name } : {}),
         ...(company ? { company } : {}),
         ...(message ? { message } : {}),
       },
+      // product-updates membership ONLY on the explicit, unticked-by-default
+      // opt-in — unbundled consent.
+      ...(productNotes ? { lists: { "product-updates": true } } : {}),
     },
     // Per-mount submission id dedupes a double-click into one lead; a genuine
     // re-enquiry from a fresh visit carries a new id and goes through.
