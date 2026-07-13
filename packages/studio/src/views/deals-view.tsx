@@ -799,7 +799,7 @@ function ConversionsTable({
 
 const MODEL_LABELS: Record<string, string> = {
   first: "First touch",
-  last: "Last touch",
+  last: "Last touch (headline)",
   lastNonDirect: "Last non-form",
   linear: "Linear",
   timeDecay: "Time decay",
@@ -853,7 +853,7 @@ function AttributionPanel() {
   );
   const labelOf = (k: string | null) =>
     k === null
-      ? "No " + (dimension === "channel" ? "channel" : dimension)
+      ? `No ${dimension === "channel" ? "channel" : dimension}`
       : (scoped.find((r) => keyOf(r) === k)?.label ?? k);
   // Keep the model picker usable while empty/pending — offer the full
   // catalog until the ledger says which models exist.
@@ -1073,6 +1073,14 @@ function AttributionPanel() {
               </tbody>
             </table>
           </div>
+          {model === "last" && (
+            <p className="text-xs text-white/35">
+              The headline number: the single most recent qualifying touch takes
+              full credit — how Klaviyo, Braze and Customer.io report
+              "attributed revenue", so it's the comparable figure when
+              migrating. The fractional models beside it are the honest split.
+            </p>
+          )}
           <p className="text-xs text-white/35">
             Same conversions, eight opinions about who earned them — a channel
             that only looks good under one model is telling you something.
