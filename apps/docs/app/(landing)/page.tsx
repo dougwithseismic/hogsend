@@ -2583,6 +2583,21 @@ const FEATURE_CARDS = [
     rest: "EMAIL_PROVIDER=postmark swaps the wire underneath — the journey doesn't change.",
     tint: "rgba(255,255,255,0.04)",
   },
+  {
+    lead: "Revenue lands on the timeline.",
+    rest: "value and currency are first-class columns on every event — a sale counts once, in its own currency, and your PostHog mirror sees the same number.",
+    tint: "rgba(246,72,56,0.07)",
+  },
+  {
+    lead: "Deal funnels move on your events.",
+    rest: "Ordered stages with money milestones — deal.quoted and deal.sold mint themselves as revenue happens. Bind a CRM, or run without one.",
+    tint: "rgba(255,255,255,0.04)",
+  },
+  {
+    lead: "Attribution, eight models at once.",
+    rest: "Every conversion writes a credit ledger under all eight models — switch lenses in reporting, never re-derive. Holdouts add real incrementality.",
+    tint: "rgba(246,72,56,0.07)",
+  },
 ];
 
 function PsFeatures() {
@@ -3483,6 +3498,8 @@ const FOOTER_COLS: {
     links: [
       { label: "Done-for-you setup", href: "/service" },
       { label: "Course", href: "https://course.hogsend.com" },
+      { label: "Paid acquisition", href: "/paid" },
+      { label: "Campaigns", href: "/campaigns" },
       { label: "Growth", href: "/growth-metrics" },
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
