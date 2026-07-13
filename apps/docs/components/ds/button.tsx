@@ -17,6 +17,8 @@ type ButtonProps = {
   icon?: boolean;
   /** target=_blank rel=noreferrer (also forces an <a> for href). */
   external?: boolean;
+  /** Button element type when there's no href — "submit" to post a form. */
+  type?: "button" | "submit";
   children: React.ReactNode;
   className?: string;
 };
@@ -39,6 +41,7 @@ export function Button({
   tone: _tone,
   icon = false,
   external = false,
+  type = "button",
   children,
   className,
 }: ButtonProps): JSX.Element {
@@ -79,7 +82,7 @@ export function Button({
   }
 
   return (
-    <button type="button" className={classes}>
+    <button type={type} className={classes}>
       {content}
     </button>
   );

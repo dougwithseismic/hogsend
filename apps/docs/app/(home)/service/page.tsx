@@ -19,7 +19,8 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
-import { CONTACT_EMAIL } from "@/lib/site";
+import { CheckoutButton } from "@/components/service/checkout-button";
+import { ServiceInquiryForm } from "@/components/service/inquiry-form";
 
 // Bare label — the root layout template appends " — Hogsend".
 export const metadata: Metadata = {
@@ -38,8 +39,6 @@ export const metadata: Metadata = {
     "marketing automation for developers",
   ],
 };
-
-const MAILTO = `mailto:${CONTACT_EMAIL}`;
 
 /* ------------------------------------------------------------------------ */
 /*  Copy data                                                                */
@@ -225,8 +224,8 @@ export default function ServicePage(): JSX.Element {
               nothing for you to build or operate.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
-              <Button href={MAILTO} variant="accent" icon>
-                Email doug@withseismic.com
+              <Button href="#enquire" variant="accent" icon>
+                Book a done-for-you call
               </Button>
               <Button href="/docs/getting-started" variant="outline">
                 Read the docs
@@ -333,8 +332,8 @@ export default function ServicePage(): JSX.Element {
                 <CheckList items={DONE_FOR_YOU_ITEMS} />
 
                 <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <Button href={MAILTO} variant="accent" icon>
-                    Email doug@withseismic.com
+                  <Button href="#enquire" variant="accent" icon>
+                    Request a call
                   </Button>
                   <p className="eyebrow mt-6 text-white/50">
                     Monthly · 3-month minimum · your accounts
@@ -377,9 +376,12 @@ export default function ServicePage(): JSX.Element {
                 </p>
 
                 <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <Button href={MAILTO} variant="outline" icon>
-                    Email doug@withseismic.com
-                  </Button>
+                  <CheckoutButton
+                    tier="setup"
+                    label="Buy the setup week"
+                    variant="accent"
+                    next="/service"
+                  />
                   <p className="eyebrow mt-6 text-white/50">
                     One-time · remote · yours to keep
                   </p>
@@ -402,6 +404,27 @@ export default function ServicePage(): JSX.Element {
             .
           </p>
         </Reveal>
+      </Section>
+
+      {/* ---- Book a call: the done-for-you inquiry form --------------- */}
+      <Section id="enquire">
+        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Book a call"
+              title="Start the done-for-you"
+              subtitle="Tell me what your product does and where you think the funnel leaks. The first conversation is about your product, not a feature list — from there I'll scope the setup and send you a time to grab."
+            />
+            <div className="mt-8 flex flex-wrap gap-2">
+              {OWNERSHIP_TAGS.map((tag) => (
+                <TagPill key={tag}>{tag}</TagPill>
+              ))}
+            </div>
+          </Reveal>
+          <Reveal delay={0.1}>
+            <ServiceInquiryForm />
+          </Reveal>
+        </div>
       </Section>
 
       {/* ---- Ownership: the no-lock-in band --------------------------- */}
@@ -441,14 +464,14 @@ export default function ServicePage(): JSX.Element {
               Scope the setup
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-7">
-              Email me with what your product does and where you think the
-              funnel leaks. The first conversation is about your product, not a
-              feature list — from there I&apos;ll scope the setup.
+              Tell me what your product does and where you think the funnel
+              leaks. The first conversation is about your product, not a feature
+              list — from there I&apos;ll scope the setup.
             </p>
           </Reveal>
           <Reveal delay={0.1} className="mt-10">
-            <Button href={MAILTO} variant="accent" icon>
-              Email doug@withseismic.com
+            <Button href="#enquire" variant="accent" icon>
+              Book a call
             </Button>
           </Reveal>
           <Reveal delay={0.16}>
