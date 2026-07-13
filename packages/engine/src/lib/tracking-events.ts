@@ -17,6 +17,14 @@ interface EmailSendContext {
   templateKey: string | null;
   messageId: string | null;
   to: string;
+  /**
+   * Attribution scope (plan §1.2): the enrollment's journey id and the send's
+   * campaign id, stamped into every tracking event's properties so the credit
+   * ledger can slice by journey/campaign without a join back through
+   * email_sends. Null for transactional/raw sends.
+   */
+  journeyId: string | null;
+  campaignId: string | null;
 }
 
 export async function resolveEmailSendContext(
@@ -32,8 +40,10 @@ export async function resolveEmailSendContext(
       toEmail: emailSends.toEmail,
       templateKey: emailSends.templateKey,
       messageId: emailSends.messageId,
+      campaignId: emailSends.campaignId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
+      journeyId: journeyStates.journeyId,
     })
     .from(emailSends)
     .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
@@ -49,6 +59,8 @@ export async function resolveEmailSendContext(
     templateKey: row.templateKey,
     messageId: row.messageId,
     to: row.toEmail,
+    journeyId: row.journeyId,
+    campaignId: row.campaignId,
   };
 }
 
@@ -165,6 +177,10 @@ export async function pushTrackingEvent(
   const properties: Record<string, unknown> = {
     emailSendId,
     templateKey: ctx.templateKey,
+    // Attribution scope (plan §1.2) — journey/campaign identity rides the
+    // spine on every touch event so credits can be sliced without re-joining.
+    journeyId: ctx.journeyId,
+    campaignId: ctx.campaignId,
     ...opts.properties,
   };
 
@@ -270,6 +286,12 @@ export interface SmsSendContext {
   templateKey: string | null;
   messageId: string | null;
   to: string;
+  /**
+   * Attribution scope (plan §1.2): the enrollment's journey id. No campaign
+   * leg — campaign steps are email-only today, so `sms_sends` carries no
+   * campaign column (plan §5 Q3).
+   */
+  journeyId: string | null;
 }
 
 /**
@@ -290,6 +312,7 @@ export async function resolveSmsSendContext(
       sendUserId: smsSends.userId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
+      journeyId: journeyStates.journeyId,
     })
     .from(smsSends)
     .leftJoin(journeyStates, eq(smsSends.journeyStateId, journeyStates.id))
@@ -305,6 +328,7 @@ export async function resolveSmsSendContext(
     templateKey: row.templateKey,
     messageId: row.messageId,
     to: row.toPhone,
+    journeyId: row.journeyId,
   };
 }
 
@@ -351,6 +375,8 @@ export async function pushSmsTrackingEvent(
       eventProperties: {
         smsSendId,
         templateKey: ctx.templateKey,
+        // Attribution scope (plan §1.2) — see pushTrackingEvent.
+        journeyId: ctx.journeyId,
         ...opts.properties,
       },
       source: "tracking",
