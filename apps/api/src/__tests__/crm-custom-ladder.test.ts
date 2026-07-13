@@ -52,10 +52,14 @@ const mockHatchet = {
 const container = createHogsendClient({
   crm: {
     provider: saasCrm,
-    // Custom ladder: quotedStage designated explicitly; soldStage defaults
-    // to the LAST stage ("won").
-    stages: ["trial", "demo", "poc", "won"],
-    quotedStage: "poc",
+    // Custom ladder with object entries: milestones are explicit-only —
+    // "poc" mints the quote signal, "won" mints the sale.
+    stages: [
+      "trial",
+      "demo",
+      { id: "poc", milestone: "quoted" },
+      { id: "won", milestone: "won" },
+    ],
     stageMaps: {
       saascrm: {
         "*": {
@@ -141,7 +145,7 @@ describe("configurable pipeline ladder (5b.1)", () => {
         },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/not in the configured ladder/);
+    ).toThrow(/not in its stages/);
     expect(() =>
       createHogsendClient({
         crm: { provider: saasCrm, stages: ["trial", "lost"] },
@@ -150,21 +154,28 @@ describe("configurable pipeline ladder (5b.1)", () => {
     ).toThrow(/reserved/);
     expect(() =>
       createHogsendClient({
-        crm: { provider: saasCrm, stages: ["a", "b"], soldStage: "zz" },
+        crm: {
+          provider: saasCrm,
+          stages: [
+            { id: "a", milestone: "won" },
+            { id: "b", milestone: "won" },
+          ],
+        },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/not in crm.stages/);
+    ).toThrow(/at most one/);
     expect(() =>
       createHogsendClient({
         crm: {
           provider: saasCrm,
-          stages: ["a", "b"],
-          quotedStage: "b",
-          soldStage: "b",
+          stages: [
+            { id: "a", milestone: "won" },
+            { id: "b", milestone: "quoted" },
+          ],
         },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/cannot mint both/);
+    ).toThrow(/ranks after/);
   });
 
   it("mid-ladder stages record without money events; the designated quote stage mints crm.deal_quoted", async () => {
