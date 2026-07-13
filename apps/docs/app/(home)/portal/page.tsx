@@ -6,8 +6,10 @@ import type { JSX, ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { SignAgreement } from "@/components/portal/sign-agreement";
 import { SubscriptionActions } from "@/components/portal/subscription-actions";
 import { UpdateCard } from "@/components/portal/update-card";
+import { fetchAgreements } from "@/lib/agreements";
 import { auth } from "@/lib/auth";
 import { fetchBilling } from "@/lib/billing";
 import { getCourseAccess } from "@/lib/course-access";
@@ -152,10 +154,11 @@ export default async function PortalPage(): Promise<JSX.Element> {
   if (!session) redirect("/sign-in?next=/portal");
   const { user } = session;
 
-  const [services, course, billing] = await Promise.all([
+  const [services, course, billing, agreements] = await Promise.all([
     fetchServices({ email: user.email, userId: user.id }),
     getCourseAccess(user.id),
     fetchBilling({ email: user.email, userId: user.id }),
+    fetchAgreements({ email: user.email, userId: user.id }),
   ]);
   // Billing only earns a section once there's something to bill.
   const showBilling =
@@ -269,6 +272,61 @@ export default async function PortalPage(): Promise<JSX.Element> {
                   ))}
                 </ul>
               ) : null}
+            </div>
+          </Section>
+        ) : null}
+
+        {/* Hidden when there are no active agreements (or the read failed) —
+            signatures aren't time-critical, and a quiet portal beats an
+            error box for a section most customers never need. */}
+        {agreements && agreements.length > 0 ? (
+          <Section
+            title="Agreements"
+            description="Engagement terms — review and sign in the portal."
+          >
+            <div className="flex flex-col gap-3">
+              {agreements.map((a) => (
+                <div key={`${a.docId}-${a.version}`} className={CARD}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="font-medium text-base text-white">
+                      {a.title}
+                    </span>
+                    {a.signed ? (
+                      <TagPill accent>Signed</TagPill>
+                    ) : (
+                      <TagPill>Awaiting signature</TagPill>
+                    )}
+                  </div>
+                  {a.summary ? (
+                    <p className="mt-2 text-sm text-white/60 leading-6">
+                      {a.summary}
+                    </p>
+                  ) : null}
+                  <div className="mt-4 max-h-72 overflow-y-auto rounded-md border border-white/[0.06] bg-black/20 p-4">
+                    {a.body.split(/\n\n+/).map((para, i) => (
+                      <p
+                        // Static document text, never reordered.
+                        // biome-ignore lint/suspicious/noArrayIndexKey: static prose
+                        key={i}
+                        className="mb-3 text-sm text-white/70 leading-6 last:mb-0"
+                      >
+                        {para}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-white/40 text-xs">
+                    Version {a.version}
+                  </p>
+                  {a.signed ? (
+                    <p className="mt-3 text-sm text-white/60">
+                      Signed by {a.signed.signedName} on{" "}
+                      {formatDate(a.signed.signedAt)}.
+                    </p>
+                  ) : (
+                    <SignAgreement docId={a.docId} docVersion={a.version} />
+                  )}
+                </div>
+              ))}
             </div>
           </Section>
         ) : null}
