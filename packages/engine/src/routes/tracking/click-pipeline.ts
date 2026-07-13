@@ -265,21 +265,31 @@ export async function handleTrackedClick(
         : resolveEmailSendContext(db, emailSendId)
     )
       .then(async (ctx) => {
-        await pushTrackingEvent({
-          db,
-          hatchet,
-          registry,
-          logger,
-          event: EMAIL_LINK_CLICKED,
-          emailSendId,
-          properties: { linkUrl: link.originalUrl, linkId: link.id },
-          resolvedContext: ctx,
-        }).catch((err) => {
-          logger.warn("Failed to push click tracking event", {
-            linkId: link.id,
-            error: err instanceof Error ? err.message : String(err),
+        // Bus re-ingest GATED on `!isBot` (impact plan §2.4 touch hygiene):
+        // `email.link_clicked` is a credit-bearing attribution touch AND a
+        // journey trigger, and inbox security scanners (Outlook SafeLinks,
+        // Barracuda, …) fetch email links with bot UAs — without the gate a
+        // scanner sweep mints touches and phantom journey triggers. The
+        // linkClicks row, clickCount, clickedAt, and the per-hit outbound
+        // emit below stay UNCONDITIONAL — stats record every hit; only the
+        // credit/journey spine is protected.
+        if (!isBot) {
+          await pushTrackingEvent({
+            db,
+            hatchet,
+            registry,
+            logger,
+            event: EMAIL_LINK_CLICKED,
+            emailSendId,
+            properties: { linkUrl: link.originalUrl, linkId: link.id },
+            resolvedContext: ctx,
+          }).catch((err) => {
+            logger.warn("Failed to push click tracking event", {
+              linkId: link.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
+        }
 
         // Only emit when the send-context resolved. A missing emailSends row
         // (orphaned tracked link / deleted send) has no userId or recipient to
@@ -310,10 +320,8 @@ export async function handleTrackedClick(
     // `sms.link_clicked` bus event and emit the per-hit `sms.clicked`
     // outbound — the SMS sibling of the email branch above. The bus
     // re-ingest is GATED on `!isBot` (iMessage/WhatsApp/RCS link-preview
-    // bots prefetch texted URLs — a phantom-enrollment risk the email
-    // branch doesn't share because inbox clicks aren't unfurl-prefetched
-    // the same way) AND on a resolved contact key (phone is NOT a contact
-    // `Kind`; a userless raw send has no subject to ingest).
+    // bots prefetch texted URLs) AND on a resolved contact key (phone is
+    // NOT a contact `Kind`; a userless raw send has no subject to ingest).
     const smsSendId = link.smsSendId;
     void resolveSmsSendContext(db, smsSendId)
       .then(async (ctx) => {
