@@ -43,6 +43,17 @@ export const attributionCredits = pgTable(
     /** weight × the conversion's value, in its currency (null = valueless). */
     value: numeric("value", { precision: 14, scale: 2, mode: "number" }),
     currency: char("currency", { length: 3 }),
+    /**
+     * Attribution scope (docs/attribution-impact-plan.md §1.3) — denormalized
+     * from the touch event's stamped properties (fallback: email_sends join
+     * for events ingested before scope stamping). All nullable: a touch
+     * outside any journey/campaign carries none. "This journey attributed £X
+     * under time-decay" is a WHERE clause over these columns.
+     */
+    journeyId: text("journey_id"),
+    campaignId: uuid("campaign_id"),
+    templateKey: text("template_key"),
+    funnelId: text("funnel_id"),
     /** The conversion's occurredAt (denormalized for windowed reporting). */
     convertedAt: timestamp("converted_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -60,5 +71,7 @@ export const attributionCredits = pgTable(
       table.convertedAt,
     ),
     index("attribution_credits_channel_idx").on(table.channel),
+    index("attribution_credits_journey_idx").on(table.journeyId),
+    index("attribution_credits_campaign_idx").on(table.campaignId),
   ],
 );

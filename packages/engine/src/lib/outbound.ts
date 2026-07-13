@@ -241,6 +241,12 @@ export interface CrmDealEventPayload {
   provider: string;
   dealId: string;
   pipelineId: string | null;
+  /**
+   * The code-defined funnel claiming this deal's pipeline (defineFunnel).
+   * The emit site always sent it; the type lagged behind (impact plan §2
+   * seam 5) — now part of the contract.
+   */
+  funnelId: string | null;
   canonicalStage: string | null;
   value: number | null;
   currency: string | null;

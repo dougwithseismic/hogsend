@@ -5,9 +5,14 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { attributionCredits, contacts, conversions, userEvents } = await import(
-  "@hogsend/db"
-);
+const {
+  attributionCredits,
+  contacts,
+  conversions,
+  emailSends,
+  journeyStates,
+  userEvents,
+} = await import("@hogsend/db");
 const { eq, inArray } = await import("drizzle-orm");
 const { createApp, createHogsendClient, defineConversion, ingestEvent } =
   await import("@hogsend/engine");
@@ -16,10 +21,19 @@ const RUN = `attr-${Date.now()}`;
 const USER = `${RUN}-user`;
 /** A converter with NO touchpoint path — lands in the unattributed bucket. */
 const DIRECT_USER = `${RUN}-direct`;
+/** The scope-columns suite's converter (its own definition + trigger). */
+const SCOPE_USER = `${RUN}-scope`;
+const SCOPE_CAMPAIGN = "22222222-2222-2222-2222-222222222222";
 
 const saleConversion = defineConversion({
   id: `${RUN}-sale`,
   trigger: { event: "crm.deal_sold" },
+  attributionWindowDays: 30,
+});
+
+const scopeConversion = defineConversion({
+  id: `${RUN}-scope-sale`,
+  trigger: { event: "order.completed" },
   attributionWindowDays: 30,
 });
 
@@ -36,7 +50,7 @@ const mockHatchet = {
 } as unknown as HogsendClient["hatchet"];
 
 const container = createHogsendClient({
-  conversions: [saleConversion],
+  conversions: [saleConversion, scopeConversion],
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);
@@ -48,7 +62,9 @@ afterAll(async () => {
   const convRows = await db
     .select({ id: conversions.id })
     .from(conversions)
-    .where(eq(conversions.definitionId, `${RUN}-sale`));
+    .where(
+      inArray(conversions.definitionId, [`${RUN}-sale`, `${RUN}-scope-sale`]),
+    );
   const ids = convRows.map((r) => r.id);
   if (ids.length > 0) {
     await db
@@ -58,10 +74,12 @@ afterAll(async () => {
   }
   await db
     .delete(userEvents)
-    .where(inArray(userEvents.userId, [USER, DIRECT_USER]));
+    .where(inArray(userEvents.userId, [USER, DIRECT_USER, SCOPE_USER]));
+  await db.delete(emailSends).where(eq(emailSends.userId, SCOPE_USER));
+  await db.delete(journeyStates).where(eq(journeyStates.userId, SCOPE_USER));
   await db
     .delete(contacts)
-    .where(inArray(contacts.externalId, [USER, DIRECT_USER]));
+    .where(inArray(contacts.externalId, [USER, DIRECT_USER, SCOPE_USER]));
 });
 
 const send = (opts: {
@@ -232,5 +250,109 @@ describe("attribution credit ledger (6.1)", () => {
   it("requires admin auth", async () => {
     const res = await app.request("/v1/admin/attribution");
     expect(res.status).toBe(401);
+  });
+});
+
+describe("attribution scope columns (impact plan 1.3)", () => {
+  it("denormalizes journey/campaign/template scope onto credit rows, with the pre-stamp email_sends fallback", async () => {
+    // A pre-stamp touch's send row: enrollment + email_sends, joined by the
+    // fallback path (the event carries only emailSendId — no scope keys).
+    const [enrollment] = await db
+      .insert(journeyStates)
+      .values({
+        userId: SCOPE_USER,
+        userEmail: `${SCOPE_USER}@x.com`,
+        journeyId: `${RUN}-fallback-journey`,
+        currentNodeId: "start",
+        status: "completed",
+      })
+      .returning({ id: journeyStates.id });
+    const [sendRow] = await db
+      .insert(emailSends)
+      .values({
+        journeyStateId: enrollment?.id,
+        fromEmail: "a@h.com",
+        toEmail: `${SCOPE_USER}@x.com`,
+        subject: "s",
+        templateKey: "fallback-template",
+        userId: SCOPE_USER,
+        userEmail: `${SCOPE_USER}@x.com`,
+      })
+      .returning({ id: emailSends.id });
+
+    // Touch 1 — journey-scoped, stamped (what pushTrackingEvent emits post-1.2).
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-01T09:00:00.000Z",
+      source: "tracking",
+      userId: SCOPE_USER,
+      properties: {
+        emailSendId: "irrelevant",
+        templateKey: "welcome",
+        journeyId: `${RUN}-journey`,
+        campaignId: null,
+      },
+    });
+    // Touch 2 — campaign-scoped, stamped.
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-03T09:00:00.000Z",
+      source: "tracking",
+      userId: SCOPE_USER,
+      properties: {
+        emailSendId: "irrelevant-2",
+        templateKey: "newsletter",
+        journeyId: null,
+        campaignId: SCOPE_CAMPAIGN,
+      },
+    });
+    // Touch 3 — PRE-stamp shape: only emailSendId. Scope must come from the
+    // email_sends → journey_states fallback join.
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-05T09:00:00.000Z",
+      source: "tracking",
+      userId: SCOPE_USER,
+      properties: { emailSendId: sendRow?.id },
+    });
+
+    await send({
+      event: "order.completed",
+      at: "2026-07-10T09:00:00.000Z",
+      source: "stripe",
+      value: 900,
+      userId: SCOPE_USER,
+    });
+
+    const convRows = await db
+      .select({ id: conversions.id })
+      .from(conversions)
+      .where(eq(conversions.definitionId, `${RUN}-scope-sale`));
+    expect(convRows).toHaveLength(1);
+
+    const credits = await db
+      .select()
+      .from(attributionCredits)
+      .where(eq(attributionCredits.conversionId, convRows[0]?.id as string));
+    const linear = credits.filter((c) => c.model === "linear");
+    expect(linear).toHaveLength(3);
+
+    const journeyTouch = linear.find((c) => c.templateKey === "welcome");
+    expect(journeyTouch).toMatchObject({
+      journeyId: `${RUN}-journey`,
+      campaignId: null,
+    });
+    const campaignTouch = linear.find((c) => c.templateKey === "newsletter");
+    expect(campaignTouch).toMatchObject({
+      journeyId: null,
+      campaignId: SCOPE_CAMPAIGN,
+    });
+    const fallbackTouch = linear.find(
+      (c) => c.templateKey === "fallback-template",
+    );
+    expect(fallbackTouch).toMatchObject({
+      journeyId: `${RUN}-fallback-journey`,
+      campaignId: null,
+    });
   });
 });
