@@ -9,6 +9,7 @@ import {
 } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import { isOperatorAddress } from "../../lib/operator.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { requireScope } from "../../middleware/api-key.js";
 
@@ -157,6 +158,10 @@ const sendTestRoute = createRoute({
       },
       description: "Test email dispatched",
     },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Recipient is not a verified operator/team address",
+    },
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Template not found",
@@ -258,13 +263,35 @@ export const templatesRouter = new OpenAPIHono<AppEnv>()
     }
   })
   .openapi(sendTestRoute, async (c) => {
-    const { emailService, templates } = c.get("container");
+    const { emailService, templates, db, env, logger } = c.get("container");
     const { key } = c.req.valid("param");
     const { to, props: bodyProps } = c.req.valid("json");
 
     if (!templateExists(templates, key)) {
       return c.json({ error: "Template not found" }, 404);
     }
+
+    // Restrict test sends to a verified operator/team address. This route is
+    // full-admin-key-only (its `requireScope`), which is exactly how the MCP
+    // server / an external agent authenticates — and the send below skips
+    // preference checks. Bounding the recipient to the admin team removes the
+    // "reach an unintended recipient" capability from a prompt-injected agent.
+    if (!(await isOperatorAddress({ db, env, email: to }))) {
+      return c.json(
+        {
+          error:
+            "Test sends are restricted to your team's verified addresses (an admin user, HOGSEND_TEST_EMAIL, or STUDIO_ADMIN_EMAIL).",
+        },
+        403,
+      );
+    }
+
+    const apiKey = c.get("apiKey");
+    logger.info("[templates] test send", {
+      template: key,
+      to,
+      actor: apiKey?.id ?? "session",
+    });
 
     const definition = getTemplateDefinition({
       key: key as TemplateName,
