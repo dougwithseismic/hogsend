@@ -809,10 +809,18 @@ const MODEL_ORDER = Object.keys(MODEL_LABELS);
 
 function AttributionPanel() {
   const [model, setModel] = useState("blended");
+  // undefined = all conversion points together.
+  const [definition, setDefinition] = useState<string | undefined>();
   const query = useQuery({
-    queryKey: qk.attribution(90),
-    queryFn: () => getAttribution(90),
+    queryKey: qk.attribution(90, definition),
+    queryFn: () => getAttribution(90, definition),
+    placeholderData: keepPreviousData,
   });
+  const statsQuery = useQuery({
+    queryKey: qk.conversionsStats,
+    queryFn: getConversionsStats,
+  });
+  const definitions = statsQuery.data?.definitions ?? [];
 
   const rows = query.data?.rows ?? [];
   // One currency at a time — pick the biggest book, never cross-sum.
@@ -827,117 +835,199 @@ function AttributionPanel() {
     [...byCurrency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const scoped = rows.filter((r) => r.currency === currency);
   const channels = [...new Set(scoped.map((r) => r.channel))].sort();
-  const models = MODEL_ORDER.filter((m) => scoped.some((r) => r.model === m));
+  // Keep the model picker usable while empty/pending — offer the full
+  // catalog until the ledger says which models exist.
+  const models = scoped.length
+    ? MODEL_ORDER.filter((m) => scoped.some((r) => r.model === m))
+    : MODEL_ORDER;
   const cell = (m: string, ch: string) =>
     scoped.find((r) => r.model === m && r.channel === ch);
   const selected = channels
     .map((ch) => ({ channel: ch, row: cell(model, ch) }))
     .sort((a, b) => (b.row?.value ?? 0) - (a.row?.value ?? 0));
-  const maxValue = Math.max(...selected.map((s) => s.row?.value ?? 0), 1);
 
-  if (query.isPending) return <TableSkeleton rows={6} />;
-  if (query.isError) {
-    return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
-  }
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        title="No attribution credits yet"
-        description="Credits are written when a conversion point fires for a contact with touchpoints (ad clicks, email/SMS clicks, lead forms) in its lookback window."
-      />
-    );
-  }
+  // Coverage: the ledger only divides conversions that had a touchpoint
+  // path. Surface the rest as an explicit Unattributed row so the tab's
+  // total reconciles with the conversion value actually fired.
+  const coverage = query.data?.totals?.find((t) => t.currency === currency);
+  const unattributedValue = Math.max(
+    0,
+    (coverage?.value ?? 0) - (coverage?.attributedValue ?? 0),
+  );
+  const unattributedCount =
+    (coverage?.conversions ?? 0) - (coverage?.attributedConversions ?? 0);
+  const maxValue = Math.max(
+    ...selected.map((s) => s.row?.value ?? 0),
+    unattributedValue,
+    1,
+  );
 
+  const fired =
+    query.data?.totals?.reduce((sum, t) => sum + t.conversions, 0) ?? 0;
+
+  // The scope controls stay mounted through every state — an empty scope
+  // (e.g. a conversion point whose conversions are all direct) must leave
+  // the user a way back to "All conversion points".
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="w-52">
-          <Select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            aria-label="Attribution model"
-          >
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {MODEL_LABELS[m] ?? m}
-              </option>
-            ))}
-          </Select>
+        <div className="flex flex-wrap gap-2">
+          <div className="w-52">
+            <Select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              aria-label="Attribution model"
+            >
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {MODEL_LABELS[m] ?? m}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {definitions.length > 1 && (
+            <div className="w-52">
+              <Select
+                value={definition ?? ""}
+                onChange={(e) => setDefinition(e.target.value || undefined)}
+                aria-label="Conversion point"
+              >
+                <option value="">All conversion points</option>
+                {definitions.map((d) => (
+                  <option key={d.definitionId} value={d.definitionId}>
+                    {d.definitionId}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
         </div>
         <span className="text-xs text-white/40">
           Last {query.data?.days} days
-          {currency ? ` · ${currency}` : ""} · all models computed at conversion
-          time
+          {currency ? ` · ${currency}` : ""}
+          {coverage
+            ? ` · ${money(coverage.attributedValue, currency)} of ${money(coverage.value, currency)} attributed (${coverage.attributedConversions} of ${coverage.conversions} conversions)`
+            : " · all models computed at conversion time"}
         </span>
       </div>
 
-      <div className="space-y-2.5">
-        {selected.map(({ channel, row }) => (
-          <div key={channel} className="space-y-1">
-            <div className="flex items-baseline justify-between gap-2 text-sm">
-              <span className="text-white/70 capitalize">{channel}</span>
-              <span className="flex items-baseline gap-3 tabular-nums">
-                <span className="text-xs text-white/45">
-                  {(row?.conversions ?? 0).toFixed(1)} conversions
-                </span>
-                <span className="font-medium text-white/90">
-                  {money(row?.value ?? 0, currency)}
-                </span>
-              </span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                className="h-full rounded-full bg-accent/70"
-                style={{ width: `${((row?.value ?? 0) / maxValue) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="overflow-x-auto rounded-md border border-white/[0.08]">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/[0.08] text-left text-xs uppercase tracking-wide text-white/40">
-              <th className="px-3 py-2.5 font-medium">Channel</th>
-              {models.map((m) => (
-                <th
-                  key={m}
-                  className={`px-3 py-2.5 text-right font-medium ${
-                    m === model ? "text-white" : ""
-                  }`}
-                >
-                  {MODEL_LABELS[m] ?? m}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {channels.map((ch) => (
-              <tr
-                key={ch}
-                className="border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.02]"
-              >
-                <td className="px-3 py-2.5 text-white/70 capitalize">{ch}</td>
-                {models.map((m) => (
-                  <td
-                    key={m}
-                    className={`px-3 py-2.5 text-right tabular-nums ${
-                      m === model ? "text-white/90" : "text-white/50"
-                    }`}
-                  >
-                    {money(cell(m, ch)?.value ?? 0, currency)}
-                  </td>
-                ))}
-              </tr>
+      {query.isPending ? (
+        <TableSkeleton rows={6} />
+      ) : query.isError ? (
+        <ErrorState error={query.error} onRetry={() => query.refetch()} />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          title="No attribution credits yet"
+          description={
+            fired > 0
+              ? `${fired} conversion${fired === 1 ? "" : "s"} fired in the last 90 days, but none had touchpoints (ad clicks, email/SMS clicks, lead forms) in the lookback window to credit.`
+              : "Credits are written when a conversion point fires for a contact with touchpoints (ad clicks, email/SMS clicks, lead forms) in its lookback window."
+          }
+        />
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {selected.map(({ channel, row }) => (
+              <div key={channel} className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="text-white/70 capitalize">{channel}</span>
+                  <span className="flex items-baseline gap-3 tabular-nums">
+                    <span className="text-xs text-white/45">
+                      {(row?.conversions ?? 0).toFixed(1)} conversions
+                    </span>
+                    <span className="font-medium text-white/90">
+                      {money(row?.value ?? 0, currency)}
+                    </span>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-accent/70"
+                    style={{
+                      width: `${((row?.value ?? 0) / maxValue) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-xs text-white/35">
-        Same conversions, eight opinions about who earned them — a channel that
-        only looks good under one model is telling you something.
-      </p>
+            {unattributedCount > 0 && (
+              <div className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="text-white/45">Unattributed</span>
+                  <span className="flex items-baseline gap-3 tabular-nums">
+                    <span className="text-xs text-white/45">
+                      {unattributedCount} conversion
+                      {unattributedCount === 1 ? "" : "s"}
+                    </span>
+                    <span className="font-medium text-white/60">
+                      {money(unattributedValue, currency)}
+                    </span>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-white/20"
+                    style={{
+                      width: `${(unattributedValue / maxValue) * 100}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-white/35">
+                  Conversions with no touchpoints in the lookback window —
+                  direct, imported, or fired before tracking was live. Models
+                  only divide what has a path.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="overflow-x-auto rounded-md border border-white/[0.08]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.08] text-left text-xs uppercase tracking-wide text-white/40">
+                  <th className="px-3 py-2.5 font-medium">Channel</th>
+                  {models.map((m) => (
+                    <th
+                      key={m}
+                      className={`px-3 py-2.5 text-right font-medium ${
+                        m === model ? "text-white" : ""
+                      }`}
+                    >
+                      {MODEL_LABELS[m] ?? m}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {channels.map((ch) => (
+                  <tr
+                    key={ch}
+                    className="border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.02]"
+                  >
+                    <td className="px-3 py-2.5 text-white/70 capitalize">
+                      {ch}
+                    </td>
+                    {models.map((m) => (
+                      <td
+                        key={m}
+                        className={`px-3 py-2.5 text-right tabular-nums ${
+                          m === model ? "text-white/90" : "text-white/50"
+                        }`}
+                      >
+                        {money(cell(m, ch)?.value ?? 0, currency)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-white/35">
+            Same conversions, eight opinions about who earned them — a channel
+            that only looks good under one model is telling you something.
+          </p>
+        </>
+      )}
     </div>
   );
 }
