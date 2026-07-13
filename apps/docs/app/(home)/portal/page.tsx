@@ -53,13 +53,18 @@ const STATUS_LABELS: Record<string, string> = {
   unknown: "—",
 };
 
+const DATE_FMT = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
+
 /** Lenient by design — upstream data is sanitized, but a bad date must never
  *  turn into an Intl RangeError that 500s the whole portal. */
 function formatDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
+  return DATE_FMT.format(date);
 }
+
+/** The account-card surface, shared by every block on this page. */
+const CARD = "rounded-xl border border-white/[0.08] bg-white/[0.02] p-5";
 
 /** Course-account-style stacked section: hairline top border + display title. */
 function Section({
@@ -92,7 +97,7 @@ function ServiceCard({ service }: { service: PortalService }): JSX.Element {
   const status = service.status ?? "unknown";
   const active = status === "active" || status === "trialing";
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+    <div className={CARD}>
       <div className="flex items-center justify-between gap-4">
         <span className="font-medium text-base text-white">{copy.name}</span>
         <TagPill accent={active}>{STATUS_LABELS[status] ?? status}</TagPill>
@@ -140,7 +145,7 @@ export default async function PortalPage(): Promise<JSX.Element> {
               Couldn&apos;t load your services just now — refresh in a moment.
             </p>
           ) : services.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+            <div className={CARD}>
               <p className="text-sm text-white/70 leading-6">
                 No services yet. The{" "}
                 <Link
@@ -163,11 +168,9 @@ export default async function PortalPage(): Promise<JSX.Element> {
             <div className="flex flex-col gap-3">
               {services.map((s, i) => (
                 <ServiceCard
-                  // plan+date can collide (same plan bought twice in one
-                  // second) — the index disambiguates. Server-rendered once,
-                  // never reordered client-side, so index keys are safe here.
+                  // Server-rendered once, never reordered client-side.
                   // biome-ignore lint/suspicious/noArrayIndexKey: static list
-                  key={`${s.plan}-${s.purchasedAt}-${i}`}
+                  key={i}
                   service={s}
                 />
               ))}
@@ -185,7 +188,9 @@ export default async function PortalPage(): Promise<JSX.Element> {
               moment.
             </p>
           ) : course.allAccess ? (
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/40 bg-white/[0.02] p-5">
+            <div
+              className={`flex flex-wrap items-center justify-between gap-4 ${CARD} border-accent/40`}
+            >
               <div>
                 <p className="font-medium text-sm text-white">
                   All-access unlocked
@@ -204,7 +209,9 @@ export default async function PortalPage(): Promise<JSX.Element> {
               </Button>
             </div>
           ) : course.ownedCount > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+            <div
+              className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
+            >
               <p className="text-sm text-white/70">
                 You own {course.ownedCount} course
                 {course.ownedCount === 1 ? "" : "s"} on this account.
@@ -219,7 +226,7 @@ export default async function PortalPage(): Promise<JSX.Element> {
               </Button>
             </div>
           ) : (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+            <div className={CARD}>
               <p className="text-sm text-white/70 leading-6">
                 A services purchase unlocks the full course automatically —
                 it&apos;s my thinking on lifecycle, alongside the work we do
@@ -240,7 +247,9 @@ export default async function PortalPage(): Promise<JSX.Element> {
           title="Book a call"
           description="Time with Doug — scoping, a working session, or where the funnel leaks."
         >
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+          <div
+            className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
+          >
             <p className="text-sm text-white/70">
               Tell me what you&apos;re working on and I&apos;ll send times.
             </p>
