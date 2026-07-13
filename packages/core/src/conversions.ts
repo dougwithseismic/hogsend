@@ -11,6 +11,14 @@ import type { JourneyWhere } from "./types/journey.js";
  * comes from. Code-first like journeys/campaigns; fired instances are
  * recorded in the `conversions` table by the engine's ingest hook and fanned
  * out to conversion destinations (§5.2).
+ *
+ * MILESTONES (docs/attribution-impact-plan.md §3.2) are a convention, not a
+ * type: a conversion definition whose meaning is progress rather than money
+ * — `activation.completed`, `trial.started`, a canonical stage event. Define
+ * one exactly like a revenue conversion but on a valueless event (or omit
+ * `value`); it fires, earns weight-only attribution credits (value NULL),
+ * and answers "which journeys drive activation" without a currency in
+ * sight. No `kind` field until Studio grouping needs one.
  */
 
 export type ConversionValueSource =
