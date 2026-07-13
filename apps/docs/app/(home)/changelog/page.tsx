@@ -66,6 +66,139 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.44.0",
+    anchor: "0-44-0",
+    date: "July 13, 2026",
+    title: "Revenue, deal funnels, and multi-model attribution",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>value</Code> and <Code>currency</Code> are first-class columns
+          on every event now — a real money column, not a property convention.
+          Rollups are per-currency and never cross-summed; malformed money is
+          dropped. <Code>@hogsend/js</Code> auto-captures the ad click on
+          landing (<Code>fbclid</Code>, <Code>gclid</Code> and nine more, or any{" "}
+          <Code>utm_*</Code>) as a <Code>campaign.arrived</Code> touchpoint,
+          persisted last-touch.
+        </Bullet>
+        <Bullet>
+          New <Code>defineFunnel</Code> — event-native deal funnels. Ordered
+          stages advance on your own events, with money milestones:{" "}
+          <Code>milestone: &ldquo;quoted&rdquo;</Code> mints{" "}
+          <Code>deal.quoted</Code> and <Code>milestone: &ldquo;won&rdquo;</Code>{" "}
+          mints <Code>deal.sold</Code> — stable names across any ladder, once
+          per deal. A <Code>crmPipeline</Code> binding composes a CRM leg; no
+          CRM required, and one deployment runs many funnels.
+        </Bullet>
+        <Bullet>
+          New <Code>defineConversion</Code> — declares which events count, what
+          they&rsquo;re worth (event / fixed / property), and where they
+          dispatch, behind a forged-value guard that rejects browser-tier values
+          by default. A zero-config <Code>revenue</Code> conversion is
+          auto-seeded. <Code>@hogsend/plugin-meta-capi</Code> is the first
+          native destination — hashed identifiers, the real stored click, and a
+          deterministic <Code>event_id</Code> across retries.
+        </Bullet>
+        <Bullet>
+          New <Code>@hogsend/attribution</Code> engine. Every conversion writes
+          a credit ledger under all eight models at fire time (first, last,
+          last-non-direct, linear, time-decay, position-U, position-W, blended),
+          so switching models in reporting is instant and historical — never
+          re-derived. Studio&rsquo;s Impact tab keeps three numbers separate:
+          Attributed (fractional, sums to the real total), Influenced (reach),
+          and Incremental (holdout-backed lift).{" "}
+          <Code>hogsend attribution backfill</Code> recomputes history.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code> (deps + vendored skills).
+        Additive — attribution accrues automatically once you capture arrivals
+        and fire valued events; there is no config key to set.
+      </>
+    ),
+  },
+  {
+    version: "0.43.0",
+    anchor: "0-43-0",
+    date: "July 11, 2026",
+    title: "First-class SMS channel",
+    bullets: (
+      <>
+        <Bullet>
+          SMS mirrors the email architecture end to end. A provider-neutral{" "}
+          <Code>SmsProvider</Code> contract (<Code>defineSmsProvider</Code>), a
+          new <Code>@hogsend/sms</Code> package (templates authored as React,
+          rendered to plain text, with a GSM-7/UCS-2 segment counter), and{" "}
+          <Code>@hogsend/plugin-twilio</Code> as the reference wire. Opt-in:
+          with no provider configured the SMS service is an inert stub, so
+          existing deploys are unaffected.
+        </Bullet>
+        <Bullet>
+          Explicit consent by default (TCPA). The <Code>sms</Code> channel is{" "}
+          <Code>defaultOptIn: false</Code> — a marketing text needs an explicit
+          grant or an inbound <Code>START</Code>, else it fails closed.
+          Transactional sends bypass only the consent and topic gates, never the
+          phone STOP list. A genuine grant emits the new{" "}
+          <Code>contact.subscribed</Code> event; full STOP/START/HELP handling
+          ships in the box.
+        </Bullet>
+        <Bullet>
+          First-party SMS link tracking, on by default. Bare URLs become{" "}
+          <Code>/s/&lt;code&gt;</Code> short links riding the same click spine
+          as email — per-hit <Code>sms.clicked</Code>, first-touch{" "}
+          <Code>clicked_at</Code>, and an <Code>sms.link_clicked</Code> bus
+          event your journeys can wait on.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. SMS is entirely opt-in —
+        add a Twilio provider and a sender to turn it on; leave them out and
+        nothing changes.
+      </>
+    ),
+  },
+  {
+    version: "0.42.0",
+    anchor: "0-42-0",
+    date: "July 11, 2026",
+    title: "Journey Blueprints — hardened, and promote-to-code",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>hogsend blueprints promote</Code> turns a JSON Journey
+          Blueprint into a real code-first <Code>defineJourney</Code> file on a
+          fresh branch — faithful to the interpreter, with{" "}
+          <Code>ctx.exit()</Code>, idempotency labels, and frozen
+          non-deterministic decisions. It never commits or pushes.
+        </Bullet>
+        <Bullet>
+          New <Code>ctx.exit(reason?)</Code> journey primitive — terminate an
+          enrollment as <Code>exited</Code> (no <Code>journey:completed</Code>{" "}
+          or <Code>journey:failed</Code>). The blueprint interpreter and
+          promoted code share the one mechanism.
+        </Bullet>
+        <Bullet>
+          Save-path hardening across the interpreter, save path, and Studio:
+          reserved engine namespaces are rejected at save time, an{" "}
+          <Code>entryPeriod</Code> must be a positive duration, and enable /
+          update / promote races are closed with guarded conditional writes and
+          an advisory lock so a graph edit can&rsquo;t desync a suspended
+          run&rsquo;s replay.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Additive; the new
+        save-time validation only rejects blueprints that were already unsafe.
+      </>
+    ),
+  },
+  {
     version: "0.41.0",
     anchor: "0-41-0",
     date: "July 10, 2026",

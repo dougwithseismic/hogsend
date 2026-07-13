@@ -21,7 +21,7 @@ export const RAILWAY_DEPLOY_URL =
  *  credentials on its landing page. Link it through TrackStudioDemoClick so
  *  every click is captured (PostHog + the dogfood ingest). */
 export const DEMO_URL = "https://demo.hogsend.com";
-export const ENGINE_VERSION = "0.39.0"; // bump per release
+export const ENGINE_VERSION = "0.44.0"; // bump per release
 export const CONTACT_EMAIL = "doug@withseismic.com";
 export const LINKEDIN_URL = "https://www.linkedin.com/in/dougsilkstone/";
 export const WITHSEISMIC_URL = "https://withseismic.com";

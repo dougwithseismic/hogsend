@@ -126,6 +126,24 @@ export async function emitMilestoneReached(
   );
 }
 
+/**
+ * Stripe reports money in the minor unit (cents); the Hogsend value spine wants
+ * the major-unit amount plus an ISO-4217 currency on the event's first-class
+ * `value`/`currency` fields (not an `amount` property). Returns those fields for
+ * a purchase forward, omitting them when Stripe gave us nothing to record. The
+ * course sells in two-decimal currencies, so the minor→major conversion is /100.
+ */
+function revenueFields(
+  amount?: number | null,
+  currency?: string | null,
+): { value?: number; currency?: string } {
+  if (typeof amount !== "number") return {};
+  return {
+    value: amount / 100,
+    ...(currency ? { currency: currency.toUpperCase() } : {}),
+  };
+}
+
 export async function emitPurchased(
   user: AuthUser,
   courseSlug: string,
@@ -138,6 +156,7 @@ export async function emitPurchased(
     {
       name: "course.purchased",
       email: user.email,
+      ...revenueFields(amount, currency),
       contactProperties: { courseUserId: user.id },
       eventProperties: {
         source: SOURCE,
@@ -336,6 +355,7 @@ export async function emitGiftPurchased(
     {
       name: "course.gift_purchased",
       email: user.email,
+      ...revenueFields(input.amount, input.currency),
       contactProperties: { courseUserId: user.id, ...firstName(user.name) },
       eventProperties: {
         source: SOURCE,
@@ -474,6 +494,7 @@ export async function emitTeamPurchased(
     {
       name: "course.team_purchased",
       email: user.email,
+      ...revenueFields(input.amount, input.currency),
       contactProperties: { courseUserId: user.id, ...firstName(user.name) },
       eventProperties: {
         source: SOURCE,

@@ -170,6 +170,19 @@ export default function PaidPage(): JSX.Element {
             body: "Heyflow, Perspective, Webflow, your own React form — one webhook source turns any vendor's POST into lead.submitted, identity-stitched to the ad click via hidden fields.",
           },
           {
+            title: "Deal funnels, event-native",
+            body: (
+              <>
+                <code>defineFunnel</code> gives you ordered stages that advance
+                on your own events — <code>trial.started</code>,{" "}
+                <code>quote.sent</code>, <code>subscription.created</code> —
+                with money milestones that mint <code>deal.quoted</code> and{" "}
+                <code>deal.sold</code>. Compose a CRM leg with{" "}
+                <code>crmPipeline</code>, or run without one.
+              </>
+            ),
+          },
+          {
             title: "The deals ledger",
             body: (
               <>
@@ -207,6 +220,21 @@ export default function PaidPage(): JSX.Element {
         spreadsheet afternoon.
       </ProseSection>
 
+      <ProseSection
+        eyebrow="Impact"
+        title="Every model, computed once, kept forever"
+      >
+        When a conversion fires, Hogsend writes a credit ledger across all eight
+        attribution models — first-touch, last-touch, linear, time-decay,
+        position-based and more — from the contact&rsquo;s real touchpoint path.
+        Switching lenses in reporting is instant and never re-derived. Studio
+        keeps three numbers honest and separate: Attributed (fractional credit
+        that sums to the real total), Influenced (reach, which never does), and
+        Incremental (holdout-backed lift — the only number that says
+        &ldquo;caused&rdquo;). An Unattributed bar shows what no touchpoint can
+        explain, instead of hiding it.
+      </ProseSection>
+
       <UseCaseFaq
         items={FAQ_ITEMS}
         links={[
@@ -216,6 +244,7 @@ export default function PaidPage(): JSX.Element {
             label: "Conversions & ad-platform feedback",
             href: "/docs/conversions",
           },
+          { label: "Impact & attribution", href: "/docs/conversions/impact" },
           { label: "Meta CAPI setup", href: "/docs/conversions/meta-ads" },
         ]}
       />
