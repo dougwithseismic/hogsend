@@ -1,4 +1,6 @@
+import type { TouchpointChannel } from "./attribution/touchpoints.js";
 import { normalizeWhere } from "./conditions/index.js";
+import type { DurationObject } from "./duration.js";
 import type { PropertyCondition } from "./types/conditions.js";
 import type { JourneyWhere } from "./types/journey.js";
 
@@ -54,6 +56,17 @@ export interface ConversionMeta {
    * the contact's touchpoints. Default 90.
    */
   attributionWindowDays?: number;
+  /**
+   * Per-channel lookback overrides (docs/attribution-impact-plan.md §2.1).
+   * A channel listed here uses its own window instead of
+   * `attributionWindowDays`; unlisted channels keep the definition-wide
+   * window, so existing single-window definitions are untouched. Industry
+   * convention for comparability with incumbent tools: email `days(5)`,
+   * sms `days(1)` (Klaviyo-style click windows) — documented defaults to
+   * reach for, never imposed. Changes apply FORWARD only (the ledger is
+   * written at conversion time); the backfill command is the recompute path.
+   */
+  windows?: Partial<Record<TouchpointChannel, DurationObject>>;
   /** Conversion-destination ids (§5.2) this conversion dispatches to. */
   destinations?: string[];
 }

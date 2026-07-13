@@ -2,7 +2,13 @@ import {
   type AttributionTouchpoint,
   computeAllModels,
 } from "@hogsend/attribution";
-import { TOUCHPOINT_EVENTS, touchpointChannel } from "@hogsend/core";
+import {
+  type DurationObject,
+  durationToMs,
+  TOUCHPOINT_EVENTS,
+  type TouchpointChannel,
+  touchpointChannel,
+} from "@hogsend/core";
 import {
   attributionCredits,
   type Database,
@@ -120,11 +126,26 @@ export async function recordAttributionCredits(opts: {
   occurredAt: Date;
   /** Lookback window in days (defineConversion attributionWindowDays). */
   windowDays: number;
+  /**
+   * Per-channel window overrides (plan §2.1). A listed channel's touches
+   * qualify only inside its own window; unlisted channels use `windowDays`.
+   */
+  windows?: Partial<Record<TouchpointChannel, DurationObject>>;
 }): Promise<{ touchpoints: number }> {
   const { db, logger, conversionId, userKey, value, currency, occurredAt } =
     opts;
+  const defaultWindowMs = opts.windowDays * 24 * 60 * 60 * 1000;
+  const channelWindowMs = new Map<TouchpointChannel, number>(
+    Object.entries(opts.windows ?? {}).map(([channel, duration]) => [
+      channel as TouchpointChannel,
+      durationToMs(duration as DurationObject),
+    ]),
+  );
+  // One query at the widest window; the per-channel narrowing happens in the
+  // classification loop below (channels are a query-time concept anyway).
   const windowStart = new Date(
-    occurredAt.getTime() - opts.windowDays * 24 * 60 * 60 * 1000,
+    occurredAt.getTime() -
+      Math.max(defaultWindowMs, ...channelWindowMs.values()),
   );
 
   const rows = await db
@@ -149,6 +170,8 @@ export async function recordAttributionCredits(opts: {
   for (const row of rows) {
     const channel = touchpointChannel(row.event);
     if (!channel) continue; // unreachable: the IN filter is the class list
+    const windowMs = channelWindowMs.get(channel) ?? defaultWindowMs;
+    if (row.occurredAt.getTime() < occurredAt.getTime() - windowMs) continue;
     touchpoints.push({
       id: row.id,
       event: row.event,
@@ -162,9 +185,13 @@ export async function recordAttributionCredits(opts: {
     return { touchpoints: 0 };
   }
 
-  const scopes = await resolveTouchScopes(db, rows);
-
   const byId = new Map(touchpoints.map((t) => [t.id, t]));
+  // Only qualifying touches need scope — a window-dropped row must not cost
+  // a fallback join.
+  const scopes = await resolveTouchScopes(
+    db,
+    rows.filter((row) => byId.has(row.id)),
+  );
   const allModels = computeAllModels(touchpoints, {
     conversionAt: occurredAt.getTime(),
   });

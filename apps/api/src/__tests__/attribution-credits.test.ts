@@ -14,6 +14,7 @@ const {
   userEvents,
 } = await import("@hogsend/db");
 const { eq, inArray } = await import("drizzle-orm");
+const { days } = await import("@hogsend/core");
 const { createApp, createHogsendClient, defineConversion, ingestEvent } =
   await import("@hogsend/engine");
 
@@ -24,6 +25,8 @@ const DIRECT_USER = `${RUN}-direct`;
 /** The scope-columns suite's converter (its own definition + trigger). */
 const SCOPE_USER = `${RUN}-scope`;
 const SCOPE_CAMPAIGN = "22222222-2222-2222-2222-222222222222";
+/** The per-channel-windows suite's converter. */
+const WINDOW_USER = `${RUN}-window`;
 
 const saleConversion = defineConversion({
   id: `${RUN}-sale`,
@@ -39,6 +42,15 @@ const scopeConversion = defineConversion({
   attributionWindowDays: 30,
 });
 
+const windowConversion = defineConversion({
+  id: `${RUN}-window-sale`,
+  trigger: { event: "subscription.started" },
+  attributionWindowDays: 30,
+  // Per-channel windows (2.1): email clicks qualify only within 5 days;
+  // campaign/link/form keep the 30d default.
+  windows: { email: days(5) },
+});
+
 const mockHatchet = {
   durableTask: vi.fn(() => ({
     run: vi.fn(),
@@ -52,7 +64,7 @@ const mockHatchet = {
 } as unknown as HogsendClient["hatchet"];
 
 const container = createHogsendClient({
-  conversions: [saleConversion, scopeConversion],
+  conversions: [saleConversion, scopeConversion, windowConversion],
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);
@@ -65,7 +77,11 @@ afterAll(async () => {
     .select({ id: conversions.id })
     .from(conversions)
     .where(
-      inArray(conversions.definitionId, [`${RUN}-sale`, `${RUN}-scope-sale`]),
+      inArray(conversions.definitionId, [
+        `${RUN}-sale`,
+        `${RUN}-scope-sale`,
+        `${RUN}-window-sale`,
+      ]),
     );
   const ids = convRows.map((r) => r.id);
   if (ids.length > 0) {
@@ -76,12 +92,21 @@ afterAll(async () => {
   }
   await db
     .delete(userEvents)
-    .where(inArray(userEvents.userId, [USER, DIRECT_USER, SCOPE_USER]));
+    .where(
+      inArray(userEvents.userId, [USER, DIRECT_USER, SCOPE_USER, WINDOW_USER]),
+    );
   await db.delete(emailSends).where(eq(emailSends.userId, SCOPE_USER));
   await db.delete(journeyStates).where(eq(journeyStates.userId, SCOPE_USER));
   await db
     .delete(contacts)
-    .where(inArray(contacts.externalId, [USER, DIRECT_USER, SCOPE_USER]));
+    .where(
+      inArray(contacts.externalId, [
+        USER,
+        DIRECT_USER,
+        SCOPE_USER,
+        WINDOW_USER,
+      ]),
+    );
 });
 
 const send = (opts: {
@@ -429,5 +454,61 @@ describe("attribution scope columns (impact plan 1.3)", () => {
     );
     expect(filteredLinear).toHaveLength(1);
     expect(filteredLinear[0]).toMatchObject({ key: "welcome" });
+  });
+});
+
+describe("per-channel attribution windows (impact plan 2.1)", () => {
+  it("narrows a channel's qualifying touches to its own window while others keep the default", async () => {
+    // Email click 10 days pre-conversion: INSIDE the 30d default, OUTSIDE
+    // the definition's 5d email window — must not be credited.
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-02T09:00:00.000Z",
+      source: "tracking",
+      userId: WINDOW_USER,
+    });
+    // Email click 2 days pre-conversion: inside the email window.
+    await send({
+      event: "email.link_clicked",
+      at: "2026-07-10T09:00:00.000Z",
+      source: "tracking",
+      userId: WINDOW_USER,
+    });
+    // Campaign arrival 20 days pre-conversion: no campaign override, so the
+    // 30d default applies — credited.
+    await send({
+      event: "campaign.arrived",
+      at: "2026-06-22T09:00:00.000Z",
+      source: "inapp",
+      userId: WINDOW_USER,
+    });
+    await send({
+      event: "subscription.started",
+      at: "2026-07-12T09:00:00.000Z",
+      source: "stripe",
+      value: 120,
+      userId: WINDOW_USER,
+    });
+
+    const convRows = await db
+      .select({ id: conversions.id })
+      .from(conversions)
+      .where(eq(conversions.definitionId, `${RUN}-window-sale`));
+    expect(convRows).toHaveLength(1);
+
+    const credits = await db
+      .select()
+      .from(attributionCredits)
+      .where(eq(attributionCredits.conversionId, convRows[0]?.id as string));
+    const linear = credits.filter((c) => c.model === "linear");
+    // Two qualifying touches: the recent email click + the campaign arrival.
+    expect(linear).toHaveLength(2);
+    expect(new Set(linear.map((c) => c.channel))).toEqual(
+      new Set(["email", "campaign"]),
+    );
+    // The stale email click was dropped by the channel window, so `first`
+    // lands on the campaign arrival (oldest qualifying touch).
+    const first = credits.find((c) => c.model === "first");
+    expect(first).toMatchObject({ channel: "campaign", weight: 1 });
   });
 });

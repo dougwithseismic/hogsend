@@ -641,6 +641,7 @@ export async function ingestEvent(opts: {
             occurredAt: insertedRow.occurredAt,
             windowDays:
               firedConversion.definition.meta.attributionWindowDays ?? 90,
+            windows: firedConversion.definition.meta.windows,
           });
         } catch (err) {
           logger.warn("attribution credit write failed", {
