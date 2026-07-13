@@ -29,6 +29,7 @@ export const HOGSEND_PACKAGES = [
   "engine",
   "plugin-posthog",
   "plugin-resend",
+  "sms",
   "studio",
 ] as const;
 
