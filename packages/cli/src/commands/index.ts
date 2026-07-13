@@ -1,3 +1,4 @@
+import { attributionCommand } from "./attribution.js";
 import { blueprintsCommand } from "./blueprints.js";
 import { campaignsCommand } from "./campaigns.js";
 import { connectCommand } from "./connect.js";
@@ -35,6 +36,7 @@ export const commands: Command[] = [
   contactsCommand,
   importCommand,
   statsCommand,
+  attributionCommand,
   eventsCommand,
   emailsCommand,
   campaignsCommand,

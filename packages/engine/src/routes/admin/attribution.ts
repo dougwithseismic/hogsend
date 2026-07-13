@@ -2,6 +2,8 @@ import { attributionCredits, campaigns, conversions } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { backfillAttributionBatch } from "../../lib/attribution-backfill.js";
+import { getConversionRegistry } from "../../lib/conversions.js";
 
 /**
  * Admin attribution API (docs/revenue-attribution-plan.md §6.2, extended by
@@ -136,9 +138,65 @@ const summaryRoute = createRoute({
   },
 });
 
-export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
-  summaryRoute,
-  async (c) => {
+/**
+ * Backfill (impact plan §5.1) — batch-shaped replay of history through the
+ * idempotent conversion + ledger machinery. Loop until `nextCursor` is null
+ * (`hogsend attribution backfill` does exactly that). Lives here because
+ * the code-first conversion registry only exists inside the API process.
+ */
+const backfillRoute = createRoute({
+  method: "post",
+  path: "/backfill",
+  tags: ["Admin"],
+  summary: "Backfill conversions + attribution credits from event history",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            definitionId: z.string().optional(),
+            /** Only events/conversions at or after this instant. */
+            since: z.string().datetime().optional(),
+            /** Opaque batch cursor from the previous response. */
+            cursor: z.string().optional(),
+            limit: z.number().min(1).max(2000).default(500),
+            /**
+             * Delete-then-refill the definition's credits under CURRENT
+             * window config. Requires definitionId; logged loudly.
+             */
+            recompute: z.boolean().default(false),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            stage: z.enum(["events", "credits"]),
+            processed: z.number(),
+            conversionsFired: z.number(),
+            creditsWritten: z.number(),
+            /** Null = backfill complete. */
+            nextCursor: z.string().nullable(),
+          }),
+        },
+      },
+      description: "One processed batch; loop until nextCursor is null",
+    },
+    400: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "recompute without definitionId",
+    },
+  },
+});
+
+export const adminAttributionRouter = new OpenAPIHono<AppEnv>()
+  .openapi(summaryRoute, async (c) => {
     const { db } = c.get("container");
     const { days, definitionId, groupBy, journeyId, campaignId } =
       c.req.valid("query");
@@ -332,5 +390,25 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
       },
       200,
     );
-  },
-);
+  })
+  .openapi(backfillRoute, async (c) => {
+    const { db, logger } = c.get("container");
+    const body = c.req.valid("json");
+    if (body.recompute && !body.definitionId) {
+      return c.json(
+        { error: "recompute requires a definitionId — never blanket" },
+        400,
+      );
+    }
+    const result = await backfillAttributionBatch({
+      db,
+      logger,
+      registry: getConversionRegistry(),
+      definitionId: body.definitionId,
+      since: body.since ? new Date(body.since) : undefined,
+      cursor: body.cursor,
+      limit: body.limit,
+      recompute: body.recompute,
+    });
+    return c.json(result, 200);
+  });
