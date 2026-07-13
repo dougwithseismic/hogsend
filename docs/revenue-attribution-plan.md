@@ -63,7 +63,7 @@ Legend: `[ ]` todo · `[~]` built-to-seam (human ask recorded) · `[x]` done. Wo
 **Phase 8 — Moat-wideners** *(each may spawn its own plan; build what's in-repo, seam the rest)*
 - [ ] **8.1 Public proof feed.** Org-scoped public stats endpoint + embeddable feed/leaderboard with anonymity tiers.
 - [ ] **8.2 Google + LinkedIn destinations.** Enhanced Conversions for Leads / offline gclid; LinkedIn CAPI.
-- [ ] **8.3 GDPR lead-gen mode.** PII TTL split + consent-gated stitching (extends sources-and-prospects consent work). Design doc: `docs/gdpr-lead-gen-mode.md` (per-class TTL config, erasure = TTL-zero, provenance ledger; 3-stage rollout).
+- [ ] **8.3 Strict privacy mode** (né GDPR lead-gen mode). PII TTL split + consent-gated stitching (extends sources-and-prospects consent work). Design doc: `docs/strict-privacy-mode.md` (`privacy.mode: "strict"`, per-class TTL config, erasure = TTL-zero, provenance ledger; 3-stage rollout).
 - [ ] **8.4 Workspace scoping design doc.** Design-only deliverable; gates agency licensing, not core.
 
 ---
