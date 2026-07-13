@@ -1833,11 +1833,24 @@ export type AttributionRow = {
   touches: number;
 };
 
+/** Fired-vs-attributed coverage per currency — the "doesn't add up" killer. */
+export type AttributionTotals = {
+  currency: string | null;
+  value: number;
+  conversions: number;
+  attributedValue: number;
+  attributedConversions: number;
+};
+
 export function getAttribution(days = 90, definitionId?: string) {
-  return api.get<{ days: number; rows: AttributionRow[] }>(
-    "/v1/admin/attribution",
-    { query: { days, definitionId: definitionId || undefined } },
-  );
+  return api.get<{
+    days: number;
+    rows: AttributionRow[];
+    /** Older engines omit it. */
+    totals?: AttributionTotals[];
+  }>("/v1/admin/attribution", {
+    query: { days, definitionId: definitionId || undefined },
+  });
 }
 
 export type ConversionsStats = {

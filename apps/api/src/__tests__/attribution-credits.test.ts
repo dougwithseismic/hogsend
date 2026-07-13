@@ -14,6 +14,8 @@ const { createApp, createHogsendClient, defineConversion, ingestEvent } =
 
 const RUN = `attr-${Date.now()}`;
 const USER = `${RUN}-user`;
+/** A converter with NO touchpoint path — lands in the unattributed bucket. */
+const DIRECT_USER = `${RUN}-direct`;
 
 const saleConversion = defineConversion({
   id: `${RUN}-sale`,
@@ -54,8 +56,12 @@ afterAll(async () => {
       .where(inArray(attributionCredits.conversionId, ids));
     await db.delete(conversions).where(inArray(conversions.id, ids));
   }
-  await db.delete(userEvents).where(eq(userEvents.userId, USER));
-  await db.delete(contacts).where(eq(contacts.externalId, USER));
+  await db
+    .delete(userEvents)
+    .where(inArray(userEvents.userId, [USER, DIRECT_USER]));
+  await db
+    .delete(contacts)
+    .where(inArray(contacts.externalId, [USER, DIRECT_USER]));
 });
 
 const send = (opts: {
@@ -64,24 +70,27 @@ const send = (opts: {
   source: string;
   value?: number;
   properties?: Record<string, unknown>;
-}) =>
-  ingestEvent({
+  userId?: string;
+}) => {
+  const userId = opts.userId ?? USER;
+  return ingestEvent({
     db,
     registry,
     hatchet,
     logger,
     event: {
       event: opts.event,
-      userId: USER,
+      userId,
       eventProperties: opts.properties ?? {},
       ...(opts.value !== undefined
         ? { value: opts.value, currency: "GBP" }
         : {}),
       occurredAt: opts.at,
-      idempotencyKey: `${RUN}:${opts.event}:${opts.at}`,
+      idempotencyKey: `${RUN}:${userId}:${opts.event}:${opts.at}`,
       source: opts.source,
     },
   });
+};
 
 describe("attribution credit ledger (6.1)", () => {
   it("writes every model's credits over the windowed touchpoint path when a conversion fires", async () => {
@@ -164,6 +173,16 @@ describe("attribution credit ledger (6.1)", () => {
   });
 
   it("serves the model × channel rollup on GET /v1/admin/attribution", async () => {
+    // A second conversion with NO touchpoint path — earns zero credits but
+    // must still show up in the coverage totals as unattributed value.
+    await send({
+      event: "crm.deal_sold",
+      at: "2026-07-11T09:00:00.000Z",
+      source: "crm",
+      value: 5000,
+      userId: DIRECT_USER,
+    });
+
     const res = await app.request(
       `/v1/admin/attribution?days=365&definitionId=${RUN}-sale`,
       { headers: AUTH_HEADER },
@@ -177,6 +196,13 @@ describe("attribution credit ledger (6.1)", () => {
         value: number;
         conversions: number;
       }>;
+      totals: Array<{
+        currency: string | null;
+        value: number;
+        conversions: number;
+        attributedValue: number;
+        attributedConversions: number;
+      }>;
     };
     const blended = body.rows.filter((r) => r.model === "blended");
     expect(blended.length).toBeGreaterThanOrEqual(2);
@@ -189,6 +215,16 @@ describe("attribution credit ledger (6.1)", () => {
         channel: "campaign",
         currency: "GBP",
         conversions: 1,
+      }),
+    ]);
+    // Coverage: both conversions fired, only the touched one is attributed.
+    expect(body.totals).toEqual([
+      expect.objectContaining({
+        currency: "GBP",
+        value: 15000,
+        conversions: 2,
+        attributedValue: 10000,
+        attributedConversions: 1,
       }),
     ]);
   });

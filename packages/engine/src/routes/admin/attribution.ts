@@ -21,6 +21,22 @@ const rowSchema = z.object({
   touches: z.number(),
 });
 
+/**
+ * Coverage — the ledger only divides conversions that HAD a touchpoint path,
+ * so credited value is a subset of fired conversion value. Reporting both
+ * keeps the delta (direct / imported / pre-tracking conversions) explicit
+ * instead of silently missing.
+ */
+const totalsSchema = z.object({
+  currency: z.string().nullable(),
+  /** Total fired conversion value in the window (this currency). */
+  value: z.number(),
+  conversions: z.number(),
+  /** Subset with at least one credit row — i.e. a touchpoint path. */
+  attributedValue: z.number(),
+  attributedConversions: z.number(),
+});
+
 const summaryRoute = createRoute({
   method: "get",
   path: "/",
@@ -40,6 +56,7 @@ const summaryRoute = createRoute({
           schema: z.object({
             days: z.number(),
             rows: z.array(rowSchema),
+            totals: z.array(totalsSchema),
           }),
         },
       },
@@ -57,11 +74,10 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
     const since = new Date(
       Date.now() - days * 24 * 60 * 60 * 1000,
     ).toISOString();
-
-    const filters = [
-      gte(attributionCredits.convertedAt, sql`${since}::timestamptz`),
-      ...(definitionId ? [eq(conversions.definitionId, definitionId)] : []),
-    ];
+    const sinceTs = sql`${since}::timestamptz`;
+    const definitionFilter = definitionId
+      ? [eq(conversions.definitionId, definitionId)]
+      : [];
 
     const rows = await db
       .select({
@@ -77,12 +93,27 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
         conversions,
         eq(attributionCredits.conversionId, conversions.id),
       )
-      .where(and(...filters))
+      .where(
+        and(gte(attributionCredits.convertedAt, sinceTs), ...definitionFilter),
+      )
       .groupBy(
         attributionCredits.model,
         attributionCredits.channel,
         attributionCredits.currency,
       );
+
+    const credited = sql`exists (select 1 from ${attributionCredits} where ${attributionCredits.conversionId} = ${conversions.id})`;
+    const totals = await db
+      .select({
+        currency: conversions.currency,
+        value: sql<number>`coalesce(sum(${conversions.value}), 0)::float8`,
+        conversions: count(),
+        attributedValue: sql<number>`coalesce(sum(${conversions.value}) filter (where ${credited}), 0)::float8`,
+        attributedConversions: sql<number>`(count(*) filter (where ${credited}))::int`,
+      })
+      .from(conversions)
+      .where(and(gte(conversions.occurredAt, sinceTs), ...definitionFilter))
+      .groupBy(conversions.currency);
 
     return c.json(
       {
@@ -94,6 +125,13 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
           value: row.value,
           conversions: row.conversions,
           touches: Number(row.touches),
+        })),
+        totals: totals.map((row) => ({
+          currency: row.currency,
+          value: row.value,
+          conversions: Number(row.conversions),
+          attributedValue: row.attributedValue,
+          attributedConversions: Number(row.attributedConversions),
         })),
       },
       200,
