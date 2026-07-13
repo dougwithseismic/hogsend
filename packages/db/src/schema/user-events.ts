@@ -19,7 +19,7 @@ export const userEvents = pgTable(
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
-    // The event's own monetary worth (a deal value on `crm.deal_sold`, an order
+    // The event's own monetary worth (a deal value on `deal.sold`, an order
     // total on `order.completed`) — first-class so revenue is SQL-aggregable,
     // never buried in the properties bag. Negative values are legal (refunds).
     value: numeric("value", { precision: 14, scale: 2, mode: "number" }),

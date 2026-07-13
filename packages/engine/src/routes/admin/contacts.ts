@@ -247,7 +247,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
             from user_events ue
             where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
               and ue.value is not null
-              and ue.event not in ('crm.stage_changed', 'crm.deal_quoted')
+              and ue.event not in ('funnel.stage_changed', 'deal.quoted')
               and (ue.source is null or ue.source <> 'inapp')
           ) >= ${minRevenue}`
         : undefined;

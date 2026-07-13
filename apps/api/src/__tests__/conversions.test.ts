@@ -16,14 +16,14 @@ const USER = `${RUN}-user`;
 const saleConversion = defineConversion({
   id: `${RUN}-sale`,
   name: "Deal sold",
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   // default sources (server-side only), default value (the event's value)
 });
 
 const bigQuoteConversion = defineConversion({
   id: `${RUN}-big-quote`,
   trigger: {
-    event: "crm.deal_quoted",
+    event: "deal.quoted",
     where: (b) => b.prop("crm").eq("fakecrm"),
   },
   value: { source: "fixed", amount: 50, currency: "gbp" },
@@ -101,7 +101,7 @@ describe("conversion points at ingest", () => {
         hatchet,
         logger,
         event: {
-          event: "crm.deal_sold",
+          event: "deal.sold",
           userId: USER,
           eventProperties: { crm: "fakecrm", deal_id: "d1" },
           value: 17124,
@@ -131,7 +131,7 @@ describe("conversion points at ingest", () => {
       hatchet,
       logger,
       event: {
-        event: "crm.deal_quoted",
+        event: "deal.quoted",
         userId: USER,
         eventProperties: { crm: "othercrm" },
         source: "crm",
@@ -145,7 +145,7 @@ describe("conversion points at ingest", () => {
       hatchet,
       logger,
       event: {
-        event: "crm.deal_quoted",
+        event: "deal.quoted",
         userId: USER,
         eventProperties: { crm: "fakecrm" },
         source: "crm",
@@ -193,7 +193,7 @@ describe("conversion points at ingest", () => {
       hatchet,
       logger,
       event: {
-        event: "crm.deal_sold",
+        event: "deal.sold",
         userId: USER,
         eventProperties: {},
         value: 999999,
@@ -230,7 +230,7 @@ describe("conversion points at ingest", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: "crm.deal_sold",
+        name: "deal.sold",
         userId: USER,
         value: 5000,
         currency: "GBP",

@@ -299,7 +299,7 @@ export interface CrmProvider {
    *
    * NOTE: the ENGINE never calls this. A thin-webhook provider must hydrate
    * INSIDE its own `verifyWebhook`/`parseWebhook` before returning events
-   * (as the HubSpot/Attio references do) — a `crm.deal_sold` returned
+   * (as the HubSpot/Attio references do) — a `deal.sold` returned
    * without `value` fires its conversion at null value, and the once-per-
    * stage money event will not re-fire when the value arrives later. This
    * member exists for ops tooling and provider-internal reuse.

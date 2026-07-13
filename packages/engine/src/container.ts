@@ -407,7 +407,7 @@ export interface HogsendClientOptions {
   /**
    * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
    * layer that pushes leads INTO client CRMs and lands pipeline stage changes
-   * + deal values back on the event spine as `crm.stage_changed`. Register
+   * + deal values back on the event spine as `funnel.stage_changed`. Register
    * one (`provider`) or many (`providers`); each is webhook-served at
    * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
    * it implements `poll`. No "active" selection — many CRMs sync at once.

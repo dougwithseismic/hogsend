@@ -19,7 +19,7 @@ const DIRECT_USER = `${RUN}-direct`;
 
 const saleConversion = defineConversion({
   id: `${RUN}-sale`,
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   attributionWindowDays: 30,
 });
 
@@ -120,7 +120,7 @@ describe("attribution credit ledger (6.1)", () => {
     });
     // The conversion (value £10,000).
     await send({
-      event: "crm.deal_sold",
+      event: "deal.sold",
       at: "2026-07-12T09:00:00.000Z",
       source: "crm",
       value: 10000,
@@ -160,7 +160,7 @@ describe("attribution credit ledger (6.1)", () => {
 
     // Replay: re-ingesting the sale dedups at the spine, so no double rows.
     await send({
-      event: "crm.deal_sold",
+      event: "deal.sold",
       at: "2026-07-12T09:00:00.000Z",
       source: "crm",
       value: 10000,
@@ -176,7 +176,7 @@ describe("attribution credit ledger (6.1)", () => {
     // A second conversion with NO touchpoint path — earns zero credits but
     // must still show up in the coverage totals as unattributed value.
     await send({
-      event: "crm.deal_sold",
+      event: "deal.sold",
       at: "2026-07-11T09:00:00.000Z",
       source: "crm",
       value: 5000,

@@ -12,7 +12,7 @@ import { defineConversion } from "@hogsend/engine";
 export const dealSold = defineConversion({
   id: "deal-sold",
   name: "Deal sold",
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   // Defaults: value = the event's first-class value; sources = server-side
   // only (browser events can't forge revenue).
 });
@@ -21,7 +21,7 @@ export const dealSold = defineConversion({
 export const dealQuoted = defineConversion({
   id: "deal-quoted",
   name: "Deal quoted",
-  trigger: { event: "crm.deal_quoted" },
+  trigger: { event: "deal.quoted" },
 });
 
 /** A qualified lead arriving through any form vendor (docs/lead-intake.md). */

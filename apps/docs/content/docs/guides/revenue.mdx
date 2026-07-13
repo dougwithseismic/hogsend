@@ -101,8 +101,8 @@ import { defineFunnel } from "@hogsend/engine";
 export const residential = defineFunnel({
   id: "residential",
   stages: ["lead", "contacted", "survey_booked", "quoted", "sold"],
-  quotedStage: "quoted",  // mints crm.deal_quoted
-  soldStage: "sold",      // mints crm.deal_sold (default: the last stage)
+  quotedStage: "quoted",  // mints deal.quoted
+  soldStage: "sold",      // mints deal.sold (default: the last stage)
   sources: {
     // Per provider: native pipeline → native stage → YOUR stage. The
     // pipeline keys double as the claim — this funnel owns them.
@@ -143,14 +143,14 @@ Two designated stages mint **money events** on the contact's timeline, each
 carrying the deal's value first-class — the event names stay stable across
 any ladder (journeys and conversion points never chase your naming):
 
-- **`crm.deal_quoted`** — the mid-funnel money signal (cost-per-quote),
+- **`deal.quoted`** — the mid-funnel money signal (cost-per-quote),
   minted by `quotedStage`.
-- **`crm.deal_sold`** — the revenue conversion, minted by `soldStage`.
+- **`deal.sold`** — the revenue conversion, minted by `soldStage`.
 
-Both (plus `crm.stage_changed`) are on the
+Both (plus `funnel.stage_changed`) are on the
 [outbound webhook catalog](/docs/data-api/webhooks) and can trigger journeys
 like any other event — a post-sale onboarding journey triggers on
-`crm.deal_sold` with zero extra wiring.
+`deal.sold` with zero extra wiring.
 
 ### Connecting a CRM
 
@@ -183,10 +183,10 @@ implementations for GoHighLevel, Attio, and HubSpot
 
 Every contact's valued events roll up to per-currency totals — surfaced on
 `GET /v1/admin/contacts/{id}` and in the Studio contact drawer. Only
-**realized** money counts: the rollup skips `crm.deal_quoted` and
-`crm.stage_changed` rows (one deal's value rides several timeline events —
+**realized** money counts: the rollup skips `deal.quoted` and
+`funnel.stage_changed` rows (one deal's value rides several timeline events —
 counting them all would multiply a single sale) and browser-minted values
-(forgeable). A sold deal contributes exactly once, via `crm.deal_sold`. The
+(forgeable). A sold deal contributes exactly once, via `deal.sold`. The
 contacts list API gains two long-tail filters:
 
 - **`minRevenue`** — only contacts whose valued events sum to at least this
@@ -239,7 +239,7 @@ computeCredits("timeDecay", touchpoints, {
 Revenue in Hogsend isn't just reporting — it feeds back out:
 
 - [Conversion points](/docs/conversions) declare which events (e.g.
-  `crm.deal_sold`) are conversions, resolve their value, and dispatch them to
+  `deal.sold`) are conversions, resolve their value, and dispatch them to
   ad platforms with recovered click evidence, so Meta/Google optimize toward
   **revenue**, not clicks.
 - The analytics mirror forwards `value`/`currency` on captured events, so

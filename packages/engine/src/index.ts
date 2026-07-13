@@ -401,9 +401,9 @@ export {
   resolveCrmLinkedContact,
 } from "./lib/crm-deals.js";
 export {
-  CRM_DEAL_QUOTED,
-  CRM_DEAL_SOLD,
-  CRM_STAGE_CHANGED,
+  DEAL_QUOTED,
+  DEAL_SOLD,
+  FUNNEL_STAGE_CHANGED,
   ingestCrmStageEvents,
 } from "./lib/crm-ingest.js";
 export { CrmProviderRegistry } from "./lib/crm-provider-registry.js";

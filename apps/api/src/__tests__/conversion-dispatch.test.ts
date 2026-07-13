@@ -36,7 +36,7 @@ const fakeDestination = defineConversionDestination({
 
 const conversion = defineConversion({
   id: `${RUN}-sale`,
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   destinations: ["fakedest"],
 });
 
@@ -141,7 +141,7 @@ describe("conversion dispatch", () => {
       hatchet,
       logger,
       event: {
-        event: "crm.deal_sold",
+        event: "deal.sold",
         userEmail: EMAIL,
         eventProperties: { crm: "fakecrm" },
         value: 17124,
@@ -170,7 +170,7 @@ describe("conversion dispatch", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
       definitionId: `${RUN}-sale`,
-      triggerEvent: "crm.deal_sold",
+      triggerEvent: "deal.sold",
       value: 17124,
       currency: "GBP",
       occurredAt: new Date("2026-07-12T14:00:00.000Z").getTime(),
@@ -201,7 +201,7 @@ describe("conversion dispatch", () => {
       hatchet,
       logger,
       event: {
-        event: "crm.deal_sold",
+        event: "deal.sold",
         userEmail: EMAIL,
         eventProperties: {},
         value: 100,

@@ -44,7 +44,7 @@ beforeAll(async () => {
     .values([
       {
         userId: `${RUN}-user`,
-        event: "crm.deal_sold",
+        event: "deal.sold",
         properties: {},
         value: 17124,
         currency: "GBP",
@@ -52,7 +52,7 @@ beforeAll(async () => {
       },
       {
         userId: `${RUN}-user`,
-        event: "crm.deal_quoted",
+        event: "deal.quoted",
         properties: {},
         value: 15900,
         currency: "GBP",

@@ -14,7 +14,7 @@ import { contacts } from "./contacts.js";
 
 /**
  * The deals PROJECTION (docs/revenue-attribution-plan.md §4.2) — current
- * state materialized from `crm.stage_changed` events, the way `email_sends`
+ * state materialized from `funnel.stage_changed` events, the way `email_sends`
  * projects send activity. The event spine stays the append-only source of
  * truth; this table exists for reporting (pipeline totals, AOV,
  * time-to-close) and for the monotonic-stage rule that heals webhook+poll
