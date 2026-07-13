@@ -27,15 +27,14 @@ That's the whole setup. The built-in `revenue` conversion point fires on any tru
 Optionally, define what progress means for you:
 
 ```ts
-// A funnel is an ordered ladder; stages can be plain events — no CRM needed.
+// A funnel is an ordered ladder; stages move on plain events — no CRM needed.
 export const selfServe = defineFunnel({
   id: "self-serve",
-  stages: ["signed_up", "activated", "subscribed"],
-  events: {
-    signed_up: { event: "user.signup" },
-    activated: { event: "activation.completed" },
-    subscribed: { event: "subscription.started" },
-  },
+  stages: [
+    { id: "signed_up", on: "user.signup" },
+    { id: "activated", on: "activation.completed" },
+    { id: "subscribed", on: "subscription.started" },
+  ],
 });
 
 // A milestone is just a conversion point without money.

@@ -40,6 +40,7 @@ import {
 } from "./conversions.js";
 import { getCrmSyncConfig } from "./crm-registry-singleton.js";
 import { recordFunnelProgressAtIngest } from "./funnel-progress.js";
+import { applyFunnelTransitionsAtIngest } from "./funnel-transitions.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -583,26 +584,32 @@ export async function ingestEvent(opts: {
     });
   }
 
-  // (5c) Conversion-point evaluation (plan §5.1) — fires AFTER the push
-  // settled (a failed publish compensating-deletes the event row, and the
-  // conversions FK cascades with it, so a rolled-back event never leaves a
-  // fired conversion behind). Best-effort like buckets/blueprints: the event
-  // is already durable, so a conversion failure warns rather than failing the
-  // caller; the unique (definition, event) index makes any replay a no-op.
-  if (insertedRow) {
+  // (5c)+(5d) — the post-store hooks. Both fire only AFTER the push settled
+  // (a failed publish compensating-deletes the event row, so a rolled-back
+  // event never leaves a fired conversion or a moved deal behind) and only
+  // on a FRESH insert (replays early-returned at (2)). Each is best-effort
+  // in its own try/catch: the event is already durable, so a hook failure
+  // warns rather than failing the caller.
+  const hookEvent = insertedRow
+    ? {
+        name: event.event,
+        source: event.source ?? null,
+        properties: event.eventProperties,
+        value,
+        currency,
+        occurredAt: insertedRow.occurredAt,
+      }
+    : null;
+
+  // (5c) Conversion-point evaluation (plan §5.1) — the unique
+  // (definition, event) index makes any replay a no-op.
+  if (insertedRow && hookEvent) {
     try {
       const fired = await evaluateConversionsAtIngest({
         db,
         logger,
         registry: getConversionRegistry(),
-        event: {
-          name: event.event,
-          source: event.source ?? null,
-          properties: event.eventProperties,
-          value,
-          currency,
-          occurredAt: insertedRow.occurredAt,
-        },
+        event: hookEvent,
         eventRowId: insertedRow.id,
         contactId,
         userKey: resolvedKey,
@@ -659,34 +666,58 @@ export async function ingestEvent(opts: {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
 
-    // (5d) Event-funnel progression (impact plan §3.3) — first-reach
-    // `funnel_progress` rows for funnels whose stages are event matchers.
-    // Same best-effort stance as conversions: the event is durable; a
-    // projection failure warns, and the unique (contact, funnel, stage)
-    // index makes any replay a no-op.
-    try {
-      await recordFunnelProgressAtIngest({
-        db,
-        logger,
-        funnels: getCrmSyncConfig()?.funnels,
-        event: {
-          name: event.event,
-          properties: event.eventProperties,
-          value,
-          currency,
-          occurredAt: insertedRow.occurredAt,
-        },
-        eventRowId: insertedRow.id,
-        contactId,
-        userKey: resolvedKey,
-      });
-    } catch (err) {
-      logger.warn("Funnel progression write failed", {
-        event: event.event,
-        userId: resolvedKey,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  // (5d) Event-driven funnel stage transitions (event-native funnels). The
+  // money events it mints (`deal.quoted`/`deal.sold`) recurse through
+  // ingestEvent, bounded at define time: `deal.`/`funnel.`/`crm.` events
+  // cannot be stage triggers.
+  if (insertedRow && hookEvent) {
+    const funnelRegistry = getCrmSyncConfig()?.funnels;
+    if (funnelRegistry) {
+      try {
+        await applyFunnelTransitionsAtIngest({
+          db,
+          registry,
+          hatchet,
+          logger,
+          analytics,
+          funnels: funnelRegistry,
+          event: hookEvent,
+          eventRowId: insertedRow.id,
+          contactId,
+          userKey: resolvedKey,
+        });
+      } catch (err) {
+        logger.warn("Funnel transition evaluation failed", {
+          event: event.event,
+          userId: resolvedKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // (5e) Funnel progression REPORTING projection (impact plan §3.3) —
+      // first-reach `funnel_progress` rows over the SAME transition rules
+      // and gates as the deal mover above, so the two projections never
+      // disagree. Best-effort like every hook; the unique (contact, funnel,
+      // stage) index makes any replay a no-op.
+      try {
+        await recordFunnelProgressAtIngest({
+          db,
+          logger,
+          funnels: funnelRegistry,
+          event: hookEvent,
+          eventRowId: insertedRow.id,
+          contactId,
+          userKey: resolvedKey,
+        });
+      } catch (err) {
+        logger.warn("Funnel progression write failed", {
+          event: event.event,
+          userId: resolvedKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

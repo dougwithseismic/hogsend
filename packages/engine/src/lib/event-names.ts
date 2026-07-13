@@ -35,7 +35,7 @@ export type EventNameEntry = z.infer<typeof eventNameEntrySchema>;
 
 const EVENT_NAMES_NOTE =
   "Event names are an open vocabulary — this is observed + declared usage, not a closed registry. " +
-  "Reserved namespaces (email.*, journey.*, bucket.*, contact.*) are engine-emitted; don't use them as blueprint trigger events.";
+  "Reserved namespaces (email.*, journey.*, bucket.*, contact.*, deal.*, funnel.*) are engine-emitted; don't use them as blueprint trigger events.";
 
 export async function listEventNameVocabulary(opts: {
   db: HogsendClient["db"];

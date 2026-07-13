@@ -37,7 +37,7 @@ export interface ConversionDispatchInput {
    */
   eventId: string;
   definitionId: string;
-  /** The conversion's trigger event name (e.g. `crm.deal_sold`). */
+  /** The conversion's trigger event name (e.g. `deal.sold`). */
   triggerEvent: string;
   value: number | null;
   currency: string | null;

@@ -428,7 +428,14 @@ function DealsTable({
       key: "provider",
       label: "Provider",
       sort: "provider",
-      render: (deal) => <span className="text-white/60">{deal.provider}</span>,
+      // "events" is the engine's synthetic provider for deals minted by
+      // funnel event triggers (server-side sources — browser `inapp` is
+      // denied by default, so don't gloss it as "in-app").
+      render: (deal) => (
+        <span className="text-white/60">
+          {deal.provider === "events" ? "Product events" : deal.provider}
+        </span>
+      ),
     },
     {
       key: "pipeline",

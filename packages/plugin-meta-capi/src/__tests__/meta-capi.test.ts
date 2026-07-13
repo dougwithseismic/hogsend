@@ -12,7 +12,7 @@ import {
 const INPUT: ConversionDispatchInput = {
   eventId: "a".repeat(64),
   definitionId: "solar-sale",
-  triggerEvent: "crm.deal_sold",
+  triggerEvent: "deal.sold",
   value: 17124,
   currency: "GBP",
   occurredAt: 1783891871000,
@@ -52,7 +52,7 @@ describe("meta-capi payload", () => {
       custom_data: {
         value: 17124,
         currency: "GBP",
-        trigger_event: "crm.deal_sold",
+        trigger_event: "deal.sold",
       },
     });
     const userData = event.user_data as Record<string, unknown>;

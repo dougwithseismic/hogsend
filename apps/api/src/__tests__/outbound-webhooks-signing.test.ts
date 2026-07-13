@@ -240,9 +240,9 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "link.arrived",
       // CRM revenue spine (plan §4.2): raw stage changes + the once-per-deal
       // canonical money events.
-      "crm.stage_changed",
-      "crm.deal_quoted",
-      "crm.deal_sold",
+      "funnel.stage_changed",
+      "deal.quoted",
+      "deal.sold",
     ]);
   });
 

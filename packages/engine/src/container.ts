@@ -8,13 +8,18 @@ import type {
   DefinedConversion,
   DefinedFunnel,
   EmailProvider,
+  FunnelStageEntry,
   JourneySourceLocation,
-  PipelineLadder,
   PostHogService,
   SmsProvider,
   TimeZone,
 } from "@hogsend/core";
-import { DEFAULT_FUNNEL_ID, normalizePipelineLadder } from "@hogsend/core";
+import {
+  crmPipeline,
+  DEFAULT_FUNNEL_ID,
+  DEFAULT_PIPELINE_LADDER,
+  defineFunnel,
+} from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
@@ -195,15 +200,6 @@ export interface HogsendClient {
    * name the provider. Empty when none configured.
    */
   crmProviders: CrmProviderRegistry;
-  /** Per-provider native→canonical stage maps (`opts.crm.stageMaps`). */
-  crmStageMaps: Record<string, CrmStageMap>;
-  /**
-   * The DEFAULT funnel's ladder — `opts.crm.{stages,quotedStage,soldStage}`
-   * normalized + validated at boot ({@link normalizePipelineLadder});
-   * defaults to the built-in five-stage ladder. Back-compat surface; the
-   * full picture is {@link funnels}.
-   */
-  crmLadder: PipelineLadder;
   /**
    * The funnel registry (§5b.4): every `defineFunnel` plus the synthesized
    * `"default"` carrying the crm sugar. Routes stage events by
@@ -412,7 +408,7 @@ export interface HogsendClientOptions {
   /**
    * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
    * layer that pushes leads INTO client CRMs and lands pipeline stage changes
-   * + deal values back on the event spine as `crm.stage_changed`. Register
+   * + deal values back on the event spine as `funnel.stage_changed`. Register
    * one (`provider`) or many (`providers`); each is webhook-served at
    * `POST /v1/webhooks/crm/:providerId` and polled for reconciliation where
    * it implements `poll`. No "active" selection — many CRMs sync at once.
@@ -422,36 +418,30 @@ export interface HogsendClientOptions {
     providers?: CrmProvider[];
     /**
      * Per-provider stage maps: native `(pipelineId|'*') → stageId → canonical
-     * stage`. Config-as-data — onboarding a client's pipeline is an edit here,
-     * not a deploy. Unmapped stages record native ids and warn (the provider's
-     * won/lost status hint still resolves sold/lost). Every mapped value must
-     * be a ladder stage or `"lost"` — validated at boot.
+     * stage` — the one-CRM-no-funnels 3-liner. Desugars into `crmPipeline`
+     * bindings on the synthesized `"default"` funnel. Unmapped stages record
+     * native ids and warn (the provider's won/lost status hint still resolves
+     * sold/lost). Every mapped value must be a ladder stage or `"lost"` —
+     * validated at boot.
      */
     stageMaps?: Record<string, CrmStageMap>;
     /**
-     * YOUR canonical funnel, in rank order (e.g. `["trial", "demo", "poc",
-     * "won"]`) — replaces the built-in `lead → contacted → survey_booked →
-     * quoted → sold`. `"lost"` stays the implicit terminal. Zero migration:
-     * only new stage events re-rank.
+     * YOUR canonical funnel's stages, in rank order — replaces the built-in
+     * `lead → contacted → survey_booked → quoted → sold`. Same entries as
+     * `defineFunnel`: plain strings, or objects carrying `milestone` (and
+     * `on` event triggers). All-string arrays get the legacy money defaults
+     * (soldStage = last stage, quotedStage = a stage literally named
+     * "quoted"); any object entry makes milestones explicit-only. `"lost"`
+     * stays the implicit terminal. Zero migration: only new stage events
+     * re-rank.
      */
-    stages?: string[];
-    /**
-     * Which stage mints `crm.deal_quoted` (the money-signal event). Custom
-     * ladders default to a stage literally named "quoted" when present, else
-     * none. The EVENT name never changes — only which stage means it.
-     */
-    quotedStage?: string;
-    /**
-     * Which stage mints `crm.deal_sold` (revenue realized; blocks `lost`
-     * overwrites). Custom ladders default to their LAST stage.
-     */
-    soldStage?: string;
+    stages?: FunnelStageEntry[];
   };
   /**
    * Funnels as code-first primitives (§5b.4) — `defineFunnel` results. Each
-   * claims CRM traffic via its `sources` pipeline keys; overlapping claims
-   * throw at boot. The `crm.{stages,stageMaps}` group above is sugar for a
-   * single `"default"` funnel and composes with these.
+   * claims CRM traffic via its `bindings` (provider, pipeline) pairs;
+   * overlapping claims throw at boot. The `crm.{stages,stageMaps}` group
+   * above is sugar for a single `"default"` funnel and composes with these.
    */
   funnels?: DefinedFunnel[];
   /**
@@ -797,64 +787,41 @@ export function createHogsendClient(
     ...(opts.crm?.providers ?? []),
     ...(opts.crm?.provider ? [opts.crm.provider] : []),
   ]);
-  // The deployment's canonical funnel (§5b.1) — normalize + validate the
-  // ladder, then validate every stage-map value against it (CanonicalStage is
-  // plain string, so this boot check replaces the compiler).
-  const crmLadder = normalizePipelineLadder(opts.crm);
-  const crmStageMaps = opts.crm?.stageMaps ?? {};
-  for (const [providerId, map] of Object.entries(crmStageMaps)) {
-    for (const [pipelineId, stageEntries] of Object.entries(map)) {
-      for (const [stageId, canonical] of Object.entries(stageEntries)) {
-        if (canonical !== "lost" && !crmLadder.stages.includes(canonical)) {
-          throw new Error(
-            `crm.stageMaps.${providerId}.${pipelineId}.${stageId} maps to ` +
-              `"${canonical}", which is not in the configured ladder ` +
-              `[${crmLadder.stages.join(", ")}] (or "lost")`,
-          );
-        }
-      }
-    }
-  }
   // Funnels (§5b.4): authored `defineFunnel`s plus a synthesized "default"
   // carrying the crm.{stages,stageMaps} sugar — unless the consumer authored
-  // their own default. The registry ctor throws on overlapping pipeline
-  // claims and duplicate ids.
+  // their own default. The sugar desugars THROUGH defineFunnel itself (one
+  // normalization + validation path: ladder rules, milestone rules, binding
+  // targets). The registry ctor throws on overlapping pipeline claims and
+  // duplicate ids.
   const authoredFunnels = opts.funnels ?? [];
   const authoredDefault = authoredFunnels.some(
     (f) => f.meta.id === DEFAULT_FUNNEL_ID,
   );
-  const crmSugarPresent = Boolean(
-    opts.crm?.stages ||
-      opts.crm?.quotedStage ||
-      opts.crm?.soldStage ||
-      opts.crm?.stageMaps,
-  );
+  const crmSugarPresent = Boolean(opts.crm?.stages || opts.crm?.stageMaps);
   if (authoredDefault && crmSugarPresent) {
     logger.warn(
-      'crm.{stages,quotedStage,soldStage,stageMaps} are IGNORED because a funnel with id "default" is authored — move that config into the funnel',
+      'crm.{stages,stageMaps} are IGNORED because a funnel with id "default" is authored — move that config into the funnel',
     );
   }
+  const defaultFunnel = authoredDefault
+    ? undefined
+    : defineFunnel({
+        id: DEFAULT_FUNNEL_ID,
+        stages: opts.crm?.stages ?? [...DEFAULT_PIPELINE_LADDER.stages],
+        bindings: Object.entries(opts.crm?.stageMaps ?? {}).flatMap(
+          ([providerId, map]) =>
+            Object.entries(map).map(([pipelineId, stages]) =>
+              crmPipeline({
+                provider: providerId,
+                pipeline: pipelineId,
+                stages,
+              }),
+            ),
+        ),
+      });
   const funnels = new FunnelRegistry([
     ...authoredFunnels,
-    ...(authoredDefault
-      ? []
-      : [
-          {
-            meta: {
-              id: DEFAULT_FUNNEL_ID,
-              stages: [...crmLadder.stages],
-              ...(crmLadder.quotedStage
-                ? { quotedStage: crmLadder.quotedStage }
-                : {}),
-              ...(crmLadder.soldStage
-                ? { soldStage: crmLadder.soldStage }
-                : {}),
-              sources: crmStageMaps,
-            },
-            ladder: crmLadder,
-            eventStages: [],
-          },
-        ]),
+    ...(defaultFunnel ? [defaultFunnel] : []),
   ]);
 
   // Process singleton for the crm-reconcile cron (runs in BOTH API and worker;
@@ -1437,8 +1404,6 @@ export function createHogsendClient(
     smsProviders,
     smsProvider,
     crmProviders,
-    crmStageMaps,
-    crmLadder,
     funnels,
     analyticsProviders,
     analytics,

@@ -48,19 +48,21 @@ export const CANONICAL_STAGES = [
 export type CanonicalStage = string;
 
 /**
- * The deployment's canonical funnel: YOUR ordered stage ids (first = entry),
- * plus which stages mint the two money events. The event NAMES stay stable
- * across any ladder (`crm.deal_quoted` = "a money signal was issued",
- * `crm.deal_sold` = "revenue realized"); the ladder only picks WHICH stage
- * means which. Configured via `createHogsendClient({ crm: { stages,
- * quotedStage, soldStage } })`; defaults to {@link DEFAULT_PIPELINE_LADDER}.
+ * The deployment's canonical funnel, normalized: YOUR ordered stage ids
+ * (first = entry), plus which stages mint the two money events. The event
+ * NAMES stay stable across any ladder (`deal.quoted` = "a money signal was
+ * issued", `deal.sold` = "revenue realized"); the ladder only picks WHICH
+ * stage means which. Authored via {@link defineFunnel} stage entries (a
+ * `milestone` marker on the stage itself); this is the derived internal
+ * form the projection ranks against. Defaults to
+ * {@link DEFAULT_PIPELINE_LADDER}.
  */
 export interface PipelineLadder {
   /** Ordered positive stages; index = monotonic rank. Never contains "lost". */
   stages: readonly string[];
-  /** The stage that mints `crm.deal_quoted`. Absent = no quote signal. */
+  /** The stage that mints `deal.quoted`. Absent = no quote signal. */
   quotedStage?: string;
-  /** The stage that mints `crm.deal_sold` (and blocks `lost` overwrites). */
+  /** The stage that mints `deal.sold` (and blocks `lost` overwrites). */
   soldStage?: string;
 }
 
@@ -71,55 +73,72 @@ export const DEFAULT_PIPELINE_LADDER: PipelineLadder = {
 };
 
 /**
- * Validate + normalize ladder config. Custom `stages` default `soldStage` to
- * the LAST stage (a funnel ends in the sale) and `quotedStage` to a stage
- * literally named "quoted" when present; explicit designations override.
- * Throws on: empty/duplicate/reserved stage ids, or a designation not in
- * `stages`.
+ * Validate + normalize ladder config.
+ *
+ * Defaults depend on `opts.defaults`:
+ * - `"legacy"` (the all-string authoring form): custom `stages` default
+ *   `soldStage` to the LAST stage (a pipeline ends in the sale) and
+ *   `quotedStage` to a stage literally named "quoted" when present —
+ *   explicit designations override.
+ * - `"none"` (object stage entries): milestones are explicit-only — an
+ *   absent designation genuinely means "does not mint that money event".
+ *
+ * Throws on: empty/duplicate/reserved stage ids, a designation not in
+ * `stages`, one stage designated for both money events, or a quoted stage
+ * ranked at/after the sold stage (you quote before you win).
  */
-export function normalizePipelineLadder(input?: {
-  stages?: string[];
-  quotedStage?: string;
-  soldStage?: string;
-}): PipelineLadder {
+export function normalizePipelineLadder(
+  input?: {
+    stages?: string[];
+    quotedStage?: string;
+    soldStage?: string;
+  },
+  opts?: { defaults?: "legacy" | "none" },
+): PipelineLadder {
   const stages = input?.stages ?? [...DEFAULT_PIPELINE_LADDER.stages];
   if (stages.length === 0) {
-    throw new Error("crm.stages must contain at least one stage");
+    throw new Error("stages must contain at least one stage");
   }
   const seen = new Set<string>();
   for (const stage of stages) {
     if (!stage || stage === "lost") {
       throw new Error(
-        `crm.stages contains reserved/empty stage id ${JSON.stringify(stage)} — "lost" is the implicit terminal`,
+        `stages contains reserved/empty stage id ${JSON.stringify(stage)} — "lost" is the implicit terminal`,
       );
     }
     if (seen.has(stage)) {
-      throw new Error(`crm.stages contains duplicate stage id "${stage}"`);
+      throw new Error(`stages contains duplicate stage id "${stage}"`);
     }
     seen.add(stage);
   }
-  const usingDefaults = !input?.stages;
+  // Legacy defaults are the generic rules — the built-in ladder contains
+  // "quoted" and ends in "sold", so the no-input case needs no special arm.
+  const applyLegacyDefaults = (opts?.defaults ?? "legacy") === "legacy";
   const quotedStage =
     input?.quotedStage ??
-    (usingDefaults
-      ? DEFAULT_PIPELINE_LADDER.quotedStage
-      : stages.includes("quoted")
-        ? "quoted"
-        : undefined);
+    (applyLegacyDefaults && stages.includes("quoted") ? "quoted" : undefined);
   const soldStage =
-    input?.soldStage ??
-    (usingDefaults ? DEFAULT_PIPELINE_LADDER.soldStage : stages.at(-1));
+    input?.soldStage ?? (applyLegacyDefaults ? stages.at(-1) : undefined);
   for (const [name, value] of [
     ["quotedStage", quotedStage],
     ["soldStage", soldStage],
   ] as const) {
     if (value !== undefined && !seen.has(value)) {
-      throw new Error(`crm.${name} "${value}" is not in crm.stages`);
+      throw new Error(`${name} "${value}" is not in stages`);
     }
   }
   if (quotedStage !== undefined && quotedStage === soldStage) {
     throw new Error(
-      `crm.quotedStage and crm.soldStage are both "${quotedStage}" — one stage cannot mint both money events`,
+      `quotedStage and soldStage are both "${quotedStage}" — one stage cannot mint both money events`,
+    );
+  }
+  if (
+    quotedStage !== undefined &&
+    soldStage !== undefined &&
+    stages.indexOf(quotedStage) > stages.indexOf(soldStage)
+  ) {
+    throw new Error(
+      `quotedStage "${quotedStage}" ranks after soldStage "${soldStage}" — a quote precedes the sale`,
     );
   }
   return { stages, quotedStage, soldStage };
@@ -280,7 +299,7 @@ export interface CrmProvider {
    *
    * NOTE: the ENGINE never calls this. A thin-webhook provider must hydrate
    * INSIDE its own `verifyWebhook`/`parseWebhook` before returning events
-   * (as the HubSpot/Attio references do) — a `crm.deal_sold` returned
+   * (as the HubSpot/Attio references do) — a `deal.sold` returned
    * without `value` fires its conversion at null value, and the once-per-
    * stage money event will not re-fire when the value arrives later. This
    * member exists for ops tooling and provider-internal reuse.
@@ -306,143 +325,283 @@ export function defineCrmProvider(provider: CrmProvider): CrmProvider {
 // ---------------------------------------------------------------------------
 
 /**
- * A provider's stage map: outer key = native pipeline id (`"*"` matches any
- * pipeline), inner key = native stage id → canonical stage. Authored
- * code-first on `createHogsendClient({ crm: { stageMaps } })`; onboarding a
- * client's arbitrary pipeline is a config edit, not a deploy.
+ * A provider's stage map: outer key = native pipeline id, inner key = native
+ * stage id → canonical stage. A `"*"` pipeline key claims the provider's
+ * remainder AND doubles as a per-stage fallback for the same funnel's
+ * pipeline-specific bindings (a stage id missing from an exact-pipeline map
+ * falls through to the `"*"` map before the won/lost status hint). The
+ * `createHogsendClient({ crm: { stageMaps } })` sugar authors this shape; it
+ * desugars into {@link crmPipeline} bindings on the default funnel.
  */
 export type CrmStageMap = Record<string, Record<string, CanonicalStage>>;
 
-/**
- * Resolve a stage event to its canonical stage: exact pipeline entry first,
- * then the `"*"` fallback, then the provider's won/lost status hint (won =
- * the ladder's designated sold stage), else `null` (unmapped — the engine
- * surfaces it, never silently drops).
- */
-export function resolveCanonicalStage(
-  map: CrmStageMap | undefined,
-  event: Pick<CrmStageEvent, "pipelineId" | "stageId" | "status">,
-  ladder: PipelineLadder = DEFAULT_PIPELINE_LADDER,
-): CanonicalStage | null {
-  const fromMap =
-    (event.pipelineId ? map?.[event.pipelineId]?.[event.stageId] : undefined) ??
-    map?.["*"]?.[event.stageId];
-  if (fromMap) return fromMap;
-  if (event.status === "won") return ladder.soldStage ?? null;
-  if (event.status === "lost") return "lost";
-  return null;
-}
-
 // ---------------------------------------------------------------------------
-// Funnels — the code-first primitive over ladders + stage maps, plural
+// Funnels — the code-first, event-native primitive (plural)
 // ---------------------------------------------------------------------------
 
 /** The reserved funnel id the `crm.{stages,stageMaps}` sugar synthesizes. */
 export const DEFAULT_FUNNEL_ID = "default";
 
 /**
- * An EVENT stage source (docs/attribution-impact-plan.md §3.3): the stage is
- * reached when the contact emits `event` (optionally narrowed by `where`,
- * same builder journeys use). The B2C sibling of a CRM stage claim — a SaaS
- * self-serve funnel and a sales pipeline are the same primitive with
- * different stage sources.
+ * An event trigger on a funnel stage: "when the contact triggers this event
+ * (optionally matching these property conditions), they move into this
+ * stage." Same `{ event, where }` shape journeys, conversions, and
+ * blueprints use; `where` sees the triggering event's properties (plus
+ * `value`/`currency`).
  */
-export interface EventStageSource {
-  event: string;
-  where?: JourneyWhere;
+export type FunnelTriggerSpec =
+  | string
+  | { event: string; where?: JourneyWhere }
+  | Array<string | { event: string; where?: JourneyWhere }>;
+
+/**
+ * Money milestones. `"quoted"` mints `deal.quoted` (the mid-funnel money
+ * signal); `"won"` mints `deal.sold` (revenue realized). Each mints only
+ * when its stage exists: a funnel with no `"won"` stage never mints
+ * `deal.sold` and contributes nothing to revenue rollups (a quoted-only
+ * funnel still mints `deal.quoted`, which rollups exclude as unrealized).
+ */
+export type FunnelMilestone = "quoted" | "won";
+
+/**
+ * One stage of a funnel. A plain string is a stage with no event trigger
+ * (moved by CRM bindings or nothing at all). Object entries put the
+ * semantics ON the stage they describe: its event trigger(s) and its money
+ * milestone.
+ *
+ * Milestone defaults key on the authoring form: an all-string `stages`
+ * array gets the legacy defaults (soldStage = last stage, quotedStage = a
+ * stage literally named "quoted"); the moment ANY entry is an object,
+ * milestones are explicit-only.
+ */
+export type FunnelStageEntry =
+  | string
+  | {
+      id: string;
+      /** Event trigger(s) that move a contact into this stage. */
+      on?: FunnelTriggerSpec;
+      milestone?: FunnelMilestone;
+    };
+
+/**
+ * A producer binding — how non-event traffic (today: CRM stage changes)
+ * feeds a funnel. Composable VALUES built by helpers ({@link crmPipeline},
+ * or plugin-shipped wrappers), not a config tree. The declarative half
+ * (`provider` + `pipeline`) is the funnel's traffic claim, introspected at
+ * boot for overlap detection (exact pipeline beats `"*"`; two funnels
+ * claiming the same pipeline throw). The programmable half (`resolve`)
+ * translates a native stage event into THIS funnel's stage id.
+ */
+export interface FunnelBinding {
+  /** Discriminant for future producer kinds. */
+  kind: "crm";
+  /** CRM provider id (`CrmProvider.meta.id`) this binding listens to. */
+  provider: string;
+  /** Native pipeline id claimed, or `"*"` for the provider's remainder. */
+  pipeline: string;
+  /**
+   * Translate a native stage event into this funnel's stage id (or "lost"),
+   * or `null` when the binding does not recognize it — the engine then falls
+   * back to the provider's won/lost status hint, else records the native
+   * stage without advancing the projection.
+   */
+  resolve: (
+    event: Pick<CrmStageEvent, "pipelineId" | "stageId" | "status">,
+  ) => CanonicalStage | null;
+  /**
+   * The declarative stage map, when this binding was built from one
+   * (map-form {@link crmPipeline}) — retained so `defineFunnel` can validate
+   * targets at boot. Callback-form bindings omit it; their outputs are
+   * validated at runtime instead (unknown stage → recorded without
+   * advancing).
+   */
+  stages?: Record<string, CanonicalStage>;
 }
 
 /**
- * A funnel authored like a journey: YOUR ordered stage ladder plus what
- * feeds each stage. Two stage sources, freely mixable:
- *
- *  - `sources` (CRM claims) — per provider: the stage map whose pipeline
- *    keys are ALSO the claim: this funnel owns those native pipelines
- *    (`"*"` claims the provider's remainder). Ingest routes each stage
- *    event to the funnel that claims its (provider, pipeline).
- *  - `events` (event matchers, §3.3) — stage → `{ event, where? }`; the
- *    engine writes a first-reach `funnel_progress` row at ingest. No CRM
- *    required — B2C order flows and activation ladders are pure `events`
- *    funnels.
- *
- * One deployment runs MANY funnels (residential vs commercial, sales vs
- * expansion, self-serve vs sales-led).
+ * Build a CRM {@link FunnelBinding}. Two forms:
+ * - **Map form** — `stages: { "native-stage-id": "your-stage" }`; the flat
+ *   map compiles into the resolver, and its targets are boot-validated
+ *   against the funnel's ladder.
+ * - **Callback form** — `resolve(event)`: arbitrary logic (the escape hatch
+ *   plugins wrap to own their CRM-speak).
+ */
+export function crmPipeline(opts: {
+  provider: string;
+  pipeline: string;
+  stages?: Record<string, CanonicalStage>;
+  resolve?: (
+    event: Pick<CrmStageEvent, "pipelineId" | "stageId" | "status">,
+  ) => CanonicalStage | null;
+}): FunnelBinding {
+  if (!opts.provider || !opts.pipeline) {
+    throw new Error("crmPipeline: provider and pipeline are required");
+  }
+  if (!opts.stages === !opts.resolve) {
+    throw new Error(
+      `crmPipeline(${opts.provider}:${opts.pipeline}): exactly one of \`stages\` (map form) or \`resolve\` (callback form) is required`,
+    );
+  }
+  const stages = opts.stages;
+  return {
+    kind: "crm",
+    provider: opts.provider,
+    pipeline: opts.pipeline,
+    resolve:
+      opts.resolve ??
+      ((event) =>
+        // hasOwn: a native stage id like "constructor" must not resolve to
+        // an inherited Object member.
+        stages && Object.hasOwn(stages, event.stageId)
+          ? (stages[event.stageId] ?? null)
+          : null),
+    ...(stages ? { stages } : {}),
+  };
+}
+
+/**
+ * A funnel authored like a journey: YOUR ordered stages (some carrying
+ * money milestones), the events that move contacts between them, and —
+ * optionally — CRM bindings feeding the same ladder. One deployment runs
+ * MANY funnels; a deal belongs to exactly one.
  */
 export interface FunnelMeta {
   /** Stable id — stamped on deals (`funnel_id`) and event properties. */
   id: string;
   name?: string;
-  /** Ordered positive stages; index = monotonic rank. Never "lost". */
-  stages: string[];
-  /** The stage that mints `crm.deal_quoted`. See {@link PipelineLadder}. */
-  quotedStage?: string;
-  /** The stage that mints `crm.deal_sold`. Defaults to the LAST stage. */
-  soldStage?: string;
+  /** Ordered stages; index = monotonic rank. Never "lost". */
+  stages: FunnelStageEntry[];
   /**
-   * Per provider: native `(pipelineId|'*') → stageId → THIS funnel's stage`.
-   * The pipeline keys double as the funnel's traffic claim. Optional — a
-   * pure event funnel has none.
+   * Event trigger(s) for the terminal `lost` stage. Only ever moves an
+   * EXISTING open deal — a lost trigger with no open deal is a no-op.
    */
-  sources?: Record<string, CrmStageMap>;
-  /** Event stage sources: stage → matcher (§3.3). Optional. */
-  events?: Record<string, EventStageSource>;
+  lostOn?: FunnelTriggerSpec;
+  /**
+   * Ingest-source allowlist for event triggers (the forged-stage guard,
+   * mirroring `defineConversion.sources`). Browser (`inapp`) events are
+   * pk_-trust-tier: anyone can mint them. DEFAULT: every source EXCEPT
+   * `inapp`. Pass explicit ids to narrow further, or `"any"` to accept
+   * browser events too. CRM bindings are unaffected (already server-side).
+   */
+  sources?: string[] | "any";
+  /** Producer bindings (CRM legs). See {@link FunnelBinding}. */
+  bindings?: FunnelBinding[];
 }
 
-/** One normalized event-stage matcher on a defined funnel. */
-export interface FunnelEventStage {
-  stage: string;
-  /** The stage's index in the ladder (monotonic rank). */
-  rank: number;
+/** One normalized event→stage rule (derived from stage `on` + `lostOn`). */
+export interface FunnelTransition {
   event: string;
-  /** The matcher's `where`, normalized to conditions at definition time. */
-  where: PropertyCondition[] | undefined;
+  /** Target stage id, or "lost". */
+  stageId: string;
+  where?: PropertyCondition[];
 }
 
 export interface DefinedFunnel {
   meta: FunnelMeta;
   /** The normalized ladder (rank order + money-stage designations). */
   ladder: PipelineLadder;
-  /** Normalized `meta.events` matchers (empty for CRM-only funnels). */
-  eventStages: FunnelEventStage[];
+  /** Normalized event→stage rules, `where` resolved at define time. */
+  transitions: FunnelTransition[];
+}
+
+/** Event-name prefixes a funnel trigger may not listen to (self-loops —
+ * `crm.` covers the pre-rename machinery output too). */
+const RESERVED_TRIGGER_PREFIX = /^(deal|funnel|crm)\./;
+
+function normalizeTriggerSpec(
+  funnelId: string,
+  stageId: string,
+  spec: FunnelTriggerSpec,
+): FunnelTransition[] {
+  const items = Array.isArray(spec) ? spec : [spec];
+  return items.map((item) => {
+    const { event, where } =
+      typeof item === "string" ? { event: item, where: undefined } : item;
+    if (!event) {
+      throw new Error(
+        `funnel "${funnelId}" stage "${stageId}": empty event in \`on\``,
+      );
+    }
+    if (RESERVED_TRIGGER_PREFIX.test(event)) {
+      throw new Error(
+        `funnel "${funnelId}" stage "${stageId}": "${event}" is funnel-machinery output (deal.*/funnel.*) and cannot be a stage trigger`,
+      );
+    }
+    return {
+      event,
+      stageId,
+      ...(where ? { where: normalizeWhere(where) } : {}),
+    };
+  });
 }
 
 /**
- * Validating factory — normalizes the ladder and checks every mapped stage
- * value against it at definition time, so a typo throws with the exact path
- * (funnels are plain-string-typed; this replaces the compiler).
+ * Validating factory — derives the ladder from stage entries (milestones →
+ * money designations), normalizes every event trigger, and boot-validates
+ * map-form binding targets, so a typo throws with the exact path (funnels
+ * are plain-string-typed; this replaces the compiler).
  */
 export function defineFunnel(meta: FunnelMeta): DefinedFunnel {
   if (!meta.id) throw new Error("defineFunnel: id is required");
-  const ladder = normalizePipelineLadder(meta);
-  for (const [providerId, map] of Object.entries(meta.sources ?? {})) {
-    for (const [pipelineId, stageEntries] of Object.entries(map)) {
-      for (const [stageId, canonical] of Object.entries(stageEntries)) {
-        if (canonical !== "lost" && !ladder.stages.includes(canonical)) {
-          throw new Error(
-            `funnel "${meta.id}" sources.${providerId}.${pipelineId}.${stageId} ` +
-              `maps to "${canonical}", which is not in its stages ` +
-              `[${ladder.stages.join(", ")}] (or "lost")`,
-          );
-        }
+
+  const entries = meta.stages.map((entry) =>
+    typeof entry === "string" ? { id: entry } : entry,
+  );
+  const explicitMilestones = meta.stages.some(
+    (entry) => typeof entry !== "string",
+  );
+  const milestones: Partial<Record<FunnelMilestone, string>> = {};
+  for (const entry of entries) {
+    if (!entry.milestone) continue;
+    if (milestones[entry.milestone]) {
+      throw new Error(
+        `funnel "${meta.id}": milestone "${entry.milestone}" appears on both "${milestones[entry.milestone]}" and "${entry.id}" — at most one stage per milestone`,
+      );
+    }
+    milestones[entry.milestone] = entry.id;
+  }
+  let ladder: PipelineLadder;
+  try {
+    ladder = normalizePipelineLadder(
+      {
+        stages: entries.map((e) => e.id),
+        quotedStage: milestones.quoted,
+        soldStage: milestones.won,
+      },
+      { defaults: explicitMilestones ? "none" : "legacy" },
+    );
+  } catch (error) {
+    throw new Error(
+      `funnel "${meta.id}": ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const transitions = entries.flatMap((entry) =>
+    entry.on ? normalizeTriggerSpec(meta.id, entry.id, entry.on) : [],
+  );
+  if (meta.lostOn) {
+    transitions.push(...normalizeTriggerSpec(meta.id, "lost", meta.lostOn));
+  }
+
+  const claimed = new Set<string>();
+  for (const binding of meta.bindings ?? []) {
+    const claim = `${binding.provider}:${binding.pipeline}`;
+    if (claimed.has(claim)) {
+      throw new Error(
+        `funnel "${meta.id}": duplicate binding for ${claim} — one binding per (provider, pipeline)`,
+      );
+    }
+    claimed.add(claim);
+    for (const [stageId, canonical] of Object.entries(binding.stages ?? {})) {
+      if (canonical !== "lost" && !ladder.stages.includes(canonical)) {
+        throw new Error(
+          `funnel "${meta.id}" binding ${claim}: "${stageId}" maps to ` +
+            `"${canonical}", which is not in its stages ` +
+            `[${ladder.stages.join(", ")}] (or "lost")`,
+        );
       }
     }
   }
-  const eventStages: FunnelEventStage[] = Object.entries(meta.events ?? {}).map(
-    ([stage, source]) => {
-      const rank = ladder.stages.indexOf(stage);
-      if (rank === -1) {
-        throw new Error(
-          `funnel "${meta.id}" events.${stage} is not in its stages ` +
-            `[${ladder.stages.join(", ")}]`,
-        );
-      }
-      return {
-        stage,
-        rank,
-        event: source.event,
-        where: normalizeWhere(source.where),
-      };
-    },
-  );
-  return { meta, ladder, eventStages };
+
+  return { meta, ladder, transitions };
 }

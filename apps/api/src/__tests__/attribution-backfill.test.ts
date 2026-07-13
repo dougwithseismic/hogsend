@@ -104,7 +104,7 @@ describe("zero-config revenue conversion (5.2)", () => {
     });
     // Quote-shaped: excluded (unrealized money).
     await send({
-      event: "crm.deal_quoted",
+      event: "deal.quoted",
       at: "2026-07-10T10:00:00.000Z",
       source: "crm",
       value: 5000,

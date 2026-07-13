@@ -1,18 +1,23 @@
-import { evaluatePropertyConditions } from "@hogsend/core";
+import { canonicalStageRank } from "@hogsend/core";
 import { type Database, funnelProgress } from "@hogsend/db";
 import type { FunnelRegistry } from "./funnel-registry.js";
+import { resolveFunnelTargets } from "./funnel-transitions.js";
 import type { Logger } from "./logger.js";
 
 /**
- * Event-funnel projection writer (docs/attribution-impact-plan.md §3.3) —
- * the ingest hook that turns a matching event into a first-reach
- * `funnel_progress` row. Sibling of `evaluateConversionsAtIngest`: same
- * slot, same idempotency stance (the unique (contact, funnel, stage) index
- * makes any replay or repeat event a no-op — `reachedAt` is FIRST reach by
- * construction).
+ * Event-funnel REPORTING projection (docs/attribution-impact-plan.md §3.3) —
+ * one first-reach row per (contact, funnel, stage), the raw material for
+ * progression counts ("how many reached activated") and velocity ("median
+ * time signed_up → activated"). Complements the deals projection the
+ * transition machinery (funnel-transitions.ts) maintains: deals hold ONE
+ * current stage + money timestamps; this holds every stage's first-reach
+ * instant, which is what progression rates and velocity medians read.
  *
- * `where` sees the event's first-class value/currency injected exactly like
- * conversion triggers do, so a stage like "orders over £100" is expressible.
+ * Targets come from {@link resolveFunnelTargets} — the SAME gates and
+ * winner selection as the deal mover, so the two projections can never
+ * disagree about what counts as a stage event. `lost` is a deal outcome,
+ * not progress, and is skipped; the unique (contact, funnel, stage) index
+ * absorbs replays and repeats — `reachedAt` is FIRST reach by construction.
  */
 export async function recordFunnelProgressAtIngest(opts: {
   db: Database;
@@ -20,6 +25,7 @@ export async function recordFunnelProgressAtIngest(opts: {
   funnels: FunnelRegistry | undefined;
   event: {
     name: string;
+    source: string | null;
     properties: Record<string, unknown>;
     value: number | null;
     currency: string | null;
@@ -30,36 +36,22 @@ export async function recordFunnelProgressAtIngest(opts: {
   userKey: string;
 }): Promise<{ reached: number }> {
   const { db, logger, funnels, event, eventRowId, contactId, userKey } = opts;
-  if (!funnels?.hasEventStages()) return { reached: 0 };
-  const claims = funnels.forEvent(event.name);
-  if (claims.length === 0) return { reached: 0 };
-
-  const properties =
-    event.value !== null
-      ? {
-          ...event.properties,
-          value: event.value,
-          ...(event.currency ? { currency: event.currency } : {}),
-        }
-      : event.properties;
+  if (!funnels) return { reached: 0 };
+  const targets = resolveFunnelTargets({ funnels, event });
 
   let reached = 0;
-  for (const claim of claims) {
-    if (
-      claim.where &&
-      claim.where.length > 0 &&
-      !evaluatePropertyConditions({ conditions: claim.where, properties })
-    ) {
-      continue;
-    }
+  for (const { funnel, target } of targets) {
+    if (target === "lost") continue;
+    const rank = canonicalStageRank(target, funnel.ladder);
+    if (rank === null || rank < 0) continue;
     const inserted = await db
       .insert(funnelProgress)
       .values({
         contactId,
         userKey,
-        funnelId: claim.funnel.meta.id,
-        stage: claim.stage,
-        stageRank: claim.rank,
+        funnelId: funnel.meta.id,
+        stage: target,
+        stageRank: rank,
         reachedAt: event.occurredAt,
         eventId: eventRowId,
       })
@@ -74,8 +66,8 @@ export async function recordFunnelProgressAtIngest(opts: {
     if (inserted[0]) {
       reached++;
       logger.debug("funnel stage reached", {
-        funnel: claim.funnel.meta.id,
-        stage: claim.stage,
+        funnel: funnel.meta.id,
+        stage: target,
         userKey,
       });
     }

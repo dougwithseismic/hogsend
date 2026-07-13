@@ -52,10 +52,14 @@ const mockHatchet = {
 const container = createHogsendClient({
   crm: {
     provider: saasCrm,
-    // Custom ladder: quotedStage designated explicitly; soldStage defaults
-    // to the LAST stage ("won").
-    stages: ["trial", "demo", "poc", "won"],
-    quotedStage: "poc",
+    // Custom ladder with object entries: milestones are explicit-only —
+    // "poc" mints the quote signal, "won" mints the sale.
+    stages: [
+      "trial",
+      "demo",
+      { id: "poc", milestone: "quoted" },
+      { id: "won", milestone: "won" },
+    ],
     stageMaps: {
       saascrm: {
         "*": {
@@ -141,7 +145,7 @@ describe("configurable pipeline ladder (5b.1)", () => {
         },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/not in the configured ladder/);
+    ).toThrow(/not in its stages/);
     expect(() =>
       createHogsendClient({
         crm: { provider: saasCrm, stages: ["trial", "lost"] },
@@ -150,50 +154,57 @@ describe("configurable pipeline ladder (5b.1)", () => {
     ).toThrow(/reserved/);
     expect(() =>
       createHogsendClient({
-        crm: { provider: saasCrm, stages: ["a", "b"], soldStage: "zz" },
+        crm: {
+          provider: saasCrm,
+          stages: [
+            { id: "a", milestone: "won" },
+            { id: "b", milestone: "won" },
+          ],
+        },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/not in crm.stages/);
+    ).toThrow(/at most one/);
     expect(() =>
       createHogsendClient({
         crm: {
           provider: saasCrm,
-          stages: ["a", "b"],
-          quotedStage: "b",
-          soldStage: "b",
+          stages: [
+            { id: "a", milestone: "won" },
+            { id: "b", milestone: "quoted" },
+          ],
         },
         overrides: { hatchet: mockHatchet },
       }),
-    ).toThrow(/cannot mint both/);
+    ).toThrow(/ranks after/);
   });
 
-  it("mid-ladder stages record without money events; the designated quote stage mints crm.deal_quoted", async () => {
+  it("mid-ladder stages record without money events; the designated quote stage mints deal.quoted", async () => {
     expect(
       (await post([stageEvent("s-demo", "2026-07-12T10:00:00.000Z")])).status,
     ).toBe(200);
     const key = await contactKey();
-    const changed = await eventsFor(key, "crm.stage_changed");
+    const changed = await eventsFor(key, "funnel.stage_changed");
     expect(changed).toHaveLength(1);
     expect(changed[0]?.properties).toMatchObject({ canonical_stage: "demo" });
-    expect(await eventsFor(key, "crm.deal_quoted")).toHaveLength(0);
+    expect(await eventsFor(key, "deal.quoted")).toHaveLength(0);
 
     expect(
       (await post([stageEvent("s-poc", "2026-07-12T11:00:00.000Z", 24000)]))
         .status,
     ).toBe(200);
-    const quoted = await eventsFor(key, "crm.deal_quoted");
+    const quoted = await eventsFor(key, "deal.quoted");
     expect(quoted).toHaveLength(1);
     expect(quoted[0]?.value).toBe(24000);
     expect(quoted[0]?.properties).toMatchObject({ canonical_stage: "poc" });
   });
 
-  it("the last stage is sold by default: mints crm.deal_sold, sets soldAt, and lost never overwrites it", async () => {
+  it("the last stage is sold by default: mints deal.sold, sets soldAt, and lost never overwrites it", async () => {
     expect(
       (await post([stageEvent("s-won", "2026-07-12T12:00:00.000Z", 26500)]))
         .status,
     ).toBe(200);
     const key = await contactKey();
-    const sold = await eventsFor(key, "crm.deal_sold");
+    const sold = await eventsFor(key, "deal.sold");
     expect(sold).toHaveLength(1);
     expect(sold[0]?.value).toBe(26500);
     expect(sold[0]?.properties).toMatchObject({ canonical_stage: "won" });

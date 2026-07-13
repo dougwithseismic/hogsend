@@ -1,15 +1,17 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { AnalyticsProvider, CrmStageEvent } from "@hogsend/core";
-import { DEFAULT_PIPELINE_LADDER, resolveCanonicalStage } from "@hogsend/core";
+import { DEFAULT_PIPELINE_LADDER } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import { contacts, type Database } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import { contacts, type Database, deals } from "@hogsend/db";
+import { and, eq, isNull } from "drizzle-orm";
 import { resolveOrCreateContact } from "./contacts.js";
 import {
   applyCrmStageEvent,
+  EVENTS_DEAL_PROVIDER,
   ensureCrmLinks,
   resolveCrmLinkedContact,
 } from "./crm-deals.js";
+import { mintDealMoneyEvents } from "./deal-money-events.js";
 import type { FunnelRegistry } from "./funnel-registry.js";
 import { ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
@@ -22,17 +24,17 @@ import { emitOutbound } from "./outbound.js";
  *
  * Per event: (1) resolve the contact — `crm_links` alias first (works with
  * zero PII in the payload), else the payload email (minting the links so the
- * NEXT event resolves aliased); (2) ingest `crm.stage_changed` (valued, flat
+ * NEXT event resolves aliased); (2) ingest `funnel.stage_changed` (valued, flat
  * native ids + the stage-map's canonical resolution, idempotent across
  * webhook/poll double-detection); (3) apply the deals projection (monotonic);
  * (4) on a FRESH canonical transition, ingest the money events
- * `crm.deal_quoted` / `crm.deal_sold` (once per deal per stage, ever) with
+ * `deal.quoted` / `deal.sold` (once per deal per stage, ever) with
  * the projected deal value; (5) fan the family out on the outbound spine.
  */
 
-export const CRM_STAGE_CHANGED = "crm.stage_changed" as const;
-export const CRM_DEAL_QUOTED = "crm.deal_quoted" as const;
-export const CRM_DEAL_SOLD = "crm.deal_sold" as const;
+export const FUNNEL_STAGE_CHANGED = "funnel.stage_changed" as const;
+export const DEAL_QUOTED = "deal.quoted" as const;
+export const DEAL_SOLD = "deal.sold" as const;
 
 export async function ingestCrmStageEvents(opts: {
   db: Database;
@@ -92,7 +94,7 @@ export async function ingestCrmStageEvents(opts: {
         canonicalKey = resolved.resolvedKey;
       }
       if (!contactId || !canonicalKey) {
-        logger.warn("crm.stage_changed skipped: no resolvable identity", {
+        logger.warn("funnel.stage_changed skipped: no resolvable identity", {
           provider: providerId,
           dealId: event.dealId,
           stageId: event.stageId,
@@ -102,15 +104,61 @@ export async function ingestCrmStageEvents(opts: {
       }
       await ensureCrmLinks({ db, providerId, contactId, event });
 
-      // Which funnel claims this (provider, pipeline)? Its ladder + stage
-      // map drive resolution. The container always registers a "default"
-      // funnel, so the built-in fallback only covers direct callers.
-      const funnel = funnels?.resolve(providerId, event.pipelineId);
+      // Which funnel claims this (provider, pipeline)? The matched binding
+      // translates native stage ids; a miss falls through to the SAME
+      // funnel's provider-`"*"` binding (a `"*"` map doubles as a per-stage
+      // fallback for the funnel's own pipeline-specific bindings), then the
+      // universal won/lost status hint. The container always registers a
+      // "default" funnel, so the built-in fallback only covers direct
+      // callers.
+      const claimed = funnels?.resolve(providerId, event.pipelineId);
+      const funnel = claimed?.funnel;
       const funnelId = funnel?.meta.id ?? null;
       const ladder = funnel?.ladder ?? DEFAULT_PIPELINE_LADDER;
-      const map = funnel?.meta.sources?.[providerId];
 
-      const canonicalStage = resolveCanonicalStage(map, event, ladder);
+      // Callback-form resolvers are arbitrary consumer code: a throw must
+      // not swallow the event (the route 200s and the poll cursor advances
+      // regardless — the transition would be lost forever), and an output
+      // outside the ladder must not be stamped verbatim onto a fresh deal.
+      const resolveVia = (
+        binding: NonNullable<typeof claimed>["binding"],
+      ): string | null => {
+        if (!binding) return null;
+        try {
+          const out = binding.resolve(event);
+          if (out === null || out === "lost" || ladder.stages.includes(out)) {
+            return out;
+          }
+          logger.warn("funnel binding resolved to a stage outside the ladder", {
+            funnel: funnelId,
+            provider: providerId,
+            stageId: event.stageId,
+            resolved: out,
+          });
+        } catch (error) {
+          logger.warn("funnel binding resolve threw — treating as unmapped", {
+            funnel: funnelId,
+            provider: providerId,
+            stageId: event.stageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return null;
+      };
+      const wildcardBinding =
+        claimed?.binding?.pipeline === "*"
+          ? undefined
+          : funnel?.meta.bindings?.find(
+              (b) => b.provider === providerId && b.pipeline === "*",
+            );
+      const canonicalStage =
+        resolveVia(claimed?.binding) ??
+        resolveVia(wildcardBinding) ??
+        (event.status === "won"
+          ? (ladder.soldStage ?? null)
+          : event.status === "lost"
+            ? "lost"
+            : null);
       if (!canonicalStage) {
         logger.warn("crm stage unmapped — recording native ids only", {
           provider: providerId,
@@ -138,7 +186,7 @@ export async function ingestCrmStageEvents(opts: {
         logger,
         analytics,
         event: {
-          event: CRM_STAGE_CHANGED,
+          event: FUNNEL_STAGE_CHANGED,
           userId: canonicalKey,
           userEmail: event.email,
           contactId,
@@ -172,6 +220,53 @@ export async function ingestCrmStageEvents(opts: {
       }
       ingested++;
 
+      // (2b) Adopt an open event-minted deal: the event-native path may have
+      // opened this contact's deal in the same funnel before the CRM ever
+      // saw it. The CRM identity is stickier (native id, reconcilable), so
+      // re-key the synthetic row onto (provider, dealId) instead of minting
+      // an open sibling that would ping-pong stats and double-mint. Only the
+      // implicit single-deal row adopts — `deal_id`-addressed rows are
+      // deliberate multi-deal and stay separate.
+      if (funnelId) {
+        const existingCrmRow = await db
+          .select({ id: deals.id })
+          .from(deals)
+          .where(
+            and(
+              eq(deals.provider, providerId),
+              eq(deals.externalId, event.dealId),
+            ),
+          )
+          .limit(1);
+        if (!existingCrmRow[0]) {
+          const adopted = await db
+            .update(deals)
+            .set({
+              provider: providerId,
+              externalId: event.dealId,
+              ...(event.pipelineId ? { pipelineId: event.pipelineId } : {}),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(deals.provider, EVENTS_DEAL_PROVIDER),
+                eq(deals.externalId, `${funnelId}:${contactId}`),
+                isNull(deals.soldAt),
+                isNull(deals.lostAt),
+              ),
+            )
+            .returning({ id: deals.id })
+            .catch(() => []); // unique-key race: another writer took the key
+          if (adopted[0]) {
+            logger.info("event-minted deal adopted by CRM identity", {
+              provider: providerId,
+              dealId: event.dealId,
+              funnel: funnelId,
+            });
+          }
+        }
+      }
+
       // (3) Projection (monotonic; latest value wins).
       const applied = await applyCrmStageEvent({
         db,
@@ -199,7 +294,7 @@ export async function ingestCrmStageEvents(opts: {
         db,
         hatchet,
         logger,
-        event: CRM_STAGE_CHANGED,
+        event: FUNNEL_STAGE_CHANGED,
         payload: {
           ...outboundPayload,
           stageId: event.stageId,
@@ -210,58 +305,28 @@ export async function ingestCrmStageEvents(opts: {
       }).catch((err) => logger.warn("crm outbound emit failed", { err }));
 
       // (4) The money events — once per deal per canonical stage, ever.
-      const moneyEvents: Array<typeof CRM_DEAL_QUOTED | typeof CRM_DEAL_SOLD> =
-        [
-          ...(applied.freshQuoted ? [CRM_DEAL_QUOTED] : []),
-          ...(applied.freshSold ? [CRM_DEAL_SOLD] : []),
-        ];
-      for (const moneyEvent of moneyEvents) {
-        // The idempotency key keeps the SEMANTIC literal (stable across
-        // ladder edits); the event property carries the ladder's actual
-        // stage id (what a custom funnel calls it, e.g. "won").
-        const semantic = moneyEvent === CRM_DEAL_QUOTED ? "quoted" : "sold";
-        const stage =
-          (moneyEvent === CRM_DEAL_QUOTED
-            ? ladder.quotedStage
-            : ladder.soldStage) ?? semantic;
-        await ingestEvent({
-          db,
-          registry,
-          hatchet,
-          logger,
-          analytics,
-          event: {
-            event: moneyEvent,
-            userId: canonicalKey,
-            userEmail: event.email,
-            contactId,
-            eventProperties: {
-              crm: providerId,
-              deal_id: event.dealId,
-              ...(event.pipelineId ? { pipeline_id: event.pipelineId } : {}),
-              ...(funnelId ? { funnel_id: funnelId } : {}),
-              canonical_stage: stage,
-            },
-            ...(applied.value !== null
-              ? {
-                  value: applied.value,
-                  ...(applied.currency ? { currency: applied.currency } : {}),
-                }
-              : {}),
-            occurredAt: event.occurredAt,
-            idempotencyKey: `crm-canonical:${providerId}:${event.dealId}:${semantic}`,
-            source: "crm",
-          },
-        });
-        void emitOutbound({
-          db,
-          hatchet,
-          logger,
-          event: moneyEvent,
-          payload: outboundPayload,
-          dedupeKey: `crm-canonical:${providerId}:${event.dealId}:${semantic}`,
-        }).catch((err) => logger.warn("crm outbound emit failed", { err }));
-      }
+      await mintDealMoneyEvents({
+        db,
+        registry,
+        hatchet,
+        logger,
+        analytics,
+        applied,
+        ladder,
+        idempotencyPrefix: `crm-canonical:${providerId}:${event.dealId}`,
+        source: "crm",
+        userId: canonicalKey,
+        userEmail: event.email,
+        contactId,
+        baseProperties: {
+          crm: providerId,
+          deal_id: event.dealId,
+          ...(event.pipelineId ? { pipeline_id: event.pipelineId } : {}),
+          ...(funnelId ? { funnel_id: funnelId } : {}),
+        },
+        occurredAt: event.occurredAt,
+        outboundPayload,
+      });
     } catch (err) {
       logger.warn("crm stage event ingest failed", {
         provider: providerId,

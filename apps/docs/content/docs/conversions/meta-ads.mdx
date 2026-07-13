@@ -81,7 +81,7 @@ website-form leads, not just Instant Forms.
 ## Testing
 
 Set `testEventCode` in the config, fire a conversion (e.g. re-ingest a
-`crm.deal_sold` stage change in a dev environment), and watch it appear in
+`deal.sold` stage change in a dev environment), and watch it appear in
 Events Manager → **Test Events**. Delivery state is also on your side:
 `conversion_dispatches` records attempts, the platform's `fbtrace_id`
 receipt, and any error. Remove the test code before going live.

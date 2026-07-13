@@ -18,21 +18,23 @@ const USER2 = `${RUN}-user2`;
 const JOURNEY = `${RUN}-welcome`;
 
 /**
- * Event-ladder funnel (impact plan §3.3): pure `events` stages, no CRM
- * sources at all — the B2C shape. The subscribed stage carries a `where`
- * (only paid plans count).
+ * Event-native funnel (impact plan §3.3 + #428): stage entries with `on`
+ * triggers, no CRM bindings at all — the B2C shape. The subscribed stage
+ * carries a `where` (only paid plans count).
  */
 const selfServe = defineFunnel({
   id: `${RUN}-self-serve`,
-  stages: ["signed_up", "activated", "subscribed"],
-  events: {
-    signed_up: { event: "user.signup" },
-    activated: { event: "activation.completed" },
-    subscribed: {
-      event: "subscription.started",
-      where: (b) => b.prop("plan").neq("free"),
+  stages: [
+    { id: "signed_up", on: "user.signup" },
+    { id: "activated", on: "activation.completed" },
+    {
+      id: "subscribed",
+      on: {
+        event: "subscription.started",
+        where: (b) => b.prop("plan").neq("free"),
+      },
     },
-  },
+  ],
 });
 
 const mockHatchet = {
@@ -132,14 +134,13 @@ describe("event-ladder funnel progression (impact plan 3.3)", () => {
     expect(rows.every((r) => r.userKey === USER)).toBe(true);
   });
 
-  it("rejects an events key outside the stage ladder at definition time", () => {
+  it("rejects funnel-machinery output as a stage trigger at definition time", () => {
     expect(() =>
       defineFunnel({
         id: `${RUN}-bad`,
-        stages: ["a", "b"],
-        events: { c: { event: "x" } },
+        stages: [{ id: "a", on: "deal.sold" }],
       }),
-    ).toThrow(/events\.c is not in its stages/);
+    ).toThrow(/cannot be a stage trigger/);
   });
 
   it("serves progression + velocity with exposed-vs-unexposed splits (3.4)", async () => {

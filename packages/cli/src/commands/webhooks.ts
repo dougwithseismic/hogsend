@@ -33,9 +33,9 @@ const WEBHOOK_EVENT_TYPES = [
   "journey.heldout",
   "bucket.entered",
   "bucket.left",
-  "crm.stage_changed",
-  "crm.deal_quoted",
-  "crm.deal_sold",
+  "funnel.stage_changed",
+  "deal.quoted",
+  "deal.sold",
 ] as const;
 
 type OutboundEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

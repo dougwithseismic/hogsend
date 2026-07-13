@@ -10,7 +10,7 @@ import {
   serializePrefs,
 } from "../../lib/contacts.js";
 import { emitOutbound } from "../../lib/outbound.js";
-import { getContactRevenue } from "../../lib/revenue.js";
+import { getContactRevenue, revenueExcludedEvents } from "../../lib/revenue.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -237,9 +237,9 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     // Valued events are keyed by the contact's canonical event key
     // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
     // resolves. Served by the partial user_events_valued_user_idx.
-    // Exclusions mirror lib/revenue.ts (REVENUE_EXCLUDED_EVENTS + the
-    // browser trust gate): one deal's value rides several CRM rows, and
-    // pk_-minted values are forgeable.
+    // Exclusions come from lib/revenue.ts (static machinery events + funnel
+    // milestone triggers + the browser trust gate): one deal's value rides
+    // several rows, and pk_-minted values are forgeable.
     const revenueFilter =
       minRevenue !== undefined
         ? sql`(
@@ -247,7 +247,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
             from user_events ue
             where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
               and ue.value is not null
-              and ue.event not in ('crm.stage_changed', 'crm.deal_quoted')
+              and ue.event not in (${sql.join(
+                revenueExcludedEvents().map((e) => sql`${e}`),
+                sql`, `,
+              )})
               and (ue.source is null or ue.source <> 'inapp')
           ) >= ${minRevenue}`
         : undefined;

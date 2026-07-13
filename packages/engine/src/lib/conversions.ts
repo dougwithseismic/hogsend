@@ -3,6 +3,7 @@ import {
   conversionSourceAllowed,
   defineConversion,
   evaluatePropertyConditions,
+  overlayEventMoney,
   resolveConversionValue,
 } from "@hogsend/core";
 import { conversions, type Database } from "@hogsend/db";
@@ -136,26 +137,17 @@ export async function evaluateConversionsAtIngest(opts: {
       });
       continue;
     }
-    // `where` sees the event's first-class value/currency as `value`/
-    // `currency` (money events like crm.deal_quoted carry no property twin)
-    // AND the event NAME as `event` (lets wildcard definitions carve out
+    // `where` sees the event's first-class value/currency (overlayEventMoney)
+    // AND the event NAME as `event` — lets wildcard definitions carve out
     // exclusions, e.g. the built-in revenue conversion skipping quote
-    // events), so "quotes over £10k" is expressible; the columns win a name
-    // collision.
+    // events. The injected keys win a name collision.
     if (
       def.where &&
-      def.where.length > 0 &&
       !evaluatePropertyConditions({
         conditions: def.where,
         properties: {
-          ...event.properties,
+          ...overlayEventMoney(event.properties, event.value, event.currency),
           event: event.name,
-          ...(event.value !== null
-            ? {
-                value: event.value,
-                ...(event.currency ? { currency: event.currency } : {}),
-              }
-            : {}),
         },
       })
     ) {

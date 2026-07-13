@@ -27,6 +27,7 @@ import {
   setDiscordDb,
 } from "./discord.js";
 import { templates } from "./emails/index.js";
+import { funnels } from "./funnels.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
@@ -39,6 +40,7 @@ const client = createHogsendClient({
   conversions,
   buckets,
   lists,
+  funnels,
   email: { templates },
   // SMS channel — Twilio provider is auto-built from TWILIO_* env; with no creds
   // the SMS service is an inert stub and sendSms throws an actionable error.

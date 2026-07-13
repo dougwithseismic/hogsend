@@ -13,7 +13,7 @@ createHogsendClient({
   conversions: [
     defineConversion({
       id: "solar-sale",
-      trigger: { event: "crm.deal_sold" },
+      trigger: { event: "deal.sold" },
       destinations: ["meta-capi"],
     }),
   ],

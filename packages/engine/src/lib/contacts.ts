@@ -2,7 +2,9 @@ import {
   bucketMemberships,
   contactAliases,
   contacts,
+  crmLinks,
   type Database,
+  deals,
   emailPreferences,
   emailSends,
   journeyStates,
@@ -945,6 +947,21 @@ async function mergeContacts(
 
     // (vi) email_preferences FOLD (never blind-rewrite — risk 6).
     await foldEmailPreferences(tx, loserKeysToRewrite, survivorKey);
+
+    // (vi-b) deals + crm_links re-point: these carry contact_id uuid FKs
+    // (not user keys), which the key rewrites above never touch. Without
+    // this, the loser's open deal is orphaned on a soft-deleted row — the
+    // survivor's next stage event/trigger would mint a SECOND deal (and a
+    // duplicate deal.sold). No unique index involves contact_id, so plain
+    // UPDATEs suffice.
+    await tx
+      .update(deals)
+      .set({ contactId: survivor.id })
+      .where(eq(deals.contactId, loser.id));
+    await tx
+      .update(crmLinks)
+      .set({ contactId: survivor.id })
+      .where(eq(crmLinks.contactId, loser.id));
 
     // (ix) RECORD aliases for each loser key → survivor.
     await recordMergeAliases(tx, survivor.id, loser);
