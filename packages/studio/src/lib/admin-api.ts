@@ -247,6 +247,7 @@ export type JourneyListItem = {
     completed: number;
     failed: number;
     exited: number;
+    held_out?: number;
   };
 };
 
@@ -270,7 +271,8 @@ export type JourneyStateStatus =
   | "waiting"
   | "completed"
   | "failed"
-  | "exited";
+  | "exited"
+  | "held_out";
 
 /** One enrolled instance of a journey (a row of `journey_states`). */
 export type JourneyState = {
@@ -308,6 +310,7 @@ export type JourneyDetail = {
     completed: number;
     failed: number;
     exited: number;
+    held_out?: number;
   };
   recentStates: JourneyState[];
 };

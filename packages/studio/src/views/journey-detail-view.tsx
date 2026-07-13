@@ -52,6 +52,7 @@ const STATUS_FILTERS: Array<{
   { label: "Completed", value: "completed" },
   { label: "Failed", value: "failed" },
   { label: "Exited", value: "exited" },
+  { label: "Held out", value: "held_out" },
 ];
 
 function SectionHeading({ children }: { children: ReactNode }) {

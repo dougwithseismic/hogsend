@@ -6,6 +6,10 @@ export const journeyStatusEnum = pgEnum("journey_status", [
   "completed",
   "failed",
   "exited",
+  // Holdout diversion (docs/attribution-impact-plan.md §4.1): the contact
+  // WOULD have entered but was deterministically diverted to control. One
+  // row per (user, journey), ever — the queryable counterfactual.
+  "held_out",
 ]);
 
 export const emailSendStatusEnum = pgEnum("email_send_status", [

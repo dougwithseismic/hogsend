@@ -218,6 +218,15 @@ export interface OutboundPayloads {
     userEmail: string;
     completedAt: string;
   };
+  /** Holdout diversion (impact plan §4.1) — the counterfactual as data. */
+  "journey.heldout": {
+    journeyId: string;
+    journeyName: string;
+    stateId: string;
+    userId: string;
+    userEmail: string;
+    heldOutAt: string;
+  };
   "bucket.entered": BucketEventPayload;
   "bucket.left": BucketEventPayload & { reason?: string };
   /**

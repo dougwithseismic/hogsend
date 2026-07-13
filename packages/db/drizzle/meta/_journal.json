@@ -386,6 +386,13 @@
       "when": 1783937129456,
       "tag": "0054_gray_rocket_raccoon",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1783938433757,
+      "tag": "0055_cheerful_cassandra_nova",
+      "breakpoints": true
     }
   ]
 }

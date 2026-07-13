@@ -67,6 +67,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "sms.failed",
   "sms.clicked",
   "journey.completed",
+  "journey.heldout",
   "bucket.entered",
   "bucket.left",
   "link.clicked",

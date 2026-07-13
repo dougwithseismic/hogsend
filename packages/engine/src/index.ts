@@ -462,6 +462,7 @@ export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";
 export { hatchet } from "./lib/hatchet.js";
+export { holdoutBucket, isHeldOut } from "./lib/holdout.js";
 // --- Identity service (resolve/merge + analytics merge propagation, §7) ---
 export {
   createIdentityService,
@@ -489,6 +490,14 @@ export {
   releaseLeaderLease,
   renewLeaderLease,
 } from "./lib/leader-lease.js";
+// --- Holdout lift statistics (impact plan §4.2) ---
+export {
+  betaWinProbability,
+  computeLift,
+  type LiftVerdict,
+  MIN_COMBINED_CONVERSIONS,
+  SMALL_SAMPLE_FLOOR,
+} from "./lib/lift-stats.js";
 // --- Managed tracked links (channel-agnostic mint — Studio/Discord/share) ---
 // NOTE: the QR scan-row plumbing (ensureQrTrackedLink, the canonical-row
 // filter, the 'qr' source marker) is deliberately NOT exported — it is

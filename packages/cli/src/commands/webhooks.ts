@@ -29,6 +29,7 @@ const WEBHOOK_EVENT_TYPES = [
   "link.clicked",
   "link.arrived",
   "journey.completed",
+  "journey.heldout",
   "bucket.entered",
   "bucket.left",
   "crm.stage_changed",

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."journey_status" ADD VALUE 'held_out';

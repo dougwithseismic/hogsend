@@ -79,6 +79,23 @@ export interface JourneyMeta {
    */
   suppress: DurationObject;
 
+  /**
+   * Per-journey holdout (docs/attribution-impact-plan.md §4.1) — the causal
+   * instrument. `percent` (0–50) of would-have-entered contacts are diverted
+   * at the enrollment guard chain's END (after every other guard, so a
+   * contact blocked by entry limits/preferences is never counted as held
+   * out — intent-to-treat hygiene). Assignment is a DETERMINISTIC hash of
+   * (userId, journeyId, salt) — never RNG (replay law) — so a held-out
+   * contact stays held out for this journey until `salt` changes. Diverted
+   * contacts get ONE `journey_states` row with status `held_out` plus a
+   * `journey.heldout` event on the spine (the counterfactual as data).
+   */
+  holdout?: {
+    percent: number;
+    /** Rotating this re-buckets the population. Default: the journey id. */
+    salt?: string;
+  };
+
   // Bucket-reaction tagging (set by buildBucketReaction). Generated reactions
   // carry these so the worker's dwell-cron lookup and Studio bucket-detail
   // grouping can discover owned reactions by sourceBucketId.

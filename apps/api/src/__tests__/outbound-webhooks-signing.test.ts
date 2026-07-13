@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 24-event catalog, in order", () => {
+  it("is exactly the 25-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -225,6 +225,8 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "sms.failed",
       "sms.clicked",
       "journey.completed",
+      // Holdout diversion (impact plan §4.1) — the counterfactual as data.
+      "journey.heldout",
       "bucket.entered",
       "bucket.left",
       // NON-email tracked-link click (MF-missing #3): the deliberate counterpart
