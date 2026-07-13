@@ -1,6 +1,6 @@
 # Impact — journey & event attribution, influence, and incrementality — the plan
 
-> Status: **scoping** (research complete 2026-07-13; no code). Research basis: 107-agent deep-research pass (25/25 claims adversarially verified against primary vendor docs) + full internal seam map (§2). Predecessor: `docs/revenue-attribution-plan.md` (Phases 1–6 shipped the spine this plan generalizes). Sequencing: lands AFTER the 0.44.0 release line ships.
+> Status: **Phases 1–5 BUILT** (2026-07-13, branch `feat/attribution-impact`; Phase 6 stays gated). Research basis: 107-agent deep-research pass (25/25 claims adversarially verified against primary vendor docs) + full internal seam map (§2). Predecessor: `docs/revenue-attribution-plan.md` (Phases 1–6 shipped the spine this plan generalizes). Sequencing: merges AFTER the 0.44.0 release line ships (changeset queued on this branch).
 
 **The promise this plan exists to deliver:** adopt Hogsend and you know what your lifecycle work is doing to revenue and to your funnel from the first week — per journey, per campaign, per channel, per event, under any attribution lens, with an honest split between *attributed*, *influenced*, and *incremental*. Generic toolset: B2C (orders, subscriptions, upgrades) and B2B (deals, stages) are the same machinery — a funnel is a ladder of milestones, a conversion is a valued event, and nothing assumes a CRM exists.
 
