@@ -34,6 +34,8 @@ const saleConversion = defineConversion({
 const scopeConversion = defineConversion({
   id: `${RUN}-scope-sale`,
   trigger: { event: "order.completed" },
+  // Declared scope (1.4): persisted to the conversions row, filterable in admin.
+  scope: { journeyId: `${RUN}-journey` },
   attributionWindowDays: 30,
 });
 
@@ -353,6 +355,38 @@ describe("attribution scope columns (impact plan 1.3)", () => {
     expect(fallbackTouch).toMatchObject({
       journeyId: `${RUN}-fallback-journey`,
       campaignId: null,
+    });
+  });
+
+  it("persists the definition's declared scope and filters the admin list by it (1.4)", async () => {
+    const [row] = await db
+      .select({
+        scopeJourneyId: conversions.scopeJourneyId,
+        scopeCampaignId: conversions.scopeCampaignId,
+      })
+      .from(conversions)
+      .where(eq(conversions.definitionId, `${RUN}-scope-sale`));
+    expect(row).toMatchObject({
+      scopeJourneyId: `${RUN}-journey`,
+      scopeCampaignId: null,
+    });
+
+    const res = await app.request(
+      `/v1/admin/conversions?journeyId=${RUN}-journey`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      conversions: Array<{
+        definitionId: string;
+        scopeJourneyId: string | null;
+      }>;
+      total: number;
+    };
+    expect(body.total).toBe(1);
+    expect(body.conversions[0]).toMatchObject({
+      definitionId: `${RUN}-scope-sale`,
+      scopeJourneyId: `${RUN}-journey`,
     });
   });
 });

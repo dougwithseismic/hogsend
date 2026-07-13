@@ -118,6 +118,8 @@ export async function evaluateConversionsAtIngest(opts: {
         eventId: eventRowId,
         value,
         currency,
+        scopeJourneyId: def.meta.scope?.journeyId ?? null,
+        scopeCampaignId: def.meta.scope?.campaignId ?? null,
         occurredAt: event.occurredAt,
       })
       .onConflictDoNothing({

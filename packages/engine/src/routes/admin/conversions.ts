@@ -24,6 +24,9 @@ const conversionSchema = z.object({
   contactEmail: z.string().nullable(),
   value: z.number().nullable(),
   currency: z.string().nullable(),
+  /** The definition's declared scope (ConversionMeta.scope), if any. */
+  scopeJourneyId: z.string().nullable(),
+  scopeCampaignId: z.string().nullable(),
   occurredAt: z.string(),
   dispatches: z.array(dispatchSchema),
 });
@@ -36,6 +39,9 @@ const listRoute = createRoute({
   request: {
     query: z.object({
       definitionId: z.string().optional(),
+      /** Filter by the definition's declared scope (ConversionMeta.scope). */
+      journeyId: z.string().optional(),
+      campaignId: z.string().optional(),
       /** Only conversions with at least one dispatch in this status. */
       dispatchStatus: z.enum(["pending", "delivered", "failed"]).optional(),
       sort: z
@@ -106,6 +112,12 @@ export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
       ...(query.definitionId
         ? [eq(conversions.definitionId, query.definitionId)]
         : []),
+      ...(query.journeyId
+        ? [eq(conversions.scopeJourneyId, query.journeyId)]
+        : []),
+      ...(query.campaignId
+        ? [eq(conversions.scopeCampaignId, query.campaignId)]
+        : []),
       ...(query.dispatchStatus
         ? [
             sql`exists (select 1 from conversion_dispatches d where d.conversion_id = ${conversions.id} and d.status = ${query.dispatchStatus})`,
@@ -169,6 +181,8 @@ export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
           contactEmail,
           value: conversion.value,
           currency: conversion.currency,
+          scopeJourneyId: conversion.scopeJourneyId,
+          scopeCampaignId: conversion.scopeCampaignId,
           occurredAt: conversion.occurredAt.toISOString(),
           dispatches: (dispatchesByConversion.get(conversion.id) ?? []).map(
             (d) => ({
