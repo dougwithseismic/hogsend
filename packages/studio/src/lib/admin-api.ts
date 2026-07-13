@@ -1866,6 +1866,15 @@ export type AttributionTotals = {
   attributedConversions: number;
 };
 
+/** Cross-scope overlap read-out (§2.3) — the double-count nobody else shows. */
+export type AttributionOverlap = {
+  currency: string | null;
+  conversions: number;
+  multiScopeConversions: number;
+  value: number;
+  scopeSummedValue: number;
+};
+
 export function getAttribution(
   days = 90,
   definitionId?: string,
@@ -1878,6 +1887,8 @@ export function getAttribution(
     rows: AttributionRow[];
     /** Older engines omit it. */
     totals?: AttributionTotals[];
+    /** Older engines omit it. */
+    overlap?: AttributionOverlap[];
   }>("/v1/admin/attribution", {
     query: {
       days,

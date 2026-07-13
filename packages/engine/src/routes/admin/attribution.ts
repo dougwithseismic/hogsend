@@ -1,6 +1,6 @@
 import { attributionCredits, campaigns, conversions } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 /**
@@ -58,6 +58,27 @@ const totalsSchema = z.object({
   attributedConversions: z.number(),
 });
 
+/**
+ * Overlap transparency (impact plan §2.3, the anti-Braze): no incumbent
+ * dedupes credit across journeys/campaigns — Braze documents conversion
+ * rates over 100%. Our fractional models already sum to 1 per conversion
+ * (that IS the dedup); this block additionally SHOWS the overlap: how many
+ * scope-claimed conversions were claimed by more than one value of the
+ * grouped dimension, and what per-scope single-credit totals would add up
+ * to (`scopeSummedValue` vs the real `value`).
+ */
+const overlapSchema = z.object({
+  currency: z.string().nullable(),
+  /** Conversions claimed by ≥1 non-null scope on this dimension. */
+  conversions: z.number(),
+  /** Subset claimed by MORE THAN ONE distinct scope. */
+  multiScopeConversions: z.number(),
+  /** Real conversion value across the claimed set. */
+  value: z.number(),
+  /** What "each scope takes full credit" reporting would sum to. */
+  scopeSummedValue: z.number(),
+});
+
 const summaryRoute = createRoute({
   method: "get",
   path: "/",
@@ -85,6 +106,7 @@ const summaryRoute = createRoute({
             groupBy: z.enum(GROUP_DIMENSIONS),
             rows: z.array(rowSchema),
             totals: z.array(totalsSchema),
+            overlap: z.array(overlapSchema),
           }),
         },
       },
@@ -168,6 +190,42 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
       }
     }
 
+    // Overlap (§2.3): per conversion, how many distinct non-null values of
+    // the grouped dimension claimed it (any single model enumerates the
+    // credited path — `linear` includes every in-window touch). Unfiltered
+    // by journeyId/campaignId: overlap is about the whole claiming set.
+    const claims = db.$with("claims").as(
+      db
+        .select({
+          conversionId: attributionCredits.conversionId,
+          scopeCount: sql<number>`count(distinct ${groupCol})`.as(
+            "scope_count",
+          ),
+        })
+        .from(attributionCredits)
+        .where(
+          and(
+            eq(attributionCredits.model, "linear"),
+            gte(attributionCredits.convertedAt, sinceTs),
+            isNotNull(groupCol),
+          ),
+        )
+        .groupBy(attributionCredits.conversionId),
+    );
+    const overlap = await db
+      .with(claims)
+      .select({
+        currency: conversions.currency,
+        conversions: count(),
+        multiScopeConversions: sql<number>`(count(*) filter (where ${claims.scopeCount} > 1))::int`,
+        value: sql<number>`coalesce(sum(${conversions.value}), 0)::float8`,
+        scopeSummedValue: sql<number>`coalesce(sum(${conversions.value} * ${claims.scopeCount}), 0)::float8`,
+      })
+      .from(claims)
+      .innerJoin(conversions, eq(conversions.id, claims.conversionId))
+      .where(and(...definitionFilter))
+      .groupBy(conversions.currency);
+
     const credited = sql`exists (select 1 from ${attributionCredits} where ${attributionCredits.conversionId} = ${conversions.id})`;
     const totals = await db
       .select({
@@ -201,6 +259,13 @@ export const adminAttributionRouter = new OpenAPIHono<AppEnv>().openapi(
           conversions: Number(row.conversions),
           attributedValue: row.attributedValue,
           attributedConversions: Number(row.attributedConversions),
+        })),
+        overlap: overlap.map((row) => ({
+          currency: row.currency,
+          conversions: Number(row.conversions),
+          multiScopeConversions: row.multiScopeConversions,
+          value: row.value,
+          scopeSummedValue: row.scopeSummedValue,
         })),
       },
       200,

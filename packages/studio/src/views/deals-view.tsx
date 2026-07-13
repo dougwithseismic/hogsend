@@ -885,6 +885,10 @@ function AttributionPanel() {
   const fired =
     query.data?.totals?.reduce((sum, t) => sum + t.conversions, 0) ?? 0;
 
+  // Overlap (§2.3): what per-scope full-credit reporting would double-count.
+  const overlap = query.data?.overlap?.find((o) => o.currency === currency);
+  const doubleCounted = overlap ? overlap.scopeSummedValue - overlap.value : 0;
+
   // The scope controls stay mounted through every state — an empty scope
   // (e.g. a conversion point whose conversions are all direct) must leave
   // the user a way back to "All conversion points".
@@ -1023,6 +1027,19 @@ function AttributionPanel() {
                   only divide what has a path.
                 </p>
               </div>
+            )}
+            {overlap && overlap.multiScopeConversions > 0 && (
+              <p className="text-xs text-white/35">
+                Overlap: {overlap.multiScopeConversions} of{" "}
+                {overlap.conversions} attributed conversion
+                {overlap.conversions === 1 ? " was" : "s were"} touched by more
+                than one {dimension === "channel" ? "channel" : dimension}.
+                Giving each full credit would report{" "}
+                {money(overlap.scopeSummedValue, currency)} instead of the real{" "}
+                {money(overlap.value, currency)} —{" "}
+                {money(doubleCounted, currency)} counted twice. The fractional
+                models above already split it honestly.
+              </p>
             )}
           </div>
 

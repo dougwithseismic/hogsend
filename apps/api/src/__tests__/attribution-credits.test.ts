@@ -455,6 +455,44 @@ describe("attribution scope columns (impact plan 1.3)", () => {
     expect(filteredLinear).toHaveLength(1);
     expect(filteredLinear[0]).toMatchObject({ key: "welcome" });
   });
+
+  it("reports cross-scope overlap (2.3): claims, single-credit sum, double-count", async () => {
+    // The £900 conversion's path spans two journeys (welcome + fallback) —
+    // per-journey full credit would report £1800 for a £900 conversion.
+    const res = await app.request(
+      `/v1/admin/attribution?days=365&definitionId=${RUN}-scope-sale&groupBy=journey`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as {
+      overlap: Array<{
+        currency: string | null;
+        conversions: number;
+        multiScopeConversions: number;
+        value: number;
+        scopeSummedValue: number;
+      }>;
+    };
+    expect(body.overlap).toEqual([
+      expect.objectContaining({
+        currency: "GBP",
+        conversions: 1,
+        multiScopeConversions: 1,
+        value: 900,
+        scopeSummedValue: 1800,
+      }),
+    ]);
+
+    // Under groupBy=template all three touches carry distinct templates —
+    // triple-counted under per-template full credit.
+    const byTemplate = await app.request(
+      `/v1/admin/attribution?days=365&definitionId=${RUN}-scope-sale&groupBy=template`,
+      { headers: AUTH_HEADER },
+    );
+    const templateBody = (await byTemplate.json()) as {
+      overlap: Array<{ scopeSummedValue: number }>;
+    };
+    expect(templateBody.overlap[0]?.scopeSummedValue).toBe(2700);
+  });
 });
 
 describe("per-channel attribution windows (impact plan 2.1)", () => {
