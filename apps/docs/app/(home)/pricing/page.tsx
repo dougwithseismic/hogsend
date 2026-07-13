@@ -12,7 +12,8 @@ import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { PricingCalculator } from "@/components/landing/pricing-calculator";
-import { CONTACT_EMAIL, GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
+import { CheckoutButton } from "@/components/service/checkout-button";
+import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Pricing: free to self-host, no per-contact billing",
@@ -161,7 +162,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Can someone set Hogsend up for me?",
-    a: "Yes, at three levels. The setup week is a one-time, remote engagement at $2,300: Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, and your first journeys live in your repo. Done-for-you is $1,500/month with a three-month minimum: month one is the install, and from month two we operate the program — new journeys, experiments, and a weekly report. If you only want the software run, the managed instance is $149/month. Email doug@withseismic.com with what you're working on.",
+    a: "Yes, at three levels. The setup week is a one-time, remote engagement at $2,300: Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, and your first journeys live in your repo. You can buy it on the pricing page. Done-for-you is $1,500/month with a three-month minimum: month one is the install, and from month two we operate the program — new journeys, experiments, and a weekly report — book a call from the service page to start it. If you only want the software run, the managed instance is $149/month.",
   },
   {
     q: "Will features move behind a paid tier later?",
@@ -362,13 +363,12 @@ export default function PricingPage(): JSX.Element {
                 </p>
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button
-                    href={`mailto:${CONTACT_EMAIL}?subject=Managed%20Hogsend%20instance`}
-                    variant="outline"
-                    icon
-                  >
-                    Email doug@withseismic.com
-                  </Button>
+                  <CheckoutButton
+                    tier="managed"
+                    label="Get the managed instance"
+                    variant="accent"
+                    next="/pricing"
+                  />
                 </div>
 
                 <p className="eyebrow mt-6 text-white/50">
@@ -405,13 +405,12 @@ export default function PricingPage(): JSX.Element {
                 <CheckList items={SETUP_WEEK_ITEMS} />
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button
-                    href={`mailto:${CONTACT_EMAIL}?subject=Hogsend%20setup%20week`}
-                    variant="outline"
-                    icon
-                  >
-                    Email doug@withseismic.com
-                  </Button>
+                  <CheckoutButton
+                    tier="setup"
+                    label="Buy the setup week"
+                    variant="accent"
+                    next="/pricing"
+                  />
                 </div>
 
                 <p className="eyebrow mt-6 text-white/50">
@@ -460,12 +459,8 @@ export default function PricingPage(): JSX.Element {
                 </p>
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button
-                    href={`mailto:${CONTACT_EMAIL}?subject=Done-for-you%20lifecycle`}
-                    variant="outline"
-                    icon
-                  >
-                    Email doug@withseismic.com
+                  <Button href="/service#enquire" variant="accent" icon>
+                    Book a call
                   </Button>
                 </div>
 
