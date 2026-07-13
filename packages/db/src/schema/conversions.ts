@@ -36,6 +36,15 @@ export const conversions = pgTable(
       .references(() => userEvents.id, { onDelete: "cascade" }),
     value: numeric("value", { precision: 14, scale: 2, mode: "number" }),
     currency: char("currency", { length: 3 }),
+    /**
+     * The definition's DECLARED scope (`ConversionMeta.scope`), persisted so
+     * admin/Studio can filter fired conversions by journey/campaign without
+     * reading code (docs/attribution-impact-plan.md §1.4). Descriptive only —
+     * never an evaluation gate. Distinct from the ledger's per-touchpoint
+     * scope columns (which record which journey/campaign TOUCHED the path).
+     */
+    scopeJourneyId: text("scope_journey_id"),
+    scopeCampaignId: text("scope_campaign_id"),
     /** The triggering event's time (conversion time for attribution windows). */
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })

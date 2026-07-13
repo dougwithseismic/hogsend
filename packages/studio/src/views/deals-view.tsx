@@ -25,6 +25,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
+  type AttributionGroupBy,
+  type AttributionRow,
   type ConversionListFilters,
   type ConversionRow,
   type DealListFilters,
@@ -804,7 +806,7 @@ function ConversionsTable({
 
 const MODEL_LABELS: Record<string, string> = {
   first: "First touch",
-  last: "Last touch",
+  last: "Last touch (headline)",
   lastNonDirect: "Last non-form",
   linear: "Linear",
   timeDecay: "Time decay",
@@ -814,13 +816,21 @@ const MODEL_LABELS: Record<string, string> = {
 };
 const MODEL_ORDER = Object.keys(MODEL_LABELS);
 
+const DIMENSION_LABELS: Record<AttributionGroupBy, string> = {
+  channel: "By channel",
+  journey: "By journey",
+  campaign: "By campaign",
+  template: "By template",
+};
+
 function AttributionPanel() {
   const [model, setModel] = useState("blended");
+  const [dimension, setDimension] = useState<AttributionGroupBy>("channel");
   // undefined = all conversion points together.
   const [definition, setDefinition] = useState<string | undefined>();
   const query = useQuery({
-    queryKey: qk.attribution(90, definition),
-    queryFn: () => getAttribution(90, definition),
+    queryKey: qk.attribution(90, definition, dimension),
+    queryFn: () => getAttribution(90, definition, dimension),
     placeholderData: keepPreviousData,
   });
   const statsQuery = useQuery({
@@ -841,16 +851,26 @@ function AttributionPanel() {
   const currency =
     [...byCurrency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const scoped = rows.filter((r) => r.currency === currency);
-  const channels = [...new Set(scoped.map((r) => r.channel))].sort();
+  // The grouped key: `key` since the groupBy engines; older engines only
+  // ever return channel rows. Null key = credits with no scope on this
+  // dimension (a transactional click under "By journey").
+  const keyOf = (r: AttributionRow) => r.key ?? r.channel ?? null;
+  const keys = [...new Set(scoped.map(keyOf))].sort((a, b) =>
+    a === null ? 1 : b === null ? -1 : a.localeCompare(b),
+  );
+  const labelOf = (k: string | null) =>
+    k === null
+      ? `No ${dimension === "channel" ? "channel" : dimension}`
+      : (scoped.find((r) => keyOf(r) === k)?.label ?? k);
   // Keep the model picker usable while empty/pending — offer the full
   // catalog until the ledger says which models exist.
   const models = scoped.length
     ? MODEL_ORDER.filter((m) => scoped.some((r) => r.model === m))
     : MODEL_ORDER;
-  const cell = (m: string, ch: string) =>
-    scoped.find((r) => r.model === m && r.channel === ch);
-  const selected = channels
-    .map((ch) => ({ channel: ch, row: cell(model, ch) }))
+  const cell = (m: string, k: string | null) =>
+    scoped.find((r) => r.model === m && keyOf(r) === k);
+  const selected = keys
+    .map((k) => ({ key: k, row: cell(model, k) }))
     .sort((a, b) => (b.row?.value ?? 0) - (a.row?.value ?? 0));
 
   // Coverage: the ledger only divides conversions that had a touchpoint
@@ -872,6 +892,17 @@ function AttributionPanel() {
   const fired =
     query.data?.totals?.reduce((sum, t) => sum + t.conversions, 0) ?? 0;
 
+  // Overlap (§2.3): what per-scope full-credit reporting would double-count.
+  const overlap = query.data?.overlap?.find((o) => o.currency === currency);
+  const doubleCounted = overlap ? overlap.scopeSummedValue - overlap.value : 0;
+
+  // Influenced (§3.1): coverage per key, this currency only.
+  const influencedByKey = new Map(
+    (query.data?.influenced ?? [])
+      .filter((i) => i.currency === currency)
+      .map((i) => [i.key, i]),
+  );
+
   // The scope controls stay mounted through every state — an empty scope
   // (e.g. a conversion point whose conversions are all direct) must leave
   // the user a way back to "All conversion points".
@@ -890,6 +921,23 @@ function AttributionPanel() {
                   {MODEL_LABELS[m] ?? m}
                 </option>
               ))}
+            </Select>
+          </div>
+          <div className="w-40">
+            <Select
+              value={dimension}
+              onChange={(e) =>
+                setDimension(e.target.value as AttributionGroupBy)
+              }
+              aria-label="Group by"
+            >
+              {(Object.keys(DIMENSION_LABELS) as AttributionGroupBy[]).map(
+                (d) => (
+                  <option key={d} value={d}>
+                    {DIMENSION_LABELS[d]}
+                  </option>
+                ),
+              )}
             </Select>
           </div>
           {definitions.length > 1 && (
@@ -934,10 +982,18 @@ function AttributionPanel() {
       ) : (
         <>
           <div className="space-y-2.5">
-            {selected.map(({ channel, row }) => (
-              <div key={channel} className="space-y-1">
+            {selected.map(({ key, row }) => (
+              <div key={key ?? "__none__"} className="space-y-1">
                 <div className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="text-white/70 capitalize">{channel}</span>
+                  <span
+                    className={
+                      dimension === "channel"
+                        ? "text-white/70 capitalize"
+                        : "text-white/70"
+                    }
+                  >
+                    {labelOf(key)}
+                  </span>
                   <span className="flex items-baseline gap-3 tabular-nums">
                     <span className="text-xs text-white/45">
                       {(row?.conversions ?? 0).toFixed(1)} conversions
@@ -986,13 +1042,28 @@ function AttributionPanel() {
                 </p>
               </div>
             )}
+            {overlap && overlap.multiScopeConversions > 0 && (
+              <p className="text-xs text-white/35">
+                Overlap: {overlap.multiScopeConversions} of{" "}
+                {overlap.conversions} attributed conversion
+                {overlap.conversions === 1 ? " was" : "s were"} touched by more
+                than one {dimension === "channel" ? "channel" : dimension}.
+                Giving each full credit would report{" "}
+                {money(overlap.scopeSummedValue, currency)} instead of the real{" "}
+                {money(overlap.value, currency)} —{" "}
+                {money(doubleCounted, currency)} counted twice. The fractional
+                models above already split it honestly.
+              </p>
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-md border border-white/[0.08]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/[0.08] text-left text-xs uppercase tracking-wide text-white/40">
-                  <th className="px-3 py-2.5 font-medium">Channel</th>
+                  <th className="px-3 py-2.5 font-medium capitalize">
+                    {dimension}
+                  </th>
                   {models.map((m) => (
                     <th
                       key={m}
@@ -1003,16 +1074,23 @@ function AttributionPanel() {
                       {MODEL_LABELS[m] ?? m}
                     </th>
                   ))}
+                  <th className="px-3 py-2.5 text-right font-medium text-white/60">
+                    Influenced
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {channels.map((ch) => (
+                {keys.map((k) => (
                   <tr
-                    key={ch}
+                    key={k ?? "__none__"}
                     className="border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.02]"
                   >
-                    <td className="px-3 py-2.5 text-white/70 capitalize">
-                      {ch}
+                    <td
+                      className={`px-3 py-2.5 text-white/70 ${
+                        dimension === "channel" ? "capitalize" : ""
+                      }`}
+                    >
+                      {labelOf(k)}
                     </td>
                     {models.map((m) => (
                       <td
@@ -1021,17 +1099,36 @@ function AttributionPanel() {
                           m === model ? "text-white/90" : "text-white/50"
                         }`}
                       >
-                        {money(cell(m, ch)?.value ?? 0, currency)}
+                        {money(cell(m, k)?.value ?? 0, currency)}
                       </td>
                     ))}
+                    <td className="px-3 py-2.5 text-right tabular-nums text-white/60">
+                      {(() => {
+                        const inf = influencedByKey.get(k ?? "");
+                        return inf
+                          ? `${money(inf.value, currency)} · ${inf.conversions}`
+                          : "—";
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {model === "last" && (
+            <p className="text-xs text-white/35">
+              The headline number: the single most recent qualifying touch takes
+              full credit — how Klaviyo, Braze and Customer.io report
+              "attributed revenue", so it's the comparable figure when
+              migrating. The fractional models beside it are the honest split.
+            </p>
+          )}
           <p className="text-xs text-white/35">
             Same conversions, eight opinions about who earned them — a channel
             that only looks good under one model is telling you something.
+            Influenced is coverage, not credit: full value of every conversion
+            this {dimension} touched at all. It multi-counts across {dimension}s
+            by design and never sums to the total.
           </p>
         </>
       )}

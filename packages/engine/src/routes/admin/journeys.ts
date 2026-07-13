@@ -21,6 +21,7 @@ import {
 import type { AppEnv } from "../../app.js";
 import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
 import { ingestEvent } from "../../lib/ingestion.js";
+import { computeLift } from "../../lib/lift-stats.js";
 
 /**
  * Per-process cache of the built {@link JourneyGraph}. A journey's `runSource`
@@ -44,6 +45,8 @@ const journeySchema = z.object({
     completed: z.number(),
     failed: z.number(),
     exited: z.number(),
+    /** Holdout controls (impact plan §4.1) — would-have-entered contacts. */
+    held_out: z.number(),
   }),
 });
 
@@ -111,6 +114,7 @@ const emptyCounts = {
   completed: 0,
   failed: 0,
   exited: 0,
+  held_out: 0,
 };
 
 // --- Route definitions ---
@@ -236,7 +240,14 @@ const listStatesRoute = createRoute({
       limit: z.coerce.number().min(1).max(100).default(50),
       offset: z.coerce.number().min(0).default(0),
       status: z
-        .enum(["active", "waiting", "completed", "failed", "exited"])
+        .enum([
+          "active",
+          "waiting",
+          "completed",
+          "failed",
+          "exited",
+          "held_out",
+        ])
         .optional(),
       userId: z.string().optional(),
     }),
@@ -462,6 +473,60 @@ const graphRoute = createRoute({
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Journey not found",
+    },
+  },
+});
+
+/**
+ * Holdout lift (impact plan §4.2) — the ONLY surface allowed causal
+ * language. Treatment = entered enrollments in the window; control =
+ * held_out diversions (§4.1). Outcome = the contact fired ≥1 conversion
+ * AFTER their state row was created. Beta-binomial win probability with a
+ * suppression floor and a loud small-sample flag (lib/lift-stats.ts).
+ */
+const liftCohortSchema = z.object({
+  contacts: z.number(),
+  converters: z.number(),
+  rate: z.number(),
+  /** Qualifying conversion value per currency (full, not fractional). */
+  value: z.array(
+    z.object({ currency: z.string().nullable(), value: z.number() }),
+  ),
+});
+
+const liftRoute = createRoute({
+  method: "get",
+  path: "/{id}/lift",
+  tags: ["Admin — Journeys"],
+  summary: "Holdout lift: entered vs held-out conversion rates",
+  request: {
+    params: z.object({ id: z.string() }),
+    query: z.object({
+      days: z.coerce.number().min(1).max(365).default(90),
+      /** Scope the outcome to one conversion point; default any. */
+      definitionId: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            journeyId: z.string(),
+            days: z.number(),
+            definitionId: z.string().nullable(),
+            treatment: liftCohortSchema,
+            control: liftCohortSchema,
+            liftPercent: z.number().nullable(),
+            /** Null when suppressed (combined conversions < 10). */
+            winProbability: z.number().nullable(),
+            suppressed: z.boolean(),
+            smallSample: z.boolean(),
+          }),
+        },
+      },
+      description:
+        "Intent-to-treat lift between entered and held-out cohorts, with honest small-sample presentation",
     },
   },
 });
@@ -1050,4 +1115,96 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
       },
       200,
     );
+  })
+  .openapi(liftRoute, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+    const { days, definitionId } = c.req.valid("query");
+    const since = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const sinceTs = sql`${since}::timestamptz`;
+
+    // Outcome: the contact fired ≥1 qualifying conversion AFTER their state
+    // row was created (post-assignment — the intent-to-treat clock).
+    const definitionSql = definitionId
+      ? sql` and c.definition_id = ${definitionId}`
+      : sql``;
+    const convertedSql = sql`exists (
+      select 1 from conversions c
+      where c.user_key = ${journeyStates.userId}
+        and c.occurred_at >= ${journeyStates.createdAt}${definitionSql}
+    )`;
+
+    const cohort = async (control: boolean) => {
+      const statusFilter = control
+        ? eq(journeyStates.status, "held_out")
+        : sql`${journeyStates.status} != 'held_out'`;
+      const [row] = await db
+        .select({
+          contacts: sql<number>`count(distinct ${journeyStates.userId})::int`,
+          converters: sql<number>`(count(distinct ${journeyStates.userId}) filter (where ${convertedSql}))::int`,
+        })
+        .from(journeyStates)
+        .where(
+          and(
+            eq(journeyStates.journeyId, id),
+            gteCreated(sinceTs),
+            statusFilter,
+          ),
+        );
+      // Full qualifying conversion value per currency (secondary read-out —
+      // the rate is the primary lift instrument).
+      const valueRows = await db.execute<{
+        currency: string | null;
+        value: number;
+      }>(sql`
+        select c.currency, coalesce(sum(c.value), 0)::float8 as value
+        from conversions c
+        where c.value is not null
+          and exists (
+            select 1 from journey_states js
+            where js.journey_id = ${id}
+              and js.created_at >= ${sinceTs}
+              and ${control ? sql`js.status = 'held_out'` : sql`js.status != 'held_out'`}
+              and js.user_id = c.user_key
+              and c.occurred_at >= js.created_at
+          )${definitionId ? sql` and c.definition_id = ${definitionId}` : sql``}
+        group by c.currency
+      `);
+      const contacts = Number(row?.contacts ?? 0);
+      const converters = row?.converters ?? 0;
+      return {
+        contacts,
+        converters,
+        rate: contacts > 0 ? converters / contacts : 0,
+        value: [...valueRows].map((r) => ({
+          currency: r.currency,
+          value: Number(r.value),
+        })),
+      };
+    };
+
+    const [treatment, control] = await Promise.all([
+      cohort(false),
+      cohort(true),
+    ]);
+    const verdict = computeLift({ treatment, control });
+
+    return c.json(
+      {
+        journeyId: id,
+        days,
+        definitionId: definitionId ?? null,
+        treatment,
+        control,
+        ...verdict,
+      },
+      200,
+    );
   });
+
+/** `created_at >= since` as a reusable fragment (lift cohort windows). */
+function gteCreated(sinceTs: ReturnType<typeof sql>) {
+  return sql`${journeyStates.createdAt} >= ${sinceTs}`;
+}

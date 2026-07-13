@@ -25,6 +25,8 @@ import {
   checkEntryLimit,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
+import { isHeldOut } from "../lib/holdout.js";
+import { ingestEvent } from "../lib/ingestion.js";
 import { createLogger } from "../lib/logger.js";
 import { emitOutbound } from "../lib/outbound.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
@@ -301,6 +303,97 @@ export async function executeJourneyRun(
     const prefs = await checkEmailPreferences({ db, userId });
     if (prefs.unsubscribed) {
       return { status: "skipped", reason: "user_unsubscribed" };
+    }
+
+    // HOLDOUT DIVERSION (impact plan §4.1) — deliberately LAST in the guard
+    // chain: a contact who'd have been blocked by any gate above is never
+    // counted as held out (intent-to-treat — the control must mirror the
+    // would-have-entered population, not the triggered one). Assignment is a
+    // deterministic hash (replay law: no RNG in durable paths), so the same
+    // contact diverts identically on every trigger AND every replay. One
+    // held_out row per (user, journey), ever; the spine event's idempotency
+    // key carries the same once-ever semantics for fan-out/analytics.
+    if (meta.holdout && meta.holdout.percent > 0) {
+      const diverted = isHeldOut({
+        userId,
+        journeyId: meta.id,
+        percent: meta.holdout.percent,
+        salt: meta.holdout.salt,
+      });
+      if (diverted) {
+        const priorHoldout = await db.query.journeyStates.findFirst({
+          where: and(
+            eq(journeyStates.userId, userId),
+            eq(journeyStates.journeyId, meta.id),
+            eq(journeyStates.status, "held_out"),
+          ),
+        });
+        if (!priorHoldout) {
+          const heldOutAt = new Date();
+          const inserted = await db
+            .insert(journeyStates)
+            .values({
+              userId,
+              userEmail,
+              journeyId: meta.id,
+              currentNodeId: "held-out",
+              status: "held_out",
+              context: properties,
+              exitedAt: heldOutAt,
+            })
+            .returning({ id: journeyStates.id });
+          const holdoutStateId = inserted[0]?.id;
+          if (holdoutStateId) {
+            // The counterfactual as data (the Iterable Send Skip pattern):
+            // queryable on the spine, fan-out-able to journeys/destinations.
+            // Once-ever per (user, journey) via the idempotency key — a
+            // concurrent double-diversion dedups here even if it raced the
+            // row existence check above.
+            try {
+              await ingestEvent({
+                db,
+                registry: getJourneyRegistrySingleton(),
+                hatchet,
+                logger,
+                event: {
+                  event: "journey.heldout",
+                  userId,
+                  userEmail,
+                  eventProperties: {
+                    journeyId: meta.id,
+                    journeyName: meta.name,
+                    holdoutPercent: meta.holdout.percent,
+                  },
+                  source: "journey",
+                  idempotencyKey: `journey:heldout:${meta.id}:${userId}`,
+                },
+              });
+            } catch (err) {
+              logger.warn("journey.heldout ingest failed", {
+                journeyId: meta.id,
+                userId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+            void emitOutbound({
+              db,
+              hatchet,
+              logger,
+              event: "journey.heldout",
+              dedupeKey: `journey.heldout:${holdoutStateId}`,
+              payload: {
+                journeyId: meta.id,
+                journeyName: meta.name,
+                stateId: holdoutStateId,
+                userId,
+                userEmail,
+                heldOutAt: heldOutAt.toISOString(),
+              },
+            }).catch(logger.warn);
+          }
+        }
+        return { status: "skipped", reason: "held_out" };
+      }
     }
 
     const activeState = await db.query.journeyStates.findFirst({

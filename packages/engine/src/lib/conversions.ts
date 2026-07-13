@@ -1,12 +1,14 @@
 import type { DefinedConversion } from "@hogsend/core";
 import {
   conversionSourceAllowed,
+  defineConversion,
   evaluatePropertyConditions,
   overlayEventMoney,
   resolveConversionValue,
 } from "@hogsend/core";
 import { conversions, type Database } from "@hogsend/db";
 import type { Logger } from "./logger.js";
+import { REVENUE_EXCLUDED_EVENTS } from "./revenue.js";
 import { createOptionalSingleton } from "./singleton.js";
 
 /**
@@ -24,26 +26,43 @@ export interface FiredConversion {
   currency: string | null;
 }
 
-/** Registry: definitions indexed by trigger event name. */
+/**
+ * Registry: definitions indexed by trigger event name. `trigger.event: "*"`
+ * is a WILDCARD (impact plan §5.2): the definition is a candidate for EVERY
+ * ingested event, narrowed only by its `where`/`sources` gates — how the
+ * built-in zero-config `revenue` conversion matches any trusted valued
+ * event without naming it.
+ */
 export class ConversionRegistry {
   private byEvent = new Map<string, DefinedConversion[]>();
-  private count_ = 0;
+  private wildcard: DefinedConversion[] = [];
+  private all: DefinedConversion[] = [];
 
   constructor(definitions: DefinedConversion[] = []) {
     for (const def of definitions) {
-      const list = this.byEvent.get(def.meta.trigger.event) ?? [];
-      list.push(def);
-      this.byEvent.set(def.meta.trigger.event, list);
-      this.count_++;
+      if (def.meta.trigger.event === "*") {
+        this.wildcard.push(def);
+      } else {
+        const list = this.byEvent.get(def.meta.trigger.event) ?? [];
+        list.push(def);
+        this.byEvent.set(def.meta.trigger.event, list);
+      }
+      this.all.push(def);
     }
   }
 
   forEvent(event: string): DefinedConversion[] {
-    return this.byEvent.get(event) ?? [];
+    const named = this.byEvent.get(event);
+    if (this.wildcard.length === 0) return named ?? [];
+    return [...(named ?? []), ...this.wildcard];
+  }
+
+  getAll(): DefinedConversion[] {
+    return [...this.all];
   }
 
   count(): number {
-    return this.count_;
+    return this.all.length;
   }
 }
 
@@ -52,6 +71,41 @@ export const setConversionRegistry = singleton.set;
 export const getConversionRegistry = singleton.get;
 /** Reset the singleton — only for test cleanup. */
 export const resetConversionRegistry = singleton.reset;
+
+/**
+ * The built-in zero-config revenue conversion (impact plan §5.2): any
+ * TRUSTED valued event fires it — a fresh adopter who points one Stripe /
+ * order webhook at a source sees the Impact tab populate with no
+ * configuration. Seeded by `createHogsendClient` unless the consumer
+ * authors their own `id: "revenue"` definition or sets
+ * `HOGSEND_DEFAULT_REVENUE_CONVERSION=false`.
+ *
+ * Guards, matching the revenue-rollup semantics (lib/revenue.ts):
+ *  - `value > 0` — valueless events never fire it;
+ *  - quote-shaped events excluded (`crm.stage_changed` re-carries a deal's
+ *    value on every change; a quote is unrealized money) — only
+ *    `crm.deal_sold` and genuine order/subscription events count;
+ *  - browser (`inapp`) events excluded by the default `sources` gate
+ *    (forged-value guard).
+ */
+export const defaultRevenueConversion: DefinedConversion = defineConversion({
+  id: "revenue",
+  name: "Revenue",
+  description:
+    'Built-in: any trusted valued event (orders, subscriptions, crm.deal_sold). Author your own id:"revenue" definition to replace it.',
+  trigger: {
+    event: "*",
+    where: [
+      { type: "property", property: "value", operator: "gt", value: 0 },
+      ...REVENUE_EXCLUDED_EVENTS.map((event) => ({
+        type: "property" as const,
+        property: "event",
+        operator: "neq" as const,
+        value: event,
+      })),
+    ],
+  },
+});
 
 export async function evaluateConversionsAtIngest(opts: {
   db: Database;
@@ -83,15 +137,18 @@ export async function evaluateConversionsAtIngest(opts: {
       });
       continue;
     }
+    // `where` sees the event's first-class value/currency (overlayEventMoney)
+    // AND the event NAME as `event` — lets wildcard definitions carve out
+    // exclusions, e.g. the built-in revenue conversion skipping quote
+    // events. The injected keys win a name collision.
     if (
       def.where &&
       !evaluatePropertyConditions({
         conditions: def.where,
-        properties: overlayEventMoney(
-          event.properties,
-          event.value,
-          event.currency,
-        ),
+        properties: {
+          ...overlayEventMoney(event.properties, event.value, event.currency),
+          event: event.name,
+        },
       })
     ) {
       continue;
@@ -112,6 +169,8 @@ export async function evaluateConversionsAtIngest(opts: {
         eventId: eventRowId,
         value,
         currency,
+        scopeJourneyId: def.meta.scope?.journeyId ?? null,
+        scopeCampaignId: def.meta.scope?.campaignId ?? null,
         occurredAt: event.occurredAt,
       })
       .onConflictDoNothing({

@@ -43,6 +43,7 @@ const {
   linkClicks,
   links,
   trackedLinks,
+  userEvents,
   webhookDeliveries,
   webhookEndpoints,
 } = await import("@hogsend/db");
@@ -277,5 +278,73 @@ describe("link-tracker EMAIL invariant — email path stays byte-for-byte", () =
       const data = (d.payload as { data?: { linkId?: string } }).data;
       expect(data?.linkId).not.toBe(minted.trackedLinkId);
     }
+  });
+
+  // TOUCH HYGIENE (impact plan §2.4): a bot UA on an EMAIL link keeps the
+  // stats writes (click row, clickCount, clickedAt, per-hit outbound) but
+  // must NEVER reach the bus — no `email.link_clicked` user_events row means
+  // no attribution touch and no journey trigger from a SafeLinks-style sweep.
+  it("a bot UA on an email link records stats but mints no email.link_clicked touch", async () => {
+    const toEmail = `${RUN}-bot@example.com`;
+    const [send] = await db
+      .insert(emailSends)
+      .values({
+        fromEmail: "noreply@hogsend.com",
+        toEmail,
+        subject: "Invariant — bot hygiene",
+        status: "sent",
+        sentAt: new Date(),
+      })
+      .returning({ id: emailSends.id });
+    const sendId = send?.id ?? "";
+    emailSendIds.push(sendId);
+
+    const [tl] = await db
+      .insert(trackedLinks)
+      .values({
+        emailSendId: sendId,
+        linkId: null,
+        originalUrl: "https://example.com/bot-destination",
+      })
+      .returning({ id: trackedLinks.id });
+    const tlId = tl?.id ?? "";
+    trackedLinkIds.push(tlId);
+
+    const res = await app.request(`/v1/t/c/${tlId}`, {
+      redirect: "manual",
+      headers: { "user-agent": "Slackbot-LinkExpanding 1.0" },
+    });
+    expect(res.status).toBe(302);
+
+    // Stats still recorded — every hit counts.
+    const clicks = await db
+      .select()
+      .from(linkClicks)
+      .where(eq(linkClicks.trackedLinkId, tlId));
+    expect(clicks).toHaveLength(1);
+
+    // The per-hit outbound still fires (it runs AFTER the gated bus ingest
+    // in the same async chain, so its delivery landing proves the chain
+    // completed — the negative assertion below is then race-free).
+    const deadline = Date.now() + 4000;
+    let botDelivery: unknown;
+    while (Date.now() < deadline && !botDelivery) {
+      const rows = await deliveriesFor("email.clicked");
+      botDelivery = rows.find(
+        (d) =>
+          (d.payload as { data?: { emailSendId?: string } }).data
+            ?.emailSendId === sendId,
+      );
+      if (!botDelivery) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(botDelivery).toBeTruthy();
+
+    // The bus never saw it: no touch event for this recipient. (With no
+    // journey state, the resolver's contact key falls back to toEmail.)
+    const touches = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, toEmail));
+    expect(touches).toHaveLength(0);
   });
 });

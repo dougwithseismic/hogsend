@@ -218,6 +218,25 @@ export interface OutboundPayloads {
     userEmail: string;
     completedAt: string;
   };
+  /**
+   * Global control group membership (impact plan §4.3) — emitted once per
+   * contact key (per-endpoint dedupe) on the first withheld send. `userId`
+   * is null for identity-less sends; `email` null on the SMS leg.
+   */
+  "contact.control_group": {
+    userId: string | null;
+    email: string | null;
+    at: string;
+  };
+  /** Holdout diversion (impact plan §4.1) — the counterfactual as data. */
+  "journey.heldout": {
+    journeyId: string;
+    journeyName: string;
+    stateId: string;
+    userId: string;
+    userEmail: string;
+    heldOutAt: string;
+  };
   "bucket.entered": BucketEventPayload;
   "bucket.left": BucketEventPayload & { reason?: string };
   /**
@@ -241,6 +260,12 @@ export interface CrmDealEventPayload {
   provider: string;
   dealId: string;
   pipelineId: string | null;
+  /**
+   * The code-defined funnel claiming this deal's pipeline (defineFunnel).
+   * The emit site always sent it; the type lagged behind (impact plan §2
+   * seam 5) — now part of the contract.
+   */
+  funnelId: string | null;
   canonicalStage: string | null;
   value: number | null;
   currency: string | null;

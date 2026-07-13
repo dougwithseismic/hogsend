@@ -1,4 +1,12 @@
 {
   "title": "Conversions, Pixels & Ad Platforms",
-  "pages": ["index", "meta-ads", "google-ads", "tiktok", "linkedin", "reddit"]
+  "pages": [
+    "index",
+    "impact",
+    "meta-ads",
+    "google-ads",
+    "tiktok",
+    "linkedin",
+    "reddit"
+  ]
 }

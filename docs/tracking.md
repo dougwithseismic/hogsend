@@ -112,6 +112,29 @@ These URLs are never rewritten:
 - **Preference links** — URLs containing `/v1/email/preferences`
 - **Non-HTTP** — `mailto:`, `tel:`, etc. (regex only matches `https?://`)
 
+## Touch hygiene — what can and cannot earn attribution credit
+
+Attribution credit (the `attribution_credits` ledger) and journey triggers
+ride the internal event bus; raw click **stats** (`link_clicks`, `clickCount`,
+`clickedAt`, per-hit outbound webhooks) record every hit. The bus is gated,
+the stats are not:
+
+- **Opens never earn credit.** `email.opened` is not a touchpoint class —
+  Apple MPP and proxy prefetch make opens too weak to carry credit.
+- **Bot/prefetch clicks never reach the bus.** Every redirect route runs
+  `isBotOrPrefetch` (UA + purpose headers) and the `email.link_clicked`,
+  `sms.link_clicked`, and `link.clicked` bus re-ingests are all gated on it —
+  an inbox security scanner (Outlook SafeLinks et al.) or a chat-app unfurl
+  bot registers a click row but mints no touch and triggers no journey.
+- **Semantic answers are burst-confirmed.** `email.action` is provisional for
+  30s and confirmed only after the whole scanner burst is visible.
+- **Arrivals require a running page.** `campaign.arrived` / `link.arrived`
+  are posted by `@hogsend/js` from the landing page (bots don't execute page
+  JS), and `link.arrived` is capped at one event per click ref, ever.
+- **Attribution windows apply forward.** The ledger is written at conversion
+  time; changing `attributionWindowDays`/`windows` affects new conversions
+  only. The backfill command is the deliberate recompute path.
+
 ## Managed links (mintLink)
 
 Email's per-send rewritten links (above) are one consumer of the click spine.

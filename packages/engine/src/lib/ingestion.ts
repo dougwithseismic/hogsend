@@ -39,6 +39,7 @@ import {
   getConversionRegistry,
 } from "./conversions.js";
 import { getCrmSyncConfig } from "./crm-registry-singleton.js";
+import { recordFunnelProgressAtIngest } from "./funnel-progress.js";
 import { applyFunnelTransitionsAtIngest } from "./funnel-transitions.js";
 import type { Logger } from "./logger.js";
 
@@ -649,6 +650,7 @@ export async function ingestEvent(opts: {
             occurredAt: insertedRow.occurredAt,
             windowDays:
               firedConversion.definition.meta.attributionWindowDays ?? 90,
+            windows: firedConversion.definition.meta.windows,
           });
         } catch (err) {
           logger.warn("attribution credit write failed", {
@@ -671,9 +673,9 @@ export async function ingestEvent(opts: {
   // ingestEvent, bounded at define time: `deal.`/`funnel.`/`crm.` events
   // cannot be stage triggers.
   if (insertedRow && hookEvent) {
-    try {
-      const funnelRegistry = getCrmSyncConfig()?.funnels;
-      if (funnelRegistry) {
+    const funnelRegistry = getCrmSyncConfig()?.funnels;
+    if (funnelRegistry) {
+      try {
         await applyFunnelTransitionsAtIngest({
           db,
           registry,
@@ -686,13 +688,36 @@ export async function ingestEvent(opts: {
           contactId,
           userKey: resolvedKey,
         });
+      } catch (err) {
+        logger.warn("Funnel transition evaluation failed", {
+          event: event.event,
+          userId: resolvedKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-    } catch (err) {
-      logger.warn("Funnel transition evaluation failed", {
-        event: event.event,
-        userId: resolvedKey,
-        error: err instanceof Error ? err.message : String(err),
-      });
+
+      // (5e) Funnel progression REPORTING projection (impact plan §3.3) —
+      // first-reach `funnel_progress` rows over the SAME transition rules
+      // and gates as the deal mover above, so the two projections never
+      // disagree. Best-effort like every hook; the unique (contact, funnel,
+      // stage) index makes any replay a no-op.
+      try {
+        await recordFunnelProgressAtIngest({
+          db,
+          logger,
+          funnels: funnelRegistry,
+          event: hookEvent,
+          eventRowId: insertedRow.id,
+          contactId,
+          userKey: resolvedKey,
+        });
+      } catch (err) {
+        logger.warn("Funnel progression write failed", {
+          event: event.event,
+          userId: resolvedKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

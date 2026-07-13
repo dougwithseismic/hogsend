@@ -1,4 +1,6 @@
+import type { TouchpointChannel } from "./attribution/touchpoints.js";
 import { normalizeWhere } from "./conditions/index.js";
+import type { DurationObject } from "./duration.js";
 import type { PropertyCondition } from "./types/conditions.js";
 import type { JourneyWhere } from "./types/journey.js";
 
@@ -9,6 +11,14 @@ import type { JourneyWhere } from "./types/journey.js";
  * comes from. Code-first like journeys/campaigns; fired instances are
  * recorded in the `conversions` table by the engine's ingest hook and fanned
  * out to conversion destinations (§5.2).
+ *
+ * MILESTONES (docs/attribution-impact-plan.md §3.2) are a convention, not a
+ * type: a conversion definition whose meaning is progress rather than money
+ * — `activation.completed`, `trial.started`, a canonical stage event. Define
+ * one exactly like a revenue conversion but on a valueless event (or omit
+ * `value`); it fires, earns weight-only attribution credits (value NULL),
+ * and answers "which journeys drive activation" without a currency in
+ * sight. No `kind` field until Studio grouping needs one.
  */
 
 export type ConversionValueSource =
@@ -54,6 +64,17 @@ export interface ConversionMeta {
    * the contact's touchpoints. Default 90.
    */
   attributionWindowDays?: number;
+  /**
+   * Per-channel lookback overrides (docs/attribution-impact-plan.md §2.1).
+   * A channel listed here uses its own window instead of
+   * `attributionWindowDays`; unlisted channels keep the definition-wide
+   * window, so existing single-window definitions are untouched. Industry
+   * convention for comparability with incumbent tools: email `days(5)`,
+   * sms `days(1)` (Klaviyo-style click windows) — documented defaults to
+   * reach for, never imposed. Changes apply FORWARD only (the ledger is
+   * written at conversion time); the backfill command is the recompute path.
+   */
+  windows?: Partial<Record<TouchpointChannel, DurationObject>>;
   /** Conversion-destination ids (§5.2) this conversion dispatches to. */
   destinations?: string[];
 }

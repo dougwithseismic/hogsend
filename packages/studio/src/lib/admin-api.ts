@@ -247,6 +247,7 @@ export type JourneyListItem = {
     completed: number;
     failed: number;
     exited: number;
+    held_out?: number;
   };
 };
 
@@ -270,7 +271,8 @@ export type JourneyStateStatus =
   | "waiting"
   | "completed"
   | "failed"
-  | "exited";
+  | "exited"
+  | "held_out";
 
 /** One enrolled instance of a journey (a row of `journey_states`). */
 export type JourneyState = {
@@ -308,6 +310,7 @@ export type JourneyDetail = {
     completed: number;
     failed: number;
     exited: number;
+    held_out?: number;
   };
   recentStates: JourneyState[];
 };
@@ -1661,8 +1664,20 @@ export const qk = {
   conversions: (filters: ConversionListFilters) =>
     ["conversions", filters] as const,
   conversionsStats: ["conversions-stats"] as const,
-  attribution: (days: number, definitionId?: string) =>
-    ["attribution", days, definitionId ?? null] as const,
+  attribution: (
+    days: number,
+    definitionId?: string,
+    groupBy?: AttributionGroupBy,
+    scope?: { journeyId?: string; campaignId?: string },
+  ) =>
+    [
+      "attribution",
+      days,
+      definitionId ?? null,
+      groupBy ?? "channel",
+      scope?.journeyId ?? null,
+      scope?.campaignId ?? null,
+    ] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -1824,9 +1839,21 @@ export function listConversions(filters: ConversionListFilters) {
   });
 }
 
+/** The rollup dimension (impact plan §1.5). */
+export type AttributionGroupBy =
+  | "channel"
+  | "journey"
+  | "campaign"
+  | "template";
+
 export type AttributionRow = {
   model: string;
-  channel: string;
+  /** The grouped dimension's value; null = credits with no scope on it. */
+  key: string | null;
+  /** Server-resolved label where the key is opaque (campaign name). */
+  label: string | null;
+  /** Back-compat: present when groupBy=channel (older engines always). */
+  channel?: string;
   currency: string | null;
   value: number;
   conversions: number;
@@ -1842,14 +1869,52 @@ export type AttributionTotals = {
   attributedConversions: number;
 };
 
-export function getAttribution(days = 90, definitionId?: string) {
+/** Cross-scope overlap read-out (§2.3) — the double-count nobody else shows. */
+export type AttributionOverlap = {
+  currency: string | null;
+  conversions: number;
+  multiScopeConversions: number;
+  value: number;
+  scopeSummedValue: number;
+};
+
+/**
+ * Influenced (§3.1) — model-invariant coverage per scope key: conversions
+ * with ≥1 touch from the scope, at FULL value. Multi-counted across scopes
+ * by design (reach, not credit — never sums to total).
+ */
+export type AttributionInfluenced = {
+  key: string;
+  label: string | null;
+  currency: string | null;
+  conversions: number;
+  value: number;
+};
+
+export function getAttribution(
+  days = 90,
+  definitionId?: string,
+  groupBy: AttributionGroupBy = "channel",
+  scope?: { journeyId?: string; campaignId?: string },
+) {
   return api.get<{
     days: number;
+    groupBy?: AttributionGroupBy;
     rows: AttributionRow[];
     /** Older engines omit it. */
     totals?: AttributionTotals[];
+    /** Older engines omit it. */
+    overlap?: AttributionOverlap[];
+    /** Older engines omit it. */
+    influenced?: AttributionInfluenced[];
   }>("/v1/admin/attribution", {
-    query: { days, definitionId: definitionId || undefined },
+    query: {
+      days,
+      definitionId: definitionId || undefined,
+      groupBy,
+      journeyId: scope?.journeyId,
+      campaignId: scope?.campaignId,
+    },
   });
 }
 

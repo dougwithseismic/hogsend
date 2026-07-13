@@ -78,6 +78,7 @@ import {
 } from "./lib/conversion-dispatch.js";
 import {
   ConversionRegistry,
+  defaultRevenueConversion,
   setConversionRegistry,
 } from "./lib/conversions.js";
 import { CrmProviderRegistry } from "./lib/crm-provider-registry.js";
@@ -832,7 +833,21 @@ export function createHogsendClient(
 
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
   // the API and worker processes.
-  setConversionRegistry(new ConversionRegistry(opts.conversions ?? []));
+  // Zero-config revenue conversion (impact plan §5.2) — seeded unless the
+  // consumer authors their own `id: "revenue"` definition or opts out via
+  // HOGSEND_DEFAULT_REVENUE_CONVERSION=false (the seeded-PostHog-destination
+  // opt-out pattern).
+  const authoredConversions = opts.conversions ?? [];
+  const seedDefaultRevenue =
+    process.env.HOGSEND_DEFAULT_REVENUE_CONVERSION !== "false" &&
+    !authoredConversions.some((def) => def.meta.id === "revenue");
+  setConversionRegistry(
+    new ConversionRegistry(
+      seedDefaultRevenue
+        ? [...authoredConversions, defaultRevenueConversion]
+        : authoredConversions,
+    ),
+  );
   setConversionDestinations(
     new ConversionDestinationRegistry(opts.conversionDestinations ?? []),
   );

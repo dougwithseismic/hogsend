@@ -1,0 +1,81 @@
+---
+title: "Impact: attribution in your first week"
+description: What you know on day 1, day 3, and day 7 — arrivals, influenced, credited revenue per journey, and your first lift read. The checklist, and exactly what each number does and does not claim.
+---
+
+Adopt Hogsend and you know what your lifecycle work is doing to revenue and your funnel from the first week — per journey, per campaign, per channel, under any attribution lens. This page is the wiring checklist and the honest reading guide for the three numbers.
+
+## The three numbers
+
+Impact reporting keeps three numbers separate, always labeled, never blended:
+
+- **Attributed** — fractional credit that sums to the real total. Eight models (first, last, linear, time-decay, position, blended…) are all computed and persisted at conversion time, so switching models is instant and historical. *Claim strength: this touch path earned a share.*
+- **Influenced** — coverage: the full value of every conversion a journey touched at all. Deliberately multi-counts across journeys (it's reach, not credit) and never sums to the total. *Claim strength: we were in the room.*
+- **Incremental** — holdout-backed lift: what would **not** have happened without the journey. The only number allowed to say "caused". *Claim strength: causal.*
+
+Everything correlational is labeled correlational in the API and Studio. When an incumbent tool shows you one big "attributed revenue" number, it is usually per-object last-touch with no cross-object dedup — summed, it exceeds what you actually earned. Hogsend shows the overlap instead of hiding it.
+
+## The first-week checklist
+
+### Day 0 — wire two things (≈15 minutes)
+
+1. **Arrival capture** (2 minutes): add `@hogsend/js` to your landing pages. Ad clicks, UTM landings, and vanity-link arrivals become `campaign.arrived` / `link.arrived` touches.
+2. **One revenue webhook** (10 minutes): point a Stripe (or order/subscription) webhook at a [webhook source](/docs/api) so purchases land on the spine with `value` + `currency`.
+
+That's the whole setup. The built-in `revenue` conversion point fires on any trusted valued event with **zero configuration** (quote-shaped CRM events are excluded; browser-minted values never count). Author your own `defineConversion` with `id: "revenue"` to replace it, or set `HOGSEND_DEFAULT_REVENUE_CONVERSION=false`.
+
+Optionally, define what progress means for you:
+
+```ts
+// A funnel is an ordered ladder; stages move on plain events — no CRM needed.
+export const selfServe = defineFunnel({
+  id: "self-serve",
+  stages: [
+    { id: "signed_up", on: "user.signup" },
+    { id: "activated", on: "activation.completed" },
+    { id: "subscribed", on: "subscription.started" },
+  ],
+});
+
+// A milestone is just a conversion point without money.
+export const activation = defineConversion({
+  id: "activation",
+  trigger: { event: "activation.completed" },
+});
+```
+
+### Day 1 — touches and influenced
+
+Emails click, links get followed, landings arrive. Studio's Impact tab shows touch volume per channel, and the **Influenced** column starts filling: which conversions each journey/campaign touched at all.
+
+### Day 3 — first credits
+
+Contacts who converted *with a touch path in the window* earn ledger credits. The attribution matrix shows the same conversions under all eight models side by side — with the **Unattributed** bar keeping the delta explicit (direct/imported conversions are never silently dropped), and the **overlap** line showing what single-credit reporting would have double-counted.
+
+### Day 7 — per-journey revenue, and the first lift read
+
+- "This journey attributed £X under time-decay" is a `groupBy=journey` query, drill-down per template.
+- If you set a holdout on a journey (`holdout: { percent: 10 }` on its meta), the lift endpoint compares entered vs held-out cohorts. The win probability is **suppressed under 10 combined conversions** and flagged under 100 contacts per cohort — at low volume you get honest "not enough data yet", never noise wearing a percentage sign.
+
+### Already running Hogsend? Credit your whole history today
+
+```bash
+hogsend attribution backfill
+```
+
+Replays your entire event history through conversion evaluation and the credit ledger — both idempotent, so re-running never double-counts, and ad-platform dispatches are never re-fired for historical conversions. A window/definition change gets a clean recompute: `hogsend attribution backfill --definition revenue --recompute`.
+
+## Reading guide — what each surface claims
+
+| Surface | Number | May claim |
+|---|---|---|
+| Attribution matrix (`/v1/admin/attribution`) | attributed | "earned a share of" |
+| Influenced column | influenced | "touched" |
+| Funnel progression (`/v1/admin/funnels/:id/progression`) | correlational | "associated with" — exposure splits self-select engaged contacts |
+| Journey lift (`/v1/admin/journeys/:id/lift`) | incremental | "caused" — the only one |
+
+Attribution windows are configurable per channel (`windows: { email: days(5), sms: days(1) }` on `defineConversion`) and apply **forward only** — the ledger is written at conversion time; the backfill command is the deliberate recompute path.
+
+## Is it wired? Ask the engine
+
+The Studio Setup checklist (and `GET /v1/admin/readiness`) includes four attribution rows — arrival capture seen, valued events flowing, conversions firing, credits accruing — each naming the exact missing wire when the answer is "not yet".

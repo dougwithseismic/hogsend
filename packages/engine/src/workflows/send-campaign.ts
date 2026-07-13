@@ -598,6 +598,11 @@ export const sendCampaignTask = hatchet.task({
               // real, honored List-Unsubscribe target. The rule applies to
               // EVERY wave, not just the first.
               category: audienceKind === "bucket" ? undefined : audienceId,
+              // Queryable campaign identity on the email_sends row — the
+              // idempotency key below still encodes it for dedup, but
+              // suppressed sends write no key, so the column is the carrier
+              // stats + attribution can trust.
+              campaignId: input.campaignId,
               // The idempotency key dedupes a retried send to its prior row.
               // Legacy format for single-step campaigns; step-scoped for every
               // step of a multi-step campaign (campaignSendKey contract).

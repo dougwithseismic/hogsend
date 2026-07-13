@@ -31,6 +31,74 @@ import { emitOutbound } from "./outbound.js";
  * define-time: `deal.`/`funnel.`/`crm.` events are rejected as triggers, so
  * the money events this hook mints can never re-enter it.
  */
+/**
+ * The gated, per-funnel WINNING stage targets for one event — source
+ * allowlist, `where` over money-overlaid properties, then the highest-ranked
+ * matching positive stage per funnel (`lost` only wins unopposed). Shared by
+ * the deal mover below and the `funnel_progress` reporting projection
+ * (funnel-progress.ts) so the two projections apply IDENTICAL rules and can
+ * never disagree about what counts as a stage event.
+ */
+export function resolveFunnelTargets(opts: {
+  funnels: FunnelRegistry;
+  event: {
+    name: string;
+    source: string | null;
+    properties: Record<string, unknown>;
+    value: number | null;
+    currency: string | null;
+  };
+  logger?: Logger;
+}): Array<{ funnel: DefinedFunnel; target: string }> {
+  const { funnels, event, logger } = opts;
+  const matches = funnels.transitionsFor(event.name);
+  if (matches.length === 0) return [];
+
+  const whereProperties = overlayEventMoney(
+    event.properties,
+    event.value,
+    event.currency,
+  );
+
+  const byFunnel = new Map<
+    string,
+    { funnel: DefinedFunnel; stages: string[] }
+  >();
+  for (const { funnel, transition } of matches) {
+    if (!sourceAllowed(funnel.meta.sources, event.source)) {
+      logger?.debug("funnel transition skipped: source not allowed", {
+        funnel: funnel.meta.id,
+        event: event.name,
+        source: event.source,
+      });
+      continue;
+    }
+    if (
+      transition.where &&
+      !evaluatePropertyConditions({
+        conditions: transition.where,
+        properties: whereProperties,
+      })
+    ) {
+      continue;
+    }
+    const entry = byFunnel.get(funnel.meta.id) ?? { funnel, stages: [] };
+    entry.stages.push(transition.stageId);
+    byFunnel.set(funnel.meta.id, entry);
+  }
+
+  return [...byFunnel.values()].map(({ funnel, stages }) => {
+    const positive = stages
+      .filter((s) => s !== "lost")
+      .sort(
+        (a, b) =>
+          (canonicalStageRank(b, funnel.ladder) ?? -1) -
+          (canonicalStageRank(a, funnel.ladder) ?? -1),
+      );
+    return { funnel, target: positive[0] ?? "lost" };
+  });
+}
+
 export async function applyFunnelTransitionsAtIngest(opts: {
   db: Database;
   registry: JourneyRegistry;
@@ -63,54 +131,11 @@ export async function applyFunnelTransitionsAtIngest(opts: {
     userKey,
   } = opts;
 
-  const matches = funnels.transitionsFor(event.name);
-  if (matches.length === 0) return;
+  const targets = resolveFunnelTargets({ funnels, event, logger });
+  if (targets.length === 0) return;
 
-  const whereProperties = overlayEventMoney(
-    event.properties,
-    event.value,
-    event.currency,
-  );
-
-  // Group per funnel, then pick each funnel's winning stage: the highest-
-  // ranked matching positive stage; `lost` only wins unopposed.
-  const byFunnel = new Map<
-    string,
-    { funnel: DefinedFunnel; stages: string[] }
-  >();
-  for (const { funnel, transition } of matches) {
-    if (!sourceAllowed(funnel.meta.sources, event.source)) {
-      logger.debug("funnel transition skipped: source not allowed", {
-        funnel: funnel.meta.id,
-        event: event.name,
-        source: event.source,
-      });
-      continue;
-    }
-    if (
-      transition.where &&
-      !evaluatePropertyConditions({
-        conditions: transition.where,
-        properties: whereProperties,
-      })
-    ) {
-      continue;
-    }
-    const entry = byFunnel.get(funnel.meta.id) ?? { funnel, stages: [] };
-    entry.stages.push(transition.stageId);
-    byFunnel.set(funnel.meta.id, entry);
-  }
-
-  for (const { funnel, stages } of byFunnel.values()) {
+  for (const { funnel, target } of targets) {
     try {
-      const positive = stages
-        .filter((s) => s !== "lost")
-        .sort(
-          (a, b) =>
-            (canonicalStageRank(b, funnel.ladder) ?? -1) -
-            (canonicalStageRank(a, funnel.ladder) ?? -1),
-        );
-      const target = positive[0] ?? "lost";
       const funnelId = funnel.meta.id;
 
       // Explicit multi-deal: a `deal_id` event property addresses one deal
