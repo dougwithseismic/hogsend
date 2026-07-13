@@ -1,9 +1,0 @@
----
-"@hogsend/core": minor
-"@hogsend/engine": minor
-"@hogsend/studio": minor
-"@hogsend/cli": minor
-"@hogsend/client": minor
----
-
-Event-native funnels — deals move on YOUR events, CRM demoted to one optional producer. A stage entry's `on` trigger(s) (`{ id: "subscribed", on: "subscription.created", milestone: "won" }`, with the journey-style `where` builder and a `sources` trust allowlist that denies browser `inapp` events by default) move the contact's open deal in that funnel: an open CRM-born row is moved in place, no deal yet mints a synthetic `provider: "events"` row (zero migration; `deal_id` event property for explicit multi-deal; a closed deal holds — re-entry is deferred, not destructive), `lostOn` only ever closes an existing deal. Money milestones ride projection freshness — whichever producer reaches quoted/won first mints `deal.quoted`/`deal.sold` once per deal ever (source `"funnel"` from event triggers, `"crm"` from the CRM sink) — and a CRM leg seeing a native deal id for the first time ADOPTS the contact's open event-minted row (the implicit single-deal row; `deal_id`-addressed rows stay separate by design) instead of shadowing it, so the "event opens it, CRM closes it" hybrid flow works both ways. Machinery event names renamed while unreleased: `crm.stage_changed` → `funnel.stage_changed`, `crm.deal_quoted` → `deal.quoted`, `crm.deal_sold` → `deal.sold` (outbound catalog + vendored CLI/client copies in lockstep); `deal.`/`funnel.` join the reserved namespaces (semantic links/blueprints reject them — a consumer-authored `deal.sold` would forge revenue). Revenue rollups exclude milestone-trigger events' raw values (the mint carries the money — one sale counts once), and contact merges now re-point `deals`/`crm_links` onto the survivor (previously a merged contact's open deal was orphaned and a duplicate deal cycle could mint twice).
