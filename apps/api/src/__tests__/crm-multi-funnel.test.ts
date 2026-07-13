@@ -247,8 +247,8 @@ describe("multiple funnels (5b.4)", () => {
       .select()
       .from(userEvents)
       .where(eq(userEvents.userId, comContact[0]?.id as string));
-    const sold = comEvents.find((e) => e.event === "crm.deal_sold");
-    const quoted = comEvents.find((e) => e.event === "crm.deal_quoted");
+    const sold = comEvents.find((e) => e.event === "deal.sold");
+    const quoted = comEvents.find((e) => e.event === "deal.quoted");
     expect(sold?.properties).toMatchObject({
       funnel_id: "commercial",
       canonical_stage: "won",
@@ -262,7 +262,7 @@ describe("multiple funnels (5b.4)", () => {
   it("a cross-funnel stage event lands on the spine but never touches the projection", async () => {
     // The residential deal gets an event from the COMMERCIAL pipeline (the
     // CRM moved it). Applying commercial's ladder would call rank 3 ("won")
-    // an advance and mint a phantom crm.deal_sold — it must be ignored.
+    // an advance and mint a phantom deal.sold — it must be ignored.
     expect(
       (
         await post([
@@ -300,12 +300,10 @@ describe("multiple funnels (5b.4)", () => {
       .where(eq(userEvents.userId, resContact[0]?.id as string));
     // The raw stage change IS recorded (append-only truth)...
     expect(
-      resEvents.filter((e) => e.event === "crm.stage_changed"),
+      resEvents.filter((e) => e.event === "funnel.stage_changed"),
     ).toHaveLength(2);
     // ...but no phantom sale.
-    expect(resEvents.filter((e) => e.event === "crm.deal_sold")).toHaveLength(
-      0,
-    );
+    expect(resEvents.filter((e) => e.event === "deal.sold")).toHaveLength(0);
   });
 
   it("adopting a pre-funnel deal re-bases its rank on the claiming ladder", async () => {
@@ -496,9 +494,9 @@ describe("multiple funnels (5b.4)", () => {
       .select()
       .from(userEvents)
       .where(eq(userEvents.userId, cbContactRow[0]?.id as string));
-    expect(cbSpine.filter((e) => e.event === "crm.stage_changed")).toHaveLength(
-      3,
-    );
+    expect(
+      cbSpine.filter((e) => e.event === "funnel.stage_changed"),
+    ).toHaveLength(3);
     const midway = await db
       .select()
       .from(deals)

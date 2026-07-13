@@ -144,12 +144,12 @@ describe("POST /v1/webhooks/crm/:providerId — the stage pipeline", () => {
     expect((await post([QUOTED], "wrong")).status).toBe(401);
   });
 
-  it("quoted: lands crm.stage_changed + crm.deal_quoted (valued) and projects the deal", async () => {
+  it("quoted: lands funnel.stage_changed + deal.quoted (valued) and projects the deal", async () => {
     const res = await post([QUOTED]);
     expect(res.status).toBe(200);
     const key = await contactKey();
 
-    const stageChanged = await eventsFor(key, "crm.stage_changed");
+    const stageChanged = await eventsFor(key, "funnel.stage_changed");
     expect(stageChanged).toHaveLength(1);
     expect(stageChanged[0]?.value).toBe(15900);
     expect(stageChanged[0]?.properties).toMatchObject({
@@ -157,7 +157,7 @@ describe("POST /v1/webhooks/crm/:providerId — the stage pipeline", () => {
       stage_id: "stage-quote",
     });
 
-    const quotedEvents = await eventsFor(key, "crm.deal_quoted");
+    const quotedEvents = await eventsFor(key, "deal.quoted");
     expect(quotedEvents).toHaveLength(1);
     expect(quotedEvents[0]?.value).toBe(15900);
     expect(quotedEvents[0]?.currency).toBe("GBP");
@@ -176,12 +176,12 @@ describe("POST /v1/webhooks/crm/:providerId — the stage pipeline", () => {
     expect(dealRows[0]?.soldAt).toBeNull();
   });
 
-  it("sold WITHOUT email: resolves via crm_links, emits valued crm.deal_sold, advances the projection", async () => {
+  it("sold WITHOUT email: resolves via crm_links, emits valued deal.sold, advances the projection", async () => {
     const res = await post([SOLD]);
     expect(res.status).toBe(200);
     const key = await contactKey();
 
-    const soldEvents = await eventsFor(key, "crm.deal_sold");
+    const soldEvents = await eventsFor(key, "deal.sold");
     expect(soldEvents).toHaveLength(1);
     expect(soldEvents[0]?.value).toBe(17124);
 
@@ -199,8 +199,8 @@ describe("POST /v1/webhooks/crm/:providerId — the stage pipeline", () => {
   it("is idempotent across webhook+poll double-observation", async () => {
     await post([SOLD]);
     const key = await contactKey();
-    expect(await eventsFor(key, "crm.deal_sold")).toHaveLength(1);
-    expect(await eventsFor(key, "crm.stage_changed")).toHaveLength(2);
+    expect(await eventsFor(key, "deal.sold")).toHaveLength(1);
+    expect(await eventsFor(key, "funnel.stage_changed")).toHaveLength(2);
   });
 
   it("never regresses: a late out-of-order lower stage records but does not demote the deal", async () => {

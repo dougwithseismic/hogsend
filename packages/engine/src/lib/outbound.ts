@@ -225,15 +225,15 @@ export interface OutboundPayloads {
    * poll). Native identifiers — the canonical stage may be null when the
    * per-provider stage map has no entry (surfaced, never dropped).
    */
-  "crm.stage_changed": CrmDealEventPayload & {
+  "funnel.stage_changed": CrmDealEventPayload & {
     stageId: string;
     stageName: string | null;
     status: string | null;
   };
   /** A deal FIRST reached canonical `quoted`. Value = quote value. */
-  "crm.deal_quoted": CrmDealEventPayload;
+  "deal.quoted": CrmDealEventPayload;
   /** A deal FIRST reached canonical `sold`. Value = deal value. */
-  "crm.deal_sold": CrmDealEventPayload;
+  "deal.sold": CrmDealEventPayload;
 }
 
 /** Shared payload for the `crm.*` outbound family. */

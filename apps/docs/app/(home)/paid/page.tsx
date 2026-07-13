@@ -35,7 +35,7 @@ const DEFINE_CONVERSION_CODE = `import { defineConversion } from "@hogsend/engin
 
 export const dealSold = defineConversion({
   id: "deal-sold",
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   destinations: ["meta-capi"],
   // value defaults to the event's own first-class value;
   // browser (pk_) events are rejected — values can't be forged
@@ -44,7 +44,7 @@ export const dealSold = defineConversion({
 export const bigQuote = defineConversion({
   id: "big-quote",
   trigger: {
-    event: "crm.deal_quoted",
+    event: "deal.quoted",
     where: (b) => b.prop("value").gte(10_000),
   },
   destinations: ["meta-capi"],

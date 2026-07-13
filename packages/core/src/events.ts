@@ -10,9 +10,12 @@ export const RESERVED_EVENT_NAMESPACES = [
   "journey",
   "bucket",
   "contact",
+  "deal",
+  "funnel",
 ] as const;
 
-export const RESERVED_EVENT_NAME_RE = /^(?:email|journey|bucket|contact)[.:]/;
+export const RESERVED_EVENT_NAME_RE =
+  /^(?:email|journey|bucket|contact|deal|funnel)[.:]/;
 
 /** True when `event` sits in an engine-reserved namespace. */
 export function isReservedEventName(event: string): boolean {

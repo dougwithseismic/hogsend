@@ -83,7 +83,7 @@ export async function evaluateConversionsAtIngest(opts: {
       continue;
     }
     // `where` sees the event's first-class value/currency as `value`/
-    // `currency` (money events like crm.deal_quoted carry no property twin),
+    // `currency` (money events like deal.quoted carry no property twin),
     // so "quotes over £10k" is expressible; the columns win a name collision.
     if (
       def.where &&

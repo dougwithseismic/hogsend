@@ -21,15 +21,15 @@ import {
 
 /**
  * Events whose `value` must NOT count toward revenue: one CRM deal's value
- * rides `crm.stage_changed` on EVERY stage change plus the once-per-stage
+ * rides `funnel.stage_changed` on EVERY stage change plus the once-per-stage
  * money events, so summing them all counts one sale several times over —
- * and a quote is unrealized money, not revenue. Only `crm.deal_sold` (and
+ * and a quote is unrealized money, not revenue. Only `deal.sold` (and
  * any other valued event) contributes. Keep the admin contacts `minRevenue`
  * subquery (routes/admin/contacts.ts) in sync with this list.
  */
 export const REVENUE_EXCLUDED_EVENTS = [
-  "crm.stage_changed",
-  "crm.deal_quoted",
+  "funnel.stage_changed",
+  "deal.quoted",
 ] as const;
 
 /**

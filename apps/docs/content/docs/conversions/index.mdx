@@ -14,7 +14,7 @@ import { defineConversion } from "@hogsend/engine";
 export const dealSold = defineConversion({
   id: "deal-sold",
   name: "Deal sold",
-  trigger: { event: "crm.deal_sold" },
+  trigger: { event: "deal.sold" },
   destinations: ["meta-capi"],
 });
 
@@ -62,7 +62,7 @@ Ad click            @hogsend/js fires campaign.arrived (fbclid + utm_*, real tim
 Lead form           lead.submitted via any vendor webhook — hidden fields stitch
                     the browser session to the email-anchored contact
    ↓
-CRM stages          crm.deal_quoted / crm.deal_sold money events (deals ledger)
+CRM stages          deal.quoted / deal.sold money events (deals ledger)
    ↓
 Conversion fires    defineConversion matches the event → conversions row (durable)
    ↓
@@ -80,7 +80,7 @@ defineConversion({
   id: "high-value-quote",                    // stable — recorded on every fired row
   name: "Quote over £10k",
   trigger: {
-    event: "crm.deal_quoted",
+    event: "deal.quoted",
     where: (b) => b.prop("value").gte(10000), // same condition builder journeys use
   },
   value: { source: "event" },                // where the money comes from (default)
