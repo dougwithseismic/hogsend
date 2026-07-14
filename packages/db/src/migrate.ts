@@ -135,7 +135,12 @@ export async function migrateClient(
   journal: JournalShape,
 ): Promise<void> {
   if (!existsSync(migrationsFolder)) {
-    console.log("[client] No migrations folder found, skipping.");
+    // Unlike the engine track (bundled invariant → throws), a missing client
+    // folder is a designed state (a consumer with no client migrations yet).
+    // Log the resolved path so a MIS-resolved one is at least visible.
+    console.log(
+      `[client] No migrations folder at ${migrationsFolder} — skipping.`,
+    );
     return;
   }
   const { client, db } = createMigrateClient(databaseUrl);

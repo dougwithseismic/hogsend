@@ -6,8 +6,6 @@ import {
   type PostHogAuthTokenAccessor,
 } from "@hogsend/plugin-posthog";
 import type { env as envSchema } from "../env.js";
-import type { AnalyticsProviderRegistry } from "./analytics-provider-registry.js";
-import { setAnalytics } from "./analytics-singleton.js";
 import type { Logger } from "./logger.js";
 import { createTokenManager } from "./oauth-token-manager.js";
 import { getDerivedCredential } from "./provider-credentials.js";
@@ -103,43 +101,33 @@ function buildPosthogProvider(
 
 /**
  * Boot-time reader for the phc_ persisted by `hogsend connect posthog`
- * (provider_credentials kind="derived", `projectApiKey`): when NO analytics
- * provider resolved at boot and no `POSTHOG_API_KEY` is set, build the PostHog
- * provider from the store and activate it — registry, `client.analytics`, the
- * module singleton, and a rebuilt identity service (its boot-time closure
- * captured `undefined`). Without this the persisted key is dead weight and
- * outbound capture silently keeps requiring a hand-pasted env var.
+ * (provider_credentials kind="derived", `projectApiKey`): a PURE builder —
+ * reads the stored credential and constructs the PostHog provider from it, or
+ * resolves null when there is nothing stored (or it can't be decrypted, which
+ * must behave exactly like "unconfigured"). ALL activation side effects
+ * (registry, `client.analytics`, the module singleton, identity rebind) live
+ * at the single call site in `container.ts`. Without this reader the
+ * persisted key is dead weight and outbound capture silently keeps requiring
+ * a hand-pasted env var.
  *
- * Runs async right after `createHogsendClient` returns (the container is
- * built synchronously; this is the same construct-now-credentials-arrive-async
- * posture as the OAuth token manager). Fire-and-forget: any failure leaves the
- * container exactly as booted (analytics undefined, reads/mirror no-ops).
- *
- * The capture host resolves env-first, then the stored value, then the
- * ingestion host derived from the stored PRIVATE host (`eu.posthog.com` →
- * `eu.i.posthog.com`) so an EU-connected instance never captures to the US
- * default.
+ * The capture host resolves env-first, then the ingestion host derived from
+ * the stored PRIVATE host (`eu.posthog.com` → `eu.i.posthog.com`) so an
+ * EU-connected instance never captures to the US default.
  */
-export async function activateStoredPosthogAnalytics(opts: {
-  client: { analytics?: AnalyticsProvider };
-  registry: AnalyticsProviderRegistry;
+export async function buildStoredPosthogProvider(opts: {
   env: typeof envSchema;
   db: Database;
   logger: Logger;
-  /** Re-bind boot closures that captured `analytics: undefined`. */
-  onActivate: (provider: AnalyticsProvider) => void;
-}): Promise<boolean> {
+}): Promise<AnalyticsProvider | null> {
   let derived: Awaited<ReturnType<typeof getDerivedCredential>>;
   try {
     derived = await getDerivedCredential(opts.db, "posthog");
   } catch {
-    return false; // undecryptable/unreadable → behave exactly as unconfigured
+    return null;
   }
-  if (!derived?.projectApiKey) return false;
-  // Someone else claimed the slot while we read (consumer provider, race).
-  if (opts.client.analytics || opts.registry.get("posthog")) return false;
+  if (!derived?.projectApiKey) return null;
 
-  const provider = buildPosthogProvider(
+  return buildPosthogProvider(
     opts.env,
     { db: opts.db, logger: opts.logger },
     {
@@ -151,12 +139,4 @@ export async function activateStoredPosthogAnalytics(opts: {
         : undefined,
     },
   );
-  opts.registry.register(provider);
-  opts.client.analytics = provider;
-  setAnalytics(provider);
-  opts.onActivate(provider);
-  opts.logger.info(
-    'analytics provider "posthog" activated from the stored `hogsend connect posthog` credential — outbound capture is live without POSTHOG_API_KEY.',
-  );
-  return true;
 }

@@ -1,6 +1,9 @@
 # pnpm settings — pnpm 11+ reads these from pnpm-workspace.yaml ONLY
 # (`package.json#pnpm` is not honored for them). Not a workspace; the empty
 # `packages` list just marks this dir as the settings root.
+#
+# NOTE: the --use-tarballs verify harness APPENDS an `overrides:` key to the
+# emitted copy of this file (create-hogsend copy.ts) — don't add one here.
 packages: []
 
 # pnpm 11 hard-fails installs/scripts (ERR_PNPM_IGNORED_BUILDS) unless the

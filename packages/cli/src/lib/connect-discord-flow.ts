@@ -1,5 +1,6 @@
 import type { AdminClient } from "./http.js";
 import { isHttpError } from "./http.js";
+import { isLoopbackUrl } from "./loopback-url.js";
 import type { Output } from "./output.js";
 
 /**
@@ -133,27 +134,6 @@ const HINT_LOOPBACK =
   "Discord validates the interactions endpoint by PINGing it synchronously, " +
   "so it must be publicly reachable. Run this against your DEPLOYED instance " +
   "(point --url at it); the secrets are stored either way.";
-
-/**
- * Loopback detector — kept in LOCKSTEP with the engine's
- * `isLoopbackPublicUrl` (packages/engine/src/routes/admin/analytics.ts) and
- * connect-flow.ts's copy; the CLI has no engine dependency.
- */
-function isLoopbackUrl(publicUrl: string): boolean {
-  try {
-    const host = new URL(publicUrl).hostname.toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host === "[::1]" ||
-      host === "::1" ||
-      host.endsWith(".localhost")
-    );
-  } catch {
-    return false;
-  }
-}
 
 const errMsg = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);

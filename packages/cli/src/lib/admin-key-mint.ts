@@ -1,9 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { confirm } from "@clack/prompts";
 import { apiKeys, createDatabase } from "@hogsend/db";
+// Dependency-free engine subpath (node:crypto only) — the SAME generator the
+// engine's admin route and boot mint use, so the key shape can never drift.
+import { generateApiKey } from "@hogsend/engine/api-key-hash";
 import { loadDotEnv } from "./config.js";
+import { isLoopbackUrl } from "./loopback-url.js";
 import type { Output } from "./output.js";
 import { color } from "./output.js";
 import { bail } from "./prompt.js";
@@ -24,17 +27,6 @@ import { bail } from "./prompt.js";
  * interactive confirmation.
  */
 
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
-
-/** True when the base URL points at this machine. */
-export function isLocalBaseUrl(baseUrl: string): boolean {
-  try {
-    return LOCAL_HOSTNAMES.has(new URL(baseUrl).hostname);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The full "how do I get an admin key" story, used when the mint fallback
  * doesn't apply (remote target, no .env, declined, non-interactive).
@@ -54,7 +46,11 @@ export function adminKeyGuidance(baseUrl: string): string {
   ].join("\n");
 }
 
-/** Replace a commented/live `KEY=...` line, or append one. */
+/**
+ * Replace a commented/live `KEY=...` line, or append one. (setup-steps.ts has
+ * a superficially similar edit with DIFFERENT semantics — placeholder-aware,
+ * line-array preserving — so the two are deliberately not unified.)
+ */
 function setEnvLine(content: string, key: string, value: string): string {
   const line = `${key}=${value}`;
   const re = new RegExp(`^#?\\s*${key}=.*$`, "m");
@@ -77,8 +73,9 @@ export async function maybeMintLocalAdminKey(opts: {
   const cwd = opts.cwd ?? process.cwd();
   const envPath = join(cwd, ".env");
   if (!opts.out.interactive) return undefined;
-  if (!isLocalBaseUrl(opts.baseUrl)) return undefined;
-  if (!existsSync(envPath)) return undefined;
+  if (!isLoopbackUrl(opts.baseUrl)) return undefined;
+  // loadDotEnv returns {} for a missing/unreadable .env — one probe covers
+  // both "no .env here" and "no DATABASE_URL in it".
   const databaseUrl = loadDotEnv(cwd).DATABASE_URL;
   if (!databaseUrl) return undefined;
 
@@ -92,11 +89,7 @@ export async function maybeMintLocalAdminKey(opts: {
   );
   if (!wanted) return undefined;
 
-  // Mirrors the engine's `generateApiKey`/`hashApiKey`: hsk_<32B base64url>,
-  // sha256-hex at rest, first 8 chars stored as the display prefix.
-  const key = `hsk_${randomBytes(32).toString("base64url")}`;
-  const keyPrefix = key.slice(0, 8);
-  const keyHash = createHash("sha256").update(key).digest("hex");
+  const { key, prefix: keyPrefix, hash: keyHash } = generateApiKey();
 
   const { db, client } = createDatabase({ url: databaseUrl });
   try {

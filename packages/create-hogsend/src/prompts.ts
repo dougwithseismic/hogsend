@@ -65,16 +65,9 @@ const VALID_PMS: PackageManager[] = ["pnpm", "npm", "yarn", "bun"];
  * with no `.env` in cwd it can't resolve the admin key either).
  */
 export function binCmd(pm: PackageManager, bin: string): string {
-  switch (pm) {
-    case "npm":
-      return `npx ${bin}`; // npx prefers the local node_modules bin
-    case "yarn":
-      return `yarn ${bin}`;
-    case "bun":
-      return `bunx ${bin}`;
-    default:
-      return `pnpm ${bin}`;
-  }
+  if (pm === "npm") return `npx ${bin}`; // npx prefers the local bin
+  if (pm === "bun") return `bunx ${bin}`;
+  return `${pm} ${bin}`;
 }
 
 export const USAGE = `

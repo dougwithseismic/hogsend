@@ -31,7 +31,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio)
 TARBALLS="${HOGSEND_PLAY_TARBALLS:-/tmp/hogsend-play-tarballs}"
 PLAY_PARENT="${HOGSEND_PLAY_DIR:-/tmp/hogsend-play}"
 
@@ -49,14 +48,8 @@ pnpm --dir "$REPO_ROOT" --filter create-hogsend build >/dev/null
 
 if [ "$REPACK" = 1 ] || [ ! -e "$TARBALLS/hogsend-engine-"*.tgz ]; then
   echo "==> pack @hogsend/* tarballs → $TARBALLS"
-  rm -rf "$TARBALLS" && mkdir -p "$TARBALLS"
-  # These three ship built dist/ and must be built before packing.
-  pnpm --dir "$REPO_ROOT" --filter @hogsend/studio --filter @hogsend/cli \
-    --filter @hogsend/client build >/dev/null
-  for pkg in "${PACKAGES[@]}"; do
-    pnpm --dir "$REPO_ROOT/packages/$pkg" pack \
-      --pack-destination "$TARBALLS" >/dev/null
-  done
+  rm -rf "$TARBALLS"
+  bash "$SCRIPT_DIR/pack-tarballs.sh" "$TARBALLS"
 else
   echo "==> reusing tarballs in $TARBALLS  (pass --repack after package edits)"
 fi

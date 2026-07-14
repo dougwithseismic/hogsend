@@ -190,9 +190,10 @@ async function walk(
     const destPath = join(targetRoot, relDir, renamed);
     await mkdir(join(targetRoot, relDir), { recursive: true });
 
+    const { tarballDir } = opts;
     const isTokenFile = (TOKEN_FILES as readonly string[]).includes(renamed);
     const isTarballWorkspace =
-      renamed === "pnpm-workspace.yaml" && Boolean(opts.tarballDir);
+      renamed === "pnpm-workspace.yaml" && tarballDir !== undefined;
     if (!isTokenFile && !isTarballWorkspace) {
       await copyFile(srcPath, destPath);
       continue;
@@ -200,11 +201,11 @@ async function walk(
 
     let content = await readFile(srcPath, "utf8");
     content = applyTokens(content, opts.appName);
-    if (renamed === "package.json" && opts.tarballDir) {
-      content = rewriteTarballDeps(content, opts.tarballDir);
+    if (renamed === "package.json" && tarballDir) {
+      content = rewriteTarballDeps(content, tarballDir);
     }
-    if (isTarballWorkspace && opts.tarballDir) {
-      content = rewriteWorkspaceOverrides(content, opts.tarballDir);
+    if (isTarballWorkspace && tarballDir) {
+      content = rewriteWorkspaceOverrides(content, tarballDir);
     }
     await writeFile(destPath, content);
   }

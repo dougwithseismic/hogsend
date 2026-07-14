@@ -3,7 +3,10 @@ import { DEFAULT_HOST, derivePrivateHost } from "@hogsend/plugin-posthog";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { createTokenManager } from "../../lib/oauth-token-manager.js";
-import { EXPECTED_POSTHOG_SCOPES } from "../../lib/posthog-scopes.js";
+import {
+  EXPECTED_POSTHOG_SCOPES,
+  posthogScopeSatisfied,
+} from "../../lib/posthog-scopes.js";
 import {
   getDerivedCredential,
   getProviderCredential,
@@ -202,8 +205,12 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
     try {
       const oauth = await getProviderCredential(db, "posthog");
       if (oauth) {
+        // Hierarchical scopes: a granted `X:write` satisfies `X:read` (the
+        // grant normalizes both-halves requests down to write-only).
         const granted = oauth.payload.scopes;
-        scopeGap = EXPECTED_POSTHOG_SCOPES.filter((s) => !granted.includes(s));
+        scopeGap = EXPECTED_POSTHOG_SCOPES.filter(
+          (s) => !posthogScopeSatisfied(granted, s),
+        );
       }
     } catch {
       scopeGap = [];

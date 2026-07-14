@@ -66,8 +66,8 @@ import {
 } from "./lib/analytics-adapter.js";
 import { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 import {
-  activateStoredPosthogAnalytics,
   analyticsProvidersFromEnv,
+  buildStoredPosthogProvider,
 } from "./lib/analytics-providers-from-env.js";
 import {
   setAnalytics,
@@ -1443,24 +1443,30 @@ export function createHogsendClient(
   // Boot-time reader for `hogsend connect posthog`'s persisted phc_: when no
   // provider resolved AND no POSTHOG_API_KEY is set, activate PostHog from the
   // stored derived credential (async, fire-and-forget — the container is built
-  // synchronously). Skipped under NODE_ENV=test so suites stay hermetic.
+  // synchronously; a failure leaves the container exactly as booted). ALL
+  // activation effects live here, in one block, so "who mutates what" has a
+  // single answer. Skipped under NODE_ENV=test so suites stay hermetic.
   if (!analytics && !env.POSTHOG_API_KEY && env.NODE_ENV !== "test") {
-    void activateStoredPosthogAnalytics({
-      client,
-      registry: analyticsProviders,
-      env,
-      db,
-      logger,
-      onActivate: (activated) => {
-        // Rebuild the boot closures that captured `analytics: undefined` so
+    void buildStoredPosthogProvider({ env, db, logger })
+      .then((provider) => {
+        if (!provider) return;
+        // Someone claimed the slot while we read (consumer provider, race).
+        if (client.analytics || analyticsProviders.get("posthog")) return;
+        analyticsProviders.register(provider);
+        client.analytics = provider;
+        setAnalytics(provider);
+        // Rebuild the boot closure that captured `analytics: undefined` so
         // identity merges propagate to the newly-live provider too.
         client.identity = createIdentityService({
           db,
-          analytics: activated,
+          analytics: provider,
           logger,
         });
-      },
-    }).catch(() => {});
+        logger.info(
+          'analytics provider "posthog" activated from the stored `hogsend connect posthog` credential — outbound capture is live without POSTHOG_API_KEY.',
+        );
+      })
+      .catch(() => {});
   }
 
   return client;

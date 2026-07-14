@@ -178,6 +178,10 @@ function posthogNextStep(opts: CliOptions, withCd: boolean): string {
 }
 const POSTHOG_HINT_NOTE =
   "  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop";
+/** The colored form of the hint — command cyan, note dim. */
+function posthogHint(opts: CliOptions, withCd: boolean): string {
+  return `${color.cyan(posthogNextStep(opts, withCd))}${color.dim(POSTHOG_HINT_NOTE)}`;
+}
 
 /** A dim, fixed-width label so the link rows line up under each other. */
 function linkRow(label: string, url: string, note: string): string {
@@ -220,9 +224,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     ...links,
     "",
     skillsLine,
-    opts.usingPosthog
-      ? `${color.cyan(posthogNextStep(opts, false))}${color.dim(POSTHOG_HINT_NOTE)}`
-      : null,
+    opts.usingPosthog ? posthogHint(opts, false) : null,
   ];
 
   const lines = setupDone
@@ -367,11 +369,7 @@ async function main(): Promise<void> {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
     // Bootstrap's own summary can't know about PostHog — surface the connect
     // hint here when the next-steps note was skipped.
-    if (setupDone && opts.usingPosthog) {
-      log.info(
-        `${color.cyan(posthogNextStep(opts, true))}${color.dim(POSTHOG_HINT_NOTE)}`,
-      );
-    }
+    if (setupDone && opts.usingPosthog) log.info(posthogHint(opts, true));
     outro(
       `${color.magenta("Welcome to Hogsend.")} ${color.dim(`${cdHint}${DOCS} · ${DISCORD}`)}`,
     );
