@@ -115,15 +115,49 @@ function reconcile(
   return { nodes, edges };
 }
 
-/** Only what the card actually paints. */
+/**
+ * Only what the card actually paints — including every P2 overlay. Compare the
+ * PAINTED value, not the raw one: the heat strip and the "% conv" label are
+ * rounded, so a conversion rate that wobbles in the 4th decimal between polls
+ * must NOT mint a new node object (that would restart the card's transitions
+ * for a change nobody can see).
+ */
 function sameNodeVisuals(a: FlowGraphNode, b: FlowGraphNode): boolean {
   return (
     a.name === b.name &&
     a.contacts === b.contacts &&
     a.events === b.events &&
     a.kind === b.kind &&
-    a.tier === b.tier
+    a.tier === b.tier &&
+    a.live === b.live &&
+    (a.dwell?.stuckContacts ?? 0) === (b.dwell?.stuckContacts ?? 0) &&
+    (a.dwell?.thresholdHours ?? 0) === (b.dwell?.thresholdHours ?? 0) &&
+    paintedRate(a) === paintedRate(b) &&
+    sameMoney(a.heat?.attributedRevenue, b.heat?.attributedRevenue) &&
+    sameMoney(a.heat?.directRevenue, b.heat?.directRevenue)
   );
+}
+
+/** The conversion rate as the card paints it: 2dp (the strip is 240px wide). */
+function paintedRate(node: FlowGraphNode): number | null {
+  const rate = node.heat?.conversionRate;
+  return rate === null || rate === undefined ? null : Math.round(rate * 10_000);
+}
+
+function sameMoney(
+  a: { amount: number; currency: string }[] | undefined,
+  b: { amount: number; currency: string }[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((money, i) => {
+    const other = b[i];
+    return (
+      other !== undefined &&
+      money.currency === other.currency &&
+      Math.round(money.amount) === Math.round(other.amount)
+    );
+  });
 }
 
 function FlowCanvasInner({ data }: { data: FlowGraphResponse }) {

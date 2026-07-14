@@ -1,3 +1,4 @@
+import { ATTRIBUTION_MODELS } from "@hogsend/attribution";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { computeFlowMap } from "../../lib/flow-map.js";
@@ -6,10 +7,13 @@ import { computeFlowMap } from "../../lib/flow-map.js";
  * GET /v1/admin/flow — the control room's flow map: how contacts actually
  * moved through the product in a window, as nodes + edges.
  *
- * P1 serves raw mode (nodes = top event-name prefixes). The `live`, `heat`,
- * `dwell` and `lanes` fields are declared nullable and returned null: the
- * response contract is pinned here so Studio can render against the final
- * shape while later phases fill them in.
+ * `mode=curated` (default) classifies events through the registry-backed
+ * topology: journeys, funnel stages, the builtin revenue node — each carrying
+ * heat (conversion + revenue) and dwell (the pile-up), and journeys carrying a
+ * live enrollment count. `mode=raw` is the escape hatch: top event-name
+ * prefixes, no registry, `heat`/`dwell`/`live` null.
+ *
+ * `lanes` stays declared-and-empty until P3.
  */
 
 const flowMoneySchema = z.object({
@@ -24,9 +28,9 @@ const flowNodeSchema = z.object({
   tier: z.enum(["acquisition", "activation", "retention", "revenue"]),
   contacts: z.number(),
   events: z.number(),
-  /** P4 — contacts currently here. */
+  /** Contacts currently here (journey enrollments); null in raw mode. */
   live: z.number().nullable(),
-  /** P2 — conversion + revenue overlay (attributed and direct stay separate). */
+  /** Conversion + revenue overlay (attributed and direct stay separate). */
   heat: z
     .object({
       conversionRate: z.number().nullable(),
@@ -34,7 +38,7 @@ const flowNodeSchema = z.object({
       directRevenue: z.array(flowMoneySchema),
     })
     .nullable(),
-  /** P2 — pile-up: contacts idle here past the threshold. */
+  /** Pile-up: contacts idle here past the threshold. */
   dwell: z
     .object({
       stuckContacts: z.number(),
@@ -62,11 +66,12 @@ const flowRoute = createRoute({
   request: {
     query: z.object({
       windowDays: z.coerce.number().int().min(1).max(90).default(7),
-      /**
-       * P1 always computes `raw`; `curated` is accepted so clients can pin the
-       * param now — P2 wires the registry-backed classifier behind it.
-       */
-      mode: z.enum(["curated", "raw"]).default("raw"),
+      /** Registry-backed nodes + heat + dwell; `raw` is the prefix fallback. */
+      mode: z.enum(["curated", "raw"]).default("curated"),
+      /** Attribution model behind `heat.attributedRevenue`. */
+      model: z.enum(ATTRIBUTION_MODELS).default("linear"),
+      /** Idle hours before a contact counts as stuck on a node. */
+      dwellThresholdHours: z.coerce.number().int().min(1).max(720).default(48),
     }),
   },
   responses: {
@@ -99,9 +104,17 @@ const flowRoute = createRoute({
 export const adminFlowRouter = new OpenAPIHono<AppEnv>().openapi(
   flowRoute,
   async (c) => {
-    const { db } = c.get("container");
-    const { windowDays, mode } = c.req.valid("query");
-    const flow = await computeFlowMap({ db, windowDays, mode });
+    const { db, flowTopology } = c.get("container");
+    const { windowDays, mode, model, dwellThresholdHours } =
+      c.req.valid("query");
+    const flow = await computeFlowMap({
+      db,
+      windowDays,
+      mode,
+      topology: flowTopology,
+      model,
+      dwellThresholdHours,
+    });
     return c.json(flow, 200);
   },
 );

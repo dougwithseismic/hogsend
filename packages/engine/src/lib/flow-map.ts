@@ -3,23 +3,35 @@
  * contacts actually move through the product (the data behind Studio's
  * control room, `GET /v1/admin/flow`).
  *
- * P1 ships `mode: "raw"`: nodes are the top event-name prefixes in the
- * window (`docs.opened` → `docs`), edges are contact-ordered transitions
- * between them. Curated mode (registry-backed surfaces/journeys/funnel
- * stages) lands in P2/P3 and slots in as a different classifier over the
- * same seq→edges/nodes projection.
+ * Two classifiers over ONE projection:
+ * - `mode: "curated"` (the default) — nodes come from the registries via
+ *   {@link FlowTopology}: every journey, every funnel stage, the builtin
+ *   `revenue` node. A registered node with no traffic still renders (zeroed),
+ *   because "nobody is in this journey" is itself the answer.
+ * - `mode: "raw"` — the escape hatch: nodes are the top event-name prefixes in
+ *   the window (`docs.opened` → `docs`). No registry, no heat, no dwell. Useful
+ *   when nothing is registered yet, or to see traffic the topology drops.
  *
  * Design notes that matter:
- * - ONE SQL statement, every value bound (never interpolated).
+ * - ONE SQL statement for the projection, every value bound (never interpolated).
  * - The transition sequence is computed AFTER unmapped events are dropped, so
  *   A → (noise) → B still reads as A → B.
  * - Consecutive events on the same node collapse (`prev <> node_id`), so a
  *   contact reading three docs pages is one `docs` node, not a self-loop.
- * - A 5s per-process memo means N pollers cost one query.
+ * - Curated mode costs three window scans (projection, heat, dwell) plus one
+ *   indexed `journey_states` group-by. They run concurrently, and the 5s memo
+ *   means N pollers cost one round.
  */
-import type { Database } from "@hogsend/db";
-import { sql } from "drizzle-orm";
-import type { FlowNode } from "./flow-topology.js";
+import type { AttributionModel } from "@hogsend/attribution";
+import { type Database, journeyStates } from "@hogsend/db";
+import { and, count, inArray, isNull, sql } from "drizzle-orm";
+import { computeNodeDwell } from "./flow-dwell.js";
+import {
+  type FlowNode,
+  type FlowTopology,
+  journeyIdFromNode,
+  journeyNodeId,
+} from "./flow-topology.js";
 
 /**
  * Above this many events in the window we halve the window rather than scan
@@ -39,13 +51,24 @@ const RAW_TOP_PREFIXES = 15;
 /** Poll-collapsing memo — the map moves on a 30s Studio poll, not per request. */
 const FLOW_CACHE_TTL_MS = 5_000;
 
-/** P1 computes `raw` only; `curated` is accepted and treated as raw (P2 wires it). */
+/** Attribution model used for `heat.attributedRevenue` unless the caller picks one. */
+const DEFAULT_ATTRIBUTION_MODEL: AttributionModel = "linear";
+
+/** Idle time before a contact counts as stuck on a node. */
+const DEFAULT_DWELL_THRESHOLD_HOURS = 48;
+
 export type FlowMapMode = "curated" | "raw";
 
 export interface FlowMapOptions {
   db: Database;
   windowDays: number;
   mode: FlowMapMode;
+  /** Required for `curated` — without it the map falls back to raw. */
+  topology?: FlowTopology;
+  /** Attribution model behind `heat.attributedRevenue`. Default `linear`. */
+  model?: AttributionModel;
+  /** Idle hours before a contact is "stuck" on a node. Default 48. */
+  dwellThresholdHours?: number;
 }
 
 /** An amount in one currency — amounts in different currencies NEVER sum. */
@@ -55,9 +78,10 @@ export interface FlowMoney {
 }
 
 /**
- * P2 — per-node conversion + revenue overlay. `attributedRevenue` comes from
- * the attribution ledger; `directRevenue` is the sum of valued events at the
- * node. They answer different questions and are never added together.
+ * Per-node conversion + revenue overlay. `attributedRevenue` comes from the
+ * attribution ledger (this node's share of conversions it touched);
+ * `directRevenue` is the sum of valued events AT the node. They answer
+ * different questions and are never added together.
  */
 export interface FlowNodeHeat {
   conversionRate: number | null;
@@ -65,7 +89,7 @@ export interface FlowNodeHeat {
   directRevenue: FlowMoney[];
 }
 
-/** P2 — the pile-up: contacts whose LAST classified node is this one, idle past threshold. */
+/** The pile-up: contacts whose LAST classified node is this one, idle past threshold. */
 export interface FlowNodeDwell {
   stuckContacts: number;
   thresholdHours: number;
@@ -84,11 +108,11 @@ export interface FlowMapNode extends FlowNode {
   contacts: number;
   /** Events attributed to this node in the window. */
   events: number;
-  /** P4 — contacts currently on this node (live SSE). */
+  /** Contacts currently ON this node — journey nodes only (live enrollments). */
   live: number | null;
-  /** P2 — conversion + revenue overlay. */
+  /** Conversion + revenue overlay (curated mode only). */
   heat: FlowNodeHeat | null;
-  /** P2 — pile-up stats. */
+  /** Pile-up stats (curated mode only). */
   dwell: FlowNodeDwell | null;
 }
 
@@ -148,15 +172,55 @@ const flowCache = new Map<string, FlowCacheEntry>();
  * - Eviction is identity-checked: a slow failure must only evict ITS OWN
  *   entry, never a fresher one that replaced it.
  */
+/** Cache identity for a topology object (containers differ across tests). */
+let topologySeq = 0;
+const topologyIds = new WeakMap<FlowTopology, number>();
+function topologyId(topology: FlowTopology): number {
+  let id = topologyIds.get(topology);
+  if (id === undefined) {
+    topologySeq += 1;
+    id = topologySeq;
+    topologyIds.set(topology, id);
+  }
+  return id;
+}
+
+/** Settled entries a key sweep never visits again must not pin memory forever. */
+const FLOW_CACHE_MAX_ENTRIES = 64;
+
 export function computeFlowMap(opts: FlowMapOptions): Promise<FlowMap> {
+  // Every parameter that changes the NUMBERS is in the key (model and
+  // threshold as much as window and mode) — and so is the EFFECTIVE mode: a
+  // curated request with no topology degrades to raw and must never share an
+  // entry with a real curated map. The topology's identity is keyed too, so
+  // two containers in one process (test suites) can't serve each other.
+  const curated =
+    opts.mode === "curated" && opts.topology ? opts.topology : undefined;
   const key = JSON.stringify({
     windowDays: opts.windowDays,
-    mode: opts.mode,
+    mode: curated ? "curated" : "raw",
+    topology: curated ? topologyId(curated) : null,
+    model: opts.model ?? DEFAULT_ATTRIBUTION_MODEL,
+    dwellThresholdHours:
+      opts.dwellThresholdHours ?? DEFAULT_DWELL_THRESHOLD_HOURS,
   });
   const now = Date.now();
   const hit = flowCache.get(key);
   if (hit && (!hit.settled || now - hit.at < FLOW_CACHE_TTL_MS)) {
     return hit.promise;
+  }
+
+  // Bound the cache: an admin sweeping thresholds/models mints fresh keys per
+  // request, and a settled entry for a never-repeated key would otherwise pin
+  // a full FlowMap for the process lifetime. Evict oldest-settled first;
+  // pending entries are never evicted (they are the stampede guard).
+  if (flowCache.size >= FLOW_CACHE_MAX_ENTRIES) {
+    for (const [staleKey, entry] of flowCache) {
+      if (entry.settled) {
+        flowCache.delete(staleKey);
+        if (flowCache.size < FLOW_CACHE_MAX_ENTRIES) break;
+      }
+    }
   }
 
   const entry: FlowCacheEntry = {
@@ -204,15 +268,36 @@ async function resolveWindow(
   };
 }
 
-/** P1 always runs the raw classifier — `mode` only keys the memo for now. */
-async function runFlowMap({
-  db,
-  windowDays,
-}: FlowMapOptions): Promise<FlowMap> {
-  const { effectiveWindowDays, truncated } = await resolveWindow(
-    db,
-    windowDays,
-  );
+/**
+ * The projection itself: classify → drop the unclassified → per-contact
+ * sequence → edges + node totals. The only thing that differs between raw and
+ * curated is the `node_id` expression handed in here.
+ */
+async function project(
+  db: Database,
+  effectiveWindowDays: number,
+  classifier: "raw" | FlowTopology,
+): Promise<{ nodeRows: NodeRow[]; edgeRows: EdgeRow[] }> {
+  const nodeExpr =
+    classifier === "raw"
+      ? sql`split_part(event, '.', 1)`
+      : classifier.classifierSql();
+
+  // Raw mode's legibility cut: only the loudest prefixes survive. Curated mode
+  // needs no cut — the registry IS the cut.
+  const cut =
+    classifier === "raw"
+      ? sql`
+        join (
+          select node_id
+          from win
+          where node_id is not null and node_id <> ''
+          group by node_id
+          order by count(*) desc, node_id
+          limit ${RAW_TOP_PREFIXES}
+        ) t on t.node_id = w.node_id
+      `
+      : sql``;
 
   const rows = await db.execute<{ nodes: NodeRow[]; edges: EdgeRow[] }>(sql`
     with win as (
@@ -220,24 +305,15 @@ async function runFlowMap({
         user_id,
         occurred_at,
         id,
-        split_part(event, '.', 1) as node_id
+        ${nodeExpr} as node_id
       from user_events
       where occurred_at >= now() - make_interval(days => ${effectiveWindowDays}::int)
-    ),
-    -- Legibility cut: only the loudest prefixes become nodes. Everything else
-    -- classifies to nothing and is dropped BEFORE the sequence is built.
-    top_prefixes as (
-      select node_id
-      from win
-      where node_id <> ''
-      group by node_id
-      order by count(*) desc, node_id
-      limit ${RAW_TOP_PREFIXES}
     ),
     classified as (
       select w.user_id, w.occurred_at, w.id, w.node_id
       from win w
-      join top_prefixes t on t.node_id = w.node_id
+      ${cut}
+      where w.node_id is not null
     ),
     -- Per contact, what node did they come from? Computed over the classified
     -- set, so an unmapped event between two nodes doesn't break the edge.
@@ -300,8 +376,312 @@ async function runFlowMap({
   `);
 
   const row = rows[0];
-  const nodeRows = row?.nodes ?? [];
-  const edgeRows = row?.edges ?? [];
+  return { nodeRows: row?.nodes ?? [], edgeRows: row?.edges ?? [] };
+}
+
+export interface ComputeFlowHeatOptions {
+  db: Database;
+  topology: FlowTopology;
+  windowDays: number;
+  /** Attribution model. Default `linear`. */
+  model?: AttributionModel;
+}
+
+type AttributedRow = {
+  scope: "journey" | "funnel";
+  key: string;
+  currency: string;
+  amount: number;
+};
+type DirectRow = { nodeId: string; currency: string; amount: number };
+type ConvRow = { nodeId: string; contacts: number; converted: number };
+
+/**
+ * Per-node heat: what a node is WORTH and how well it converts.
+ *
+ * Exported standalone because #486 (signal-based selling) needs exactly this
+ * half — it ranks intervention candidates by `stuckContacts × downstream
+ * value`, and this is the right factor (`computeNodeDwell` is the left). Same
+ * node ids on both sides.
+ *
+ * Three sources, deliberately never merged:
+ * - `attributedRevenue` — the ledger's credit for conversions this journey /
+ *   funnel TOUCHED, under one model. Fractional, path-aware.
+ * - `directRevenue` — the money that landed AT the node (a valued event
+ *   classified here). Whole, no model.
+ * Summing them would double-count the same sale, so they stay separate arrays,
+ * per currency, and the UI picks one to show.
+ * - `conversionRate` — of the contacts who reached this node, what fraction
+ *   converted at-or-after their first touch of it.
+ */
+export async function computeFlowHeat(
+  opts: ComputeFlowHeatOptions,
+): Promise<Map<string, FlowNodeHeat>> {
+  const { db, topology, windowDays } = opts;
+  const model = opts.model ?? DEFAULT_ATTRIBUTION_MODEL;
+
+  const [attributed, local] = await Promise.all([
+    // Ledger credit, sliced by the two scope columns the flow map has nodes
+    // for. Valueless credits (a conversion with no money) carry a null value
+    // and are excluded — they'd contribute nothing but a phantom currency.
+    // Ordered so the money arrays are deterministic across polls — GROUP BY
+    // output order is unspecified, and Studio's identity-reuse compares the
+    // arrays index-wise.
+    db.execute<AttributedRow>(sql`
+      select 'journey' as scope, journey_id as key, currency,
+             sum(value)::float8 as amount
+      from attribution_credits
+      where model = ${model}
+        and converted_at >= now() - make_interval(days => ${windowDays}::int)
+        and journey_id is not null
+        and value is not null
+        and currency is not null
+      group by journey_id, currency
+      union all
+      select 'funnel' as scope, funnel_id as key, currency,
+             sum(value)::float8 as amount
+      from attribution_credits
+      where model = ${model}
+        and converted_at >= now() - make_interval(days => ${windowDays}::int)
+        and funnel_id is not null
+        and value is not null
+        and currency is not null
+      group by funnel_id, currency
+      order by 1, 2, 3
+    `),
+    db.execute<{ direct: DirectRow[]; conv: ConvRow[] }>(sql`
+      with classified as (
+        select
+          user_id,
+          occurred_at,
+          value,
+          currency,
+          ${topology.classifierSql()} as node_id
+        from user_events
+        where occurred_at >= now() - make_interval(days => ${windowDays}::int)
+      ),
+      kept as (
+        select * from classified where node_id is not null
+      ),
+      -- When did each contact FIRST reach each node? A conversion only counts
+      -- for a node if it happened at-or-after that first touch — crediting a
+      -- node for a sale that closed before the contact ever saw it is a lie.
+      firsts as (
+        select node_id, user_id, min(occurred_at) as first_at
+        from kept
+        group by node_id, user_id
+      ),
+      direct as (
+        select node_id, currency, sum(value)::float8 as amount
+        from kept
+        where value is not null and currency is not null
+        group by node_id, currency
+      ),
+      conv as (
+        select
+          f.node_id,
+          count(*)::int as contacts,
+          count(*) filter (
+            where exists (
+              select 1
+              from conversions c
+              where c.user_key = f.user_id
+                and c.occurred_at >= f.first_at
+            )
+          )::int as converted
+        from firsts f
+        group by f.node_id
+      )
+      select
+        coalesce(
+          (
+            select json_agg(json_build_object(
+              'nodeId', node_id, 'currency', currency, 'amount', amount
+            ) order by node_id, currency)
+            from direct
+          ),
+          '[]'::json
+        ) as direct,
+        coalesce(
+          (
+            select json_agg(json_build_object(
+              'nodeId', node_id, 'contacts', contacts, 'converted', converted
+            ))
+            from conv
+          ),
+          '[]'::json
+        ) as conv
+    `),
+  ]);
+
+  const heat = new Map<string, FlowNodeHeat>();
+  const heatFor = (nodeId: string): FlowNodeHeat => {
+    const existing = heat.get(nodeId);
+    if (existing) return existing;
+    const fresh: FlowNodeHeat = {
+      conversionRate: null,
+      attributedRevenue: [],
+      directRevenue: [],
+    };
+    heat.set(nodeId, fresh);
+    return fresh;
+  };
+
+  for (const row of attributed) {
+    // A funnel's credit attaches to the stage where the money is won; a
+    // journey's to the journey node. Credit for a journey/funnel that is no
+    // longer registered has nowhere to land — drop it rather than mint a
+    // ghost node.
+    const nodeId =
+      row.scope === "journey"
+        ? journeyNodeId(row.key)
+        : topology.revenueNodeFor(row.key);
+    if (!nodeId || !topology.node(nodeId)) continue;
+    heatFor(nodeId).attributedRevenue.push({
+      amount: Number(row.amount),
+      currency: row.currency,
+    });
+  }
+
+  const { direct, conv } = local[0] ?? { direct: [], conv: [] };
+  for (const row of direct) {
+    heatFor(row.nodeId).directRevenue.push({
+      amount: Number(row.amount),
+      currency: row.currency,
+    });
+  }
+  for (const row of conv) {
+    const contacts = Number(row.contacts);
+    if (contacts === 0) continue;
+    heatFor(row.nodeId).conversionRate = Number(row.converted) / contacts;
+  }
+
+  return heat;
+}
+
+/** Contacts sitting in each journey right now (`active` + `waiting`). */
+async function liveJourneyCounts(db: Database): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ journeyId: journeyStates.journeyId, live: count() })
+    .from(journeyStates)
+    .where(
+      and(
+        inArray(journeyStates.status, ["active", "waiting"]),
+        isNull(journeyStates.deletedAt),
+      ),
+    )
+    .groupBy(journeyStates.journeyId);
+  return new Map(rows.map((r) => [r.journeyId, Number(r.live)]));
+}
+
+async function runFlowMap({
+  db,
+  windowDays,
+  mode,
+  topology,
+  model,
+  dwellThresholdHours,
+}: FlowMapOptions): Promise<FlowMap> {
+  const { effectiveWindowDays, truncated } = await resolveWindow(
+    db,
+    windowDays,
+  );
+  const thresholdHours = dwellThresholdHours ?? DEFAULT_DWELL_THRESHOLD_HOURS;
+  // A curated request with no topology (a container-less caller) degrades to
+  // raw rather than throwing — an honest raw map beats an empty one.
+  const curated = mode === "curated" ? topology : undefined;
+
+  // Dwell answers "who is stuck NOW", not "who moved in the display window" —
+  // its lookback is deliberately DECOUPLED from the map window. Coupling them
+  // makes threshold >= window a structurally empty band (24h window + 48h
+  // threshold = nobody can ever be stuck), and drops contacts from the
+  // pile-up precisely when they've been stuck longest. Floor: the module's
+  // 30-day default, the display window if larger, and always at least one day
+  // past the threshold so the band is never empty.
+  const dwellLookbackDays = Math.max(
+    30,
+    effectiveWindowDays,
+    Math.ceil(thresholdHours / 24) + 1,
+  );
+
+  const [{ nodeRows, edgeRows }, heat, dwell, live] = await Promise.all([
+    project(db, effectiveWindowDays, curated ?? "raw"),
+    curated
+      ? computeFlowHeat({
+          db,
+          topology: curated,
+          windowDays: effectiveWindowDays,
+          model,
+        })
+      : undefined,
+    curated
+      ? computeNodeDwell({
+          db,
+          topology: curated,
+          windowDays: dwellLookbackDays,
+          thresholdHours,
+        })
+      : undefined,
+    curated ? liveJourneyCounts(db) : undefined,
+  ]);
+
+  const dwellByNode = new Map((dwell ?? []).map((d) => [d.nodeId, d]));
+  const observed = new Map(nodeRows.map((n) => [n.id, n]));
+
+  // Curated mode draws EVERY registered node, traffic or not: "nobody entered
+  // this journey in 7 days" is the most useful thing the map can say, and it
+  // can only say it if the node is on the canvas. Node ids observed in the
+  // window but absent from the registry (impossible today — the classifier only
+  // emits registry ids — but a future classifier could) are kept too, as
+  // unclassified surfaces.
+  const ids = curated
+    ? [...new Set([...curated.nodes().map((n) => n.id), ...observed.keys()])]
+    : [...observed.keys()];
+
+  const nodes: FlowMapNode[] = ids.map((id) => {
+    const registered = curated?.node(id);
+    const row = observed.get(id);
+    const d = dwellByNode.get(id);
+    const journeyId = journeyIdFromNode(id);
+    return {
+      id,
+      // Raw mode has no registry to consult: every prefix is an unclassified
+      // surface parked in the first tier.
+      kind: registered?.kind ?? "surface",
+      name: registered?.name ?? id,
+      tier: registered?.tier ?? "acquisition",
+      contacts: Number(row?.contacts ?? 0),
+      events: Number(row?.events ?? 0),
+      // Live counts exist only where "currently in it" is a real state: a
+      // journey enrollment. A funnel stage's live population IS its dwell.
+      live:
+        registered?.kind === "journey" && journeyId !== undefined
+          ? (live?.get(journeyId) ?? 0)
+          : null,
+      // One convention, applied whole: in curated mode every node carries a
+      // heat + dwell OBJECT (zeroed when there's no data — "measured, nothing
+      // there"); in raw mode both are null ("not measured").
+      heat: heat
+        ? (heat.get(id) ?? {
+            conversionRate: null,
+            attributedRevenue: [],
+            directRevenue: [],
+          })
+        : null,
+      dwell: curated
+        ? {
+            stuckContacts: d?.stuckContacts ?? 0,
+            thresholdHours,
+            oldestLastSeenAt: d?.oldestLastSeenAt?.toISOString() ?? null,
+            p50HoursStuck: d?.p50HoursStuck ?? null,
+          }
+        : null,
+    };
+  });
+
+  // Busiest first, ties broken by id — a stable order across polls (the Studio
+  // layout pins row slots off the first order it sees).
+  nodes.sort((a, b) => b.contacts - a.contacts || a.id.localeCompare(b.id));
 
   const to = new Date();
   const from = new Date(
@@ -316,19 +696,7 @@ async function runFlowMap({
       from: from.toISOString(),
       to: to.toISOString(),
     },
-    nodes: nodeRows.map((n) => ({
-      id: n.id,
-      // Raw mode has no registry to consult: every prefix is an unclassified
-      // surface parked in the first tier. P2/P3 assign the real kind + tier.
-      kind: "surface" as const,
-      name: n.id,
-      tier: "acquisition" as const,
-      contacts: Number(n.contacts),
-      events: Number(n.events),
-      live: null,
-      heat: null,
-      dwell: null,
-    })),
+    nodes,
     edges: edgeRows.map((e) => ({
       from: e.from,
       to: e.to,

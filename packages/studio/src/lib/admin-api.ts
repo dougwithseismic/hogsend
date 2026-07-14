@@ -1648,11 +1648,11 @@ export type FlowGraphNode = {
   tier: SurfaceTier;
   contacts: number;
   events: number;
-  /** Contacts currently here — null until the live layer ships. */
+  /** Contacts enrolled right now — journey nodes only; null everywhere else. */
   live: number | null;
-  /** Conversion + revenue overlay — null until P2. */
+  /** Conversion + revenue overlay — null in raw mode (unmeasured, not zero). */
   heat: FlowNodeHeat | null;
-  /** Pile-up stats — null until P2. */
+  /** Pile-up stats — null in raw mode (unmeasured, not zero). */
   dwell: FlowNodeDwell | null;
 };
 

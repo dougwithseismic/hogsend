@@ -1,5 +1,7 @@
 /**
- * GET /v1/admin/flow — the control-room flow map (raw mode). Proves: the admin
+ * GET /v1/admin/flow?mode=raw — the control-room flow map's escape hatch: no
+ * registry, just the loudest event-name prefixes. (The curated default is
+ * covered by `admin-flow-curated.test.ts`.) Proves: the admin
  * auth gate, the window bounds, the prefix classifier (`docs.opened` → `docs`),
  * the same-node collapse (consecutive docs events are ONE node, never a
  * self-loop), per-edge transition + distinct-contact counts, node totals for a
@@ -153,7 +155,9 @@ beforeAll(async () => {
 
   await db.insert(userEvents).values(rows);
 
-  const res = await app.request("/v1/admin/flow?windowDays=1", {
+  // `mode` is EXPLICIT here: since P2 the route defaults to `curated` (the
+  // registry-backed classifier). Raw is the escape hatch this suite covers.
+  const res = await app.request("/v1/admin/flow?windowDays=1&mode=raw", {
     headers: AUTH_HEADER,
   });
   expect(res.status).toBe(200);

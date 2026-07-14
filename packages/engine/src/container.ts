@@ -97,6 +97,8 @@ import type {
   EmailService,
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
+import { buildFlowTopology, type FlowTopology } from "./lib/flow-topology.js";
+import { setFlowTopology } from "./lib/flow-topology-singleton.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
 import { hatchet } from "./lib/hatchet.js";
 import {
@@ -210,6 +212,13 @@ export interface HogsendClient {
    * (provider, pipeline) claim; admin stats/Studio render per funnel.
    */
   funnels: FunnelRegistry;
+  /**
+   * The control room's flow-map topology (issue #485): the node set + the
+   * event classifier, compiled once from the journey and funnel registries.
+   * `GET /v1/admin/flow` projects through it; the same object is installed as a
+   * process singleton for the container-less ingest path.
+   */
+  flowTopology: FlowTopology;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -857,6 +866,15 @@ export function createHogsendClient(
     funnels,
   });
 
+  // The control room's topology (#485) — every journey and funnel stage becomes
+  // a flow-map node, and the event classifier is compiled from both registries
+  // (to TS for the live path, to SQL for the windowed projection). Built here
+  // because this is the first point where BOTH registries exist. Installed as a
+  // process singleton for the same reason as the CRM config: `ingestEvent` is
+  // container-less by design.
+  const flowTopology = buildFlowTopology({ registry, funnels, logger });
+  setFlowTopology(flowTopology);
+
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
   // the API and worker processes.
   // Zero-config revenue conversion (impact plan §5.2) — seeded unless the
@@ -1445,6 +1463,7 @@ export function createHogsendClient(
     smsProvider,
     crmProviders,
     funnels,
+    flowTopology,
     analyticsProviders,
     analytics,
     identity,

@@ -16,10 +16,13 @@ import { FlowCanvas } from "./flow/flow-canvas";
  * The control room — how contacts actually move through the product, drawn
  * from the event history (`GET /v1/admin/flow`).
  *
- * P1 is the static map: nodes are the loudest event-name prefixes in the
- * window, edges are the transitions between them, and traffic is carried by
- * the glow + particle density on each rail. Journeys, funnel stages, heat and
- * a live stream layer land in later phases against the same response shape.
+ * Nodes are the real machine: every journey, every funnel stage, the money.
+ * Each card carries its own heat (conversion + revenue) and its pile-up ("N
+ * stuck"); traffic between them is the glow + particle density on each rail.
+ * The engine picks the classifier, the attribution model and the dwell
+ * threshold — this view sends only the window, so the map an operator sees is
+ * the map the engine considers canonical. (A live stream layer lands in P4
+ * against this same response shape.)
  */
 
 const POLL_INTERVAL_MS = 30_000;

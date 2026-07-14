@@ -458,6 +458,44 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
+// --- Flow map (control room, #485) ---
+export {
+  type ComputeDwellOptions,
+  computeNodeDwell,
+  type DwellBucket,
+  listStuckContacts,
+  type StuckContact,
+} from "./lib/flow-dwell.js";
+export {
+  type ComputeFlowHeatOptions,
+  computeFlowHeat,
+  computeFlowMap,
+  type FlowMap,
+  type FlowMapEdge,
+  type FlowMapMode,
+  type FlowMapNode,
+  type FlowMapOptions,
+  type FlowMoney,
+  type FlowNodeDwell,
+  type FlowNodeHeat,
+} from "./lib/flow-map.js";
+export {
+  buildFlowTopology,
+  type ClassifiableEvent,
+  type FlowNode,
+  type FlowNodeKind,
+  type FlowTopology,
+  funnelStageNodeId,
+  journeyIdFromNode,
+  journeyNodeId,
+  REVENUE_NODE_ID,
+  type SurfaceTier,
+} from "./lib/flow-topology.js";
+export {
+  getFlowTopology,
+  resetFlowTopology,
+  setFlowTopology,
+} from "./lib/flow-topology-singleton.js";
 export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";

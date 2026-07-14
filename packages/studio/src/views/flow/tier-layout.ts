@@ -27,9 +27,13 @@ export const TIERS: readonly SurfaceTier[] = [
   "revenue",
 ];
 
-/** Node card footprint — must match `surface-node.tsx`. */
+/**
+ * Node card footprint. `surface-node.tsx` sizes itself from these constants
+ * (they are the layout's handle geometry, so the card cannot be allowed to
+ * disagree). The card grew a chips row in P2 — hence 104, not 88.
+ */
 export const NODE_WIDTH = 240;
-export const NODE_HEIGHT = 88;
+export const NODE_HEIGHT = 104;
 
 const COLUMN_X = 480;
 const ROW_GAP = 48;
