@@ -77,6 +77,10 @@ Key facts:
   `--admin-password` (min 8 chars) ⇒ one is generated and printed ONCE — grep
   the boot log for `First admin created`. Fallback:
   `hogsend studio admin create --email … --password … --json`.
+- **Failures carry their cause**: in a non-TTY run, every bootstrap failure
+  prints the full underlying output beneath the one-liner (stderr tail, stack
+  trace, the handshake API child's boot log) — read that before retrying. In a
+  terminal, `HOGSEND_DEBUG=1` forces the same detail.
 - **Health semantics**: `migration_pending` ⇒ run `pnpm db:migrate`;
   `degraded` ⇒ serving but check `components.{database,redis,worker}`;
   `components.worker` is the worker's Redis heartbeat.

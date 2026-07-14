@@ -463,5 +463,11 @@ main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   if (interactive) cancel(msg);
   else console.error(`\n  ${msg}\n`);
+  // Non-interactive runs are agent-driven: pass the full cause back (a
+  // terminal gets it on demand via HOGSEND_DEBUG=1).
+  const stack = err instanceof Error ? err.stack : undefined;
+  if (stack && (!interactive || process.env.HOGSEND_DEBUG === "1")) {
+    console.error(stack);
+  }
   process.exit(1);
 });

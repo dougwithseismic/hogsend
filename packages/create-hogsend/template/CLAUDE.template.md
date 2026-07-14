@@ -75,7 +75,9 @@ Everything works without a TTY — no prompts, machine-readable outcomes:
   `.env`, port auto-remap, Hatchet token, migrations (engine track verified),
   and two keys into `.env`: `HOGSEND_API_KEY` (ingest) + `HOGSEND_ADMIN_KEY`
   (full-admin, what the `hogsend` CLI reads). Exit 0 = every step succeeded;
-  exit 1 = the failed steps are re-listed in the summary.
+  exit 1 = the failed steps are re-listed in the summary. Non-TTY runs print
+  the FULL cause under each failure (stderr tails, stack traces) — read it,
+  don't guess; in a terminal, `HOGSEND_DEBUG=1` forces the same detail.
 - **First admin** (sign-up is closed): set `STUDIO_ADMIN_EMAIL` (and optionally
   `STUDIO_ADMIN_PASSWORD`, min 8 chars) in `.env` — the API mints the admin on
   FIRST BOOT when the user table is empty. Without a password one is generated
