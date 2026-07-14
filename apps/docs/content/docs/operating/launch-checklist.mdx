@@ -1,0 +1,118 @@
+---
+title: Launch checklist
+description: The pre-production checklist — everything to verify between "deployed" and "sending to real people", including wiring the PostHog event loop.
+---
+
+Deploying the services is half the launch. This is the other half — the wiring
+and verification that turns a running instance into one that's safe to point at
+real users. Provider-agnostic: it applies whether you deployed on
+[Railway](/docs/operating/deploy-railway), [Docker](/docs/operating/deploy-docker),
+or [your own infrastructure](/docs/operating/deploy-byo).
+
+Work top to bottom; every step ends with a check.
+
+## 1. Instance is healthy
+
+```bash
+curl -s https://api.yourdomain.com/v1/health
+```
+
+- [ ] `status` is `"healthy"` — `migration_pending` means a migration track is
+  behind (run `pnpm db:migrate`); `degraded` means a component is down (check
+  `components`).
+- [ ] `components.worker.status` is `up` — the worker heartbeats through Redis;
+  `down` means journeys will enroll but never execute.
+- [ ] `API_PUBLIC_URL` is your real public URL (it's baked into every tracking
+  link, unsubscribe link, and webhook you provision below — a loopback or stale
+  value here poisons all three).
+
+## 2. First admin exists, sign-up is closed
+
+Public sign-up is closed by design; the first admin comes from you.
+
+- [ ] `STUDIO_ADMIN_EMAIL` was set before first boot (the API mints the admin
+  once, on an empty user table — password from `STUDIO_ADMIN_PASSWORD`, else
+  generated and printed ONCE in the boot log), **or** you ran
+  `hogsend studio admin create` with the instance env loaded.
+- [ ] You can sign in at `https://api.yourdomain.com/studio`.
+
+## 3. Sending domain is verified (email actually delivers)
+
+- [ ] Domain added + DNS records applied: `hogsend domain add yourdomain.com`,
+  then `hogsend domain check` until verified. The full fresh-domain walkthrough
+  (DKIM, inbound replies, ~30 minutes) is
+  [Production email on a fresh domain](/docs/operating/production-email).
+- [ ] [Test mode](/docs/operating/test-mode): with `EMAIL_FROM`/`EMAIL_DOMAIN`
+  set, sends redirect to your own inbox **until the domain verifies**, then go
+  live automatically (`HOGSEND_TEST_MODE=auto`). Confirm you're not still
+  forcing `HOGSEND_TEST_MODE=true` from testing.
+- [ ] Send one real email to yourself and check the DKIM signature
+  (`d=yourdomain.com` in the headers).
+
+## 4. Wire the PostHog event loop — `hogsend connect posthog`
+
+If PostHog is an event source for your journeys, this is the step that makes
+PostHog deliver events to your instance. It cannot complete against localhost —
+it belongs HERE, after deploy, not in local setup.
+
+```bash
+hogsend connect posthog --url https://api.yourdomain.com
+```
+
+Run it **from your laptop** (the OAuth consent opens a browser and the callback
+lands on 127.0.0.1 — never from SSH). It authorizes via PostHog OAuth (no keys
+pasted), stores the credential on the instance, mints the webhook secret, and
+creates the destination in your PostHog project — then tells you exactly what
+it created (destination id, target URL, filter, auth header, dashboard link).
+
+- [ ] If you connected during local setup, the destination already exists in
+  PostHog — **disabled, pointing at the `CHANGEME.yourdomain.com` placeholder**.
+  Go live with one command (swaps the URL and enables it):
+
+  ```bash
+  hogsend connect posthog --provision-only --url https://api.yourdomain.com
+  ```
+
+- [ ] Verify: fire an identified event in PostHog and watch it arrive
+  (`hogsend events <that-user-id> --json` shows the user's ingested events, or
+  check the journey enrollment in Studio).
+- [ ] Headless/CI alternative (no browser): set `POSTHOG_PERSONAL_API_KEY` on
+  the instance — person reads and loop provisioning work automatically.
+- [ ] Person **reads** (per-user timezone resolution, property conditions) need
+  the OAuth credential or a personal key — the `phc_` project key is write-only
+  by PostHog's design.
+
+## 5. Keys and webhook secrets
+
+- [ ] A data-plane key exists for your product code: an instance that never ran
+  `pnpm bootstrap` mints one ingest-scoped key on FIRST boot and prints it once
+  to the deploy log (grab it there; opt out with
+  `HOGSEND_BOOTSTRAP_API_KEY=false`), or create one via
+  `POST /v1/admin/api-keys` with `scopes: ["ingest"]`.
+- [ ] `ADMIN_API_KEY` (or a stored full-admin key) is set for CLI/admin access
+  against the deployed instance.
+- [ ] Email provider webhooks are wired for bounce/complaint suppression:
+  Resend → `https://api.yourdomain.com/v1/webhooks/email/resend` with
+  `RESEND_WEBHOOK_SECRET`; Postmark equivalents under
+  `/v1/webhooks/email/postmark`.
+
+## 6. Final smoke — one real journey end-to-end
+
+```bash
+hogsend doctor --json          # keys, schema, components — one call
+hogsend events send test.signup --email you@yourdomain.com --json
+```
+
+- [ ] The journey enrolls (Studio → Journeys, or `hogsend journeys list --json`).
+- [ ] The email lands in your inbox, DKIM-signed, links tracked.
+- [ ] Opens/clicks appear on the send (first-party tracking, no provider
+  toggles needed).
+
+## Next steps
+
+<Cards>
+  <Card title="Monitoring & alerting" href="/docs/operating/monitoring" />
+  <Card title="Production email on a fresh domain" href="/docs/operating/production-email" />
+  <Card title="Test mode" href="/docs/operating/test-mode" />
+  <Card title="Upgrading" href="/docs/operating/upgrading" />
+</Cards>

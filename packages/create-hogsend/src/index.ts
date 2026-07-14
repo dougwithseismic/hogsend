@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { stdin } from "node:process";
@@ -14,6 +14,7 @@ import {
   emittedTopLevelNames,
 } from "./copy.js";
 import { binCmd, type CliOptions, resolveOptions } from "./prompts.js";
+import { ENGINE_VERSION } from "./template-manifest.js";
 
 const interactive = Boolean(stdin.isTTY);
 const DOCS = "docs.hogsend.com";
@@ -28,6 +29,28 @@ function templateDir(): string {
   // `dist/index.js` and `template/` are siblings in the published tarball
   // (package.json `files: ["dist","template"]`).
   return fileURLToPath(new URL("../template", import.meta.url));
+}
+
+/**
+ * The RUNNING create-hogsend version, read from our own package.json (sibling
+ * of dist/ in the published tarball). Shown in the banner because "which
+ * version am I actually running?" is the first question when a scaffold
+ * misbehaves — pnpm 11's release-age quarantine once silently served a
+ * stale create-hogsend under `@latest`, and nothing on screen said so.
+ * Falls back to the pinned engine line if the read ever fails.
+ */
+function cliVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL("../package.json", import.meta.url)),
+        "utf8",
+      ),
+    ) as { version?: string };
+    return pkg.version ?? ENGINE_VERSION;
+  } catch {
+    return ENGINE_VERSION;
+  }
 }
 
 function isCurrentDir(opts: CliOptions): boolean {
@@ -241,9 +264,10 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
 }
 
 async function main(): Promise<void> {
+  const version = cliVersion();
   if (interactive) {
     intro(
-      `${color.bgMagenta(color.black(" create-hogsend "))} ${color.dim(`scaffold a Hogsend app · ${DOCS}`)}`,
+      `${color.bgMagenta(color.black(" create-hogsend "))} ${color.dim(`v${version} · scaffold a Hogsend app · ${DOCS}`)}`,
     );
     note(
       `${color.dim(
@@ -251,6 +275,12 @@ async function main(): Promise<void> {
       )}\n${color.dim("Docs & guides: ")}${color.cyan("hogsend.com")}`,
       color.magenta("Welcome to Hogsend"),
     );
+  }
+
+  if (!interactive) {
+    // Headless runs get the version too — it's the first fact a CI log or an
+    // agent transcript needs when a scaffold misbehaves.
+    console.log(`create-hogsend v${version} (engine line ^${ENGINE_VERSION})`);
   }
 
   const opts = await resolveOptions(process.argv.slice(2));

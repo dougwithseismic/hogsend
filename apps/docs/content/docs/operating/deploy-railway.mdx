@@ -186,9 +186,14 @@ The worker needs no public domain.
 - [ ] Confirm `preDeployCommand` (`pnpm db:migrate`) ran both tracks
 - [ ] Verify `/v1/health` returns `status: "healthy"` with both tracks `inSync: true`
 
+Deployed ≠ launched — the domain verification, PostHog event loop
+(`hogsend connect posthog`), webhook secrets, and go-live smoke live in the
+[launch checklist](/docs/operating/launch-checklist).
+
 ## Next steps
 
 <Cards>
+  <Card title="Launch checklist" href="/docs/operating/launch-checklist" />
   <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
   <Card title="Deploy with Docker (default)" href="/docs/operating/deploy-docker" />
   <Card title="Configuration reference" href="/docs/getting-started/configuration" />
