@@ -28,6 +28,7 @@ import {
 } from "./discord.js";
 import { templates } from "./emails/index.js";
 import { funnels } from "./funnels.js";
+import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
@@ -42,6 +43,10 @@ const client = createHogsendClient({
   lists,
   funnels,
   email: { templates },
+  // Feeds the Studio journey-graph route the app's `as const` constant maps so
+  // `Templates.X`/`Events.X` member expressions in journey source resolve to
+  // their real values (exact email previews + stable, join-safe node ids).
+  journeyConstants: { templates: Templates, events: Events },
   // SMS channel — Twilio provider is auto-built from TWILIO_* env; with no creds
   // the SMS service is an inert stub and sendSms throws an actionable error.
   sms: { templates: smsTemplates },

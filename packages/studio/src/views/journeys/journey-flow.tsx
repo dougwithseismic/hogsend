@@ -603,7 +603,8 @@ function NodeDetailBody({
           />
         ) : (
           <p className="rounded-md border border-dashed border-white/15 p-3 text-sm text-white/60">
-            No sends recorded yet — preview appears once this journey sends.
+            Couldn't identify this step's template from the journey source, so
+            there's nothing to preview.
           </p>
         )
       ) : null}
