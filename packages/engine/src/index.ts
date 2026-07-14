@@ -461,6 +461,16 @@ export {
 export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";
+// --- Base-currency FX lens (optional; docs/groups.md §Base-currency lens) ---
+export {
+  createFrankfurterFxProvider,
+  createFxLens,
+  createStaticFxProvider,
+  type FxLens,
+  type FxRatesToBase,
+  fxProviderFromEnv,
+  parseFxRatesEnv,
+} from "./lib/fx.js";
 export { hatchet } from "./lib/hatchet.js";
 export {
   globalControlPercent,

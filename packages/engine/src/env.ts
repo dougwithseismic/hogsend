@@ -121,6 +121,34 @@ export const env = createEnv({
     POSTMARK_MESSAGE_STREAM: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_USER: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_PASS: z.string().min(1).optional(),
+    // --- Base-currency FX lens (optional; docs/groups.md §Base-currency lens) ---
+    // The operator's reporting currency. UNSET = the lens is OFF everywhere
+    // (zero behavior change): no converted figures, no converted ranking. Set
+    // it (e.g. "USD") to turn converted `revenueBase` figures + base-ranked
+    // `sort=revenue` on wherever a rate source is available. Uppercased so
+    // rate-sheet lookups never miss on case.
+    BASE_CURRENCY: z
+      .string()
+      .regex(/^[A-Za-z]{3}$/, "must be a 3-letter ISO-4217 code")
+      .transform((v) => v.toUpperCase())
+      .optional(),
+    // Which rate source serves the lens. "static" (default) is SOVEREIGN —
+    // operator-supplied FX_RATES, zero network. "frankfurter" opts into
+    // fetching ECB daily reference rates (cached in `fx_rates`, ≤1 outbound
+    // call per day, fail-soft to the last cached sheet).
+    FX_PROVIDER: z.enum(["static", "frankfurter"]).optional(),
+    // The static preset's rate sheet: a JSON object of quote→base rates, e.g.
+    // {"JPY":0.0065,"GBP":1.27} = 1 JPY is 0.0065 base units. Quoted against
+    // BASE_CURRENCY. Parsed (and failed LOUD on malformed JSON / non-positive
+    // values) at boot in `lib/fx.ts` — a typo'd sheet must never silently
+    // convert money wrong.
+    FX_RATES: z.string().optional(),
+    // Optional ISO date the static FX_RATES were taken from — surfaced as the
+    // sheet's `asOf` so converted figures can be labeled ("rates as of …").
+    FX_RATES_AS_OF: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "must be an ISO date (YYYY-MM-DD)")
+      .optional(),
     // --- SMS channel (provider-neutral, BYO SMS provider) ---
     // The active SMS provider id the container resolves from the
     // SmsProviderRegistry. Absent → "twilio" when a provider is registered;

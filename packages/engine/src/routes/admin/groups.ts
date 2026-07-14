@@ -15,6 +15,8 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import type { FxRatesToBase } from "../../lib/fx.js";
+import type { Logger } from "../../lib/logger.js";
 import { trustedValuedEventFilter } from "../../lib/revenue.js";
 
 /**
@@ -39,8 +41,21 @@ const groupSchema = z.object({
   revenueTotals: z.array(
     z.object({ currency: z.string().nullable(), total: z.number() }),
   ),
+  // The group's money CONVERTED into the operator's base currency — the
+  // opt-in FX lens (docs/groups.md §Base-currency lens), a view layered on
+  // top of `revenueTotals`, never a replacement for it. Null when the lens is
+  // off/unavailable, or when ANY of this group's currencies lacks a rate — a
+  // partial sum is a lie. 0 when the lens is on and the group has no money.
+  revenueBase: z.number().nullable(),
   firstSeenAt: z.string(),
   lastSeenAt: z.string(),
+});
+
+// Non-null exactly when the base-currency lens served this response, so the
+// Studio can label converted figures honestly ("≈ in USD, rates as of <date>").
+const fxSchema = z.object({
+  baseCurrency: z.string(),
+  asOf: z.string().nullable(),
 });
 
 const memberSchema = z.object({
@@ -79,10 +94,33 @@ interface RevenueTotal {
   total: number;
 }
 
+/**
+ * The lens's per-group converted figure: sum over the per-currency totals of
+ * `total × rate(currency→base)`. Null when the lens is off (`rates` null) OR
+ * any currency present lacks a rate — including the null "no currency
+ * recorded" bucket — because a partial sum would LIE (it would display a
+ * group as smaller than it is). Empty totals with the lens on = 0: no money
+ * is zero in any currency.
+ */
+function revenueBaseOf(
+  totals: RevenueTotal[],
+  rates: Record<string, number> | null,
+): number | null {
+  if (!rates) return null;
+  let sum = 0;
+  for (const t of totals) {
+    const rate = t.currency === null ? undefined : rates[t.currency];
+    if (rate === undefined) return null;
+    sum += t.total * rate;
+  }
+  return sum;
+}
+
 function serializeGroup(
   row: GroupRowLike,
   memberCount: number,
   revenueTotals: RevenueTotal[],
+  rates: Record<string, number> | null,
 ) {
   return {
     id: row.id,
@@ -92,6 +130,7 @@ function serializeGroup(
     properties: (row.properties ?? {}) as Record<string, unknown>,
     memberCount,
     revenueTotals,
+    revenueBase: revenueBaseOf(revenueTotals, rates),
     firstSeenAt: row.firstSeenAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
   };
@@ -250,6 +289,65 @@ function groupRevenueRanking(): SQL {
   `;
 }
 
+/**
+ * The base-CONVERTED twin of {@link groupRevenueRanking}, used for
+ * `sort=revenue` when the FX lens is active AND every currency in play has a
+ * rate: the resolved quote→base map joins in as a VALUES list, so each
+ * event's value converts in SQL (`value × rate`) and the ranking scalar
+ * becomes real base-currency money instead of the cross-currency heuristic.
+ * The comma-join on currency is safe precisely because the caller proved
+ * convertibility first ({@link unconvertibleCurrencies}) — nothing can drop.
+ */
+function groupRevenueRankingInBase(rates: Record<string, number>): SQL {
+  const values = sql.join(
+    Object.entries(rates).map(
+      ([currency, rate]) => sql`(${currency}::text, ${rate}::float8)`,
+    ),
+    sql`, `,
+  );
+  return sql`
+    select kv.key as group_type,
+           kv.value as group_key,
+           sum(${userEvents.value} * fxr.rate)::float8 as revenue
+    from ${userEvents},
+         lateral jsonb_each_text(${userEvents.groups}) kv,
+         (values ${values}) as fxr(currency, rate)
+    where ${trustedValuedEventFilter()}
+      and ${userEvents.currency} = fxr.currency
+    group by kv.key, kv.value
+  `;
+}
+
+/**
+ * The convertibility PROBE behind the ranking's wholesale-fallback rule: the
+ * distinct currencies on trusted valued events tagged with a group matching
+ * this request's filter, minus the ones the rate sheet covers. Scoped to the
+ * FILTERED groups (not the whole valued+grouped slice) because only their
+ * revenues decide this page's order — an exotic currency on some unrelated
+ * group must not knock a clean single-currency view off the converted
+ * ranking. A null currency (a valued event ingested without one) can never
+ * have a rate and reports as "(none)".
+ */
+async function unconvertibleCurrencies(
+  db: Database,
+  where: SQL,
+  rates: Record<string, number>,
+): Promise<string[]> {
+  const rows = await db.execute<{ currency: string | null }>(sql`
+    select distinct ${userEvents.currency} as currency
+    from ${userEvents}, lateral jsonb_each_text(${userEvents.groups}) kv
+    inner join ${groups}
+      on ${groups.groupType} = kv.key
+     and ${groups.groupKey} = kv.value
+    where ${trustedValuedEventFilter()}
+      and (${where})
+  `);
+  return rows
+    .map((r) => r.currency)
+    .filter((c) => c === null || rates[c] === undefined)
+    .map((c) => c ?? "(none)");
+}
+
 // --- List paths (column-sorted vs aggregate-sorted) ---
 
 interface ListOpts {
@@ -258,6 +356,14 @@ interface ListOpts {
   order: "asc" | "desc";
   limit: number;
   offset: number;
+  /**
+   * The resolved quote→base rate map when the FX lens is ACTIVE (base
+   * currency set AND the provider served rates), else null. Drives the
+   * per-group `revenueBase` figure on both list paths and, on
+   * `sort=revenue`, the base-converted ranking.
+   */
+  rates: Record<string, number> | null;
+  logger: Logger;
 }
 
 /**
@@ -318,6 +424,7 @@ async function listByColumn(db: Database, opts: ListOpts) {
       r,
       countMap.get(r.id) ?? 0,
       revenueMap.get(naturalKey(r.groupType, r.groupKey)) ?? [],
+      opts.rates,
     ),
   );
 }
@@ -335,6 +442,13 @@ async function listByColumn(db: Database, opts: ListOpts) {
  * `revenueForPage`, so a mixed-currency deployment gets an approximate order but
  * never an invented number.
  *
+ * With the FX lens active, `revenue` upgrades to the base-CONVERTED sum — but
+ * only WHOLESALE: if any currency on the filtered groups' events lacks a
+ * rate, the whole request falls back to the heuristic scalar (warned once).
+ * Excluding the unconvertible rows would zero-out a real account; converting
+ * only some of a group's money would rank a partial sum. Approximate-but-
+ * honest beats precise-but-wrong.
+ *
  * The statement ranks + pages the IDS; the group rows themselves are hydrated
  * through the query builder, which parses the column types — drizzle's raw
  * `execute` hands back every column as text.
@@ -345,6 +459,18 @@ async function listByAggregate(db: Database, opts: ListOpts) {
     opts.sort === "members"
       ? sql`coalesce(mc.member_count, 0)`
       : sql`coalesce(gr.revenue, 0)`;
+
+  let revenueCte = groupRevenueRanking();
+  if (opts.sort === "revenue" && opts.rates) {
+    const missing = await unconvertibleCurrencies(db, opts.where, opts.rates);
+    if (missing.length === 0) {
+      revenueCte = groupRevenueRankingInBase(opts.rates);
+    } else {
+      opts.logger.warn(
+        `groups sort=revenue: no base-currency rate for ${missing.join(", ")} — this request ranked by the cross-currency heuristic instead (a partial conversion would misrank real money). Add the missing rate(s) to restore base-currency ranking.`,
+      );
+    }
+  }
 
   const ranked = Array.from(
     await db.execute<{
@@ -360,7 +486,7 @@ async function listByAggregate(db: Database, opts: ListOpts) {
         where ${contacts.deletedAt} is null
         group by ${groupMemberships.groupId}
       ),
-      group_revenue as (${groupRevenueRanking()})
+      group_revenue as (${revenueCte})
       select ${groups.id} as id,
              coalesce(mc.member_count, 0) as member_count
       from ${groups}
@@ -397,6 +523,7 @@ async function listByAggregate(db: Database, opts: ListOpts) {
         row,
         Number(r.member_count),
         revenueMap.get(naturalKey(row.groupType, row.groupKey)) ?? [],
+        opts.rates,
       ),
     ];
   });
@@ -421,6 +548,9 @@ const listRoute = createRoute({
       // (exact for a single-currency deployment, approximate for a mixed one),
       // never a displayed figure: the money itself comes back per currency in
       // `revenueTotals`. Same trade as the contacts list's `minRevenue`.
+      // With the FX lens active (BASE_CURRENCY + rates) the ranking upgrades
+      // to the base-converted sum — falling back WHOLESALE to the heuristic
+      // when any currency in play lacks a rate.
       sort: z
         .enum(["lastSeen", "members", "revenue", "name"])
         .default("lastSeen"),
@@ -436,6 +566,7 @@ const listRoute = createRoute({
             total: z.number(),
             limit: z.number(),
             offset: z.number(),
+            fx: fxSchema.nullable(),
           }),
         },
       },
@@ -461,6 +592,7 @@ const getRoute = createRoute({
               recentMembers: z.array(memberSchema),
               recentEvents: z.array(eventSchema),
             }),
+            fx: fxSchema.nullable(),
           }),
         },
       },
@@ -508,11 +640,22 @@ const listMembersRoute = createRoute({
 
 // --- Handlers ---
 
+/** The `fx` response block: non-null exactly when the lens served rates. */
+function fxResponseOf(sheet: FxRatesToBase | null) {
+  return sheet ? { baseCurrency: sheet.baseCurrency, asOf: sheet.asOf } : null;
+}
+
 export const groupsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
-    const { db } = c.get("container");
+    const container = c.get("container");
+    const { db, logger } = container;
     const { limit, offset, groupType, search, sort, order } =
       c.req.valid("query");
+
+    // Resolve the FX lens ONCE per request (fail-soft: off/unavailable ⇒
+    // null) so every row on the page converts through the same sheet.
+    const fxSheet = await container.fx.getRatesToBase();
+    const rates = fxSheet?.rates ?? null;
 
     // Every filter lives on `groups`, so one predicate serves the page, the
     // aggregate-sorted statement, and `total` alike.
@@ -535,10 +678,11 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       .from(groups)
       .where(where);
 
+    const listOpts = { where, sort, order, limit, offset, rates, logger };
     const rowsPromise =
       sort === "members" || sort === "revenue"
-        ? listByAggregate(db, { where, sort, order, limit, offset })
-        : listByColumn(db, { where, sort, order, limit, offset });
+        ? listByAggregate(db, listOpts)
+        : listByColumn(db, listOpts);
 
     const [rows, totalRows] = await Promise.all([rowsPromise, totalPromise]);
 
@@ -548,6 +692,7 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
         total: totalRows[0]?.count ?? 0,
         limit,
         offset,
+        fx: fxResponseOf(fxSheet),
       },
       200,
     );
@@ -613,7 +758,8 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(getRoute, async (c) => {
-    const { db } = c.get("container");
+    const container = c.get("container");
+    const { db } = container;
     const { groupType, groupKey } = c.req.valid("param");
 
     const groupRows = await db
@@ -698,13 +844,22 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       .map((r) => ({ currency: r.currency, total: Number(r.total) }))
       .sort((a, b) => b.total - a.total);
 
+    // Same lens as the list: one sheet per request, fail-soft to null.
+    const fxSheet = await container.fx.getRatesToBase();
+
     return c.json(
       {
         group: {
-          ...serializeGroup(group, memberCount, revenueTotals),
+          ...serializeGroup(
+            group,
+            memberCount,
+            revenueTotals,
+            fxSheet?.rates ?? null,
+          ),
           recentMembers: recentMemberRows.map(serializeMember),
           recentEvents: recentEventRows.map(serializeEvent),
         },
+        fx: fxResponseOf(fxSheet),
       },
       200,
     );

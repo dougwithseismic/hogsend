@@ -9,6 +9,7 @@ import type {
   DefinedFunnel,
   EmailProvider,
   FunnelStageEntry,
+  FxRateProvider,
   JourneySourceLocation,
   PostHogService,
   SmsProvider,
@@ -98,6 +99,7 @@ import type {
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
+import { createFxLens, type FxLens, fxProviderFromEnv } from "./lib/fx.js";
 import { hatchet } from "./lib/hatchet.js";
 import {
   createIdentityService,
@@ -231,6 +233,14 @@ export interface HogsendClient {
    * engine emission ingest uses — never bespoke per-consumer plumbing.
    */
   identity: IdentityService;
+  /**
+   * The OPTIONAL base-currency FX lens (docs/groups.md §Base-currency lens):
+   * `baseCurrency` (null = lens off — no `BASE_CURRENCY` set) plus
+   * `getRatesToBase()`, the fail-soft quote→base sheet the admin group
+   * revenue views convert through. The per-currency revenue LAW is untouched;
+   * this only serves an opt-in converted view on top of it.
+   */
+  fx: FxLens;
   registry: JourneyRegistry;
   /**
    * Map of enabled journey id → its captured `run` source string. Populated by
@@ -418,6 +428,25 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * The OPTIONAL base-currency FX lens (docs/groups.md §Base-currency lens).
+   * OFF unless a base currency resolves — with neither `fx.baseCurrency` nor
+   * env `BASE_CURRENCY`, nothing anywhere converts.
+   *
+   * - `provider` — a BYO {@link FxRateProvider} rate source. WINS over the env
+   *   presets entirely (the same consumer-over-env spirit as `analytics`,
+   *   minus the registry — exactly one FX source resolves at boot; multiple
+   *   simultaneous rate sources have no use case). Without it, env resolves:
+   *   `FX_PROVIDER=frankfurter` → the ECB preset, else a set `FX_RATES` → the
+   *   sovereign static preset, else no source (lens stays off).
+   * - `baseCurrency` — code-level override of env `BASE_CURRENCY` (the
+   *   `defaults.timezone` pattern; also the test seam, since `env` is a
+   *   process singleton).
+   */
+  fx?: {
+    provider?: FxRateProvider;
+    baseCurrency?: string;
   };
   /**
    * Code-first conversion-point definitions (plan §5.1) — `defineConversion`
@@ -1315,6 +1344,18 @@ export function createHogsendClient(
   // emission no-ops; the resolve still happens).
   const identity = createIdentityService({ db, analytics, logger });
 
+  // The OPTIONAL base-currency FX lens. A consumer provider wins over the env
+  // presets wholesale; env otherwise resolves frankfurter (opt-in) or the
+  // sovereign static sheet. `fxProviderFromEnv` throws at boot on a malformed
+  // FX_RATES (fail-loud on config, the EMAIL_PROVIDER posture) — but the
+  // LENS itself is fail-soft at request time: no base currency / no provider /
+  // no rates all resolve to null and the per-currency truth serves unchanged.
+  const fx = createFxLens({
+    baseCurrency: opts.fx?.baseCurrency ?? env.BASE_CURRENCY,
+    provider: opts.fx?.provider ?? fxProviderFromEnv(env, { db, logger }),
+    logger,
+  });
+
   // Build + install the outbound DESTINATION registry (Phase 3) the
   // self-booting delivery task resolves by `webhook_endpoints.kind`. Order is
   // load-bearing: the env-enabled presets come FIRST and the consumer's
@@ -1448,6 +1489,7 @@ export function createHogsendClient(
     analyticsProviders,
     analytics,
     identity,
+    fx,
     registry,
     journeySources: getJourneySources(),
     journeyConstants: {

@@ -16,7 +16,9 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { createApp, createHogsendClient } = await import("@hogsend/engine");
+const { createApp, createHogsendClient, createStaticFxProvider } = await import(
+  "@hogsend/engine"
+);
 const { contacts, groupMemberships, groups, userEvents } = await import(
   "@hogsend/db"
 );
@@ -49,6 +51,26 @@ const container = createHogsendClient({
 const app = createApp(container);
 const { db } = container;
 
+// Phase 9.1b — a SECOND app with the base-currency FX lens ON (base USD, a
+// static operator sheet quoting yen). The module-scope `app` above stays
+// lens-OFF, so both modes are proven side by side in one suite. `baseCurrency`
+// rides the container option (the env-override seam) because `env` is a
+// process singleton shared with the lens-off container.
+const fxContainer = createHogsendClient({
+  journeys,
+  lists,
+  email: { templates },
+  fx: {
+    baseCurrency: "USD",
+    provider: createStaticFxProvider({
+      rates: { JPY: 0.0065 },
+      asOf: "2026-07-01",
+    }),
+  },
+  overrides: { hatchet: mockHatchet },
+});
+const fxApp = createApp(fxContainer);
+
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };
 
 // Run-scoped id prefix so parallel suites against the shared docker DB never
@@ -76,6 +98,17 @@ const MIX_KEY = `${RUN}-mixed.com`;
 const PROMO_TYPE = `${RUN}-promo`;
 const PROMO_LITERAL_KEY = `${RUN}-promo_50`;
 const PROMO_WILDCARD_KEY = `${RUN}-promoX50`;
+// Phase 9.1b fixtures — the FX lens. The RANKING pair (the panel's original
+// failure scenario: 100000 JPY must NOT outrank 5000 USD once a base lens
+// says ¥100000 ≈ $650) and, under a separate type so it never contaminates
+// that pair's convertibility probe, an UNCONVERTIBLE trio (EUR has no rate).
+const FXR_TYPE = `${RUN}-fxr`;
+const FXR_A_KEY = `${RUN}-fxr-usd`;
+const FXR_B_KEY = `${RUN}-fxr-jpy`;
+const FXU_TYPE = `${RUN}-fxu`;
+const FXU_C_KEY = `${RUN}-fxu-usd`;
+const FXU_D_KEY = `${RUN}-fxu-eur`;
+const FXU_E_KEY = `${RUN}-fxu-jpy`;
 
 let companyId = "";
 let contactAId = "";
@@ -295,6 +328,58 @@ async function seed() {
     { groupType: PROMO_TYPE, groupKey: PROMO_LITERAL_KEY, displayName: null },
     { groupType: PROMO_TYPE, groupKey: PROMO_WILDCARD_KEY, displayName: null },
   ]);
+
+  // Phase 9.1b — FX lens fixtures. The ranking pair: on the raw heuristic
+  // scalar B's ¥100000 outranks A's $5000; through a USD lens (JPY→USD
+  // 0.0065) B is worth ≈$650 and A must rank first.
+  await db.insert(groups).values([
+    { groupType: FXR_TYPE, groupKey: FXR_A_KEY, displayName: "Dollar Corp" },
+    { groupType: FXR_TYPE, groupKey: FXR_B_KEY, displayName: "Yen KK" },
+  ]);
+  // The unconvertible trio (its own type so its EUR never trips the ranking
+  // pair's convertibility probe): heuristic order E(100000) > D(7000) > C(5000).
+  await db.insert(groups).values([
+    { groupType: FXU_TYPE, groupKey: FXU_C_KEY, displayName: "C USD" },
+    { groupType: FXU_TYPE, groupKey: FXU_D_KEY, displayName: "D EUR" },
+    { groupType: FXU_TYPE, groupKey: FXU_E_KEY, displayName: "E JPY" },
+  ]);
+  await db.insert(userEvents).values([
+    {
+      userId: `${RUN}-user-a`,
+      event: "deal.sold",
+      value: 5000,
+      currency: "USD",
+      groups: { [FXR_TYPE]: FXR_A_KEY },
+    },
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 100000,
+      currency: "JPY",
+      groups: { [FXR_TYPE]: FXR_B_KEY },
+    },
+    {
+      userId: `${RUN}-user-a`,
+      event: "deal.sold",
+      value: 5000,
+      currency: "USD",
+      groups: { [FXU_TYPE]: FXU_C_KEY },
+    },
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 7000,
+      currency: "EUR",
+      groups: { [FXU_TYPE]: FXU_D_KEY },
+    },
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 100000,
+      currency: "JPY",
+      groups: { [FXU_TYPE]: FXU_E_KEY },
+    },
+  ]);
 }
 
 await seed();
@@ -510,12 +595,19 @@ interface RevenueTotal {
 interface ListedGroup {
   groupKey: string;
   revenueTotals: RevenueTotal[];
+  revenueBase: number | null;
   memberCount: number;
+}
+
+interface FxLabel {
+  baseCurrency: string;
+  asOf: string | null;
 }
 
 async function listGroups(query: string): Promise<{
   groups: ListedGroup[];
   total: number;
+  fx: FxLabel | null;
 }> {
   const res = await app.request(`/v1/admin/groups?${query}`, {
     headers: AUTH_HEADER,
@@ -727,5 +819,120 @@ describe("GET /v1/admin/groups — search (Phase 9.1)", () => {
     );
     expect(body.total).toBe(0);
     expect(body.groups).toEqual([]);
+  });
+});
+
+// --- Phase 9.1b: the base-currency FX lens ---
+
+async function listFxGroups(query: string): Promise<{
+  groups: ListedGroup[];
+  total: number;
+  fx: FxLabel | null;
+}> {
+  const res = await fxApp.request(`/v1/admin/groups?${query}`, {
+    headers: AUTH_HEADER,
+  });
+  expect(res.status).toBe(200);
+  return await res.json();
+}
+
+async function getFxGroup(groupType: string, groupKey: string) {
+  const res = await fxApp.request(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(groupKey)}`,
+    { headers: AUTH_HEADER },
+  );
+  expect(res.status).toBe(200);
+  return (await res.json()) as {
+    group: ListedGroup & { revenueBase: number | null };
+    fx: FxLabel | null;
+  };
+}
+
+describe("GET /v1/admin/groups — base-currency FX lens (Phase 9.1b)", () => {
+  it("lens OFF: fx null, revenueBase null everywhere, and the heuristic misranks yen over dollars", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(FXR_TYPE)}&sort=revenue&order=desc&limit=100`,
+    );
+    expect(body.fx).toBeNull();
+    expect(body.groups.map((g) => g.revenueBase)).toEqual([null, null]);
+    // The documented failure the lens exists to fix: the raw cross-currency
+    // scalar ranks ¥100000 over $5000 as if a yen were a dollar.
+    expect(body.groups.map((g) => g.groupKey)).toEqual([FXR_B_KEY, FXR_A_KEY]);
+  });
+
+  it("lens ON: yen and dollars sit in the same funnel — converted ranking + revenueBase", async () => {
+    const body = await listFxGroups(
+      `groupType=${encodeURIComponent(FXR_TYPE)}&sort=revenue&order=desc&limit=100`,
+    );
+    // The label Studio renders: "≈ in USD, rates as of 2026-07-01".
+    expect(body.fx).toEqual({ baseCurrency: "USD", asOf: "2026-07-01" });
+    // ¥100000 ≈ $650 < $5000: the dollar group now ranks first.
+    expect(body.groups.map((g) => g.groupKey)).toEqual([FXR_A_KEY, FXR_B_KEY]);
+
+    const byKey = new Map(body.groups.map((g) => [g.groupKey, g]));
+    expect(byKey.get(FXR_A_KEY)?.revenueBase).toBe(5000);
+    expect(byKey.get(FXR_B_KEY)?.revenueBase).toBeCloseTo(650, 6);
+    // The per-currency truth is untouched — the lens is a view, not a merge.
+    expect(byKey.get(FXR_B_KEY)?.revenueTotals).toEqual([
+      { currency: "JPY", total: 100000 },
+    ]);
+  });
+
+  it("reverses on order=asc under the converted ranking", async () => {
+    const body = await listFxGroups(
+      `groupType=${encodeURIComponent(FXR_TYPE)}&sort=revenue&order=asc&limit=100`,
+    );
+    expect(body.groups.map((g) => g.groupKey)).toEqual([FXR_B_KEY, FXR_A_KEY]);
+  });
+
+  it("unconvertible currency: that group's revenueBase is null and the RANKING falls back wholesale", async () => {
+    const body = await listFxGroups(
+      `groupType=${encodeURIComponent(FXU_TYPE)}&sort=revenue&order=desc&limit=100`,
+    );
+    // EUR has no rate ⇒ the whole request ranks by the heuristic scalar
+    // (E ¥100000 > D €7000 > C $5000) — the converted order would have put C
+    // first, and a partial/excluding conversion would have zeroed out D.
+    expect(body.groups.map((g) => g.groupKey)).toEqual([
+      FXU_E_KEY,
+      FXU_D_KEY,
+      FXU_C_KEY,
+    ]);
+
+    const byKey = new Map(body.groups.map((g) => [g.groupKey, g]));
+    // Display: convertible groups still get their converted figure; the
+    // EUR group refuses to invent one.
+    expect(byKey.get(FXU_D_KEY)?.revenueBase).toBeNull();
+    expect(byKey.get(FXU_C_KEY)?.revenueBase).toBe(5000);
+    expect(byKey.get(FXU_E_KEY)?.revenueBase).toBeCloseTo(650, 6);
+    // The lens itself stayed on — only the ranking fell back.
+    expect(body.fx).toEqual({ baseCurrency: "USD", asOf: "2026-07-01" });
+  });
+
+  it("detail: converted figure + fx label; lens off keeps both null", async () => {
+    const lensOn = await getFxGroup(FXR_TYPE, FXR_B_KEY);
+    expect(lensOn.fx).toEqual({ baseCurrency: "USD", asOf: "2026-07-01" });
+    expect(lensOn.group.revenueBase).toBeCloseTo(650, 6);
+
+    const lensOff = await getGroup(FXR_TYPE, FXR_B_KEY);
+    expect(lensOff.revenueBase).toBeNull();
+    const offRes = await app.request(
+      `/v1/admin/groups/${encodeURIComponent(FXR_TYPE)}/${encodeURIComponent(FXR_B_KEY)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(((await offRes.json()) as { fx: FxLabel | null }).fx).toBeNull();
+  });
+
+  it("a mixed-currency group with one unconvertible leg refuses a partial sum", async () => {
+    // MIX carries 100 USD + 100 GBP; GBP has no rate, so a $100 revenueBase
+    // would LIE by half. Null, while both per-currency totals still display.
+    const detail = await getFxGroup(MIX_TYPE, MIX_KEY);
+    expect(detail.group.revenueBase).toBeNull();
+    expect(detail.group.revenueTotals).toHaveLength(2);
+  });
+
+  it("a group with no valued events reads 0 under the lens (no money is 0 in any currency)", async () => {
+    const detail = await getFxGroup(REV_TYPE, REV_C_KEY);
+    expect(detail.group.revenueBase).toBe(0);
+    expect(detail.group.revenueTotals).toEqual([]);
   });
 });

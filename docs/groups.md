@@ -261,6 +261,47 @@ by the read-only admin endpoints (`packages/engine/src/routes/admin/groups.ts`,
 There is intentionally **no create/edit-group UI** in Studio — groups are
 authored in the data plane; Studio observes.
 
+## Base-currency lens (optional FX)
+
+Group revenue is grouped **per currency and never summed across currencies**
+(`lib/revenue.ts`'s law — a GBP deal and a USD deal don't add). The
+base-currency lens is an **opt-in converted VIEW** layered on top of that
+truth, so yen and dollars can sit in the same funnel: each per-currency total
+converts through an operator-sanctioned quote→base rate, and only the
+conversions are summed. **Off by default** — with no `BASE_CURRENCY` set,
+nothing anywhere converts and nothing changes.
+
+Envs:
+
+- `BASE_CURRENCY` — the reporting currency (e.g. `USD`). Unset = lens off.
+- `FX_PROVIDER` — the rate source: `static` (default) or `frankfurter`.
+- `FX_RATES` — the static sheet: JSON quote→base rates, e.g.
+  `{"JPY":0.0065,"GBP":1.27}` (= 1 JPY is 0.0065 base units). Malformed JSON
+  or non-positive rates **fail the boot loudly** — a typo'd sheet must never
+  silently convert money wrong.
+- `FX_RATES_AS_OF` — optional ISO date labeling the static sheet.
+
+**Static is the default because it is sovereign**: the operator supplies the
+rates, zero network in the money path, figures change only when the operator
+changes them. **Frankfurter** (`FX_PROVIDER=frankfurter`) opts into ECB daily
+reference rates: one `latest?from=<base>` call fetches every quote (inverted
+to quote→base), upserted into the `fx_rates` table so conversions are pinned
+to a recorded sheet and the API sees **at most one call per 24h staleness
+window**. **Fail-soft throughout**: a failed fetch serves the last cached
+sheet; cold + down resolves to no lens — converted figures degrade to absent,
+the per-currency truth always still serves. A BYO source implements the
+one-wire `FxRateProvider` contract (`defineFxRateProvider`, `@hogsend/core`)
+and is passed as `createHogsendClient({ fx: { provider } })`.
+
+With the lens active, the admin group list/detail gain `revenueBase` (the
+converted sum) per group and a top-level `fx: { baseCurrency, asOf }` label.
+A group with **any** unconvertible currency reports `revenueBase: null` — a
+partial sum is a lie. `sort=revenue` ranks by the base-converted sum in SQL;
+if any currency on the filtered groups lacks a rate, the **ranking falls back
+wholesale** to the existing cross-currency heuristic for that request (warned
+in the log) — excluding the unconvertible rows would zero-out a real account,
+and converting only some money would rank a partial sum.
+
 ## Security posture
 
 - **Group PROPERTY writes, membership mutations, and reads are secret-key only** —
