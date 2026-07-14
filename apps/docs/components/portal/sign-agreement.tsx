@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
+import { ACTION_FAILED, postPortalAction } from "./post-action";
 
 /**
  * The click-wrap signature form: type your full name, tick "I agree", sign.
@@ -30,31 +31,25 @@ export function SignAgreement({
   async function sign() {
     setPending(true);
     setError(null);
-    try {
-      const res = await fetch("/api/agreements/sign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          docId,
-          docVersion,
-          contentHash,
-          signedName: name.trim(),
-        }),
-      });
-      if (!res.ok) {
-        setError(
-          res.status === 409
-            ? "This document was updated — refresh to review the current version."
-            : "That didn't take — try again in a moment.",
-        );
-        return;
-      }
-      router.refresh();
-    } catch {
-      setError("That didn't take — try again in a moment.");
-    } finally {
+    const res = await postPortalAction("/api/agreements/sign", {
+      docId,
+      docVersion,
+      contentHash,
+      signedName: name.trim(),
+    });
+    if (!res.ok) {
+      setError(
+        res.status === 409
+          ? "This document was updated — refresh to review the current version."
+          : ACTION_FAILED,
+      );
       setPending(false);
+      return;
     }
+    // Stay pending until the refresh swaps in the signed state — this form
+    // unmounts with it, so re-enabling here only opens a duplicate-submit
+    // window right after a successful signature.
+    router.refresh();
   }
 
   return (

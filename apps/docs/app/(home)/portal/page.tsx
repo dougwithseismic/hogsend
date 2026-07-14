@@ -70,9 +70,17 @@ function formatDate(iso: string): string {
 
 const AMOUNT_FMTS = new Map<string, Intl.NumberFormat>();
 
+/** Stripe bills these currencies in whole units / thousandths, not cents. */
+const ZERO_DECIMAL = new Set(
+  "BIF CLP DJF GNF JPY KMF KRW MGA PYG RWF UGX VND VUV XAF XOF XPF".split(" "),
+);
+const THREE_DECIMAL = new Set(["BHD", "JOD", "KWD", "OMR", "TND"]);
+
 /** Minor units + ISO currency → "$149.00". Lenient like formatDate. */
 function formatAmount(minor: number, currency: string): string {
   const code = currency.toUpperCase();
+  const units =
+    minor / (ZERO_DECIMAL.has(code) ? 1 : THREE_DECIMAL.has(code) ? 1000 : 100);
   let fmt = AMOUNT_FMTS.get(code);
   if (!fmt) {
     try {
@@ -81,11 +89,11 @@ function formatAmount(minor: number, currency: string): string {
         currency: code,
       });
     } catch {
-      return `${(minor / 100).toFixed(2)} ${code}`;
+      return `${units.toFixed(2)} ${code}`;
     }
     AMOUNT_FMTS.set(code, fmt);
   }
-  return fmt.format(minor / 100);
+  return fmt.format(units);
 }
 
 /** The account-card surface, shared by every block on this page. */
@@ -141,6 +149,9 @@ function ServiceCard({ service }: { service: PortalService }): JSX.Element {
         status === "trialing" ||
         status === "past_due") ? (
         <SubscriptionActions
+          // Remount when the server state flips so a completed cancel/resume
+          // gets fresh controls instead of the stale in-flight ones.
+          key={String(service.cancelAtPeriodEnd ?? false)}
           subscriptionId={service.subscriptionId}
           cancelAtPeriodEnd={service.cancelAtPeriodEnd ?? false}
         />
@@ -160,10 +171,12 @@ export default async function PortalPage(): Promise<JSX.Element> {
     fetchBilling({ email: user.email, userId: user.id }),
     fetchAgreements({ email: user.email, userId: user.id }),
   ]);
-  // Billing only earns a section once there's something to bill.
+  // Billing only earns a section once there's something to bill — and stays
+  // visible as a soft-retry line when the read fails for a known customer.
   const showBilling =
-    billing !== null &&
-    (billing.paymentMethod !== null || billing.invoices.length > 0);
+    billing === null
+      ? services !== null && services.length > 0
+      : billing.paymentMethod !== null || billing.invoices.length > 0;
 
   return (
     <main className="container-page pt-32 pb-24">
@@ -223,56 +236,64 @@ export default async function PortalPage(): Promise<JSX.Element> {
             title="Billing"
             description="Your card and invoices — receipts open on Stripe."
           >
-            <div className="flex flex-col gap-4">
-              <div
-                className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
-              >
-                <p className="text-sm text-white/70">
-                  {billing.paymentMethod
-                    ? `Card on file: ${billing.paymentMethod.brand.toUpperCase()} ···· ${billing.paymentMethod.last4}`
-                    : "No card on file yet."}
-                </p>
-                <UpdateCard />
-              </div>
-              {billing.invoices.length > 0 ? (
-                <ul className="flex flex-col divide-y divide-white/[0.06] rounded-xl border border-white/[0.08] bg-white/[0.02]">
-                  {billing.invoices.map((inv) => (
-                    <li
-                      key={inv.number}
-                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-                    >
-                      <span className="text-sm text-white/80">
-                        {formatDate(inv.created)}
-                        <span className="ml-2 text-white/40">{inv.number}</span>
-                      </span>
-                      <span className="flex items-center gap-4">
-                        <span className="text-sm text-white">
-                          {formatAmount(inv.amount, inv.currency)}
+            {billing === null ? (
+              <p className="text-sm text-white/60">
+                Couldn&apos;t load your billing just now — refresh in a moment.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div
+                  className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
+                >
+                  <p className="text-sm text-white/70">
+                    {billing.paymentMethod
+                      ? `Card on file: ${billing.paymentMethod.brand.toUpperCase()} ···· ${billing.paymentMethod.last4}`
+                      : "No card on file yet."}
+                  </p>
+                  <UpdateCard />
+                </div>
+                {billing.invoices.length > 0 ? (
+                  <ul className="flex flex-col divide-y divide-white/[0.06] rounded-xl border border-white/[0.08] bg-white/[0.02]">
+                    {billing.invoices.map((inv) => (
+                      <li
+                        key={inv.number}
+                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
+                      >
+                        <span className="text-sm text-white/80">
+                          {formatDate(inv.created)}
+                          <span className="ml-2 text-white/40">
+                            {inv.number}
+                          </span>
                         </span>
-                        {inv.hostedUrl ? (
-                          <a
-                            href={inv.hostedUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
-                          >
-                            View
-                          </a>
-                        ) : null}
-                        {inv.pdfUrl ? (
-                          <a
-                            href={inv.pdfUrl}
-                            className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
-                          >
-                            PDF
-                          </a>
-                        ) : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
+                        <span className="flex items-center gap-4">
+                          <span className="text-sm text-white">
+                            {formatAmount(inv.amount, inv.currency)}
+                          </span>
+                          {inv.hostedUrl ? (
+                            <a
+                              href={inv.hostedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
+                            >
+                              View
+                            </a>
+                          ) : null}
+                          {inv.pdfUrl ? (
+                            <a
+                              href={inv.pdfUrl}
+                              className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
+                            >
+                              PDF
+                            </a>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
           </Section>
         ) : null}
 

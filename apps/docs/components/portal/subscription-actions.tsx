@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ACTION_FAILED, postPortalAction } from "./post-action";
 
 /**
  * Cancel-at-period-end / resume controls for one subscription. Two-step on
@@ -25,27 +26,23 @@ export function SubscriptionActions({
   async function setCancel(cancel: boolean) {
     setPending(true);
     setError(null);
-    try {
-      const res = await fetch("/api/billing/subscription", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriptionId, cancel }),
-      });
-      if (!res.ok) {
-        setError(
-          res.status === 409
-            ? "This subscription can't be changed any more."
-            : "That didn't take — try again in a moment.",
-        );
-        return;
-      }
-      setConfirming(false);
-      router.refresh();
-    } catch {
-      setError("That didn't take — try again in a moment.");
-    } finally {
+    const res = await postPortalAction("/api/billing/subscription", {
+      subscriptionId,
+      cancel,
+    });
+    if (!res.ok) {
+      setError(
+        res.status === 409
+          ? "This subscription can't be changed any more."
+          : ACTION_FAILED,
+      );
       setPending(false);
+      return;
     }
+    // Stay pending until the refresh lands — the parent keys this island on
+    // cancelAtPeriodEnd, so the flipped server state remounts it with fresh
+    // controls instead of briefly re-offering the stale action.
+    router.refresh();
   }
 
   const linkClass =

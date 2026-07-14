@@ -3,6 +3,7 @@
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { ACTION_FAILED, postPortalAction } from "./post-action";
 
 /**
  * In-portal card update via Stripe Elements. The flow keeps the card inside
@@ -27,23 +28,36 @@ export function UpdateCard() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  // The Elements group is state (not a ref) so the mount effect runs exactly
+  // once per group: Stripe allows ONE payment element per group, and the form
+  // stays in the DOM across ready↔saving — keying the effect on `phase` would
+  // tear the iframe down mid-confirmSetup and throw on re-create.
+  const [elements, setElements] = useState<StripeElements | null>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<Stripe | null>(null);
-  const elementsRef = useRef<StripeElements | null>(null);
+  // Set once confirmSetup succeeds — a failed confirm-card POST then retries
+  // the POST alone (confirmSetup on a succeeded SetupIntent throws).
+  const confirmedIntentRef = useRef<string | null>(null);
 
-  // Mount the Payment Element once the container exists (phase "ready" render
-  // happens before Stripe paints into it).
   useEffect(() => {
-    if (phase === "ready" && mountRef.current && elementsRef.current) {
-      const payment = elementsRef.current.create("payment");
-      payment.mount(mountRef.current);
-      return () => payment.unmount();
-    }
-  }, [phase]);
+    if (!elements || !mountRef.current) return;
+    const payment = elements.create("payment");
+    payment.mount(mountRef.current);
+    return () => payment.unmount();
+  }, [elements]);
 
   if (!PUBLISHABLE_KEY) return null;
 
+  function close(next: Extract<Phase, "idle" | "done">) {
+    setElements(null);
+    confirmedIntentRef.current = null;
+    setPhase(next);
+  }
+
   async function begin() {
+    // The component early-returns above, but TS can't narrow the module
+    // const into this closure.
+    if (!PUBLISHABLE_KEY) return;
     setPhase("loading");
     setError(null);
     try {
@@ -55,13 +69,19 @@ export function UpdateCard() {
       const { clientSecret } = (await res.json()) as {
         clientSecret?: string;
       };
-      const stripe = PUBLISHABLE_KEY ? await loadStripe(PUBLISHABLE_KEY) : null;
+      const stripe = await loadStripe(PUBLISHABLE_KEY);
       if (!stripe || !clientSecret) throw new Error("stripe unavailable");
       stripeRef.current = stripe;
-      elementsRef.current = stripe.elements({
-        clientSecret,
-        appearance: { theme: "night", variables: { colorPrimary: "#f64838" } },
-      });
+      confirmedIntentRef.current = null;
+      setElements(
+        stripe.elements({
+          clientSecret,
+          appearance: {
+            theme: "night",
+            variables: { colorPrimary: "#f64838" },
+          },
+        }),
+      );
       setPhase("ready");
     } catch {
       setError("Couldn't start the card update — try again in a moment.");
@@ -71,34 +91,36 @@ export function UpdateCard() {
 
   async function save() {
     const stripe = stripeRef.current;
-    const elements = elementsRef.current;
     if (!stripe || !elements) return;
     setPhase("saving");
     setError(null);
     try {
-      const result = await stripe.confirmSetup({
-        elements,
-        redirect: "if_required",
-      });
-      if (result.error) {
-        setError(result.error.message ?? "Card confirmation failed.");
-        setPhase("ready");
-        return;
+      if (!confirmedIntentRef.current) {
+        const result = await stripe.confirmSetup({
+          elements,
+          redirect: "if_required",
+        });
+        if (result.error) {
+          setError(result.error.message ?? "Card confirmation failed.");
+          setPhase("ready");
+          return;
+        }
+        confirmedIntentRef.current = result.setupIntent.id;
       }
-      const confirm = await fetch("/api/billing/confirm-card", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setupIntentId: result.setupIntent.id }),
+      const confirm = await postPortalAction("/api/billing/confirm-card", {
+        setupIntentId: confirmedIntentRef.current,
       });
       if (!confirm.ok) {
-        setError("Card saved with Stripe but not applied — contact Doug.");
+        setError(
+          "Card confirmed with Stripe but not applied yet — press Save card to retry.",
+        );
         setPhase("ready");
         return;
       }
-      setPhase("done");
+      close("done");
       router.refresh();
     } catch {
-      setError("That didn't take — try again in a moment.");
+      setError(ACTION_FAILED);
       setPhase("ready");
     }
   }
@@ -113,7 +135,7 @@ export function UpdateCard() {
 
   return (
     <div className="flex flex-col gap-3">
-      {phase === "idle" || phase === "loading" ? (
+      {elements === null ? (
         <button
           type="button"
           disabled={phase === "loading"}
@@ -137,7 +159,7 @@ export function UpdateCard() {
             <button
               type="button"
               disabled={phase === "saving"}
-              onClick={() => setPhase("idle")}
+              onClick={() => close("idle")}
               className="text-sm text-white/60 transition-colors hover:text-white"
             >
               Cancel
