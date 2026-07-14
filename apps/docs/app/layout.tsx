@@ -6,6 +6,7 @@ import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 import { PosthogBoot } from "@/components/analytics/posthog-boot";
 import { NamePrompt } from "@/components/auth/name-prompt";
 import { CookieBanner } from "@/components/consent/cookie-banner";
+import { ConsoleEgg } from "@/components/console-egg";
 import { DevTools } from "@/components/devtools";
 import { HogsendDocsProvider } from "@/components/hogsend/provider";
 import {
@@ -83,6 +84,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             on in dev; in production it's opt-in via the `?hs-devtools` URL flag
             so real visitors never load it (see components/devtools/index.tsx). */}
         <DevTools />
+        {/* Postphant says hi — once — to whoever opens the console. */}
+        <ConsoleEgg />
       </body>
     </html>
   );
