@@ -470,6 +470,8 @@ export {
   type ComputeFlowHeatOptions,
   computeFlowHeat,
   computeFlowMap,
+  type FlowLane,
+  type FlowLaneBy,
   type FlowMap,
   type FlowMapEdge,
   type FlowMapMode,
@@ -490,6 +492,7 @@ export {
   journeyNodeId,
   REVENUE_NODE_ID,
   type SurfaceTier,
+  surfaceNodeId,
 } from "./lib/flow-topology.js";
 export {
   getFlowTopology,
@@ -661,6 +664,7 @@ export type {
 } from "./lib/sms-service-types.js";
 export { SMS_CHANNEL_ID } from "./lib/sms-tracked.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
+export { SurfaceRegistry } from "./lib/surface-registry.js";
 // --- In-app survey/rating (sendSurvey — producer sugar over sendFeedItem) ---
 export { type SendSurveyOptions, sendSurvey } from "./lib/survey.js";
 export {

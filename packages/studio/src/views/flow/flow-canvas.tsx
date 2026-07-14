@@ -24,6 +24,7 @@ import {
   particleCountFor,
   strokeWidthFor,
 } from "./flow-edge";
+import { laneColor } from "./lane-colors";
 import { SurfaceNode, type SurfaceRfNode } from "./surface-node";
 import { flowEdgeId, layoutTiers, type TierLayout } from "./tier-layout";
 
@@ -42,11 +43,24 @@ const edgeTypes: EdgeTypes = { flow: FlowEdge };
  * object; anything else (an events count nobody can see move, an unchanged
  * edge) does not.
  */
+/**
+ * The complete visual signature of an edge under the current lane selection —
+ * width bucket, particle count (0 when dimmed), colour, and dimmed flag. Two
+ * edges with the same key paint byte-identically, so a poll that doesn't move
+ * this signature reuses the previous object and its animations survive.
+ */
+function edgeVisualKey(weight: number, color: string | null): string {
+  const dimmed = color !== null && weight === 0;
+  const particles = dimmed ? 0 : particleCountFor(weight);
+  return `${strokeWidthFor(weight)}:${particles}:${color ?? ""}:${dimmed ? 1 : 0}`;
+}
+
 function reconcile(
   data: FlowGraphResponse,
   layout: TierLayout,
   prevNodes: Map<string, SurfaceRfNode>,
   prevEdges: Map<string, FlowRfEdge>,
+  selectedLane: string | null,
 ): { nodes: SurfaceRfNode[]; edges: FlowRfEdge[] } {
   const nodes: SurfaceRfNode[] = [];
   for (const node of data.nodes) {
@@ -77,22 +91,29 @@ function reconcile(
     const id = flowEdgeId(edge);
     const route = layout.routes[id];
     if (!route) continue;
+    // With a lane selected, the buckets are driven by THAT lane's count (0 =
+    // this edge carries none of it) and the rail takes the lane colour; with no
+    // lane, total transitions drive the neutral-white resting map. Explicit
+    // null check: a falsy-but-real lane id must still select.
+    const weight =
+      selectedLane !== null
+        ? (edge.lanes?.[selectedLane] ?? 0)
+        : edge.transitions;
+    const color = selectedLane !== null ? laneColor(selectedLane) : null;
     const prev = prevEdges.get(id);
-    const sameBucket =
+    const sameStyle =
       prev !== undefined &&
-      strokeWidthFor(prev.data?.transitions ?? 0) ===
-        strokeWidthFor(edge.transitions) &&
-      particleCountFor(prev.data?.transitions ?? 0) ===
-        particleCountFor(edge.transitions);
-    if (prev && sameBucket && prev.data?.d === route.d) {
+      edgeVisualKey(prev.data?.weight ?? 0, prev.data?.color ?? null) ===
+        edgeVisualKey(weight, color);
+    if (prev && sameStyle && prev.data?.d === route.d) {
       edges.push(prev);
       continue;
     }
-    if (import.meta.env.DEV && prev && sameBucket) {
+    if (import.meta.env.DEV && prev && sameStyle) {
       // Tripwire: the geometry moved under a stable graph — every particle on
       // this edge just restarted. If this fires on an idle poll, the layout
       // stopped being a pure function of the (stable) row order.
-      console.debug("[flow] edge path changed without a bucket change", id);
+      console.debug("[flow] edge path changed without a style change", id);
     }
     const next: FlowRfEdge = {
       id,
@@ -106,6 +127,8 @@ function reconcile(
         length: route.length,
         transitions: edge.transitions,
         contacts: edge.contacts,
+        weight,
+        color,
       },
     };
     prevEdges.set(id, next);
@@ -160,7 +183,13 @@ function sameMoney(
   });
 }
 
-function FlowCanvasInner({ data }: { data: FlowGraphResponse }) {
+function FlowCanvasInner({
+  data,
+  selectedLane,
+}: {
+  data: FlowGraphResponse;
+  selectedLane: string | null;
+}) {
   const { fitView } = useReactFlow();
   // Cross-poll memory: row slots (so nodes never jump) and the previous
   // element objects (so unchanged elements keep their identity).
@@ -179,8 +208,9 @@ function FlowCanvasInner({ data }: { data: FlowGraphResponse }) {
         }),
         prevNodesRef.current,
         prevEdgesRef.current,
+        selectedLane,
       ),
-    [data],
+    [data, selectedLane],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
@@ -283,10 +313,16 @@ function FlowCanvasInner({ data }: { data: FlowGraphResponse }) {
   );
 }
 
-export function FlowCanvas({ data }: { data: FlowGraphResponse }) {
+export function FlowCanvas({
+  data,
+  selectedLane = null,
+}: {
+  data: FlowGraphResponse;
+  selectedLane?: string | null;
+}) {
   return (
     <ReactFlowProvider>
-      <FlowCanvasInner data={data} />
+      <FlowCanvasInner data={data} selectedLane={selectedLane} />
     </ReactFlowProvider>
   );
 }

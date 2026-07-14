@@ -13,7 +13,9 @@ import { computeFlowMap } from "../../lib/flow-map.js";
  * live enrollment count. `mode=raw` is the escape hatch: top event-name
  * prefixes, no registry, `heat`/`dwell`/`live` null.
  *
- * `lanes` stays declared-and-empty until P3.
+ * `laneBy` (P3) colours the map by acquisition lane (first-touch
+ * `campaign.arrived` utm value): edges gain a `lanes` breakdown and the response
+ * a top-level `lanes` summary. Omit it and lanes stay off (`edges.lanes` null).
  */
 
 const flowMoneySchema = z.object({
@@ -72,6 +74,11 @@ const flowRoute = createRoute({
       model: z.enum(ATTRIBUTION_MODELS).default("linear"),
       /** Idle hours before a contact counts as stuck on a node. */
       dwellThresholdHours: z.coerce.number().int().min(1).max(720).default(48),
+      /**
+       * Colour the map by acquisition lane — each contact's first-touch
+       * `campaign.arrived` utm value. Omit for no lanes (edges.lanes null).
+       */
+      laneBy: z.enum(["utm_campaign", "utm_source"]).optional(),
     }),
   },
   responses: {
@@ -105,7 +112,7 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>().openapi(
   flowRoute,
   async (c) => {
     const { db, flowTopology } = c.get("container");
-    const { windowDays, mode, model, dwellThresholdHours } =
+    const { windowDays, mode, model, dwellThresholdHours, laneBy } =
       c.req.valid("query");
     const flow = await computeFlowMap({
       db,
@@ -114,6 +121,7 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>().openapi(
       topology: flowTopology,
       model,
       dwellThresholdHours,
+      laneBy,
     });
     return c.json(flow, 200);
   },

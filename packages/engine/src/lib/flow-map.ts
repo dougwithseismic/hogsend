@@ -39,9 +39,10 @@ import {
  * request-time query). Reported honestly via `meta.truncated`. Two honest
  * limits: the halving floor is 1 day, so an install writing >2M rows/day
  * still scans them all; and at the cap the doubly-referenced `win` CTE
- * materializes (~hundreds of MB past work_mem → temp files). Installs at
- * that scale get a Timescale continuous aggregate — the named follow-up,
- * not a request-time fix.
+ * materializes (~hundreds of MB past work_mem → temp files) — and with
+ * `laneBy` set, `seq` becomes doubly-referenced too (edge_rows + edge_lane_raw)
+ * and materializes as a SECOND temp-file CTE. Installs at that scale get a
+ * Timescale continuous aggregate — the named follow-up, not a request-time fix.
  */
 const FLOW_ROW_CAP = 2_000_000;
 
@@ -59,6 +60,9 @@ const DEFAULT_DWELL_THRESHOLD_HOURS = 48;
 
 export type FlowMapMode = "curated" | "raw";
 
+/** Acquisition-lane dimension (first-touch `campaign.arrived` utm value). */
+export type FlowLaneBy = "utm_campaign" | "utm_source";
+
 export interface FlowMapOptions {
   db: Database;
   windowDays: number;
@@ -69,6 +73,12 @@ export interface FlowMapOptions {
   model?: AttributionModel;
   /** Idle hours before a contact is "stuck" on a node. Default 48. */
   dwellThresholdHours?: number;
+  /**
+   * Colour the map by acquisition lane — each contact's FIRST-touch
+   * `campaign.arrived` utm value (contacts with none = `organic`). Undefined =
+   * lanes off (zero extra cost; `edges.lanes` null, `lanes` []).
+   */
+  laneBy?: FlowLaneBy;
 }
 
 /** An amount in one currency — amounts in different currencies NEVER sum. */
@@ -147,7 +157,10 @@ type EdgeRow = {
   to: string;
   transitions: number;
   contacts: number;
+  /** Present only when `laneBy` is set (lane → transition count). */
+  lanes?: Record<string, number>;
 };
+type LaneRow = { id: string; count: number };
 
 type FlowCacheEntry = {
   /** Stamped when the query RESOLVES — a pending entry has no age. */
@@ -203,6 +216,7 @@ export function computeFlowMap(opts: FlowMapOptions): Promise<FlowMap> {
     model: opts.model ?? DEFAULT_ATTRIBUTION_MODEL,
     dwellThresholdHours:
       opts.dwellThresholdHours ?? DEFAULT_DWELL_THRESHOLD_HOURS,
+    laneBy: opts.laneBy ?? null,
   });
   const now = Date.now();
   const hit = flowCache.get(key);
@@ -277,7 +291,8 @@ async function project(
   db: Database,
   effectiveWindowDays: number,
   classifier: "raw" | FlowTopology,
-): Promise<{ nodeRows: NodeRow[]; edgeRows: EdgeRow[] }> {
+  laneBy: FlowLaneBy | undefined,
+): Promise<{ nodeRows: NodeRow[]; edgeRows: EdgeRow[]; laneRows: LaneRow[] }> {
   const nodeExpr =
     classifier === "raw"
       ? sql`split_part(event, '.', 1)`
@@ -299,7 +314,126 @@ async function project(
       `
       : sql``;
 
-  const rows = await db.execute<{ nodes: NodeRow[]; edges: EdgeRow[] }>(sql`
+  // Lanes (P3). Each contact's FIRST-touch `campaign.arrived` value in the
+  // window (contacts with none default to `organic` at join time). `laneBy` is
+  // one of two known literals, embedded via a switch — never raw input.
+  const laneProp =
+    laneBy === "utm_source"
+      ? sql`properties ->> 'utm_source'`
+      : sql`properties ->> 'utm_campaign'`;
+
+  // The lane CTEs are present ONLY when `laneBy` is set; otherwise every lane
+  // fragment collapses to empty SQL and the projection is structurally
+  // identical to the P2 query — no extra CTE, join, or scan (edges carry no
+  // `lanes`, the `lanes` column is `[]`).
+  const contactLaneCte = laneBy
+    ? sql`
+      , contact_lane as (
+        select distinct on (user_id)
+          user_id,
+          -- Trim + fold empty/whitespace-only utm to 'organic' — a stored ''
+          -- (the /v1/events spine accepts it) must not mint an empty lane id.
+          coalesce(nullif(btrim(${laneProp}), ''), 'organic') as lane
+        from user_events
+        where event = 'campaign.arrived'
+          and occurred_at >= now() - make_interval(days => ${effectiveWindowDays}::int)
+        order by user_id, occurred_at asc, id asc
+      )`
+    : sql``;
+
+  // Global lane ranking FIRST (the top-24 the chip row shows) — so the per-edge
+  // rollup below keeps a lane iff it survives the SAME cut. That alignment is
+  // load-bearing: a chipped lane must carry its true count on every edge, never
+  // hide inside an edge-local '__other'.
+  const laneRankCtes = laneBy
+    ? sql`
+      -- Distinct CLASSIFIED contacts per lane (not just edge-crossers).
+      , lane_totals as (
+        select
+          coalesce(cl.lane, 'organic') as lane,
+          count(*)::int as count,
+          row_number() over (
+            order by count(*) desc, coalesce(cl.lane, 'organic') asc
+          ) as rn
+        from (select distinct user_id from classified) cc
+        left join contact_lane cl on cl.user_id = cc.user_id
+        group by coalesce(cl.lane, 'organic')
+      ),
+      -- The lanes that survive the top-24 cut — the membership set for BOTH the
+      -- summary and every edge's rollup.
+      lane_keep as (
+        select lane from lane_totals where rn <= 24
+      ),
+      lane_rolled as (
+        select
+          case when rn <= 24 then lane else '__other' end as lane,
+          sum(count)::int as count
+        from lane_totals
+        group by case when rn <= 24 then lane else '__other' end
+      )`
+    : sql``;
+
+  const edgeLaneCtes = laneBy
+    ? sql`
+      , edge_lane_raw as (
+        select
+          s.prev as from_id,
+          s.node_id as to_id,
+          coalesce(cl.lane, 'organic') as lane,
+          count(*)::int as transitions
+        from seq s
+        left join contact_lane cl on cl.user_id = s.user_id
+        where s.prev is not null and s.prev <> s.node_id
+        group by s.prev, s.node_id, coalesce(cl.lane, 'organic')
+      ),
+      -- Roll by GLOBAL membership (lane_keep), not a per-edge rank — so a lane
+      -- in the chip row is never swept into an edge-local '__other'.
+      edge_lane_rolled as (
+        select from_id, to_id, keep_lane as lane, sum(transitions)::int as transitions
+        from (
+          select
+            from_id,
+            to_id,
+            case when lane in (select lane from lane_keep) then lane else '__other' end as keep_lane,
+            transitions
+          from edge_lane_raw
+        ) m
+        group by from_id, to_id, keep_lane
+      ),
+      edge_lanes as (
+        select
+          from_id,
+          to_id,
+          json_object_agg(lane, transitions order by transitions desc, lane asc) as lanes
+        from edge_lane_rolled
+        group by from_id, to_id
+      )`
+    : sql``;
+
+  const edgeLanesField = laneBy
+    ? sql`, 'lanes', coalesce(el.lanes, '{}'::json)`
+    : sql``;
+  const edgeLanesJoin = laneBy
+    ? sql`left join edge_lanes el on el.from_id = er.from_id and el.to_id = er.to_id`
+    : sql``;
+  const lanesColumn = laneBy
+    ? sql`, coalesce(
+        (
+          select json_agg(
+            json_build_object('id', lane, 'count', count)
+            order by count desc, lane asc
+          )
+          from lane_rolled
+        ),
+        '[]'::json
+      ) as lanes`
+    : sql`, '[]'::json as lanes`;
+
+  const rows = await db.execute<{
+    nodes: NodeRow[];
+    edges: EdgeRow[];
+    lanes: LaneRow[];
+  }>(sql`
     with win as (
       select
         user_id,
@@ -314,7 +448,8 @@ async function project(
       from win w
       ${cut}
       where w.node_id is not null
-    ),
+    )
+    ${contactLaneCte}${laneRankCtes},
     -- Per contact, what node did they come from? Computed over the classified
     -- set, so an unmapped event between two nodes doesn't break the edge.
     seq as (
@@ -338,7 +473,8 @@ async function project(
       -- = one docs node) and kills self-loops.
       where prev is not null and prev <> node_id
       group by prev, node_id
-    ),
+    )
+    ${edgeLaneCtes},
     node_rows as (
       select
         node_id as id,
@@ -362,21 +498,28 @@ async function project(
         (
           select json_agg(
             json_build_object(
-              'from', from_id,
-              'to', to_id,
-              'transitions', transitions,
-              'contacts', contacts
+              'from', er.from_id,
+              'to', er.to_id,
+              'transitions', er.transitions,
+              'contacts', er.contacts
+              ${edgeLanesField}
             )
-            order by transitions desc, from_id, to_id
+            order by er.transitions desc, er.from_id, er.to_id
           )
-          from edge_rows
+          from edge_rows er
+          ${edgeLanesJoin}
         ),
         '[]'::json
       ) as edges
+      ${lanesColumn}
   `);
 
   const row = rows[0];
-  return { nodeRows: row?.nodes ?? [], edgeRows: row?.edges ?? [] };
+  return {
+    nodeRows: row?.nodes ?? [],
+    edgeRows: row?.edges ?? [],
+    laneRows: row?.lanes ?? [],
+  };
 }
 
 export interface ComputeFlowHeatOptions {
@@ -581,6 +724,7 @@ async function runFlowMap({
   topology,
   model,
   dwellThresholdHours,
+  laneBy,
 }: FlowMapOptions): Promise<FlowMap> {
   const { effectiveWindowDays, truncated } = await resolveWindow(
     db,
@@ -604,26 +748,27 @@ async function runFlowMap({
     Math.ceil(thresholdHours / 24) + 1,
   );
 
-  const [{ nodeRows, edgeRows }, heat, dwell, live] = await Promise.all([
-    project(db, effectiveWindowDays, curated ?? "raw"),
-    curated
-      ? computeFlowHeat({
-          db,
-          topology: curated,
-          windowDays: effectiveWindowDays,
-          model,
-        })
-      : undefined,
-    curated
-      ? computeNodeDwell({
-          db,
-          topology: curated,
-          windowDays: dwellLookbackDays,
-          thresholdHours,
-        })
-      : undefined,
-    curated ? liveJourneyCounts(db) : undefined,
-  ]);
+  const [{ nodeRows, edgeRows, laneRows }, heat, dwell, live] =
+    await Promise.all([
+      project(db, effectiveWindowDays, curated ?? "raw", laneBy),
+      curated
+        ? computeFlowHeat({
+            db,
+            topology: curated,
+            windowDays: effectiveWindowDays,
+            model,
+          })
+        : undefined,
+      curated
+        ? computeNodeDwell({
+            db,
+            topology: curated,
+            windowDays: dwellLookbackDays,
+            thresholdHours,
+          })
+        : undefined,
+      curated ? liveJourneyCounts(db) : undefined,
+    ]);
 
   const dwellByNode = new Map((dwell ?? []).map((d) => [d.nodeId, d]));
   const observed = new Map(nodeRows.map((n) => [n.id, n]));
@@ -702,9 +847,10 @@ async function runFlowMap({
       to: e.to,
       transitions: Number(e.transitions),
       contacts: Number(e.contacts),
-      lanes: null,
+      // `laneBy` off → project returns no `lanes` key → null (lanes off).
+      lanes: e.lanes ?? null,
     })),
-    lanes: [],
+    lanes: laneRows.map((l) => ({ id: l.id, count: Number(l.count) })),
     meta: {
       truncated,
       effectiveWindowDays,

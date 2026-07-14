@@ -32,6 +32,7 @@ import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { surfaces } from "./surfaces.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const discordConnector = buildDiscordConnector();
@@ -42,6 +43,9 @@ const client = createHogsendClient({
   buckets,
   lists,
   funnels,
+  // Flow-map surfaces (#485): external touchpoints (docs/site/demo/course/
+  // checkout) + the product app become control-room nodes.
+  surfaces,
   email: { templates },
   // Feeds the Studio journey-graph route the app's `as const` constant maps so
   // `Templates.X`/`Events.X` member expressions in journey source resolve to

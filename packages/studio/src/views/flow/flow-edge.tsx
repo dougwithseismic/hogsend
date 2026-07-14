@@ -27,6 +27,16 @@ export type FlowEdgeData = {
   length: number;
   transitions: number;
   contacts: number;
+  /**
+   * The value that drives the width/particle buckets: the selected lane's
+   * transition count when a lane is picked, else total `transitions` (P3).
+   */
+  weight: number;
+  /**
+   * Lane colour when a lane is selected (glow + particles take it); `null` =
+   * no lane selected, the calm neutral-white resting map.
+   */
+  color: string | null;
 };
 
 export type FlowRfEdge = Edge<FlowEdgeData, "flow">;
@@ -64,12 +74,22 @@ function seeded(key: string, index: number): number {
   return ((hash >>> 0) % 100000) / 100000;
 }
 
+/** Neutral white — the resting rail, and a dimmed off-lane rail. */
+const NEUTRAL_STROKE = "rgba(255,255,255,0.45)";
+const NEUTRAL_PARTICLE = "rgba(255,255,255,0.9)";
+
 export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
   if (!data) return null;
-  const { d, length, transitions } = data;
-  const width = strokeWidthFor(transitions);
-  const count = particleCountFor(transitions);
+  const { d, length, weight, color } = data;
+  // A lane is selected (color set) but this edge carries none of it: dim the
+  // rail and kill its particles, but STAY MOUNTED — unmounting restarts every
+  // animation on the map.
+  const dimmed = color !== null && weight === 0;
+  const width = strokeWidthFor(weight);
+  const count = dimmed ? 0 : particleCountFor(weight);
   const duration = Math.max(1.5, length / PARTICLE_SPEED);
+  const stroke = dimmed ? NEUTRAL_STROKE : (color ?? NEUTRAL_STROKE);
+  const particleFill = color ?? NEUTRAL_PARTICLE;
 
   return (
     <>
@@ -77,10 +97,10 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
         <path
           d={d}
           fill="none"
-          stroke="rgba(255,255,255,0.45)"
+          stroke={stroke}
           strokeWidth={width}
           strokeLinecap="round"
-          opacity={0.5}
+          opacity={dimmed ? 0.12 : 0.5}
         />
       </g>
       {Array.from({ length: count }, (_, i) => (
@@ -88,7 +108,7 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
           // biome-ignore lint/suspicious/noArrayIndexKey: the index IS the particle's identity (and its phase seed)
           key={i}
           r={1.6}
-          fill="rgba(255,255,255,0.9)"
+          fill={particleFill}
           className="flow-particle"
           style={{
             offsetPath: `path("${d}")`,

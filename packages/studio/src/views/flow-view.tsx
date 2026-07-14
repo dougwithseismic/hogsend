@@ -10,7 +10,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getFlow, qk } from "@/lib/admin-api";
+import { formatNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { FlowCanvas } from "./flow/flow-canvas";
+import { laneColor } from "./flow/lane-colors";
 
 /**
  * The control room — how contacts actually move through the product, drawn
@@ -33,17 +36,40 @@ const WINDOWS = [
   { value: "30", label: "Last 30 days" },
 ];
 
+/** Human label for a lane chip. */
+function laneLabel(id: string): string {
+  if (id === "organic") return "Organic";
+  if (id === "__other") return "Other";
+  return id;
+}
+
 export function FlowView() {
   const [windowDays, setWindowDays] = useState(7);
+  const [selectedLane, setSelectedLane] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: qk.flow(windowDays),
-    queryFn: () => getFlow({ windowDays }),
+    // Always colour by campaign — the chip row lets the operator focus a lane.
+    queryFn: () => getFlow({ windowDays, laneBy: "utm_campaign" }),
     refetchInterval: POLL_INTERVAL_MS,
     placeholderData: keepPreviousData,
   });
 
   const data = query.data;
+  // Only honour a selection that still exists in the current window — a lane
+  // that ages out clears itself rather than dimming the whole map with no chip
+  // left to toggle. Explicit null check: a falsy-but-real lane id must not
+  // silently deselect.
+  const activeLane =
+    selectedLane !== null &&
+    (data?.lanes.some((l) => l.id === selectedLane) ?? false)
+      ? selectedLane
+      : null;
+  // The chip row is only meaningful once there's a REAL campaign to focus —
+  // `organic`/`__other` alone (a fresh install pre-campaigns) shows nothing.
+  const chipLanes = data?.lanes.filter((l) => l.id !== "__other") ?? [];
+  const hasRealLane =
+    data?.lanes.some((l) => l.id !== "organic" && l.id !== "__other") ?? false;
 
   return (
     <div className="space-y-6">
@@ -85,6 +111,44 @@ export function FlowView() {
         </div>
       ) : null}
 
+      {/* Acquisition-lane chips — hidden entirely until there's a real campaign
+          to focus (organic-only = nothing to pick). `__other` is never a chip:
+          its per-edge meaning differs from the summary's, so selecting it is
+          incoherent. Click a lane to focus it, click again to return to the
+          neutral resting map. */}
+      {hasRealLane ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="eyebrow mr-1 text-[11px] text-white/40">
+            Acquisition lane
+          </span>
+          {chipLanes.map((lane) => {
+            const active = selectedLane === lane.id;
+            return (
+              <button
+                key={lane.id}
+                type="button"
+                onClick={() => setSelectedLane(active ? null : lane.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                  active
+                    ? "border-white/40 bg-white/[0.06] text-white/90"
+                    : "border-hairline-faint text-white/55 hover:border-white/20",
+                )}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: laneColor(lane.id) }}
+                />
+                <span className="font-medium">{laneLabel(lane.id)}</span>
+                <span className="font-mono text-white/40">
+                  {formatNumber(lane.count)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {query.isPending ? (
         <TableSkeleton rows={4} />
       ) : query.isError && !data ? (
@@ -99,7 +163,7 @@ export function FlowView() {
           description="Once contacts start touching your product, the surfaces they hit — and the paths between them — appear here."
         />
       ) : (
-        <FlowCanvas data={data} />
+        <FlowCanvas data={data} selectedLane={activeLane} />
       )}
     </div>
   );

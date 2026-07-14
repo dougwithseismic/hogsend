@@ -63,4 +63,14 @@ export {
 } from "./registry/index.js";
 export * from "./schedule/index.js";
 export { bucketMetaSchema, journeyMetaSchema } from "./schemas/index.js";
+export {
+  type DefinedSurface,
+  defineSurface,
+  SURFACE_TIERS,
+  type SurfaceMatch,
+  type SurfaceMeta,
+  type SurfaceTier,
+  type SurfaceWhereCondition,
+  type SurfaceWhereOperator,
+} from "./surfaces.js";
 export * from "./types/index.js";

@@ -1679,9 +1679,15 @@ export type FlowGraphResponse = {
   };
 };
 
-export function getFlow(params: { windowDays: number }) {
+/** Acquisition-lane dimension the map colours by (P3). */
+export type FlowLaneBy = "utm_campaign" | "utm_source";
+
+export function getFlow(params: { windowDays: number; laneBy?: FlowLaneBy }) {
   return api.get<FlowGraphResponse>("/v1/admin/flow", {
-    query: { windowDays: params.windowDays },
+    query: {
+      windowDays: params.windowDays,
+      ...(params.laneBy ? { laneBy: params.laneBy } : {}),
+    },
   });
 }
 

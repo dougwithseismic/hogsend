@@ -14,6 +14,7 @@ import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { surfaces } from "./surfaces.js";
 
 async function main() {
   const discordConnector = buildDiscordConnector();
@@ -26,6 +27,9 @@ async function main() {
     // Mirror the API's funnel registration (registry-mirror rule) so webhook
     // and reconcile-poll paths stamp the same funnel ids.
     funnels,
+    // Mirror the API's surfaces (registry-mirror rule) so the worker's
+    // flow-topology singleton classifies the same nodes on the ingest path.
+    surfaces,
     email: { templates },
     // Mirror the API's journeyConstants (registry-mirror rule) so both client
     // configs stay in parity — resolves `Templates.X`/`Events.X` in the Studio
