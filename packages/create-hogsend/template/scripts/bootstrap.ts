@@ -344,12 +344,16 @@ function syncEnvPorts(got: Ports): void {
   env = setEnv(env, "HATCHET_DASHBOARD_PORT", String(got.dash));
   env = setEnv(env, "HATCHET_GRPC_PORT", String(got.grpc));
   // The app's own port — API_PUBLIC_URL embeds it (tracking/unsubscribe links,
-  // the data-plane client base), so both must move together.
+  // the data-plane client base), so both must move together. So must
+  // HOGSEND_API_URL: the `hogsend` CLI targets it (default localhost:3002),
+  // and after a remap the default would point the CLI at whatever foreign
+  // process caused the remap in the first place.
   env = setEnv(env, "PORT", String(got.app));
   const publicUrl = getEnv(env, "API_PUBLIC_URL");
   if (publicUrl) {
     env = setEnv(env, "API_PUBLIC_URL", withPort(publicUrl, got.app));
   }
+  env = setEnv(env, "HOGSEND_API_URL", `http://localhost:${got.app}`);
   writeFileSync(ENV_PATH, env);
 }
 
