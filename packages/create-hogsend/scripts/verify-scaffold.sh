@@ -135,6 +135,11 @@ grep -q '# my-app' "$APPDIR/CLAUDE.md" \
 # Vendored skills must be byte-identical to the canonical source (drift gate).
 diff -r "$APPDIR/.claude/skills" "$REPO_ROOT/packages/cli/skills" \
   || fail ".claude/skills drifted from packages/cli/skills"
+# The env-driven first-admin path (STUDIO_ADMIN_EMAIL boot mint) only works if
+# the emitted entry point calls the engine's bootstrapAdminFromEnv — this went
+# missing once and the documented path silently minted nothing.
+grep -q 'bootstrapAdminFromEnv' "$APPDIR/src/index.ts" \
+  || fail "emitted src/index.ts does not call bootstrapAdminFromEnv"
 echo "    filesystem + tokens OK"
 
 # --- 3b. --no-skills omits .claude + CLAUDE.md ----------------------------
@@ -173,6 +178,43 @@ diff -q "$APPDIR/.env.example" "$PKG_DIR/template/env.example" >/dev/null \
   || fail "default scaffold .env.example drifted from template/env.example \
 (skipping PostHog must be a no-op)"
 echo "    --posthog-key env OK"
+
+# --- 3d. --admin-email/--admin-password/--posthog write the headless env ---
+echo "==> [3d] scaffold (--admin-email + --admin-password + --posthog) headless env"
+ADMIN_DIR="$APP_PARENT/with-admin"
+(cd "$APP_PARENT" && node "$CLI" with-admin --pm pnpm --no-install --no-git \
+  --admin-email agent@example.com --admin-password hogsend-agent-pw \
+  --posthog --use-tarballs "$TARBALLS")
+[ -e "$ADMIN_DIR/.env.example" ] \
+  || fail "--admin-email scaffold produced no .env.example"
+# Capture-then-grep (see the 3c SIGPIPE note above).
+ADMIN_ENV="$(cat "$ADMIN_DIR/.env.example")"
+grep -q '^STUDIO_ADMIN_EMAIL=agent@example.com$' <<<"$ADMIN_ENV" \
+  || fail "STUDIO_ADMIN_EMAIL not written by --admin-email"
+grep -q '^STUDIO_ADMIN_PASSWORD=hogsend-agent-pw$' <<<"$ADMIN_ENV" \
+  || fail "STUDIO_ADMIN_PASSWORD not written by --admin-password"
+# Intent-only --posthog must write NO PostHog env values.
+if grep -q '^POSTHOG_API_KEY=' <<<"$ADMIN_ENV"; then
+  fail "intent-only --posthog wrote POSTHOG_API_KEY (must write no env)"
+fi
+echo "    headless admin env OK"
+
+# --- 3e. flag validation failures exit non-zero ----------------------------
+echo "==> [3e] invalid headless flag combos are rejected"
+expect_reject() {
+  local why="$1"; shift
+  if (cd "$APP_PARENT" && node "$CLI" "$@" --pm pnpm --no-install --no-git \
+    --use-tarballs "$TARBALLS" >/dev/null 2>&1); then
+    fail "expected rejection: $why"
+  fi
+}
+expect_reject "--admin-password without --admin-email" \
+  bad-1 --admin-password longenough
+expect_reject "--posthog with --no-posthog" bad-2 --posthog --no-posthog
+expect_reject "short --admin-password (engine min 8)" \
+  bad-3 --admin-email a@b.com --admin-password short
+expect_reject "malformed --admin-email" bad-4 --admin-email not-an-email
+echo "    flag validation OK"
 
 # --- 4. install -----------------------------------------------------------
 # Plain `pnpm install`, NOT --ignore-workspace: the scaffold ships its own

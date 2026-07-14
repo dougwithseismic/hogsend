@@ -123,6 +123,29 @@ export async function applyDomainToEnv(
 }
 
 /**
+ * Patch the scaffolded env example with the first Studio admin: uncomments/sets
+ * `STUDIO_ADMIN_EMAIL` (+ `STUDIO_ADMIN_PASSWORD` when given — already
+ * validated ≥ 8 chars by the flag parser; shorter would fail the app's env
+ * validation at every boot). The API mints the admin on FIRST BOOT via
+ * `bootstrapAdminFromEnv` (no-op once any user exists); with no password set,
+ * the engine generates one and prints it once to the boot log. Same mechanism +
+ * timing as `applyDomainToEnv` — before install/bootstrap, so bootstrap's
+ * `.env` copy inherits the values.
+ */
+export async function applyAdminToEnv(
+  targetDir: string,
+  admin: { email: string; password?: string },
+): Promise<void> {
+  const envPath = join(targetDir, RENAME_MAP["env.example"] ?? ".env.example");
+  let content = await readFile(envPath, "utf8");
+  content = setEnvLine(content, "STUDIO_ADMIN_EMAIL", admin.email);
+  if (admin.password !== undefined) {
+    content = setEnvLine(content, "STUDIO_ADMIN_PASSWORD", admin.password);
+  }
+  await writeFile(envPath, content);
+}
+
+/**
  * Patch the scaffolded env example for a PostHog-enabled scaffold: uncomments/
  * sets `POSTHOG_API_KEY` + `POSTHOG_HOST` as active values, activates
  * `ENABLE_POSTHOG_DESTINATION=true`, and mints a fresh `POSTHOG_WEBHOOK_SECRET`.

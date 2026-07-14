@@ -44,6 +44,16 @@ export interface CliOptions {
    * only set when an actual key was supplied, so it can't gate the finisher).
    */
   usingPosthog: boolean;
+  /**
+   * First Studio admin, preset headlessly. `adminEmail` writes
+   * `STUDIO_ADMIN_EMAIL` into the emitted `.env.example` (bootstrap's `.env`
+   * copy inherits it); the API mints the admin on FIRST BOOT via
+   * `bootstrapAdminFromEnv` (empty-user-table gate). `adminPassword` writes
+   * `STUDIO_ADMIN_PASSWORD`; omitted ⇒ the engine generates one and prints it
+   * once to the boot log.
+   */
+  adminEmail?: string;
+  adminPassword?: string;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
 }
@@ -88,7 +98,16 @@ Options:
                              POSTHOG_WEBHOOK_SECRET in env.example
   --posthog-host <url>       PostHog host URL (default: https://us.i.posthog.com;
                              requires --posthog-key)
+  --posthog                  Using PostHog, no key yet (headless twin of ticking
+                             PostHog in the events prompt) — surfaces the
+                             'hogsend connect posthog' step + hints; writes no env
   --no-posthog               Skip the "Where will events come from?" prompt
+  --admin-email <email>      First Studio admin — writes STUDIO_ADMIN_EMAIL into
+                             env.example; the API mints the admin on first boot
+  --admin-password <pw>      Admin password (min 8 chars; requires --admin-email).
+                             Omit it: one is generated + printed once at first
+                             boot. NOTE: flag values can land in shell history —
+                             prefer omitting outside CI/agent runs
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -189,7 +208,10 @@ interface RawArgs {
     "no-skills"?: boolean;
     "posthog-key"?: string;
     "posthog-host"?: string;
+    posthog?: boolean;
     "no-posthog"?: boolean;
+    "admin-email"?: string;
+    "admin-password"?: string;
     "use-tarballs"?: string;
     help?: boolean;
   };
@@ -214,7 +236,10 @@ function parse(argv: string[]): RawArgs {
       "no-skills": { type: "boolean", default: false },
       "posthog-key": { type: "string" },
       "posthog-host": { type: "string" },
+      posthog: { type: "boolean", default: false },
       "no-posthog": { type: "boolean", default: false },
+      "admin-email": { type: "string" },
+      "admin-password": { type: "string" },
       "use-tarballs": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -267,14 +292,42 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
 
   // PostHog from flags (validated up front; prompted later if absent).
   // --posthog-key implies "yes"; --no-posthog skips the prompt entirely.
+  // --posthog is the KEYLESS intent flag (headless twin of ticking PostHog in
+  // the events multiselect): it gates the connect hints + HOGSEND_SETUP_POSTHOG
+  // and writes NO env values.
   if (values["no-posthog"] && values["posthog-key"] !== undefined) {
     throw new Error("--no-posthog and --posthog-key are mutually exclusive.");
+  }
+  if (values["no-posthog"] && values.posthog) {
+    throw new Error("--posthog and --no-posthog are mutually exclusive.");
   }
   if (
     values["posthog-host"] !== undefined &&
     values["posthog-key"] === undefined
   ) {
     throw new Error("--posthog-host requires --posthog-key.");
+  }
+
+  // First-admin flags (validated up front). The password mirrors the engine's
+  // STUDIO_ADMIN_PASSWORD zod min(8) — writing a shorter one into .env would
+  // fail env validation on EVERY boot, bricking the app until hand-edited.
+  const adminEmail = values["admin-email"];
+  const adminPassword = values["admin-password"];
+  if (adminPassword !== undefined && adminEmail === undefined) {
+    throw new Error("--admin-password requires --admin-email.");
+  }
+  if (
+    adminEmail !== undefined &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)
+  ) {
+    throw new Error(
+      `Invalid --admin-email "${adminEmail}" — expected an email address.`,
+    );
+  }
+  if (adminPassword !== undefined && adminPassword.length < 8) {
+    throw new Error(
+      "--admin-password must be at least 8 characters (the app's STUDIO_ADMIN_PASSWORD validation would reject it at every boot).",
+    );
   }
   let posthog: PosthogOptions | undefined;
   if (values["posthog-key"] !== undefined) {
@@ -327,7 +380,9 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       setup: wantSetup && !values["no-setup"] && install,
       domain,
       posthog,
-      usingPosthog: posthog !== undefined,
+      usingPosthog: posthog !== undefined || values.posthog === true,
+      adminEmail,
+      adminPassword,
       useTarballs: values["use-tarballs"],
     };
   }
@@ -375,8 +430,10 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
   // hint. Selecting nothing is fine ("not sure yet" — everything can be wired
   // later). `--posthog-key` stays the escape hatch for pasting a key up front
   // (resolved above, skips this prompt); `--no-posthog` skips it too.
-  let usingPosthog = posthog !== undefined;
-  if (posthog === undefined && !values["no-posthog"]) {
+  // --posthog-key OR the keyless --posthog intent flag both pre-answer the
+  // events question — no multiselect in either case.
+  let usingPosthog = posthog !== undefined || values.posthog === true;
+  if (posthog === undefined && !values.posthog && !values["no-posthog"]) {
     const sources = bail(
       await multiselect({
         message:
@@ -473,6 +530,10 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain,
     posthog,
     usingPosthog,
+    // Pass-through, no interactive prompt: bootstrap step 8 owns the
+    // interactive admin flow; these flags exist for headless/agent runs.
+    adminEmail,
+    adminPassword,
     useTarballs: values["use-tarballs"],
   };
 }

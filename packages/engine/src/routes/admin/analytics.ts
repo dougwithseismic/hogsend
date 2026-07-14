@@ -123,6 +123,8 @@ const provisionLoopResponseSchema = z.object({
   hogFunctionId: z.string(),
   webhookUrl: z.string(),
   dashboardUrl: z.string(),
+  /** false ⇒ placeholder mode: destination is DISABLED with a CHANGEME URL. */
+  enabled: z.boolean(),
 });
 
 const provisionFailureSchema = z.object({
@@ -157,6 +159,12 @@ const provisionLoopRoute = createRoute({
   path: "/provision-loop",
   tags: ["Admin — Analytics"],
   summary: "Provision the PostHog → Hogsend event loop (webhook destination)",
+  request: {
+    // `?placeholder=true` — pre-create the destination DISABLED with the
+    // CHANGEME stand-in URL (for local instances PostHog can't reach). A
+    // query param (not a body) keeps older CLIs' bare POST byte-compatible.
+    query: z.object({ placeholder: z.enum(["true", "false"]).optional() }),
+  },
   responses: {
     200: {
       content: {
@@ -224,6 +232,7 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
   .openapi(provisionLoopRoute, async (c) => {
     const { db, env, logger } = c.get("container");
     const info = resolveConnectInfo(env);
+    const placeholder = c.req.valid("query").placeholder === "true";
 
     // Credential check FIRST (M3), secret refusal second (enforced by the
     // provisioner itself). The container does NOT expose the token manager
@@ -252,7 +261,9 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
     // PostHog Cloud cannot deliver webhooks to a loopback address — and a
     // local instance with a misconfigured API_PUBLIC_URL must never repoint
     // a production destination at localhost. Refuse BEFORE any PostHog call.
-    if (isLoopbackPublicUrl(info.apiPublicUrl)) {
+    // Placeholder mode is exempt: it never uses apiPublicUrl (the destination
+    // is created DISABLED against the CHANGEME stand-in URL).
+    if (!placeholder && isLoopbackPublicUrl(info.apiPublicUrl)) {
       return c.json(
         {
           error: "api_public_url_unreachable",
@@ -297,6 +308,7 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
         apiPublicUrl: info.apiPublicUrl,
         webhookSecret,
         logger,
+        placeholder,
       });
 
       // Opportunistically persist the phc_ (project api_token) the provisioner
@@ -325,6 +337,7 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
           hogFunctionId: result.functionId,
           webhookUrl: result.webhookUrl,
           dashboardUrl: result.dashboardUrl,
+          enabled: result.enabled,
         },
         200,
       );
