@@ -62,5 +62,13 @@ export {
   JourneyRegistry,
 } from "./registry/index.js";
 export * from "./schedule/index.js";
-export { bucketMetaSchema, journeyMetaSchema } from "./schemas/index.js";
+export {
+  bucketMetaSchema,
+  groupIdentifySchema,
+  groupKeySchema,
+  groupMemberSchema,
+  groupsAssociationSchema,
+  groupTypeSchema,
+  journeyMetaSchema,
+} from "./schemas/index.js";
 export * from "./types/index.js";
