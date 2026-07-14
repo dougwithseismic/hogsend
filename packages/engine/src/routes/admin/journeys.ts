@@ -904,8 +904,14 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(graphRoute, async (c) => {
-    const { db, registry, journeySources, journeySourceLocations, templates } =
-      c.get("container");
+    const {
+      db,
+      registry,
+      journeySources,
+      journeySourceLocations,
+      journeyConstants,
+      templates,
+    } = c.get("container");
     const { id } = c.req.valid("param");
 
     const meta = registry.get(id);
@@ -918,7 +924,11 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // call-site (also static per process) is baked into the cached graph.
     let graph = journeyGraphCache.get(id);
     if (!graph) {
-      graph = buildJourneyGraph({ runSource: journeySources.get(id), meta });
+      graph = buildJourneyGraph({
+        runSource: journeySources.get(id),
+        meta,
+        consts: journeyConstants,
+      });
       const source = journeySourceLocations.get(id);
       if (source) graph.source = source;
       journeyGraphCache.set(id, graph);

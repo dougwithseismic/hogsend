@@ -240,6 +240,16 @@ export interface HogsendClient {
    */
   journeySources: Map<string, string>;
   /**
+   * The consumer's `Templates`/`Events` `as const` maps, normalized to always
+   * be present (`{ templates: {}, events: {} }` when unwired). Consumed by the
+   * Studio journey-graph route to resolve `Templates.X` / `Events.X` member
+   * expressions to their real values, for exact previews + stable node ids.
+   */
+  journeyConstants: {
+    templates: Record<string, string>;
+    events: Record<string, string>;
+  };
+  /**
    * Map of enabled journey id → its `defineJourney` call-site `{ path, line }`.
    * Populated by `buildJourneyRegistry`. Consumed by the Studio journey-graph
    * route to build an "open in editor" deep link. Absent ids had no capturable
@@ -308,6 +318,18 @@ export interface HogsendClient {
 export interface HogsendClientOptions {
   /** Journeys to register in the {@link JourneyRegistry}. Defaults to none. */
   journeys?: DefinedJourney[];
+  /**
+   * The consumer's `Templates`/`Events` `as const` maps (each a
+   * `CONST_NAME -> "value"` record). Threaded into the Studio journey-graph
+   * route so `Templates.X` / `Events.X` member expressions in a journey's `run`
+   * source resolve to their real runtime values — yielding exact email-template
+   * previews and stable, join-safe `wait-event:${value}` / `digest:${value}`
+   * node ids (instead of positional `unstable` synthetics). Defaults to none.
+   */
+  journeyConstants?: {
+    templates?: Record<string, string>;
+    events?: Record<string, string>;
+  };
   /** Buckets to register in the {@link BucketRegistry}. Defaults to none. */
   buckets?: DefinedBucket[];
   /**
@@ -1428,6 +1450,10 @@ export function createHogsendClient(
     identity,
     registry,
     journeySources: getJourneySources(),
+    journeyConstants: {
+      templates: opts.journeyConstants?.templates ?? {},
+      events: opts.journeyConstants?.events ?? {},
+    },
     journeySourceLocations: getJourneySourceLocations(),
     bucketRegistry,
     listRegistry,

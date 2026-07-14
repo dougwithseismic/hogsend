@@ -120,8 +120,12 @@ interface Raw {
   timeout?: Record<string, number>;
   eventLiteral?: string;
   eventIdent?: string;
+  /** OBJECT qualifier of an `X.PROP` event member-expr (`Events.NPS` → "Events"). */
+  eventObject?: string;
   templateLiteral?: string;
   templateIdent?: string;
+  /** OBJECT qualifier of an `X.PROP` template member-expr (`Templates.WELCOME` → "Templates"). */
+  templateObject?: string;
   connectorId?: string;
   action?: string;
   idempotencyLabel?: string;
@@ -129,16 +133,31 @@ interface Raw {
   calleeName?: string;
 }
 
+/**
+ * The consumer's `Templates`/`Events` `as const` maps (`CONST_NAME -> "value"`),
+ * threaded through so `Templates.X` / `Events.X` member expressions in a
+ * journey's source resolve to their REAL runtime values. This is what makes the
+ * derived node ids deterministic (stable `wait-event:${value}` / `digest:${value}`
+ * ids that join to `journeyStates.currentNodeId`) and populates `meta.template` /
+ * `meta.event` for exact previews — with NO other extraction changes.
+ */
+export interface JourneyGraphConsts {
+  templates?: Record<string, string>;
+  events?: Record<string, string>;
+}
+
 export function buildJourneyGraph({
   runSource,
   meta,
+  consts,
 }: {
   runSource?: string;
   meta: JourneyMeta;
+  consts?: JourneyGraphConsts;
 }): JourneyGraph {
   if (!runSource) return degradedGraphFromMeta(meta);
   try {
-    return extract(runSource, meta);
+    return extract(runSource, meta, consts);
   } catch {
     return degradedGraphFromMeta(meta);
   }
@@ -165,7 +184,57 @@ export function degradedGraphFromMeta(meta: JourneyMeta): JourneyGraph {
   };
 }
 
-function extract(runSource: string, meta: JourneyMeta): JourneyGraph {
+/**
+ * Deterministic const-resolution pass: for each raw whose template/event slot
+ * is a member-expr IDENTIFIER (`Templates.DOCS_WELCOME` → ident `DOCS_WELCOME`)
+ * but has no literal, fill the literal from the matching const map value. Only
+ * fills from the ident (never overwrites an existing literal) and only for own,
+ * non-empty-string entries — so prototype keys can't leak in. Filling the
+ * literal is enough: the node builders already prefer the literal for the id,
+ * `meta`, subtitle, and the `unstable` flag, so everything downstream becomes
+ * deterministic with no other change.
+ *
+ * The fill is GATED on the OBJECT qualifier being the conventional const-object
+ * name — `Templates` for templates, `Events` for events (the documented
+ * consumer convention: CLAUDE.md's `Templates`/`Events` `as const` maps + the
+ * create-hogsend scaffold). This prevents a property-name collision — e.g. an
+ * unrelated `SomeEnum.SUBMITTED` whose `SUBMITTED` key also lives in the events
+ * map but maps to a different value — from confidently resolving to a WRONG
+ * literal. An aliased/non-conventional object name degrades gracefully to the
+ * pre-fill fallback (positional id / heuristic) instead of risking a wrong value.
+ */
+function resolveRawConsts(raws: Raw[], consts?: JourneyGraphConsts): void {
+  if (!consts) return;
+  const fill = (
+    map: Record<string, string> | undefined,
+    ident: string | undefined,
+  ): string | undefined => {
+    if (!map || ident === undefined || !Object.hasOwn(map, ident)) {
+      return undefined;
+    }
+    const value = map[ident];
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+  };
+  for (const raw of raws) {
+    if (
+      raw.templateLiteral === undefined &&
+      raw.templateObject === "Templates"
+    ) {
+      const value = fill(consts.templates, raw.templateIdent);
+      if (value !== undefined) raw.templateLiteral = value;
+    }
+    if (raw.eventLiteral === undefined && raw.eventObject === "Events") {
+      const value = fill(consts.events, raw.eventIdent);
+      if (value !== undefined) raw.eventLiteral = value;
+    }
+  }
+}
+
+function extract(
+  runSource: string,
+  meta: JourneyMeta,
+  consts?: JourneyGraphConsts,
+): JourneyGraph {
   const wrapped = `(${runSource})`;
   const ast = acorn.parse(wrapped, {
     ecmaVersion: "latest",
@@ -189,6 +258,11 @@ function extract(runSource: string, meta: JourneyMeta): JourneyGraph {
     if (raw) raws.push(raw);
   });
   raws.sort((a, b) => a.start - b.start);
+
+  // Resolve `Templates.X` / `Events.X` member-expr idents to their real runtime
+  // values from the consumer's const maps BEFORE id assignment, so the node
+  // builders (which already prefer the literal) mint deterministic ids + meta.
+  resolveRawConsts(raws, consts);
 
   // --- Pass B: assign ids (A2 join-key rules) ---
   const emitted = assignNodes(raws, meta.trigger.event);
@@ -314,6 +388,21 @@ function lastIdentOf(node: Node | undefined): string | undefined {
       : lastIdentOf(node.object as Node);
   }
   return undefined;
+}
+
+/**
+ * The OBJECT identifier of a simple `Object.PROP` member expression
+ * (`Templates.DOCS_WELCOME` → "Templates", `Events.NPS_SUBMITTED` → "Events").
+ * Returns undefined for anything that isn't `<plain Identifier>.<prop>` —
+ * nested member exprs (`Foo.Bar.BAZ`), computed access (`Map[k]`), or a bare
+ * identifier. Used to gate const resolution on the CONVENTIONAL object name so a
+ * property-name collision on an unrelated enum can't resolve to a wrong value.
+ */
+function objectIdentOf(node: Node | undefined): string | undefined {
+  if (!node || node.type !== "MemberExpression" || node.computed) {
+    return undefined;
+  }
+  return node.object.type === "Identifier" ? node.object.name : undefined;
 }
 
 function objectProp(
@@ -536,6 +625,7 @@ function ctxNodeFields(
       labelUnstable: label?.unstable,
       eventLiteral: stringLiteral(eventNode),
       eventIdent: lastIdentOf(eventNode),
+      eventObject: objectIdentOf(eventNode),
       timeout: arg ? extractDuration(objectProp(arg, "timeout")) : undefined,
     };
   }
@@ -549,6 +639,7 @@ function ctxNodeFields(
       labelUnstable: label?.unstable,
       eventLiteral: stringLiteral(eventNode),
       eventIdent: lastIdentOf(eventNode),
+      eventObject: objectIdentOf(eventNode),
       duration: arg ? extractDuration(objectProp(arg, "window")) : undefined,
     };
   }
@@ -558,6 +649,7 @@ function ctxNodeFields(
     kind,
     eventLiteral: stringLiteral(eventNode),
     eventIdent: lastIdentOf(eventNode),
+    eventObject: objectIdentOf(eventNode),
   };
 }
 
@@ -568,6 +660,7 @@ function sendFields(arg: acorn.ObjectExpression): ClassifiedFields {
     kind: "send",
     templateLiteral: stringLiteral(templateNode),
     templateIdent: lastIdentOf(templateNode),
+    templateObject: objectIdentOf(templateNode),
     // Only a literal idempotencyLabel is a stable id "site".
     idempotencyLabel: idem && !idem.unstable ? idem.value : undefined,
   };
