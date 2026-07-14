@@ -116,7 +116,7 @@ EXPECTED=(
   drizzle.config.ts migrations/0000_init.sql migrations/meta/_journal.json
   migrations/meta/0000_snapshot.json
   docker-compose.yml railway.toml railway.worker.toml
-  .env.example .node-version .gitignore
+  .env.example .node-version .gitignore pnpm-workspace.yaml
   biome.json vitest.config.ts tsconfig.json tsup.config.ts README.md
   CLAUDE.md .claude/README.md .claude/skills/hogsend-cli/SKILL.md
 )
@@ -184,8 +184,13 @@ diff -q "$APPDIR/.env.example" "$PKG_DIR/template/env.example" >/dev/null \
 echo "    --posthog-key env OK"
 
 # --- 4. install -----------------------------------------------------------
+# Plain `pnpm install`, NOT --ignore-workspace: the scaffold ships its own
+# pnpm-workspace.yaml (settings root: allowBuilds + minimumReleaseAgeExclude,
+# packages: []), which BOTH stops pnpm from joining any parent workspace AND
+# carries the pnpm 11 build-script approvals. --ignore-workspace would discard
+# that settings file and resurrect ERR_PNPM_IGNORED_BUILDS on pnpm >= 11.
 echo "==> [4/8] pnpm install (scaffolded app)"
-(cd "$APPDIR" && pnpm install --ignore-workspace >/dev/null 2>&1) \
+(cd "$APPDIR" && pnpm install >/dev/null 2>&1) \
   || fail "pnpm install failed"
 [ -f "$APPDIR/node_modules/@hogsend/engine/src/index.ts" ] \
   || fail "engine raw .ts not present in node_modules (tarball did not carry src)"

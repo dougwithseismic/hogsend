@@ -15,8 +15,9 @@ import { fileURLToPath } from "node:url";
  *   3. remaps any conflicting host ports (so multiple Hogsend stacks coexist)
  *   4. brings up Postgres + Redis + Hatchet-Lite and waits for health
  *   5. mints a Hatchet API token and writes it to `.env`
- *   6. runs the two-track database migrations
- *   7. mints an ingest-scoped data-plane API key and writes it to `.env`
+ *   6. runs the two-track database migrations (and verifies the engine track)
+ *   7. mints API keys → `.env`: HOGSEND_API_KEY (ingest) + HOGSEND_ADMIN_KEY
+ *      (full-admin, used by the `hogsend` CLI)
  *   8. (optional, interactive) creates your first Studio admin via the CLI
  *
  * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
@@ -61,6 +62,17 @@ function info(msg: string): void {
 }
 function warn(msg: string): void {
   process.stdout.write(`  ${yellow("!")} ${msg}\n`);
+}
+/**
+ * A step failure the run can survive (unlike `die`) but that MUST NOT be
+ * papered over by the final "✓ Ready." banner. Recorded and re-surfaced in the
+ * summary; the process exits 1 so wrappers (create-hogsend's setup step, CI)
+ * see the truth too.
+ */
+const issues: string[] = [];
+function issue(msg: string): void {
+  warn(msg);
+  issues.push(msg);
 }
 function die(msg: string, hint?: string): never {
   // Restore the cursor in case we died mid-spin (startSpinner hides it).
@@ -409,7 +421,7 @@ async function ensureHatchetToken(): Promise<void> {
 }
 
 // --- 6. migrations ---------------------------------------------------------
-function runMigrations(): void {
+async function runMigrations(): Promise<void> {
   info(`${pmRun("db:migrate")} (engine track, then client track)`);
   const status = runLive(
     PM,
@@ -422,61 +434,117 @@ function runMigrations(): void {
       `Check the output above, then re-run \`${pmRun("bootstrap")}\`.`,
     );
   }
+  await verifyEngineSchema();
   ok("Database migrated");
 }
 
-// --- 7. data-plane api key -------------------------------------------------
 /**
- * Mint a data-plane API key with the `ingest` scope and write it to `.env` as
- * `HOGSEND_API_KEY`. This is the key the `@hogsend/client` instance in
- * `src/lib/hogsend.ts` (and the `hogsend` CLI) authenticate with against the
- * guarded `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` routes.
+ * Prove the ENGINE migration track actually reached HEAD — the same probe the
+ * API's boot guard runs, so bootstrap's "✓ Ready." and `dev` booting can never
+ * disagree. Guards against any regression where `db:migrate` exits 0 while the
+ * engine track was skipped (e.g. the old percent-encoded-path bug): every later
+ * step (api_keys mint, Studio admin, `dev` itself) needs the engine schema.
+ */
+async function verifyEngineSchema(): Promise<void> {
+  const databaseUrl = getEnv(readFileSync(ENV_PATH, "utf8"), "DATABASE_URL");
+  if (!databaseUrl) return; // db:migrate itself would have failed without it
+  const [{ default: postgres }, { drizzle }, { getEngineSchemaVersion }] =
+    await Promise.all([
+      import("postgres"),
+      import("drizzle-orm/postgres-js"),
+      import("@hogsend/db"),
+    ]);
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    const version = await getEngineSchemaVersion(drizzle(sql));
+    if (!version.inSync) {
+      die(
+        `Engine schema is still behind after db:migrate — ${version.pending.length} migration(s) pending (next: ${version.pending[0]}).`,
+        "The engine migration track did not apply. Please report this: https://github.com/dougwithseismic/hogsend/issues",
+      );
+    }
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+// --- 7. api keys (data-plane + admin) --------------------------------------
+/**
+ * Mint the two local API keys and write them to `.env`:
+ *
+ *   - `HOGSEND_API_KEY` — `ingest` scope. Authenticates your own app code via
+ *     the `@hogsend/client` instance in `src/lib/hogsend.ts` (PUT /v1/contacts,
+ *     POST /v1/events, POST /v1/emails, /v1/lists).
+ *   - `HOGSEND_ADMIN_KEY` — `full-admin` scope. What the `hogsend` CLI reads
+ *     for admin commands (`hogsend connect posthog`, stats, webhooks, ...), so
+ *     they work out of the box against the local instance.
  *
  * Mirrors the engine's `generateApiKey`/`hashApiKey` (sha256 hex of the raw
- * `hsk_` key; only the hash is stored). Idempotent: a real `hsk_` key already
- * in `.env` is kept as-is (re-running never creates a duplicate). If the DB is
- * unreachable it WARNS and continues — the rest of the stack is up, and you can
- * re-run `bootstrap` (or create a key via `POST /v1/admin/api-keys`) later.
+ * `hsk_` key; only the hash is stored). Idempotent per key: a real `hsk_` value
+ * already in `.env` is kept as-is (re-running never creates a duplicate). If
+ * the DB is unreachable it records an issue and continues — the rest of the
+ * stack is up, and re-running `bootstrap` retries.
  */
-async function ensureDataPlaneKey(): Promise<void> {
+async function ensureApiKeys(): Promise<void> {
+  const specs = [
+    {
+      envKey: "HOGSEND_API_KEY",
+      scopes: ["ingest"],
+      name: "local-bootstrap",
+      blurb: "an ingest-scoped data-plane key",
+    },
+    {
+      envKey: "HOGSEND_ADMIN_KEY",
+      scopes: ["full-admin"],
+      name: "local-bootstrap-admin",
+      blurb: "a full-admin key (hogsend CLI / Studio API)",
+    },
+  ];
   const env = readFileSync(ENV_PATH, "utf8");
-  const current = getEnv(env, "HOGSEND_API_KEY") ?? "";
-  if (current.startsWith("hsk_")) {
-    ok("HOGSEND_API_KEY already set — keeping it");
-    return;
+  const pending = specs.filter(
+    (s) => !(getEnv(env, s.envKey) ?? "").startsWith("hsk_"),
+  );
+  for (const s of specs) {
+    if (!pending.includes(s)) ok(`${s.envKey} already set — keeping it`);
   }
+  if (pending.length === 0) return;
 
   const databaseUrl = getEnv(env, "DATABASE_URL");
   if (!databaseUrl) {
-    warn("DATABASE_URL is not set in .env — skipping data-plane key mint.");
-    info("Set DATABASE_URL and re-run bootstrap to mint HOGSEND_API_KEY.");
+    issue("DATABASE_URL is not set in .env — skipping API key mint.");
     return;
   }
 
-  // hsk_<32 random bytes, base64url>; store only the sha256 hex of the full key.
-  const key = `hsk_${randomBytes(32).toString("base64url")}`;
-  const keyPrefix = key.slice(0, 8);
-  const keyHash = createHash("sha256").update(key).digest("hex");
-
   // Dynamic import: `postgres` is a runtime dep, but only this step needs it, so
   // a non-DB bootstrap path never pays for it. Any failure (module/connection)
-  // is treated as warn-not-die — the local stack is otherwise fully usable.
+  // is an issue-not-die — the local stack is otherwise fully usable.
   let sql: import("postgres").Sql | undefined;
   try {
     const { default: postgres } = await import("postgres");
     sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
-    await sql`
-      INSERT INTO api_keys (name, key_prefix, key_hash, scopes)
-      VALUES (
-        ${"local-bootstrap"},
-        ${keyPrefix},
-        ${keyHash},
-        ${JSON.stringify(["ingest"])}::jsonb
-      )
-    `;
+    for (const spec of pending) {
+      // hsk_<32 random bytes, base64url>; store only the sha256 hex of the key.
+      const key = `hsk_${randomBytes(32).toString("base64url")}`;
+      const keyPrefix = key.slice(0, 8);
+      const keyHash = createHash("sha256").update(key).digest("hex");
+      await sql`
+        INSERT INTO api_keys (name, key_prefix, key_hash, scopes)
+        VALUES (
+          ${spec.name},
+          ${keyPrefix},
+          ${keyHash},
+          ${JSON.stringify(spec.scopes)}::jsonb
+        )
+      `;
+      writeFileSync(
+        ENV_PATH,
+        setEnv(readFileSync(ENV_PATH, "utf8"), spec.envKey, key),
+      );
+      ok(`Minted ${spec.blurb} → ${spec.envKey} in .env`);
+    }
   } catch (err) {
-    warn(
-      `Couldn't mint a data-plane key: ${
+    issue(
+      `Couldn't mint API keys: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -485,13 +553,6 @@ async function ensureDataPlaneKey(): Promise<void> {
   } finally {
     await sql?.end({ timeout: 5 }).catch(() => {});
   }
-
-  writeFileSync(
-    ENV_PATH,
-    setEnv(readFileSync(ENV_PATH, "utf8"), "HOGSEND_API_KEY", key),
-  );
-  ok("Minted an ingest-scoped data-plane key → HOGSEND_API_KEY in .env");
-  info(`Key (shown once): ${key}`);
 }
 
 // --- 8. first Studio admin (optional, interactive) -------------------------
@@ -554,7 +615,7 @@ async function bootstrapAdmin(): Promise<void> {
     process.platform === "win32",
   );
   if (status !== 0) {
-    warn("Admin create did not complete.");
+    issue("Admin create did not complete.");
     info(`You can re-run it any time: \`${pmRun("studio:admin")}\`.`);
     return;
   }
@@ -583,10 +644,10 @@ async function main(): Promise<void> {
   await ensureHatchetToken();
 
   step("Running migrations");
-  runMigrations();
+  await runMigrations();
 
-  step("Minting data-plane API key");
-  await ensureDataPlaneKey();
+  step("Minting API keys");
+  await ensureApiKeys();
 
   step("Creating your first Studio admin");
   await bootstrapAdmin();
@@ -610,9 +671,21 @@ async function main(): Promise<void> {
   const link = (label: string, url: string, note: string): string =>
     `  ${dim(label.padEnd(9))}${cyan(url)}   ${dim(note)}`;
 
+  // An honest banner: "✓ Ready." is reserved for a run where every step
+  // actually succeeded. Recorded issues re-surface here (they scrolled past
+  // long ago) and flip the exit code so wrappers see the truth.
+  const banner =
+    issues.length === 0
+      ? `\n${green(bold("✓ Ready."))} ${bold("Welcome to Hogsend.")}`
+      : [
+          `\n${yellow(bold(`! Finished with ${issues.length} issue(s):`))}`,
+          ...issues.map((m) => `    ${yellow("•")} ${m}`),
+          `  ${dim(`Fix the above and re-run \`${pmRun("bootstrap")}\` — it is safe to re-run.`)}`,
+        ].join("\n");
+
   process.stdout.write(
     [
-      `\n${green(bold("✓ Ready."))} ${bold("Welcome to Hogsend.")}`,
+      banner,
       // The compose stack is only the infra your app talks to — the API and
       // worker are your code and run as host processes (hot-reload), so nothing
       // is serving yet until you start them.
@@ -643,6 +716,8 @@ async function main(): Promise<void> {
       .filter(Boolean)
       .join("\n"),
   );
+
+  if (issues.length > 0) process.exit(1);
 }
 
 main().catch((err: unknown) => {

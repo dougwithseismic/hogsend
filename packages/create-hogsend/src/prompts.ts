@@ -67,7 +67,7 @@ Options:
                              POSTHOG_WEBHOOK_SECRET in env.example
   --posthog-host <url>       PostHog host URL (default: https://us.i.posthog.com;
                              requires --posthog-key)
-  --no-posthog               Skip the PostHog prompt
+  --no-posthog               Skip the "Where will events come from?" prompt
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -344,60 +344,44 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain = answer ? answer.toLowerCase() : undefined;
   }
 
-  // PostHog: opt-in — --posthog-key already resolved it above, --no-posthog
-  // skips the prompt entirely, and a blank key means "configure later" (the
-  // env.example placeholders stay commented).
+  // Event source: source-neutral — Hogsend ingests from anywhere, and the
+  // default (your own app code via the pre-wired `@hogsend/client` in
+  // src/lib/hogsend.ts) needs ZERO scaffold-time config: bootstrap mints the
+  // ingest key. PostHog is ONE option, and even it needs no key here — the
+  // post-deploy `hogsend connect posthog` OAuth flow discovers the phc_ and
+  // mints the webhook secret itself, so selecting it only gates that
+  // next-step hint. `--posthog-key` stays the escape hatch for pasting a key
+  // up front (resolved above, skips this prompt); `--no-posthog` skips it too.
   let usingPosthog = posthog !== undefined;
   if (posthog === undefined && !values["no-posthog"]) {
-    usingPosthog = bail(
-      await confirm({
-        message: "Are you using PostHog?",
-        initialValue: true,
+    const source = bail(
+      await select({
+        message: "Where will events come from?",
+        initialValue: "app",
+        options: [
+          {
+            value: "app",
+            label: "My app code",
+            hint: "@hogsend/client SDK, pre-wired — zero config",
+          },
+          {
+            value: "posthog",
+            label: "PostHog",
+            hint: "wired after deploy via 'hogsend connect posthog' — no key needed",
+          },
+          {
+            value: "later",
+            label: "Not sure yet",
+            hint: "everything can be wired later",
+          },
+        ],
       }),
     );
+    usingPosthog = source === "posthog";
     if (usingPosthog) {
-      const apiKey = bail(
-        await text({
-          message:
-            "PostHog project API key? (optional — leave blank and run 'hogsend connect posthog' after deploy to fetch the key, mint the webhook secret, and create the webhook automatically)",
-          placeholder: "phc_... (or blank)",
-          validate: (value) =>
-            value === undefined || value === ""
-              ? undefined
-              : validatePosthogKey(value),
-        }),
+      log.info(
+        "No PostHog key needed now. After you deploy, run 'hogsend connect posthog' — it authorizes via OAuth, mints the webhook secret, and wires the PostHog→Hogsend event loop automatically.",
       );
-      if (!apiKey) {
-        log.info(
-          "No key pasted — that's fine. After you deploy, run 'hogsend connect posthog' to authorize PostHog, mint the webhook secret, and wire the PostHog→Hogsend event loop.",
-        );
-      } else {
-        const region = bail(
-          await select({
-            message: "PostHog region?",
-            initialValue: POSTHOG_EU_HOST,
-            options: [
-              { value: POSTHOG_EU_HOST, label: "EU Cloud (eu.i.posthog.com)" },
-              { value: POSTHOG_US_HOST, label: "US Cloud (us.i.posthog.com)" },
-              { value: "custom", label: "Custom host URL" },
-            ],
-          }),
-        );
-        const host =
-          region === "custom"
-            ? bail(
-                await text({
-                  message: "PostHog host URL?",
-                  placeholder: "https://posthog.mycompany.com",
-                  validate: (value) =>
-                    value === undefined || value === ""
-                      ? "PostHog host is required."
-                      : validatePosthogHost(value),
-                }),
-              )
-            : region;
-        posthog = { apiKey, host: normalizePosthogHost(host) };
-      }
     }
   }
 

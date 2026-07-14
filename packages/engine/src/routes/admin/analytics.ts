@@ -293,9 +293,11 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
       });
 
       // Opportunistically persist the phc_ (project api_token) the provisioner
-      // read on its way through — it powers the OPTIONAL outbound capture path
-      // and activates on the next deploy (no lazy boot-time seam). Re-read the
-      // stored payload to merge over the just-persisted webhook secret.
+      // read on its way through — it powers the OPTIONAL outbound capture path.
+      // `activateStoredPosthogAnalytics` (container boot) reads it back, so
+      // capture comes alive on the next boot with NO hand-pasted
+      // POSTHOG_API_KEY. Re-read the stored payload to merge over the
+      // just-persisted webhook secret.
       if (result.projectApiKey) {
         const cur = (await getDerivedCredential(db, "posthog")) ?? {};
         await saveDerivedCredential(db, "posthog", {

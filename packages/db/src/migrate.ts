@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -92,10 +92,21 @@ function createMigrateClient(databaseUrl: string): { client: Client; db: Db } {
 
 /** Engine track: bundled `@hogsend/db/drizzle` folder + default ledger. */
 export async function migrateEngine(databaseUrl: string): Promise<void> {
-  const migrationsFolder = new URL("../drizzle", import.meta.url).pathname;
+  // fileURLToPath, NOT `.pathname`: pathname percent-encodes spaces etc., so a
+  // project under a path like "~/My Projects/app" would fail existsSync and
+  // silently skip the whole engine track.
+  const migrationsFolder = fileURLToPath(
+    new URL("../drizzle", import.meta.url),
+  );
   if (!existsSync(migrationsFolder)) {
-    console.log("[engine] No migrations folder found, skipping.");
-    return;
+    // Never skip silently: the bundled migrations ship with every @hogsend/db
+    // install, so a missing folder means a packaging/resolution bug — and a
+    // skipped engine track strands the DB at (empty) while the boot guard
+    // expects HEAD, failing every downstream step (api_keys, auth tables).
+    throw new Error(
+      `[engine] Bundled migrations folder not found at ${migrationsFolder} — ` +
+        "the @hogsend/db install looks broken (reinstall dependencies?).",
+    );
   }
   const { client, db } = createMigrateClient(databaseUrl);
   try {

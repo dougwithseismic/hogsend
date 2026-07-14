@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { sql } from "drizzle-orm";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -29,7 +29,11 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
-  const migrationsFolder = new URL("../drizzle", import.meta.url).pathname;
+  // fileURLToPath, NOT `.pathname` — pathname percent-encodes spaces (see
+  // migrateEngine).
+  const migrationsFolder = fileURLToPath(
+    new URL("../drizzle", import.meta.url),
+  );
   if (!existsSync(migrationsFolder)) {
     console.log("[stamp] No migrations folder found, nothing to stamp.");
     return;

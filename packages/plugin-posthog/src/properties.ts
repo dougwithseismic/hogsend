@@ -19,6 +19,27 @@ export function derivePrivateHost(host: string): string {
 }
 
 /**
+ * The inverse of {@link derivePrivateHost}: map a PostHog Cloud APP host to its
+ * capture/ingestion host by inserting the `.i.` label:
+ *
+ *   https://eu.posthog.com → https://eu.i.posthog.com
+ *   https://us.posthog.com → https://us.i.posthog.com
+ *
+ * Used when the ONLY stored host is the private one (the `hogsend connect
+ * posthog` derived credential) and the engine needs somewhere to capture to.
+ * Self-hosted instances serve both planes on one host, so anything that
+ * doesn't match the Cloud pattern passes through unchanged — including hosts
+ * that already carry the `.i.` label (the single dot-free label the pattern
+ * requires can't span it).
+ */
+export function deriveIngestHost(privateHost: string): string {
+  return privateHost.replace(
+    /^(https?:\/\/[a-z0-9-]+)\.(posthog\.com)/i,
+    "$1.i.$2",
+  );
+}
+
+/**
  * Resolve the project id for environment-scoped private endpoints via
  * `GET /api/projects/@current/` (the personal key's scoped project). Returns
  * undefined on any failure — callers soft-fail.
