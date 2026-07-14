@@ -807,11 +807,38 @@ export function setBucketEnabled(id: string, enabled: boolean) {
 // --- Groups --------------------------------------------------------------
 
 /**
+ * One currency's worth of a group's money. The revenue spine's law: totals are
+ * grouped PER CURRENCY and never summed across them (a GBP deal and a USD deal
+ * don't add), so the UI renders them side by side — it must never add them up.
+ * `currency` is null for a valued event ingested without one.
+ */
+export type GroupRevenueTotal = {
+  currency: string | null;
+  total: number;
+};
+
+/**
+ * The base-currency FX lens block — non-null on a list/detail response exactly
+ * when the lens served rates, so converted figures can be labelled honestly
+ * ("≈ in USD, rates as of <date>"). `asOf` is null when the rate sheet carries
+ * no date.
+ */
+export type GroupFx = {
+  baseCurrency: string;
+  asOf: string | null;
+};
+
+/**
  * One row of `GET /v1/admin/groups` — an account/team/company-level record
  * tracked from events + memberships. Mirrors the engine group schema
  * (routes/admin/groups.ts). `properties` is an opaque bag; `memberCount` is a
  * server-computed rollup over live memberships. Observe-only: groups are
  * authored in the data plane, never from Studio.
+ *
+ * Money arrives twice: `revenueTotals` (per currency, the truth) and
+ * `revenueBase` (the same money converted into the operator's base currency —
+ * the opt-in lens). `revenueBase` is null when the lens is off OR when any of
+ * this group's currencies lacks a rate, because a partial sum would lie.
  */
 export type AdminGroup = {
   id: string;
@@ -820,6 +847,8 @@ export type AdminGroup = {
   displayName: string | null;
   properties: Record<string, unknown>;
   memberCount: number;
+  revenueTotals: GroupRevenueTotal[];
+  revenueBase: number | null;
   firstSeenAt: string;
   lastSeenAt: string;
 };
@@ -847,10 +876,22 @@ export type AdminGroupDetail = AdminGroup & {
   recentEvents: AdminGroupEvent[];
 };
 
+/**
+ * Server-side sort keys. `revenue` ranks on a cross-currency scalar — an
+ * ordering heuristic the server never displays (exact for a single-currency
+ * deployment, approximate for a mixed one; base-converted when the FX lens
+ * covers every currency in play).
+ */
+export type GroupSort = "lastSeen" | "members" | "revenue" | "name";
+
 export type GroupListFilters = {
   limit?: number;
   offset?: number;
   groupType?: string;
+  /** Case-insensitive substring over the group key or display name. */
+  search?: string;
+  sort?: GroupSort;
+  order?: "asc" | "desc";
 };
 
 export function listGroups(filters: GroupListFilters = {}) {
@@ -859,17 +900,21 @@ export function listGroups(filters: GroupListFilters = {}) {
     total: number;
     limit: number;
     offset: number;
+    fx: GroupFx | null;
   }>("/v1/admin/groups", {
     query: {
       limit: filters.limit,
       offset: filters.offset,
       groupType: filters.groupType || undefined,
+      search: filters.search || undefined,
+      sort: filters.sort,
+      order: filters.order,
     },
   });
 }
 
 export function getGroup(groupType: string, groupKey: string) {
-  return api.get<{ group: AdminGroupDetail }>(
+  return api.get<{ group: AdminGroupDetail; fx: GroupFx | null }>(
     `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
       groupKey,
     )}`,
