@@ -1,6 +1,10 @@
+// Dependency-free engine subpath (the ROOT barrel does import-time env
+// validation, so the CLI only ever imports narrow engine subpaths).
+import { posthogScopeSatisfied } from "@hogsend/engine/posthog-scopes";
 import type { AdminClient } from "./http.js";
 import { isHttpError } from "./http.js";
 import { LoopbackError, type LoopbackServer } from "./loopback.js";
+import { isLoopbackUrl } from "./loopback-url.js";
 import type { DiscoveryResult, TokenResponse } from "./oauth.js";
 import {
   buildAuthorizeUrl,
@@ -176,27 +180,6 @@ const SSH_NOTE = `The consent page must open in a browser on THIS machine — th
 returns to 127.0.0.1 here. On a remote/SSH session this cannot complete: run
 the command from your laptop instead and point --url at the instance (the CLI
 never needs to run on the server).`;
-
-/**
- * Loopback detector — kept in LOCKSTEP with the engine's
- * `isLoopbackPublicUrl` (packages/engine/src/routes/admin/analytics.ts);
- * the CLI has no engine dependency (same reasoning as POSTHOG_CLIENT_ID).
- */
-function isLoopbackUrl(publicUrl: string): boolean {
-  try {
-    const host = new URL(publicUrl).hostname.toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host === "[::1]" ||
-      host === "::1" ||
-      host.endsWith(".localhost")
-    );
-  } catch {
-    return false;
-  }
-}
 
 const LOOPBACK_URL_NOTE = `Credential stored — but this instance's API_PUBLIC_URL is a loopback
 address, so PostHog Cloud cannot deliver webhooks to it. Provisioning was
@@ -575,13 +558,19 @@ export async function runConnectPosthog(
   // Advise only when PostHog granted FEWER scopes than we requested THIS run
   // (a downscope) — derived from the grant we just received, not the stale
   // pre-run `info.scopeGap`, so a successful full re-auth prints nothing.
+  // `posthogScopeSatisfied` handles the hierarchical scope model (`X:write`
+  // implies `X:read`; the grant normalizes both-halves requests down to
+  // write-only) — a literal set-difference would cry "missing: person:read, …"
+  // on every fully-successful consent.
   const requestedScopes = POSTHOG_SCOPES.split(" ");
-  const missingScopes = requestedScopes.filter((s) => !scopes.includes(s));
+  const missingScopes = requestedScopes.filter(
+    (s) => !posthogScopeSatisfied(scopes, s),
+  );
   if (missingScopes.length > 0) {
     deps.out.log(
-      `note: PostHog granted ${scopes.length}/${requestedScopes.length} ` +
+      `note: PostHog granted ${requestedScopes.length - missingScopes.length}/${requestedScopes.length} ` +
         `requested scope(s); missing: ${missingScopes.join(", ")}. Re-run ` +
-        "`hogsend connect posthog` to grant the full set.",
+        "`hogsend connect posthog` with an account that has those permissions.",
     );
   }
 

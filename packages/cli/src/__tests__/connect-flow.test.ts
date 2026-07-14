@@ -536,9 +536,10 @@ describe("runConnectPosthog — keyless / region resolution", () => {
 
 describe("runConnectPosthog — scope downscope advisory", () => {
   it("prints a note when PostHog grants fewer scopes than requested", async () => {
-    // Simulate a downscope: PostHog grants everything except two read scopes.
+    // A REAL downscope: query:read has no :write sibling in the grant, so
+    // dropping it is a genuine gap the note must report.
     const granted = POSTHOG_SCOPES.split(" ")
-      .filter((s) => s !== "cohort:read" && s !== "query:read")
+      .filter((s) => s !== "query:read")
       .join(" ");
     const h = makeHarness({ tokens: { ...TOKENS, scope: granted } });
     const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
@@ -546,8 +547,20 @@ describe("runConnectPosthog — scope downscope advisory", () => {
     expect(result.verdict).toBe("connected");
     const note = h.sink.find((s) => s.includes("PostHog granted"));
     expect(note).toBeDefined();
-    expect(note).toContain("cohort:read");
     expect(note).toContain("query:read");
+  });
+
+  it("does NOT report a :read scope satisfied by its granted :write half", async () => {
+    // PostHog's scope model is hierarchical (write implies read) and the
+    // grant normalizes a both-halves request down to write-only. Dropping
+    // cohort:read while cohort:write is granted is NOT a downscope — a full
+    // consent looks exactly like this, so no note may print.
+    const granted = POSTHOG_SCOPES.split(" ")
+      .filter((s) => s !== "cohort:read")
+      .join(" ");
+    const h = makeHarness({ tokens: { ...TOKENS, scope: granted } });
+    await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+    expect(h.sink.find((s) => s.includes("PostHog granted"))).toBeUndefined();
   });
 
   it("prints no note when PostHog grants the full requested set", async () => {

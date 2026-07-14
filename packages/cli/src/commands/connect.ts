@@ -1,5 +1,9 @@
 import { parseArgs } from "node:util";
 import { confirm, password, select, text } from "@clack/prompts";
+import {
+  adminKeyGuidance,
+  maybeMintLocalAdminKey,
+} from "../lib/admin-key-mint.js";
 import { openBrowser } from "../lib/browser.js";
 import {
   ConnectDiscordError,
@@ -12,6 +16,7 @@ import {
   type ConnectFlowDeps,
   runConnectPosthog,
 } from "../lib/connect-flow.js";
+import { createAdminClient } from "../lib/http.js";
 import { startLoopbackServer } from "../lib/loopback.js";
 import { discoverOAuthServer, exchangeCode } from "../lib/oauth.js";
 import { color } from "../lib/output.js";
@@ -81,17 +86,33 @@ async function run(ctx: CommandContext): Promise<void> {
   if (!provider) {
     ctx.out.fail("missing provider — try: hogsend connect posthog");
   }
+  if (provider !== "posthog" && provider !== "discord") {
+    ctx.out.fail(
+      `unknown provider "${provider}" — supported: posthog, discord`,
+    );
+  }
+
+  // Both providers hit admin-gated routes. Resolve the key BEFORE any HTTP so
+  // the failure mode is a self-service mint (local instance) or a guided
+  // explanation — not a terse "no admin key configured" mid-onboarding.
+  if (!ctx.cfg.adminKey) {
+    const minted = await maybeMintLocalAdminKey({
+      baseUrl: ctx.cfg.baseUrl,
+      out: ctx.out,
+    });
+    if (!minted) {
+      ctx.out.fail(adminKeyGuidance(ctx.cfg.baseUrl));
+    }
+    ctx.cfg = { ...ctx.cfg, adminKey: minted };
+    ctx.http = createAdminClient(ctx.cfg);
+  }
+
   if (provider === "discord") {
     await runDiscord(ctx, {
       noBrowser: Boolean(values["no-browser"]),
       statusOnly: Boolean(values.status),
     });
     return;
-  }
-  if (provider !== "posthog") {
-    ctx.out.fail(
-      `unknown provider "${provider}" — supported: posthog, discord`,
-    );
   }
 
   if (values["provision-only"] && values["no-provision"]) {

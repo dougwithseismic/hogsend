@@ -45,6 +45,9 @@ export const RENAME_MAP: Record<string, string> = {
   "env.example": ".env.example",
   "node-version": ".node-version",
   "_package.json": "package.json",
+  // pnpm 11 settings (allowBuilds + minimumReleaseAgeExclude). Underscored so
+  // the monorepo's pnpm never mistakes template/ for a nested workspace root.
+  "_pnpm-workspace.yaml": "pnpm-workspace.yaml",
   // The scaffolded app's always-loaded agent orientation. Authored as
   // CLAUDE.template.md so the monorepo's own tooling never treats it as guidance
   // for THIS repo; renamed to CLAUDE.md (and token-substituted) on emit.

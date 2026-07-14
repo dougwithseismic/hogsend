@@ -65,7 +65,10 @@ import {
   wrapLegacyAnalyticsService,
 } from "./lib/analytics-adapter.js";
 import { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
-import { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
+import {
+  analyticsProvidersFromEnv,
+  buildStoredPosthogProvider,
+} from "./lib/analytics-providers-from-env.js";
 import {
   setAnalytics,
   setAnalyticsEventMirror,
@@ -111,6 +114,7 @@ import { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
 import { smsProvidersFromEnv } from "./lib/sms-providers-from-env.js";
 import type { SmsService } from "./lib/sms-service-types.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
+import { createUnconfiguredEmailProvider } from "./lib/unconfigured-email-provider.js";
 import { synthesizeChannelLists } from "./lists/channels.js";
 import {
   type DefinedList,
@@ -886,16 +890,30 @@ export function createHogsendClient(
   // SINGLE place Resend is constructed from env — so resolution is just a
   // registry lookup that throws if the active id resolves to nothing. NEVER
   // silently fall back for a non-resend id.
-  const activeId =
-    opts.email?.defaultProvider ?? env.EMAIL_PROVIDER ?? "resend";
-  const provider = emailProviders.get(activeId);
+  const explicitId = opts.email?.defaultProvider ?? env.EMAIL_PROVIDER;
+  const activeId = explicitId ?? "resend";
+  let provider = emailProviders.get(activeId);
 
   if (!provider) {
-    throw new Error(
-      `email provider "${activeId}" is not registered (registered: ${emailProviders
-        .getAll()
-        .map((p) => p.meta?.id ?? "resend")
-        .join(", ")})`,
+    // An EXPLICITLY requested id that resolves to nothing is a config error —
+    // throw (typo safety). So is an implicit default when OTHER providers are
+    // registered (e.g. Postmark-only without EMAIL_PROVIDER=postmark).
+    if (explicitId !== undefined || emailProviders.count() > 0) {
+      throw new Error(
+        `email provider "${activeId}" is not registered (registered: ${emailProviders
+          .getAll()
+          .map((p) => p.meta?.id ?? "resend")
+          .join(", ")})`,
+      );
+    }
+    // Zero providers + nothing requested = a fresh app without email creds
+    // yet. Boot INERT instead of crashing (mirrors the SMS channel's
+    // operator-opt-in stub): Studio, ingest and non-email journeys all work;
+    // each send fails per-call with an actionable message. The stub is NOT
+    // registered in the registry, so no webhook route resolves it.
+    provider = createUnconfiguredEmailProvider();
+    logger.warn(
+      "no email provider configured — email sends will fail until RESEND_API_KEY (or POSTMARK_SERVER_TOKEN with EMAIL_PROVIDER=postmark) is set. Everything else works without one.",
     );
   }
 
@@ -909,7 +927,7 @@ export function createHogsendClient(
     logger.warn(
       `provider ${
         provider.meta?.id ?? "resend"
-      } reports account-level native tracking ON; disable it in the dashboard — first-party tracking is Hogsend's source of truth.`,
+      } can't disable its native open/click tracking per-send (account-level setting) — if it's enabled in the provider dashboard, turn it off there; first-party tracking is Hogsend's source of truth.`,
     );
   }
 
@@ -1389,7 +1407,7 @@ export function createHogsendClient(
     `Destination registry loaded: ${destinationRegistry.count()} destinations`,
   );
 
-  return {
+  const client: HogsendClient = {
     env,
     logger,
     db,
@@ -1421,4 +1439,35 @@ export function createHogsendClient(
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,
   };
+
+  // Boot-time reader for `hogsend connect posthog`'s persisted phc_: when no
+  // provider resolved AND no POSTHOG_API_KEY is set, activate PostHog from the
+  // stored derived credential (async, fire-and-forget — the container is built
+  // synchronously; a failure leaves the container exactly as booted). ALL
+  // activation effects live here, in one block, so "who mutates what" has a
+  // single answer. Skipped under NODE_ENV=test so suites stay hermetic.
+  if (!analytics && !env.POSTHOG_API_KEY && env.NODE_ENV !== "test") {
+    void buildStoredPosthogProvider({ env, db, logger })
+      .then((provider) => {
+        if (!provider) return;
+        // Someone claimed the slot while we read (consumer provider, race).
+        if (client.analytics || analyticsProviders.get("posthog")) return;
+        analyticsProviders.register(provider);
+        client.analytics = provider;
+        setAnalytics(provider);
+        // Rebuild the boot closure that captured `analytics: undefined` so
+        // identity merges propagate to the newly-live provider too.
+        client.identity = createIdentityService({
+          db,
+          analytics: provider,
+          logger,
+        });
+        logger.info(
+          'analytics provider "posthog" activated from the stored `hogsend connect posthog` credential — outbound capture is live without POSTHOG_API_KEY.',
+        );
+      })
+      .catch(() => {});
+  }
+
+  return client;
 }

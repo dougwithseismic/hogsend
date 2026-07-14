@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
@@ -15,9 +15,12 @@ import { fileURLToPath } from "node:url";
  *   3. remaps any conflicting host ports (so multiple Hogsend stacks coexist)
  *   4. brings up Postgres + Redis + Hatchet-Lite and waits for health
  *   5. mints a Hatchet API token and writes it to `.env`
- *   6. runs the two-track database migrations
- *   7. mints an ingest-scoped data-plane API key and writes it to `.env`
+ *   6. runs the two-track database migrations (and verifies the engine track)
+ *   7. mints API keys → `.env`: HOGSEND_API_KEY (ingest) + HOGSEND_ADMIN_KEY
+ *      (full-admin, used by the `hogsend` CLI)
  *   8. (optional, interactive) creates your first Studio admin via the CLI
+ *   9. (optional, interactive; only when PostHog was chosen) runs the real
+ *      `hogsend connect posthog` OAuth flow against a briefly-booted API
  *
  * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
  */
@@ -46,7 +49,7 @@ const cyan = paint("36");
 const magenta = paint("35");
 
 let stepNo = 0;
-const TOTAL = 8;
+let TOTAL = 8;
 function step(label: string): void {
   stepNo += 1;
   process.stdout.write(
@@ -61,6 +64,17 @@ function info(msg: string): void {
 }
 function warn(msg: string): void {
   process.stdout.write(`  ${yellow("!")} ${msg}\n`);
+}
+/**
+ * A step failure the run can survive (unlike `die`) but that MUST NOT be
+ * papered over by the final "✓ Ready." banner. Recorded and re-surfaced in the
+ * summary; the process exits 1 so wrappers (create-hogsend's setup step, CI)
+ * see the truth too.
+ */
+const issues: string[] = [];
+function issue(msg: string): void {
+  warn(msg);
+  issues.push(msg);
 }
 function die(msg: string, hint?: string): never {
   // Restore the cursor in case we died mid-spin (startSpinner hides it).
@@ -135,6 +149,17 @@ const PM = detectPm();
 /** Idiomatic "run a script" for the active pm — only npm needs the `run` word. */
 function pmRun(script: string): string {
   return PM === "npm" ? `npm run ${script}` : `${PM} ${script}`;
+}
+
+/**
+ * Idiomatic "run a locally-installed bin" for the active pm. The `hogsend` CLI
+ * ships with the app's dependencies (`@hogsend/cli`), not on the PATH — a bare
+ * `hogsend …` hint sends users into `command not found`.
+ */
+function pmExec(bin: string): string {
+  if (PM === "npm") return `npx ${bin}`; // npx prefers the local bin
+  if (PM === "bun") return `bunx ${bin}`;
+  return `${PM} ${bin}`;
 }
 
 interface Run {
@@ -409,7 +434,7 @@ async function ensureHatchetToken(): Promise<void> {
 }
 
 // --- 6. migrations ---------------------------------------------------------
-function runMigrations(): void {
+async function runMigrations(): Promise<void> {
   info(`${pmRun("db:migrate")} (engine track, then client track)`);
   const status = runLive(
     PM,
@@ -422,76 +447,129 @@ function runMigrations(): void {
       `Check the output above, then re-run \`${pmRun("bootstrap")}\`.`,
     );
   }
+  await verifyEngineSchema();
   ok("Database migrated");
 }
 
-// --- 7. data-plane api key -------------------------------------------------
 /**
- * Mint a data-plane API key with the `ingest` scope and write it to `.env` as
- * `HOGSEND_API_KEY`. This is the key the `@hogsend/client` instance in
- * `src/lib/hogsend.ts` (and the `hogsend` CLI) authenticate with against the
- * guarded `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` routes.
+ * Prove the ENGINE migration track actually reached HEAD — the same probe the
+ * API's boot guard runs, so bootstrap's "✓ Ready." and `dev` booting can never
+ * disagree. Guards against any regression where `db:migrate` exits 0 while the
+ * engine track was skipped (e.g. the old percent-encoded-path bug): every later
+ * step (api_keys mint, Studio admin, `dev` itself) needs the engine schema.
+ */
+async function verifyEngineSchema(): Promise<void> {
+  const databaseUrl = getEnv(readFileSync(ENV_PATH, "utf8"), "DATABASE_URL");
+  if (!databaseUrl) return; // db:migrate itself would have failed without it
+  const [{ default: postgres }, { drizzle }, { getEngineSchemaVersion }] =
+    await Promise.all([
+      import("postgres"),
+      import("drizzle-orm/postgres-js"),
+      import("@hogsend/db"),
+    ]);
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    const version = await getEngineSchemaVersion(drizzle(sql));
+    if (!version.inSync) {
+      die(
+        `Engine schema is still behind after db:migrate — ${version.pending.length} migration(s) pending (next: ${version.pending[0]}).`,
+        "The engine migration track did not apply. Please report this: https://github.com/dougwithseismic/hogsend/issues",
+      );
+    }
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+// --- 7. api keys (data-plane + admin) --------------------------------------
+/**
+ * Mint the two local API keys and write them to `.env`:
+ *
+ *   - `HOGSEND_API_KEY` — `ingest` scope. Authenticates your own app code via
+ *     the `@hogsend/client` instance in `src/lib/hogsend.ts` (PUT /v1/contacts,
+ *     POST /v1/events, POST /v1/emails, /v1/lists).
+ *   - `HOGSEND_ADMIN_KEY` — `full-admin` scope. What the `hogsend` CLI reads
+ *     for admin commands (`hogsend connect posthog`, stats, webhooks, ...), so
+ *     they work out of the box against the local instance.
  *
  * Mirrors the engine's `generateApiKey`/`hashApiKey` (sha256 hex of the raw
- * `hsk_` key; only the hash is stored). Idempotent: a real `hsk_` key already
- * in `.env` is kept as-is (re-running never creates a duplicate). If the DB is
- * unreachable it WARNS and continues — the rest of the stack is up, and you can
- * re-run `bootstrap` (or create a key via `POST /v1/admin/api-keys`) later.
+ * `hsk_` key; only the hash is stored). Idempotent per key: a real `hsk_` value
+ * already in `.env` is kept as-is (re-running never creates a duplicate). If
+ * the DB is unreachable it records an issue and continues — the rest of the
+ * stack is up, and re-running `bootstrap` retries.
  */
-async function ensureDataPlaneKey(): Promise<void> {
-  const env = readFileSync(ENV_PATH, "utf8");
-  const current = getEnv(env, "HOGSEND_API_KEY") ?? "";
-  if (current.startsWith("hsk_")) {
-    ok("HOGSEND_API_KEY already set — keeping it");
-    return;
+async function ensureApiKeys(): Promise<void> {
+  const specs = [
+    {
+      envKey: "HOGSEND_API_KEY",
+      scopes: ["ingest"],
+      name: "local-bootstrap",
+      blurb: "an ingest-scoped data-plane key",
+    },
+    {
+      envKey: "HOGSEND_ADMIN_KEY",
+      scopes: ["full-admin"],
+      name: "local-bootstrap-admin",
+      blurb: "a full-admin key (hogsend CLI / Studio API)",
+    },
+  ];
+  let envContent = readFileSync(ENV_PATH, "utf8");
+  const pending: typeof specs = [];
+  for (const spec of specs) {
+    if ((getEnv(envContent, spec.envKey) ?? "").startsWith("hsk_")) {
+      ok(`${spec.envKey} already set — keeping it`);
+    } else {
+      pending.push(spec);
+    }
   }
+  if (pending.length === 0) return;
 
-  const databaseUrl = getEnv(env, "DATABASE_URL");
+  const databaseUrl = getEnv(envContent, "DATABASE_URL");
   if (!databaseUrl) {
-    warn("DATABASE_URL is not set in .env — skipping data-plane key mint.");
-    info("Set DATABASE_URL and re-run bootstrap to mint HOGSEND_API_KEY.");
+    issue("DATABASE_URL is not set in .env — skipping API key mint.");
     return;
   }
 
-  // hsk_<32 random bytes, base64url>; store only the sha256 hex of the full key.
-  const key = `hsk_${randomBytes(32).toString("base64url")}`;
-  const keyPrefix = key.slice(0, 8);
-  const keyHash = createHash("sha256").update(key).digest("hex");
-
-  // Dynamic import: `postgres` is a runtime dep, but only this step needs it, so
-  // a non-DB bootstrap path never pays for it. Any failure (module/connection)
-  // is treated as warn-not-die — the local stack is otherwise fully usable.
+  // Dynamic imports: runtime deps only this step needs, so a non-DB bootstrap
+  // path never pays for them. `generateApiKey` is the ENGINE's own generator
+  // (hsk_ + 8-char prefix + sha256-hex at rest) via its dependency-free
+  // subpath — the same shape the API's auth lookup verifies, so the key
+  // format can never drift from the engine that checks it. Any failure
+  // (module/connection) is an issue-not-die — the stack is otherwise usable.
   let sql: import("postgres").Sql | undefined;
   try {
-    const { default: postgres } = await import("postgres");
+    const [{ default: postgres }, { generateApiKey }] = await Promise.all([
+      import("postgres"),
+      import("@hogsend/engine/api-key-hash"),
+    ]);
     sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
-    await sql`
-      INSERT INTO api_keys (name, key_prefix, key_hash, scopes)
-      VALUES (
-        ${"local-bootstrap"},
-        ${keyPrefix},
-        ${keyHash},
-        ${JSON.stringify(["ingest"])}::jsonb
-      )
-    `;
+    for (const spec of pending) {
+      const { key, prefix, hash } = generateApiKey();
+      await sql`
+        INSERT INTO api_keys (name, key_prefix, key_hash, scopes)
+        VALUES (
+          ${spec.name},
+          ${prefix},
+          ${hash},
+          ${JSON.stringify(spec.scopes)}::jsonb
+        )
+      `;
+      // Per-key write (not batched): key 1 stays persisted in .env even if
+      // key 2's insert throws — a re-run then mints only the missing one.
+      envContent = setEnv(envContent, spec.envKey, key);
+      writeFileSync(ENV_PATH, envContent);
+      ok(`Minted ${spec.blurb} → ${spec.envKey} in .env`);
+    }
   } catch (err) {
-    warn(
-      `Couldn't mint a data-plane key: ${
+    issue(
+      `Couldn't mint API keys: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
     info("Is the database reachable? Re-run bootstrap once it is.");
-    return;
   } finally {
     await sql?.end({ timeout: 5 }).catch(() => {});
   }
-
-  writeFileSync(
-    ENV_PATH,
-    setEnv(readFileSync(ENV_PATH, "utf8"), "HOGSEND_API_KEY", key),
-  );
-  ok("Minted an ingest-scoped data-plane key → HOGSEND_API_KEY in .env");
-  info(`Key (shown once): ${key}`);
 }
 
 // --- 8. first Studio admin (optional, interactive) -------------------------
@@ -554,11 +632,155 @@ async function bootstrapAdmin(): Promise<void> {
     process.platform === "win32",
   );
   if (status !== 0) {
-    warn("Admin create did not complete.");
+    issue("Admin create did not complete.");
     info(`You can re-run it any time: \`${pmRun("studio:admin")}\`.`);
     return;
   }
   ok("Studio admin created");
+}
+
+// --- 9. connect PostHog (optional, interactive) -----------------------------
+/**
+ * The "one last thing" — run the real `hogsend connect posthog` OAuth flow
+ * right here, while everything it needs already exists: the admin key (step 7,
+ * read from `.env` by the CLI), a migrated DB, and Docker infra. The flow
+ * talks to the instance over HTTP, so if the app isn't running yet we boot it
+ * JUST for the handshake and stop it afterwards.
+ *
+ * Offered only when PostHog was chosen at scaffold time (create-hogsend sets
+ * HOGSEND_SETUP_POSTHOG=1) or `.env` already carries PostHog markers — plain
+ * re-runs of bootstrap don't nag. Locally this stores the OAuth credential on
+ * THIS instance (person reads + outbound capture activate); the PostHog →
+ * Hogsend webhook loop needs a publicly reachable URL, so the CLI reports
+ * "connected (loop not provisioned)" — after deploy, re-run the connect
+ * against the deployed instance to wire the loop.
+ */
+function shouldOfferPosthog(): boolean {
+  if (!process.stdin.isTTY) return false;
+  if (process.env.HOGSEND_SETUP_POSTHOG === "1") return true;
+  const src = existsSync(ENV_PATH) ? ENV_PATH : ENV_EXAMPLE;
+  if (!existsSync(src)) return false;
+  const env = readFileSync(src, "utf8");
+  return (
+    getEnv(env, "ENABLE_POSTHOG_DESTINATION") === "true" ||
+    Boolean(getEnv(env, "POSTHOG_HOST"))
+  );
+}
+
+/** Any HTTP answer on /v1/health means the API is up (even a 503 responds). */
+async function isApiUp(base: string): Promise<boolean> {
+  try {
+    await fetch(`${base}/v1/health`, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The temporary API child is DETACHED (own process group, so we can kill the
+// whole pm → tsx → node chain in one signal) — which also means a Ctrl-C
+// during the OAuth prompts would NOT reach it and bootstrap's death would
+// orphan a server on the app's port. These handlers guarantee it dies with
+// us, whatever the exit.
+let apiChild: ChildProcess | undefined;
+function killApiChild(): void {
+  if (apiChild?.pid !== undefined) {
+    try {
+      process.kill(-apiChild.pid, "SIGTERM"); // POSIX: the whole group
+    } catch {
+      try {
+        apiChild.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+  apiChild = undefined;
+}
+process.on("exit", killApiChild);
+process.on("SIGINT", () => {
+  killApiChild();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  killApiChild();
+  process.exit(143);
+});
+
+/** The one connect command every hint interpolates. */
+const CONNECT_CMD = pmExec("hogsend connect posthog");
+
+async function connectPosthog(): Promise<void> {
+  const env = readFileSync(ENV_PATH, "utf8");
+  const port = getEnv(env, "PORT") ?? "3002";
+  const base = `http://localhost:${port}`;
+
+  const wanted = await confirm(
+    "One last thing — connect PostHog now? (opens your browser to authorize; no keys to paste)",
+    true,
+  );
+  if (!wanted) {
+    info(
+      `Skipped. Any time: \`${CONNECT_CMD}\` from this folder (app running).`,
+    );
+    return;
+  }
+
+  // Reuse an already-running instance; else boot one just for the handshake.
+  const alreadyUp = await isApiUp(base);
+  if (!alreadyUp) {
+    const stop = startSpinner(
+      `Starting the API for the handshake (${pmRun("dev")})…`,
+    );
+    apiChild = spawn(PM, ["run", "dev"], {
+      cwd: ROOT,
+      stdio: "ignore",
+      detached: process.platform !== "win32",
+      shell: process.platform === "win32",
+    });
+    let up = false;
+    for (let i = 0; i < 60 && !up; i += 1) {
+      await sleep(1000);
+      up = await isApiUp(base);
+    }
+    stop();
+    if (!up) {
+      killApiChild();
+      issue("Couldn't start the API for the PostHog handshake.");
+      info(`Start it yourself (${pmRun("dev")}) and run \`${CONNECT_CMD}\`.`);
+      return;
+    }
+  }
+
+  try {
+    // Same CLI entry the `studio:admin` wrapper targets (never the .bin shim —
+    // see bootstrapAdmin). `--url` pins the instance in case PORT is custom;
+    // the admin key comes from the `.env` in cwd (minted in step 7).
+    const status = runLive(
+      "node",
+      [
+        join("node_modules", "@hogsend", "cli", "dist", "bin.js"),
+        "connect",
+        "posthog",
+        "--url",
+        base,
+      ],
+      process.platform === "win32",
+    );
+    if (status !== 0) {
+      issue("PostHog connect did not complete.");
+      info(
+        `Re-run any time: \`${CONNECT_CMD}\` from this folder (app running).`,
+      );
+    } else {
+      ok("PostHog connected to this local instance.");
+      info(
+        `After deploy, wire the event loop: \`${CONNECT_CMD} --url https://your-instance\`.`,
+      );
+    }
+  } finally {
+    if (!alreadyUp) killApiChild();
+  }
 }
 
 // --- orchestration ---------------------------------------------------------
@@ -566,6 +788,11 @@ async function main(): Promise<void> {
   process.stdout.write(
     `\n${magenta(bold("◆ Hogsend"))} ${dim("local bootstrap")} ${dim("· docs.hogsend.com")}\n`,
   );
+
+  // Decide the step count up front — the PostHog connect step only exists
+  // when it was chosen at scaffold time (or .env already points at PostHog).
+  const offerPosthog = shouldOfferPosthog();
+  if (offerPosthog) TOTAL = 9;
 
   step("Checking Docker");
   checkDocker();
@@ -583,13 +810,18 @@ async function main(): Promise<void> {
   await ensureHatchetToken();
 
   step("Running migrations");
-  runMigrations();
+  await runMigrations();
 
-  step("Minting data-plane API key");
-  await ensureDataPlaneKey();
+  step("Minting API keys");
+  await ensureApiKeys();
 
   step("Creating your first Studio admin");
   await bootstrapAdmin();
+
+  if (offerPosthog) {
+    step("Connecting PostHog (optional)");
+    await connectPosthog();
+  }
 
   const dash = `http://localhost:${ports.dash}`;
   const finalEnv = readFileSync(ENV_PATH, "utf8");
@@ -610,9 +842,21 @@ async function main(): Promise<void> {
   const link = (label: string, url: string, note: string): string =>
     `  ${dim(label.padEnd(9))}${cyan(url)}   ${dim(note)}`;
 
+  // An honest banner: "✓ Ready." is reserved for a run where every step
+  // actually succeeded. Recorded issues re-surface here (they scrolled past
+  // long ago) and flip the exit code so wrappers see the truth.
+  const banner =
+    issues.length === 0
+      ? `\n${green(bold("✓ Ready."))} ${bold("Welcome to Hogsend.")}`
+      : [
+          `\n${yellow(bold(`! Finished with ${issues.length} issue(s):`))}`,
+          ...issues.map((m) => `    ${yellow("•")} ${m}`),
+          `  ${dim(`Fix the above and re-run \`${pmRun("bootstrap")}\` — it is safe to re-run.`)}`,
+        ].join("\n");
+
   process.stdout.write(
     [
-      `\n${green(bold("✓ Ready."))} ${bold("Welcome to Hogsend.")}`,
+      banner,
       // The compose stack is only the infra your app talks to — the API and
       // worker are your code and run as host processes (hot-reload), so nothing
       // is serving yet until you start them.
@@ -636,13 +880,15 @@ async function main(): Promise<void> {
       `  ${dim("Studio admin:")} ${cyan(pmRun("studio:admin"))}   ${dim("# create one anytime (sign-up is closed)")}`,
       `  ${dim("Hatchet dashboard:")} ${cyan(dash)} ${dim("(admin@example.com / Admin123!!)")}`,
       usingPosthog
-        ? `  ${dim("After deploy:")} ${cyan("hogsend connect posthog")}   ${dim("# fetch the key, mint the webhook secret, wire the PostHog→Hogsend loop")}`
+        ? `  ${dim("After deploy:")} ${cyan(`${CONNECT_CMD} --url https://your-instance`)}   ${dim("# wire the PostHog→Hogsend event loop")}`
         : null,
       "",
     ]
       .filter(Boolean)
       .join("\n"),
   );
+
+  if (issues.length > 0) process.exit(1);
 }
 
 main().catch((err: unknown) => {

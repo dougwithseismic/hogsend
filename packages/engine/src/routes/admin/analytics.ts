@@ -3,7 +3,10 @@ import { DEFAULT_HOST, derivePrivateHost } from "@hogsend/plugin-posthog";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { createTokenManager } from "../../lib/oauth-token-manager.js";
-import { EXPECTED_POSTHOG_SCOPES } from "../../lib/posthog-scopes.js";
+import {
+  EXPECTED_POSTHOG_SCOPES,
+  posthogScopeSatisfied,
+} from "../../lib/posthog-scopes.js";
 import {
   getDerivedCredential,
   getProviderCredential,
@@ -202,8 +205,12 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
     try {
       const oauth = await getProviderCredential(db, "posthog");
       if (oauth) {
+        // Hierarchical scopes: a granted `X:write` satisfies `X:read` (the
+        // grant normalizes both-halves requests down to write-only).
         const granted = oauth.payload.scopes;
-        scopeGap = EXPECTED_POSTHOG_SCOPES.filter((s) => !granted.includes(s));
+        scopeGap = EXPECTED_POSTHOG_SCOPES.filter(
+          (s) => !posthogScopeSatisfied(granted, s),
+        );
       }
     } catch {
       scopeGap = [];
@@ -293,9 +300,11 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
       });
 
       // Opportunistically persist the phc_ (project api_token) the provisioner
-      // read on its way through — it powers the OPTIONAL outbound capture path
-      // and activates on the next deploy (no lazy boot-time seam). Re-read the
-      // stored payload to merge over the just-persisted webhook secret.
+      // read on its way through — it powers the OPTIONAL outbound capture path.
+      // `activateStoredPosthogAnalytics` (container boot) reads it back, so
+      // capture comes alive on the next boot with NO hand-pasted
+      // POSTHOG_API_KEY. Re-read the stored payload to merge over the
+      // just-persisted webhook secret.
       if (result.projectApiKey) {
         const cur = (await getDerivedCredential(db, "posthog")) ?? {};
         await saveDerivedCredential(db, "posthog", {

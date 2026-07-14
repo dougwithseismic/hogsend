@@ -33,6 +33,16 @@ function applyTokens(content: string, appName: string): string {
     .join(ENGINE_VERSION);
 }
 
+/** The tarball `file:` override map for every `@hogsend/<pkg>` dependency. */
+function tarballOverrides(tarballDir: string): Record<string, string> {
+  const overrides: Record<string, string> = {};
+  for (const name of HOGSEND_PACKAGES) {
+    overrides[`@hogsend/${name}`] =
+      `file:${tarballDir}/hogsend-${name}-${ENGINE_VERSION}.tgz`;
+  }
+  return overrides;
+}
+
 /**
  * Rewrite each `@hogsend/<pkg>` dependency value to a local tarball `file:`
  * specifier so the scaffold resolves the (not-yet-published) packages from
@@ -43,23 +53,36 @@ function rewriteTarballDeps(pkgJson: string, tarballDir: string): string {
     dependencies?: Record<string, string>;
     pnpm?: { overrides?: Record<string, string> };
   };
-  const overrides: Record<string, string> = {};
-  for (const name of HOGSEND_PACKAGES) {
-    const dep = `@hogsend/${name}`;
-    const spec = `file:${tarballDir}/hogsend-${name}-${ENGINE_VERSION}.tgz`;
+  const overrides = tarballOverrides(tarballDir);
+  for (const [dep, spec] of Object.entries(overrides)) {
     if (pkg.dependencies && dep in pkg.dependencies) {
       pkg.dependencies[dep] = spec;
     }
-    // `pnpm pack` rewrites each tarball's internal `workspace:` @hogsend deps
-    // to a bare version (e.g. "0.0.1"), which would 404 against the registry.
-    // Overrides force every transitive @hogsend/* to resolve to its tarball.
-    overrides[dep] = spec;
   }
+  // `pnpm pack` rewrites each tarball's internal `workspace:` @hogsend deps
+  // to a bare version, which would resolve against the REGISTRY (a stale
+  // release, or a 404 for unpublished packages). Overrides force every
+  // transitive @hogsend/* to its tarball. package.json#pnpm.overrides is read
+  // by pnpm <= 10 only — pnpm 11 reads overrides from pnpm-workspace.yaml
+  // (see `rewriteWorkspaceOverrides`); we write both so either pnpm works.
   pkg.pnpm = {
     ...pkg.pnpm,
     overrides: { ...pkg.pnpm?.overrides, ...overrides },
   };
   return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+/**
+ * Append the same tarball override map to the emitted `pnpm-workspace.yaml` —
+ * the ONLY place pnpm >= 11 reads overrides from (`package.json#pnpm` is
+ * ignored there, which under the harness silently resolved transitive
+ * @hogsend/* deps from the registry instead of the packed tarballs).
+ */
+function rewriteWorkspaceOverrides(yaml: string, tarballDir: string): string {
+  const lines = Object.entries(tarballOverrides(tarballDir))
+    .map(([dep, spec]) => `  "${dep}": "${spec}"`)
+    .join("\n");
+  return `${yaml.trimEnd()}\n\n# TEST-ONLY (--use-tarballs): pin @hogsend/* to local tarballs.\noverrides:\n${lines}\n`;
 }
 
 /** Recursively copy `template/` into the target, renaming + token-replacing. */
@@ -167,16 +190,22 @@ async function walk(
     const destPath = join(targetRoot, relDir, renamed);
     await mkdir(join(targetRoot, relDir), { recursive: true });
 
+    const { tarballDir } = opts;
     const isTokenFile = (TOKEN_FILES as readonly string[]).includes(renamed);
-    if (!isTokenFile) {
+    const isTarballWorkspace =
+      renamed === "pnpm-workspace.yaml" && tarballDir !== undefined;
+    if (!isTokenFile && !isTarballWorkspace) {
       await copyFile(srcPath, destPath);
       continue;
     }
 
     let content = await readFile(srcPath, "utf8");
     content = applyTokens(content, opts.appName);
-    if (renamed === "package.json" && opts.tarballDir) {
-      content = rewriteTarballDeps(content, opts.tarballDir);
+    if (renamed === "package.json" && tarballDir) {
+      content = rewriteTarballDeps(content, tarballDir);
+    }
+    if (isTarballWorkspace && tarballDir) {
+      content = rewriteWorkspaceOverrides(content, tarballDir);
     }
     await writeFile(destPath, content);
   }

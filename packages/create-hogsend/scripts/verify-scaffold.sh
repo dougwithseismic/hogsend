@@ -41,8 +41,12 @@ tar_has() {
 }
 
 # --- 1. build the CLI -----------------------------------------------------
+# Every `pnpm --filter` here carries `--dir "$REPO_ROOT"` so the harness
+# builds THIS checkout regardless of the caller's cwd — without it, running
+# the script from another checkout (e.g. the main repo while testing a
+# worktree) silently builds the WRONG tree and packs stale dist output.
 echo "==> [1/8] build CLI"
-pnpm --filter create-hogsend build >/dev/null
+pnpm --dir "$REPO_ROOT" --filter create-hogsend build >/dev/null
 CLI="$PKG_DIR/dist/index.js"
 [ -f "$CLI" ] || fail "CLI not built at $CLI"
 head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
@@ -50,21 +54,8 @@ head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
 # --- 2. pack @hogsend/* into a /tmp tarball dir ---------------------------
 echo "==> [2/8] pack @hogsend/* tarballs"
 TARBALLS="$(mktemp -d /tmp/hogsend-tarballs.XXXXXX)"
-# Some packages ship a built `dist` bundle and must be built before packing or
-# their tarballs are empty:
-#   - studio (files: ["dist"]) — the engine serves the Studio UI from it.
-#   - cli + client — both ship dist/ and are now on the engine version line, so
-#     the scaffold depends on them (^{{ENGINE_VERSION}}). client ships only
-#     dist; cli ships dist + src. Build all three first. The remaining packages
-#     ship raw `src/**` and need no build.
-pnpm --filter @hogsend/studio build >/dev/null
-pnpm --filter @hogsend/cli build >/dev/null
-pnpm --filter @hogsend/client build >/dev/null
+bash "$SCRIPT_DIR/pack-tarballs.sh" "$TARBALLS"
 for pkg in "${PACKAGES[@]}"; do
-  # `pnpm pack` works on private packages. Run with --dir on the package path:
-  # `--filter ... pack` is a recursive run, which pnpm's `pack` rejects.
-  pnpm --dir "$REPO_ROOT/packages/$pkg" pack \
-    --pack-destination "$TARBALLS" >/dev/null
   # Version-agnostic: the tarball is named for the package's own version, so
   # match the glob rather than hardcoding a version that drifts each release.
   tgz="$(echo "$TARBALLS"/hogsend-"$pkg"-*.tgz)"
@@ -116,7 +107,7 @@ EXPECTED=(
   drizzle.config.ts migrations/0000_init.sql migrations/meta/_journal.json
   migrations/meta/0000_snapshot.json
   docker-compose.yml railway.toml railway.worker.toml
-  .env.example .node-version .gitignore
+  .env.example .node-version .gitignore pnpm-workspace.yaml
   biome.json vitest.config.ts tsconfig.json tsup.config.ts README.md
   CLAUDE.md .claude/README.md .claude/skills/hogsend-cli/SKILL.md
 )
@@ -184,9 +175,18 @@ diff -q "$APPDIR/.env.example" "$PKG_DIR/template/env.example" >/dev/null \
 echo "    --posthog-key env OK"
 
 # --- 4. install -----------------------------------------------------------
+# Plain `pnpm install`, NOT --ignore-workspace: the scaffold ships its own
+# pnpm-workspace.yaml (settings root: allowBuilds + minimumReleaseAgeExclude,
+# packages: []), which BOTH stops pnpm from joining any parent workspace AND
+# carries the pnpm 11 build-script approvals. --ignore-workspace would discard
+# that settings file and resurrect ERR_PNPM_IGNORED_BUILDS on pnpm >= 11.
 echo "==> [4/8] pnpm install (scaffolded app)"
-(cd "$APPDIR" && pnpm install --ignore-workspace >/dev/null 2>&1) \
-  || fail "pnpm install failed"
+INSTALL_LOG="/tmp/hogsend-verify-install.log"
+if ! (cd "$APPDIR" && pnpm install >"$INSTALL_LOG" 2>&1); then
+  echo "----- pnpm install output -----" >&2
+  tail -40 "$INSTALL_LOG" >&2
+  fail "pnpm install failed"
+fi
 [ -f "$APPDIR/node_modules/@hogsend/engine/src/index.ts" ] \
   || fail "engine raw .ts not present in node_modules (tarball did not carry src)"
 

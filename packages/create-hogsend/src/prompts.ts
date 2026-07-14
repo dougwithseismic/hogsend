@@ -1,7 +1,15 @@
 import { basename } from "node:path";
 import { stdin, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { cancel, confirm, isCancel, log, select, text } from "@clack/prompts";
+import {
+  cancel,
+  confirm,
+  isCancel,
+  log,
+  multiselect,
+  select,
+  text,
+} from "@clack/prompts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -49,6 +57,19 @@ export interface PosthogOptions {
 
 const VALID_PMS: PackageManager[] = ["pnpm", "npm", "yarn", "bun"];
 
+/**
+ * Idiomatic "run a locally-installed bin" per pm. The `hogsend` CLI ships with
+ * the app's dependencies (`@hogsend/cli`), NOT on the global PATH — a bare
+ * `hogsend …` hint sends users straight into `command not found`, and
+ * `npx hogsend` OUTSIDE the app dir installs the registry version (stale, and
+ * with no `.env` in cwd it can't resolve the admin key either).
+ */
+export function binCmd(pm: PackageManager, bin: string): string {
+  if (pm === "npm") return `npx ${bin}`; // npx prefers the local bin
+  if (pm === "bun") return `bunx ${bin}`;
+  return `${pm} ${bin}`;
+}
+
 export const USAGE = `
 create-hogsend — scaffold a Hogsend lifecycle orchestration app.
 
@@ -67,7 +88,7 @@ Options:
                              POSTHOG_WEBHOOK_SECRET in env.example
   --posthog-host <url>       PostHog host URL (default: https://us.i.posthog.com;
                              requires --posthog-key)
-  --no-posthog               Skip the PostHog prompt
+  --no-posthog               Skip the "Where will events come from?" prompt
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -344,60 +365,45 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain = answer ? answer.toLowerCase() : undefined;
   }
 
-  // PostHog: opt-in — --posthog-key already resolved it above, --no-posthog
-  // skips the prompt entirely, and a blank key means "configure later" (the
-  // env.example placeholders stay commented).
+  // Event sources: source-neutral AND not mutually exclusive — most teams
+  // send app events and PostHog events into the same instance. The default
+  // (your own app code via the pre-wired `@hogsend/client` in
+  // src/lib/hogsend.ts) is pre-ticked and needs ZERO scaffold-time config:
+  // bootstrap mints the ingest key. PostHog needs no key here either — the
+  // post-deploy `hogsend connect posthog` OAuth flow discovers the phc_ and
+  // mints the webhook secret itself, so ticking it only gates that next-step
+  // hint. Selecting nothing is fine ("not sure yet" — everything can be wired
+  // later). `--posthog-key` stays the escape hatch for pasting a key up front
+  // (resolved above, skips this prompt); `--no-posthog` skips it too.
   let usingPosthog = posthog !== undefined;
   if (posthog === undefined && !values["no-posthog"]) {
-    usingPosthog = bail(
-      await confirm({
-        message: "Are you using PostHog?",
-        initialValue: true,
+    const sources = bail(
+      await multiselect({
+        message:
+          "Where will events come from? (space to toggle — pick all that apply, or none)",
+        initialValues: ["app"],
+        required: false,
+        options: [
+          {
+            value: "app",
+            label: "My app code",
+            hint: "@hogsend/client SDK, pre-wired — zero config",
+          },
+          {
+            value: "posthog",
+            label: "PostHog",
+            hint: "connected at the end of setup (browser OAuth) — no key needed",
+          },
+        ],
       }),
     );
+    usingPosthog = sources.includes("posthog");
     if (usingPosthog) {
-      const apiKey = bail(
-        await text({
-          message:
-            "PostHog project API key? (optional — leave blank and run 'hogsend connect posthog' after deploy to fetch the key, mint the webhook secret, and create the webhook automatically)",
-          placeholder: "phc_... (or blank)",
-          validate: (value) =>
-            value === undefined || value === ""
-              ? undefined
-              : validatePosthogKey(value),
-        }),
+      // The pm may not be chosen yet (this prompt comes first) — the exact,
+      // copy-pasteable command is printed pm-aware in the final next-steps.
+      log.info(
+        `No PostHog key needed. Local setup offers a one-click connect at the end (browser OAuth) — or run \`${binCmd(packageManager ?? "pnpm", "hogsend connect posthog")}\` from your app folder any time.`,
       );
-      if (!apiKey) {
-        log.info(
-          "No key pasted — that's fine. After you deploy, run 'hogsend connect posthog' to authorize PostHog, mint the webhook secret, and wire the PostHog→Hogsend event loop.",
-        );
-      } else {
-        const region = bail(
-          await select({
-            message: "PostHog region?",
-            initialValue: POSTHOG_EU_HOST,
-            options: [
-              { value: POSTHOG_EU_HOST, label: "EU Cloud (eu.i.posthog.com)" },
-              { value: POSTHOG_US_HOST, label: "US Cloud (us.i.posthog.com)" },
-              { value: "custom", label: "Custom host URL" },
-            ],
-          }),
-        );
-        const host =
-          region === "custom"
-            ? bail(
-                await text({
-                  message: "PostHog host URL?",
-                  placeholder: "https://posthog.mycompany.com",
-                  validate: (value) =>
-                    value === undefined || value === ""
-                      ? "PostHog host is required."
-                      : validatePosthogHost(value),
-                }),
-              )
-            : region;
-        posthog = { apiKey, host: normalizePosthogHost(host) };
-      }
     }
   }
 

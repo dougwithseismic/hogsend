@@ -12,7 +12,7 @@ import {
   copyTemplate,
   emittedTopLevelNames,
 } from "./copy.js";
-import { type CliOptions, resolveOptions } from "./prompts.js";
+import { binCmd, type CliOptions, resolveOptions } from "./prompts.js";
 
 const interactive = Boolean(stdin.isTTY);
 const DOCS = "docs.hogsend.com";
@@ -147,19 +147,41 @@ async function runInstall(
 function runBootstrap(
   targetDir: string,
   pm: CliOptions["packageManager"],
+  usingPosthog: boolean,
 ): boolean {
   const result = spawnSync(pm, ["run", "bootstrap"], {
     cwd: targetDir,
     stdio: "inherit",
     shell: process.platform === "win32",
+    // Tells bootstrap the user picked PostHog at scaffold time, so it offers
+    // the "one last thing — connect PostHog now?" step (default yes). Plain
+    // re-runs of bootstrap don't see this and stay quiet.
+    env: {
+      ...process.env,
+      ...(usingPosthog ? { HOGSEND_SETUP_POSTHOG: "1" } : {}),
+    },
   });
   return result.status === 0;
 }
 
-/** Post-deploy PostHog hint — shown only when PostHog is in use. */
-const POSTHOG_NEXT_STEP = `${color.cyan("hogsend connect posthog")}${color.dim("  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop")}`;
-const POSTHOG_NEXT_STEP_PLAIN =
-  "hogsend connect posthog  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop";
+/**
+ * Post-deploy PostHog hint — shown only when PostHog is in use. The command is
+ * pm-aware (`pnpm hogsend …` / `npx hogsend …`) because the CLI ships with the
+ * app's deps, not on the PATH; `withCd` prefixes `cd <app> && ` for contexts
+ * where the hint stands alone (after bootstrap already ran), so it stays
+ * copy-pasteable from the scaffold's parent directory. Inside the next-steps
+ * block (which opens with `cd <app>`) the bare command is used.
+ */
+function posthogNextStep(opts: CliOptions, withCd: boolean): string {
+  const cd = withCd && !isCurrentDir(opts) ? `cd ${opts.dir} && ` : "";
+  return `${cd}${binCmd(opts.packageManager, "hogsend connect posthog")}`;
+}
+const POSTHOG_HINT_NOTE =
+  "  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop";
+/** The colored form of the hint — command cyan, note dim. */
+function posthogHint(opts: CliOptions, withCd: boolean): string {
+  return `${color.cyan(posthogNextStep(opts, withCd))}${color.dim(POSTHOG_HINT_NOTE)}`;
+}
 
 /** A dim, fixed-width label so the link rows line up under each other. */
 function linkRow(label: string, url: string, note: string): string {
@@ -202,7 +224,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     ...links,
     "",
     skillsLine,
-    opts.usingPosthog ? POSTHOG_NEXT_STEP : null,
+    opts.usingPosthog ? posthogHint(opts, false) : null,
   ];
 
   const lines = setupDone
@@ -331,7 +353,7 @@ async function main(): Promise<void> {
     } else {
       console.log("\n  Running local setup ...\n");
     }
-    setupDone = runBootstrap(targetDir, opts.packageManager);
+    setupDone = runBootstrap(targetDir, opts.packageManager, opts.usingPosthog);
     if (!setupDone && interactive) {
       log.warn(
         `${color.yellow("Setup didn't finish.")} Fix the issue above, then run ${color.cyan(bootstrapCmd)} again.`,
@@ -347,7 +369,7 @@ async function main(): Promise<void> {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
     // Bootstrap's own summary can't know about PostHog — surface the connect
     // hint here when the next-steps note was skipped.
-    if (setupDone && opts.usingPosthog) log.info(POSTHOG_NEXT_STEP);
+    if (setupDone && opts.usingPosthog) log.info(posthogHint(opts, true));
     outro(
       `${color.magenta("Welcome to Hogsend.")} ${color.dim(`${cdHint}${DOCS} · ${DISCORD}`)}`,
     );
@@ -360,7 +382,7 @@ async function main(): Promise<void> {
       ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
     const posthogNote = opts.usingPosthog
-      ? `\n  ${POSTHOG_NEXT_STEP_PLAIN}`
+      ? `\n  ${posthogNextStep(opts, setupDone)}${POSTHOG_HINT_NOTE}`
       : "";
     const links =
       `  Studio    ${STUDIO_LOCAL_URL}   # dashboard (after ${dev})\n` +
