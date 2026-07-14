@@ -114,7 +114,7 @@ export async function identifyGroup(opts: {
     }
   }
 
-  return { group: row as Group };
+  return { group: row };
 }
 
 /**
@@ -190,7 +190,7 @@ export async function addGroupMember(opts: {
     .returning();
 
   if (inserted[0]) {
-    return { membership: inserted[0] as GroupMembership, created: true };
+    return { membership: inserted[0], created: true };
   }
 
   // Already a member — the conflict swallowed the insert; read the live row.
@@ -207,7 +207,7 @@ export async function addGroupMember(opts: {
 
   const row = existing[0];
   if (!row) throw new Error("Membership upsert returned no row");
-  return { membership: row as GroupMembership, created: false };
+  return { membership: row, created: false };
 }
 
 /**
@@ -257,7 +257,7 @@ export async function getGroup(opts: {
     )
     .limit(1);
   const row: GroupRow | undefined = rows[0];
-  return { group: row ? (row as Group) : null };
+  return { group: row ?? null };
 }
 
 /**
@@ -283,7 +283,7 @@ export async function listGroups(opts: {
     .limit(clampLimit(opts.limit))
     .offset(clampOffset(opts.offset));
 
-  return { groups: rows as Group[] };
+  return { groups: rows };
 }
 
 /**
