@@ -1,7 +1,7 @@
 "use client";
 
 import { type JSX, useEffect, useRef } from "react";
-import { getDistinctId } from "@/lib/analytics";
+import { getAnonymousDistinctId } from "@/lib/analytics";
 
 /**
  * Fires the server-side `referral.visited` event once per mount, and ONLY when
@@ -27,7 +27,13 @@ export function ReferralVisitedPing({
 
     // Read the anon id BEFORE any navigation; the route maps it to top-level
     // `anonymousId` so the visit lands on the visitor's PostHog person.
-    const anonymousId = getDistinctId();
+    // IDENTIFIED sessions return undefined and are skipped entirely: their
+    // distinct_id is the Hogsend contact key, and ingesting it as an
+    // anonymousId minted a phantom contact carrying a real contact's key.
+    // Referral attribution is an anonymous top-of-funnel signal anyway — a
+    // visitor we already know isn't a referred prospect.
+    const anonymousId = getAnonymousDistinctId();
+    if (!anonymousId) return;
 
     fetch("/api/referral-visited", {
       method: "POST",
