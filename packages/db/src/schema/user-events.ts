@@ -19,6 +19,10 @@ export const userEvents = pgTable(
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
+    // Group association map captured at event time (groupType → groupKey), e.g.
+    // { company: "acme.com" }. Feeds group membership + group-level analytics.
+    // Nullable — most events carry no group context.
+    groups: jsonb("groups").$type<Record<string, string>>(),
     // The event's own monetary worth (a deal value on `deal.sold`, an order
     // total on `order.completed`) — first-class so revenue is SQL-aggregable,
     // never buried in the properties bag. Negative values are legal (refunds).

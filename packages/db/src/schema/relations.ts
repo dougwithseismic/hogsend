@@ -18,6 +18,8 @@ import { contacts } from "./contacts.js";
 import { deadLetterQueue } from "./dead-letter-queue.js";
 import { emailPreferences } from "./email-preferences.js";
 import { emailSends } from "./email-sends.js";
+import { groupMemberships } from "./group-memberships.js";
+import { groups } from "./groups.js";
 import { importJobs } from "./import-jobs.js";
 import { journeyConfigs } from "./journey-configs.js";
 import { journeyLogs } from "./journey-logs.js";
@@ -64,6 +66,8 @@ export const contactsRelations = relations(contacts, ({ many }) => ({
   bucketMemberships: many(bucketMemberships),
   // contact_aliases joins on the contacts.id UUID (real FK).
   aliases: many(contactAliases),
+  // group_memberships joins on the contacts.id UUID (real FK).
+  groupMemberships: many(groupMemberships),
 }));
 
 export const contactAliasesRelations = relations(contactAliases, ({ one }) => ({
@@ -79,6 +83,24 @@ export const bucketMembershipsRelations = relations(
     contact: one(contacts, {
       fields: [bucketMemberships.userId],
       references: [contacts.externalId],
+    }),
+  }),
+);
+
+export const groupsRelations = relations(groups, ({ many }) => ({
+  memberships: many(groupMemberships),
+}));
+
+export const groupMembershipsRelations = relations(
+  groupMemberships,
+  ({ one }) => ({
+    group: one(groups, {
+      fields: [groupMemberships.groupId],
+      references: [groups.id],
+    }),
+    contact: one(contacts, {
+      fields: [groupMemberships.contactId],
+      references: [contacts.id],
     }),
   }),
 );
