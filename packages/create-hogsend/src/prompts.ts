@@ -1,7 +1,15 @@
 import { basename } from "node:path";
 import { stdin, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { cancel, confirm, isCancel, log, select, text } from "@clack/prompts";
+import {
+  cancel,
+  confirm,
+  isCancel,
+  log,
+  multiselect,
+  select,
+  text,
+} from "@clack/prompts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -344,20 +352,24 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain = answer ? answer.toLowerCase() : undefined;
   }
 
-  // Event source: source-neutral — Hogsend ingests from anywhere, and the
-  // default (your own app code via the pre-wired `@hogsend/client` in
-  // src/lib/hogsend.ts) needs ZERO scaffold-time config: bootstrap mints the
-  // ingest key. PostHog is ONE option, and even it needs no key here — the
+  // Event sources: source-neutral AND not mutually exclusive — most teams
+  // send app events and PostHog events into the same instance. The default
+  // (your own app code via the pre-wired `@hogsend/client` in
+  // src/lib/hogsend.ts) is pre-ticked and needs ZERO scaffold-time config:
+  // bootstrap mints the ingest key. PostHog needs no key here either — the
   // post-deploy `hogsend connect posthog` OAuth flow discovers the phc_ and
-  // mints the webhook secret itself, so selecting it only gates that
-  // next-step hint. `--posthog-key` stays the escape hatch for pasting a key
-  // up front (resolved above, skips this prompt); `--no-posthog` skips it too.
+  // mints the webhook secret itself, so ticking it only gates that next-step
+  // hint. Selecting nothing is fine ("not sure yet" — everything can be wired
+  // later). `--posthog-key` stays the escape hatch for pasting a key up front
+  // (resolved above, skips this prompt); `--no-posthog` skips it too.
   let usingPosthog = posthog !== undefined;
   if (posthog === undefined && !values["no-posthog"]) {
-    const source = bail(
-      await select({
-        message: "Where will events come from?",
-        initialValue: "app",
+    const sources = bail(
+      await multiselect({
+        message:
+          "Where will events come from? (space to toggle — pick all that apply, or none)",
+        initialValues: ["app"],
+        required: false,
         options: [
           {
             value: "app",
@@ -369,15 +381,10 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
             label: "PostHog",
             hint: "wired after deploy via 'hogsend connect posthog' — no key needed",
           },
-          {
-            value: "later",
-            label: "Not sure yet",
-            hint: "everything can be wired later",
-          },
         ],
       }),
     );
-    usingPosthog = source === "posthog";
+    usingPosthog = sources.includes("posthog");
     if (usingPosthog) {
       log.info(
         "No PostHog key needed now. After you deploy, run 'hogsend connect posthog' — it authorizes via OAuth, mints the webhook secret, and wires the PostHog→Hogsend event loop automatically.",
