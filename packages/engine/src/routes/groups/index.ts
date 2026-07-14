@@ -10,6 +10,7 @@ import {
   listGroups,
   removeGroupMember,
 } from "../../lib/groups.js";
+import { emitOutbound } from "../../lib/outbound.js";
 import { errorSchema } from "../../lib/schemas.js";
 
 // The public, serialized group shape. Internal columns (`organizationId`,
@@ -254,7 +255,7 @@ const listMembersRoute = createRoute({
 // attaching a `groups` map to an ingested event on `/v1/events`.
 export const groupsRouter = new OpenAPIHono<AppEnv>()
   .openapi(identifyRoute, async (c) => {
-    const { db, analytics } = c.get("container");
+    const { db, analytics, hatchet, logger } = c.get("container");
     const body = c.req.valid("json");
 
     const { group } = await identifyGroup({
@@ -266,7 +267,21 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       analytics,
     });
 
-    return c.json({ group: serializeGroup(group) }, 200);
+    const serialized = serializeGroup(group);
+
+    // INTENT-LAYER outbound emit (Phase 5): an explicit identify is intent, so
+    // fire `group.identified` on every success. NEVER emitted from the group
+    // service / ingest `associateGroups` path (a pageview-driven association
+    // would flood) — mirrors the contacts intent-layer rule.
+    void emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "group.identified",
+      payload: serialized,
+    }).catch(logger.warn);
+
+    return c.json({ group: serialized }, 200);
   })
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
@@ -288,7 +303,7 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ group: serializeGroup(group) }, 200);
   })
   .openapi(addMemberRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { groupType, groupKey } = c.req.valid("param");
     const { contactId, role } = c.req.valid("json");
 
@@ -311,6 +326,24 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
     }
     const { membership, created } = result;
 
+    // INTENT-LAYER outbound emit (Phase 5): fire `group.member_added` ONLY when
+    // THIS call inserted the membership — a re-add (`created:false`) is a no-op.
+    if (created) {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "group.member_added",
+        payload: {
+          groupType,
+          groupKey,
+          groupId: membership.groupId,
+          contactId: membership.contactId,
+          role: membership.role,
+        },
+      }).catch(logger.warn);
+    }
+
     return c.json(
       {
         membership: {
@@ -326,8 +359,13 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(removeMemberRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { groupType, groupKey, contactId } = c.req.valid("param");
+
+    // Resolve the live group up-front so a successful removal's outbound payload
+    // can carry `groupId` — the service returns only `{ removed }`, and we do
+    // NOT widen its core contract. A missing group makes the remove a no-op.
+    const { group } = await getGroup({ db, groupType, groupKey });
 
     const { removed } = await removeGroupMember({
       db,
@@ -335,6 +373,19 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       groupKey,
       contactId,
     });
+
+    // INTENT-LAYER outbound emit (Phase 5): fire `group.member_removed` ONLY
+    // when a membership row was actually deleted. `group` is present whenever
+    // `removed` is true (the row is deleted from an existing group).
+    if (removed && group) {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "group.member_removed",
+        payload: { groupType, groupKey, groupId: group.id, contactId },
+      }).catch(logger.warn);
+    }
 
     return c.json({ removed }, 200);
   })

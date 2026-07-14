@@ -373,7 +373,10 @@ export type OutboundEventType =
   | "link.arrived"
   | "funnel.stage_changed"
   | "deal.quoted"
-  | "deal.sold";
+  | "deal.sold"
+  | "group.identified"
+  | "group.member_added"
+  | "group.member_removed";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed
