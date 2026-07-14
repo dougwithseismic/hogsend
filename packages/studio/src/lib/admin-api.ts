@@ -947,11 +947,22 @@ export type ContactRevenue = {
   lastValuedAt: string | null;
 };
 
+/** One group a contact belongs to — a `group_memberships` row joined to its
+ * live group, linking to that group's Studio page. */
+export type ContactGroup = {
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  role: string | null;
+  joinedAt: string;
+};
+
 export function getContact(id: string) {
   return api.get<{
     contact: Contact;
     preferences: ContactPreferences;
     revenue: ContactRevenue;
+    groups: ContactGroup[];
   }>(`/v1/admin/contacts/${encodeURIComponent(id)}`);
 }
 

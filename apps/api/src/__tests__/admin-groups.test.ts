@@ -56,10 +56,15 @@ const AUTH_HEADER = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };
 const RUN = `agr-${Date.now()}`;
 const COMPANY_KEY = `${RUN}-acme.com`;
 const TEAM_KEY = `${RUN}-team-eng`;
+// Phase 8.1 fixtures — a contact in two distinct-type groups + one with none.
+const ORG_KEY = `${RUN}-globex.com`;
+const SQUAD_KEY = `${RUN}-squad-x`;
 
 let companyId = "";
 let contactAId = "";
 let contactBId = "";
+let multiContactId = "";
+let noGroupContactId = "";
 
 afterAll(async () => {
   await db.delete(userEvents).where(like(userEvents.userId, `${RUN}%`));
@@ -111,6 +116,34 @@ async function seed() {
     groups: { company: COMPANY_KEY },
     occurredAt: new Date(),
   });
+
+  // Phase 8.1 — the contact-detail groups projection. Two distinct-type groups
+  // (a "company" ordered before a "team" by group_type ASC), one contact in
+  // both (with/without a role), and a second contact in none.
+  const [org, squad] = await db
+    .insert(groups)
+    .values([
+      { groupType: "company", groupKey: ORG_KEY, displayName: "Globex" },
+      { groupType: "team", groupKey: SQUAD_KEY, displayName: null },
+    ])
+    .returning();
+  if (!org || !squad) throw new Error("failed to seed phase-8.1 groups");
+
+  const [multi, solo] = await db
+    .insert(contacts)
+    .values([
+      { externalId: `${RUN}-user-multi`, email: `${RUN}-multi@example.com` },
+      { externalId: `${RUN}-user-solo`, email: `${RUN}-solo@example.com` },
+    ])
+    .returning();
+  if (!multi || !solo) throw new Error("failed to seed phase-8.1 contacts");
+  multiContactId = multi.id;
+  noGroupContactId = solo.id;
+
+  await db.insert(groupMemberships).values([
+    { groupId: org.id, contactId: multiContactId, role: "owner" },
+    { groupId: squad.id, contactId: multiContactId, role: null },
+  ]);
 }
 
 await seed();
@@ -240,5 +273,38 @@ describe("GET /v1/admin/groups/{groupType}/{groupKey}/members", () => {
       { headers: AUTH_HEADER },
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /v1/admin/contacts/{id} — group memberships (Phase 8.1)", () => {
+  it("returns the contact's groups, ordered by type then joined desc", async () => {
+    const res = await app.request(`/v1/admin/contacts/${multiContactId}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups).toHaveLength(2);
+
+    // group_type ASC → the "company" group sorts before the "team" group.
+    expect(body.groups[0].groupType).toBe("company");
+    expect(body.groups[0].groupKey).toBe(ORG_KEY);
+    expect(body.groups[0].displayName).toBe("Globex");
+    expect(body.groups[0].role).toBe("owner");
+    expect(body.groups[0].joinedAt).toBeTruthy();
+
+    expect(body.groups[1].groupType).toBe("team");
+    expect(body.groups[1].groupKey).toBe(SQUAD_KEY);
+    expect(body.groups[1].displayName).toBeNull();
+    expect(body.groups[1].role).toBeNull();
+    expect(body.groups[1].joinedAt).toBeTruthy();
+  });
+
+  it("returns an empty array for a contact with no memberships", async () => {
+    const res = await app.request(`/v1/admin/contacts/${noGroupContactId}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups).toEqual([]);
   });
 });
