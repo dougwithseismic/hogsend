@@ -2,7 +2,6 @@ import { Outlet } from "@tanstack/react-router";
 import { LogOut, Sparkles, Zap } from "lucide-react";
 import { useCallback, useState } from "react";
 import { AgentChatContext } from "@/components/agent/agent-context";
-import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { DebugDrawer, FireEventContext } from "@/components/debug/debug-drawer";
 import { Button } from "@/components/ui/button";
@@ -55,7 +54,6 @@ export function AppShell() {
         </main>
       </div>
       <DebugDrawer open={debugOpen} onClose={() => setDebugOpen(false)} />
-      <AgentLauncher open={agentOpen} onOpen={openAgent} />
       <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
     </div>
   );

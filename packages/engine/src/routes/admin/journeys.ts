@@ -1,4 +1,8 @@
-import { type JourneyGraph, journeyGraphSchema } from "@hogsend/core";
+import {
+  type JourneyGraph,
+  journeyGraphSchema,
+  resolveTemplateKeyFromConst,
+} from "@hogsend/core";
 import {
   type Database,
   emailSends,
@@ -972,13 +976,13 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // the React Email component — no send data), so STATIC resolution is the
     // primary mechanism and a never-sent journey still previews. Priority:
     //   (1) literal `meta.template` — already the registry key.
-    //   (2) STATIC exact: the node's `subtitle` is the Templates const name for
-    //       member-expr sends (`FEEDBACK_NPS_SURVEY`); lowercase + `_`→`-`
-    //       (`feedback-nps-survey`) and use it IFF that key is in the registry.
-    //   (2b) STATIC prefix: else the single LONGEST registry key that is a
-    //        segment-prefix of the kebab'd const name (`activation-nudge-series`
-    //        → `activation-nudge`). Only when that longest prefix is unique — a
-    //        wrong preview is worse than none, so an ambiguous tie stays unresolved.
+    //   (2) STATIC segment match (`resolveTemplateKeyFromConst`): the node's
+    //       `subtitle` is the Templates const name for member-expr sends
+    //       (`FEEDBACK_NPS_SURVEY`, `DOCS_WELCOME`). Split it and each registry
+    //       key on any of `/ _ -` and compare SEGMENTS, so slash-namespaced keys
+    //       (`docs/welcome`) resolve too — else the unique longest segment-prefix
+    //       key (`activation-nudge-series` → `activation-nudge`). Ambiguous ties
+    //       stay unresolved — a wrong preview is worse than none.
     //   (3) journey_logs rows (action='send') whose `to_node_id` is this send
     //       node's site id (`send:<site>`), reading `detail.template` — site-
     //       keyed, so two sends of one template on different branches stay
@@ -1010,31 +1014,12 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
       }
 
       // (2/2b) static const-name → registry key (no runtime data needed):
-      // exact kebab match, else the unique longest segment-prefix key.
+      // separator-agnostic SEGMENT match, so slash-namespaced keys
+      // (`docs/welcome`) resolve from `DOCS_WELCOME` just as hyphen ones do.
       const registryKeys = getTemplateNames(templates) as string[];
-      const registeredKeys = new Set<string>(registryKeys);
-      const resolveStatic = (constName: string): string | undefined => {
-        const kebab = constName.toLowerCase().replace(/_/g, "-");
-        if (registeredKeys.has(kebab)) return kebab;
-        // Longest registry key that is a segment-prefix of the kebab'd name.
-        let best: string | undefined;
-        let bestLen = -1;
-        let ambiguous = false;
-        for (const key of registryKeys) {
-          if (!kebab.startsWith(`${key}-`)) continue;
-          if (key.length > bestLen) {
-            best = key;
-            bestLen = key.length;
-            ambiguous = false;
-          } else if (key.length === bestLen) {
-            ambiguous = true;
-          }
-        }
-        return ambiguous ? undefined : best;
-      };
       for (const node of sendNodes) {
         if (nodeMetrics[node.id]?.templateKey || !node.subtitle) continue;
-        const key = resolveStatic(node.subtitle);
+        const key = resolveTemplateKeyFromConst(node.subtitle, registryKeys);
         if (key) setTemplate(node.id, key);
       }
 
