@@ -11,9 +11,12 @@ import { useId, useState } from "react";
 export function SignAgreement({
   docId,
   docVersion,
+  contentHash,
 }: {
   docId: string;
   docVersion: string;
+  /** Hash of the body THIS page rendered — the API 409s if it changed. */
+  contentHash: string;
 }) {
   const router = useRouter();
   const inputId = useId();
@@ -31,7 +34,12 @@ export function SignAgreement({
       const res = await fetch("/api/agreements/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docId, docVersion, signedName: name.trim() }),
+        body: JSON.stringify({
+          docId,
+          docVersion,
+          contentHash,
+          signedName: name.trim(),
+        }),
       });
       if (!res.ok) {
         setError(

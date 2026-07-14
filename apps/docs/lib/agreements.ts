@@ -10,6 +10,8 @@ import { postToHogsendApi } from "@/lib/hogsend-api";
 export type Agreement = {
   docId: string;
   version: string;
+  /** sha256 of the served body — echoed back on sign as proof of what was shown. */
+  contentHash: string;
   title: string;
   summary: string;
   body: string;
@@ -22,6 +24,7 @@ function sanitize(entry: unknown): Agreement | null {
   if (
     typeof e.docId !== "string" ||
     typeof e.version !== "string" ||
+    typeof e.contentHash !== "string" ||
     typeof e.title !== "string" ||
     typeof e.body !== "string"
   ) {
@@ -31,6 +34,7 @@ function sanitize(entry: unknown): Agreement | null {
   return {
     docId: e.docId,
     version: e.version,
+    contentHash: e.contentHash,
     title: e.title,
     summary: typeof e.summary === "string" ? e.summary : "",
     body: e.body,

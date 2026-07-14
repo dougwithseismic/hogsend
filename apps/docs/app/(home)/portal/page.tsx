@@ -323,7 +323,11 @@ export default async function PortalPage(): Promise<JSX.Element> {
                       {formatDate(a.signed.signedAt)}.
                     </p>
                   ) : (
-                    <SignAgreement docId={a.docId} docVersion={a.version} />
+                    <SignAgreement
+                      docId={a.docId}
+                      docVersion={a.version}
+                      contentHash={a.contentHash}
+                    />
                   )}
                 </div>
               ))}

@@ -16,6 +16,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   return forwardBillingAction("/me/agreements/sign", {
     docId: body.docId,
     docVersion: body.docVersion,
+    contentHash: body.contentHash,
     signedName: body.signedName,
     ip,
     userAgent: request.headers.get("user-agent") ?? undefined,
