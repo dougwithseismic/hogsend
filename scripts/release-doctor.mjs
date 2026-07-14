@@ -48,6 +48,21 @@ const TEMPLATE_PKG = "packages/create-hogsend/template/_package.json";
 
 const engineVersion = () => readJson("packages/engine/package.json").version;
 
+/** Parse "1.2.3" -> [1, 2, 3]; ignores any -prerelease/+build suffix. */
+const parseSemver = (v) =>
+  v
+    .split(/[-+]/)[0]
+    .split(".")
+    .map((n) => Number(n) || 0);
+/** The "major.minor" release line of a version, e.g. "0.45". */
+const minorLine = (v) => parseSemver(v).slice(0, 2).join(".");
+/** a >= b, compared as semver (major, then minor, then patch). */
+const semverGte = (a, b) => {
+  const [A, B] = [parseSemver(a), parseSemver(b)];
+  for (let i = 0; i < 3; i++) if (A[i] !== B[i]) return A[i] > B[i];
+  return true;
+};
+
 function manifestEngineVersion() {
   const m = readText(MANIFEST).match(/ENGINE_VERSION\s*=\s*["']([^"']+)["']/);
   if (!m) throw new Error(`ENGINE_VERSION not found in ${MANIFEST}`);
@@ -196,23 +211,27 @@ const checks = [
   },
   {
     // create-hogsend is a separate scope (not @hogsend/*) so it falls outside
-    // ENGINE_LINE — but its template pins `^{{ENGINE_VERSION}}` and it must
-    // republish every release or `create-hogsend@latest` scaffolds a stale app.
-    // It silently drifted to 0.22.0 while the line reached 0.30.0 BECAUSE no
-    // check held it to the line. This is that check: the scaffolder rides the
-    // engine MINOR line. Same-minor, not exact-equal: the template pins are
-    // CARETS, so a scaffolder-only patch (e.g. create-hogsend@0.45.1 on
-    // engine@0.45.0 — the bootstrap busy-port fix) is a legitimate release;
-    // the old exact-equality check blocked that publish AND failed CI on
-    // every branch until the next line bump converged the numbers.
+    // ENGINE_LINE — but its template pins `^{{ENGINE_VERSION}}` and must ride
+    // the engine's MINOR line so those caret pins resolve to the current engine
+    // (`^0.45.x` matches any 0.45.z). It silently drifted to 0.22.0 while the
+    // line reached 0.30.0 BECAUSE no check held it to the line — this check
+    // guards that.
+    //
+    // It must be the ENGINE'S MINOR LINE, not exact equality. A scaffold-only
+    // release (e.g. #477's bootstrap fix) legitimately bumps create-hogsend a
+    // PATCH ahead of the engine, and strict `c === e` then rejected that — the
+    // Version PR AND every later PR's Release-integrity run failed on
+    // create-hogsend being ahead, wedging the whole pipeline (there is no way
+    // to cut a create-hogsend-only patch without tripping it). So: same
+    // major.minor as engine, and never LAGGING engine's patch within the line
+    // (that would be a stale scaffold). Being a patch AHEAD on the same minor
+    // is fine — the caret absorbs it and the next engine-line release re-levels.
     name: "create-hogsend tracks the engine version line",
     fn: () => {
       const e = engineVersion();
       const c = readJson("packages/create-hogsend/package.json").version;
-      const minor = (v) => v.split(".").slice(0, 2).join(".");
-      return minor(c) === minor(e)
-        ? null
-        : `create-hogsend@${c} but @hogsend/engine@${e} — the scaffolder must ride the engine minor line so its ^{{ENGINE_VERSION}} pins stay current; bump create-hogsend with the line (see .claude/skills/release)`;
+      if (minorLine(c) === minorLine(e) && semverGte(c, e)) return null;
+      return `create-hogsend@${c} is off the @hogsend/engine@${e} minor line — the scaffolder must share the engine's major.minor (it may sit a patch ahead, but never behind or on a different minor) so its ^{{ENGINE_VERSION}} pins resolve to the current engine; bump create-hogsend onto the line (see .claude/skills/release)`;
     },
   },
   {

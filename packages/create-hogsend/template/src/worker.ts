@@ -3,6 +3,7 @@ import { buckets } from "./buckets/index.js";
 import { campaigns } from "./campaigns/index.js";
 import { destinations } from "./destinations/index.js";
 import { templates } from "./emails/index.js";
+import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { extraWorkflows } from "./workflows/index.js";
@@ -15,6 +16,10 @@ async function main() {
     campaigns,
     destinations,
     email: { templates },
+    // Feeds the Studio journey-graph route your `Templates`/`Events` `as const`
+    // maps so `Templates.X`/`Events.X` in journey source resolve to real values —
+    // exact email previews and stable, join-safe node ids.
+    journeyConstants: { templates: Templates, events: Events },
   });
   const worker = createWorker({
     container: client,
