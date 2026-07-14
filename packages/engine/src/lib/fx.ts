@@ -11,8 +11,10 @@ import type { Logger } from "./logger.js";
  * converted VIEW layered on top of the revenue spine's per-currency truth.
  * The law (`lib/revenue.ts`) is untouched: currencies are never summed
  * together; the lens converts each per-currency total through an operator-
- * sanctioned quote→base rate and sums the CONVERSIONS. Off by default — with
- * no `BASE_CURRENCY` the lens resolves null everywhere and nothing changes.
+ * sanctioned quote→base rate and sums the CONVERSIONS. Off by default — the
+ * effective base resolves per call (Studio operator setting → env
+ * `BASE_CURRENCY`; see the container's resolver); when neither is set the
+ * lens resolves null everywhere and nothing changes.
  *
  * Two shipped presets, mirroring how analytics builds from env
  * (`analyticsProvidersFromEnv`), except there is deliberately NO registry:
@@ -68,15 +70,24 @@ export function parseFxRatesEnv(raw: string): Record<string, number> {
 }
 
 /**
- * The sovereign default rate source: a fixed operator-supplied sheet. The
- * `base` argument is IGNORED — a static sheet is implicitly quoted against
- * the deploy's own `BASE_CURRENCY` (there is nothing to re-derive), which is
- * exactly the sovereignty trade: no network, no drift, rates change only when
- * the operator changes them.
+ * The sovereign default rate source: a fixed operator-supplied sheet, which
+ * is exactly the sovereignty trade: no network, no drift, rates change only
+ * when the operator changes them.
+ *
+ * THE HONESTY RULE: a static sheet is only meaningful against the ONE base
+ * it was quoted in (`quotedBase` — the env `BASE_CURRENCY` the operator's
+ * `FX_RATES` were written for). `getRates(base)` serves the sheet ONLY when
+ * `base === quotedBase` and resolves null for any other base — a USD-quoted
+ * sheet must never silently convert into EUR just because the effective base
+ * changed (e.g. via the Studio setting). A `quotedBase` of null (FX_RATES
+ * with no BASE_CURRENCY) is a base-less sheet: it serves null for EVERY
+ * base — inert, warned at boot in {@link fxProviderFromEnv}.
  */
 export function createStaticFxProvider(opts: {
   rates: Record<string, number>;
   asOf?: string | null;
+  /** The base the sheet's rates are quoted against (null = base-less/inert). */
+  quotedBase: string | null;
 }): FxRateProvider {
   const rates = Object.fromEntries(
     Object.entries(opts.rates).map(([code, rate]) => [
@@ -85,12 +96,14 @@ export function createStaticFxProvider(opts: {
     ]),
   );
   const asOf = opts.asOf ?? null;
+  const quotedBase = opts.quotedBase?.toUpperCase() ?? null;
   return defineFxRateProvider({
     meta: {
       id: "static",
       name: "Static (operator-supplied rates)",
     },
-    async getRates() {
+    async getRates(base) {
+      if (!quotedBase || base.toUpperCase() !== quotedBase) return null;
       return { rates: { ...rates }, asOf };
     },
   });
@@ -246,9 +259,20 @@ export function fxProviderFromEnv(
     return createFrankfurterFxProvider({ db: deps.db, logger: deps.logger });
   }
   if (env.FX_RATES) {
+    if (!env.BASE_CURRENCY) {
+      // Called once at boot per container, so this warns ONCE: a sheet with
+      // no quoted base is inert (serves null for every base — even one later
+      // chosen in Studio), because we cannot know which base its rates were
+      // written for. Warned rather than thrown: the deploy still boots and
+      // the per-currency truth serves unchanged.
+      deps.logger?.warn(
+        "FX_RATES is set but BASE_CURRENCY is not — the static rate sheet has no quoted base and is INERT (no conversions will be served, even if a base currency is chosen in Studio). Set BASE_CURRENCY to the currency FX_RATES is quoted against.",
+      );
+    }
     return createStaticFxProvider({
       rates: parseFxRatesEnv(env.FX_RATES),
       asOf: env.FX_RATES_AS_OF ?? null,
+      quotedBase: env.BASE_CURRENCY ?? null,
     });
   }
   return undefined;
@@ -268,13 +292,21 @@ export interface FxRatesToBase {
 }
 
 /**
- * The minimal FX surface the container exposes (`client.fx`). `baseCurrency`
- * null = the lens is OFF (no `BASE_CURRENCY`): `getRatesToBase` resolves null
- * and every consumer renders the unconverted truth, unchanged.
+ * The minimal FX surface the container exposes (`client.fx`). The effective
+ * base currency is resolved PER CALL (never boot-frozen): the container's
+ * resolver walks code pin → Studio operator setting → env `BASE_CURRENCY`,
+ * so a base chosen/changed/cleared in Studio takes effect on the next
+ * request without a reboot. Null base = the lens is OFF: `getRatesToBase`
+ * resolves null and every consumer renders the unconverted truth, unchanged.
  */
 export interface FxLens {
-  /** The operator's reporting currency, or null when the lens is off. */
-  baseCurrency: string | null;
+  /** The active rate source's id (`meta.id`), or null when none is wired. */
+  providerId: string | null;
+  /**
+   * Resolve the operator's EFFECTIVE reporting currency (uppercased), or
+   * null when the lens is off. Fail-soft: a throwing resolver reads as off.
+   */
+  getBaseCurrency(): Promise<string | null>;
   /**
    * Resolve the quote→base sheet from the active provider. Null when the
    * lens is off, no provider is configured, or the provider has nothing to
@@ -284,17 +316,37 @@ export interface FxLens {
   getRatesToBase(): Promise<FxRatesToBase | null>;
 }
 
-/** Build the container's {@link FxLens} from the resolved base + provider. */
+/** Build the container's {@link FxLens} from the base resolver + provider. */
 export function createFxLens(opts: {
-  baseCurrency?: string | null;
+  /**
+   * Resolves the effective base per call (the container builds it from the
+   * code pin / operator setting / env precedence). Null = lens off.
+   */
+  resolveBaseCurrency: () => Promise<string | null>;
   provider?: FxRateProvider;
   logger: Logger;
 }): FxLens {
-  const baseCurrency = opts.baseCurrency?.toUpperCase() ?? null;
   const provider = opts.provider;
+  const resolveBase = async (): Promise<string | null> => {
+    try {
+      const base = await opts.resolveBaseCurrency();
+      return base ? base.toUpperCase() : null;
+    } catch (error) {
+      // Same fail-soft posture as a misbehaving provider below: a resolver
+      // that throws (e.g. a DB blip reading the operator setting) degrades
+      // to lens-off for this request, never into a thrown request path.
+      opts.logger.warn(
+        "FX base-currency resolution threw — the base-currency lens is off for this request",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return null;
+    }
+  };
   return {
-    baseCurrency,
+    providerId: provider?.meta.id ?? null,
+    getBaseCurrency: resolveBase,
     async getRatesToBase() {
+      const baseCurrency = await resolveBase();
       if (!baseCurrency || !provider) return null;
       try {
         const sheet = await provider.getRates(baseCurrency);

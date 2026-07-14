@@ -65,6 +65,9 @@ const fxContainer = createHogsendClient({
     provider: createStaticFxProvider({
       rates: { JPY: 0.0065 },
       asOf: "2026-07-01",
+      // The sheet is quoted in the same USD the pin resolves — the honesty
+      // rule (quotedBase ≠ effective base ⇒ null sheet) stays out of the way.
+      quotedBase: "USD",
     }),
   },
   overrides: { hatchet: mockHatchet },

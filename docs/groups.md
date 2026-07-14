@@ -281,6 +281,21 @@ Envs:
   silently convert money wrong.
 - `FX_RATES_AS_OF` — optional ISO date labeling the static sheet.
 
+**The base currency is also a Studio setting** (Settings → Currency, backed by
+`GET/PUT/DELETE /v1/admin/settings/fx` over the generic `operator_settings`
+table). Precedence, resolved **per request** (a Studio change needs no
+reboot): a code pin (`createHogsendClient({ fx: { baseCurrency } })`) wins
+over everything; then the stored setting — a row with `baseCurrency: null` is
+the operator **explicitly turning the lens off and beats env**; with no row,
+env `BASE_CURRENCY` decides (DELETE clears the override back to env). **The
+static-sheet honesty rule**: an `FX_RATES` sheet is quoted against exactly one
+base (the env `BASE_CURRENCY` it was written for), so when the effective base
+differs — e.g. Studio picks another currency — the sheet serves **nothing**
+(converted figures disappear) rather than mis-multiplying its rates into a
+base they were never quoted in. Frankfurter re-bases natively and is
+unaffected; the Settings card warns in plain language when the configured
+sheet can't serve the chosen base.
+
 **Static is the default because it is sovereign**: the operator supplies the
 rates, zero network in the money path, figures change only when the operator
 changes them. **Frankfurter** (`FX_PROVIDER=frankfurter`) opts into ECB daily

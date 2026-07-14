@@ -62,7 +62,11 @@ describe("parseFxRatesEnv / static provider", () => {
     const rates = parseFxRatesEnv('{"JPY":0.0065,"GBP":1.27}');
     expect(rates).toEqual({ JPY: 0.0065, GBP: 1.27 });
 
-    const provider = createStaticFxProvider({ rates, asOf: "2026-07-01" });
+    const provider = createStaticFxProvider({
+      rates,
+      asOf: "2026-07-01",
+      quotedBase: "USD",
+    });
     expect(provider.meta.id).toBe("static");
     const sheet = await provider.getRates("USD");
     expect(sheet).toEqual({
@@ -72,16 +76,43 @@ describe("parseFxRatesEnv / static provider", () => {
   });
 
   it("defaults asOf to null when the operator supplied no date", async () => {
-    const provider = createStaticFxProvider({ rates: { JPY: 0.0065 } });
+    const provider = createStaticFxProvider({
+      rates: { JPY: 0.0065 },
+      quotedBase: "USD",
+    });
     const sheet = await provider.getRates("USD");
     expect(sheet?.asOf).toBeNull();
   });
 
   it("uppercases quote codes so rate lookups never miss on case", async () => {
     expect(parseFxRatesEnv('{"jpy":0.0065}')).toEqual({ JPY: 0.0065 });
-    const provider = createStaticFxProvider({ rates: { gbp: 1.27 } });
+    // quotedBase is case-normalized too — a lowercase "usd" still serves USD.
+    const provider = createStaticFxProvider({
+      rates: { gbp: 1.27 },
+      quotedBase: "usd",
+    });
     const sheet = await provider.getRates("USD");
     expect(sheet?.rates).toEqual({ GBP: 1.27 });
+  });
+
+  it("HONESTY RULE: serves null for any base other than its quoted one", async () => {
+    // A USD-quoted sheet must never silently convert into EUR just because
+    // the effective base changed (e.g. via the Studio setting).
+    const provider = createStaticFxProvider({
+      rates: { JPY: 0.0065 },
+      quotedBase: "USD",
+    });
+    await expect(provider.getRates("EUR")).resolves.toBeNull();
+    await expect(provider.getRates("USD")).resolves.not.toBeNull();
+  });
+
+  it("a base-less sheet (quotedBase null) is inert — null for EVERY base", async () => {
+    const provider = createStaticFxProvider({
+      rates: { JPY: 0.0065 },
+      quotedBase: null,
+    });
+    await expect(provider.getRates("USD")).resolves.toBeNull();
+    await expect(provider.getRates("EUR")).resolves.toBeNull();
   });
 
   it("throws LOUD on malformed JSON — a typo'd sheet must fail boot", () => {
@@ -206,24 +237,31 @@ describe("frankfurter provider (mocked fetch, real fx_rates cache)", () => {
 
 describe("createFxLens", () => {
   it("is OFF (null) without a base currency or provider", async () => {
-    const off = createFxLens({ baseCurrency: null, logger: noopLogger });
-    expect(off.baseCurrency).toBeNull();
+    const off = createFxLens({
+      resolveBaseCurrency: async () => null,
+      logger: noopLogger,
+    });
+    await expect(off.getBaseCurrency()).resolves.toBeNull();
     await expect(off.getRatesToBase()).resolves.toBeNull();
 
-    const noSource = createFxLens({ baseCurrency: "USD", logger: noopLogger });
+    const noSource = createFxLens({
+      resolveBaseCurrency: async () => "USD",
+      logger: noopLogger,
+    });
     await expect(noSource.getRatesToBase()).resolves.toBeNull();
   });
 
   it("injects the identity rate (base→base = 1) and carries the base", async () => {
     const lens = createFxLens({
-      baseCurrency: "usd",
+      resolveBaseCurrency: async () => "usd",
       provider: createStaticFxProvider({
         rates: { JPY: 0.0065 },
         asOf: "2026-07-01",
+        quotedBase: "USD",
       }),
       logger: noopLogger,
     });
-    expect(lens.baseCurrency).toBe("USD");
+    await expect(lens.getBaseCurrency()).resolves.toBe("USD");
     const sheet = await lens.getRatesToBase();
     expect(sheet).toEqual({
       baseCurrency: "USD",
@@ -232,9 +270,44 @@ describe("createFxLens", () => {
     });
   });
 
+  it("resolves the base PER CALL — a changed setting needs no rebuild", async () => {
+    // The container wires resolveBaseCurrency to walk pin → Studio setting →
+    // env on EVERY call; the lens must re-ask rather than freeze boot's answer.
+    let base: string | null = "USD";
+    const lens = createFxLens({
+      resolveBaseCurrency: async () => base,
+      provider: createStaticFxProvider({
+        rates: { JPY: 0.0065 },
+        quotedBase: "USD",
+      }),
+      logger: noopLogger,
+    });
+    await expect(lens.getBaseCurrency()).resolves.toBe("USD");
+    expect((await lens.getRatesToBase())?.baseCurrency).toBe("USD");
+
+    base = null; // the operator turns the lens off in Studio
+    await expect(lens.getBaseCurrency()).resolves.toBeNull();
+    await expect(lens.getRatesToBase()).resolves.toBeNull();
+  });
+
+  it("fail-softs a THROWING base resolver to lens-off (never into a request path)", async () => {
+    const lens = createFxLens({
+      resolveBaseCurrency: async () => {
+        throw new Error("db blip");
+      },
+      provider: createStaticFxProvider({
+        rates: { JPY: 0.0065 },
+        quotedBase: "USD",
+      }),
+      logger: noopLogger,
+    });
+    await expect(lens.getBaseCurrency()).resolves.toBeNull();
+    await expect(lens.getRatesToBase()).resolves.toBeNull();
+  });
+
   it("fail-softs a THROWING provider to null (the lens holds the line)", async () => {
     const lens = createFxLens({
-      baseCurrency: "USD",
+      resolveBaseCurrency: async () => "USD",
       provider: {
         meta: { id: "broken", name: "Broken" },
         getRates: async () => {

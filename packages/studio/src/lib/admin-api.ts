@@ -1159,6 +1159,51 @@ export function revokeApiKey(id: string) {
   );
 }
 
+// --- Operator settings — Currency (FX lens) --------------------------------
+
+/**
+ * `GET/PUT/DELETE /v1/admin/settings/fx` — the base-currency choice behind the
+ * groups FX lens. The precedence the card renders: a setting ROW wins over env
+ * (`baseCurrency: null` in the row = the operator EXPLICITLY turned the lens
+ * off, beating env `BASE_CURRENCY`); NO row = env decides, else off. Every
+ * mutation returns this same full state, so one shape serves all three verbs.
+ */
+export type FxSettingState = {
+  /** The stored operator choice, or null when no row exists. */
+  setting: { baseCurrency: string | null } | null;
+  /** The env bootstrap default (`BASE_CURRENCY`). */
+  env: { baseCurrency: string | null };
+  /** What the lens actually resolves right now (null = off). */
+  effective: { baseCurrency: string | null };
+  /**
+   * The rate source probed against the effective base — null when none is
+   * configured at all. `servesEffectiveBase: false` with a base set means
+   * converted figures will NOT appear (e.g. a USD-quoted static sheet asked
+   * for EUR — the honesty rule).
+   */
+  provider: {
+    id: string;
+    asOf: string | null;
+    servesEffectiveBase: boolean;
+  } | null;
+};
+
+export function getFxSetting() {
+  return api.get<FxSettingState>("/v1/admin/settings/fx");
+}
+
+/** `baseCurrency: null` = explicitly turn the lens OFF (beats env). */
+export function putFxSetting(baseCurrency: string | null) {
+  return api.put<FxSettingState>("/v1/admin/settings/fx", {
+    json: { baseCurrency },
+  });
+}
+
+/** Remove the override entirely — fall back to env `BASE_CURRENCY`. */
+export function deleteFxSetting() {
+  return api.delete<FxSettingState>("/v1/admin/settings/fx");
+}
+
 // --- Events (test events) ------------------------------------------------
 
 export type IngestExit = {
@@ -1801,6 +1846,7 @@ export const qk = {
   lists: ["lists"] as const,
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
+  fxSetting: ["fx-setting"] as const,
   domain: ["domain"] as const,
   readiness: ["readiness"] as const,
   integrations: ["integrations"] as const,
