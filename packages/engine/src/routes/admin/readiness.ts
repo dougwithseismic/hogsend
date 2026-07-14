@@ -78,7 +78,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
       detail: env.HATCHET_CLIENT_TOKEN
         ? `Connected (${env.HATCHET_CLIENT_HOST_PORT}).`
         : "Set HATCHET_CLIENT_TOKEN so the worker can run your journeys.",
-      docsUrl: DOCS,
+      docsUrl: `${DOCS}/docs/getting-started/hatchet`,
     });
 
     // 3. Email provider key — sends fail without it.
@@ -98,7 +98,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
       detail: providerKeyPresent
         ? `${providerId} key configured.`
         : `No ${providerId} API key yet — sends will fail until one is set.`,
-      docsUrl: DOCS,
+      docsUrl: `${DOCS}/docs/guides/email`,
     });
 
     // 4. Data-plane API key — any non-revoked key lets your app code ingest.
@@ -120,7 +120,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
         dataPlaneKeys > 0
           ? `${dataPlaneKeys} active key${dataPlaneKeys === 1 ? "" : "s"}.`
           : "Mint one (run bootstrap, or POST /v1/admin/api-keys) so your app can send events.",
-      docsUrl: DOCS,
+      docsUrl: `${DOCS}/docs/data-api/authentication`,
     });
 
     // 5. Sending domain — derive from the (now graceful) domain status. A bad
@@ -134,7 +134,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
           status: "optional",
           detail:
             "No EMAIL_DOMAIN set — sends use the provider default. Configure one to send from your own domain.",
-          docsUrl: DOCS,
+          docsUrl: `${DOCS}/docs/operating/production-email`,
         });
       } else if (dom.status?.state === "verified") {
         checks.push({
@@ -152,7 +152,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
             dom.status === null
               ? `${dom.domain}: can't read status — confirm your ${providerId} key can read domains.`
               : `${dom.domain} is ${dom.status.state.replace("_", " ")} — verify it below.`,
-          docsUrl: DOCS,
+          docsUrl: `${DOCS}/docs/operating/production-email`,
         });
       }
     } catch {
@@ -161,7 +161,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
         label: "Sending domain",
         status: "action",
         detail: "Couldn't read domain status — check your email provider key.",
-        docsUrl: DOCS,
+        docsUrl: `${DOCS}/docs/operating/production-email`,
       });
     }
 
@@ -175,7 +175,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
       detail: analyticsConfigured
         ? "Connected."
         : "Optional — connect PostHog to capture events and person properties.",
-      docsUrl: DOCS,
+      docsUrl: `${DOCS}/docs/getting-started/posthog-setup`,
     });
 
     // 7–10. Attribution readiness (impact plan §5.4) — the "how's it doing"
@@ -234,7 +234,7 @@ export const readinessRouter = new OpenAPIHono<AppEnv>().openapi(
           : seen
             ? okDetail
             : missingDetail,
-      docsUrl: `${DOCS}/conversions/impact`,
+      docsUrl: `${DOCS}/docs/conversions/impact`,
     });
     checks.push(
       probeCheck(
