@@ -1,5 +1,18 @@
 # @hogsend/cli
 
+## 0.46.1
+
+### Patch Changes
+
+- d88f5af: Keep the engine version line uniform: bump every engine-line package (and the
+  `create-hogsend` scaffolder) alongside the Studio docs-link + Deals copy fix, so
+  all `@hogsend/*` publish on one version and the scaffold's `^{{ENGINE_VERSION}}`
+  caret pins stay aligned.
+- Updated dependencies [d88f5af]
+- Updated dependencies [d88f5af]
+  - @hogsend/db@0.46.1
+  - @hogsend/engine@0.46.1
+
 ## 0.46.0
 
 ### Minor Changes

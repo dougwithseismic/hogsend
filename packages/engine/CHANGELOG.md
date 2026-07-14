@@ -1,5 +1,24 @@
 # @hogsend/engine
 
+## 0.46.1
+
+### Patch Changes
+
+- d88f5af: Studio: fix 404 docs links in the Setup checklist and correct Deals copy that wrongly implied a CRM provider is required.
+
+  The attribution readiness checks (arrival capture, valued events, conversions firing, attribution credits) linked to `docs.hogsend.com/conversions/impact`, which is missing the `/docs/` path segment and 404s; they now point at `/docs/conversions/impact`. The remaining readiness checks and the Studio sidebar "Docs" link used a bare docs URL that resolved to the marketing homepage — each now points at its relevant docs page (hatchet, email, data-api auth, production email, PostHog setup, and the docs index).
+
+  The Deals view's "No deals yet" empty state told users to wire a CRM provider as the only way to get deals. Deals are event-native first — any ingested event matching a `defineFunnel` trigger mints a deal under the synthetic `events` provider — so a CRM is one optional source, not a requirement. The copy now leads with the event-native path and drops CRM-only framing from the "No deals match" state and the page header.
+
+- Updated dependencies [d88f5af]
+  - @hogsend/attribution@0.46.1
+  - @hogsend/core@0.46.1
+  - @hogsend/db@0.46.1
+  - @hogsend/email@0.46.1
+  - @hogsend/plugin-posthog@0.46.1
+  - @hogsend/plugin-resend@0.46.1
+  - @hogsend/sms@0.46.1
+
 ## 0.46.0
 
 ### Minor Changes
