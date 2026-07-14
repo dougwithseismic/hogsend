@@ -223,3 +223,41 @@
 .react-flow__attribution a {
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* ========================================================================== */
+/*  Control room — ambient particles riding the flow-map rails (CSS Motion    */
+/*  Path). The path itself comes from the edge component as an inline         */
+/*  `offset-path`; here we just move a particle along it, fading in/out at    */
+/*  the ends so it never pops. Duration + (negative) delay are inline per     */
+/*  particle, seeded from the edge id — so a re-render is byte-identical and  */
+/*  the browser never restarts the animation.                                 */
+/* ========================================================================== */
+@keyframes flow-ambient {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.9;
+  }
+  97% {
+    opacity: 0.9;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.flow-particle {
+  animation: flow-ambient linear infinite;
+}
+
+/* The global reduce-motion rule collapses durations to ~0, which would park
+   every particle at the end of its rail. Take them off the canvas instead. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-particle {
+    animation: none;
+    visibility: hidden;
+  }
+}

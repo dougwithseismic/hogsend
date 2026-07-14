@@ -1612,10 +1612,84 @@ export function cancelCampaign(id: string) {
   );
 }
 
+// --- Flow map (control room) ---------------------------------------------
+
+/** Lifecycle column a node is drawn in — the flow map's x-axis. */
+export type SurfaceTier =
+  | "acquisition"
+  | "activation"
+  | "retention"
+  | "revenue";
+
+export type FlowNodeKind = "surface" | "journey" | "funnelStage" | "builtin";
+
+/** An amount in one currency — never summed across currencies. */
+export type FlowMoney = { amount: number; currency: string };
+
+/** Conversion + revenue overlay — attributed and direct revenue stay separate. */
+export type FlowNodeHeat = {
+  conversionRate: number | null;
+  attributedRevenue: FlowMoney[];
+  directRevenue: FlowMoney[];
+};
+
+/** Pile-up: contacts whose last classified node is this one, idle past threshold. */
+export type FlowNodeDwell = {
+  stuckContacts: number;
+  thresholdHours: number;
+  oldestLastSeenAt: string | null;
+  p50HoursStuck: number | null;
+};
+
+export type FlowGraphNode = {
+  id: string;
+  kind: FlowNodeKind;
+  name: string;
+  tier: SurfaceTier;
+  contacts: number;
+  events: number;
+  /** Contacts currently here — null until the live layer ships. */
+  live: number | null;
+  /** Conversion + revenue overlay — null until P2. */
+  heat: FlowNodeHeat | null;
+  /** Pile-up stats — null until P2. */
+  dwell: FlowNodeDwell | null;
+};
+
+export type FlowGraphEdge = {
+  from: string;
+  to: string;
+  transitions: number;
+  contacts: number;
+  /** Lane → transition count (top lanes + `__other`) — null until P3. */
+  lanes: Record<string, number> | null;
+};
+
+export type FlowGraphResponse = {
+  window: { days: number; from: string; to: string };
+  nodes: FlowGraphNode[];
+  edges: FlowGraphEdge[];
+  /** Lanes seen in the window, with contact counts — empty until P3. */
+  lanes: { id: string; count: number }[];
+  meta: {
+    /** True when the engine shrank the window to bound the scan. */
+    truncated: boolean;
+    effectiveWindowDays: number;
+    generatedAt: string;
+  };
+};
+
+export function getFlow(params: { windowDays: number }) {
+  return api.get<FlowGraphResponse>("/v1/admin/flow", {
+    query: { windowDays: params.windowDays },
+  });
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
   overview: ["overview"] as const,
+  flow: (windowDays: number) => ["flow", windowDays] as const,
   emails: (filters: EmailListFilters) => ["emails", filters] as const,
   email: (id: string) => ["email", id] as const,
   events: (filters: EventListFilters) => ["events", filters] as const,
