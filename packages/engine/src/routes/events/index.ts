@@ -31,6 +31,14 @@ const eventRequestSchema = z.object({
     .regex(/^[A-Za-z]{3}$/)
     .optional(),
   lists: z.record(z.string(), z.boolean()).optional(),
+  // groupType → groupKey association map (e.g. `{ company: "acme.com" }`). The
+  // event is recorded against each group (`user_events.groups`), its membership
+  // is ensured, and the map is forwarded to analytics as `$groups`. This is
+  // ASSOCIATION-ONLY: the ingest path writes NO group properties, so a
+  // publishable (pk_) key can reference a group key here but can never write
+  // group properties or read groups (those live on the secret-only
+  // `/v1/groups` router).
+  groups: z.record(z.string().min(1), z.string().min(1)).optional(),
   idempotencyKey: z.string().optional(),
   timestamp: z.string().datetime().optional(),
   // Publishable-key identity assertion (§Phase 1). A pk_ key is anon-only
@@ -133,6 +141,9 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
           contactProperties: body.contactProperties,
           value: body.value,
           currency: body.currency,
+          // groupType→groupKey association (association-only; no property write).
+          // Forwarded as `$groups` on the mirrored analytics capture.
+          groups: body.groups,
           idempotencyKey,
           // §2.5: caller-supplied event time (backfill/replay). The validated
           // ISO string is coerced to a Date inside ingestEvent.

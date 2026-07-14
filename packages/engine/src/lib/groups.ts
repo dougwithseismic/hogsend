@@ -14,6 +14,20 @@ import type { Logger } from "./logger.js";
  * name that predicate as the conflict arbiter — see {@link identifyGroup}.
  */
 
+/**
+ * Thrown by {@link addGroupMember} when the target contact does not exist (or is
+ * soft-deleted). Signalled BEFORE the group is resolve-or-created, so a bad
+ * contact id never mints an orphan group; the route catches it → 404. Mirrors
+ * the typed-error pattern in {@link file://./contacts.ts}
+ * (`PublishableAnonymousMergeError`).
+ */
+export class GroupContactNotFoundError extends Error {
+  constructor(public readonly contactId: string) {
+    super(`Contact not found: ${contactId}`);
+    this.name = "GroupContactNotFoundError";
+  }
+}
+
 /** Rows returned by drizzle's select match the portable `Group` shape 1:1. */
 type GroupRow = typeof groups.$inferSelect;
 
@@ -166,10 +180,14 @@ export async function associateGroups(opts: {
 }
 
 /**
- * Add a contact to a group. Resolve-or-create the live group (association only),
- * then INSERT the membership via `onConflictDoNothing`; when nothing is returned
- * the contact is already a member, so we read the existing row. `created`
- * reflects whether THIS call inserted the membership.
+ * Add a contact to a group. FIRST assert the contact exists (else the FK-bound
+ * membership insert would 23503 AFTER the group was resolve-or-created, minting
+ * an orphan group and 500-ing) — a missing/soft-deleted contact throws
+ * {@link GroupContactNotFoundError} BEFORE any group is touched. Then
+ * resolve-or-create the live group (association only) and INSERT the membership
+ * via `onConflictDoNothing`; when nothing is returned the contact is already a
+ * member, so we read the existing row. `created` reflects whether THIS call
+ * inserted the membership.
  */
 export async function addGroupMember(opts: {
   db: Database;
@@ -179,6 +197,19 @@ export async function addGroupMember(opts: {
   role?: string;
 }): Promise<{ membership: GroupMembership; created: boolean }> {
   const { db, groupType, groupKey, contactId, role } = opts;
+
+  // Contact-existence guard — BEFORE `resolveGroupId` so a bad id never creates
+  // an orphan group. The route validated `contactId` is a well-formed uuid, so
+  // this select cannot 22P02. Only live (non-deleted) contacts qualify.
+  const contactRows = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(and(eq(contacts.id, contactId), isNull(contacts.deletedAt)))
+    .limit(1);
+  if (!contactRows[0]) {
+    throw new GroupContactNotFoundError(contactId);
+  }
+
   const groupId = await resolveGroupId(db, groupType, groupKey);
 
   const inserted = await db
