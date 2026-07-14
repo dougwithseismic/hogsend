@@ -667,11 +667,27 @@ function shouldOfferPosthog(): boolean {
   );
 }
 
-/** Any HTTP answer on /v1/health means the API is up (even a 503 responds). */
-async function isApiUp(base: string): Promise<boolean> {
+/**
+ * "Is OUR app answering here?" — NOT merely "does something answer?". Port
+ * 3002 is a popular dev port: an unrelated app squatting on it happily
+ * answers HTTP (a naive probe then skips starting our API and the connect
+ * CLI 404s against a stranger), and a DIFFERENT Hogsend instance would be
+ * even worse — we'd store the PostHog credential into someone else's
+ * database. The probe rules out every foreign responder: an authenticated
+ * GET with the admin key minted in step 7, whose 200 body must carry the
+ * connect-info shape (`providerId: "posthog"`). A 404-app fails on status, a
+ * different Hogsend fails on 401 (it doesn't know our key), and even a
+ * blanket-200 server fails the shape check — only OUR instance passes.
+ */
+async function isOurApi(base: string, adminKey: string): Promise<boolean> {
   try {
-    await fetch(`${base}/v1/health`, { signal: AbortSignal.timeout(1500) });
-    return true;
+    const res = await fetch(`${base}/v1/admin/analytics/connect-info`, {
+      headers: { Authorization: `Bearer ${adminKey}` },
+      signal: AbortSignal.timeout(1500),
+    });
+    if (res.status !== 200) return false;
+    const body = (await res.json()) as { providerId?: unknown };
+    return body?.providerId === "posthog";
   } catch {
     return false;
   }
@@ -712,8 +728,15 @@ const CONNECT_CMD = pmExec("hogsend connect posthog");
 
 async function connectPosthog(): Promise<void> {
   const env = readFileSync(ENV_PATH, "utf8");
-  const port = getEnv(env, "PORT") ?? "3002";
-  const base = `http://localhost:${port}`;
+  const configuredPort = Number(getEnv(env, "PORT") ?? "3002");
+  const adminKey = getEnv(env, "HOGSEND_ADMIN_KEY") ?? "";
+  if (!adminKey.startsWith("hsk_")) {
+    // Step 7 mints it; missing means that step failed (already an issue).
+    info(
+      `No HOGSEND_ADMIN_KEY in .env — re-run bootstrap, then \`${CONNECT_CMD}\`.`,
+    );
+    return;
+  }
 
   const wanted = await confirm(
     "One last thing — connect PostHog now? (opens your browser to authorize; no keys to paste)",
@@ -726,22 +749,36 @@ async function connectPosthog(): Promise<void> {
     return;
   }
 
-  // Reuse an already-running instance; else boot one just for the handshake.
-  const alreadyUp = await isApiUp(base);
-  if (!alreadyUp) {
+  // Reuse the app ONLY if it's provably ours (see isOurApi); else boot one
+  // just for the handshake — on the configured port when it's actually free,
+  // else on the next free port (PORT in the child env wins over .env: Node's
+  // --env-file never overrides an already-set process env var).
+  let base = `http://localhost:${configuredPort}`;
+  const reused = await isOurApi(base, adminKey);
+  if (!reused) {
+    const port = (await isPortFree(configuredPort))
+      ? configuredPort
+      : await findFreePort(configuredPort + 1, new Set());
+    if (port !== configuredPort) {
+      info(
+        `Port ${configuredPort} is in use by something that isn't this app — using :${port} for the handshake.`,
+      );
+    }
+    base = `http://localhost:${port}`;
     const stop = startSpinner(
-      `Starting the API for the handshake (${pmRun("dev")})…`,
+      `Starting the API for the handshake (${pmRun("dev")} on :${port})…`,
     );
     apiChild = spawn(PM, ["run", "dev"], {
       cwd: ROOT,
       stdio: "ignore",
       detached: process.platform !== "win32",
       shell: process.platform === "win32",
+      env: { ...process.env, PORT: String(port) },
     });
     let up = false;
     for (let i = 0; i < 60 && !up; i += 1) {
       await sleep(1000);
-      up = await isApiUp(base);
+      up = await isOurApi(base, adminKey);
     }
     stop();
     if (!up) {
@@ -779,7 +816,7 @@ async function connectPosthog(): Promise<void> {
       );
     }
   } finally {
-    if (!alreadyUp) killApiChild();
+    if (!reused) killApiChild();
   }
 }
 
