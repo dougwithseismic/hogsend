@@ -59,12 +59,15 @@ const TEAM_KEY = `${RUN}-team-eng`;
 // Phase 8.1 fixtures — a contact in two distinct-type groups + one with none.
 const ORG_KEY = `${RUN}-globex.com`;
 const SQUAD_KEY = `${RUN}-squad-x`;
+// Count-consistency fixture — a group with one LIVE and one SOFT-DELETED member.
+const GHOST_KEY = `${RUN}-ghost.com`;
 
 let companyId = "";
 let contactAId = "";
 let contactBId = "";
 let multiContactId = "";
 let noGroupContactId = "";
+let liveMemberId = "";
 
 afterAll(async () => {
   await db.delete(userEvents).where(like(userEvents.userId, `${RUN}%`));
@@ -143,6 +146,39 @@ async function seed() {
   await db.insert(groupMemberships).values([
     { groupId: org.id, contactId: multiContactId, role: "owner" },
     { groupId: squad.id, contactId: multiContactId, role: null },
+  ]);
+
+  // Count-consistency fixture: a group with TWO memberships, one of whose
+  // contacts is SOFT-deleted (what a merge loser / a deleted contact leaves
+  // behind). The member LIST joins live contacts, so the member COUNT must join
+  // them too — otherwise the header over-counts the rows it can actually show.
+  const [ghost] = await db
+    .insert(groups)
+    .values({
+      groupType: "company",
+      groupKey: GHOST_KEY,
+      displayName: "Ghostly",
+    })
+    .returning();
+  if (!ghost) throw new Error("failed to seed ghost group");
+
+  const [live, dead] = await db
+    .insert(contacts)
+    .values([
+      { externalId: `${RUN}-user-live`, email: `${RUN}-live@example.com` },
+      {
+        externalId: `${RUN}-user-dead`,
+        email: `${RUN}-dead@example.com`,
+        deletedAt: new Date(),
+      },
+    ])
+    .returning();
+  if (!live || !dead) throw new Error("failed to seed ghost-group contacts");
+  liveMemberId = live.id;
+
+  await db.insert(groupMemberships).values([
+    { groupId: ghost.id, contactId: live.id, role: "member" },
+    { groupId: ghost.id, contactId: dead.id, role: "member" },
   ]);
 }
 
@@ -273,6 +309,46 @@ describe("GET /v1/admin/groups/{groupType}/{groupKey}/members", () => {
       { headers: AUTH_HEADER },
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("member counts exclude soft-deleted contacts (count == list)", () => {
+  it("counts only live members on the list, the detail, and the members page", async () => {
+    const list = await app.request("/v1/admin/groups?limit=100", {
+      headers: AUTH_HEADER,
+    });
+    const listBody = await list.json();
+    const ghost = listBody.groups.find(
+      (g: { groupKey: string }) => g.groupKey === GHOST_KEY,
+    );
+    expect(ghost).toBeDefined();
+    // Two membership rows, but only ONE has a live contact.
+    expect(ghost.memberCount).toBe(1);
+
+    const detail = await app.request(
+      `/v1/admin/groups/company/${encodeURIComponent(GHOST_KEY)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.group.memberCount).toBe(1);
+    expect(detailBody.group.recentMembers).toHaveLength(1);
+    expect(detailBody.group.recentMembers[0].contactId).toBe(liveMemberId);
+
+    const members = await app.request(
+      `/v1/admin/groups/company/${encodeURIComponent(GHOST_KEY)}/members`,
+      { headers: AUTH_HEADER },
+    );
+    const membersBody = await members.json();
+    expect(membersBody.total).toBe(1);
+    expect(membersBody.members).toHaveLength(1);
+    expect(membersBody.members[0].contactId).toBe(liveMemberId);
+
+    // The header count never disagrees with the list it heads.
+    expect(ghost.memberCount).toBe(membersBody.total);
+    expect(detailBody.group.memberCount).toBe(
+      detailBody.group.recentMembers.length,
+    );
   });
 });
 

@@ -7,6 +7,7 @@ import {
   deals,
   emailPreferences,
   emailSends,
+  groupMemberships,
   journeyStates,
   userEvents,
 } from "@hogsend/db";
@@ -963,6 +964,14 @@ async function mergeContacts(
       .set({ contactId: survivor.id })
       .where(eq(crmLinks.contactId, loser.id));
 
+    // (vi-c) group_memberships FOLD: another contact_id uuid FK the key
+    // rewrites never touch. The loser is SOFT-deleted, so `onDelete: cascade`
+    // never fires — without this the loser's memberships are stranded on a dead
+    // row (the survivor's drawer shows "no groups", and the group's member
+    // count/list disagree). uq(group_id, contact_id) forbids a blind rewrite
+    // when BOTH already belong to the same group, so fold-then-rewrite.
+    await foldGroupMemberships(tx, survivor.id, loser.id);
+
     // (ix) RECORD aliases for each loser key → survivor.
     await recordMergeAliases(tx, survivor.id, loser);
   }
@@ -1277,6 +1286,46 @@ async function foldBucketMemberships(
     .update(bucketMemberships)
     .set({ userId: survivorKey, updatedAt: new Date() })
     .where(inArray(bucketMemberships.userId, loserKeys));
+}
+
+/**
+ * group_memberships fold (vi-c). Unlike buckets this join is keyed on the uuid
+ * `contact_id`, and it carries no lifecycle (no status/dwell/left_at) — just
+ * `role` + `joined_at` — so the fold is a plain dedupe-then-rewrite:
+ *   1. DROP the loser's membership in any group the survivor ALREADY belongs to
+ *      (uq(group_id, contact_id) forbids two rows for the same (group, contact);
+ *      the survivor's row wins, keeping its authoritative role/joinedAt).
+ *   2. Re-point the rest onto the survivor.
+ * Hard-delete (not soft-leave) matches how a membership is removed everywhere
+ * else in the group service.
+ */
+async function foldGroupMemberships(
+  tx: Tx,
+  survivorId: string,
+  loserId: string,
+): Promise<void> {
+  const survivorGroups = await tx
+    .select({ groupId: groupMemberships.groupId })
+    .from(groupMemberships)
+    .where(eq(groupMemberships.contactId, survivorId));
+
+  const occupied = survivorGroups.map((g) => g.groupId);
+
+  if (occupied.length > 0) {
+    await tx
+      .delete(groupMemberships)
+      .where(
+        and(
+          eq(groupMemberships.contactId, loserId),
+          inArray(groupMemberships.groupId, occupied),
+        ),
+      );
+  }
+
+  await tx
+    .update(groupMemberships)
+    .set({ contactId: survivorId, updatedAt: new Date() })
+    .where(eq(groupMemberships.contactId, loserId));
 }
 
 /**

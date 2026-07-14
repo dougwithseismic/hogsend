@@ -199,7 +199,9 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
     ]);
 
     // One grouped count over the page's group ids — mirrors how buckets maps
-    // its per-bucket status counts back onto the listed rows.
+    // its per-bucket status counts back onto the listed rows. Joined to LIVE
+    // contacts so the count matches exactly the set the members endpoint lists
+    // (a membership whose contact is soft-deleted must not over-count).
     const groupIds = rows.map((r) => r.id);
     const memberCounts =
       groupIds.length > 0
@@ -209,7 +211,13 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
               count: count(),
             })
             .from(groupMemberships)
-            .where(inArray(groupMemberships.groupId, groupIds))
+            .innerJoin(contacts, eq(groupMemberships.contactId, contacts.id))
+            .where(
+              and(
+                inArray(groupMemberships.groupId, groupIds),
+                isNull(contacts.deletedAt),
+              ),
+            )
             .groupBy(groupMemberships.groupId)
         : [];
     const countMap = new Map(memberCounts.map((r) => [r.groupId, r.count]));
@@ -306,10 +314,18 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
 
     const [memberCountRows, recentMemberRows, recentEventRows] =
       await Promise.all([
+        // Same LIVE-contact join as recentMembers below (and as the members
+        // endpoint) so memberCount never disagrees with the list it heads.
         db
           .select({ count: count() })
           .from(groupMemberships)
-          .where(eq(groupMemberships.groupId, group.id)),
+          .innerJoin(contacts, eq(groupMemberships.contactId, contacts.id))
+          .where(
+            and(
+              eq(groupMemberships.groupId, group.id),
+              isNull(contacts.deletedAt),
+            ),
+          ),
         db
           .select({
             contactId: groupMemberships.contactId,
