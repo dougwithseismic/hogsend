@@ -6,6 +6,7 @@ import type { JSX, ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { BookCall } from "@/components/portal/book-call";
 import { SignAgreement } from "@/components/portal/sign-agreement";
 import { SubscriptionActions } from "@/components/portal/subscription-actions";
 import { UpdateCard } from "@/components/portal/update-card";
@@ -423,17 +424,10 @@ export default async function PortalPage(): Promise<JSX.Element> {
 
         <Section
           title="Book a call"
-          description="Time with Doug — scoping, a working session, or where the funnel leaks."
+          description="Time with Doug — scoping, a working session, or where the funnel leaks. I'll reply with times."
         >
-          <div
-            className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
-          >
-            <p className="text-sm text-white/70">
-              Tell me what you&apos;re working on and I&apos;ll send times.
-            </p>
-            <Button href="/service#enquire" variant="outline" icon>
-              Request a call
-            </Button>
+          <div className={CARD}>
+            <BookCall email={user.email} />
           </div>
         </Section>
 
