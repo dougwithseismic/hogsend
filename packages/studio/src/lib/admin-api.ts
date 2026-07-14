@@ -804,6 +804,96 @@ export function setBucketEnabled(id: string, enabled: boolean) {
   }>(`/v1/admin/buckets/${encodeURIComponent(id)}`, { json: { enabled } });
 }
 
+// --- Groups --------------------------------------------------------------
+
+/**
+ * One row of `GET /v1/admin/groups` — an account/team/company-level record
+ * tracked from events + memberships. Mirrors the engine group schema
+ * (routes/admin/groups.ts). `properties` is an opaque bag; `memberCount` is a
+ * server-computed rollup over live memberships. Observe-only: groups are
+ * authored in the data plane, never from Studio.
+ */
+export type AdminGroup = {
+  id: string;
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  properties: Record<string, unknown>;
+  memberCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+/** One member of a group (a `group_memberships` row joined to its contact). */
+export type AdminGroupMember = {
+  contactId: string;
+  email: string | null;
+  externalId: string | null;
+  role: string | null;
+  joinedAt: string;
+};
+
+/** One event tagged with a group (a `user_events` row), newest first. */
+export type AdminGroupEvent = {
+  id: string;
+  event: string;
+  occurredAt: string;
+  userId: string;
+};
+
+/** `GET /:groupType/:groupKey` — the group plus its recent members + events. */
+export type AdminGroupDetail = AdminGroup & {
+  recentMembers: AdminGroupMember[];
+  recentEvents: AdminGroupEvent[];
+};
+
+export type GroupListFilters = {
+  limit?: number;
+  offset?: number;
+  groupType?: string;
+};
+
+export function listGroups(filters: GroupListFilters = {}) {
+  return api.get<{
+    groups: AdminGroup[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/groups", {
+    query: {
+      limit: filters.limit,
+      offset: filters.offset,
+      groupType: filters.groupType || undefined,
+    },
+  });
+}
+
+export function getGroup(groupType: string, groupKey: string) {
+  return api.get<{ group: AdminGroupDetail }>(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
+      groupKey,
+    )}`,
+  );
+}
+
+export function listGroupMembers(
+  groupType: string,
+  groupKey: string,
+  query?: { limit?: number; offset?: number },
+) {
+  return api.get<{
+    members: AdminGroupMember[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
+      groupKey,
+    )}/members`,
+    { query },
+  );
+}
+
 // --- Contacts ------------------------------------------------------------
 
 export type Contact = {
@@ -1640,6 +1730,14 @@ export const qk = {
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
+  groups: (filters: GroupListFilters) => ["groups", filters] as const,
+  group: (groupType: string, groupKey: string) =>
+    ["group", groupType, groupKey] as const,
+  groupMembers: (
+    groupType: string,
+    groupKey: string,
+    filter: { limit?: number; offset?: number },
+  ) => ["group-members", groupType, groupKey, filter] as const,
   contacts: (filters: ContactListFilters) => ["contacts", filters] as const,
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,
