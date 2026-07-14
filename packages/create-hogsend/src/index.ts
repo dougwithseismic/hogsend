@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import color from "picocolors";
 import {
+  applyAdminToEnv,
   applyDomainToEnv,
   applyPosthogToEnv,
   copyTemplate,
@@ -304,6 +305,25 @@ async function main(): Promise<void> {
     if (interactive) {
       log.step(
         `${color.dim("PostHog —")} POSTHOG_HOST=${opts.posthog.host} ${color.dim("+ ENABLE_POSTHOG_DESTINATION=true + minted POSTHOG_WEBHOOK_SECRET")}`,
+      );
+    }
+  }
+
+  // First Studio admin preset (--admin-email / --admin-password): written into
+  // .env.example before install/bootstrap so bootstrap's .env inherits it and
+  // the API mints the admin on first boot. The password is NEVER echoed.
+  if (opts.adminEmail) {
+    await applyAdminToEnv(targetDir, {
+      email: opts.adminEmail,
+      password: opts.adminPassword,
+    });
+    if (interactive) {
+      log.step(
+        `${color.dim("Studio admin —")} STUDIO_ADMIN_EMAIL=${opts.adminEmail} ${color.dim(
+          opts.adminPassword
+            ? "+ STUDIO_ADMIN_PASSWORD (hidden) — minted on first boot"
+            : "— password generated + printed once on first boot",
+        )}`,
       );
     }
   }

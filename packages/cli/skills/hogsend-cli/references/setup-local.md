@@ -44,9 +44,52 @@ hogsend doctor --json    # confirm ok
 hogsend stats --json     # sanity-check metrics endpoint
 ```
 
+## Headless / agent-driven local instance (zero TTY)
+
+The whole scaffold → bootstrap → run path works with no prompts; every outcome
+is an exit code, a `.env` line, a log line, or `--json`.
+
+```bash
+# 1. One-shot scaffold (zero prompts; --yes implies install + bootstrap)
+pnpm dlx create-hogsend@latest my-app --yes \
+  --domain mysite.com \
+  --admin-email you@example.com --admin-password 'min-8-chars' \
+  --posthog                      # keyless intent; or --posthog-key phc_…
+
+# 2. (If you skipped --yes) idempotent setup — exit 0 = all steps succeeded
+cd my-app && pnpm bootstrap      # Docker infra, .env, migrate (verified),
+                                 # HOGSEND_API_KEY + HOGSEND_ADMIN_KEY minted
+
+# 3. Run as background processes YOU manage, then poll readiness
+pnpm dev &          # API — non-TTY boots emit "Hogsend API ready"
+pnpm worker:dev &   # worker — emits "Hogsend worker ready"
+curl -fs localhost:3002/v1/health   # poll until "status":"healthy"
+
+# 4. Operate
+pnpm hogsend doctor --json       # first call, verifies keys + schema + infra
+pnpm hogsend stats --json
+```
+
+Key facts:
+
+- **First admin**: `--admin-email` writes `STUDIO_ADMIN_EMAIL` into the env;
+  the API mints the admin on FIRST BOOT (empty user table). No
+  `--admin-password` (min 8 chars) ⇒ one is generated and printed ONCE — grep
+  the boot log for `First admin created`. Fallback:
+  `hogsend studio admin create --email … --password … --json`.
+- **Health semantics**: `migration_pending` ⇒ run `pnpm db:migrate`;
+  `degraded` ⇒ serving but check `components.{database,redis,worker}`;
+  `components.worker` is the worker's Redis heartbeat.
+- **PostHog headless**: browser OAuth can't run headless — set
+  `POSTHOG_PERSONAL_API_KEY` on the instance instead (person reads + loop
+  provisioning work automatically); `hogsend connect posthog --provision-only`
+  re-wires the event loop from an already-stored credential.
+
 ## Notes
 
 - `setup` is interactive by design; in a non-interactive / agent context,
-  prefer running the underlying steps explicitly and then `hogsend doctor`.
+  use the headless path above (`create-hogsend` flags + `pnpm bootstrap`),
+  then `hogsend doctor --json`.
 - The admin key for local reads comes from your `.env` (`ADMIN_API_KEY` or
-  `HOGSEND_ADMIN_KEY`); `doctor` itself needs no key.
+  `HOGSEND_ADMIN_KEY` — `pnpm bootstrap` mints the latter); `doctor` itself
+  needs no key.

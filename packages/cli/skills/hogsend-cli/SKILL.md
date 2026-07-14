@@ -4,7 +4,7 @@ description: Use when an agent needs to inspect or operate a running Hogsend lif
 license: MIT
 metadata:
   author: withSeismic
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # Hogsend CLI
@@ -96,7 +96,7 @@ Run `hogsend <command> --help` for per-command usage.
 - **Query metrics / analyse data** → `references/query-stats.md`
 - **List, inspect, enable or disable journeys** → `references/manage-journeys.md`
 - **Debug why a user did / didn't enroll** → `references/debug-a-journey.md`
-- **Set up a local instance** → `references/setup-local.md`
+- **Set up a local instance (incl. headless / agent-driven)** → `references/setup-local.md`
 
 ## Golden rules for agents
 

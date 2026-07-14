@@ -33,11 +33,25 @@ Useful flags:
 | `--yes`, `-y` | Accept all defaults and run local setup — no prompts |
 | `--domain <domain>` | Sending domain — writes `EMAIL_FROM=hello@<domain>` + `EMAIL_DOMAIN=<domain>` into `env.example`. With no app-name positional, the app name defaults to the first domain label (`mysite.com` → `mysite`) |
 | `--pm <pnpm\|npm\|yarn\|bun>` | Package manager to use (default `pnpm`) |
+| `--admin-email <email>` | First Studio admin — writes `STUDIO_ADMIN_EMAIL` into `env.example`; the API mints the admin on first boot (sign-up is closed) |
+| `--admin-password <pw>` | Admin password (min 8 chars; requires `--admin-email`). Omit it and one is generated + printed once in the first boot log |
+| `--posthog` | Using PostHog, no key yet — surfaces the `connect posthog` step and hints; writes no env values |
+| `--posthog-key <phc_…>` / `--posthog-host <url>` | Paste a PostHog project key up front — writes active `POSTHOG_API_KEY`/`POSTHOG_HOST` and mints a webhook secret |
 | `--setup` / `--no-setup` | Run / skip the post-install local setup (`bootstrap`) |
 | `--no-install` | Skip the dependency install |
 | `--no-git` | Skip `git init` and the initial commit |
 | `--skills` / `--no-skills` | Include (default) or skip the bundled Claude Code skills + a tailored `CLAUDE.md` |
 | `-h`, `--help` | Show help |
+
+For an AI agent (or CI) driving the whole thing with zero prompts and a verifiable outcome:
+
+```bash
+pnpm create hogsend@latest my-app --yes \
+  --domain mysite.com \
+  --admin-email you@example.com --admin-password 'min-8-chars' --posthog
+# then: background `pnpm dev` + `pnpm worker:dev`, poll GET /v1/health
+# until "status":"healthy", and operate via `pnpm hogsend … --json`.
+```
 
 The emitted app pins every `@hogsend/*` package to a single engine version line, so the api, worker, and database migrations always move together.
 

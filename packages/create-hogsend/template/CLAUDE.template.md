@@ -52,9 +52,10 @@ silently do nothing.
 - **ESM** — use `.js` extensions in relative imports. Node 22.
 - Task input types must be JSON-serializable (no `[key: string]: unknown`).
 - `ctx` inside a journey is durable-execution primitives only (`sleep`,
-  `checkpoint`, `trigger`, `identify`, `guard`, `history`, `posthog`). Sending
-  email or capturing analytics are STANDALONE imports (`sendEmail`, `getPostHog`
-  from `@hogsend/engine`), not methods on `ctx`.
+  `sleepUntil`, `when`, `waitForEvent`, `digest`, `once`, `checkpoint`,
+  `trigger`, `guard`, `history`). Sending email or capturing analytics are
+  STANDALONE imports (`sendEmail`, `getPostHog` from `@hogsend/engine`), not
+  methods on `ctx` — there is no `ctx.identify` or `ctx.posthog`.
 
 ## Commands
 
@@ -65,6 +66,36 @@ pnpm db:generate    # generate a migration from src/schema changes
 pnpm db:migrate     # run migrations
 pnpm test           # vitest
 ```
+
+## Zero to running (headless / agents)
+
+Everything works without a TTY — no prompts, machine-readable outcomes:
+
+- **Setup** (idempotent, safe to re-run): `pnpm bootstrap` — Docker infra,
+  `.env`, port auto-remap, Hatchet token, migrations (engine track verified),
+  and two keys into `.env`: `HOGSEND_API_KEY` (ingest) + `HOGSEND_ADMIN_KEY`
+  (full-admin, what the `hogsend` CLI reads). Exit 0 = every step succeeded;
+  exit 1 = the failed steps are re-listed in the summary.
+- **First admin** (sign-up is closed): set `STUDIO_ADMIN_EMAIL` (and optionally
+  `STUDIO_ADMIN_PASSWORD`, min 8 chars) in `.env` — the API mints the admin on
+  FIRST BOOT when the user table is empty. Without a password one is generated
+  and printed ONCE: grep the boot log for `First admin created`. Fallback:
+  `pnpm studio:admin` (supports `--email`/`--password`/`--json`). Scaffold-time:
+  `create-hogsend --admin-email … [--admin-password …]` presets both.
+- **Run + readiness**: start `pnpm dev` and `pnpm worker:dev` as background
+  processes you manage, then poll `GET /v1/health` until `"status":"healthy"`.
+  `migration_pending` ⇒ run `pnpm db:migrate`; `degraded` ⇒ serving, but check
+  `components.{database,redis,worker}`. Non-TTY boots always emit the
+  structured `"Hogsend API ready"` / `"Hogsend worker ready"` log lines.
+  Worker liveness is `components.worker` on health (Redis heartbeat).
+- **Operate with `--json`**: start with `pnpm hogsend doctor --json`; every
+  data command supports `--json`. Keys resolve from `.env` automatically.
+- **PostHog without a browser**: the OAuth `connect posthog` flow needs a human;
+  headless, set `POSTHOG_PERSONAL_API_KEY` on the instance (person reads + loop
+  provisioning work automatically), and `pnpm hogsend connect posthog
+  --provision-only` re-wires the event loop from an already-stored credential.
+- **Smoke the loop**: `pnpm hogsend events send test.event --email a@b.com
+  --json`, then `pnpm hogsend contacts get a@b.com --json`.
 
 ## Agent skills (deep, on-demand guidance)
 

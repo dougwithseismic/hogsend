@@ -592,7 +592,12 @@ async function bootstrapAdmin(): Promise<void> {
   // don't double-create here.
   const adminEmail = getEnv(env, "STUDIO_ADMIN_EMAIL");
   if (adminEmail && !adminEmail.startsWith("#")) {
-    ok(`STUDIO_ADMIN_EMAIL is set (${adminEmail}) — the API mints it on boot`);
+    ok(
+      `STUDIO_ADMIN_EMAIL is set (${adminEmail}) — the API mints it on first boot (${pmRun("dev")})`,
+    );
+    info(
+      "No STUDIO_ADMIN_PASSWORD? One is generated and printed ONCE in the boot log.",
+    );
     info(`Or run \`${pmRun("studio:admin")}\` to create one now.`);
     return;
   }
@@ -600,8 +605,8 @@ async function bootstrapAdmin(): Promise<void> {
   if (!process.stdin.isTTY) {
     info("No TTY — skipping admin create.");
     info(
-      `Create one later: \`${pmRun("studio:admin")}\` ` +
-        "(or set STUDIO_ADMIN_EMAIL in .env).",
+      `Create one later: \`${pmRun("studio:admin")}\`, set STUDIO_ADMIN_EMAIL ` +
+        "in .env, or scaffold with `create-hogsend --admin-email`.",
     );
     return;
   }

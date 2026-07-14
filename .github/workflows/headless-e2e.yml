@@ -1,0 +1,32 @@
+# The full zero-TTY agent path: scaffold with flags -> non-interactive
+# bootstrap (real docker compose stack) -> boot -> health -> env-preset admin
+# signs in -> admin-key CLI call. Deliberately its OWN workflow and never
+# PR-gating: compose pulls are multi-minute and registry-flaky, and giving CI
+# a nightly heartbeat here keeps the agent path from silently rotting between
+# releases. Run on demand with `gh workflow run headless-e2e.yml`.
+name: Headless agent E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly 04:17 UTC, on main.
+    - cron: "17 4 * * *"
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  headless-e2e:
+    name: Headless agent E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: bash packages/create-hogsend/scripts/verify-headless.sh
