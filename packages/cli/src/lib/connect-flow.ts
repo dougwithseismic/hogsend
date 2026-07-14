@@ -185,9 +185,22 @@ const LOOPBACK_URL_NOTE = `Credential stored — but this instance's API_PUBLIC_
 address, so PostHog Cloud cannot deliver webhooks to it. Provisioning was
 skipped (a destination pointing at localhost would be unreachable).
 
+This usually doesn't block local dev: your own app's events hit the local API
+directly, and \`hogsend events send <event>\` fires anything PostHog would.
+
 Once deployed, wire the loop against the real instance:
 
-  hogsend connect posthog --provision-only --url https://your-instance`;
+  hogsend connect posthog --provision-only --url https://your-instance
+
+Want to prove the REAL loop from this machine? Tunnel it, then clean up —
+a quick tunnel's URL is ephemeral, so delete the destination when done or
+PostHog keeps delivering to a dead URL:
+
+  cloudflared tunnel --url http://localhost:3002   # prints https://….trycloudflare.com
+  API_PUBLIC_URL=<tunnel-url> <restart the api>
+  hogsend connect posthog --provision-only --url http://localhost:3002
+  # …verify, then DELETE the destination in PostHog (or 'hogsend connect
+  # posthog --provision-only' again after deploy overwrites it).`;
 
 // ---------------------------------------------------------------------------
 
