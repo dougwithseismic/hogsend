@@ -7,6 +7,8 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { BookCall } from "@/components/portal/book-call";
+import { ProfileForm } from "@/components/portal/profile-form";
+import { SecuritySection } from "@/components/portal/security-section";
 import { SignAgreement } from "@/components/portal/sign-agreement";
 import { SubscriptionActions } from "@/components/portal/subscription-actions";
 import { UpdateCard } from "@/components/portal/update-card";
@@ -432,17 +434,18 @@ export default async function PortalPage(): Promise<JSX.Element> {
         </Section>
 
         <Section
-          title="Account"
+          title="Profile"
           description="One login across hogsend.com, the course, and the demo."
         >
-          <div className="flex flex-wrap items-center gap-4">
-            <SignOutButton />
-            <a
-              href="https://course.hogsend.com/account"
-              className="text-sm text-white/60 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
-            >
-              Profile, security &amp; data →
-            </a>
+          <ProfileForm initialName={user.name ?? ""} email={user.email} />
+        </Section>
+
+        <Section title="Security">
+          <div className="flex flex-col gap-6">
+            <SecuritySection />
+            <div>
+              <SignOutButton />
+            </div>
           </div>
         </Section>
       </div>

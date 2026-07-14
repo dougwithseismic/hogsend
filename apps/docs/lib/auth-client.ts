@@ -20,4 +20,5 @@ export const authClient = createAuthClient({
   sessionOptions: { refetchOnWindowFocus: false },
 });
 
-export const { signIn, signOut, useSession, updateUser } = authClient;
+export const { signIn, signOut, useSession, updateUser, revokeOtherSessions } =
+  authClient;
