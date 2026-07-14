@@ -26,7 +26,7 @@ vi.mock("../lib/hatchet.js", () => ({
 
 const { apiKeys, contacts, groupMemberships, groups, userEvents } =
   await import("@hogsend/db");
-const { and, eq } = await import("drizzle-orm");
+const { and, eq, inArray } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
 const mockHatchet = {
@@ -115,11 +115,18 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Membership + group rows this suite created (both the CRUD group and the
-  // events-association group), then the fixture contacts + keys.
+  // events-association group), then the fixture contacts + keys. Scoped to THIS
+  // RUN's group keys — the suites share one dev DB, so deleting by bare
+  // groupType would nuke every other suite's (or a local demo's) memberships.
   const groupRows = await db
     .select({ id: groups.id })
     .from(groups)
-    .where(eq(groups.groupType, GROUP_TYPE));
+    .where(
+      and(
+        eq(groups.groupType, GROUP_TYPE),
+        inArray(groups.groupKey, [GROUP_KEY, EVENTS_GROUP_KEY]),
+      ),
+    );
   for (const { id } of groupRows) {
     await db.delete(groupMemberships).where(eq(groupMemberships.groupId, id));
   }
