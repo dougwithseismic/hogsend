@@ -1,5 +1,13 @@
 # @hogsend/docs
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [314a7e6]
+  - @hogsend/js@0.45.0
+  - @hogsend/react@0.45.0
+
 ## 0.0.8
 
 ### Patch Changes

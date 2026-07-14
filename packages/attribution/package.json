@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/attribution",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "type": "module",
   "license": "MIT",
   "description": "Multi-model revenue attribution for Hogsend: pure-function credit models (first/last/last-non-direct/linear/time-decay/position-U/position-W/blended) over the touchpoint spine.",
