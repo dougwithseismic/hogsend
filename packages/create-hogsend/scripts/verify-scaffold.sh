@@ -41,8 +41,12 @@ tar_has() {
 }
 
 # --- 1. build the CLI -----------------------------------------------------
+# Every `pnpm --filter` here carries `--dir "$REPO_ROOT"` so the harness
+# builds THIS checkout regardless of the caller's cwd — without it, running
+# the script from another checkout (e.g. the main repo while testing a
+# worktree) silently builds the WRONG tree and packs stale dist output.
 echo "==> [1/8] build CLI"
-pnpm --filter create-hogsend build >/dev/null
+pnpm --dir "$REPO_ROOT" --filter create-hogsend build >/dev/null
 CLI="$PKG_DIR/dist/index.js"
 [ -f "$CLI" ] || fail "CLI not built at $CLI"
 head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
@@ -57,9 +61,9 @@ TARBALLS="$(mktemp -d /tmp/hogsend-tarballs.XXXXXX)"
 #     the scaffold depends on them (^{{ENGINE_VERSION}}). client ships only
 #     dist; cli ships dist + src. Build all three first. The remaining packages
 #     ship raw `src/**` and need no build.
-pnpm --filter @hogsend/studio build >/dev/null
-pnpm --filter @hogsend/cli build >/dev/null
-pnpm --filter @hogsend/client build >/dev/null
+pnpm --dir "$REPO_ROOT" --filter @hogsend/studio build >/dev/null
+pnpm --dir "$REPO_ROOT" --filter @hogsend/cli build >/dev/null
+pnpm --dir "$REPO_ROOT" --filter @hogsend/client build >/dev/null
 for pkg in "${PACKAGES[@]}"; do
   # `pnpm pack` works on private packages. Run with --dir on the package path:
   # `--filter ... pack` is a recursive run, which pnpm's `pack` rejects.
@@ -190,8 +194,12 @@ echo "    --posthog-key env OK"
 # carries the pnpm 11 build-script approvals. --ignore-workspace would discard
 # that settings file and resurrect ERR_PNPM_IGNORED_BUILDS on pnpm >= 11.
 echo "==> [4/8] pnpm install (scaffolded app)"
-(cd "$APPDIR" && pnpm install >/dev/null 2>&1) \
-  || fail "pnpm install failed"
+INSTALL_LOG="/tmp/hogsend-verify-install.log"
+if ! (cd "$APPDIR" && pnpm install >"$INSTALL_LOG" 2>&1); then
+  echo "----- pnpm install output -----" >&2
+  tail -40 "$INSTALL_LOG" >&2
+  fail "pnpm install failed"
+fi
 [ -f "$APPDIR/node_modules/@hogsend/engine/src/index.ts" ] \
   || fail "engine raw .ts not present in node_modules (tarball did not carry src)"
 

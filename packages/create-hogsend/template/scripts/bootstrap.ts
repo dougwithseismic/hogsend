@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -47,7 +47,7 @@ const cyan = paint("36");
 const magenta = paint("35");
 
 let stepNo = 0;
-const TOTAL = 8;
+let TOTAL = 8;
 function step(label: string): void {
   stepNo += 1;
   process.stdout.write(
@@ -147,6 +147,17 @@ const PM = detectPm();
 /** Idiomatic "run a script" for the active pm — only npm needs the `run` word. */
 function pmRun(script: string): string {
   return PM === "npm" ? `npm run ${script}` : `${PM} ${script}`;
+}
+
+/**
+ * Idiomatic "run a locally-installed bin" for the active pm. The `hogsend` CLI
+ * ships with the app's dependencies (`@hogsend/cli`), not on the PATH — a bare
+ * `hogsend …` hint sends users into `command not found`.
+ */
+function pmExec(bin: string): string {
+  if (PM === "npm") return `npx ${bin}`; // npx prefers the local bin
+  if (PM === "bun") return `bunx ${bin}`;
+  return `${PM} ${bin}`;
 }
 
 interface Run {
@@ -622,11 +633,162 @@ async function bootstrapAdmin(): Promise<void> {
   ok("Studio admin created");
 }
 
+// --- 9. connect PostHog (optional, interactive) -----------------------------
+/**
+ * The "one last thing" — run the real `hogsend connect posthog` OAuth flow
+ * right here, while everything it needs already exists: the admin key (step 7,
+ * read from `.env` by the CLI), a migrated DB, and Docker infra. The flow
+ * talks to the instance over HTTP, so if the app isn't running yet we boot it
+ * JUST for the handshake and stop it afterwards.
+ *
+ * Offered only when PostHog was chosen at scaffold time (create-hogsend sets
+ * HOGSEND_SETUP_POSTHOG=1) or `.env` already carries PostHog markers — plain
+ * re-runs of bootstrap don't nag. Locally this stores the OAuth credential on
+ * THIS instance (person reads + outbound capture activate); the PostHog →
+ * Hogsend webhook loop needs a publicly reachable URL, so the CLI reports
+ * "connected (loop not provisioned)" — after deploy, re-run the connect
+ * against the deployed instance to wire the loop.
+ */
+function shouldOfferPosthog(): boolean {
+  if (!process.stdin.isTTY) return false;
+  if (process.env.HOGSEND_SETUP_POSTHOG === "1") return true;
+  const src = existsSync(ENV_PATH) ? ENV_PATH : ENV_EXAMPLE;
+  if (!existsSync(src)) return false;
+  const env = readFileSync(src, "utf8");
+  return (
+    getEnv(env, "ENABLE_POSTHOG_DESTINATION") === "true" ||
+    Boolean(getEnv(env, "POSTHOG_HOST"))
+  );
+}
+
+/** Any HTTP answer on /v1/health means the API is up (even a 503 responds). */
+async function isApiUp(base: string): Promise<boolean> {
+  try {
+    await fetch(`${base}/v1/health`, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stop the process GROUP (pm → tsx watch → node all share it on POSIX). */
+function stopApi(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// The temporary API child is DETACHED (own process group, so we can kill the
+// whole pm → tsx → node chain) — which also means a Ctrl-C during the OAuth
+// prompts would NOT reach it and bootstrap's death would orphan a server on
+// the app's port. These handlers guarantee it dies with us, whatever the exit.
+let apiChild: ChildProcess | undefined;
+function killApiChild(): void {
+  if (apiChild) stopApi(apiChild);
+  apiChild = undefined;
+}
+process.on("exit", killApiChild);
+process.on("SIGINT", () => {
+  killApiChild();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  killApiChild();
+  process.exit(143);
+});
+
+async function connectPosthog(): Promise<void> {
+  const env = readFileSync(ENV_PATH, "utf8");
+  const port = getEnv(env, "PORT") ?? "3002";
+  const base = `http://localhost:${port}`;
+
+  const wanted = await confirm(
+    "One last thing — connect PostHog now? (opens your browser to authorize; no keys to paste)",
+    true,
+  );
+  if (!wanted) {
+    info(
+      `Skipped. Any time: \`${pmExec("hogsend connect posthog")}\` from this folder (app running).`,
+    );
+    return;
+  }
+
+  // Reuse an already-running instance; else boot one just for the handshake.
+  const alreadyUp = await isApiUp(base);
+  if (!alreadyUp) {
+    const stop = startSpinner(
+      `Starting the API for the handshake (${pmRun("dev")})…`,
+    );
+    apiChild = spawn(PM, ["run", "dev"], {
+      cwd: ROOT,
+      stdio: "ignore",
+      detached: process.platform !== "win32",
+      shell: process.platform === "win32",
+    });
+    let up = false;
+    for (let i = 0; i < 60 && !up; i += 1) {
+      await sleep(1000);
+      up = await isApiUp(base);
+    }
+    stop();
+    if (!up) {
+      killApiChild();
+      issue("Couldn't start the API for the PostHog handshake.");
+      info(
+        `Start it yourself (${pmRun("dev")}) and run \`${pmExec("hogsend connect posthog")}\`.`,
+      );
+      return;
+    }
+  }
+
+  try {
+    // Same CLI entry the `studio:admin` wrapper targets (never the .bin shim —
+    // see bootstrapAdmin). `--url` pins the instance in case PORT is custom;
+    // the admin key comes from the `.env` in cwd (minted in step 7).
+    const status = runLive(
+      "node",
+      [
+        join("node_modules", "@hogsend", "cli", "dist", "bin.js"),
+        "connect",
+        "posthog",
+        "--url",
+        base,
+      ],
+      process.platform === "win32",
+    );
+    if (status !== 0) {
+      issue("PostHog connect did not complete.");
+      info(
+        `Re-run any time: \`${pmExec("hogsend connect posthog")}\` from this folder (app running).`,
+      );
+    } else {
+      ok("PostHog connected to this local instance.");
+      info(
+        `After deploy, wire the event loop: \`${pmExec("hogsend connect posthog")} --url https://your-instance\`.`,
+      );
+    }
+  } finally {
+    if (!alreadyUp) killApiChild();
+  }
+}
+
 // --- orchestration ---------------------------------------------------------
 async function main(): Promise<void> {
   process.stdout.write(
     `\n${magenta(bold("◆ Hogsend"))} ${dim("local bootstrap")} ${dim("· docs.hogsend.com")}\n`,
   );
+
+  // Decide the step count up front — the PostHog connect step only exists
+  // when it was chosen at scaffold time (or .env already points at PostHog).
+  const offerPosthog = shouldOfferPosthog();
+  if (offerPosthog) TOTAL = 9;
 
   step("Checking Docker");
   checkDocker();
@@ -651,6 +813,11 @@ async function main(): Promise<void> {
 
   step("Creating your first Studio admin");
   await bootstrapAdmin();
+
+  if (offerPosthog) {
+    step("Connecting PostHog (optional)");
+    await connectPosthog();
+  }
 
   const dash = `http://localhost:${ports.dash}`;
   const finalEnv = readFileSync(ENV_PATH, "utf8");
@@ -709,7 +876,7 @@ async function main(): Promise<void> {
       `  ${dim("Studio admin:")} ${cyan(pmRun("studio:admin"))}   ${dim("# create one anytime (sign-up is closed)")}`,
       `  ${dim("Hatchet dashboard:")} ${cyan(dash)} ${dim("(admin@example.com / Admin123!!)")}`,
       usingPosthog
-        ? `  ${dim("After deploy:")} ${cyan("hogsend connect posthog")}   ${dim("# fetch the key, mint the webhook secret, wire the PostHog→Hogsend loop")}`
+        ? `  ${dim("After deploy:")} ${cyan(`${pmExec("hogsend connect posthog")} --url https://your-instance`)}   ${dim("# wire the PostHog→Hogsend event loop")}`
         : null,
       "",
     ]

@@ -57,6 +57,26 @@ export interface PosthogOptions {
 
 const VALID_PMS: PackageManager[] = ["pnpm", "npm", "yarn", "bun"];
 
+/**
+ * Idiomatic "run a locally-installed bin" per pm. The `hogsend` CLI ships with
+ * the app's dependencies (`@hogsend/cli`), NOT on the global PATH — a bare
+ * `hogsend …` hint sends users straight into `command not found`, and
+ * `npx hogsend` OUTSIDE the app dir installs the registry version (stale, and
+ * with no `.env` in cwd it can't resolve the admin key either).
+ */
+export function binCmd(pm: PackageManager, bin: string): string {
+  switch (pm) {
+    case "npm":
+      return `npx ${bin}`; // npx prefers the local node_modules bin
+    case "yarn":
+      return `yarn ${bin}`;
+    case "bun":
+      return `bunx ${bin}`;
+    default:
+      return `pnpm ${bin}`;
+  }
+}
+
 export const USAGE = `
 create-hogsend — scaffold a Hogsend lifecycle orchestration app.
 
@@ -379,15 +399,17 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
           {
             value: "posthog",
             label: "PostHog",
-            hint: "wired after deploy via 'hogsend connect posthog' — no key needed",
+            hint: "connected at the end of setup (browser OAuth) — no key needed",
           },
         ],
       }),
     );
     usingPosthog = sources.includes("posthog");
     if (usingPosthog) {
+      // The pm may not be chosen yet (this prompt comes first) — the exact,
+      // copy-pasteable command is printed pm-aware in the final next-steps.
       log.info(
-        "No PostHog key needed now. After you deploy, run 'hogsend connect posthog' — it authorizes via OAuth, mints the webhook secret, and wires the PostHog→Hogsend event loop automatically.",
+        `No PostHog key needed. Local setup offers a one-click connect at the end (browser OAuth) — or run \`${binCmd(packageManager ?? "pnpm", "hogsend connect posthog")}\` from your app folder any time.`,
       );
     }
   }
