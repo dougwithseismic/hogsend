@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Users } from "lucide-react";
+import { useState } from "react";
 import { PropertyTable } from "@/components/property-table";
 import { StatCard } from "@/components/stat-card";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { getGroup, qk } from "@/lib/admin-api";
 import { formatDateTime, formatNumber } from "@/lib/format";
+import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
 /**
  * Observe-only Group detail — the header + stats, the group's property bag, and
@@ -33,6 +35,10 @@ export function GroupDetailView({
   groupType: string;
   groupKey: string;
 }) {
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(
+    null,
+  );
+
   const query = useQuery({
     queryKey: qk.group(groupType, groupKey),
     queryFn: () => getGroup(groupType, groupKey),
@@ -123,7 +129,11 @@ export function GroupDetailView({
                   </TableHeader>
                   <TableBody>
                     {group.recentMembers.map((m) => (
-                      <TableRow key={m.contactId}>
+                      <TableRow
+                        key={m.contactId}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedContactId(m.contactId)}
+                      >
                         <TableCell>
                           <span className="text-white/90">
                             {m.email || m.externalId || m.contactId}
@@ -191,6 +201,11 @@ export function GroupDetailView({
           </Card>
         </>
       )}
+
+      <ContactDetailDrawer
+        contactId={selectedContactId}
+        onClose={() => setSelectedContactId(null)}
+      />
     </div>
   );
 }
