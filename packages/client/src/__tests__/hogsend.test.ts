@@ -385,6 +385,142 @@ describe("campaigns", () => {
 });
 
 // ---------------------------------------------------------------------------
+// groups (secret-key data plane)
+// ---------------------------------------------------------------------------
+
+describe("groups", () => {
+  const group = {
+    id: "g_1",
+    groupType: "company",
+    groupKey: "acme",
+    displayName: "Acme Inc",
+    properties: { plan: "enterprise" },
+    firstSeenAt: "2026-06-01T00:00:00.000Z",
+    lastSeenAt: "2026-06-01T00:00:00.000Z",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+  };
+
+  it("identify POSTs /v1/groups with the body and unwraps the group", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { group } });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).groups.identify({
+      groupType: "company",
+      groupKey: "acme",
+      displayName: "Acme Inc",
+      properties: { plan: "enterprise" },
+    });
+    expect(res).toEqual(group);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/groups");
+    expect(calls[0]?.body).toEqual({
+      groupType: "company",
+      groupKey: "acme",
+      displayName: "Acme Inc",
+      properties: { plan: "enterprise" },
+    });
+  });
+
+  it("get GETs /v1/groups/{gt}/{gk}, url-encoding both segments", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { group } });
+    const res = await client(fetchImpl as unknown as typeof fetch).groups.get({
+      groupType: "com/pany",
+      groupKey: "ac me",
+    });
+    expect(res).toEqual(group);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/groups/com%2Fpany/ac%20me",
+    );
+  });
+
+  it("list GETs /v1/groups with the query and unwraps groups", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { groups: [group] } });
+    const res = await client(fetchImpl as unknown as typeof fetch).groups.list({
+      groupType: "company",
+      limit: 10,
+      offset: 5,
+    });
+    expect(res).toEqual([group]);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/groups?groupType=company&limit=10&offset=5",
+    );
+  });
+
+  it("addMember POSTs the members path and returns { membership, created }", async () => {
+    const membership = {
+      id: "gm_1",
+      groupId: "g_1",
+      contactId: "c_1",
+      role: "admin",
+      joinedAt: "2026-06-01T00:00:00.000Z",
+    };
+    const { fetchImpl, calls } = makeFetch({
+      body: { membership, created: true },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).groups.addMember({
+      groupType: "company",
+      groupKey: "acme",
+      contactId: "c_1",
+      role: "admin",
+    });
+    expect(res).toEqual({ membership, created: true });
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/groups/company/acme/members",
+    );
+    expect(calls[0]?.body).toEqual({ contactId: "c_1", role: "admin" });
+  });
+
+  it("removeMember DELETEs the encoded members/{contactId} path (no body)", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { removed: true } });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).groups.removeMember({
+      groupType: "com/pany",
+      groupKey: "acme",
+      contactId: "c/1",
+    });
+    expect(res).toEqual({ removed: true });
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/groups/com%2Fpany/acme/members/c%2F1",
+    );
+    // contactId travels in the PATH — never a body.
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it("listMembers GETs the members path and unwraps members", async () => {
+    const members = [
+      {
+        contactId: "c_1",
+        email: "a@b.com",
+        externalId: "u_1",
+        role: "admin",
+        joinedAt: "2026-06-01T00:00:00.000Z",
+      },
+    ];
+    const { fetchImpl, calls } = makeFetch({ body: { members } });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).groups.listMembers({
+      groupType: "company",
+      groupKey: "acme",
+      limit: 20,
+    });
+    expect(res).toEqual(members);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/groups/company/acme/members?limit=20",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // webhooks (admin plane)
 // ---------------------------------------------------------------------------
 

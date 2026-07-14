@@ -24,6 +24,11 @@ export interface QueuedEvent {
   value?: number;
   /** ISO-4217 alpha code for `value`. */
   currency?: string;
+  /**
+   * Group associations (`groupType → groupKey`) for the engine's ingest
+   * `groups` map. Association-only; omitted when no groups are set.
+   */
+  groups?: Record<string, string>;
 }
 
 export interface QueueOptions {
