@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { EMAIL_PATTERN, forwardToIngest, ingestConfigured } from "@/lib/ingest";
+import {
+  boundedText,
+  EMAIL_PATTERN,
+  forwardToIngest,
+  ingestConfigured,
+  SUBMISSION_ID_MAX,
+} from "@/lib/ingest";
 
 const NAME_MAX = 80;
 const COMPANY_MAX = 120;
 const MESSAGE_MAX = 1000;
-const SUBMISSION_ID_MAX = 100;
 
 /**
  * POST /api/service-inquiry — the done-for-you "request a call" form. Forwards
@@ -14,14 +19,6 @@ const SUBMISSION_ID_MAX = 100;
  * instant confirmation with a booking link and notifies the operator — the
  * whole booking lifecycle runs on Hogsend itself. No account required.
  */
-
-/** Trim + bound an optional free-text field; drop anything odd rather than 400. */
-function boundedText(value: unknown, max: number): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > max) return undefined;
-  return trimmed;
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!ingestConfigured()) {
