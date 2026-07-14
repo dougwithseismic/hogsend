@@ -1,5 +1,16 @@
 # @hogsend/plugin-posthog
 
+## 0.45.0
+
+### Minor Changes
+
+- 314a7e6: feat: export `deriveIngestHost` — the inverse of `derivePrivateHost` (`https://eu.posthog.com` → `https://eu.i.posthog.com`; self-hosted and already-ingestion hosts pass through unchanged). Used by the engine to pick a capture host when the only stored host is the private one from `hogsend connect posthog`.
+
+### Patch Changes
+
+- Updated dependencies [314a7e6]
+  - @hogsend/core@0.45.0
+
 ## 0.44.0
 
 ### Minor Changes

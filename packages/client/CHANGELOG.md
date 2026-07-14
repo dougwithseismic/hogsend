@@ -1,5 +1,11 @@
 # @hogsend/client
 
+## 0.45.0
+
+### Minor Changes
+
+- 314a7e6: Engine version line 0.45.0 — first-run reliability release. Rides the line with the fresh-scaffold fixes (spaced-path engine migrations, pnpm 11 install settings, honest bootstrap with admin-key mint + in-flow PostHog connect, inert email boot, stored-credential PostHog activation).
+
 ## 0.44.0
 
 ### Minor Changes
