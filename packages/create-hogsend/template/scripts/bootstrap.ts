@@ -264,6 +264,8 @@ interface Ports {
   redis: number;
   grpc: number;
   dash: number;
+  /** The app's own HTTP port (PORT / API_PUBLIC_URL) — remapped like the rest. */
+  app: number;
 }
 
 async function resolvePorts(): Promise<Ports> {
@@ -277,6 +279,7 @@ async function resolvePorts(): Promise<Ports> {
     redis: portInUrl(redisUrl) ?? 6380,
     grpc: Number(hostPort.split(":")[1]) || 7077,
     dash: Number(getEnv(env, "HATCHET_DASHBOARD_PORT")) || 8888,
+    app: Number(getEnv(env, "PORT")) || 3002,
   };
 
   // If our own stack is already up, its containers own these ports — leave them.
@@ -288,7 +291,10 @@ async function resolvePorts(): Promise<Ports> {
   const taken = new Set<number>();
   const got: Ports = { ...want };
   const remaps: string[] = [];
-  for (const key of ["pg", "redis", "grpc", "dash"] as const) {
+  // `app` is remapped too: 3002 is a popular dev port, and without this a
+  // fresh scaffold on a machine where it's taken EADDRINUSEs on first
+  // `pnpm dev` (the very failure bootstrap exists to prevent).
+  for (const key of ["pg", "redis", "grpc", "dash", "app"] as const) {
     const desired = want[key];
     if (!taken.has(desired) && (await isPortFree(desired))) {
       taken.add(desired);
@@ -337,6 +343,13 @@ function syncEnvPorts(got: Ports): void {
   env = setEnv(env, "REDIS_PORT", String(got.redis));
   env = setEnv(env, "HATCHET_DASHBOARD_PORT", String(got.dash));
   env = setEnv(env, "HATCHET_GRPC_PORT", String(got.grpc));
+  // The app's own port — API_PUBLIC_URL embeds it (tracking/unsubscribe links,
+  // the data-plane client base), so both must move together.
+  env = setEnv(env, "PORT", String(got.app));
+  const publicUrl = getEnv(env, "API_PUBLIC_URL");
+  if (publicUrl) {
+    env = setEnv(env, "API_PUBLIC_URL", withPort(publicUrl, got.app));
+  }
   writeFileSync(ENV_PATH, env);
 }
 
