@@ -3,6 +3,7 @@
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { UserMenu } from "@/components/auth/user-menu";
 import { NavBell } from "@/components/hogsend/nav-bell";
 import {
   NavDropdown,
@@ -113,6 +114,10 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
           >
             Start building
           </Link>
+          {/* Session state: "Sign in" when logged out, avatar → Portal when in. */}
+          <div className="ml-1">
+            <UserMenu />
+          </div>
           <button
             type="button"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -181,6 +186,13 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 transition-colors hover:text-white"
           >
             Browse all 35 recipes →
+          </Link>
+          <Link
+            href="/portal"
+            onClick={() => setMenuOpen(false)}
+            className="rounded-[6px] px-1 py-2.5 text-base text-white/60 transition-colors hover:text-white"
+          >
+            Customer portal
           </Link>
           <Link
             href="/docs/getting-started"

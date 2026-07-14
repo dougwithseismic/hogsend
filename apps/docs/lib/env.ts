@@ -38,8 +38,9 @@ export const env = {
   /**
    * The course's user Postgres — docs points at the SAME database so a session
    * row created on either site validates on both. Docs NEVER migrates these
-   * tables (the course owns their migrations); it only reads/writes the four
-   * Better Auth models.
+   * tables (the course owns their migrations); it reads/writes the four Better
+   * Auth models and READS the course's `purchase` table (lib/course-access.ts,
+   * the portal's course-entitlement check).
    */
   DATABASE_URL: runtimeRequired(
     "DATABASE_URL",
