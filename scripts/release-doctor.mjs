@@ -200,14 +200,19 @@ const checks = [
     // republish every release or `create-hogsend@latest` scaffolds a stale app.
     // It silently drifted to 0.22.0 while the line reached 0.30.0 BECAUSE no
     // check held it to the line. This is that check: the scaffolder rides the
-    // engine version, caught up + bumped with the line in the release changeset.
+    // engine MINOR line. Same-minor, not exact-equal: the template pins are
+    // CARETS, so a scaffolder-only patch (e.g. create-hogsend@0.45.1 on
+    // engine@0.45.0 — the bootstrap busy-port fix) is a legitimate release;
+    // the old exact-equality check blocked that publish AND failed CI on
+    // every branch until the next line bump converged the numbers.
     name: "create-hogsend tracks the engine version line",
     fn: () => {
       const e = engineVersion();
       const c = readJson("packages/create-hogsend/package.json").version;
-      return c === e
+      const minor = (v) => v.split(".").slice(0, 2).join(".");
+      return minor(c) === minor(e)
         ? null
-        : `create-hogsend@${c} but @hogsend/engine@${e} — the scaffolder must ride the engine line so its ^{{ENGINE_VERSION}} pins stay current; bump create-hogsend with the line (see .claude/skills/release)`;
+        : `create-hogsend@${c} but @hogsend/engine@${e} — the scaffolder must ride the engine minor line so its ^{{ENGINE_VERSION}} pins stay current; bump create-hogsend with the line (see .claude/skills/release)`;
     },
   },
   {

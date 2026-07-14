@@ -46,7 +46,20 @@ export interface ProvisionPostHogLoopOptions {
   logger: Logger;
   /** Display name for a NEWLY created function. Default: MANAGED_NAME. */
   name?: string;
+  /**
+   * Placeholder mode (local instances PostHog can't reach): provision the
+   * destination DISABLED, pointing at the obvious stand-in
+   * `https://CHANGEME.yourdomain.com/...` instead of `apiPublicUrl`. The
+   * destination then EXISTS in PostHog — name, filters, secret header, all
+   * inspectable — with zero failed deliveries. Going live after deploy is one
+   * re-run WITHOUT this flag (`--provision-only --url https://real`): the
+   * reconciler swaps the URL and re-enables in a single PATCH.
+   */
+  placeholder?: boolean;
 }
+
+/** The stand-in base URL placeholder mode provisions against. */
+export const PLACEHOLDER_PUBLIC_URL = "https://CHANGEME.yourdomain.com";
 
 export interface ProvisionPostHogLoopResult {
   action: "created" | "updated" | "unchanged";
@@ -64,6 +77,8 @@ export interface ProvisionPostHogLoopResult {
   projectApiKey?: string;
   /** Best-effort deep link (pattern unverified — cosmetic, confirm in e2e). */
   dashboardUrl: string;
+  /** false ⇒ placeholder mode: disabled destination, CHANGEME URL. */
+  enabled: boolean;
 }
 
 export type ProvisionPostHogLoopErrorCode =
@@ -243,6 +258,8 @@ interface HogFunctionDetail {
 interface DesiredLoop {
   webhookUrl: string;
   webhookSecret: string;
+  /** false only in placeholder mode — see ProvisionPostHogLoopOptions. */
+  enabled: boolean;
 }
 
 /**
@@ -266,7 +283,11 @@ export async function provisionPostHogLoop(
     });
   }
 
-  const webhookUrl = joinUrl(apiPublicUrl, HOGSEND_LOOP_PATH);
+  const placeholder = opts.placeholder === true;
+  const webhookUrl = joinUrl(
+    placeholder ? PLACEHOLDER_PUBLIC_URL : apiPublicUrl,
+    HOGSEND_LOOP_PATH,
+  );
   const hostname = tryParseUrl(webhookUrl)?.hostname;
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     logger.warn(
@@ -282,7 +303,11 @@ export async function provisionPostHogLoop(
   });
 
   const basePath = `/api/environments/${projectId}/hog_functions/`;
-  const desired: DesiredLoop = { webhookUrl, webhookSecret };
+  const desired: DesiredLoop = {
+    webhookUrl,
+    webhookSecret,
+    enabled: !placeholder,
+  };
 
   const found = await findLoopFunction({ privateHost, accessToken, basePath });
 
@@ -339,6 +364,7 @@ export async function provisionPostHogLoop(
     dashboardUrl:
       `${privateHost.replace(/\/+$/, "")}/project/${projectId}` +
       `/pipeline/destinations/hog-${functionId}/configuration`,
+    enabled: desired.enabled,
   };
 }
 
@@ -562,7 +588,7 @@ async function findLoopFunction(opts: {
 
 /** true ⇒ no PATCH needed. */
 function isCompliant(fn: HogFunctionDetail, desired: DesiredLoop): boolean {
-  if (fn.enabled !== true) return false;
+  if (fn.enabled !== desired.enabled) return false;
   if (inputValue(fn.inputs, "url") !== desired.webhookUrl) return false;
   if (inputValue(fn.inputs, "method") !== "POST") return false;
   if (!deepEquals(inputValue(fn.inputs, "body"), CANONICAL_BODY)) return false;
@@ -614,7 +640,7 @@ function buildCreatePayload(
     name: name ?? MANAGED_NAME,
     description: MANAGED_DESCRIPTION,
     template_id: "template-webhook",
-    enabled: true,
+    enabled: desired.enabled,
     inputs: {
       url: { value: desired.webhookUrl },
       method: { value: "POST" },
@@ -636,11 +662,12 @@ function buildCreatePayload(
 
 /**
  * Reconciled PATCH body: enforce what we manage, preserve the rest.
- * `enabled: true` always — connect is an explicit operator action, so
- * re-enabling a paused loop is the expected outcome. PostHog replaces
- * `inputs` WHOLESALE on PATCH (verified), so all five keys are always
- * sent. `name`/`description` are never touched on adopt — the operator
- * may have renamed deliberately.
+ * `enabled` follows `desired` — true on a real provision (connect is an
+ * explicit operator action, so re-enabling a paused loop is the expected
+ * outcome), false in placeholder mode (a CHANGEME URL must never receive
+ * deliveries). PostHog replaces `inputs` WHOLESALE on PATCH (verified), so
+ * all five keys are always sent. `name`/`description` are never touched on
+ * adopt — the operator may have renamed deliberately.
  */
 function buildUpdatePayload(
   fn: HogFunctionDetail,
@@ -665,7 +692,7 @@ function buildUpdatePayload(
   filters.properties = properties;
 
   const payload: Record<string, unknown> = {
-    enabled: true,
+    enabled: desired.enabled,
     inputs: {
       url: { value: desired.webhookUrl },
       method: { value: "POST" },

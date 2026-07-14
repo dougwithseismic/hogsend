@@ -414,6 +414,7 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
       dashboardUrl:
         "https://eu.posthog.com/project/4242/pipeline/destinations/" +
         "hog-hf-test-1/configuration",
+      enabled: true,
     });
 
     // M8: env.POSTHOG_PROJECT_ID was passed — the project GET hits

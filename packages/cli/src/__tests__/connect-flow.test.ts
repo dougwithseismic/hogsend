@@ -278,7 +278,7 @@ describe("runConnectPosthog — happy path", () => {
     expect(url.searchParams.get("client_id")).toBe(POSTHOG_CLIENT_ID);
     expect(url.searchParams.get("scope")).toBe(POSTHOG_SCOPES);
 
-    expect(result.provision).toEqual({
+    expect(result.provision).toMatchObject({
       attempted: true,
       ok: true,
       created: true,
@@ -376,15 +376,51 @@ describe("runConnectPosthog — provisioning outcomes", () => {
     expect(result.provision).toMatchObject({ attempted: true, ok: true });
   });
 
-  it("soft-skips when API_PUBLIC_URL is loopback (PostHog can't reach it)", async () => {
+  it("provisions a DISABLED placeholder when API_PUBLIC_URL is loopback", async () => {
     const h = makeHarness({
       info: connectInfo({ apiPublicUrl: "http://localhost:3002" }),
+      postResult: {
+        provisioned: true,
+        created: true,
+        action: "created",
+        hogFunctionId: "hf-ph",
+        webhookUrl: "https://CHANGEME.yourdomain.com/v1/webhooks/posthog",
+        dashboardUrl: "https://eu.posthog.com/project/1/pipeline/x",
+        enabled: false,
+      },
     });
     const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
 
     expect(result.verdict).toBe("connected_no_provision");
     expect(h.calls.put).toHaveLength(1);
-    expect(h.calls.post).toHaveLength(0);
+    expect(h.calls.post).toEqual([
+      {
+        path: "/v1/admin/analytics/provision-loop?placeholder=true",
+        body: {},
+      },
+    ]);
+    expect(result.provision).toMatchObject({
+      attempted: true,
+      ok: true,
+      enabled: false,
+      hogFunctionId: "hf-ph",
+    });
+    // The "what was created" note names the object + the go-live command.
+    const note = h.sink.find((s) => s.includes("DISABLED until you go live"));
+    expect(note).toBeDefined();
+    expect(note).toContain("CHANGEME.yourdomain.com");
+    expect(note).toContain("--provision-only --url");
+  });
+
+  it("falls back to the skip note when the placeholder POST fails (older engine)", async () => {
+    const h = makeHarness({
+      info: connectInfo({ apiPublicUrl: "http://localhost:3002" }),
+      postResult: new Error("409 api_public_url_unreachable"),
+    });
+    const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+
+    expect(result.verdict).toBe("connected_no_provision");
+    expect(h.calls.put).toHaveLength(1);
     expect(result.provision).toEqual({
       attempted: false,
       skipped: "api_public_url_unreachable",

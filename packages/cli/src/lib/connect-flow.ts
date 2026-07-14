@@ -50,6 +50,8 @@ interface ProvisionLoopResponse {
   hogFunctionId?: string;
   webhookUrl?: string;
   dashboardUrl?: string;
+  /** false ⇒ placeholder mode (disabled destination, CHANGEME URL). Absent on older engines. */
+  enabled?: boolean;
 }
 
 export type ConnectVerdict =
@@ -102,6 +104,10 @@ export interface ConnectResult {
         created: boolean;
         hogFunctionId: string;
         webhookUrl: string;
+        /** false ⇒ placeholder: destination exists in PostHog but is DISABLED
+         *  with a CHANGEME URL; go live with `--provision-only --url`. */
+        enabled?: boolean;
+        dashboardUrl?: string;
       }
     | { attempted: true; ok: false; error: string }
     | {
@@ -305,19 +311,67 @@ async function runProvisionOnly(
       created: result.created === true,
       hogFunctionId: result.hogFunctionId ?? "",
       webhookUrl: result.webhookUrl ?? "",
+      enabled: result.enabled,
+      dashboardUrl: result.dashboardUrl,
     },
   };
 }
 
+/**
+ * Say exactly what exists in PostHog now — the operator is looking at THEIR
+ * project, so name the object, where it points, how it authenticates, and the
+ * deep link. In placeholder mode, also the one command that takes it live.
+ */
 function printProvisioned(out: Output, result: ProvisionLoopResponse): void {
-  out.note(
-    [
-      "PostHog -> Hogsend loop provisioned",
-      `  webhookUrl     ${result.webhookUrl ?? "(unknown)"}`,
-      `  hogFunctionId  ${result.hogFunctionId ?? "(unknown)"}`,
-      `  created        ${result.created === true ? "yes" : "no (existing function adopted)"}`,
-    ].join("\n"),
-  );
+  const placeholder = result.enabled === false;
+  const lines = [
+    placeholder
+      ? "Created in your PostHog project (DISABLED until you go live):"
+      : "Created in your PostHog project:",
+    `  destination  webhook hog function ${result.hogFunctionId ?? "(unknown)"} (${
+      result.created === true ? "newly created" : "existing one adopted"
+    }${placeholder ? ", disabled" : ""})`,
+    `  posts to     ${result.webhookUrl ?? "(unknown)"}`,
+    "  sends        identified events only ($is_identified = true)",
+    "  auth         x-posthog-webhook-secret header (minted + stored on this instance)",
+    ...(result.dashboardUrl ? [`  inspect      ${result.dashboardUrl}`] : []),
+    ...(placeholder
+      ? [
+          "",
+          "Go live after deploy — one command swaps the CHANGEME URL and enables it:",
+          "  hogsend connect posthog --provision-only --url https://your-instance",
+        ]
+      : []),
+  ];
+  out.note(lines.join("\n"));
+}
+
+/**
+ * Loopback fallback: pre-create the destination in PLACEHOLDER mode (disabled,
+ * CHANGEME URL) so it exists and is inspectable in PostHog with zero failed
+ * deliveries. Older engines don't know `?placeholder=true` and 409 the
+ * loopback — fall back to the explanatory note (never a hard failure: the
+ * credential IS stored either way).
+ */
+async function provisionPlaceholder(
+  deps: ConnectFlowDeps,
+  base: string,
+): Promise<ProvisionLoopResponse | null> {
+  try {
+    const result = await deps.out.step(
+      `POST ${base}/v1/admin/analytics/provision-loop?placeholder=true`,
+      () =>
+        deps.http.post<ProvisionLoopResponse>(
+          "/v1/admin/analytics/provision-loop?placeholder=true",
+          {},
+        ),
+    );
+    printProvisioned(deps.out, result);
+    return result;
+  } catch {
+    deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
+    return null;
+  }
 }
 
 /**
@@ -598,8 +652,26 @@ export async function runConnectPosthog(
   }
 
   // The server mints the webhook secret during provisioning — no skip here.
+  // Loopback instance: PostHog can't reach it, so pre-create the destination
+  // in PLACEHOLDER mode (disabled, CHANGEME URL) — visible + inspectable in
+  // PostHog, zero failed deliveries, one command to go live after deploy.
   if (isLoopbackUrl(info.apiPublicUrl)) {
-    deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
+    const placeholderResult = await provisionPlaceholder(deps, base);
+    if (placeholderResult) {
+      return {
+        verdict: "connected_no_provision",
+        ...stored,
+        provision: {
+          attempted: true,
+          ok: true,
+          created: placeholderResult.created === true,
+          hogFunctionId: placeholderResult.hogFunctionId ?? "",
+          webhookUrl: placeholderResult.webhookUrl ?? "",
+          enabled: false,
+          dashboardUrl: placeholderResult.dashboardUrl,
+        },
+      };
+    }
     return {
       verdict: "connected_no_provision",
       ...stored,
@@ -626,6 +698,8 @@ export async function runConnectPosthog(
         created: result.created === true,
         hogFunctionId: result.hogFunctionId ?? "",
         webhookUrl: result.webhookUrl ?? "",
+        enabled: result.enabled,
+        dashboardUrl: result.dashboardUrl,
       },
     };
   } catch (err) {
