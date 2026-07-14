@@ -6,7 +6,7 @@
 const DOCS = "https://docs.hogsend.com";
 
 export const links = {
-  docs: DOCS,
+  docs: `${DOCS}/docs`,
   quickstart: `${DOCS}/docs/getting-started`,
   recipes: `${DOCS}/docs/recipes`,
   journeys: `${DOCS}/docs/guides/journeys`,

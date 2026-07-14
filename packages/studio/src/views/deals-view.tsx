@@ -570,7 +570,7 @@ function DealsTable({
       ) : deals.length === 0 ? (
         <EmptyState
           title="No deals match"
-          description="Loosen the filters, or wait for the next CRM stage change."
+          description="Loosen the filters, or wait for the next stage change."
         />
       ) : (
         <>
@@ -1197,7 +1197,7 @@ export function DealsView() {
     <div className="space-y-6">
       <PageHeader
         title="Deals"
-        description="The revenue dashboard — every CRM deal and fired conversion, with the money front and center."
+        description="The revenue dashboard — every deal and fired conversion, with the money front and center."
       />
 
       {funnelCatalog.length > 1 ? (
@@ -1270,7 +1270,7 @@ export function DealsView() {
       ) : (
         <EmptyState
           title="No deals yet"
-          description="Wire a CRM provider (crm.providers + stageMaps) and stage changes will land here with their values."
+          description="Deals land here once a funnel fires. Define an event-native funnel with defineFunnel (stages moved by product events), or wire a CRM provider (crm.providers + stageMaps) — stage changes appear here with their values."
         />
       )}
 
