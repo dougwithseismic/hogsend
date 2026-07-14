@@ -10,6 +10,7 @@ import {
 } from "./discord.js";
 import { templates } from "./emails/index.js";
 import { funnels } from "./funnels.js";
+import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
@@ -26,6 +27,10 @@ async function main() {
     // and reconcile-poll paths stamp the same funnel ids.
     funnels,
     email: { templates },
+    // Mirror the API's journeyConstants (registry-mirror rule) so both client
+    // configs stay in parity — resolves `Templates.X`/`Events.X` in the Studio
+    // journey graph (route runs in the API, but configs are kept identical).
+    journeyConstants: { templates: Templates, events: Events },
     // SMS templates must mirror the API (same registry rule as email) so the
     // worker's tracked SMS sender resolves the same keys journeys send.
     sms: { templates: smsTemplates },
