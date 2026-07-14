@@ -1,7 +1,21 @@
+import type { Database } from "@hogsend/db";
 import { contacts, groupMemberships, groups, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { trustedValuedEventFilter } from "../../lib/revenue.js";
 
 /**
  * Read-only admin surface over the sovereign group model — the endpoints the
@@ -18,6 +32,13 @@ const groupSchema = z.object({
   displayName: z.string().nullable(),
   properties: z.record(z.string(), z.unknown()),
   memberCount: z.number(),
+  // Money on this group's tagged events, GROUPED PER CURRENCY and never summed
+  // across them (the revenue spine's law — a GBP deal and a USD deal don't add),
+  // mirroring the contact rollup's `totals` shape. Empty when the group has no
+  // valued events. See `groupRevenueTotals`.
+  revenueTotals: z.array(
+    z.object({ currency: z.string().nullable(), total: z.number() }),
+  ),
   firstSeenAt: z.string(),
   lastSeenAt: z.string(),
 });
@@ -39,7 +60,30 @@ const eventSchema = z.object({
 
 const errorSchema = z.object({ error: z.string() });
 
-function serializeGroup(row: typeof groups.$inferSelect, memberCount: number) {
+/** The columns a serialized group needs — the row may come from the query
+ * builder (list/detail) or from the raw aggregate-sorted statement below. */
+type GroupRowLike = Pick<
+  typeof groups.$inferSelect,
+  | "id"
+  | "groupType"
+  | "groupKey"
+  | "displayName"
+  | "properties"
+  | "firstSeenAt"
+  | "lastSeenAt"
+>;
+
+/** One currency's worth of a group's money — the displayable unit. */
+interface RevenueTotal {
+  currency: string | null;
+  total: number;
+}
+
+function serializeGroup(
+  row: GroupRowLike,
+  memberCount: number,
+  revenueTotals: RevenueTotal[],
+) {
   return {
     id: row.id,
     groupType: row.groupType,
@@ -47,6 +91,7 @@ function serializeGroup(row: typeof groups.$inferSelect, memberCount: number) {
     displayName: row.displayName,
     properties: (row.properties ?? {}) as Record<string, unknown>,
     memberCount,
+    revenueTotals,
     firstSeenAt: row.firstSeenAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
   };
@@ -82,6 +127,281 @@ function serializeEvent(row: {
   };
 }
 
+// --- Revenue rollup ---
+
+/**
+ * Money belongs to a group when a valued event's `groups` association map
+ * CONTAINS that group. Two shapes serve two different needs:
+ *
+ *  - `revenueForPage` — what is DISPLAYED. Grouped PER CURRENCY and never summed
+ *    across currencies (`lib/revenue.ts`'s law: a GBP deal and a USD deal don't
+ *    add), exactly like the contact rollup's `totals`.
+ *  - `groupRevenueRanking` — what ORDERS `sort=revenue`. A single cross-currency
+ *    scalar, an ordering HEURISTIC only: exact for a single-currency deployment
+ *    (the common case), an approximation for a mixed-currency one — the same
+ *    trade the contacts list already makes with its `minRevenue` threshold. It
+ *    ranks; it never reaches the response.
+ *
+ * Both share `trustedValuedEventFilter()` — the gate the contact rollup uses —
+ * so a group's revenue and its members' revenue can never disagree: no
+ * re-counting the CRM machinery events that carry one deal's value on every
+ * stage change, and no browser-minted (`inapp`) values.
+ */
+
+/**
+ * Escape LIKE/ILIKE metacharacters so a search string can't widen its own match
+ * (`promo_50` must match `promo_50`, not `promoX50`; a trailing `\` must not
+ * break the pattern). Same idiom as the event-name search in `lib/event-names`.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+/**
+ * "This event is tagged with this group" — jsonb containment against the
+ * association map, the shape the partial GIN index is built for.
+ */
+function groupContainment(groupType: string, groupKey: string): SQL {
+  return sql`${userEvents.groups} @> ${JSON.stringify({
+    [groupType]: groupKey,
+  })}::jsonb`;
+}
+
+/**
+ * `(groupType, groupKey)` as a Map key. The NUL separator cannot occur inside
+ * a Postgres text value, so no two distinct natural keys can collide.
+ */
+function naturalKey(groupType: string, groupKey: string): string {
+  return `${groupType}\u0000${groupKey}`;
+}
+
+/**
+ * Per-currency revenue for JUST the groups on a page (≤ `limit` of them), keyed
+ * by natural key.
+ *
+ * The rows are selected by an OR of jsonb CONTAINMENTS, which the partial GIN
+ * (`user_events_valued_groups_idx`, over the valued+grouped slice) serves — so
+ * the displayed money never costs a scan of the event spine. The lateral then
+ * expands only those matched rows, and the `(kv.key, kv.value) IN (…)` residual
+ * drops the OTHER groups an event may also be tagged with (an event tagged both
+ * `company` and `team` yields a kv row for each; only the page's pairs count).
+ */
+async function revenueForPage(
+  db: Database,
+  rows: readonly GroupRowLike[],
+): Promise<Map<string, RevenueTotal[]>> {
+  const totals = new Map<string, RevenueTotal[]>();
+  if (rows.length === 0) return totals;
+
+  const contains = sql.join(
+    rows.map((r) => groupContainment(r.groupType, r.groupKey)),
+    sql` or `,
+  );
+  const pairs = sql.join(
+    rows.map((r) => sql`(${r.groupType}, ${r.groupKey})`),
+    sql`, `,
+  );
+
+  const revenueRows = await db.execute<{
+    group_type: string;
+    group_key: string;
+    currency: string | null;
+    total: string;
+  }>(sql`
+    select kv.key as group_type,
+           kv.value as group_key,
+           ${userEvents.currency} as currency,
+           sum(${userEvents.value})::float8 as total
+    from ${userEvents}, lateral jsonb_each_text(${userEvents.groups}) kv
+    where ${trustedValuedEventFilter()}
+      and (${contains})
+      and (kv.key, kv.value) in (${pairs})
+    group by kv.key, kv.value, ${userEvents.currency}
+  `);
+
+  for (const row of revenueRows) {
+    const key = naturalKey(row.group_type, row.group_key);
+    const bucket = totals.get(key) ?? [];
+    bucket.push({ currency: row.currency, total: Number(row.total) });
+    totals.set(key, bucket);
+  }
+  // Biggest first within a group, mirroring `getContactRevenue`'s totals.
+  for (const bucket of totals.values()) {
+    bucket.sort((a, b) => b.total - a.total);
+  }
+  return totals;
+}
+
+/**
+ * The cross-currency RANKING scalar behind `sort=revenue` — every group in one
+ * grouped pass, because the order has to be decided across ALL groups before the
+ * page is cut, so it cannot be page-scoped (and therefore cannot ride the GIN).
+ * That full pass covers only the valued+grouped slice, which is small by design
+ * and kept tight by the partial index.
+ */
+function groupRevenueRanking(): SQL {
+  return sql`
+    select kv.key as group_type,
+           kv.value as group_key,
+           sum(${userEvents.value})::float8 as revenue
+    from ${userEvents}, lateral jsonb_each_text(${userEvents.groups}) kv
+    where ${trustedValuedEventFilter()}
+    group by kv.key, kv.value
+  `;
+}
+
+// --- List paths (column-sorted vs aggregate-sorted) ---
+
+interface ListOpts {
+  where: SQL;
+  sort: "lastSeen" | "members" | "revenue" | "name";
+  order: "asc" | "desc";
+  limit: number;
+  offset: number;
+}
+
+/**
+ * One grouped count over the page's group ids — mirrors how buckets maps its
+ * per-bucket status counts back onto the listed rows. Joined to LIVE contacts
+ * so the count matches exactly the set the members endpoint lists (a membership
+ * whose contact is soft-deleted must not over-count).
+ */
+async function memberCountsForPage(
+  db: Database,
+  groupIds: string[],
+): Promise<Map<string, number>> {
+  if (groupIds.length === 0) return new Map();
+  const rows = await db
+    .select({ groupId: groupMemberships.groupId, count: count() })
+    .from(groupMemberships)
+    .innerJoin(contacts, eq(groupMemberships.contactId, contacts.id))
+    .where(
+      and(
+        inArray(groupMemberships.groupId, groupIds),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .groupBy(groupMemberships.groupId);
+  return new Map(rows.map((r) => [r.groupId, r.count]));
+}
+
+/**
+ * Sorts that live on a `groups` column (`lastSeen`, `name`): the page is cut
+ * from `groups` alone, then both aggregates are resolved for JUST that page.
+ */
+async function listByColumn(db: Database, opts: ListOpts) {
+  const direction = opts.order === "asc" ? asc : desc;
+  const sortCol =
+    opts.sort === "name"
+      ? sql`coalesce(${groups.displayName}, ${groups.groupKey})`
+      : groups.lastSeenAt;
+
+  const rows = await db
+    .select()
+    .from(groups)
+    .where(opts.where)
+    // `id` breaks ties so paging over equal sort keys stays stable.
+    .orderBy(direction(sortCol), asc(groups.id))
+    .limit(opts.limit)
+    .offset(opts.offset);
+
+  const [countMap, revenueMap] = await Promise.all([
+    memberCountsForPage(
+      db,
+      rows.map((r) => r.id),
+    ),
+    revenueForPage(db, rows),
+  ]);
+
+  return rows.map((r) =>
+    serializeGroup(
+      r,
+      countMap.get(r.id) ?? 0,
+      revenueMap.get(naturalKey(r.groupType, r.groupKey)) ?? [],
+    ),
+  );
+}
+
+/**
+ * Sorts driven by an aggregate (`members`, `revenue`): the order has to be
+ * decided across ALL matching groups BEFORE the page is cut, so both aggregates
+ * become grouped CTEs joined to the filtered groups and the ORDER BY reads one
+ * of them. Sorting the rows a `lastSeen` page happened to contain would rank a
+ * page-local lie. Each aggregate is still computed exactly once — no per-row
+ * queries.
+ *
+ * `revenue` here is the cross-currency RANKING scalar (see the rollup note
+ * above); the money the page DISPLAYS is re-read per currency by
+ * `revenueForPage`, so a mixed-currency deployment gets an approximate order but
+ * never an invented number.
+ *
+ * The statement ranks + pages the IDS; the group rows themselves are hydrated
+ * through the query builder, which parses the column types — drizzle's raw
+ * `execute` hands back every column as text.
+ */
+async function listByAggregate(db: Database, opts: ListOpts) {
+  const direction = opts.order === "asc" ? sql`asc` : sql`desc`;
+  const sortExpr =
+    opts.sort === "members"
+      ? sql`coalesce(mc.member_count, 0)`
+      : sql`coalesce(gr.revenue, 0)`;
+
+  const ranked = Array.from(
+    await db.execute<{
+      id: string;
+      member_count: string;
+    }>(sql`
+      with member_counts as (
+        select ${groupMemberships.groupId} as group_id,
+               count(*)::int as member_count
+        from ${groupMemberships}
+        inner join ${contacts}
+          on ${contacts.id} = ${groupMemberships.contactId}
+        where ${contacts.deletedAt} is null
+        group by ${groupMemberships.groupId}
+      ),
+      group_revenue as (${groupRevenueRanking()})
+      select ${groups.id} as id,
+             coalesce(mc.member_count, 0) as member_count
+      from ${groups}
+      left join member_counts mc on mc.group_id = ${groups.id}
+      left join group_revenue gr
+        on gr.group_type = ${groups.groupType}
+       and gr.group_key = ${groups.groupKey}
+      where ${opts.where}
+      -- id breaks ties so paging over equal aggregates stays stable.
+      order by ${sortExpr} ${direction}, ${groups.id} asc
+      limit ${opts.limit} offset ${opts.offset}
+    `),
+  );
+  if (ranked.length === 0) return [];
+
+  const rows = await db
+    .select()
+    .from(groups)
+    .where(
+      inArray(
+        groups.id,
+        ranked.map((r) => r.id),
+      ),
+    );
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const revenueMap = await revenueForPage(db, rows);
+
+  // Re-imposes the ranked order the hydration lookup doesn't preserve.
+  return ranked.flatMap((r) => {
+    const row = byId.get(r.id);
+    if (!row) return [];
+    return [
+      serializeGroup(
+        row,
+        Number(r.member_count),
+        revenueMap.get(naturalKey(row.groupType, row.groupKey)) ?? [],
+      ),
+    ];
+  });
+}
+
 // --- Route definitions ---
 
 const listRoute = createRoute({
@@ -94,6 +414,17 @@ const listRoute = createRoute({
       limit: z.coerce.number().min(1).max(100).default(50),
       offset: z.coerce.number().min(0).default(0),
       groupType: z.string().optional(),
+      // Case-insensitive substring over the group's identity: its key or its
+      // display name. LIKE metacharacters are escaped, so it matches literally.
+      search: z.string().optional(),
+      // `revenue` ranks on the CROSS-CURRENCY sum — an ordering heuristic
+      // (exact for a single-currency deployment, approximate for a mixed one),
+      // never a displayed figure: the money itself comes back per currency in
+      // `revenueTotals`. Same trade as the contacts list's `minRevenue`.
+      sort: z
+        .enum(["lastSeen", "members", "revenue", "name"])
+        .default("lastSeen"),
+      order: z.enum(["desc", "asc"]).default("desc"),
     }),
   },
   responses: {
@@ -108,7 +439,7 @@ const listRoute = createRoute({
           }),
         },
       },
-      description: "Paginated group list, newest-seen first",
+      description: "Paginated group list, newest-seen first by default",
     },
   },
 });
@@ -180,51 +511,40 @@ const listMembersRoute = createRoute({
 export const groupsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
-    const { limit, offset, groupType } = c.req.valid("query");
+    const { limit, offset, groupType, search, sort, order } =
+      c.req.valid("query");
 
-    const where = and(
-      isNull(groups.deletedAt),
-      ...(groupType ? [eq(groups.groupType, groupType)] : []),
-    );
-
-    const [rows, totalRows] = await Promise.all([
-      db
-        .select()
-        .from(groups)
-        .where(where)
-        .orderBy(desc(groups.lastSeenAt))
-        .limit(limit)
-        .offset(offset),
-      db.select({ count: count() }).from(groups).where(where),
-    ]);
-
-    // One grouped count over the page's group ids — mirrors how buckets maps
-    // its per-bucket status counts back onto the listed rows. Joined to LIVE
-    // contacts so the count matches exactly the set the members endpoint lists
-    // (a membership whose contact is soft-deleted must not over-count).
-    const groupIds = rows.map((r) => r.id);
-    const memberCounts =
-      groupIds.length > 0
-        ? await db
-            .select({
-              groupId: groupMemberships.groupId,
-              count: count(),
-            })
-            .from(groupMemberships)
-            .innerJoin(contacts, eq(groupMemberships.contactId, contacts.id))
-            .where(
-              and(
-                inArray(groupMemberships.groupId, groupIds),
-                isNull(contacts.deletedAt),
+    // Every filter lives on `groups`, so one predicate serves the page, the
+    // aggregate-sorted statement, and `total` alike.
+    const where: SQL =
+      and(
+        isNull(groups.deletedAt),
+        ...(groupType ? [eq(groups.groupType, groupType)] : []),
+        ...(search
+          ? [
+              or(
+                ilike(groups.groupKey, `%${escapeLike(search)}%`),
+                ilike(groups.displayName, `%${escapeLike(search)}%`),
               ),
-            )
-            .groupBy(groupMemberships.groupId)
-        : [];
-    const countMap = new Map(memberCounts.map((r) => [r.groupId, r.count]));
+            ]
+          : []),
+      ) ?? sql`true`;
+
+    const totalPromise = db
+      .select({ count: count() })
+      .from(groups)
+      .where(where);
+
+    const rowsPromise =
+      sort === "members" || sort === "revenue"
+        ? listByAggregate(db, { where, sort, order, limit, offset })
+        : listByColumn(db, { where, sort, order, limit, offset });
+
+    const [rows, totalRows] = await Promise.all([rowsPromise, totalPromise]);
 
     return c.json(
       {
-        groups: rows.map((r) => serializeGroup(r, countMap.get(r.id) ?? 0)),
+        groups: rows,
         total: totalRows[0]?.count ?? 0,
         limit,
         offset,
@@ -312,7 +632,11 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Group not found" }, 404);
     }
 
-    const [memberCountRows, recentMemberRows, recentEventRows] =
+    // Containment against this ONE group's natural key — the single-group twin
+    // of the list's lateral rollup, no expansion needed, and GIN-served.
+    const taggedEvents = groupContainment(groupType, groupKey);
+
+    const [memberCountRows, revenueRows, recentMemberRows, recentEventRows] =
       await Promise.all([
         // Same LIVE-contact join as recentMembers below (and as the members
         // endpoint) so memberCount never disagrees with the list it heads.
@@ -326,6 +650,16 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
               isNull(contacts.deletedAt),
             ),
           ),
+        // Per currency, never summed across them — the same law (and the same
+        // trust gate) as the list rollup and `getContactRevenue`.
+        db
+          .select({
+            currency: userEvents.currency,
+            total: sql<number>`sum(${userEvents.value})::float8`,
+          })
+          .from(userEvents)
+          .where(and(trustedValuedEventFilter(), taggedEvents))
+          .groupBy(userEvents.currency),
         db
           .select({
             contactId: groupMemberships.contactId,
@@ -354,21 +688,20 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
             userId: userEvents.userId,
           })
           .from(userEvents)
-          .where(
-            sql`${userEvents.groups} @> ${JSON.stringify({
-              [groupType]: groupKey,
-            })}::jsonb`,
-          )
+          .where(taggedEvents)
           .orderBy(desc(userEvents.occurredAt))
           .limit(20),
       ]);
 
     const memberCount = memberCountRows[0]?.count ?? 0;
+    const revenueTotals: RevenueTotal[] = revenueRows
+      .map((r) => ({ currency: r.currency, total: Number(r.total) }))
+      .sort((a, b) => b.total - a.total);
 
     return c.json(
       {
         group: {
-          ...serializeGroup(group, memberCount),
+          ...serializeGroup(group, memberCount, revenueTotals),
           recentMembers: recentMemberRows.map(serializeMember),
           recentEvents: recentEventRows.map(serializeEvent),
         },

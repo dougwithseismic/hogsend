@@ -61,6 +61,21 @@ const ORG_KEY = `${RUN}-globex.com`;
 const SQUAD_KEY = `${RUN}-squad-x`;
 // Count-consistency fixture — a group with one LIVE and one SOFT-DELETED member.
 const GHOST_KEY = `${RUN}-ghost.com`;
+// Phase 9.1 fixtures — revenue rollup + search/sort. A RUN-unique groupType
+// isolates the three fixture groups from everything else in the shared DB, so
+// the global (aggregate-first) sort order can be asserted exactly.
+const REV_TYPE = `${RUN}-acct`;
+const REV_A_KEY = `${RUN}-rev-a`;
+const REV_B_KEY = `${RUN}-rev-b`;
+const REV_C_KEY = `${RUN}-rev-c`;
+const REV_A_NAME = `Alpha-${RUN}-Corp`;
+// Mixed-currency fixture (its own type, so it never disturbs the sort fixture).
+const MIX_TYPE = `${RUN}-mix`;
+const MIX_KEY = `${RUN}-mixed.com`;
+// ILIKE-metacharacter fixture: `_` is a single-char wildcard unless escaped.
+const PROMO_TYPE = `${RUN}-promo`;
+const PROMO_LITERAL_KEY = `${RUN}-promo_50`;
+const PROMO_WILDCARD_KEY = `${RUN}-promoX50`;
 
 let companyId = "";
 let contactAId = "";
@@ -179,6 +194,106 @@ async function seed() {
   await db.insert(groupMemberships).values([
     { groupId: ghost.id, contactId: live.id, role: "member" },
     { groupId: ghost.id, contactId: dead.id, role: "member" },
+  ]);
+
+  // Phase 9.1 — revenue rollup + search/sort. Three groups of a RUN-unique
+  // type: A has the most money and NO members, C has the most members and no
+  // money, so a revenue sort and a member sort must produce OPPOSITE orders.
+  const [revA, revB, revC] = await db
+    .insert(groups)
+    .values([
+      { groupType: REV_TYPE, groupKey: REV_A_KEY, displayName: REV_A_NAME },
+      { groupType: REV_TYPE, groupKey: REV_B_KEY, displayName: "Beta Ltd" },
+      { groupType: REV_TYPE, groupKey: REV_C_KEY, displayName: "Gamma GmbH" },
+    ])
+    .returning();
+  if (!revA || !revB || !revC) throw new Error("failed to seed rev groups");
+
+  await db.insert(userEvents).values([
+    // A: 100 + 50 = 150.
+    {
+      userId: `${RUN}-user-a`,
+      event: "deal.sold",
+      value: 100,
+      currency: "USD",
+      groups: { [REV_TYPE]: REV_A_KEY },
+    },
+    {
+      userId: `${RUN}-user-a`,
+      event: "deal.sold",
+      value: 50,
+      currency: "USD",
+      groups: { [REV_TYPE]: REV_A_KEY },
+    },
+    // B: 30.
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 30,
+      currency: "USD",
+      groups: { [REV_TYPE]: REV_B_KEY },
+    },
+    // Same KEY, different group TYPE — containment must not cross-count this
+    // into (REV_TYPE, REV_A_KEY).
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 999,
+      currency: "USD",
+      groups: { [`${RUN}-other`]: REV_A_KEY },
+    },
+    // A funnel machinery event carries the SAME deal's value on every stage
+    // change; the rollup shares the contact rollup's exclusion gate, so it must
+    // not inflate A.
+    {
+      userId: `${RUN}-user-a`,
+      event: "funnel.stage_changed",
+      value: 777,
+      currency: "USD",
+      groups: { [REV_TYPE]: REV_A_KEY },
+    },
+    // An untagged valued event belongs to no group at all.
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 12,
+      currency: "USD",
+    },
+  ]);
+
+  // Member counts: C = 2, B = 1, A = 0 (the inverse of the revenue order).
+  await db.insert(groupMemberships).values([
+    { groupId: revC.id, contactId: contactAId, role: "member" },
+    { groupId: revC.id, contactId: contactBId, role: "member" },
+    { groupId: revB.id, contactId: contactAId, role: "member" },
+  ]);
+
+  // Mixed-currency group: 100 USD + 100 GBP. These must NEVER add up to 200 —
+  // the revenue spine's law is per-currency totals.
+  await db
+    .insert(groups)
+    .values({ groupType: MIX_TYPE, groupKey: MIX_KEY, displayName: "Mixed" });
+  await db.insert(userEvents).values([
+    {
+      userId: `${RUN}-user-a`,
+      event: "deal.sold",
+      value: 100,
+      currency: "USD",
+      groups: { [MIX_TYPE]: MIX_KEY },
+    },
+    {
+      userId: `${RUN}-user-b`,
+      event: "deal.sold",
+      value: 100,
+      currency: "GBP",
+      groups: { [MIX_TYPE]: MIX_KEY },
+    },
+  ]);
+
+  // Two keys that differ only where an unescaped ILIKE `_` would wildcard.
+  await db.insert(groups).values([
+    { groupType: PROMO_TYPE, groupKey: PROMO_LITERAL_KEY, displayName: null },
+    { groupType: PROMO_TYPE, groupKey: PROMO_WILDCARD_KEY, displayName: null },
   ]);
 }
 
@@ -381,6 +496,236 @@ describe("GET /v1/admin/contacts/{id} — group memberships (Phase 8.1)", () => 
     });
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.groups).toEqual([]);
+  });
+});
+
+// --- Phase 9.1: revenue rollup + search/sort ---
+
+interface RevenueTotal {
+  currency: string | null;
+  total: number;
+}
+
+interface ListedGroup {
+  groupKey: string;
+  revenueTotals: RevenueTotal[];
+  memberCount: number;
+}
+
+async function listGroups(query: string): Promise<{
+  groups: ListedGroup[];
+  total: number;
+}> {
+  const res = await app.request(`/v1/admin/groups?${query}`, {
+    headers: AUTH_HEADER,
+  });
+  expect(res.status).toBe(200);
+  return await res.json();
+}
+
+async function getGroup(groupType: string, groupKey: string) {
+  const res = await app.request(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(groupKey)}`,
+    { headers: AUTH_HEADER },
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  return body.group;
+}
+
+describe("GET /v1/admin/groups — revenue rollup (Phase 9.1)", () => {
+  it("sums each group's tagged valued events, without cross-counting", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(REV_TYPE)}&limit=100`,
+    );
+    const byKey = new Map(body.groups.map((g) => [g.groupKey, g]));
+
+    // 100 + 50; the 999 tagged under a DIFFERENT group type with the same key
+    // and the excluded 777 `funnel.stage_changed` never land here.
+    expect(byKey.get(REV_A_KEY)?.revenueTotals).toEqual([
+      { currency: "USD", total: 150 },
+    ]);
+    expect(byKey.get(REV_B_KEY)?.revenueTotals).toEqual([
+      { currency: "USD", total: 30 },
+    ]);
+    // No valued events at all → an empty array, never a zero in no currency.
+    expect(byKey.get(REV_C_KEY)?.revenueTotals).toEqual([]);
+  });
+
+  it("keeps currencies separate — a USD deal and a GBP deal never add", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(MIX_TYPE)}&limit=100`,
+    );
+    const mixed = body.groups.find((g) => g.groupKey === MIX_KEY);
+    expect(mixed?.revenueTotals).toHaveLength(2);
+    // Two entries of 100 — NOT one entry of 200 in no currency at all.
+    expect(
+      [...(mixed?.revenueTotals ?? [])].sort((a, b) =>
+        String(a.currency).localeCompare(String(b.currency)),
+      ),
+    ).toEqual([
+      { currency: "GBP", total: 100 },
+      { currency: "USD", total: 100 },
+    ]);
+
+    // The detail agrees with the list, entry for entry.
+    const detail = await getGroup(MIX_TYPE, MIX_KEY);
+    expect(
+      [...detail.revenueTotals].sort((a: RevenueTotal, b: RevenueTotal) =>
+        String(a.currency).localeCompare(String(b.currency)),
+      ),
+    ).toEqual([
+      { currency: "GBP", total: 100 },
+      { currency: "USD", total: 100 },
+    ]);
+  });
+
+  it("exposes per-currency revenue on the group detail", async () => {
+    const group = await getGroup(REV_TYPE, REV_A_KEY);
+    expect(group.revenueTotals).toEqual([{ currency: "USD", total: 150 }]);
+    expect(group.memberCount).toBe(0);
+  });
+
+  it("groups with no valued events report empty totals on the detail", async () => {
+    const group = await getGroup(REV_TYPE, REV_C_KEY);
+    expect(group.revenueTotals).toEqual([]);
+  });
+});
+
+describe("GET /v1/admin/groups — sort (Phase 9.1)", () => {
+  // `sort=revenue` RANKS on the cross-currency sum — an ordering heuristic
+  // (exact for a single-currency deployment, approximate for a mixed one). The
+  // money it DISPLAYS stays per-currency in `revenueTotals`; the scalar never
+  // reaches the response.
+  it("orders by revenue across ALL groups, not just the page", async () => {
+    // limit=1 → each page holds ONE row, so a page-local sort could not produce
+    // a globally-correct sequence: the order must come from the aggregate.
+    const pages = await Promise.all(
+      [0, 1, 2].map((offset) =>
+        listGroups(
+          `groupType=${encodeURIComponent(REV_TYPE)}&sort=revenue&order=desc&limit=1&offset=${offset}`,
+        ),
+      ),
+    );
+
+    expect(pages.map((p) => p.groups.length)).toEqual([1, 1, 1]);
+    expect(pages.map((p) => p.total)).toEqual([3, 3, 3]);
+    expect(pages.map((p) => p.groups[0]?.groupKey)).toEqual([
+      REV_A_KEY,
+      REV_B_KEY,
+      REV_C_KEY,
+    ]);
+    expect(pages.map((p) => p.groups[0]?.revenueTotals)).toEqual([
+      [{ currency: "USD", total: 150 }],
+      [{ currency: "USD", total: 30 }],
+      [],
+    ]);
+  });
+
+  it("reverses on order=asc", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(REV_TYPE)}&sort=revenue&order=asc&limit=100`,
+    );
+    expect(body.groups.map((g) => g.groupKey)).toEqual([
+      REV_C_KEY,
+      REV_B_KEY,
+      REV_A_KEY,
+    ]);
+  });
+
+  it("orders by LIVE member count", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(REV_TYPE)}&sort=members&order=desc&limit=100`,
+    );
+    // The inverse of the revenue order — proving `members` really drives it.
+    expect(body.groups.map((g) => g.groupKey)).toEqual([
+      REV_C_KEY,
+      REV_B_KEY,
+      REV_A_KEY,
+    ]);
+    expect(body.groups.map((g) => g.memberCount)).toEqual([2, 1, 0]);
+    // The aggregate-sorted path still carries the per-currency money.
+    expect(body.groups.map((g) => g.revenueTotals)).toEqual([
+      [],
+      [{ currency: "USD", total: 30 }],
+      [{ currency: "USD", total: 150 }],
+    ]);
+  });
+
+  it("orders by name (display name, falling back to key)", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(REV_TYPE)}&sort=name&order=asc&limit=100`,
+    );
+    // "Alpha-…" < "Beta Ltd" < "Gamma GmbH".
+    expect(body.groups.map((g) => g.groupKey)).toEqual([
+      REV_A_KEY,
+      REV_B_KEY,
+      REV_C_KEY,
+    ]);
+    // The column-sorted path carries both aggregates too.
+    expect(body.groups.map((g) => g.revenueTotals)).toEqual([
+      [{ currency: "USD", total: 150 }],
+      [{ currency: "USD", total: 30 }],
+      [],
+    ]);
+    expect(body.groups.map((g) => g.memberCount)).toEqual([0, 1, 2]);
+  });
+});
+
+describe("GET /v1/admin/groups — search (Phase 9.1)", () => {
+  it("matches the display name, case-insensitively, and narrows total", async () => {
+    const body = await listGroups(
+      `search=${encodeURIComponent(REV_A_NAME.toLowerCase())}&limit=100`,
+    );
+    expect(body.total).toBe(1);
+    expect(body.groups).toHaveLength(1);
+    expect(body.groups[0]?.groupKey).toBe(REV_A_KEY);
+    expect(body.groups[0]?.revenueTotals).toEqual([
+      { currency: "USD", total: 150 },
+    ]);
+  });
+
+  it("treats ILIKE metacharacters literally", async () => {
+    // Unescaped, `_` is a single-char wildcard and this ALSO matches
+    // `…-promoX50`. Escaped, it matches only the group actually named that.
+    const body = await listGroups(
+      `search=${encodeURIComponent(PROMO_LITERAL_KEY)}&limit=100`,
+    );
+    expect(body.total).toBe(1);
+    expect(body.groups.map((g) => g.groupKey)).toEqual([PROMO_LITERAL_KEY]);
+
+    // Both are findable by a substring that carries no metacharacter, proving
+    // the wildcard group really is there to be (wrongly) matched.
+    const both = await listGroups(
+      `groupType=${encodeURIComponent(PROMO_TYPE)}&limit=100`,
+    );
+    expect(both.total).toBe(2);
+  });
+
+  it("matches the group key", async () => {
+    const body = await listGroups(
+      `search=${encodeURIComponent(`${RUN}-rev-`)}&limit=100`,
+    );
+    expect(body.total).toBe(3);
+    expect(body.groups.map((g) => g.groupKey).sort()).toEqual(
+      [REV_A_KEY, REV_B_KEY, REV_C_KEY].sort(),
+    );
+  });
+
+  it("composes with groupType and sort", async () => {
+    const body = await listGroups(
+      `groupType=${encodeURIComponent(REV_TYPE)}&search=${encodeURIComponent(`${RUN}-rev-`)}&sort=revenue&order=desc&limit=2`,
+    );
+    expect(body.total).toBe(3);
+    expect(body.groups.map((g) => g.groupKey)).toEqual([REV_A_KEY, REV_B_KEY]);
+  });
+
+  it("returns an empty page when nothing matches", async () => {
+    const body = await listGroups(
+      `search=${encodeURIComponent(`${RUN}-no-such-group`)}`,
+    );
+    expect(body.total).toBe(0);
     expect(body.groups).toEqual([]);
   });
 });
