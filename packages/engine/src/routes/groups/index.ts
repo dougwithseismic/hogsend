@@ -61,6 +61,14 @@ const memberSchema = z.object({
   joinedAt: z.string(),
 });
 
+// Shared path-params schema for the `(groupType, groupKey)` natural key — the
+// same shape the get / add-member / remove-member / list-members routes address
+// a group by. `remove-member` extends it with the `contactId` segment.
+const groupKeyParams = z.object({
+  groupType: z.string().min(1),
+  groupKey: z.string().min(1),
+});
+
 const identifyRoute = createRoute({
   method: "post",
   path: "/",
@@ -126,10 +134,7 @@ const getRoute = createRoute({
   tags: ["Groups"],
   summary: "Get a group",
   request: {
-    params: z.object({
-      groupType: z.string().min(1),
-      groupKey: z.string().min(1),
-    }),
+    params: groupKeyParams,
   },
   responses: {
     200: {
@@ -155,10 +160,7 @@ const addMemberRoute = createRoute({
   description:
     "Resolve-or-create the group, then add the contact as a member. `created` reflects whether THIS call inserted the membership (a re-add of an existing member returns `created:false`).",
   request: {
-    params: z.object({
-      groupType: z.string().min(1),
-      groupKey: z.string().min(1),
-    }),
+    params: groupKeyParams,
     body: {
       content: {
         "application/json": {
@@ -200,9 +202,7 @@ const removeMemberRoute = createRoute({
   description:
     "Hard-deletes the membership. `removed` is false when the group or membership did not exist.",
   request: {
-    params: z.object({
-      groupType: z.string().min(1),
-      groupKey: z.string().min(1),
+    params: groupKeyParams.extend({
       // Bound to a `uuid` contacts column — a malformed id is a 400 here rather
       // than a 22P02 500 in the delete's WHERE clause.
       contactId: z.string().uuid(),
@@ -228,10 +228,7 @@ const listMembersRoute = createRoute({
   description:
     "Newest-joined first, joined to each member's live contact. Returns an empty list when the group does not exist.",
   request: {
-    params: z.object({
-      groupType: z.string().min(1),
-      groupKey: z.string().min(1),
-    }),
+    params: groupKeyParams,
     query: z.object({
       limit: z.coerce.number().optional(),
       offset: z.coerce.number().optional(),
