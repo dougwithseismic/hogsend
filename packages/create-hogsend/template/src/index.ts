@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import {
+  bootstrapAdminFromEnv,
   bootstrapApiKeyFromEnv,
   createApp,
   createHogsendClient,
@@ -61,6 +62,13 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
   }
   schemaApplied = schema.applied ?? null;
 }
+
+// First-boot Studio admin: when STUDIO_ADMIN_EMAIL is set and the user table
+// is empty, mint the first admin (password from STUDIO_ADMIN_PASSWORD, else
+// generated and printed ONCE to the log — grep "First admin created").
+// Idempotent and race-safe; sign-up is closed, so this and `pnpm studio:admin`
+// are the only ways in. API process only — never the worker.
+await bootstrapAdminFromEnv({ client });
 
 // First-boot data-plane key: on a TRULY empty api_keys table (a deploy that
 // never ran `pnpm bootstrap`) the engine mints one ingest-scoped key and

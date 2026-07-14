@@ -2,6 +2,7 @@ import { contacts, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import type { HogsendClient } from "../../container.js";
 import {
   eventNameEntrySchema,
   listEventNameVocabulary,
@@ -16,8 +17,8 @@ const eventSchema = z.object({
   occurredAt: z.string(),
   // Where the event entered the pipeline ("posthog", "api", "studio", …).
   source: z.string().nullable(),
-  // Resolved from the matching live contact (user_events.userId ==
-  // contacts.externalId), so the Events feed can show WHO an event is from.
+  // Resolved from THE live contact whose key (externalId, anonymousId, or
+  // id) matches user_events.userId — shows WHO an event is from.
   userEmail: z.string().nullable(),
   contactId: z.string().nullable(),
 });
@@ -45,21 +46,36 @@ function serializeEvent(row: JoinedEvent) {
 }
 
 /**
- * LEFT JOIN to the live contact for the userId. `userEvents.userId` holds the
- * resolved canonical key (`external_id ?? anonymous_id ?? id`), so match all
- * three — covering email-only/anonymous contacts, not just externalId-keyed
- * ones. Each key is partial-unique among live rows, and the three namespaces
- * don't overlap in practice, so at most one live contact matches per userId.
+ * LATERAL pick of THE live contact for an event's userId. `userEvents.userId`
+ * holds the resolved canonical key (`external_id ?? anonymous_id ?? id`), so
+ * match all three — covering email-only/anonymous contacts, not just
+ * externalId-keyed ones. Each column is partial-unique among live rows, but
+ * the three namespaces are NOT guaranteed disjoint across contacts: a
+ * mis-keyed emitter can park one contact's key in another contact's
+ * anonymous_id, and a bare OR-join then matches BOTH — fanning every event
+ * out into one display row per matching contact. The lateral picks exactly
+ * one, by the same precedence ingest resolves keys with.
  */
-const contactJoin = and(
-  or(
-    eq(contacts.externalId, userEvents.userId),
-    eq(contacts.anonymousId, userEvents.userId),
-    eq(sql`${contacts.id}::text`, userEvents.userId),
-  ),
-  isNull(contacts.deletedAt),
-);
-const contactCols = { id: contacts.id, email: contacts.email };
+function liveContactFor(db: HogsendClient["db"]) {
+  return db
+    .select({ id: contacts.id, email: contacts.email })
+    .from(contacts)
+    .where(
+      and(
+        or(
+          eq(contacts.externalId, userEvents.userId),
+          eq(contacts.anonymousId, userEvents.userId),
+          eq(sql`${contacts.id}::text`, userEvents.userId),
+        ),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .orderBy(
+      sql`case when ${contacts.externalId} = ${userEvents.userId} then 0 when ${contacts.anonymousId} = ${userEvents.userId} then 1 else 2 end`,
+    )
+    .limit(1)
+    .as("live_contact");
+}
 
 const listRoute = createRoute({
   method: "get",
@@ -234,11 +250,15 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
+    const liveContact = liveContactFor(db);
     const [rows, totalRows] = await Promise.all([
       db
-        .select({ event: userEvents, contact: contactCols })
+        .select({
+          event: userEvents,
+          contact: { id: liveContact.id, email: liveContact.email },
+        })
         .from(userEvents)
-        .leftJoin(contacts, contactJoin)
+        .leftJoinLateral(liveContact, sql`true`)
         .where(where)
         .orderBy(desc(userEvents.occurredAt))
         .limit(limit)
@@ -276,10 +296,14 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
+    const liveContact = liveContactFor(db);
     const rows = await db
-      .select({ event: userEvents, contact: contactCols })
+      .select({
+        event: userEvents,
+        contact: { id: liveContact.id, email: liveContact.email },
+      })
       .from(userEvents)
-      .leftJoin(contacts, contactJoin)
+      .leftJoinLateral(liveContact, sql`true`)
       .where(eq(userEvents.id, id))
       .limit(1);
 

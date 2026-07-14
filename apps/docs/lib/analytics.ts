@@ -131,6 +131,24 @@ export function getDistinctId(): string | undefined {
 }
 
 /**
+ * getAnonymousDistinctId — the distinct_id ONLY while the session is still
+ * anonymous; undefined once `identify()` has run. After identify the
+ * distinct_id IS the Hogsend contact key — an identity, not a browser id —
+ * and sending it as a top-level `anonymousId` would mint a phantom contact
+ * whose anonymous_id equals a real contact's key (ingest is kind-scoped by
+ * design and must never fold across identity kinds). Callers keying an
+ * ANONYMOUS ingest arm use this; callers that want "whatever the current
+ * distinct_id is" (identify stitching, consent audit) keep `getDistinctId`.
+ */
+export function getAnonymousDistinctId(): string | undefined {
+  const id = getDistinctId();
+  if (id === undefined) return undefined;
+  // posthog-js keeps $device_id at the pre-identify distinct_id; divergence
+  // means identify() has re-keyed the session under the contact key.
+  return id === posthog.get_property("$device_id") ? id : undefined;
+}
+
+/**
  * identify — identifies the PostHog session under the Hogsend contact key (a
  * stable opaque id, NOT the email: emails change and would fragment identity,
  * so the key stays the anchor). The same key is what the engine's outbound

@@ -20,6 +20,31 @@ surfaces make that work:
    that an agent can fetch to orient itself: what Hogsend is, where the docs
    live, and which skills exist.
 
+## Agent quickstart (headless)
+
+The whole scaffold → setup → run path works with **zero prompts** — every
+outcome is an exit code, an `.env` line, a log line, or `--json`:
+
+```bash
+pnpm create hogsend@latest my-app --yes \
+  --domain mysite.com \
+  --admin-email you@example.com --admin-password 'min-8-chars' --posthog
+cd my-app
+pnpm dev &            # background it yourself; non-TTY boots emit "Hogsend API ready"
+pnpm worker:dev &     # "Hogsend worker ready"
+# poll GET /v1/health until "status":"healthy", then operate:
+pnpm hogsend doctor --json
+```
+
+`--yes` implies install + local setup (`pnpm bootstrap`: Docker infra, `.env`,
+migrations, `HOGSEND_API_KEY` + `HOGSEND_ADMIN_KEY`; exit 0 = every step
+succeeded). The first Studio admin is minted on first boot from
+`STUDIO_ADMIN_EMAIL` — omit `--admin-password` and one is generated + printed
+once (`grep "First admin created"`). PostHog headless: set
+`POSTHOG_PERSONAL_API_KEY` on the instance (the browser OAuth flow is the
+interactive alternative). The full runbook ships in every scaffold's
+`CLAUDE.md` ("Zero to running") and the `hogsend-cli` skill.
+
 ## What ships in `.claude/skills/`
 
 Every app scaffolded with `create-hogsend` includes the full skill set (the

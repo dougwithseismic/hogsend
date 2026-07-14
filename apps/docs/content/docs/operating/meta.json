@@ -6,6 +6,7 @@
     "deploy-docker",
     "deploy-railway",
     "deploy-byo",
+    "launch-checklist",
     "production-email",
     "upgrading",
     "authentication",

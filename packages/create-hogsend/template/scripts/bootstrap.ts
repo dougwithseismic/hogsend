@@ -72,15 +72,40 @@ function warn(msg: string): void {
  * see the truth too.
  */
 const issues: string[] = [];
-function issue(msg: string): void {
+/**
+ * Whether failures print their FULL underlying cause (captured stderr, stack
+ * traces, the handshake API child's boot log). Always on when there's no TTY —
+ * an agent driving bootstrap needs the real error, not a one-liner — and
+ * opt-in in a terminal via HOGSEND_DEBUG=1.
+ */
+const showErrorDetail = !isTTY || process.env.HOGSEND_DEBUG === "1";
+function printErrorDetail(detail: string): void {
+  if (!showErrorDetail) {
+    process.stdout.write(
+      `    ${dim("(re-run with HOGSEND_DEBUG=1 for the full error output)")}\n`,
+    );
+    return;
+  }
+  const lines = detail.trim().split("\n");
+  const tail = lines.slice(-40);
+  if (tail.length < lines.length) {
+    process.stdout.write(
+      `    ${dim(`… (${lines.length - tail.length} earlier lines omitted)`)}\n`,
+    );
+  }
+  for (const line of tail) process.stdout.write(`    ${dim(line)}\n`);
+}
+function issue(msg: string, detail?: string): void {
   warn(msg);
+  if (detail?.trim()) printErrorDetail(detail);
   issues.push(msg);
 }
-function die(msg: string, hint?: string): never {
+function die(msg: string, hint?: string, detail?: string): never {
   // Restore the cursor in case we died mid-spin (startSpinner hides it).
   if (isTTY) process.stdout.write("\x1b[?25h");
   process.stdout.write(`\n  ${red("✗")} ${msg}\n`);
   if (hint) process.stdout.write(`    ${dim(hint)}\n`);
+  if (detail?.trim()) printErrorDetail(detail);
   process.exit(1);
 }
 
@@ -230,10 +255,12 @@ function checkDocker(): void {
       "Install Docker Desktop → https://docs.docker.com/get-docker/",
     );
   }
-  if (run("docker", ["info"]).status !== 0) {
+  const daemon = run("docker", ["info"]);
+  if (daemon.status !== 0) {
     die(
       "Docker is installed but the daemon isn't running.",
       `Start Docker Desktop and re-run \`${pmRun("bootstrap")}\`.`,
+      daemon.stderr,
     );
   }
   ok("Docker is running");
@@ -264,6 +291,8 @@ interface Ports {
   redis: number;
   grpc: number;
   dash: number;
+  /** The app's own HTTP port (PORT / API_PUBLIC_URL) — remapped like the rest. */
+  app: number;
 }
 
 async function resolvePorts(): Promise<Ports> {
@@ -277,6 +306,7 @@ async function resolvePorts(): Promise<Ports> {
     redis: portInUrl(redisUrl) ?? 6380,
     grpc: Number(hostPort.split(":")[1]) || 7077,
     dash: Number(getEnv(env, "HATCHET_DASHBOARD_PORT")) || 8888,
+    app: Number(getEnv(env, "PORT")) || 3002,
   };
 
   // If our own stack is already up, its containers own these ports — leave them.
@@ -288,7 +318,10 @@ async function resolvePorts(): Promise<Ports> {
   const taken = new Set<number>();
   const got: Ports = { ...want };
   const remaps: string[] = [];
-  for (const key of ["pg", "redis", "grpc", "dash"] as const) {
+  // `app` is remapped too: 3002 is a popular dev port, and without this a
+  // fresh scaffold on a machine where it's taken EADDRINUSEs on first
+  // `pnpm dev` (the very failure bootstrap exists to prevent).
+  for (const key of ["pg", "redis", "grpc", "dash", "app"] as const) {
     const desired = want[key];
     if (!taken.has(desired) && (await isPortFree(desired))) {
       taken.add(desired);
@@ -337,6 +370,17 @@ function syncEnvPorts(got: Ports): void {
   env = setEnv(env, "REDIS_PORT", String(got.redis));
   env = setEnv(env, "HATCHET_DASHBOARD_PORT", String(got.dash));
   env = setEnv(env, "HATCHET_GRPC_PORT", String(got.grpc));
+  // The app's own port — API_PUBLIC_URL embeds it (tracking/unsubscribe links,
+  // the data-plane client base), so both must move together. So must
+  // HOGSEND_API_URL: the `hogsend` CLI targets it (default localhost:3002),
+  // and after a remap the default would point the CLI at whatever foreign
+  // process caused the remap in the first place.
+  env = setEnv(env, "PORT", String(got.app));
+  const publicUrl = getEnv(env, "API_PUBLIC_URL");
+  if (publicUrl) {
+    env = setEnv(env, "API_PUBLIC_URL", withPort(publicUrl, got.app));
+  }
+  env = setEnv(env, "HOGSEND_API_URL", `http://localhost:${got.app}`);
   writeFileSync(ENV_PATH, env);
 }
 
@@ -374,6 +418,8 @@ function hatchetTenantId(): string {
   return m?.[1] ?? DEFAULT_HATCHET_TENANT;
 }
 
+/** Last mint attempt's stderr — passed to `die` if every attempt fails. */
+let lastMintLog = "";
 function mintToken(tenantId: string): string | null {
   const r = run("docker", [
     "compose",
@@ -390,6 +436,7 @@ function mintToken(tenantId: string): string | null {
     "--name",
     PROJECT,
   ]);
+  lastMintLog = r.stderr;
   // The JWT is the only stdout line; logs go to stderr.
   const token = r.stdout.split("\n").pop()?.trim() ?? "";
   return r.status === 0 && token.split(".").length === 3 ? token : null;
@@ -423,6 +470,7 @@ async function ensureHatchetToken(): Promise<void> {
     die(
       "Couldn't mint a Hatchet token after ~40s.",
       "Open the dashboard, create one manually, and set HATCHET_CLIENT_TOKEN in .env.",
+      lastMintLog,
     );
   }
 
@@ -565,6 +613,7 @@ async function ensureApiKeys(): Promise<void> {
       `Couldn't mint API keys: ${
         err instanceof Error ? err.message : String(err)
       }`,
+      err instanceof Error ? err.stack : undefined,
     );
     info("Is the database reachable? Re-run bootstrap once it is.");
   } finally {
@@ -592,7 +641,12 @@ async function bootstrapAdmin(): Promise<void> {
   // don't double-create here.
   const adminEmail = getEnv(env, "STUDIO_ADMIN_EMAIL");
   if (adminEmail && !adminEmail.startsWith("#")) {
-    ok(`STUDIO_ADMIN_EMAIL is set (${adminEmail}) — the API mints it on boot`);
+    ok(
+      `STUDIO_ADMIN_EMAIL is set (${adminEmail}) — the API mints it on first boot (${pmRun("dev")})`,
+    );
+    info(
+      "No STUDIO_ADMIN_PASSWORD? One is generated and printed ONCE in the boot log.",
+    );
     info(`Or run \`${pmRun("studio:admin")}\` to create one now.`);
     return;
   }
@@ -600,8 +654,8 @@ async function bootstrapAdmin(): Promise<void> {
   if (!process.stdin.isTTY) {
     info("No TTY — skipping admin create.");
     info(
-      `Create one later: \`${pmRun("studio:admin")}\` ` +
-        "(or set STUDIO_ADMIN_EMAIL in .env).",
+      `Create one later: \`${pmRun("studio:admin")}\`, set STUDIO_ADMIN_EMAIL ` +
+        "in .env, or scaffold with `create-hogsend --admin-email`.",
     );
     return;
   }
@@ -768,13 +822,21 @@ async function connectPosthog(): Promise<void> {
     const stop = startSpinner(
       `Starting the API for the handshake (${pmRun("dev")} on :${port})…`,
     );
+    // Capture (don't discard) the child's output: if the boot fails, its last
+    // lines ARE the diagnosis — surfaced via the issue's error detail.
+    let bootLog = "";
+    const capture = (chunk: unknown): void => {
+      bootLog = (bootLog + String(chunk)).slice(-8192);
+    };
     apiChild = spawn(PM, ["run", "dev"], {
       cwd: ROOT,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
       shell: process.platform === "win32",
       env: { ...process.env, PORT: String(port) },
     });
+    apiChild.stdout?.on("data", capture);
+    apiChild.stderr?.on("data", capture);
     let up = false;
     for (let i = 0; i < 60 && !up; i += 1) {
       await sleep(1000);
@@ -783,7 +845,7 @@ async function connectPosthog(): Promise<void> {
     stop();
     if (!up) {
       killApiChild();
-      issue("Couldn't start the API for the PostHog handshake.");
+      issue("Couldn't start the API for the PostHog handshake.", bootLog);
       info(`Start it yourself (${pmRun("dev")}) and run \`${CONNECT_CMD}\`.`);
       return;
     }
@@ -929,5 +991,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  die(err instanceof Error ? err.message : String(err));
+  die(
+    err instanceof Error ? err.message : String(err),
+    undefined,
+    err instanceof Error ? err.stack : undefined,
+  );
 });

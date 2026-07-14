@@ -27,12 +27,28 @@ in `src/template-manifest.ts`.
 ```
 create-hogsend <app-name> [options]
 
+  -y, --yes                  Accept all defaults, no prompts (install + setup)
   --pm <pnpm|npm|yarn|bun>   Package manager (default: pnpm)
+  --domain <domain>          Sending domain — writes EMAIL_FROM/EMAIL_DOMAIN
+  --admin-email <email>      First Studio admin — writes STUDIO_ADMIN_EMAIL;
+                             the API mints the admin on first boot
+  --admin-password <pw>      Admin password (min 8; requires --admin-email);
+                             omit it: generated + printed once at first boot
+  --posthog                  Using PostHog, no key yet (intent only)
+  --posthog-key <phc_...>    PostHog project key — writes active env values
+  --posthog-host <url>       PostHog host (requires --posthog-key)
+  --no-posthog               Skip the events-source prompt
+  --setup / --no-setup       Run / skip local setup (Docker, .env, migrate)
   --no-install               Skip dependency install
   --no-git                   Skip git init + initial commit
+  --skills / --no-skills     Include (default) or skip Claude Code skills
   --use-tarballs <dir>       TEST-ONLY: resolve @hogsend/* from local tarballs
   -h, --help                 Show help
 ```
+
+Non-TTY runs (CI, agents) never prompt: pass everything via flags. The full
+headless path is documented in the scaffolded app's `CLAUDE.md` ("Zero to
+running") and the `hogsend-cli` skill's `setup-local` reference.
 
 ## How the scaffolded app consumes the engine
 
