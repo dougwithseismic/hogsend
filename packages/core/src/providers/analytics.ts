@@ -6,7 +6,7 @@
  * person store can be Segment, Amplitude, Mixpanel, or the consumer's own
  * service without touching engine code.
  *
- * A provider owns exactly three wires plus identity:
+ * A provider owns three core wires plus identity, and an OPTIONAL group wire:
  *
  * - **person READ** — `getPersonProperties` (the identity PULL): per-user
  *   timezone resolution at journey enrollment and property conditions. On
@@ -17,12 +17,19 @@
  *   analytics person). On most platforms this rides the public capture
  *   pipeline (e.g. PostHog `$set`/`$set_once`) and needs NO extra credential.
  * - **event capture** — `capture`: fire an event under a distinct id.
+ * - **group analytics** (OPTIONAL) — `capture`'s `groups` association (events
+ *   attributed to a group, PostHog `$groups`) plus `groupIdentify` (the group
+ *   analog of the person WRITE). A provider that cannot do groups omits
+ *   `groupIdentify` and leaves `capabilities.groups` false/absent; the engine
+ *   no-ops, so this stays purely additive.
  *
  * Lifecycle fan-out (email/contact/journey/bucket events) does NOT flow
  * through this contract — it rides outbound DESTINATIONS on the durable
  * delivery spine. This contract is the request/response side: reads the
  * engine needs inline, plus best-effort writes.
  */
+
+import type { GroupsAssociation } from "../types/group.js";
 
 /**
  * The minimal READ contract for the identity PULL: fetching a person's
@@ -67,6 +74,12 @@ export interface AnalyticsCapabilities {
    * or absent, the engine's identity helper no-ops — stitching is best-effort.
    */
   identityMerge?: boolean;
+  /**
+   * True when the provider supports group analytics — `$groups` associations on
+   * `capture` plus `groupIdentify` (e.g. PostHog). When false or absent the
+   * provider omits `groupIdentify` and the engine no-ops the group wire.
+   */
+  groups?: boolean;
 }
 
 /**
@@ -136,6 +149,19 @@ export interface AnalyticsProvider extends IdentityProvider {
   /** Event capture under a distinct id. Fire-and-forget semantics. */
   capture(opts: CaptureOptions): void;
 
+  /**
+   * Best-effort, fire-and-forget group-property WRITE — the group analog of
+   * `setPersonProperties` (e.g. PostHog `groupIdentify`). Resolves/creates the
+   * group by its `(groupType, groupKey)` natural key and merges `properties`
+   * onto the group profile. A provider that cannot do groups omits this AND
+   * sets `capabilities.groups` false/absent; the engine no-ops.
+   */
+  groupIdentify?(opts: {
+    groupType: string;
+    groupKey: string;
+    properties?: Record<string, unknown>;
+  }): void;
+
   /** Flush/teardown any buffered capture queue. */
   shutdown?(): Promise<void>;
 }
@@ -175,6 +201,12 @@ export interface CaptureOptions {
   distinctId: string;
   event: string;
   properties?: Record<string, unknown>;
+  /**
+   * Optional group associations for this event — forwarded to the provider as
+   * `$groups` in PostHog (`{ groupType: groupKey }`), so the event is
+   * attributed to those groups. Ignored by providers without group analytics.
+   */
+  groups?: GroupsAssociation;
 }
 
 /**
