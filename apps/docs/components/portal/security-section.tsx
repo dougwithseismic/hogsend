@@ -24,7 +24,8 @@ export function SecuritySection() {
       <p className="text-sm text-white/60 leading-6">
         Sign out everywhere ends every other session (other browsers and
         devices) but keeps you signed in here. Use it if you signed in somewhere
-        you shouldn&apos;t have.
+        you shouldn&apos;t have. Revoked devices can hold a cached session for
+        up to five minutes before they&apos;re fully out.
       </p>
       <div className="flex items-center gap-3">
         <button
@@ -36,7 +37,9 @@ export function SecuritySection() {
           {status === "working" ? "Working…" : "Sign out everywhere else"}
         </button>
         {status === "done" ? (
-          <span className="text-sm text-white/50">Other sessions ended.</span>
+          <span className="text-sm text-white/50">
+            Other sessions ended — fully out within five minutes.
+          </span>
         ) : null}
         {status === "error" ? (
           <span className="text-red-400/90 text-sm">

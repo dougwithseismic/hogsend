@@ -446,6 +446,16 @@ export default async function PortalPage(): Promise<JSX.Element> {
             <div>
               <SignOutButton />
             </div>
+            <p className="text-sm text-white/50 leading-6">
+              Data export, account deletion, and email preferences live on{" "}
+              <a
+                href="https://course.hogsend.com/account"
+                className="text-white/70 underline decoration-white/30 underline-offset-4 hover:text-white"
+              >
+                your account page
+              </a>{" "}
+              for now — same login.
+            </p>
           </div>
         </Section>
       </div>

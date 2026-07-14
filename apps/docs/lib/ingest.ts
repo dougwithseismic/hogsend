@@ -17,6 +17,18 @@ export function boundedText(value: unknown, max: number): string | undefined {
   return trimmed;
 }
 
+/**
+ * Trim + TRUNCATE an optional free-text field — for content that must
+ * survive an over-long submission (a customer's note should reach the
+ * operator cut short, not silently vanish while the UI reports success).
+ */
+export function truncatedText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.slice(0, max);
+}
+
 type IngestEventBody = {
   name: string;
   /**
