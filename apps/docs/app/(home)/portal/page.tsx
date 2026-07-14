@@ -6,7 +6,15 @@ import type { JSX, ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { BookCall } from "@/components/portal/book-call";
+import { ProfileForm } from "@/components/portal/profile-form";
+import { SecuritySection } from "@/components/portal/security-section";
+import { SignAgreement } from "@/components/portal/sign-agreement";
+import { SubscriptionActions } from "@/components/portal/subscription-actions";
+import { UpdateCard } from "@/components/portal/update-card";
+import { fetchAgreements } from "@/lib/agreements";
 import { auth } from "@/lib/auth";
+import { fetchBilling } from "@/lib/billing";
 import { getCourseAccess } from "@/lib/course-access";
 import { fetchServices, type PortalService } from "@/lib/services";
 
@@ -63,6 +71,34 @@ function formatDate(iso: string): string {
   return DATE_FMT.format(date);
 }
 
+const AMOUNT_FMTS = new Map<string, Intl.NumberFormat>();
+
+/** Stripe bills these currencies in whole units / thousandths, not cents. */
+const ZERO_DECIMAL = new Set(
+  "BIF CLP DJF GNF JPY KMF KRW MGA PYG RWF UGX VND VUV XAF XOF XPF".split(" "),
+);
+const THREE_DECIMAL = new Set(["BHD", "JOD", "KWD", "OMR", "TND"]);
+
+/** Minor units + ISO currency → "$149.00". Lenient like formatDate. */
+function formatAmount(minor: number, currency: string): string {
+  const code = currency.toUpperCase();
+  const units =
+    minor / (ZERO_DECIMAL.has(code) ? 1 : THREE_DECIMAL.has(code) ? 1000 : 100);
+  let fmt = AMOUNT_FMTS.get(code);
+  if (!fmt) {
+    try {
+      fmt = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: code,
+      });
+    } catch {
+      return `${units.toFixed(2)} ${code}`;
+    }
+    AMOUNT_FMTS.set(code, fmt);
+  }
+  return fmt.format(units);
+}
+
 /** The account-card surface, shared by every block on this page. */
 const CARD = "rounded-xl border border-white/[0.08] bg-white/[0.02] p-5";
 
@@ -111,6 +147,18 @@ function ServiceCard({ service }: { service: PortalService }): JSX.Element {
           ? ` · ${service.cancelAtPeriodEnd ? "Cancels" : "Renews"} ${formatDate(service.currentPeriodEnd)}`
           : ""}
       </p>
+      {service.subscriptionId &&
+      (status === "active" ||
+        status === "trialing" ||
+        status === "past_due") ? (
+        <SubscriptionActions
+          // Remount when the server state flips so a completed cancel/resume
+          // gets fresh controls instead of the stale in-flight ones.
+          key={String(service.cancelAtPeriodEnd ?? false)}
+          subscriptionId={service.subscriptionId}
+          cancelAtPeriodEnd={service.cancelAtPeriodEnd ?? false}
+        />
+      ) : null}
     </div>
   );
 }
@@ -120,10 +168,18 @@ export default async function PortalPage(): Promise<JSX.Element> {
   if (!session) redirect("/sign-in?next=/portal");
   const { user } = session;
 
-  const [services, course] = await Promise.all([
+  const [services, course, billing, agreements] = await Promise.all([
     fetchServices({ email: user.email, userId: user.id }),
     getCourseAccess(user.id),
+    fetchBilling({ email: user.email, userId: user.id }),
+    fetchAgreements({ email: user.email, userId: user.id }),
   ]);
+  // Billing only earns a section once there's something to bill — and stays
+  // visible as a soft-retry line when the read fails for a known customer.
+  const showBilling =
+    billing === null
+      ? services !== null && services.length > 0
+      : billing.paymentMethod !== null || billing.invoices.length > 0;
 
   return (
     <main className="container-page pt-32 pb-24">
@@ -177,6 +233,131 @@ export default async function PortalPage(): Promise<JSX.Element> {
             </div>
           )}
         </Section>
+
+        {showBilling ? (
+          <Section
+            title="Billing"
+            description="Your card and invoices — receipts open on Stripe."
+          >
+            {billing === null ? (
+              <p className="text-sm text-white/60">
+                Couldn&apos;t load your billing just now — refresh in a moment.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div
+                  className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
+                >
+                  <p className="text-sm text-white/70">
+                    {billing.paymentMethod
+                      ? `Card on file: ${billing.paymentMethod.brand.toUpperCase()} ···· ${billing.paymentMethod.last4}`
+                      : "No card on file yet."}
+                  </p>
+                  <UpdateCard />
+                </div>
+                {billing.invoices.length > 0 ? (
+                  <ul className="flex flex-col divide-y divide-white/[0.06] rounded-xl border border-white/[0.08] bg-white/[0.02]">
+                    {billing.invoices.map((inv) => (
+                      <li
+                        key={inv.number}
+                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
+                      >
+                        <span className="text-sm text-white/80">
+                          {formatDate(inv.created)}
+                          <span className="ml-2 text-white/40">
+                            {inv.number}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-4">
+                          <span className="text-sm text-white">
+                            {formatAmount(inv.amount, inv.currency)}
+                          </span>
+                          {inv.hostedUrl ? (
+                            <a
+                              href={inv.hostedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
+                            >
+                              View
+                            </a>
+                          ) : null}
+                          {inv.pdfUrl ? (
+                            <a
+                              href={inv.pdfUrl}
+                              className="text-white/60 text-xs underline decoration-white/30 underline-offset-4 hover:text-white"
+                            >
+                              PDF
+                            </a>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
+          </Section>
+        ) : null}
+
+        {/* Hidden when there are no active agreements (or the read failed) —
+            signatures aren't time-critical, and a quiet portal beats an
+            error box for a section most customers never need. */}
+        {agreements && agreements.length > 0 ? (
+          <Section
+            title="Agreements"
+            description="Engagement terms — review and sign in the portal."
+          >
+            <div className="flex flex-col gap-3">
+              {agreements.map((a) => (
+                <div key={`${a.docId}-${a.version}`} className={CARD}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="font-medium text-base text-white">
+                      {a.title}
+                    </span>
+                    {a.signed ? (
+                      <TagPill accent>Signed</TagPill>
+                    ) : (
+                      <TagPill>Awaiting signature</TagPill>
+                    )}
+                  </div>
+                  {a.summary ? (
+                    <p className="mt-2 text-sm text-white/60 leading-6">
+                      {a.summary}
+                    </p>
+                  ) : null}
+                  <div className="mt-4 max-h-72 overflow-y-auto rounded-md border border-white/[0.06] bg-black/20 p-4">
+                    {a.body.split(/\n\n+/).map((para, i) => (
+                      <p
+                        // Static document text, never reordered.
+                        // biome-ignore lint/suspicious/noArrayIndexKey: static prose
+                        key={i}
+                        className="mb-3 text-sm text-white/70 leading-6 last:mb-0"
+                      >
+                        {para}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-white/40 text-xs">
+                    Version {a.version}
+                  </p>
+                  {a.signed ? (
+                    <p className="mt-3 text-sm text-white/60">
+                      Signed by {a.signed.signedName} on{" "}
+                      {formatDate(a.signed.signedAt)}.
+                    </p>
+                  ) : (
+                    <SignAgreement
+                      docId={a.docId}
+                      docVersion={a.version}
+                      contentHash={a.contentHash}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        ) : null}
 
         <Section
           title="Course all-access"
@@ -245,32 +426,36 @@ export default async function PortalPage(): Promise<JSX.Element> {
 
         <Section
           title="Book a call"
-          description="Time with Doug — scoping, a working session, or where the funnel leaks."
+          description="Time with Doug — scoping, a working session, or where the funnel leaks. I'll reply with times."
         >
-          <div
-            className={`flex flex-wrap items-center justify-between gap-4 ${CARD}`}
-          >
-            <p className="text-sm text-white/70">
-              Tell me what you&apos;re working on and I&apos;ll send times.
-            </p>
-            <Button href="/service#enquire" variant="outline" icon>
-              Request a call
-            </Button>
+          <div className={CARD}>
+            <BookCall email={user.email} />
           </div>
         </Section>
 
         <Section
-          title="Account"
+          title="Profile"
           description="One login across hogsend.com, the course, and the demo."
         >
-          <div className="flex flex-wrap items-center gap-4">
-            <SignOutButton />
-            <a
-              href="https://course.hogsend.com/account"
-              className="text-sm text-white/60 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
-            >
-              Profile, security &amp; data →
-            </a>
+          <ProfileForm initialName={user.name ?? ""} email={user.email} />
+        </Section>
+
+        <Section title="Security">
+          <div className="flex flex-col gap-6">
+            <SecuritySection />
+            <div>
+              <SignOutButton />
+            </div>
+            <p className="text-sm text-white/50 leading-6">
+              Data export, account deletion, and email preferences live on{" "}
+              <a
+                href="https://course.hogsend.com/account"
+                className="text-white/70 underline decoration-white/30 underline-offset-4 hover:text-white"
+              >
+                your account page
+              </a>{" "}
+              for now — same login.
+            </p>
           </div>
         </Section>
       </div>

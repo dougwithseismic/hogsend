@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
-import { EMAIL_PATTERN, forwardToIngest, ingestConfigured } from "@/lib/ingest";
+import {
+  boundedText,
+  EMAIL_PATTERN,
+  forwardToIngest,
+  ingestConfigured,
+  SUBMISSION_ID_MAX,
+  truncatedText,
+} from "@/lib/ingest";
 
 const NAME_MAX = 80;
 const COMPANY_MAX = 120;
 const MESSAGE_MAX = 1000;
-const SUBMISSION_ID_MAX = 100;
 
 /**
  * POST /api/service-inquiry — the done-for-you "request a call" form. Forwards
@@ -14,14 +20,6 @@ const SUBMISSION_ID_MAX = 100;
  * instant confirmation with a booking link and notifies the operator — the
  * whole booking lifecycle runs on Hogsend itself. No account required.
  */
-
-/** Trim + bound an optional free-text field; drop anything odd rather than 400. */
-function boundedText(value: unknown, max: number): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > max) return undefined;
-  return trimmed;
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!ingestConfigured()) {
@@ -51,7 +49,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     email = body?.email;
     name = boundedText(body?.name, NAME_MAX);
     company = boundedText(body?.company, COMPANY_MAX);
-    message = boundedText(body?.message, MESSAGE_MAX);
+    // Truncated, not dropped — an over-long note still reaches the operator.
+    message = truncatedText(body?.message, MESSAGE_MAX);
     submissionId = boundedText(body?.submissionId, SUBMISSION_ID_MAX);
     termsAccepted = body?.termsAccepted === true;
     productNotes = body?.productNotes === true;
@@ -87,9 +86,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       // opt-in — unbundled consent.
       ...(productNotes ? { lists: { "product-updates": true } } : {}),
     },
-    // Per-mount submission id dedupes a double-click into one lead; a genuine
-    // re-enquiry from a fresh visit carries a new id and goes through.
-    `service-call-${normalizedEmail}-${submissionId ?? "na"}`,
+    // Per-mount submission id dedupes a double-click into one lead; the key
+    // is stored permanently, so an ABSENT id gets a fresh UUID — a constant
+    // fallback would tombstone every future id-less enquiry from this email.
+    `service-call-${normalizedEmail}-${submissionId ?? crypto.randomUUID()}`,
   );
 
   if (!accepted) {

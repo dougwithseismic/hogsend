@@ -6,6 +6,29 @@
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Longest accepted per-mount submission id (the double-click dedupe key). */
+export const SUBMISSION_ID_MAX = 100;
+
+/** Trim + bound an optional free-text field; drop anything odd rather than 400. */
+export function boundedText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > max) return undefined;
+  return trimmed;
+}
+
+/**
+ * Trim + TRUNCATE an optional free-text field — for content that must
+ * survive an over-long submission (a customer's note should reach the
+ * operator cut short, not silently vanish while the UI reports success).
+ */
+export function truncatedText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.slice(0, max);
+}
+
 type IngestEventBody = {
   name: string;
   /**

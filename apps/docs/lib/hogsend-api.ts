@@ -19,6 +19,20 @@ export async function postToHogsendApi<T>(
   path: string,
   body: unknown,
 ): Promise<T | null> {
+  const res = await postToHogsendApiRaw(path, body);
+  return res?.ok ? (res.data as T | null) : null;
+}
+
+/**
+ * Status-preserving variant for the billing ACTION routes, which must relay
+ * upstream verdicts (409 "not modifiable", 401 ownership) rather than
+ * flatten everything to null. Null still means unconfigured env / network
+ * failure / timeout.
+ */
+export async function postToHogsendApiRaw(
+  path: string,
+  body: unknown,
+): Promise<{ ok: boolean; status: number; data: unknown } | null> {
   const base = process.env.HOGSEND_INGEST_URL;
   const secret = process.env.SERVICE_CHECKOUT_SECRET;
   if (!base || !secret) return null;
@@ -34,8 +48,11 @@ export async function postToHogsendApi<T>(
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
-    return (await res.json().catch(() => null)) as T | null;
+    return {
+      ok: res.ok,
+      status: res.status,
+      data: await res.json().catch(() => null),
+    };
   } catch {
     return null;
   }
