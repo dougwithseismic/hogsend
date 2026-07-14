@@ -201,21 +201,16 @@ function CurrencyCard() {
           <>
             <div className="flex items-center gap-2 text-sm">
               {effective ? (
-                <>
-                  <Badge
-                    variant="outline"
-                    className="border-white/15 bg-white/[0.06] text-white/80"
-                  >
-                    {effective}
-                  </Badge>
-                  <span className="text-white/60">{fxSourceLabel(state)}</span>
-                </>
+                <Badge
+                  variant="outline"
+                  className="border-white/15 bg-white/[0.06] text-white/80"
+                >
+                  {effective}
+                </Badge>
               ) : (
-                <>
-                  <Badge variant="secondary">Off</Badge>
-                  <span className="text-white/60">{fxSourceLabel(state)}</span>
-                </>
+                <Badge variant="secondary">Off</Badge>
               )}
+              <span className="text-white/60">{fxSourceLabel(state)}</span>
             </div>
 
             {/* Rate-source status. `servesEffectiveBase: false` with a base

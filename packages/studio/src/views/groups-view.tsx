@@ -142,17 +142,15 @@ function RevenueCell({ row, fx }: { row: AdminGroup; fx: GroupFx | null }) {
     );
   }
 
-  const totals = row.revenueTotals;
-  if (totals.length === 0) return <span className="text-white/40">—</span>;
+  const parts = row.revenueTotals.map((t) =>
+    formatAmountWithCode(t.total, t.currency),
+  );
+  if (parts.length === 0) return <span className="text-white/40">—</span>;
 
-  const shown = totals.slice(0, 2);
-  const rest = totals.length - shown.length;
-  const all = totals
-    .map((t) => formatAmountWithCode(t.total, t.currency))
-    .join(" · ");
+  const rest = parts.length - 2;
   return (
-    <span className="text-white/80" title={all}>
-      {shown.map((t) => formatAmountWithCode(t.total, t.currency)).join(" · ")}
+    <span className="text-white/80" title={parts.join(" · ")}>
+      {parts.slice(0, 2).join(" · ")}
       {rest > 0 ? <span className="text-white/40"> +{rest}</span> : null}
     </span>
   );
