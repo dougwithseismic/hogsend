@@ -65,7 +65,7 @@ jobs:
       # re-runs of the exact tasks the CI quality job just executed on this
       # SHA, so they restore instead of re-executing.
       - name: Turborepo cache
-        uses: rharkor/caching-for-turbo@v2
+        uses: rharkor/caching-for-turbo@v2.5.0
       # Gate: the engine line must type-check and build before we publish
       # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
       - run: pnpm check-types

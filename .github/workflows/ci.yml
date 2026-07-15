@@ -28,7 +28,7 @@ jobs:
       # a localhost server speaking the Vercel remote-cache protocol). Unchanged
       # tasks restore instead of re-executing.
       - name: Turborepo cache
-        uses: rharkor/caching-for-turbo@v2
+        uses: rharkor/caching-for-turbo@v2.5.0
       - run: pnpm lint
       - run: pnpm check-types
       # Full build (incl. the Next docs site). check-types runs fumadocs-mdx +
@@ -81,7 +81,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Turborepo cache
-        uses: rharkor/caching-for-turbo@v2
+        uses: rharkor/caching-for-turbo@v2.5.0
       - name: Apply migrations
         run: pnpm --filter @hogsend/db db:migrate
       - run: pnpm test
@@ -232,7 +232,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Turborepo cache
-        uses: rharkor/caching-for-turbo@v2
+        uses: rharkor/caching-for-turbo@v2.5.0
       # Fast, deterministic version-line invariants (pure file reads, ~1s).
       - run: pnpm release-doctor
       # Heavier real pack -> scaffold -> install -> build smoke (dist-in-tarball).
