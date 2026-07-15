@@ -795,6 +795,9 @@ async function runFlowMap({
       kind: registered?.kind ?? "surface",
       name: registered?.name ?? id,
       tier: registered?.tier ?? "acquisition",
+      ...(registered?.display !== undefined
+        ? { display: registered.display }
+        : {}),
       contacts: Number(row?.contacts ?? 0),
       events: Number(row?.events ?? 0),
       // Live counts exist only where "currently in it" is a real state: a

@@ -60,6 +60,8 @@ export interface FlowNode {
   kind: FlowNodeKind;
   name: string;
   tier: SurfaceTier;
+  /** Surface rendering hint (`defineSurface({ display: "source" })`). */
+  display?: "source";
 }
 
 /** The builtin money node — every valued event nothing else claims lands here. */
@@ -423,6 +425,7 @@ export function buildFlowTopology({
       kind: "surface",
       name: surface.meta.name || surfaceId,
       tier: surface.meta.tier,
+      ...(surface.meta.display === "source" ? { display: "source" } : {}),
     });
 
     const { events, eventPrefix, source, where } = surface.meta.match;

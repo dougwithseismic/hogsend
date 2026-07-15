@@ -7,9 +7,11 @@ import { particleBus } from "./particle-bus";
 /**
  * The "railway" edge — the control room's whole visual language.
  *
- * There is NO crisp line: the track is a single wide, blurred, low-opacity
- * stroke (a glow), and the only sharp thing on it is a handful of small
- * particles riding the path via CSS Motion Path (`offset-path`). Traffic reads
+ * The track is LIGHT, not a line: three layered strokes — a wide soft halo,
+ * a tighter bright core, and a faint hairline — inside one `screen`-blended
+ * group, so rails crossing each other ADD light at the intersection instead
+ * of flattening to grey. The only sharp things riding it are small glowing
+ * particles on the path via CSS Motion Path (`offset-path`). Traffic reads
  * as light moving down a rail rather than as a labelled arrow.
  *
  * Two rules keep it honest:
@@ -250,17 +252,39 @@ export function FlowEdge({
       : PULSE_WHITE;
 
   return (
-    <>
-      <g style={{ filter: "blur(6px)" }}>
+    // `screen` blends the whole rail additively with whatever is beneath it —
+    // two rails crossing brighten each other the way beams of light do.
+    <g style={{ mixBlendMode: "screen" }}>
+      <g style={{ filter: "blur(12px)" }}>
         <path
           d={d}
           fill="none"
           stroke={stroke}
-          strokeWidth={width}
+          strokeWidth={width * 1.8}
+          strokeLinecap="round"
+          opacity={glowOpacity * 0.5}
+        />
+      </g>
+      <g style={{ filter: "blur(2.5px)" }}>
+        <path
+          d={d}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={Math.max(1.75, width * 0.45)}
           strokeLinecap="round"
           opacity={glowOpacity}
         />
       </g>
+      {/* The hairline: barely-there, but it resolves the rail's exact course
+          where the glow alone would read as fog. */}
+      <path
+        d={d}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1}
+        strokeLinecap="round"
+        opacity={dimmed ? 0.05 : 0.16}
+      />
       {Array.from({ length: count }, (_, i) => (
         <circle
           // biome-ignore lint/suspicious/noArrayIndexKey: the index IS the particle's identity (and its phase seed)
@@ -274,6 +298,7 @@ export function FlowEdge({
             // Negative delay = start mid-flight, so the rail is populated on
             // first paint instead of dribbling particles out of the source.
             animationDelay: `-${(seeded(id, i) * duration).toFixed(3)}s`,
+            filter: `drop-shadow(0 0 2px ${particleFill})`,
           }}
         />
       ))}
@@ -290,6 +315,7 @@ export function FlowEdge({
             // A distinct seed namespace so the return stream doesn't mirror
             // the outbound one in lockstep.
             animationDelay: `-${(seeded(`${id}#r`, i) * duration).toFixed(3)}s`,
+            filter: `drop-shadow(0 0 2px ${particleFill})`,
           }}
         />
       ))}
@@ -304,12 +330,15 @@ export function FlowEdge({
             // No negative delay: a live pulse starts at ITS source end and
             // rides the rail once — the whole point is watching it depart.
             animationDuration: `${pulseDuration}s`,
+            filter: `drop-shadow(0 0 5px ${
+              pulse.money ? MONEY_GOLD : pulseFill(pulse.lane)
+            })`,
           }}
           onAnimationEnd={() =>
             setPulses((prev) => prev.filter((p) => p.key !== pulse.key))
           }
         />
       ))}
-    </>
+    </g>
   );
 }

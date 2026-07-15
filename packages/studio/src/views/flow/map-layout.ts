@@ -2,7 +2,7 @@ import { graphlib, layout } from "@dagrejs/dagre";
 import type {
   FlowGraphEdge,
   FlowGraphNode,
-  FlowNodeKind,
+  SurfaceTier,
 } from "@/lib/admin-api";
 import type { XY } from "@/views/journeys/flow-layout";
 
@@ -32,13 +32,16 @@ import type { XY } from "@/views/journeys/flow-layout";
 /**
  * Per-kind card footprints — surface-node.tsx sizes itself from these and
  * dagre ranks with them, so the two must stay in lockstep. Surfaces are the
- * tallest: their browser-chrome header buys them a full extra row.
+ * tallest: their browser-chrome header buys them a full extra row. A
+ * `display: "source"` surface (a traffic ORIGIN, not a place contacts dwell)
+ * collapses to a slim inlet chip.
  */
-export function nodeSize(kind: FlowNodeKind): {
+export function nodeSize(node: Pick<FlowGraphNode, "kind" | "display">): {
   width: number;
   height: number;
 } {
-  switch (kind) {
+  if (node.display === "source") return { width: 216, height: 64 };
+  switch (node.kind) {
     case "surface":
       return { width: 264, height: 148 };
     case "journey":
@@ -173,10 +176,21 @@ export function visibleFlow(
   };
 }
 
+/** A faint labeled box behind one lifecycle tier's connected nodes. */
+export interface ClusterBox {
+  tier: SurfaceTier;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface MapLayout {
   positions: Record<string, XY>;
   /** dagre-routed node-avoiding waypoints per edge id. */
   edgePoints: Record<string, XY[]>;
+  /** Tier clusters of the CONNECTED flow (≥2 members earn a box). */
+  clusters: ClusterBox[];
 }
 
 const TIER_ORDER = { acquisition: 0, activation: 1, retention: 2, revenue: 3 };
@@ -217,22 +231,38 @@ export function layoutMap(input: {
 
   const positions: Record<string, XY> = {};
   const edgePoints: Record<string, XY[]> = {};
+  const clusters: ClusterBox[] = [];
   let flowBottom = 0;
 
   if (connected.length > 0) {
-    const g = new graphlib.Graph({ directed: true }).setDefaultEdgeLabel(
-      () => ({}),
-    );
+    // COMPOUND graph: each lifecycle tier is a dagre cluster, so its nodes
+    // are laid out TOGETHER — the "clustering" that turns a web of cards
+    // back into a readable machine. `tier#` cannot collide with node ids
+    // (those use the `kind:` namespaces).
+    const g = new graphlib.Graph({
+      directed: true,
+      compound: true,
+    }).setDefaultEdgeLabel(() => ({}));
     g.setGraph({
       rankdir: "LR",
-      ranksep: 150,
-      nodesep: 72,
+      // Clusters add their own breathing room, so the raw separations sit
+      // tighter than the uncluttered layout needed.
+      ranksep: 120,
+      nodesep: 56,
       edgesep: 24,
       marginx: 32,
       marginy: 32,
     });
+    const tierCounts = new Map<SurfaceTier, number>();
     for (const node of connected) {
-      g.setNode(node.id, nodeSize(node.kind));
+      tierCounts.set(node.tier, (tierCounts.get(node.tier) ?? 0) + 1);
+    }
+    for (const tier of tierCounts.keys()) {
+      g.setNode(`tier#${tier}`, {});
+    }
+    for (const node of connected) {
+      g.setNode(node.id, nodeSize(node));
+      g.setParent(node.id, `tier#${node.tier}`);
     }
     for (const edge of merged) {
       // Unnamed edges: from→to is unique post-merge (no parallel edges), and
@@ -244,12 +274,28 @@ export function layoutMap(input: {
     for (const node of connected) {
       const laid = g.node(node.id);
       if (!laid) continue;
-      const size = nodeSize(node.kind);
+      const size = nodeSize(node);
       positions[node.id] = {
         x: laid.x - size.width / 2,
         y: laid.y - size.height / 2,
       };
       flowBottom = Math.max(flowBottom, laid.y + size.height / 2);
+    }
+    for (const [tier, count] of tierCounts) {
+      // A one-card box is noise — the box earns its ink by GROUPING.
+      if (count < 2) continue;
+      const laid = g.node(`tier#${tier}`);
+      if (!laid || !Number.isFinite(laid.x) || !Number.isFinite(laid.width)) {
+        continue;
+      }
+      clusters.push({
+        tier,
+        x: laid.x - laid.width / 2,
+        y: laid.y - laid.height / 2,
+        width: laid.width,
+        height: laid.height,
+      });
+      flowBottom = Math.max(flowBottom, laid.y + laid.height / 2);
     }
     for (const edge of merged) {
       const laid = g.edge(edge.from, edge.to) as { points?: XY[] } | undefined;
@@ -273,5 +319,5 @@ export function layoutMap(input: {
     };
   });
 
-  return { positions, edgePoints };
+  return { positions, edgePoints, clusters };
 }

@@ -6,6 +6,7 @@ import {
   Globe,
   Lock,
   type LucideIcon,
+  Signal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FlowGraphNode, FlowNodeKind } from "@/lib/admin-api";
@@ -111,10 +112,45 @@ interface MoneyTick {
   label: string;
 }
 
+/** Violet — the traffic-source tint, distinct from lanes, gold and crimzon. */
+const SOURCE_VIOLET = "#a78bfa";
+
+/** All four join points — every variant must render them (edge anchors). */
+function NodeHandles() {
+  return (
+    <>
+      <Handle
+        id="in-l"
+        type="target"
+        position={Position.Left}
+        className={HANDLE_CLASS}
+      />
+      <Handle
+        id="in-t"
+        type="target"
+        position={Position.Top}
+        className={HANDLE_CLASS}
+      />
+      <Handle
+        id="out-r"
+        type="source"
+        position={Position.Right}
+        className={HANDLE_CLASS}
+      />
+      <Handle
+        id="out-b"
+        type="source"
+        position={Position.Bottom}
+        className={HANDLE_CLASS}
+      />
+    </>
+  );
+}
+
 export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
   const { node, fx } = data;
   const Icon = KIND_ICON[node.kind];
-  const size = nodeSize(node.kind);
+  const size = nodeSize(node);
   const money = primaryMoney(node);
   const rate = node.heat?.conversionRate ?? null;
   const stuck = node.dwell?.stuckContacts ?? 0;
@@ -195,12 +231,60 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
       </span>
     ) : null;
 
+  if (node.display === "source") {
+    // A traffic ORIGIN — an inlet, not a place contacts dwell. Slim chip in
+    // its own violet register so paid/referral arrivals read instantly apart
+    // from the product surfaces they feed.
+    return (
+      <div
+        className={cn(
+          "relative flex flex-col justify-center overflow-hidden rounded-md",
+          "border bg-[#0e0b16] px-3 py-2 text-white/90 transition-colors",
+          selected
+            ? "border-accent"
+            : "border-[#a78bfa]/25 hover:border-[#a78bfa]/45",
+        )}
+        style={{ width: size.width, height: size.height }}
+      >
+        <NodeHandles />
+        <div className="flex items-center gap-1.5">
+          <Signal className="h-3 w-3 shrink-0 text-[#a78bfa]/80" />
+          <span
+            className="eyebrow text-[10px]"
+            style={{ color: `${SOURCE_VIOLET}99` }}
+          >
+            Source
+          </span>
+          {rate !== null ? (
+            <span className="ml-auto shrink-0 font-mono text-[10px] text-white/35">
+              {(rate * 100).toFixed(0)}% conv
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <p
+            className="truncate text-[13px] font-medium leading-snug"
+            title={node.name}
+          >
+            {node.name}
+          </p>
+          <span className="ml-auto shrink-0 font-mono text-[11px] text-white/45">
+            {formatNumber(node.contacts)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
         "relative flex flex-col overflow-hidden rounded-lg border",
         "text-white/90 transition-colors",
-        isTill ? "bg-[#f0b429]/[0.03]" : "bg-white/[0.015]",
+        // OPAQUE backgrounds — rails pass UNDER cards, so any alpha here lets
+        // the glow bleed through the card face. Raised near-black, with the
+        // till's gold folded into the solid colour rather than layered on.
+        isTill ? "bg-[#100b04]" : "bg-[#0d0909]",
         flash && "flow-node-flash",
         selected
           ? "border-accent"
@@ -210,18 +294,7 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
       )}
       style={{ width: size.width, height: size.height }}
     >
-      <Handle
-        id="in-l"
-        type="target"
-        position={Position.Left}
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        id="in-t"
-        type="target"
-        position={Position.Top}
-        className={HANDLE_CLASS}
-      />
+      <NodeHandles />
 
       {isBrowser ? (
         // Browser chrome: traffic lights + an address pill. The pill carries
@@ -386,19 +459,6 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
           title={`${(rate * 100).toFixed(1)}% of the contacts here converted`}
         />
       ) : null}
-
-      <Handle
-        id="out-r"
-        type="source"
-        position={Position.Right}
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        id="out-b"
-        type="source"
-        position={Position.Bottom}
-        className={HANDLE_CLASS}
-      />
     </div>
   );
 }

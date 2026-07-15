@@ -61,6 +61,8 @@ const flowNodeSchema = z.object({
   kind: z.enum(["surface", "journey", "funnelStage", "builtin"]),
   name: z.string(),
   tier: z.enum(["acquisition", "activation", "retention", "revenue"]),
+  /** Surface rendering hint — "source" marks a traffic origin (slim chip). */
+  display: z.enum(["source"]).optional(),
   contacts: z.number(),
   events: z.number(),
   /** Contacts currently here (journey enrollments); null in raw mode. */

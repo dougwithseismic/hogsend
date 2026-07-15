@@ -1843,6 +1843,8 @@ export type FlowGraphNode = {
   kind: FlowNodeKind;
   name: string;
   tier: SurfaceTier;
+  /** Surface rendering hint — "source" marks a traffic origin (slim chip). */
+  display?: "source";
   contacts: number;
   events: number;
   /** Contacts enrolled right now — journey nodes only; null everywhere else. */

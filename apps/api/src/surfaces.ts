@@ -77,6 +77,7 @@ export const campaignTraffic = defineSurface({
   id: "campaign-traffic",
   name: "Campaign traffic",
   tier: "acquisition",
+  display: "source",
   // The SDK auto-fires exactly one `campaign.arrived` per utm/click-id
   // landing — so this node IS paid/campaign arrivals, feeding whatever
   // surface the visitor lands on next. (Lane colouring still works: the
@@ -88,6 +89,7 @@ export const referral = defineSurface({
   id: "referral",
   name: "Referrals",
   tier: "acquisition",
+  display: "source",
   // The referral system's events (`referral.visited`, `referral.converted`,
   // …) — invite-driven arrivals as their own source node.
   match: { eventPrefix: "referral." },

@@ -74,6 +74,13 @@ export interface SurfaceMeta {
   name?: string;
   tier: SurfaceTier;
   match: SurfaceMatch;
+  /**
+   * Rendering hint for the flow map: `"source"` marks a traffic ORIGIN
+   * (paid campaigns, referrals) rather than a place contacts dwell — Studio
+   * draws it as a slim inlet chip instead of a full surface card. Absent =
+   * a normal surface.
+   */
+  display?: "source";
 }
 
 export interface DefinedSurface {
@@ -201,6 +208,11 @@ export function defineSurface(meta: SurfaceMeta): DefinedSurface {
   if (!SURFACE_TIERS.includes(meta.tier)) {
     throw new Error(
       `defineSurface("${id}"): unknown tier "${meta.tier}" — expected one of ${SURFACE_TIERS.join(", ")}`,
+    );
+  }
+  if (meta.display !== undefined && meta.display !== "source") {
+    throw new Error(
+      `defineSurface("${id}"): unknown display "${meta.display}" — the only hint is "source"`,
     );
   }
   validateMatch(id, meta.match);

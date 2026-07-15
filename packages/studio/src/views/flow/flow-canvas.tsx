@@ -1,3 +1,4 @@
+import type { NodeProps } from "@xyflow/react";
 import {
   Background,
   BackgroundVariant,
@@ -14,7 +15,11 @@ import {
 import { Lock, MousePointerClick } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { FlowGraphNode, FlowGraphResponse } from "@/lib/admin-api";
+import type {
+  FlowGraphNode,
+  FlowGraphResponse,
+  SurfaceTier,
+} from "@/lib/admin-api";
 import type { XY } from "@/views/journeys/flow-layout";
 import {
   FlowEdge,
@@ -31,10 +36,37 @@ import {
 } from "./map-layout";
 import { SurfaceNode, type SurfaceRfNode } from "./surface-node";
 
+/** The faint labeled box behind one tier's connected nodes (zIndex -1). */
+type ClusterRfNode = Node<{ tier: SurfaceTier }, "cluster">;
+type CanvasNode = SurfaceRfNode | ClusterRfNode;
+
+const TIER_LABELS: Record<SurfaceTier, string> = {
+  acquisition: "Acquisition",
+  activation: "Activation",
+  retention: "Retention",
+  revenue: "Revenue",
+};
+
+function ClusterNode({ data }: NodeProps<ClusterRfNode>) {
+  return (
+    <div className="pointer-events-none relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012]">
+      <span className="eyebrow absolute left-4 top-2.5 text-[10px] text-white/25">
+        {TIER_LABELS[data.tier]}
+      </span>
+    </div>
+  );
+}
+
 // Module-scope, per React Flow's rule: a fresh object here re-instantiates
 // every node/edge component on each render (and kills the CSS animations).
-const nodeTypes: NodeTypes = { surface: SurfaceNode };
+const nodeTypes: NodeTypes = {
+  surface: SurfaceNode,
+  cluster: ClusterNode,
+};
 const edgeTypes: EdgeTypes = { flow: FlowEdge };
+
+/** Breathing room between a cluster's border and its member cards. */
+const CLUSTER_PAD = 10;
 
 /**
  * The complete visual signature of an edge under the current lane selection —
@@ -262,9 +294,35 @@ function FlowCanvasInner({
     [data, layout, selectedLane],
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
+  // Tier cluster boxes — pure layout artifacts, re-minted only when the
+  // layout epoch changes (they hold no animations, so identity churn on a
+  // relayout is free). zIndex -1 parks them under every rail and card;
+  // pointer events pass through so a click inside a box still pans/deselects.
+  const clusterNodes = useMemo<ClusterRfNode[]>(
+    () =>
+      layout.clusters.map((c) => ({
+        id: `cluster#${c.tier}`,
+        type: "cluster",
+        position: { x: c.x - CLUSTER_PAD, y: c.y - CLUSTER_PAD },
+        data: { tier: c.tier },
+        width: c.width + CLUSTER_PAD * 2,
+        height: c.height + CLUSTER_PAD * 2,
+        zIndex: -1,
+        draggable: false,
+        selectable: false,
+        focusable: false,
+        style: { pointerEvents: "none" },
+      })),
+    [layout],
+  );
+  const allNodes = useMemo<CanvasNode[]>(
+    () => [...clusterNodes, ...rfNodes],
+    [clusterNodes, rfNodes],
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(allNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
-  useEffect(() => setNodes(rfNodes), [rfNodes, setNodes]);
+  useEffect(() => setNodes(allNodes), [allNodes, setNodes]);
   useEffect(() => setEdges(rfEdges), [rfEdges, setEdges]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -331,7 +389,9 @@ function FlowCanvasInner({
         // Drill-down: a node click surfaces WHO is there (panel lives OUTSIDE
         // this tree, so selection never re-mints an edge/node object). A pane
         // click deselects.
-        onNodeClick={(_, node) => onNodeSelect?.(node.id)}
+        onNodeClick={(_, node) => {
+          if (node.type === "surface") onNodeSelect?.(node.id);
+        }}
         onPaneClick={() => onPaneSelect?.()}
         onNodeDragStop={onNodeDragStop}
         minZoom={0.15}
