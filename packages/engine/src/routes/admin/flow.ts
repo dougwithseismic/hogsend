@@ -389,6 +389,16 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>()
     }
 
     const onlyStuck = stuckOnly === "true";
+    // The lookback floors EXACTLY like the map's dwell computation
+    // (flow-map.ts): dwell answers "who is here NOW", not "who moved in the
+    // display window". Without the floor, clicking a card's "N stuck" badge
+    // (computed over ≥30d) with a 1- or 7-day display window opens a panel
+    // whose narrower scan can't see the very contacts the badge counted.
+    const lookbackDays = Math.max(
+      30,
+      windowDays,
+      Math.ceil(dwellThresholdHours / 24) + 1,
+    );
     // Stuck path reuses the pile-up query with the conversion-destination
     // exclusion turned OFF: the operator explicitly asked about THIS node, so a
     // won stage's occupants are shown (the default exclusion is a ranking policy
@@ -399,7 +409,7 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>()
             db,
             topology: flowTopology,
             nodeId,
-            windowDays,
+            windowDays: lookbackDays,
             thresholdHours: dwellThresholdHours,
             limit,
             excludeNodeIds: [],
@@ -414,7 +424,7 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>()
           db,
           topology: flowTopology,
           nodeId,
-          windowDays,
+          windowDays: lookbackDays,
           thresholdHours: dwellThresholdHours,
           limit,
         });

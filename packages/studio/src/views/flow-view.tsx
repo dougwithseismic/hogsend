@@ -20,9 +20,9 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FlowCanvas } from "./flow/flow-canvas";
 import { laneColor } from "./flow/lane-colors";
+import { flowEdgeId, visibleFlow } from "./flow/map-layout";
 import { NodePanel } from "./flow/node-panel";
 import { particleBus } from "./flow/particle-bus";
-import { flowEdgeId } from "./flow/tier-layout";
 import {
   type FlowTransitionMessage,
   useFlowStream,
@@ -77,6 +77,7 @@ export function FlowView() {
   const [selectedLane, setSelectedLane] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [live, setLive] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -170,6 +171,16 @@ export function FlowView() {
       ? (data?.nodes.find((n) => n.id === selectedNodeId) ?? null)
       : null;
 
+  // The earn-your-canvas rule (map-layout): only nodes with traffic, a live
+  // enrollment, a pile-up, or an edge are drawn — the registry's empty
+  // remainder sits behind the toggle. This is what turns "40 registered
+  // cards" into "the marketing engine".
+  const visible = data ? visibleFlow(data, showAll) : null;
+  const canvasData =
+    data && visible
+      ? { ...data, nodes: visible.nodes, edges: visible.edges }
+      : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -196,6 +207,18 @@ export function FlowView() {
                 ))}
               </Select>
             </div>
+            {visible && (visible.hiddenCount > 0 || showAll) ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAll((v) => !v)}
+                title="Registered nodes with no traffic, enrollments or pile-up in this window"
+              >
+                {showAll
+                  ? "Hide empty"
+                  : `Show all (${formatNumber(visible.hiddenCount)} empty)`}
+              </Button>
+            ) : null}
             <Button
               variant={live ? "default" : "outline"}
               size="sm"
@@ -286,7 +309,7 @@ export function FlowView() {
                 and every particle animation live inside it. */}
             <Panel id="flow-canvas" order={1} minSize={45}>
               <FlowCanvas
-                data={data}
+                data={canvasData ?? data}
                 selectedLane={activeLane}
                 onNodeSelect={setSelectedNodeId}
                 onPaneSelect={() => setSelectedNodeId(null)}

@@ -1,5 +1,6 @@
 import type { Edge, EdgeProps } from "@xyflow/react";
 import { useEffect, useRef, useState } from "react";
+import { roundedPath, type XY } from "@/views/journeys/flow-layout";
 import { laneColor } from "./lane-colors";
 import { particleBus } from "./particle-bus";
 
@@ -30,10 +31,13 @@ import { particleBus } from "./particle-bus";
  */
 
 export type FlowEdgeData = {
-  /** Rounded path from `tier-layout` — drawn AND used as the offset-path. */
-  d: string;
-  /** Polyline length; paces the particles at a constant speed. */
-  length: number;
+  /**
+   * dagre's node-avoiding interior waypoints (layout epoch). The drawable
+   * path is built PER RENDER from React Flow's live handle coordinates plus
+   * these — so the rail follows a node while it is being dragged, and a poll
+   * that moves nothing produces a byte-identical path.
+   */
+  waypoints?: XY[];
   transitions: number;
   contacts: number;
   /**
@@ -47,6 +51,29 @@ export type FlowEdgeData = {
    */
   color: string | null;
 };
+
+/** Consecutive near-duplicate points produce NaN corners — drop them. */
+function dedupe(points: XY[]): XY[] {
+  const out: XY[] = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.x - p.x) < 0.5 && Math.abs(last.y - p.y) < 0.5) {
+      continue;
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+function polylineLength(points: XY[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (a && b) total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return total;
+}
 
 export type FlowRfEdge = Edge<FlowEdgeData, "flow">;
 
@@ -111,7 +138,14 @@ interface LivePulse {
   lane: string | null;
 }
 
-export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
+export function FlowEdge({
+  id,
+  data,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+}: EdgeProps<FlowRfEdge>) {
   // Live pulses (P4) — transient, LOCAL to this edge. A surge flag stands in for
   // pulses when the concurrent cap is hit, so a stampede never floods the SVG.
   const [pulses, setPulses] = useState<LivePulse[]>([]);
@@ -143,7 +177,20 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
   }, [id]);
 
   if (!data) return null;
-  const { d, length, weight, color } = data;
+  const { waypoints, weight, color } = data;
+  // The drawable path: live handle coordinates at the ends (so the rail
+  // follows a dragged node), dagre's node-avoiding waypoints in between.
+  // Everything here is a pure function of stable inputs, so an idle poll
+  // re-produces a byte-identical `d` and no animation restarts.
+  const interior =
+    waypoints && waypoints.length > 2 ? waypoints.slice(1, -1) : [];
+  const pts = dedupe([
+    { x: sourceX, y: sourceY },
+    ...interior,
+    { x: targetX, y: targetY },
+  ]);
+  const d = roundedPath(pts, 12);
+  const length = polylineLength(pts);
   // A lane is selected (color set) but this edge carries none of it: dim the
   // rail and kill its particles, but STAY MOUNTED — unmounting restarts every
   // animation on the map.

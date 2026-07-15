@@ -461,8 +461,10 @@ export {
 // --- Flow map (control room, #485) ---
 export {
   type ComputeDwellOptions,
+  type ContactAtNode,
   computeNodeDwell,
   type DwellBucket,
+  listRecentContactsAtNode,
   listStuckContacts,
   type StuckContact,
 } from "./lib/flow-dwell.js";

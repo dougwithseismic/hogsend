@@ -3,6 +3,7 @@ import {
   BackgroundVariant,
   Controls,
   type EdgeTypes,
+  type Node,
   type NodeTypes,
   ReactFlow,
   ReactFlowProvider,
@@ -13,11 +14,8 @@ import {
 import { Lock, MousePointerClick } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type {
-  FlowGraphNode,
-  FlowGraphResponse,
-  SurfaceTier,
-} from "@/lib/admin-api";
+import type { FlowGraphNode, FlowGraphResponse } from "@/lib/admin-api";
+import type { XY } from "@/views/journeys/flow-layout";
 import {
   FlowEdge,
   type FlowRfEdge,
@@ -25,24 +23,14 @@ import {
   strokeWidthFor,
 } from "./flow-edge";
 import { laneColor } from "./lane-colors";
+import { flowEdgeId, layoutMap, type MapLayout } from "./map-layout";
 import { SurfaceNode, type SurfaceRfNode } from "./surface-node";
-import { flowEdgeId, layoutTiers, type TierLayout } from "./tier-layout";
 
 // Module-scope, per React Flow's rule: a fresh object here re-instantiates
 // every node/edge component on each render (and kills the CSS animations).
 const nodeTypes: NodeTypes = { surface: SurfaceNode };
 const edgeTypes: EdgeTypes = { flow: FlowEdge };
 
-/**
- * Reconcile the polled graph against what's already on screen.
- *
- * React Flow subscribes per element with `Object.is`, so handing back the
- * PREVIOUS object for an unchanged element skips its re-render entirely —
- * which is the only reason a particle animation survives a 30s poll. Anything
- * that changes what's painted (position, traffic bucket, path) mints a new
- * object; anything else (an events count nobody can see move, an unchanged
- * edge) does not.
- */
 /**
  * The complete visual signature of an edge under the current lane selection —
  * width bucket, particle count (0 when dimmed), colour, and dimmed flag. Two
@@ -55,16 +43,27 @@ function edgeVisualKey(weight: number, color: string | null): string {
   return `${strokeWidthFor(weight)}:${particles}:${color ?? ""}:${dimmed ? 1 : 0}`;
 }
 
+/**
+ * Reconcile the polled graph against what's already on screen.
+ *
+ * React Flow subscribes per element with `Object.is`, so handing back the
+ * PREVIOUS object for an unchanged element skips its re-render entirely —
+ * which is the only reason a particle animation survives a poll. Anything
+ * that changes what's painted (position, traffic bucket, layout epoch) mints
+ * a new object; anything else does not. A node the operator dragged keeps its
+ * manual position across polls (`manual` wins over the auto-layout).
+ */
 function reconcile(
   data: FlowGraphResponse,
-  layout: TierLayout,
+  layout: MapLayout,
+  manual: Map<string, XY>,
   prevNodes: Map<string, SurfaceRfNode>,
   prevEdges: Map<string, FlowRfEdge>,
   selectedLane: string | null,
 ): { nodes: SurfaceRfNode[]; edges: FlowRfEdge[] } {
   const nodes: SurfaceRfNode[] = [];
   for (const node of data.nodes) {
-    const position = layout.positions[node.id];
+    const position = manual.get(node.id) ?? layout.positions[node.id];
     if (!position) continue;
     const prev = prevNodes.get(node.id);
     if (
@@ -89,8 +88,6 @@ function reconcile(
   const edges: FlowRfEdge[] = [];
   for (const edge of data.edges) {
     const id = flowEdgeId(edge);
-    const route = layout.routes[id];
-    if (!route) continue;
     // With a lane selected, the buckets are driven by THAT lane's count (0 =
     // this edge carries none of it) and the rail takes the lane colour; with no
     // lane, total transitions drive the neutral-white resting map. Explicit
@@ -100,31 +97,29 @@ function reconcile(
         ? (edge.lanes?.[selectedLane] ?? 0)
         : edge.transitions;
     const color = selectedLane !== null ? laneColor(selectedLane) : null;
+    const waypoints = layout.edgePoints[id];
     const prev = prevEdges.get(id);
     const sameStyle =
       prev !== undefined &&
       edgeVisualKey(prev.data?.weight ?? 0, prev.data?.color ?? null) ===
         edgeVisualKey(weight, color);
-    if (prev && sameStyle && prev.data?.d === route.d) {
+    // Waypoints are compared by REFERENCE — the layout memo re-produces the
+    // same object until the node/edge SET changes, so an idle poll reuses the
+    // previous edge and its animations survive. Endpoint moves (drag) reach
+    // the edge through React Flow's own props, not through this object.
+    if (prev && sameStyle && prev.data?.waypoints === waypoints) {
       edges.push(prev);
       continue;
-    }
-    if (import.meta.env.DEV && prev && sameStyle) {
-      // Tripwire: the geometry moved under a stable graph — every particle on
-      // this edge just restarted. If this fires on an idle poll, the layout
-      // stopped being a pure function of the (stable) row order.
-      console.debug("[flow] edge path changed without a style change", id);
     }
     const next: FlowRfEdge = {
       id,
       source: edge.from,
       target: edge.to,
-      sourceHandle: route.handles.source,
-      targetHandle: route.handles.target,
+      sourceHandle: "out-r",
+      targetHandle: "in-l",
       type: "flow",
       data: {
-        d: route.d,
-        length: route.length,
+        waypoints,
         transitions: edge.transitions,
         contacts: edge.contacts,
         weight,
@@ -195,26 +190,40 @@ function FlowCanvasInner({
   onPaneSelect?: () => void;
 }) {
   const { fitView } = useReactFlow();
-  // Cross-poll memory: row slots (so nodes never jump) and the previous
-  // element objects (so unchanged elements keep their identity).
-  const orderRef = useRef<Map<SurfaceTier, string[]>>(new Map());
+  // Cross-poll memory: previous element objects (identity reuse) and the
+  // operator's manual drag positions (they beat the auto-layout until the
+  // node leaves the map).
   const prevNodesRef = useRef<Map<string, SurfaceRfNode>>(new Map());
   const prevEdgesRef = useRef<Map<string, FlowRfEdge>>(new Map());
+  const manualPosRef = useRef<Map<string, XY>>(new Map());
+
+  // The layout is a pure function of the node/edge SET — counts wiggling
+  // between polls must not move anything, so the memo keys on ids only.
+  const layoutKey = useMemo(
+    () =>
+      `${data.nodes
+        .map((n) => n.id)
+        .sort()
+        .join(",")}|${data.edges.map((e) => flowEdgeId(e)).join(",")}`,
+    [data],
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: layoutKey IS the dependency that matters — it changes exactly when the node/edge set does
+  const layout = useMemo(
+    () => layoutMap({ nodes: data.nodes, edges: data.edges }),
+    [layoutKey],
+  );
 
   const { nodes: rfNodes, edges: rfEdges } = useMemo(
     () =>
       reconcile(
         data,
-        layoutTiers({
-          nodes: data.nodes,
-          edges: data.edges,
-          order: orderRef.current,
-        }),
+        layout,
+        manualPosRef.current,
         prevNodesRef.current,
         prevEdgesRef.current,
         selectedLane,
       ),
-    [data, selectedLane],
+    [data, layout, selectedLane],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
@@ -223,24 +232,30 @@ function FlowCanvasInner({
   useEffect(() => setEdges(rfEdges), [rfEdges, setEdges]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const fittedRef = useRef(false);
+  const fittedRef = useRef<string | null>(null);
   const [interactive, setInteractive] = useState(false);
 
-  // Fit ONCE, when the pane first has real dimensions (it mounts inside a
-  // flex/height container that measures async). Deliberately not on poll: a
-  // refit every 30s would yank the viewport out from under the operator.
+  // Fit when the pane first has real dimensions, again when the VISIBLE
+  // node/edge set changes (a new node deserves to be on screen), and again
+  // when the CONTAINER is materially resized (the drill-down panel mounting
+  // shrinks the canvas ~a third — without a refit the rightmost nodes slide
+  // under the panel, hiding exactly the card the operator clicked). Never on
+  // a counts-only poll.
+  const lastWidthRef = useRef(0);
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el || fittedRef.current || rfNodes.length === 0) return;
+    if (!el || rfNodes.length === 0) return;
     let raf = 0;
     const tryFit = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        if (fittedRef.current) return;
-        if (el.clientWidth > 0 && el.clientHeight > 0) {
-          fitView({ padding: 0.18 });
-          fittedRef.current = true;
-        }
+        const width = el.clientWidth;
+        if (width <= 0 || el.clientHeight <= 0) return;
+        const resized = Math.abs(width - lastWidthRef.current) > 48;
+        if (fittedRef.current === layoutKey && !resized) return;
+        fitView({ padding: 0.15, duration: fittedRef.current ? 300 : 0 });
+        fittedRef.current = layoutKey;
+        lastWidthRef.current = width;
       });
     };
     const observer = new ResizeObserver(tryFit);
@@ -250,14 +265,25 @@ function FlowCanvasInner({
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [fitView, rfNodes.length]);
+  }, [fitView, rfNodes.length, layoutKey]);
+
+  // A drag is the operator overriding the auto-layout — remember it so the
+  // next poll's reconcile doesn't snap the card back.
+  const onNodeDragStop = (_: unknown, node: Node) => {
+    manualPosRef.current.set(node.id, { ...node.position });
+    const prev = prevNodesRef.current.get(node.id);
+    if (prev) {
+      prevNodesRef.current.set(node.id, { ...prev, position: node.position });
+    }
+  };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: pointer-leave re-locks pan/zoom; the affordances are the overlay + Lock buttons
+    // The wrapper deliberately does NOT re-lock on pointer-leave: the
+    // drill-down panel lives beside the canvas, and a round-trip to it would
+    // re-lock every time. Locking is the explicit Lock button only.
     <div
       ref={wrapRef}
       className="relative h-full min-h-[480px] overflow-hidden rounded-md border border-hairline-faint bg-black/20"
-      onMouseLeave={() => setInteractive(false)}
     >
       <ReactFlow
         nodes={nodes}
@@ -271,6 +297,7 @@ function FlowCanvasInner({
         // click deselects.
         onNodeClick={(_, node) => onNodeSelect?.(node.id)}
         onPaneClick={() => onPaneSelect?.()}
+        onNodeDragStop={onNodeDragStop}
         minZoom={0.15}
         nodesConnectable={false}
         edgesFocusable={false}
@@ -280,10 +307,11 @@ function FlowCanvasInner({
         zoomOnDoubleClick={interactive}
         panOnDrag={interactive}
         panOnScroll={false}
-        // Positions are a pure function of (order × tier) — a drag would
-        // detach the rails (edges draw the layout path, not live handle
-        // coords) and the next poll would snap the card back anyway.
-        nodesDraggable={false}
+        // Rearranging the machine is part of reading it: edges anchor to the
+        // LIVE handle coordinates (flow-edge builds its path per render), so
+        // rails follow a dragged card, and the drag sticks across polls via
+        // the manual-position memory above.
+        nodesDraggable={interactive}
         preventScrolling={interactive}
       >
         <Background

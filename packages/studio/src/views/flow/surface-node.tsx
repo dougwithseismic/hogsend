@@ -9,11 +9,11 @@ import {
 import type { FlowGraphNode, FlowNodeKind } from "@/lib/admin-api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { NODE_HEIGHT, NODE_WIDTH } from "./tier-layout";
+import { NODE_HEIGHT, NODE_WIDTH } from "./map-layout";
 
 /**
  * A place in the growth machine — same crimzon card language as the journey
- * flow's nodes, sized to `NODE_WIDTH`/`NODE_HEIGHT` in `tier-layout.ts` (the
+ * flow's nodes, sized to `NODE_WIDTH`/`NODE_HEIGHT` in `map-layout.ts` (the
  * layout centres handles on those dimensions, so they must stay in lockstep —
  * hence the inline style rather than a duplicated Tailwind size).
  *
@@ -104,7 +104,9 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
       <div className="flex items-center gap-1.5">
         <Icon className="h-3 w-3 shrink-0 text-white/40" />
         <span className="eyebrow text-[11px] text-white/40">
-          {KIND_LABEL[node.kind]}
+          {/* Tier rides the eyebrow now that layout is graph-first — it names
+              the lifecycle stage without dictating a column. */}
+          {KIND_LABEL[node.kind]} · {node.tier}
         </span>
         {money ? (
           <span

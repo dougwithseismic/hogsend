@@ -367,3 +367,64 @@ describe("nodeId encoding + limit", () => {
     expect(flow.contacts.map((c) => c.userId)).toEqual([FRESH1, FRESH2]);
   });
 });
+
+describe("last-classified-node semantics + the lookback floor (P5 review pins)", () => {
+  // A walker whose path is surface → enquiry: their LAST node is the enquiry
+  // stage, so the surface drill-down must NOT list them (visiting a node is
+  // not being AT it), while the enquiry drill-down must.
+  const WALKER = `${RUN}-walker`;
+  // Idle 10 days at the enquiry stage — outside a 7d display window, but the
+  // drill-down lookback floors at 30d (exactly like the map's dwell badge),
+  // so the panel must still surface them.
+  const LONG_STUCK = `${RUN}-long-stuck`;
+
+  beforeAll(async () => {
+    await db.insert(userEvents).values([
+      {
+        userId: WALKER,
+        event: SURFACE_EVENT,
+        source: "test",
+        occurredAt: hoursAgo(5),
+      },
+      {
+        userId: WALKER,
+        event: ENQUIRY_EVENT,
+        source: "test",
+        occurredAt: hoursAgo(4),
+      },
+      {
+        userId: LONG_STUCK,
+        event: ENQUIRY_EVENT,
+        source: "test",
+        occurredAt: hoursAgo(240),
+      },
+    ]);
+  });
+
+  it("lists a contact only at their LAST classified node", async () => {
+    const surface = await fetchNode(SURFACE_NODE);
+    expect(surface.contacts.some((c) => c.userId === WALKER)).toBe(false);
+    const enquiry = await fetchNode(ENQUIRY_NODE);
+    expect(enquiry.contacts.some((c) => c.userId === WALKER)).toBe(true);
+  });
+
+  it("floors the lookback so the badge's long-stuck contacts stay visible", async () => {
+    // windowDays=1 is what Studio's "Last 24 hours" sends — the 10-day-idle
+    // contact must STILL appear (both modes), or clicking a card's stuck
+    // badge would open an empty panel.
+    const recent = await fetchNode(ENQUIRY_NODE, "?windowDays=1");
+    expect(recent.contacts.some((c) => c.userId === LONG_STUCK)).toBe(true);
+    const stuck = await fetchNode(ENQUIRY_NODE, "?windowDays=1&stuckOnly=true");
+    const row = stuck.contacts.find((c) => c.userId === LONG_STUCK);
+    expect(row?.stuck).toBe(true);
+    expect(row?.hoursIdle ?? 0).toBeGreaterThan(200);
+  });
+
+  it("rejects an out-of-range limit", async () => {
+    const res = await app.request(
+      `/v1/admin/flow/nodes/${encodeURIComponent(SURFACE_NODE)}/contacts?limit=201`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(400);
+  });
+});

@@ -70,4 +70,36 @@ export const app = defineSurface({
   match: { source: "api" },
 });
 
-export const surfaces = [site, docs, demo, course, checkout, app];
+// Traffic SOURCES as first-class nodes (Doug, 2026-07-15): the map should
+// show where people come from, not just where they go.
+
+export const campaignTraffic = defineSurface({
+  id: "campaign-traffic",
+  name: "Campaign traffic",
+  tier: "acquisition",
+  // The SDK auto-fires exactly one `campaign.arrived` per utm/click-id
+  // landing — so this node IS paid/campaign arrivals, feeding whatever
+  // surface the visitor lands on next. (Lane colouring still works: the
+  // live lane cache is captured before classification.)
+  match: { events: ["campaign.arrived"] },
+});
+
+export const referral = defineSurface({
+  id: "referral",
+  name: "Referrals",
+  tier: "acquisition",
+  // The referral system's events (`referral.visited`, `referral.converted`,
+  // …) — invite-driven arrivals as their own source node.
+  match: { eventPrefix: "referral." },
+});
+
+export const surfaces = [
+  site,
+  docs,
+  demo,
+  course,
+  checkout,
+  app,
+  campaignTraffic,
+  referral,
+];
