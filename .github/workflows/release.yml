@@ -61,6 +61,11 @@ jobs:
       # Restore @latest once npm 12.x ships the fix (npm/cli#9740).
       - run: npm install --global npm@11
       - run: pnpm install --frozen-lockfile
+      # Same GHA-backed Turborepo cache as ci.yml: check-types/build here are
+      # re-runs of the exact tasks the CI quality job just executed on this
+      # SHA, so they restore instead of re-executing.
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2
       # Gate: the engine line must type-check and build before we publish
       # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
       - run: pnpm check-types

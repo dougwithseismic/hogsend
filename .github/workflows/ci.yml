@@ -24,6 +24,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Turborepo remote cache backed by the GitHub Actions cache (no secrets:
+      # a localhost server speaking the Vercel remote-cache protocol). Unchanged
+      # tasks restore instead of re-executing.
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2
       - run: pnpm lint
       - run: pnpm check-types
       # Full build (incl. the Next docs site). check-types runs fumadocs-mdx +
@@ -40,7 +45,9 @@ jobs:
       # the integration tests connect to. The superuser role lets the migration
       # test create/drop its own throwaway database.
       postgres:
-        image: timescale/timescaledb:latest-pg18
+        # Pinned by digest: a floating latest-pg18 can silently change the DB
+        # under the test gate. Bump deliberately alongside the local compose.
+        image: timescale/timescaledb:latest-pg18@sha256:68d73d98c13352d88a0bdeff0c31effcc3e740dce2ddb26ca89f63482b592df7
         env:
           POSTGRES_USER: growthhog
           POSTGRES_PASSWORD: growthhog
@@ -73,6 +80,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2
       - name: Apply migrations
         run: pnpm --filter @hogsend/db db:migrate
       - run: pnpm test
@@ -192,7 +201,15 @@ jobs:
     # needs neither Node nor pnpm on the host (the build runs inside the image).
     steps:
       - uses: actions/checkout@v5
+      # Buildx + the GHA cache backend: unchanged dependency layers restore
+      # from cache instead of rebuilding. ghaction-github-runtime exposes the
+      # ACTIONS_RUNTIME_TOKEN a raw `docker buildx build --cache-to type=gha`
+      # needs (normally only wired up inside docker/build-push-action).
+      - uses: docker/setup-buildx-action@v3
+      - uses: crazy-max/ghaction-github-runtime@v3
       - name: Build prod image and boot api/worker/migrate
+        env:
+          PREFLIGHT_CACHE_ARGS: --cache-from type=gha --cache-to type=gha,mode=max
         run: bash scripts/preflight-deploy.sh
 
   release-integrity:
@@ -214,6 +231,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2
       # Fast, deterministic version-line invariants (pure file reads, ~1s).
       - run: pnpm release-doctor
       # Heavier real pack -> scaffold -> install -> build smoke (dist-in-tarball).

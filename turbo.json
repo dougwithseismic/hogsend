@@ -11,7 +11,8 @@
       "dependsOn": ["^build"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["DATABASE_URL", "REDIS_URL"]
     },
     "dev": {
       "cache": false,
