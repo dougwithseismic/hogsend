@@ -1822,6 +1822,12 @@ export type FlowNodeHeat = {
   conversionRate: number | null;
   attributedRevenue: FlowMoney[];
   directRevenue: FlowMoney[];
+  /**
+   * The same money through the operator's base-currency lens (#496) — null
+   * when the lens is off or any currency lacks a rate (a partial sum lies).
+   */
+  attributedRevenueBase: number | null;
+  directRevenueBase: number | null;
 };
 
 /** Pile-up: contacts whose last classified node is this one, idle past threshold. */
@@ -1862,6 +1868,8 @@ export type FlowGraphResponse = {
   edges: FlowGraphEdge[];
   /** Lanes seen in the window, with contact counts — empty until P3. */
   lanes: { id: string; count: number }[];
+  /** The operator's base-currency lens (#496); null = lens off. */
+  fx: { baseCurrency: string; asOf: string | null } | null;
   meta: {
     /** True when the engine shrank the window to bound the scan. */
     truncated: boolean;

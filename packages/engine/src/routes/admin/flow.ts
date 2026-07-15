@@ -35,6 +35,27 @@ const flowMoneySchema = z.object({
   currency: z.string(),
 });
 
+/**
+ * A per-currency money list converted into the operator's base currency
+ * (#496's FX lens). Mirrors the groups route's `revenueBaseOf` law exactly:
+ * null when the lens is off OR any currency present lacks a rate — a partial
+ * sum would LIE (display the node as smaller than it is). Empty list with
+ * the lens on = 0.
+ */
+function moneyBaseOf(
+  entries: { amount: number; currency: string }[],
+  rates: Record<string, number> | null,
+): number | null {
+  if (!rates) return null;
+  let sum = 0;
+  for (const entry of entries) {
+    const rate = rates[entry.currency];
+    if (rate === undefined) return null;
+    sum += entry.amount * rate;
+  }
+  return sum;
+}
+
 const flowNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["surface", "journey", "funnelStage", "builtin"]),
@@ -50,6 +71,12 @@ const flowNodeSchema = z.object({
       conversionRate: z.number().nullable(),
       attributedRevenue: z.array(flowMoneySchema),
       directRevenue: z.array(flowMoneySchema),
+      /**
+       * The same money through the operator's base-currency lens (#496).
+       * Null = lens off or a currency lacks a rate (a partial sum would lie).
+       */
+      attributedRevenueBase: z.number().nullable(),
+      directRevenueBase: z.number().nullable(),
     })
     .nullable(),
   /** Pile-up: contacts idle here past the threshold. */
@@ -107,6 +134,13 @@ const flowRoute = createRoute({
             edges: z.array(flowEdgeSchema),
             /** P3 — lanes seen in the window, with contact counts. */
             lanes: z.array(z.object({ id: z.string(), count: z.number() })),
+            /** The operator's base-currency lens (#496); null = lens off. */
+            fx: z
+              .object({
+                baseCurrency: z.string(),
+                asOf: z.string().nullable(),
+              })
+              .nullable(),
             meta: z.object({
               truncated: z.boolean(),
               effectiveWindowDays: z.number(),
@@ -306,7 +340,34 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>()
       dwellThresholdHours,
       laneBy,
     });
-    return c.json(flow, 200);
+    // Base-currency decoration is PRESENTATION, applied per request over the
+    // memoized map (never mutating it): the FX lens resolves per call, so a
+    // base changed in Studio settings takes effect on the next poll while the
+    // 5s memo keeps collapsing concurrent viewers.
+    const fxSheet = await c.get("container").fx.getRatesToBase();
+    const rates = fxSheet?.rates ?? null;
+    return c.json(
+      {
+        ...flow,
+        nodes: flow.nodes.map((node) => ({
+          ...node,
+          heat: node.heat
+            ? {
+                ...node.heat,
+                attributedRevenueBase: moneyBaseOf(
+                  node.heat.attributedRevenue,
+                  rates,
+                ),
+                directRevenueBase: moneyBaseOf(node.heat.directRevenue, rates),
+              }
+            : null,
+        })),
+        fx: fxSheet
+          ? { baseCurrency: fxSheet.baseCurrency, asOf: fxSheet.asOf }
+          : null,
+      },
+      200,
+    );
   })
   .openapi(streamRoute, async (c) => {
     const { flowTopology } = c.get("container");

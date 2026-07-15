@@ -84,6 +84,7 @@ function reconcile(
       prev &&
       prev.position.x === position.x &&
       prev.position.y === position.y &&
+      prev.data.fx?.baseCurrency === data.fx?.baseCurrency &&
       sameNodeVisuals(prev.data.node, node)
     ) {
       nodes.push(prev);
@@ -93,7 +94,7 @@ function reconcile(
       id: node.id,
       type: "surface",
       position,
-      data: { node },
+      data: { node, fx: data.fx },
     };
     prevNodes.set(node.id, next);
     nodes.push(next);
@@ -177,9 +178,18 @@ function sameNodeVisuals(a: FlowGraphNode, b: FlowGraphNode): boolean {
     (a.dwell?.stuckContacts ?? 0) === (b.dwell?.stuckContacts ?? 0) &&
     (a.dwell?.thresholdHours ?? 0) === (b.dwell?.thresholdHours ?? 0) &&
     paintedRate(a) === paintedRate(b) &&
+    paintedBase(a.heat?.attributedRevenueBase) ===
+      paintedBase(b.heat?.attributedRevenueBase) &&
+    paintedBase(a.heat?.directRevenueBase) ===
+      paintedBase(b.heat?.directRevenueBase) &&
     sameMoney(a.heat?.attributedRevenue, b.heat?.attributedRevenue) &&
     sameMoney(a.heat?.directRevenue, b.heat?.directRevenue)
   );
+}
+
+/** Base-lens totals paint at 0 decimals — sub-unit FX drift must not re-render. */
+function paintedBase(value: number | null | undefined): number | null {
+  return value === null || value === undefined ? null : Math.round(value);
 }
 
 /** The conversion rate as the card paints it: 2dp (the strip is 240px wide). */

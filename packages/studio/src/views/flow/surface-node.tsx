@@ -30,7 +30,11 @@ import { particleBus } from "./particle-bus";
  * - the chips — "N stuck" (the thing an operator acts on) and "N live".
  */
 
-export type SurfaceNodeData = { node: FlowGraphNode };
+export type SurfaceNodeData = {
+  node: FlowGraphNode;
+  /** The operator's base-currency lens label (#496); null = lens off. */
+  fx: { baseCurrency: string; asOf: string | null } | null;
+};
 export type SurfaceRfNode = Node<SurfaceNodeData, "surface">;
 
 const HANDLE_CLASS = "!h-1.5 !w-1.5 !border-0 !bg-white/25";
@@ -87,11 +91,21 @@ interface MoneyTick {
 }
 
 export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
-  const { node } = data;
+  const { node, fx } = data;
   const Icon = KIND_ICON[node.kind];
   const money = primaryMoney(node);
   const rate = node.heat?.conversionRate ?? null;
   const stuck = node.dwell?.stuckContacts ?? 0;
+  // The base-currency lens (#496) wins when it can serve: the SAME
+  // attributed-beats-direct law as primaryMoney, converted into the
+  // operator's reporting currency. Null (lens off / unconvertible) falls
+  // back to the largest native currency.
+  const baseMoney =
+    fx && node.heat
+      ? node.heat.attributedRevenue.length > 0
+        ? node.heat.attributedRevenueBase
+        : node.heat.directRevenueBase
+      : null;
 
   // Money landing HERE rings the till: a gold flash on the card and a
   // floating "+$49.99" tick. LOCAL state fed by the particle bus (the same
@@ -162,7 +176,18 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
               the lifecycle stage without dictating a column. */}
           {KIND_LABEL[node.kind]} · {node.tier}
         </span>
-        {money ? (
+        {baseMoney !== null && fx ? (
+          <span
+            className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
+            title={`≈ ${fx.baseCurrency} (operator base currency)${
+              fx.asOf ? ` · rates as of ${fx.asOf}` : ""
+            }`}
+          >
+            {formatCurrency(baseMoney, fx.baseCurrency, {
+              maximumFractionDigits: 0,
+            })}
+          </span>
+        ) : money ? (
           <span
             className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
             title={`${money.attributed ? "Attributed" : "Direct"} revenue${
@@ -183,17 +208,27 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
         {node.name}
       </p>
 
-      {node.kind === "builtin" && money ? (
+      {node.kind === "builtin" && (baseMoney !== null || money) ? (
         // The revenue node is a TILL: cumulative value is the hero stat, the
-        // contact count demotes to the corner.
+        // contact count demotes to the corner. The base-currency lens (#496)
+        // rules the total when it can serve — one honest number in the
+        // operator's reporting currency; else the largest native currency.
         <div className="mt-1 flex items-baseline gap-1.5">
           <span className="font-display text-base leading-none text-[#f0b429]">
-            {formatCurrency(money.amount, money.currency, {
-              maximumFractionDigits: 0,
-            })}
+            {baseMoney !== null && fx
+              ? formatCurrency(baseMoney, fx.baseCurrency, {
+                  maximumFractionDigits: 0,
+                })
+              : money
+                ? formatCurrency(money.amount, money.currency, {
+                    maximumFractionDigits: 0,
+                  })
+                : null}
           </span>
           <span className="text-[11px] text-white/45">
-            this window{money.currencies > 1 ? ` +${money.currencies - 1}` : ""}
+            {baseMoney !== null && fx
+              ? `≈ ${fx.baseCurrency} this window`
+              : `this window${money && money.currencies > 1 ? ` +${money.currencies - 1}` : ""}`}
           </span>
           <span className="ml-auto font-mono text-[10px] text-white/35">
             {formatNumber(node.contacts)}{" "}

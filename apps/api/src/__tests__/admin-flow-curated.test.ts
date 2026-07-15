@@ -414,6 +414,10 @@ describe("heat", () => {
       conversionRate: null,
       attributedRevenue: [],
       directRevenue: [],
+      // The #496 base-currency lens is OFF here (no BASE_CURRENCY env, no
+      // provider) — base fields are null, not zero.
+      attributedRevenueBase: null,
+      directRevenueBase: null,
     });
   });
 });
