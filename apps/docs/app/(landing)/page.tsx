@@ -55,22 +55,21 @@ import { WordReveal } from "./_components/word-reveal";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Marketing automation for teams that code",
+    absolute: "Hogsend — Lifecycle automation in TypeScript",
   },
   description:
-    "The lifecycle layer for teams on PostHog — you already have the events, this is where you act on them. Lifecycle journeys as TypeScript in your repo: welcome series, trial nudges, win-backs, payment saves, across email, Discord, Slack, and in-app. Free to self-host.",
+    "Lifecycle automation in TypeScript for product-led teams. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
   alternates: { canonical: "/" },
   keywords: [
-    "marketing automation for developers",
-    "lifecycle email",
-    "posthog",
-    "email automation",
+    "lifecycle automation framework",
+    "product-led growth",
+    "customer lifecycle",
     "typescript",
     "code-first",
-    "customer lifecycle",
+    "agent-native",
+    "posthog",
+    "email automation",
     "self-hosted",
-    "drip campaigns",
-    "product-led growth",
   ],
 };
 
@@ -423,22 +422,26 @@ function PsHero() {
           <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
             Course
           </span>
-          Measure → Keep → Grow — lifecycle marketing on PostHog + Hogsend
+          Measure → Keep → Grow — the lifecycle playbook for product-led teams
           <span className="font-medium text-white">Take it →</span>
         </a>
 
         <h1
           className={cn(
-            "mt-9 max-w-[840px] font-normal text-white text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+            "mt-9 max-w-[920px] font-normal text-white text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
             DISPLAY,
           )}
         >
-          Build your growth engine in code.
+          Your customer lifecycle belongs in your repo.
         </h1>
-        <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
-          The lifecycle layer for teams on PostHog — you already have the
-          events, this is where you act on them. Welcome series, trial nudges,
-          win-backs, as TypeScript in your repo.
+        <p className="mt-6 max-w-[720px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
+          Hogsend is lifecycle automation in TypeScript for product-led teams.
+          Written by you—or your coding agent. Reviewed in a PR. Shipped like
+          the rest of your product.
+        </p>
+        <p className="mt-5 max-w-[760px] font-mono text-[12px] text-white/45 uppercase leading-5 tracking-[0.06em]">
+          Onboarding · Trial conversion · Payment recovery · Retention ·
+          Win-back · Across email, in-app, SMS, Discord, and more
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -470,62 +473,8 @@ function PsHero() {
         </p>
       </Container>
 
-      {/* Hero canvas — a contained ink panel carrying the crimzon
-          planet-horizon glow; the live demo window floats over it. */}
-      <Container className="relative mt-14">
-        <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
-          <WaveLines
-            className="absolute inset-0 h-full w-full opacity-80"
-            stroke="rgba(255,140,118,0.5)"
-            count={8}
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
-            }}
-          />
-          {/* The crisp horizon arc. */}
-          <div
-            aria-hidden="true"
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
-            }}
-          />
-        </div>
-      </Container>
-
-      <Container className="-mt-[210px] relative z-10 pb-14 md:-mt-[230px]">
-        <PsHeroDemo />
-        <p className="mt-5 text-center text-white/40 text-[13px] tracking-[-0.02em]">
-          {isHogsendConfigured ? (
-            <>
-              This isn&rsquo;t a mock — it&rsquo;s our own install, a stock
-              create-hogsend app in production. The welcome email arrives from
-              hello@hogsend.com in seconds; the feed, bell, and survey card are
-              real{" "}
-              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
-              components.{" "}
-            </>
-          ) : (
-            <>
-              The feed, bell, and survey card are real{" "}
-              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
-              components — live on hogsend.com.{" "}
-            </>
-          )}
-          <Link href="/components" className="font-medium text-white">
-            See the full set →
-          </Link>
-        </p>
-      </Container>
-
       {/* Works-with strip */}
-      <div className="border-[#f6483833] border-y">
+      <div className="mt-16 border-[#f6483833] border-y">
         <Container className="flex flex-col gap-5 py-9 md:flex-row md:items-center md:gap-12">
           <span className="shrink-0 font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
             Works with
@@ -555,6 +504,83 @@ function PsHero() {
           </div>
         </Container>
       </div>
+    </section>
+  );
+}
+
+function PsProductDemo() {
+  return (
+    <section className="relative overflow-hidden border-[#f6483826] border-t">
+      <Container className="pt-20 text-center">
+        <Eyebrow>Try it live</Eyebrow>
+        <h2
+          className={cn(
+            "mx-auto mt-8 max-w-[760px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+            DISPLAY,
+          )}
+        >
+          <span className="text-white">We use Hogsend to power</span>{" "}
+          <span className="text-white/40">hogsend.com.</span>
+        </h2>
+        <p className="mx-auto mt-5 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
+          Sign up below. Our own Hogsend install sends the welcome email and
+          powers the feed, bell, survey, and branching that follows.
+        </p>
+      </Container>
+
+      {/* A contained ink panel carrying the crimzon planet-horizon glow; the
+          live product components float over it. */}
+      <Container className="relative mt-12">
+        <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
+          <WaveLines
+            className="absolute inset-0 h-full w-full opacity-80"
+            stroke="rgba(255,140,118,0.5)"
+            count={8}
+          />
+          <div
+            aria-hidden="true"
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+            }}
+          />
+          {/* The crisp horizon arc. */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+            }}
+          />
+        </div>
+      </Container>
+
+      <Container className="-mt-[210px] relative z-10 pb-20 md:-mt-[230px]">
+        <PsHeroDemo />
+        <p className="mt-5 text-center text-white/40 text-[13px] tracking-[-0.02em]">
+          {isHogsendConfigured ? (
+            <>
+              This isn&rsquo;t a mock — it&rsquo;s our own install, a stock
+              create-hogsend app in production. The welcome email arrives from
+              hello@hogsend.com in seconds; the feed, bell, and survey card are
+              real{" "}
+              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
+              components.{" "}
+            </>
+          ) : (
+            <>
+              The feed, bell, and survey card are real{" "}
+              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
+              components — live on hogsend.com.{" "}
+            </>
+          )}
+          <Link href="/components" className="font-medium text-white">
+            See the full set →
+          </Link>
+        </p>
+      </Container>
     </section>
   );
 }
@@ -598,21 +624,17 @@ function PsProofStrip() {
   );
 }
 
-/* --------------------------------------------------- the posthog pitch -- */
+/* ----------------------------------------------------- platform pitch -- */
 
-/** The four things a PostHog team needs to hear, up front — the page's
- * lifecycle-layer-for-PostHog story lives ~15 sections down, so this band
- * says it at the top. Every line is a fact restated from further down the
- * page: PostHog-native triggering, journeys-as-code, one-command setup, the
- * @hogsend/react in-app channel. The channel strip surfaces the multi-channel
- * (incl. Discord) reach without a mocked demo. */
-const POSTHOG_CARDS: { title: string; body: ReactNode }[] = [
+/** The four things a product engineer needs to hear once the core mechanism
+ * is clear. PostHog is one supported source, not the category Hogsend lives in. */
+const PLATFORM_CARDS: { title: string; body: ReactNode }[] = [
   {
-    title: "Triggered by your PostHog events",
-    body: "Journeys react to the events you already capture — no reverse-ETL, no sync lag, no second source of truth.",
+    title: "First-party events included",
+    body: "Send product behaviour straight to Hogsend with @hogsend/js or @hogsend/client. Bring PostHog, Stripe, or any webhook when it helps.",
   },
   {
-    title: "Lifecycle marketing as code",
+    title: "Lifecycle automation as code",
     body: "Every journey is a TypeScript function in your repo — reviewed, type-checked, and versioned like the rest of your product. Agents can write them.",
   },
   {
@@ -686,27 +708,23 @@ function PitchChip({
   );
 }
 
-function PsPostHogPitch() {
+function PsPlatformPitch() {
   return (
     <section className="relative border-[#f6483826] border-b">
       <Container className="pt-16 pb-20">
-        <Eyebrow>The lifecycle layer for PostHog</Eyebrow>
+        <Eyebrow>Bring your stack</Eyebrow>
         <h2
           className={cn(
             "mt-6 max-w-[760px] font-normal text-[30px] leading-[1.15] tracking-[-0.02em] md:text-[40px] md:leading-[46px]",
             DISPLAY,
           )}
         >
-          <span className="text-white">
-            Everything a PostHog team needs to run lifecycle.
-          </span>{" "}
-          <span className="text-white/40">
-            No second platform to sync or babysit.
-          </span>
+          <span className="text-white">Works beautifully with PostHog.</span>{" "}
+          <span className="text-white/40">Works without it, too.</span>
         </h2>
 
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {POSTHOG_CARDS.map((c, i) => (
+          {PLATFORM_CARDS.map((c, i) => (
             <div
               key={c.title}
               className="rounded-lg border border-white/10 bg-white/[0.03] p-6"
@@ -819,7 +837,7 @@ function PsProblem() {
     <section className="relative border-[#f6483826] border-t overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-40 w-56 lg:block" />
       <Container className="pt-24 pb-28 md:pt-32">
-        <Eyebrow>The problem</Eyebrow>
+        <Eyebrow>Signal → response</Eyebrow>
 
         <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
           <h2
@@ -830,19 +848,14 @@ function PsProblem() {
           >
             {/* Scroll-linked word reveal — the homepage Manifesto animation,
                 re-keyed to the light palette. */}
-            <WordReveal text="Hogsend is the lifecycle layer in your repo — the welcome, the nudge, the win-back." />
+            <WordReveal text="Your product already knows what should happen next. Now it can do it." />
           </h2>
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-              PostHog shows you where users drop off; acting on it meant buying
-              a second platform and syncing your data into it. Hogsend deletes
-              that step — journeys are TypeScript, triggered by the events you
-              already have. It&rsquo;s work your existing engineers finish in an
-              afternoon, not a role you hire for.{" "}
-              <Link href="/docs" className="font-medium text-white">
-                Learn more →
-              </Link>
+              A signup. A stalled trial. A failed payment. A customer going
+              quiet. Hogsend turns each signal into the next response—without
+              leaving your repo.
             </p>
             <div className="mt-6 flex items-center gap-6 opacity-80 grayscale">
               <BrandLogo
@@ -882,8 +895,8 @@ function PsProblem() {
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
         <p className="mt-20 max-w-[420px] text-white text-lg leading-[26px] tracking-[-0.025em]">
-          Build retention without buying and babysitting a second marketing
-          platform.
+          The lifecycle becomes part of the product—not a campaign bolted on
+          beside it.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-3">
           {PILLARS.map((p, i) => (
@@ -1303,7 +1316,7 @@ const BENCHMARKS = [
   },
 ];
 
-function PsStats() {
+function _PsStats() {
   return (
     <section className="relative border-[#f6483826] border-t">
       <Container className="relative pt-16 pb-24">
@@ -2061,7 +2074,7 @@ const HOW_STEPS = [
   },
 ];
 
-function PsHowItWorks() {
+function _PsHowItWorks() {
   return (
     <section className="relative border-[#f6483826] border-t overflow-hidden">
       <PlusGrid className="top-28 left-0 hidden h-40 w-52 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
@@ -2079,11 +2092,11 @@ function PsHowItWorks() {
               The whole job is one afternoon.
             </h2>
             <p className="mt-6 max-w-[420px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
-              Activity comes in from PostHog or any webhook, the right emails go
-              out through your provider, and what people do with them fans back
-              out to your tools. Scaffolding is one command, the ten journeys
-              ship pre-written, and deploy is a git push — the afternoon goes on
-              editing copy and timings to fit your product.
+              Activity comes from your product SDK, PostHog, Stripe, or any
+              webhook. Journeys act across your providers, then fan every
+              outcome back to your tools. Scaffolding is one command, the ten
+              journeys ship pre-written, and deploy is a git push — the
+              afternoon goes on editing copy and timings to fit your product.
             </p>
           </div>
 
@@ -2773,7 +2786,7 @@ function PsLoop() {
     <section className="relative border-[#f6483826] border-t">
       <Container className="pt-16 pb-28">
         <Reveal>
-          <Eyebrow>Built on PostHog</Eyebrow>
+          <Eyebrow>PostHog, when you want it</Eyebrow>
           <h2
             className={cn(
               "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
@@ -2781,10 +2794,10 @@ function PsLoop() {
             )}
           >
             <span className="text-white">
-              Everything here makes PostHog better.
+              Plug it in and Hogsend makes it better.
             </span>{" "}
             <span className="text-white/40">
-              No second pipeline, no reverse-ETL.
+              Leave it out and the lifecycle still runs.
             </span>
           </h2>
         </Reveal>
@@ -3314,11 +3327,11 @@ const FAQ = [
   },
   {
     q: "Does Hogsend replace Resend or use it?",
-    a: "It uses it. Hogsend is the orchestration layer — journeys, segments, suppression, tracking — and sends through your own Resend account by default, with Postmark as a one-env-var swap. Resend's own Automations cover simple dashboard-built sequences; Hogsend is for when the logic belongs in your repo — PostHog-triggered, type-checked, and portable across providers.",
+    a: "It uses it. Hogsend is the orchestration layer — journeys, segments, suppression, tracking — and sends through your own Resend account by default, with Postmark as a one-env-var swap. Resend's own Automations cover simple dashboard-built sequences; Hogsend is for when the logic belongs in your repo — event-triggered, type-checked, and portable across providers.",
   },
   {
     q: "Do I need PostHog to use Hogsend?",
-    a: "No. PostHog is the best-supported source, but events can come from Stripe, Clerk, Supabase, or Segment via signed webhook presets, from your own app via the Data API, or from any custom webhook source.",
+    a: "No. Send first-party events directly with @hogsend/js or the Data API, use signed webhook presets for Stripe, Clerk, Supabase, or Segment, or define any custom source. PostHog is a first-class optional integration.",
   },
   {
     q: "Will my emails survive a deploy mid-journey?",
@@ -3326,7 +3339,7 @@ const FAQ = [
   },
   {
     q: "Can AI agents write Hogsend journeys?",
-    a: "Yes — journeys are plain TypeScript files, so Claude Code or Cursor can write and modify them like any other code. Your type-checker validates them.",
+    a: "Yes — journeys are plain TypeScript files, so coding agents can read your product events and types, write or modify a journey, and leave you a reviewable diff. Your type-checker validates it before it ships.",
   },
 ];
 
@@ -3568,7 +3581,7 @@ function PsFooter() {
         <div>
           <InkLogo light />
           <p className="mt-6 text-sm text-white/60 tracking-[-0.02em]">
-            Marketing automation for teams that code
+            Lifecycle automation, in code
           </p>
           <p className="mt-2 text-sm text-white/40 tracking-[-0.02em]">
             © 2026 Hogsend. All rights reserved.
@@ -3627,24 +3640,25 @@ export default function HomePage(): JSX.Element {
       <AnnouncementBanner />
       <PsNav />
       <PsHero />
-      <PsPostHogPitch />
       <PsProofStrip />
       <PsProblem />
-      <PsStudioDemo />
-      <PsHowItWorks />
+      {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsCode />
+      <PsAgents />
       <PsUseCases />
+      <PsProductDemo />
       <PsPlaybook />
       <PsFanning />
-      <PsStats />
+      {/* Temporarily hidden: <_PsStats /> */}
       <PsRepo />
-      <PsAgents />
       <PsElephant />
       <PsSetup />
       <PsCorePlatform />
       <PsBuildingBlocks />
+      <PsPlatformPitch />
       <PsOpen />
       <PsFeatures />
+      <PsStudioDemo />
       <PsLoop />
       <PsHatchet />
       <PsEconomics />

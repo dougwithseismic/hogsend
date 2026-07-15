@@ -222,8 +222,8 @@ const POSTHOG_SHALLOW_OR_FEW_OFFS: ResultSegment = {
 
 const EVALUATING_POSTHOG: ResultSegment = {
   id: "evaluating_posthog",
-  headline: "The lifecycle-email layer for a PostHog + Resend stack.",
-  body: "Hogsend is the lifecycle-email layer for teams on PostHog and Resend, so the events you'd track become triggered journeys defined in code. The demo email from this page shows the loop end to end.",
+  headline: "Lifecycle automation in code, with PostHog as the signal source.",
+  body: "Hogsend turns the events you capture in PostHog into typed, durable journeys in your repo. The demo email from this page shows the loop end to end.",
   ctas: [
     { label: "Read why PostHog", href: "/docs/concepts/why-posthog" },
     { label: "Watch it run", href: "#live-demo" },
@@ -963,8 +963,9 @@ export function EmailCapture({
             Want me to set it up for you?
           </p>
           <p className="max-w-md text-sm text-white/60 leading-5">
-            Hogsend is built for teams on PostHog and Resend, so it&apos;s a fit
-            once that stack is in place. If you&apos;d rather not wire it
+            Hogsend is built for product-led teams that want their lifecycle in
+            code. It works with your own product events and providers, with
+            PostHog as an optional integration. If you&apos;d rather not wire it
             yourself, I set teams up as part of a monthly retainer: a setup week
             to get the stack and your first journeys live, then ongoing work on
             the lifecycle. Pick &quot;Yes, tell me more&quot; and it emails

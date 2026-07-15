@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
-export const alt =
-  "Hogsend — The lifecycle email layer PostHog doesn't have yet";
+export const alt = "Hogsend — Your customer lifecycle belongs in your repo";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -134,8 +133,8 @@ export default async function OpengraphImage() {
             color: "#ffffff",
           }}
         >
-          <span>The lifecycle email layer</span>
-          <span>PostHog doesn&apos;t have yet</span>
+          <span>Your customer lifecycle</span>
+          <span>belongs in your repo</span>
         </div>
       </div>
 
@@ -149,8 +148,7 @@ export default async function OpengraphImage() {
           color: "#F64838",
         }}
       >
-        SOURCE-AVAILABLE (ELV2) · POSTHOG + YOUR PROVIDER · NO PER-CONTACT
-        PRICING
+        LIFECYCLE AUTOMATION IN TYPESCRIPT · AGENT-WRITTEN · GIT-REVIEWED
       </div>
     </div>,
     {

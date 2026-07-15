@@ -6,13 +6,17 @@
 
 [![CI](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml/badge.svg)](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml) [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/rv6eZNvYrr)
 
-The lifecycle email automation that PostHog teams actually need. Code-first, self-hosted, source-available.
+## Your customer lifecycle belongs in your repo.
 
-PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys (email sequences) and buckets (real-time segments) are plain TypeScript functions, not YAML configs or drag-and-drop canvases — and because a user joining a bucket can itself trigger a journey, segmentation and messaging live in one event stream.
+**Hogsend is lifecycle automation in TypeScript for product-led teams.** Written by you—or your coding agent. Reviewed in a PR. Shipped like the rest of your product.
 
-PostHog + Resend is the lead wedge, not the cage: events come **in** from PostHog, signed presets for Stripe / Clerk / Supabase / Segment, your own app via the `@hogsend/client` SDK, or any custom webhook source — and engagement and lifecycle events fan **out** to PostHog, Segment, Slack, a CRM, or a warehouse. An inbound → react → outbound lifecycle layer.
+**Onboarding. Trial conversion. Payment recovery. Retention. Win-back.** Across email, in-app, SMS, Discord, and more.
 
-Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
+Your product already emits the signals. Hogsend turns them into durable journeys that wait, branch, send, and stop based on what each customer does—or does not do. Journeys and real-time segments are plain TypeScript functions, not YAML configs or drag-and-drop canvases.
+
+Send first-party events directly with `@hogsend/js` or `@hogsend/client`, or bring Stripe, PostHog, Segment, and any webhook source. Fan the results back to analytics, Slack, a CRM, or your warehouse. **PostHog works beautifully with Hogsend, but it is optional.**
+
+Built for technical founders and product engineers who want to ship the customer lifecycle as fast as they ship the product.
 
 **[Live demo](https://demo.hogsend.com)** | **[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
@@ -39,11 +43,13 @@ One command boots the lot — infra, migrations, API, worker, and Studio at `loc
 
 ## How It Works
 
-Events flow in from PostHog, journeys react with emails via Resend, engagement data flows back. A closed loop — product analytics and lifecycle email in the same event stream.
+Events arrive from your product, Stripe, PostHog, or any webhook. Durable journeys react across your providers, then engagement and lifecycle outcomes flow back onto the same contact and event stream.
 
 <p align="center">
-  <img src="hogsend-lifecycle.png" alt="PostHog Lifecycle Email Flow" width="100%" />
+  <img src="hogsend-lifecycle.png" alt="Example Hogsend and PostHog lifecycle flow" width="100%" />
 </p>
+
+PostHog is a first-class optional integration: use the events and identities you already capture, then send opens, clicks, answers, and lifecycle outcomes back to it. Without PostHog, Hogsend&rsquo;s own SDKs and contact model run the same lifecycle loop.
 
 > Deep dive: **[How It Works](https://docs.hogsend.com/docs/concepts/how-it-works)** | **[Why PostHog?](https://docs.hogsend.com/docs/concepts/why-posthog)** | **[Why Hatchet?](https://docs.hogsend.com/docs/concepts/why-hatchet)** | **[Philosophy](https://docs.hogsend.com/docs/concepts/philosophy)**
 
@@ -90,9 +96,9 @@ export const wentDormant = defineBucket({
 
 ## Journey Blueprints
 
-Journeys don't have to live in code. A **Journey Blueprint** is a lifecycle journey authored as a JSON graph, stored in the database (`journey_blueprints`), and run by the engine's generic interpreter — it goes live the moment you enable it, no deploy. Blueprints run through the same enrollment guards, durable execution, and terminal states as code journeys; they exist so an agent or the admin API can author and change a journey at runtime.
+Agents can prototype journeys before they become code. A **Journey Blueprint** is a lifecycle journey authored as a JSON graph, stored in the database (`journey_blueprints`), and run by the engine's generic interpreter — it goes live the moment you enable it, no deploy. Blueprints run through the same enrollment guards, durable execution, and terminal states as code journeys; they provide a fast staging path for an agent or the admin API.
 
-Author them with the [MCP server](https://docs.hogsend.com/docs/integrations/mcp) (`@hogsend/mcp`, the `manage_blueprint` tool) or the `/v1/admin/blueprints` API; Studio observes them and toggles enable/disable (it doesn't author). When one has proven itself, `hogsend blueprints promote` turns it into a real `defineJourney()` file and freezes the blueprint — the committed code becomes the source of truth.
+Author them with the [MCP server](https://docs.hogsend.com/docs/integrations/mcp) (`@hogsend/mcp`, the `manage_blueprint` tool) or the `/v1/admin/blueprints` API; Studio observes them and toggles enable/disable (it doesn't author). When one has proven itself, `hogsend blueprints promote` turns it into a real `defineJourney()` file and freezes the blueprint. The committed code becomes the source of truth.
 
 > Full guide: **[Journey Blueprints](https://docs.hogsend.com/docs/guides/journey-blueprints)** | **[MCP server](https://docs.hogsend.com/docs/integrations/mcp)**
 
@@ -104,9 +110,9 @@ Hogsend sits between whatever emits events and wherever you want them to land. J
 
 **In** — events arrive from:
 
-- **PostHog** webhooks
+- **Your own app** via `@hogsend/js`, the `@hogsend/client` SDK, or a raw `POST /v1/events`
 - **Signed presets** for **Stripe**, **Clerk**, **Supabase**, and **Segment** — auto-enabled the moment you set that preset's webhook secret
-- **Your own app** via the `@hogsend/client` SDK or a raw `POST /v1/events`
+- **PostHog** webhooks, when PostHog is part of your stack
 - **Any custom source** you write with `defineWebhookSource()`
 
 **Out** — engagement and lifecycle events fan to:
@@ -114,7 +120,7 @@ Hogsend sits between whatever emits events and wherever you want them to land. J
 - **PostHog**, **Segment**, **Slack**, a **CRM**, a **warehouse**, or any signed webhook via `defineDestination()`
 - The outbound catalog is 13 events — `contact.*`, `email.*` (including `email.complained`), `journey.completed`, and `bucket.*`
 
-Web, email, server, and Discord activity for one human resolve to a single PostHog person — Hogsend stitches identities forward into one canonical contact key, so it's no longer one email scattered across many persons.
+Web, email, server, and Discord activity for one human resolve to one Hogsend contact. When PostHog is configured, Hogsend also stitches those identities forward onto the same PostHog person.
 
 The public data-plane API (`POST /v1/events`, contacts, lists, transactional email) is the front door for all of it — drive it from the typed `@hogsend/client` SDK or plain HTTP.
 
