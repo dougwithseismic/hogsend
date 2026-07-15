@@ -21,6 +21,7 @@ import {
 } from "@/lib/admin-api";
 import { formatCurrency, formatDuration, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ContactDetailDrawer } from "@/views/contacts/contact-detail-drawer";
 
 /**
  * The drill-down (P5) — WHO is at a node. Rendered OUTSIDE the React Flow tree
@@ -127,9 +128,30 @@ function CountChip({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ContactRow({ contact }: { contact: FlowNodeContact }) {
+function ContactRow({
+  contact,
+  onOpen,
+}: {
+  contact: FlowNodeContact;
+  onOpen: (contactId: string) => void;
+}) {
+  const openable = contact.contactId !== null;
   return (
-    <div className="flex items-center justify-between gap-2 border-hairline-faint border-b px-1 py-2 last:border-b-0">
+    // The row is the SAME person the Contacts page lists — clicking opens the
+    // standard contact drawer (a stuck contact is exactly who an operator
+    // wants to inspect and act on). Rows without a resolvable contacts row
+    // (raw canonical keys) stay inert.
+    <button
+      type="button"
+      disabled={!openable}
+      onClick={() => {
+        if (contact.contactId !== null) onOpen(contact.contactId);
+      }}
+      className={cn(
+        "flex w-full items-center justify-between gap-2 border-hairline-faint border-b px-1 py-2 text-left last:border-b-0",
+        openable && "cursor-pointer hover:bg-white/[0.03]",
+      )}
+    >
       <span
         className="truncate text-[13px] text-white/80"
         title={contact.email ?? contact.userId}
@@ -147,12 +169,18 @@ function ContactRow({ contact }: { contact: FlowNodeContact }) {
       >
         {formatDuration(contact.hoursIdle * 3600)} idle
       </span>
-    </div>
+    </button>
   );
 }
 
 /** > 50 rows: virtualize so a busy node doesn't paint hundreds of DOM rows. */
-function VirtualContactList({ contacts }: { contacts: FlowNodeContact[] }) {
+function VirtualContactList({
+  contacts,
+  onOpen,
+}: {
+  contacts: FlowNodeContact[];
+  onOpen: (contactId: string) => void;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: contacts.length,
@@ -186,7 +214,7 @@ function VirtualContactList({ contacts }: { contacts: FlowNodeContact[] }) {
                 transform: `translateY(${vi.start}px)`,
               }}
             >
-              <ContactRow contact={contact} />
+              <ContactRow contact={contact} onOpen={onOpen} />
             </div>
           );
         })}
@@ -207,6 +235,8 @@ export function NodePanel({
   const stuck = node.dwell?.stuckContacts ?? 0;
   // Default the toggle ON when there's a pile-up to look at, else off.
   const [stuckOnly, setStuckOnly] = useState(stuck > 0);
+  // Clicking a row opens the STANDARD contact drawer (same as Contacts page).
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
 
   const journeyId = journeyIdFromNodeId(node.id);
   const money = primaryMoney(node);
@@ -365,16 +395,25 @@ export function NodePanel({
               Nobody here in this window.
             </p>
           ) : contacts.length > 50 ? (
-            <VirtualContactList contacts={contacts} />
+            <VirtualContactList contacts={contacts} onOpen={setOpenContactId} />
           ) : (
             <div>
               {contacts.map((contact) => (
-                <ContactRow key={contact.userId} contact={contact} />
+                <ContactRow
+                  key={contact.userId}
+                  contact={contact}
+                  onOpen={setOpenContactId}
+                />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <ContactDetailDrawer
+        contactId={openContactId}
+        onClose={() => setOpenContactId(null)}
+      />
     </div>
   );
 }

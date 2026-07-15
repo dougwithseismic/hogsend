@@ -37,7 +37,10 @@ export type SurfaceNodeData = {
 };
 export type SurfaceRfNode = Node<SurfaceNodeData, "surface">;
 
-const HANDLE_CLASS = "!h-1.5 !w-1.5 !border-0 !bg-white/25";
+// Invisible: the map is read-only, so the join dots are noise — but the
+// Handle elements must still EXIST (React Flow anchors edge endpoints to
+// them), so they're hidden, not removed.
+const HANDLE_CLASS = "!h-1.5 !w-1.5 !border-0 !bg-transparent !opacity-0";
 
 const KIND_ICON: Record<FlowNodeKind, LucideIcon> = {
   surface: Globe,
