@@ -15,7 +15,7 @@ const TYPE_DELAY_MS = 24;
 const READY_DELAY_MS = 900;
 const SENDING_DELAY_MS = 650;
 
-export function AgentPromptLoop() {
+export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
   const [frame, setFrame] = useState(INITIAL_PROMPT_FRAME);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -132,7 +132,7 @@ export function AgentPromptLoop() {
   return (
     <fieldset
       aria-label="Lifecycle prompt examples"
-      className="relative min-w-0 rounded-xl border border-white/15 bg-[#0a0606] p-5 shadow-lg transition-[border-color,box-shadow] duration-300 hover:border-[#23c489]/35 hover:shadow-[0_0_32px_rgba(35,196,137,0.12)]"
+      className="relative min-w-0 rounded-xl border border-white/15 bg-[#0a0606] p-4 shadow-lg transition-[border-color,box-shadow] duration-300 hover:border-[#23c489]/35 hover:shadow-[0_0_32px_rgba(35,196,137,0.12)] sm:p-5"
       data-prompt-id={scenario.id}
       data-prompt-phase={frame.phase}
       data-prompt-surface
@@ -141,10 +141,20 @@ export function AgentPromptLoop() {
       onMouseEnter={holdPromptOnHover}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <span className="inline-flex items-center gap-2 rounded-md border border-[#23c489]/25 bg-[#23c489]/10 px-2.5 py-1 font-mono text-[11px] text-[#23c489]">
-        <span aria-hidden="true" className="size-2 bg-[#23c489]" />
-        {scenario.file}
-      </span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-[#23c489]/25 bg-[#23c489]/10 px-2.5 py-1 font-mono text-[11px] text-[#23c489]">
+          <span aria-hidden="true" className="size-2 shrink-0 bg-[#23c489]" />
+          <span className="truncate">{scenario.file}</span>
+        </span>
+        {engineVersion ? (
+          <span
+            className="shrink-0 font-mono text-[11px] text-white/35"
+            title="Latest @hogsend/engine on npm"
+          >
+            engine <span className="text-white/60">v{engineVersion}</span>
+          </span>
+        ) : null}
+      </div>
 
       <span className="sr-only">{scenario.prompt}</span>
       <span className="sr-only" aria-live="polite">
@@ -152,7 +162,7 @@ export function AgentPromptLoop() {
       </span>
       <p
         aria-hidden="true"
-        className="mt-3 min-h-[130px] text-white/75 text-[17px] leading-[26px] tracking-[-0.02em] sm:min-h-[78px]"
+        className="mt-3 min-h-[100px] text-white/75 text-[15px] leading-[23px] tracking-[-0.02em] sm:min-h-[78px] sm:text-[17px] sm:leading-[26px]"
         data-animated-prompt
       >
         {visiblePrompt}

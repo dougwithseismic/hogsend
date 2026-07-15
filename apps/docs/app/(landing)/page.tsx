@@ -14,13 +14,8 @@ import { Reveal } from "@/components/ds/reveal";
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
-import {
-  DEMO_URL,
-  ENGINE_VERSION,
-  GITHUB_URL,
-  NPM_URL,
-  RAILWAY_DEPLOY_URL,
-} from "@/lib/site";
+import { getEngineVersion } from "@/lib/engine-version";
+import { DEMO_URL, GITHUB_URL, NPM_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
 import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
 import studioSends from "@/public/images/studio/04-sends-history.png";
@@ -33,7 +28,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
-import { CourseCard } from "./_components/course-card";
+import { HeroItem, HeroReveal } from "./_components/hero-reveal";
 import { PsNav } from "./_components/nav";
 import { WordReveal } from "./_components/word-reveal";
 
@@ -402,61 +397,87 @@ function HeroDemoSketch() {
   );
 }
 
-function PsHero() {
+function PsHero({ engineVersion }: { engineVersion?: string }) {
   return (
     <section className="relative overflow-hidden">
-      <Container className="relative flex min-h-[60vh] flex-col items-center pt-20 text-center md:pt-24">
-        <a
-          href="https://course.hogsend.com"
-          aria-label="New Course Live"
-          className="inline-flex items-center gap-2 rounded-full bg-[#f64838]/[0.08] py-1 pr-3 pl-1 text-[13px] text-white"
-        >
-          <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
-            New Course
-          </span>
-          <span className="font-medium">Live</span>
-        </a>
+      <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
+        <HeroReveal className="flex w-full flex-col items-center">
+          <HeroItem>
+            <a
+              href="https://course.hogsend.com"
+              aria-label="New course — Measure, Keep, Grow — now live"
+              className="inline-flex items-center gap-2 rounded-full bg-[#f64838]/[0.08] py-1 pr-3 pl-1 text-[12px] text-white sm:text-[13px]"
+            >
+              <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-white">
+                New Course
+              </span>
+              <span className="font-medium">Measure → Keep → Grow</span>
+              <span className="text-white/45">· Live</span>
+            </a>
+          </HeroItem>
 
-        <h1
-          className={cn(
-            "mt-9 max-w-[920px] font-normal text-white text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
-            DISPLAY,
-          )}
-        >
-          Your customer lifecycle belongs in your repo.
-        </h1>
-        <p className="mt-6 max-w-[680px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
-          Hogsend is lifecycle automation in TypeScript for product-led teams.
-          Written by you or your coding agent. Shipped like the rest of your
-          product.
-        </p>
+          <HeroItem className="mt-6 md:mt-9">
+            <h1
+              className={cn(
+                "max-w-[920px] font-normal text-white text-[36px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+                DISPLAY,
+              )}
+            >
+              Your customer lifecycle belongs in your repo.
+            </h1>
+          </HeroItem>
 
-        {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
-            two-colour blob glow. */}
-        <Reveal delay={0.1} className="w-full max-w-[620px]">
-          <div className="relative mx-auto mt-16 w-full max-w-[620px] text-left">
-            <div
-              aria-hidden="true"
-              className="-inset-x-16 -inset-y-10 pointer-events-none absolute"
-              style={{
-                background:
-                  "radial-gradient(45% 60% at 30% 60%, rgba(246,72,56,0.16), transparent 70%), radial-gradient(40% 55% at 75% 40%, rgba(35,196,137,0.14), transparent 70%)",
-                filter: "blur(24px)",
-              }}
-            />
-            <AgentPromptLoop />
-          </div>
-        </Reveal>
+          <HeroItem className="mt-4 md:mt-6">
+            <p className="max-w-[680px] text-white/75 text-base leading-[24px] tracking-[-0.025em] md:text-lg md:leading-[27px]">
+              Hogsend is lifecycle automation in TypeScript for product-led
+              teams. Written by you or your coding agent. Shipped like the rest
+              of your product.
+            </p>
+          </HeroItem>
 
-        <p className="mt-5 max-w-[760px] font-mono text-[12px] text-white/45 uppercase leading-5 tracking-[0.06em]">
-          Onboarding · Trial conversion · Payment recovery · Retention ·
-          Win-back · Across email, in-app, SMS, Discord, and more
-        </p>
+          {/* Primary path (one-click Railway deploy) + the hosted demo. */}
+          <HeroItem className="mt-6 md:mt-8">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Btn href={RAILWAY_DEPLOY_URL} size="lg" newTab>
+                Deploy on Railway
+              </Btn>
+              <TrackDemoClick placement="home-hero">
+                <Btn href={DEMO_URL} variant="outline" size="lg" newTab>
+                  See the live demo
+                </Btn>
+              </TrackDemoClick>
+            </div>
+          </HeroItem>
+
+          {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
+              two-colour blob glow. */}
+          <HeroItem className="mt-8 w-full max-w-[620px] md:mt-12">
+            <div className="relative w-full text-left">
+              <div
+                aria-hidden="true"
+                className="-inset-x-16 -inset-y-10 pointer-events-none absolute"
+                style={{
+                  background:
+                    "radial-gradient(45% 60% at 30% 60%, rgba(246,72,56,0.16), transparent 70%), radial-gradient(40% 55% at 75% 40%, rgba(35,196,137,0.14), transparent 70%)",
+                  filter: "blur(24px)",
+                }}
+              />
+              <AgentPromptLoop engineVersion={engineVersion} />
+            </div>
+          </HeroItem>
+
+          <HeroItem className="mt-4 md:mt-5">
+            <p className="max-w-[760px] font-mono text-[12px] text-white/45 uppercase leading-5 tracking-[0.06em]">
+              Onboarding · Trial conversion · Payment recovery · Retention ·
+              Win-back · Across email, in-app, SMS, Discord, and more
+            </p>
+          </HeroItem>
+        </HeroReveal>
       </Container>
 
       {/* Works-with strip */}
-      <div className="mt-16 border-[#f6483833] border-y">
-        <Container className="flex flex-col gap-5 py-9 md:flex-row md:items-center md:gap-12">
+      <div className="mt-10 border-[#f6483833] border-y md:mt-16">
+        <Container className="flex flex-col gap-5 py-6 md:flex-row md:items-center md:gap-12 md:py-9">
           <span className="shrink-0 font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
             Works with
           </span>
@@ -568,35 +589,29 @@ function PsProductDemo() {
 
 /* ------------------------------------------------------------ proof strip -- */
 
-/** Mintlify's counters band, restated with our verifiable proof inventory —
- * releases/packages/templates/journeys, never invented usage numbers. */
+/** The under-marquee band: the one-command install is the eye-turner, next to
+ * the npm link. The live release version now lives up in the hero prompt card. */
 function PsProofStrip() {
-  const stats = [
-    { label: "Current release", value: `v${ENGINE_VERSION}` },
-    { label: "Packages on npm", value: "11" },
-    { label: "React Email templates", value: "13" },
-    { label: "Journeys in the scaffold", value: "10" },
-  ];
   return (
     <div className="border-[#f6483833] border-b">
-      <Container className="flex flex-wrap items-center gap-x-8 gap-y-3 py-4">
+      <Container className="flex flex-col gap-3 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3">
         <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
           In the open
         </span>
-        {stats.map((stat) => (
-          <span
-            key={stat.label}
-            className="flex items-center gap-2.5 text-[13px] text-white/55 tracking-[-0.02em]"
-          >
-            {stat.label}
-            <span className="rounded-[4px] bg-[#f64838]/[0.08] px-1.5 py-0.5 font-mono text-[#f64838] text-[12px]">
-              {stat.value}
-            </span>
-          </span>
-        ))}
+        {/* One command to first send — the real eye-turner. */}
+        <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/10 bg-white/[0.03] py-1.5 pr-1.5 pl-3">
+          <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[12.5px] text-white/90 [scrollbar-width:none]">
+            <span className="text-white/40">$ </span>
+            {INSTALL_COMMAND}
+          </code>
+          <CopyButton
+            value={INSTALL_COMMAND}
+            className="shrink-0 text-white/40 hover:text-white"
+          />
+        </span>
         <Link
           href={NPM_URL}
-          className="ml-auto font-medium text-white text-[13px] tracking-[-0.02em] hover:opacity-70"
+          className="font-medium text-white text-[13px] tracking-[-0.02em] hover:opacity-70 sm:ml-auto"
         >
           npmjs.com/@hogsend →
         </Link>
@@ -3566,7 +3581,8 @@ function PsFrame() {
 
 /* ----------------------------------------------------------------- page -- */
 
-export default function HomePage(): JSX.Element {
+export default async function HomePage(): Promise<JSX.Element> {
+  const engineVersion = await getEngineVersion();
   return (
     <main className="overflow-x-clip tracking-normal">
       <script
@@ -3578,7 +3594,7 @@ export default function HomePage(): JSX.Element {
           interior pages; sits above the sticky nav and scrolls away with it. */}
       <AnnouncementBanner />
       <PsNav />
-      <PsHero />
+      <PsHero engineVersion={engineVersion} />
       <PsProofStrip />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
@@ -3605,7 +3621,6 @@ export default function HomePage(): JSX.Element {
       <PsClosingCta />
       <PsFooter />
       <PsFrame />
-      <CourseCard />
     </main>
   );
 }
