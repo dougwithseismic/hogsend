@@ -14,7 +14,7 @@ Self-hosting with Docker is the **default deploy path**. One [`docker-compose.pr
 
 ## The one image, three run modes
 
-The Dockerfile is a multi-stage build on `node:22-bookworm-slim` with `pnpm@9`. `tsup` bundles every `@hogsend/*` package into `apps/api/dist`, so the `api` and `worker` entrypoints are self-contained. Migrations are **not** bundled — `tsx packages/db/src/migrate.ts` resolves the `drizzle/` SQL at runtime — so the runner image also ships `packages/db` source, its `drizzle/` SQL, and `tsx`.
+The Dockerfile is a multi-stage build on `node:22-bookworm-slim` with `pnpm@11.12.0`. `tsup` bundles every `@hogsend/*` package into `apps/api/dist`, so the `api` and `worker` entrypoints are self-contained. Migrations are **not** bundled — `tsx packages/db/src/migrate.ts` resolves the `drizzle/` SQL at runtime — so the runner image also ships `packages/db` source, its `drizzle/` SQL, and `tsx`.
 
 ```bash
 docker run … <image>                                    # api  (default CMD)

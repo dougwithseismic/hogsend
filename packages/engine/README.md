@@ -5,6 +5,12 @@ The Hogsend framework: `createApp`, `createHogsendClient`, `createWorker`,
 built-in routes, and the registries. This is the public API surface consumers
 build their lifecycle apps on top of.
 
+Journey definition modules should import `defineJourney`, duration helpers, and
+outbound journey effects from `@hogsend/engine/journeys`. That authoring subpath
+does not validate production environment variables, so the original module can
+be loaded by `@hogsend/testing`; importing the main `@hogsend/engine` runtime in
+the API or worker still attaches the real Hatchet task.
+
 The engine also re-exports the capability-provider contracts owned by
 `@hogsend/core` — `EmailProvider` and `PostHogService` (plus their supporting
 types) — so `@hogsend/engine` is the **canonical author import** for them when

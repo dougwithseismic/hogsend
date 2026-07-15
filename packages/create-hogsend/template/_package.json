@@ -55,7 +55,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
+    "@hogsend/testing": "^{{ENGINE_VERSION}}",
+    "@biomejs/biome": "2.4.15",
     "@types/node": "^22.15.3",
     "@types/papaparse": "^5.5.2",
     "@types/qrcode": "^1.5.6",
@@ -68,6 +69,6 @@
     "vitest": "^4.1.7"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   }
 }

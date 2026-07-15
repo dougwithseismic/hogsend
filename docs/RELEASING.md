@@ -7,8 +7,9 @@ applies a release safely). For the committed public API surface that governs
 major bumps, see [engine-boundary.md](./engine-boundary.md).
 
 > **Releases happen only in CI.** Locally you may *dry-run* (`pnpm pack`,
-> `pnpm -r publish --dry-run`) but you must **never** `npm publish` by hand or
-> `git push` a tag. The real publish runs in `.github/workflows/release.yml`.
+> `pnpm -r publish --dry-run`) but you must not publish from a feature branch or
+> push a tag. The normal publish runs in `.github/workflows/release.yml`; the
+> narrowly scoped recovery procedure for a failed first publish is in §8.
 
 > **`release-doctor` enforces the integrity rules below.** `pnpm release-doctor`
 > (the **Release integrity** CI job, and a gate at the top of `release.yml`)
@@ -27,6 +28,7 @@ major bumps, see [engine-boundary.md](./engine-boundary.md).
 | `@hogsend/core` | ✅ public | types, schemas, conditions, durations, registry |
 | `@hogsend/db` | ✅ public | schema + **engine migrations** (`drizzle/`) + migrator |
 | `@hogsend/email` | ✅ public | React Email templates (`emails/`) |
+| `@hogsend/testing` | ✅ public | deterministic, zero-infrastructure journey test harness |
 | `@hogsend/plugin-posthog` | ✅ public | PostHog integration |
 | `@hogsend/plugin-resend` | ✅ public | Resend `EmailProvider` (delivery + webhook parse/verify) |
 | `@hogsend/plugin-postmark` | ✅ public | Postmark `EmailProvider` (opt-in; on the engine line, **not** scaffold-pinned) |
@@ -120,31 +122,35 @@ Every **breaking** changeset must flag `⚠️ breaking` in its summary and list
 
 ### The engine line moves in lockstep
 
-`.changeset/config.json` declares a **linked** group:
+`.changeset/config.json` deliberately has no `linked` or `fixed` group:
 
 ```jsonc
-"linked": [["@hogsend/engine", "@hogsend/db", "@hogsend/core"]]
+"fixed": [],
+"linked": []
 ```
 
-A `linked` group shares the **highest** bump of that release **only when its
-members are changed together** — so changesets touching the schema/boot-guard
-trio bump them to the same version, while a release that touches none of them
-leaves them untouched. We use `linked` rather than `fixed` (which would force a
-bump on every release even when a package is unchanged) to avoid churning
-version numbers and CHANGELOGs for packages that didn't move.
+Changesets' linked groups do not add untouched siblings to a release, and a new
+member without release history can distort their version calculation. Instead,
+`release-doctor` discovers every publishable `@hogsend/*` package plus the bare
+`hogsend` alias from disk. If any member is in a pending changeset, the doctor
+requires the entire discovered line to receive the same bump. Run
+`pnpm release-doctor --fix-changeset` to create or refresh the uniform changeset;
+do not maintain a hard-coded package count.
 
-Why tie these three:
+Why the line is uniform:
 
 - `@hogsend/engine`'s boot guard (`apps/api/src/index.ts` →
   `getSchemaVersion` from `@hogsend/engine`) asserts the database ledger matches
   the migrations bundled in `@hogsend/db`. Shipping engine `1.4` against db `1.2`
   would let the guard and the schema drift apart.
-- `@hogsend/core` carries the shared types both consume.
+- The public packages depend on and re-export one another. A single minor line
+  keeps published ranges, generated apps, raw-source transforms, and shared
+  types coherent.
 
-`email` and the two `plugin-*` packages stay **independent** — they carry no
-migrations and no boot-guard contract, so they version on their own cadence.
 `"updateInternalDependencies": "patch"` keeps each package's recorded internal
-dependency range fresh when a dependency bumps.
+dependency range fresh when a dependency bumps. `create-hogsend` is not an
+`@hogsend/*` member, but the doctor also requires it to move whenever the engine
+line moves because its emitted dependency pins must remain installable.
 
 ---
 
@@ -165,7 +171,7 @@ disk at runtime:
 Consequences for releasing:
 
 - **Adding a migration file ⇒ at minimum a minor bump of the engine line**
-  (`@hogsend/db` + `@hogsend/engine` + `@hogsend/core` via the linked group).
+  (run `pnpm release-doctor --fix-changeset` after authoring the changeset).
 - **A destructive migration ⇒ major.**
 - The boot guard enforces that a deployed client actually applied the bundled
   migrations after `pnpm up` (`/v1/health` reports `schema.engine.inSync`).
@@ -178,26 +184,31 @@ the two-track design in [packages-migration-plan.md §4](./packages-migration-pl
 
 ## 5. `create-hogsend` pins the engine line
 
-`create-hogsend`'s own version tracks the engine line, and the app it scaffolds
-depends on `@hogsend/engine: ^X.Y` (caret on the engine line). So
-`create-hogsend@1.4` produces a `@hogsend/engine@^1.4` app, and a client upgrades
-within that major with `pnpm up`. Because internal `@hogsend/*` deps use the
-`workspace:^` protocol, changesets rewrites them to caret ranges
-(`^1.4.0`) at publish time — consumers get caret, not pinned-exact, ranges.
+`create-hogsend` tracks the engine's major/minor line (it may sit one or more
+patches ahead), and the app it scaffolds pins each package in
+`HOGSEND_PACKAGES` to `^{{ENGINE_VERSION}}`. `ENGINE_VERSION` always equals the
+engine package version and is synchronized by `pnpm version-packages`.
+`@hogsend/testing` is a scaffold dev dependency; runtime packages remain normal
+dependencies. Because internal `@hogsend/*` deps use the `workspace:^` protocol,
+pnpm/Changesets rewrites them to caret ranges (`^1.4.0`) at publish time —
+consumers never receive `workspace:` specifiers.
 
 ---
 
 ## 6. Publish model: raw `.ts`, bundled by the consumer
 
-The publishable packages ship **raw TypeScript source** (`exports`/`main`/`types`
-point at `./src/*.ts`), not a compiled `dist/`. Consumers bundle them via tsup
-`noExternal` (the scaffolded `create-hogsend` app and the in-repo `apps/api` both
-do this). That is why:
+Most framework packages, including `@hogsend/core`, `@hogsend/db`,
+`@hogsend/engine`, and `@hogsend/testing`, ship **raw TypeScript source**
+(`exports`/`main`/`types` point at `./src/*.ts`). Consumers bundle them via tsup
+`noExternal` or configure their test runner to transform the dependency. A few
+front-door packages (`client`, `js`, `react`, `studio`, and parts of `cli`/`mcp`)
+intentionally ship a built `dist/`; the scaffold verifier asserts those files.
+That is why:
 
 - `pnpm pack` tarballs contain `.ts`, not `.js`.
 - `files` must include `src/` (and `drizzle/` for db, `emails/` for email) so the
   source actually travels.
-- No new build step is required for `core`/`db`/`engine` to be publishable.
+- No new build step is required for raw-source packages to be publishable.
 
 This is locked by [packages-migration-plan.md §10](./packages-migration-plan.md).
 If a future consumer needs prebuilt JS, that's a separate change to `exports` +
@@ -214,15 +225,10 @@ The Claude Code skills shipped into scaffolded apps live in **one source**,
 tarball entry; `hogsend skills add` / `hogsend upgrade` install from the same
 source). Two consequences for releases:
 
-- **`@hogsend/cli` rides the engine version line but is NOT scaffold-pinned**
-  (same category as `@hogsend/plugin-postmark`). It is bumped with the engine line
-  in every release changeset and `release-doctor`'s disk-derived version-line check
-  enforces that uniformity — but keep it OUT of `HOGSEND_PACKAGES`,
-  `verify-scaffold.sh`'s `PACKAGES`, and `template/_package.json` deps, and do
-  **not** pin any `SKILL.md` to `ENGINE_VERSION`. The scaffold does not npm-depend
-  on `@hogsend/cli` (its skills ride the `template` tarball as a build artifact);
-  the framework version is pinned only in the scaffold's token-substituted
-  `CLAUDE.md`.
+- **`@hogsend/cli` rides the engine version line and is scaffold-pinned.** Keep
+  it in `HOGSEND_PACKAGES`, both scaffold pack/verify lists, and the template
+  dependencies. The vendored skill files also ride the `template` tarball as a
+  build artifact, so both install paths are verified.
 - **On any engine public-API change, content-audit `packages/cli/skills/*`** for
   staleness and bump `@hogsend/cli` so the refreshed skills publish. Keep
   `@hogsend/cli` published — the scaffolded-app refresh path
@@ -231,7 +237,7 @@ source). Two consequences for releases:
 
 ---
 
-## 7. Local dry-run verification (never publish by hand)
+## 7. Local dry-run verification
 
 Before relying on a release, verify locally **without publishing**:
 
@@ -244,29 +250,53 @@ tar -tzf /tmp/hogsend-pack/hogsend-db-0.0.1.tgz | grep drizzle
 pnpm -r publish --dry-run --no-git-checks
 ```
 
-The dry run lists the seven `@hogsend/*` (+ `create-hogsend`) as "would publish"
-and excludes the private workspaces. **Clean up any `*.tgz` afterward** so
+The dry run lists every public `@hogsend/*` package (+ `create-hogsend`) as
+"would publish" and excludes the private workspaces. **Clean up any `*.tgz` afterward** so
 `git status` stays clean.
 
 If you want to exercise an actual install-from-registry flow without touching the
 public registry, stand up a local **Verdaccio** registry and publish to it — this
 is the only supported way to test a real `pnpm dlx create-hogsend` against
-published packages locally. Do not stand it up as part of routine work; the CI
-release workflow's first real run is the canonical end-to-end check.
+published packages locally. Do not stand it up as part of routine work. After a
+real release, follow the `release` skill's ordered registry, clean-install, and
+released-scaffold checks; `verify-published.mjs` proves registry existence but
+does not install the scaffold.
 
 ---
 
 ## 8. Publishing auth
 
-**Today: a repo secret `NPM_TOKEN`** (an npm token with publish rights to the
-public packages). `release.yml` mirrors it into `NODE_AUTH_TOKEN` so
-`changeset publish` authenticates.
+**Today: a repo secret `NPM_TOKEN`** (an npm token with publish and package-create
+rights in the `@hogsend` scope). `release.yml` mirrors it into
+`NODE_AUTH_TOKEN` so `changeset publish` authenticates. The current token has
+successfully created a new scoped package through this workflow; a new package
+therefore follows the same two-phase CI release as every existing package.
 
-> A **new** package's first publish must be done by a maintainer with *create*
-> rights in the scope — a granular token usually can't create a package, and a
-> Trusted Publisher can't be configured until the package exists. See the
-> `release` skill (`.claude/skills/release/`) for that procedure, plus how to
-> verify a publish actually landed (CI green does not guarantee it).
+New package names still need extra care. A Trusted Publisher cannot be
+configured until the package exists, and some granular replacement tokens may
+publish existing packages without being allowed to create another name. Before
+merging a Version Packages PR that introduces a package, confirm that
+`NPM_TOKEN` has not been replaced with a package-only token. After publish,
+`scripts/verify-published.mjs` verifies every reported package/version directly
+against the registry.
+
+If the publish step or that verification fails for a new package, first use
+`npm view` to prove the exact reported version is absent. Do not invent or
+publish a different version and do not publish from the feature branch or
+current `main`. Create a clean detached worktree at the failed release run's reviewed
+Version Packages merge SHA, confirm the package manifest contains the exact
+missing version, and confirm that exact version still returns 404 immediately
+before publishing. Authenticate a maintainer with `@hogsend` create rights and
+run `pnpm publish --access public --no-git-checks` from the new package
+directory. Use **pnpm**, not raw `npm publish`, so `workspace:^` dependencies
+are rewritten to real semver ranges.
+
+Then verify the exact registry version, a clean external install, and that the
+remote package tag exists at the reviewed release SHA. If the tag is absent or
+points elsewhere, stop and investigate; do not create or push it manually.
+Rerunning the failed job is useful for the audit trail, but after a manual
+publish Changesets may report nothing new and skip its post-publish verifier,
+so the explicit registry/install/tag checks are the recovery proof.
 
 **Target: Trusted Publishing (OIDC), tokenless.** OIDC mints a short-lived,
 workflow-scoped token at publish time (no stored secret) and attaches provenance

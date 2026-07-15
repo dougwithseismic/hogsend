@@ -7,10 +7,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join, relative } from "node:path";
-import type { PosthogOptions } from "./prompts.js";
+import type { PackageManager, PosthogOptions } from "./prompts.js";
 import {
   ENGINE_VERSION,
   HOGSEND_PACKAGES,
+  PNPM_VERSION,
   RENAME_MAP,
   TOKEN_FILES,
 } from "./template-manifest.js";
@@ -19,6 +20,7 @@ export interface CopyOptions {
   templateDir: string;
   targetDir: string;
   appName: string;
+  packageManager: PackageManager;
   /** Emit `.claude/` (skills) + `CLAUDE.md`. Gated by the `--skills` prompt/flag. */
   skills: boolean;
   /** Absolute dir of `file:` tarballs to rewrite @hogsend/* deps against. */
@@ -31,6 +33,20 @@ function applyTokens(content: string, appName: string): string {
     .join(appName)
     .split("{{ENGINE_VERSION}}")
     .join(ENGINE_VERSION);
+}
+
+/** Pin Corepack when the generated app selected pnpm. */
+function rewritePackageManager(
+  pkgJson: string,
+  packageManager: PackageManager,
+): string {
+  const pkg = JSON.parse(pkgJson) as { packageManager?: string };
+  if (packageManager === "pnpm") {
+    pkg.packageManager = `pnpm@${PNPM_VERSION}`;
+  } else {
+    delete pkg.packageManager;
+  }
+  return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
 /** The tarball `file:` override map for every `@hogsend/<pkg>` dependency. */
@@ -51,32 +67,24 @@ function tarballOverrides(tarballDir: string): Record<string, string> {
 function rewriteTarballDeps(pkgJson: string, tarballDir: string): string {
   const pkg = JSON.parse(pkgJson) as {
     dependencies?: Record<string, string>;
-    pnpm?: { overrides?: Record<string, string> };
+    devDependencies?: Record<string, string>;
   };
   const overrides = tarballOverrides(tarballDir);
   for (const [dep, spec] of Object.entries(overrides)) {
     if (pkg.dependencies && dep in pkg.dependencies) {
       pkg.dependencies[dep] = spec;
     }
+    if (pkg.devDependencies && dep in pkg.devDependencies) {
+      pkg.devDependencies[dep] = spec;
+    }
   }
-  // `pnpm pack` rewrites each tarball's internal `workspace:` @hogsend deps
-  // to a bare version, which would resolve against the REGISTRY (a stale
-  // release, or a 404 for unpublished packages). Overrides force every
-  // transitive @hogsend/* to its tarball. package.json#pnpm.overrides is read
-  // by pnpm <= 10 only — pnpm 11 reads overrides from pnpm-workspace.yaml
-  // (see `rewriteWorkspaceOverrides`); we write both so either pnpm works.
-  pkg.pnpm = {
-    ...pkg.pnpm,
-    overrides: { ...pkg.pnpm?.overrides, ...overrides },
-  };
   return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
 /**
  * Append the same tarball override map to the emitted `pnpm-workspace.yaml` —
- * the ONLY place pnpm >= 11 reads overrides from (`package.json#pnpm` is
- * ignored there, which under the harness silently resolved transitive
- * @hogsend/* deps from the registry instead of the packed tarballs).
+ * pnpm 11's settings root. Without it the harness silently resolves transitive
+ * `@hogsend/*` dependencies from the registry instead of the packed tarballs.
  */
 function rewriteWorkspaceOverrides(yaml: string, tarballDir: string): string {
   const lines = Object.entries(tarballOverrides(tarballDir))
@@ -224,8 +232,11 @@ async function walk(
 
     let content = await readFile(srcPath, "utf8");
     content = applyTokens(content, opts.appName);
-    if (renamed === "package.json" && tarballDir) {
-      content = rewriteTarballDeps(content, tarballDir);
+    if (renamed === "package.json") {
+      content = rewritePackageManager(content, opts.packageManager);
+      if (tarballDir) {
+        content = rewriteTarballDeps(content, tarballDir);
+      }
     }
     if (isTarballWorkspace && tarballDir) {
       content = rewriteWorkspaceOverrides(content, tarballDir);

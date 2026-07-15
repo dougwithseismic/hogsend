@@ -69,6 +69,12 @@ function manifestEngineVersion() {
   return m[1];
 }
 
+function manifestPnpmVersion() {
+  const m = readText(MANIFEST).match(/PNPM_VERSION\s*=\s*["']([^"']+)["']/);
+  if (!m) throw new Error(`PNPM_VERSION not found in ${MANIFEST}`);
+  return m[1];
+}
+
 function manifestPackages() {
   const m = readText(MANIFEST).match(/HOGSEND_PACKAGES\s*=\s*\[([^\]]*)\]/s);
   if (!m) throw new Error(`HOGSEND_PACKAGES not found in ${MANIFEST}`);
@@ -82,7 +88,8 @@ function verifyShPackages() {
 }
 
 function templateHogsendDeps() {
-  const deps = readJson(TEMPLATE_PKG).dependencies || {};
+  const pkg = readJson(TEMPLATE_PKG);
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
   return Object.entries(deps)
     .filter(([k]) => k.startsWith("@hogsend/"))
     .map(([k, v]) => [k.slice("@hogsend/".length), v]);
@@ -186,6 +193,115 @@ function scanPackages(names, predicate) {
 
 /** Each check returns null when satisfied, or a precise violation string. */
 const checks = [
+  {
+    name: "root and scaffold pin the same pnpm version",
+    fn: () => {
+      const packageManager = readJson("package.json").packageManager;
+      const expected = `pnpm@${manifestPnpmVersion()}`;
+      return packageManager === expected
+        ? null
+        : `root packageManager=${packageManager} but scaffold=${expected}`;
+    },
+  },
+  {
+    name: "GitHub Actions avoid the broken pnpm self-update bootstrap",
+    fn: () => {
+      // action-setup v6 bootstraps an older pnpm and runs `pnpm self-update`.
+      // In CI that currently crashes before the repository install starts. v5
+      // is Node 24 compatible and installs the requested package manager
+      // directly from packageManager instead.
+      const offenders = readdirSync(r(".github/workflows"))
+        .filter((file) => /\.ya?ml$/.test(file))
+        .flatMap((file) =>
+          [
+            ...readText(`.github/workflows/${file}`).matchAll(
+              /pnpm\/action-setup@([^\s#]+)/g,
+            ),
+          ]
+            .map((match) => match[1])
+            .filter((version) => version !== "v5")
+            .map((version) => `${file}:${version}`),
+        );
+      return offenders.length === 0
+        ? null
+        : `replace ${offenders.join(", ")} with pnpm/action-setup@v5`;
+    },
+  },
+  {
+    name: "Docker builds pin the repository pnpm version",
+    fn: () => {
+      const version = manifestPnpmVersion();
+      const expected = `corepack prepare pnpm@${version}`;
+      const files = ["Dockerfile", "Dockerfile.docs", "Dockerfile.course"];
+      const stale = files.filter((file) => !readText(file).includes(expected));
+      return stale.length === 0
+        ? null
+        : `${stale.join(", ")} must contain ${expected}`;
+    },
+  },
+  {
+    name: "Docker deploy uses scoped, offline workspace injection",
+    fn: () => {
+      const workspace = readText("pnpm-workspace.yaml");
+      const dockerfile = readText("Dockerfile");
+      if (/^\s*injectWorkspacePackages\s*:/m.test(workspace)) {
+        return "pnpm-workspace.yaml must not enable injectWorkspacePackages globally";
+      }
+      if (/pnpm\s+config\s+set\s+inject-workspace-packages/i.test(dockerfile)) {
+        return "Dockerfile must not persist inject-workspace-packages in global pnpm config";
+      }
+      const deploys =
+        dockerfile.match(
+          /pnpm\s+--offline\s+--config\.inject-workspace-packages=true\s+\\\s*\n\s*--filter\s+@hogsend\/(api|db)\s+deploy\s+--prod/g,
+        ) ?? [];
+      return deploys.length === 2
+        ? null
+        : "Dockerfile must deploy api and db offline with command-scoped workspace injection";
+    },
+  },
+  {
+    name: "Railway services watch their Docker build inputs",
+    fn: () => {
+      const requirements = {
+        "railway.toml": ["Dockerfile", ".dockerignore", "pnpm-workspace.yaml"],
+        "railway.worker.toml": [
+          "Dockerfile",
+          ".dockerignore",
+          "pnpm-workspace.yaml",
+        ],
+        "railway.docs.toml": [
+          "Dockerfile.docs.dockerignore",
+          "package.json",
+          "packages/**",
+          "pnpm-workspace.yaml",
+        ],
+        "railway.course.toml": [
+          ".dockerignore",
+          "package.json",
+          "packages/**",
+          "pnpm-workspace.yaml",
+        ],
+      };
+      const missing = Object.entries(requirements).flatMap(
+        ([file, required]) => {
+          const match = readText(file).match(
+            /watchPatterns\s*=\s*\[([^\]]*)\]/s,
+          );
+          const watched = new Set(
+            match
+              ? [...match[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1])
+              : [],
+          );
+          return required
+            .filter((input) => !watched.has(input))
+            .map((input) => `${file}:${input}`);
+        },
+      );
+      return missing.length === 0
+        ? null
+        : `Railway watchPatterns missing ${missing.join(", ")}`;
+    },
+  },
   {
     name: "ENGINE_VERSION matches @hogsend/engine version",
     fn: () => {
@@ -298,27 +414,32 @@ const checks = [
     // @hogsend/cli, ...) are type-checked by the CONSUMER's own `tsc`, deep
     // into node_modules. A `@types/*` package only in `devDependencies` never
     // installs for a consumer (devDeps don't propagate), so the moment
-    // reachable source imports a runtime dep whose types live in
+    // reachable source imports a runtime or peer dep whose types live in
     // `devDependencies`, every downstream consumer's `check-types` breaks the
     // next time it bumps past that release — while THIS repo's own
     // check-types stays green (its devDependency is right there). Hit by
     // @hogsend/engine's `qrcode` import (vanity-links/QR, #385): `hogsend
     // upgrade` broke pre-existing consumers even though CI was green.
-    name: "raw-source packages keep @types/* alongside their base runtime dep (not devDependencies)",
+    name: "raw-source packages keep @types/* alongside their base runtime or peer dep (not devDependencies)",
     fn: () => {
       const offenders = scanPackages(ENGINE_LINE, (pkg) => {
         const entry = pkg.types || pkg.main || "";
         const isRawSource = /\.tsx?$/.test(entry) && !entry.endsWith(".d.ts");
         if (!isRawSource) return [];
-        const deps = new Set(Object.keys(pkg.dependencies || {}));
+        const runtimeOrPeerDeps = new Set([
+          ...Object.keys(pkg.dependencies || {}),
+          ...Object.keys(pkg.peerDependencies || {}),
+        ]);
         const bad = Object.keys(pkg.devDependencies || {}).filter(
-          (k) => k.startsWith("@types/") && deps.has(k.slice("@types/".length)),
+          (k) =>
+            k.startsWith("@types/") &&
+            runtimeOrPeerDeps.has(k.slice("@types/".length)),
         );
         return bad.length ? [`${pkg.name}: ${bad.join(", ")}`] : [];
       });
       return offenders.length === 0
         ? null
-        : `move to "dependencies" (raw-source package, devDependencies never reach consumers): ${offenders.join("; ")}`;
+        : `move to "dependencies" or "peerDependencies" (raw-source package, devDependencies never reach consumers): ${offenders.join("; ")}`;
     },
   },
   {

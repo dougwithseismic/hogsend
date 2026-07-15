@@ -1,4 +1,8 @@
 export {
+  type CreateWhenBuilderOptions,
+  createWhenBuilder,
+} from "./builder.js";
+export {
   resolveAfter,
   resolveNextLocalTime,
   resolveNextWeekday,

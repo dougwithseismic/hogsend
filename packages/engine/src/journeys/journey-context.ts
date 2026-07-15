@@ -15,28 +15,17 @@ import {
   normalizeWhere,
 } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import {
-  isValidTimeZone,
-  resolveAfter,
-  resolveNextLocalTime,
-  resolveNextWeekday,
-  resolveTomorrow,
-  type SendWindow,
-} from "@hogsend/core/schedule";
+import { createWhenBuilder, type SendWindow } from "@hogsend/core/schedule";
 import type {
   DigestEvent,
   DigestOptions,
   DigestResult,
-  IfPast,
   JourneyContext,
   PropertyCondition,
   RecentEvent,
   ThrottleOptions,
   ThrottleResult,
-  TimeOfDayBuilder,
   WaitForEventResult,
-  Weekday,
-  WhenBuilder,
 } from "@hogsend/core/types";
 import {
   type Database,
@@ -52,6 +41,7 @@ import {
   desc,
   eq,
   gte,
+  isNotNull,
   lte,
   max,
   notInArray,
@@ -171,64 +161,6 @@ interface JourneyContextConfig {
   entryLimit?: "once" | "once_per_period" | "unlimited";
   /** The journey's entry period (for `once_per_period`). */
   entryPeriod?: DurationObject;
-}
-
-/**
- * Build the timezone-bound fluent scheduler. A thin wrapper over the pure core
- * resolvers: it injects the user's resolved tz, the real current instant, and
- * the (optionally overridden) send window, returning absolute `Date`s.
- */
-function createWhenBuilder(opts: {
-  timezone: string;
-  window?: SendWindow;
-  ifPast: IfPast;
-  /**
-   * The current instant, supplied by the context so `ctx.when` reads the
-   * replay-stable (memoized) clock instead of a raw `new Date()` — the resolved
-   * instant must be identical across a durable replay or a scheduled `.next(...)`
-   * could land on a different day the second time through.
-   */
-  now: () => Date;
-}): WhenBuilder {
-  const baseOpts = () => ({
-    timezone: opts.timezone,
-    now: opts.now(),
-    window: opts.window,
-    ifPast: opts.ifPast,
-  });
-
-  const timeBuilder = (resolve: (time: string) => Date): TimeOfDayBuilder => ({
-    at: (time) => resolve(time),
-  });
-
-  return {
-    next(weekday: Weekday) {
-      return timeBuilder((time) =>
-        resolveNextWeekday(weekday, time, baseOpts()),
-      );
-    },
-    nextLocal(time: string) {
-      return resolveNextLocalTime(time, baseOpts());
-    },
-    tomorrow() {
-      return timeBuilder((time) => resolveTomorrow(time, baseOpts()));
-    },
-    in(duration: DurationObject) {
-      return timeBuilder((time) => resolveAfter(duration, time, baseOpts()));
-    },
-    tz(timezone: string) {
-      if (!isValidTimeZone(timezone)) {
-        throw new TypeError(`ctx.when.tz: invalid timezone "${timezone}"`);
-      }
-      return createWhenBuilder({ ...opts, timezone });
-    },
-    window(start: string, end: string) {
-      return createWhenBuilder({ ...opts, window: { start, end } });
-    },
-    ifPast(strategy: IfPast) {
-      return createWhenBuilder({ ...opts, ifPast: strategy });
-    },
-  };
 }
 
 export function createJourneyContext(
@@ -1203,6 +1135,7 @@ export function createJourneyContext(
             and(
               eq(emailSends.toEmail, targetEmail),
               eq(emailSends.templateKey, template),
+              isNotNull(emailSends.sentAt),
             ),
           );
 
@@ -1228,6 +1161,7 @@ export function createJourneyContext(
             and(
               eq(smsSends.toPhone, phone),
               eq(smsSends.templateKey, template),
+              isNotNull(smsSends.sentAt),
             ),
           );
 

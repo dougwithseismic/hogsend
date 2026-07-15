@@ -4,7 +4,7 @@ description: Use when adding or editing a lifecycle journey in src/journeys/ —
 license: MIT
 metadata:
   author: withSeismic
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Authoring Hogsend journeys
@@ -15,14 +15,16 @@ run })` in `src/journeys/`: `meta` says who enters and when they exit, and
 branch on history. Each journey compiles to its own Hatchet durable task, so the
 worker can restart mid-flow and resume exactly where it left off.
 
-You are editing a **scaffolded consumer app** (content only). You import from
-`@hogsend/engine` and `@hogsend/core`; you never touch engine internals.
+You are editing a **scaffolded consumer app** (content only). Journey files
+import definitions, types, duration helpers, and effects from the
+environment-free `@hogsend/engine/journeys` entry point. Reserve the main
+`@hogsend/engine` entry for runtime bootstrap files that create the app, client,
+or worker. Never touch engine internals.
 
 ## Anatomy of a journey
 
 ```ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const welcome = defineJourney({
@@ -63,8 +65,8 @@ export const welcome = defineJourney({
   `guard.isSubscribed`, `history.hasEvent/journey/email`. `ctx.digest` collapses a
   window of trigger events into ONE run (batch via `Object.groupBy` over
   `digest.events`); `ctx.throttle` is an advisory windowed send-count check.
-  Features are standalone imports: `sendEmail()` comes from `@hogsend/engine`, NOT
-  off `ctx`.
+  Features are standalone imports: `sendEmail()` comes from
+  `@hogsend/engine/journeys`, NOT off `ctx`.
 - **Fan-out is DESTINATIONS, not `ctx`.** There is no `ctx.identify` /
   `ctx.posthog.capture` — those single-vendor PostHog shims were removed. To get
   user/event data into product + data tools (PostHog, Segment, Slack, a CRM, a
@@ -73,8 +75,8 @@ export const welcome = defineJourney({
   `webhook_endpoints.kind`. EVERY destination receives EVERY open and click
   (per-hit, not first-touch), and `email.delivered` is the canonical "email was
   received" signal. See the **hogsend-authoring-destinations** skill.
-- **Duration helpers** `days()` / `hours()` / `minutes()` from `@hogsend/core`
-  (also re-exported by `@hogsend/engine`) — never magic strings.
+- **Duration helpers** `days()` / `hours()` / `minutes()` from
+  `@hogsend/engine/journeys` — never magic strings.
 - **`user`** carries `id`, `email`, `properties`, `stateId`, `journeyId`,
   `journeyName` — pass `user.stateId` to `sendEmail` so the send is attributed.
 - **Constants** `Events` / `Templates` live in your `src/journeys/constants/`.

@@ -3,7 +3,8 @@
 #
 # Proves: build CLI -> pack @hogsend/* tarballs -> scaffold a fresh app in a
 # clean /tmp dir (resolving @hogsend/* from those tarballs via file:) ->
-# install -> check-types -> build -> biome check. Cleans up all /tmp dirs.
+# clean-consumer import/typecheck -> scaffold install -> check-types -> build ->
+# biome check. Cleans up all /tmp dirs.
 #
 # No npm publish (tarballs only), no temp dirs in the repo, no DB mutation.
 set -euo pipefail
@@ -13,13 +14,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio)
+PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
 
 TARBALLS=""
 APP_PARENT=""
+CONSUMER_DIR=""
 cleanup() {
   [ -n "$TARBALLS" ] && rm -rf "$TARBALLS"
   [ -n "$APP_PARENT" ] && rm -rf "$APP_PARENT"
+  [ -n "$CONSUMER_DIR" ] && rm -rf "$CONSUMER_DIR"
 }
 trap cleanup EXIT
 
@@ -27,6 +30,15 @@ fail() {
   echo "FAIL: $1" >&2
   exit 1
 }
+
+REPO_PACKAGE_MANAGER="$(node -p "require('$REPO_ROOT/package.json').packageManager")"
+EXPECTED_PNPM="${REPO_PACKAGE_MANAGER#pnpm@}"
+ACTUAL_PNPM="$(pnpm --version)"
+[ "$REPO_PACKAGE_MANAGER" = "pnpm@$EXPECTED_PNPM" ] \
+  || fail "root packageManager must pin pnpm"
+[ "$ACTUAL_PNPM" = "$EXPECTED_PNPM" ] \
+  || fail "expected pnpm $EXPECTED_PNPM from root packageManager, got $ACTUAL_PNPM"
+echo "==> toolchain: $REPO_PACKAGE_MANAGER"
 
 # Assert a tarball contains a path matching a pattern. CRITICAL: capture the
 # `tar` listing into a variable FIRST, then `grep` the string. Piping
@@ -40,26 +52,49 @@ tar_has() {
   grep -q "$2" <<<"$listing"
 }
 
+tarball_for() {
+  local pkg="$1"
+  local matches=("$TARBALLS"/hogsend-"$pkg"-*.tgz)
+  [ "${#matches[@]}" -eq 1 ] && [ -f "${matches[0]}" ] \
+    || fail "expected exactly one tarball for $pkg"
+  printf '%s' "${matches[0]}"
+}
+
+assert_runtime_deps() {
+  local tgz="$1"
+  shift
+  local manifest
+  manifest="$(tar -xOf "$tgz" package/package.json)"
+  PACKAGE_JSON="$manifest" node - "$@" <<'NODE'
+const pkg = JSON.parse(process.env.PACKAGE_JSON);
+for (const name of process.argv.slice(2)) {
+  if (!pkg.dependencies?.[name]) {
+    console.error(`${pkg.name} must publish ${name} in dependencies`);
+    process.exitCode = 1;
+  }
+}
+NODE
+}
+
 # --- 1. build the CLI -----------------------------------------------------
 # Every `pnpm --filter` here carries `--dir "$REPO_ROOT"` so the harness
 # builds THIS checkout regardless of the caller's cwd — without it, running
 # the script from another checkout (e.g. the main repo while testing a
 # worktree) silently builds the WRONG tree and packs stale dist output.
-echo "==> [1/8] build CLI"
+echo "==> [1/10] build CLI"
 pnpm --dir "$REPO_ROOT" --filter create-hogsend build >/dev/null
 CLI="$PKG_DIR/dist/index.js"
 [ -f "$CLI" ] || fail "CLI not built at $CLI"
 head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
 
 # --- 2. pack @hogsend/* into a /tmp tarball dir ---------------------------
-echo "==> [2/8] pack @hogsend/* tarballs"
+echo "==> [2/10] pack @hogsend/* tarballs"
 TARBALLS="$(mktemp -d /tmp/hogsend-tarballs.XXXXXX)"
 bash "$SCRIPT_DIR/pack-tarballs.sh" "$TARBALLS"
 for pkg in "${PACKAGES[@]}"; do
   # Version-agnostic: the tarball is named for the package's own version, so
   # match the glob rather than hardcoding a version that drifts each release.
-  tgz="$(echo "$TARBALLS"/hogsend-"$pkg"-*.tgz)"
-  [ -f "$tgz" ] || fail "tarball not produced for $pkg (no hogsend-$pkg-*.tgz)"
+  tgz="$(tarball_for "$pkg")"
   case "$pkg" in
     studio | cli | client)
       # These ship a built dist/ — assert it travelled in the tarball.
@@ -71,6 +106,15 @@ for pkg in "${PACKAGES[@]}"; do
   esac
 done
 echo "    packed: $(ls "$TARBALLS" | tr '\n' ' ')"
+
+testing_tgz="$(tarball_for testing)"
+if tar_has "$testing_tgz" '\.test\.ts$'; then
+  fail "@hogsend/testing tarball contains internal *.test.ts files"
+fi
+assert_runtime_deps "$(tarball_for email)" react-email @types/react @types/react-dom
+assert_runtime_deps "$(tarball_for sms)" react-email @types/react @types/react-dom
+assert_runtime_deps "$testing_tgz" @hogsend/sms @types/react @types/react-dom
+echo "    runtime dependency metadata + testing tarball surface OK"
 
 # create-hogsend's OWN publish-time pack must carry the generated .claude tree +
 # the CLAUDE.template.md orientation file. The harness runs the CLI from dist/,
@@ -85,8 +129,77 @@ tar_has "$chtgz" 'package/template/.claude/skills/.*/SKILL.md' \
 tar_has "$chtgz" 'package/template/CLAUDE.template.md' \
   || fail "create-hogsend pack missing template/CLAUDE.template.md"
 
+# The scaffold intentionally carries extra development dependencies. Verify the
+# published testing package independently so react-email / React declarations
+# cannot be supplied accidentally by template/_package.json. Only compiler and
+# raw-TypeScript loader tooling is installed alongside @hogsend/testing.
+echo "==> [2c] clean packed-consumer runtime import + tsc"
+CONSUMER_DIR="$(mktemp -d /tmp/hogsend-consumer.XXXXXX)"
+cat >"$CONSUMER_DIR/package.json" <<EOF
+{
+  "name": "hogsend-packed-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "$REPO_PACKAGE_MANAGER",
+  "dependencies": {
+    "@hogsend/testing": "file:$testing_tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsx": "^4.22.3",
+    "typescript": "5.9.2"
+  }
+}
+EOF
+
+{
+  echo 'packages: []'
+  echo
+  echo 'overrides:'
+  for pkg in attribution core db email engine plugin-posthog plugin-resend sms; do
+    printf '  "@hogsend/%s": "file:%s"\n' "$pkg" "$(tarball_for "$pkg")"
+  done
+} >"$CONSUMER_DIR/pnpm-workspace.yaml"
+
+cat >"$CONSUMER_DIR/smoke.ts" <<'EOF'
+import { createJourneyTest, runJourneyScenarios } from "@hogsend/testing";
+
+if (
+  typeof createJourneyTest !== "function" ||
+  typeof runJourneyScenarios !== "function"
+) {
+  throw new Error("@hogsend/testing did not expose its runtime API");
+}
+EOF
+
+cat >"$CONSUMER_DIR/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["smoke.ts"]
+}
+EOF
+
+CONSUMER_INSTALL_LOG="$CONSUMER_DIR/install.log"
+if ! (cd "$CONSUMER_DIR" && pnpm install --ignore-scripts >"$CONSUMER_INSTALL_LOG" 2>&1); then
+  echo "----- clean consumer pnpm install output -----" >&2
+  tail -40 "$CONSUMER_INSTALL_LOG" >&2
+  fail "clean packed-consumer install failed"
+fi
+(cd "$CONSUMER_DIR" && pnpm exec tsx smoke.ts) \
+  || fail "clean packed-consumer runtime import failed"
+(cd "$CONSUMER_DIR" && pnpm exec tsc -p tsconfig.json) \
+  || fail "clean packed-consumer typecheck failed"
+echo "    clean consumer imports + typechecks without scaffold React dependencies"
+
 # --- 3. scaffold into a clean /tmp dir ------------------------------------
-echo "==> [3/8] scaffold my-app"
+echo "==> [3/10] scaffold my-app"
 APP_PARENT="$(mktemp -d /tmp/hogsend-app.XXXXXX)"
 APPDIR="$APP_PARENT/my-app"
 (cd "$APP_PARENT" && node "$CLI" my-app --pm pnpm --no-install --no-git \
@@ -95,6 +208,7 @@ APPDIR="$APP_PARENT/my-app"
 EXPECTED=(
   package.json src/index.ts src/worker.ts
   src/journeys/index.ts src/journeys/welcome.ts src/journeys/test-onboarding.ts
+  src/journeys/welcome.test.ts
   src/journeys/ai-onboarding.ts
   src/journeys/constants/index.ts
   src/agents/index.ts src/agents/onboarding-concierge.ts
@@ -118,6 +232,8 @@ done
 # token substitution + no residue
 grep -q '"name": "my-app"' "$APPDIR/package.json" \
   || fail "APP_NAME token not applied in package.json"
+grep -q "\"packageManager\": \"$REPO_PACKAGE_MANAGER\"" "$APPDIR/package.json" \
+  || fail "scaffold does not pin root packageManager ($REPO_PACKAGE_MANAGER)"
 grep -q 'file:.*hogsend-engine' "$APPDIR/package.json" \
   || fail "tarball file: dep not present in package.json"
 # Scope past the copied skill bodies (.claude/), which legitimately document
@@ -151,6 +267,17 @@ NOSKILLS_DIR="$APP_PARENT/no-skills"
 [ ! -e "$NOSKILLS_DIR/.claude" ] || fail "--no-skills emitted .claude/"
 [ ! -e "$NOSKILLS_DIR/CLAUDE.md" ] || fail "--no-skills emitted CLAUDE.md"
 echo "    --no-skills OK"
+
+# --- 3b2. non-pnpm scaffolds are not mislabeled for Corepack --------------
+echo "==> [3b2] npm scaffold omits pnpm packageManager"
+NPM_DIR="$APP_PARENT/npm-app"
+(cd "$APP_PARENT" && node "$CLI" npm-app --pm npm --no-install --no-git \
+  --no-skills --use-tarballs "$TARBALLS")
+[ -e "$NPM_DIR/package.json" ] || fail "npm scaffold produced no app"
+if grep -q '"packageManager"' "$NPM_DIR/package.json"; then
+  fail "npm scaffold was incorrectly pinned to pnpm"
+fi
+echo "    npm scaffold packageManager OK"
 
 # --- 3c. --posthog-key materializes active PostHog env --------------------
 echo "==> [3c] scaffold (--posthog-key) writes active PostHog env"
@@ -222,7 +349,7 @@ echo "    flag validation OK"
 # packages: []), which BOTH stops pnpm from joining any parent workspace AND
 # carries the pnpm 11 build-script approvals. --ignore-workspace would discard
 # that settings file and resurrect ERR_PNPM_IGNORED_BUILDS on pnpm >= 11.
-echo "==> [4/8] pnpm install (scaffolded app)"
+echo "==> [4/10] pnpm install (scaffolded app)"
 INSTALL_LOG="/tmp/hogsend-verify-install.log"
 if ! (cd "$APPDIR" && pnpm install >"$INSTALL_LOG" 2>&1); then
   echo "----- pnpm install output -----" >&2
@@ -233,16 +360,20 @@ fi
   || fail "engine raw .ts not present in node_modules (tarball did not carry src)"
 
 # --- 5. check-types -------------------------------------------------------
-echo "==> [5/8] pnpm check-types (scaffolded app)"
+echo "==> [5/10] pnpm check-types (scaffolded app)"
 (cd "$APPDIR" && pnpm check-types) || fail "check-types failed"
 
-# --- 6. build -------------------------------------------------------------
-echo "==> [6/9] pnpm build (scaffolded app)"
+# --- 6. test --------------------------------------------------------------
+echo "==> [6/10] pnpm test (scaffolded journey example)"
+(cd "$APPDIR" && pnpm test) || fail "tests failed"
+
+# --- 7. build -------------------------------------------------------------
+echo "==> [7/10] pnpm build (scaffolded app)"
 (cd "$APPDIR" && pnpm build >/dev/null) || fail "build failed"
 [ -f "$APPDIR/dist/index.js" ] || fail "dist/index.js not produced"
 [ -f "$APPDIR/dist/worker.js" ] || fail "dist/worker.js not produced"
 
-# --- 7. boot smoke --------------------------------------------------------
+# --- 8. boot smoke --------------------------------------------------------
 # The AI-SDK bundling bug ("Dynamic require of X is not supported") throws at
 # MODULE EVAL — before any DB/Redis connection — so a build-only smoke misses
 # it (this is exactly how engine 0.35.0 shipped a consumer-crashing release).
@@ -250,7 +381,7 @@ echo "==> [6/9] pnpm build (scaffolded app)"
 # at env-validation, which is itself PROOF the module graph loaded fine. So we
 # boot each entry (timeout-bounded) and FAIL only on the telltale module-eval
 # signatures — reaching env-validation (or staying up to the timeout) is a PASS.
-echo "==> [7/9] boot smoke (node dist/index.js + dist/worker.js)"
+echo "==> [8/10] boot smoke (node dist/index.js + dist/worker.js)"
 for entry in index worker; do
   log="/tmp/hogsend-boot-$entry.log"
   (cd "$APPDIR" && timeout 8 node "dist/$entry.js" >"$log" 2>&1) || true
@@ -261,11 +392,11 @@ for entry in index worker; do
   echo "    dist/$entry.js loads clean (no module-eval crash)"
 done
 
-# --- 8. lint --------------------------------------------------------------
-echo "==> [8/9] biome check (scaffolded app)"
+# --- 9. lint --------------------------------------------------------------
+echo "==> [9/10] biome check (scaffolded app)"
 (cd "$APPDIR" && pnpm exec biome check .) || fail "biome check failed"
 
-# --- 9. cleanup (trap) ----------------------------------------------------
-echo "==> [9/9] cleanup /tmp dirs"
+# --- 10. cleanup (trap) ---------------------------------------------------
+echo "==> [10/10] cleanup /tmp dirs"
 echo ""
-echo "PASS: scaffold -> install -> check-types -> build -> boot -> lint all green."
+echo "PASS: scaffold -> install -> check-types -> test -> build -> boot -> lint all green."

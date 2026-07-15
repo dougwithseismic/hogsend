@@ -223,7 +223,7 @@ Artifacts:
 ### Phase 3 — Dockerfile + `.dockerignore` (the central missing artifact)
 Artifacts:
 - `/Dockerfile`, 4-stage on `node:22-bookworm-slim` (matches `.node-version`),
-  corepack `pnpm@9.0.0` (matches root `packageManager`):
+  corepack `pnpm@11.12.0` (matches root `packageManager`):
   1. `base` — node + pinned pnpm.
   2. `fetch` — COPY lockfile + `pnpm-workspace.yaml` + all `package.json`; `pnpm fetch`.
      Caches on lockfile hash only.

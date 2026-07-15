@@ -2,3 +2,17 @@ packages:
   - "apps/*"
   - "packages/*"
   - "marketing/*"
+
+# pnpm 11 fails closed when dependency build scripts are not explicitly
+# approved. These are the same scripts pnpm 9 executed before the toolchain
+# upgrade; keeping the allowlist here makes local, CI, and Docker installs
+# deterministic.
+allowBuilds:
+  "@hatchet-dev/typescript-sdk": true
+  "@prisma/client": true
+  better-sqlite3: true
+  core-js: true
+  esbuild: true
+  lefthook: true
+  protobufjs: true
+  sharp: true

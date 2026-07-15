@@ -18,6 +18,9 @@
  */
 export const ENGINE_VERSION = "0.46.1";
 
+/** pnpm version pinned into pnpm-based scaffolds and the release smoke test. */
+export const PNPM_VERSION = "11.12.0";
+
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [
   "attribution",
@@ -31,6 +34,7 @@ export const HOGSEND_PACKAGES = [
   "plugin-resend",
   "sms",
   "studio",
+  "testing",
 ] as const;
 
 /**

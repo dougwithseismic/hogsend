@@ -4,12 +4,12 @@
 #   migrate              ->  tsx packages/db/src/migrate.ts     (one-shot)
 #
 # Multi-stage on node:22-bookworm-slim (matches .node-version) with corepack
-# pnpm@9.0.0 (matches root packageManager). tsup bundles every @hogsend/* package
+# pnpm@11.12.0 (matches root packageManager). tsup bundles every @hogsend/* package
 # (incl. @hogsend/engine) into apps/api/dist via noExternal, so the api/worker
 # entrypoints are self-contained for first-party code; their npm runtime deps
 # resolve from node_modules. Migrations are NOT bundled: db:migrate runs via tsx
 # and resolves `new URL("../drizzle", import.meta.url)` at runtime, so the runner
-# also ships packages/db source + its drizzle/ SQL + tsx + drizzle-orm + postgres.
+# also ships packages/db source + its drizzle/ SQL and runtime dependencies.
 #
 # `pnpm deploy` produces self-contained, pruned node_modules per project so the
 # runner carries ONLY the api's prod deps + the db package's deps (incl. tsx) —
@@ -21,11 +21,11 @@
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
+ENV PATH="$PNPM_HOME/bin:$PNPM_HOME:/app/packages/db/node_modules/.bin:$PATH"
 # Pin the store inside the image FS so it can be carried between stages with COPY
 # (cache mounts can't be COPYed and don't create stage-dependency edges).
 ENV PNPM_STORE_DIR="/pnpm/store"
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate \
+RUN corepack enable && corepack prepare pnpm@11.12.0 --activate \
   && pnpm config set store-dir "$PNPM_STORE_DIR" --global
 WORKDIR /app
 
@@ -43,15 +43,9 @@ RUN pnpm fetch
 #    tsup-build @hogsend/api (which bundles all @hogsend/* deps into
 #    apps/api/dist), then `pnpm deploy` pruned bundles for the runner:
 #      /deploy/api — @hogsend/api prod deps only (the api/worker runtime).
-#      /deploy/db  — @hogsend/db prod deps only (drizzle-orm + postgres); tsx is
-#                    shipped separately as a global tool (see below).
+#      /deploy/db  — @hogsend/db prod deps (tsx + drizzle-orm + postgres).
 # ---------------------------------------------------------------------------
 FROM base AS build
-# inject-workspace-packages makes pnpm 9's `deploy --prod --filter` actually prune
-# to the target project's own dep graph; without it deploy copies the whole
-# workspace virtual store (Next.js/sharp/turbo/biome) into every bundle. It must
-# be set before the install so the resulting layout supports injected deploys.
-RUN pnpm config set inject-workspace-packages true --global
 COPY --from=fetch /pnpm/store /pnpm/store
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
@@ -60,11 +54,13 @@ RUN pnpm --filter @hogsend/api build
 # a runtime dependency of the engine; it ships as a built artifact the runner
 # serves at /studio. Built here while the full workspace (incl. vite) is present.
 RUN pnpm --filter @hogsend/studio build
-RUN pnpm --filter @hogsend/api deploy --prod /deploy/api \
-  && pnpm --filter @hogsend/db deploy --prod /deploy/db
-# tsx is a devDep dropped by `deploy --prod`, but db:migrate runs `tsx
-# src/migrate.ts`. Install it as a standalone global tool the runner can carry.
-RUN pnpm add -g tsx@4.22.3
+# Scope injection to deploy itself. A workspace-wide injectWorkspacePackages
+# setting would replace normal development symlinks with hard-linked copies and
+# force an unnecessary injected-package lockfile layout.
+RUN pnpm --offline --config.inject-workspace-packages=true \
+    --filter @hogsend/api deploy --prod /deploy/api \
+  && pnpm --offline --config.inject-workspace-packages=true \
+    --filter @hogsend/db deploy --prod /deploy/db
 
 # ---------------------------------------------------------------------------
 # 4. runner — slim production image built purely from the two deploy bundles.
@@ -82,7 +78,7 @@ COPY --from=build /deploy/api/node_modules ./apps/api/node_modules
 COPY --from=build /deploy/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 
-# db: deploy bundle (prod node_modules — drizzle-orm + postgres) + source +
+# db: deploy bundle (prod node_modules — tsx + drizzle-orm + postgres) + source +
 # drizzle/ SQL, so `tsx src/migrate.ts` resolves `new URL("../drizzle", ...)`.
 COPY --from=build /deploy/db/node_modules ./packages/db/node_modules
 COPY --from=build /deploy/db/package.json ./packages/db/package.json
@@ -95,11 +91,6 @@ COPY --from=build /app/packages/db/drizzle.config.ts ./packages/db/drizzle.confi
 # not depend on cwd or module resolution.
 COPY --from=build /app/packages/studio/dist ./packages/studio/dist
 ENV STUDIO_DIST_PATH=/app/packages/studio/dist
-
-# Global tsx (dropped by `deploy --prod`) for the migrate run mode. /pnpm is on
-# PATH (set in base), so the `tsx` shim resolves for `tsx packages/db/src/migrate.ts`.
-COPY --from=build /pnpm/tsx /pnpm/tsx
-COPY --from=build /pnpm/global /pnpm/global
 
 # Drop to the unprivileged user the node image already ships. The app only reads
 # node_modules/dist at runtime (no writes), so the root-owned, world-readable

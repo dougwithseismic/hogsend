@@ -17,6 +17,8 @@ export interface TokenOptions {
   category?: string;
   action: TokenAction;
   expiresInSeconds?: number;
+  /** Clock snapshot used to calculate expiry. Defaults to the current time. */
+  now?: Date;
 }
 
 export class InvalidTokenError extends Error {
@@ -48,13 +50,14 @@ export function generateUnsubscribeToken(options: TokenOptions): string {
     category,
     action,
     expiresInSeconds = DEFAULT_EXPIRY_SECONDS,
+    now = new Date(),
   } = options;
 
   const payload: UnsubscribeTokenPayload = {
     externalId,
     email,
     action,
-    exp: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    exp: Math.floor(now.getTime() / 1000) + expiresInSeconds,
   };
 
   if (category) {

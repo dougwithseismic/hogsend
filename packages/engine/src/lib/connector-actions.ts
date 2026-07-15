@@ -6,7 +6,6 @@ import type {
   DefinedConnectorAction,
   ResolvedActionContact,
 } from "../connectors/define-action.js";
-import { env } from "../env.js";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
@@ -15,9 +14,13 @@ import {
 import { getListRegistry } from "../lists/registry-singleton.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
-import { readRecipientPreferences } from "./preferences.js";
+import { readRecipientPreferences } from "./recipient-preferences.js";
 
-const logger = createLogger(env.LOG_LEVEL);
+// This module is part of the side-effect-free journey-authoring surface used by
+// `@hogsend/testing`. Reading the raw optional value keeps importing a journey
+// from validating the complete production environment; the full container still
+// validates env at boot.
+const logger = createLogger(process.env.LOG_LEVEL);
 
 /**
  * Matches the canonical UUID form of `contacts.id` (8-4-4-4-12 hex). Gates the
@@ -240,6 +243,42 @@ export interface SendConnectorActionArgs {
 export async function sendConnectorAction(
   input: SendConnectorActionArgs,
 ): Promise<unknown> {
+  const boundary = getJourneyBoundary();
+  const override = boundary?.services?.connector;
+  if (boundary && override) {
+    const actionExists = boundary.services?.connectorActionExists;
+    if (!actionExists) {
+      throw new Error(
+        "Scoped connector override requires connectorActionExists validation",
+      );
+    }
+    if (!actionExists(input.connectorId, input.action)) {
+      throw new Error(
+        `no connector action "${input.connectorId}:${input.action}" is registered ` +
+          "(pass it via createJourneyTest({ connectorActions }))",
+      );
+    }
+    const site =
+      input.idempotencyLabel ??
+      boundary.currentLabel ??
+      `${input.connectorId}:${input.action}`;
+    const scopedKey = deriveJourneyKey({
+      kind: "connector",
+      anchor: boundary.runAnchor,
+      site,
+      discriminant: `${input.connectorId}:${input.action}`,
+    });
+    registerKey(boundary, scopedKey);
+    return boundary.memoize([scopedKey], () =>
+      override({
+        connectorId: input.connectorId,
+        action: input.action,
+        ...(input.args !== undefined ? { args: input.args } : {}),
+        idempotencyKey: scopedKey,
+      }),
+    );
+  }
+
   const action = getConnectorActionRegistry().get(
     input.connectorId,
     input.action,
@@ -300,7 +339,6 @@ export async function sendConnectorAction(
 
   // Outside a journey run (an admin/manual send) there is no replay to defend
   // against and no boundary to key from — gate then run the action directly.
-  const boundary = getJourneyBoundary();
   if (!boundary) return gate(doRun);
 
   // The replay-stable, branch-derived key shared by BOTH defense layers. `site`

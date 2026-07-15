@@ -1,7 +1,8 @@
 # JourneyMeta — trigger, entryLimit, exitOn, suppress
 
 `meta` is the static declaration of who enters a journey, how often, and what
-pulls them out. It is the `JourneyMeta` type from `@hogsend/core`:
+pulls them out. It is the `JourneyMeta` type exported by
+`@hogsend/engine/journeys`:
 
 ```ts
 interface JourneyMeta {

@@ -1,12 +1,13 @@
 # Sending email from a journey
 
-`sendEmail()` is a **standalone import from `@hogsend/engine`** — it is NOT a
-method on `ctx`. It renders the template, checks the user's email preferences,
-rewrites links + injects the open pixel (tracking), writes the `email_sends` row,
-and hands off to the provider. You just call it with a template key and props.
+`sendEmail()` is a **standalone import** from `@hogsend/engine/journeys` — it is
+NOT a method on `ctx`. It renders the template, checks the user's email
+preferences, rewrites links + injects the open pixel (tracking), writes the
+`email_sends` row, and hands off to the provider. You just call it with a
+template key and props.
 
 ```ts
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const welcome = defineJourney({
@@ -78,5 +79,6 @@ time, not compile time, so keep them in lockstep.
   repeat sends with `ctx.history.email({ email, template })` when a journey can
   re-run a step.
 
-For SMS / push / Slack, import the relevant standalone sender — those are also
-plain function imports, never on `ctx`.
+For SMS, feed, and connector actions, import the relevant standalone sender
+from `@hogsend/engine/journeys` — those are also plain function imports, never
+on `ctx`.

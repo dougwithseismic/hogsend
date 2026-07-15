@@ -20,7 +20,9 @@ pnpm dlx create-hogsend my-app
 
 The emitted app pins all `@hogsend/*` packages to a single engine version line —
 the `@hogsend/engine` line current at publish time, recorded as `ENGINE_VERSION`
-in `src/template-manifest.ts`.
+in `src/template-manifest.ts`. Apps created with the default pnpm option also
+pin the supported pnpm version through `packageManager`, so Corepack uses the
+same toolchain locally and in CI.
 
 ## CLI options
 

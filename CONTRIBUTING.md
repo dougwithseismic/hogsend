@@ -4,9 +4,14 @@ Thanks for wanting to contribute. Hogsend is a work in progress and we keep thin
 
 ## Getting Started
 
+Use Node.js 22.x (`>=22.13`) and the repository-pinned pnpm `11.12.0`. pnpm 9
+and 10 are not supported; Corepack reads the exact version from `package.json`.
+Install Corepack first if your Node distribution does not include it.
+
 ```bash
 git clone https://github.com/dougwithseismic/hogsend.git
 cd hogsend
+corepack enable
 pnpm bootstrap      # Docker + .env + deps; auto-remaps busy host ports
 pnpm dev            # Starts API on port 3002
 ```

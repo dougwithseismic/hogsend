@@ -65,10 +65,10 @@ To log into [Studio](/docs/operating/studio), create the first admin first. Publ
 
 ## Quick example
 
-A PostHog `user_signed_up` event triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not. Everything imports from `@hogsend/engine` — the single surface your content depends on:
+A PostHog `user_signed_up` event triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not. Journey files import from the environment-free `@hogsend/engine/journeys` surface so the same function can run in a unit test; app and worker entry points use the main `@hogsend/engine` runtime surface.
 
 ```ts
-import { days, defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 export const onboarding = defineJourney({
   meta: {

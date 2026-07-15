@@ -28,7 +28,7 @@
     "verify": "bash scripts/verify-scaffold.sh"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:^",
