@@ -206,8 +206,20 @@ export function FlowEdge({
   // follows a dragged node), dagre's node-avoiding waypoints in between.
   // Everything here is a pure function of stable inputs, so an idle poll
   // re-produces a byte-identical `d` and no animation restarts.
+  //
+  // NODE-FIRST: the interior waypoints are only valid for the positions dagre
+  // laid out. The moment either endpoint drifts (a dragged card, a dragged
+  // tier box), the frozen elbows would kink through space that no longer has
+  // nodes in it — so the rail drops them and runs handle-to-handle direct.
+  const first = waypoints?.[0];
+  const last = waypoints?.[waypoints.length - 1];
+  const anchored =
+    first !== undefined &&
+    last !== undefined &&
+    Math.hypot(first.x - sourceX, first.y - sourceY) < 40 &&
+    Math.hypot(last.x - targetX, last.y - targetY) < 40;
   const interior =
-    waypoints && waypoints.length > 2 ? waypoints.slice(1, -1) : [];
+    anchored && waypoints && waypoints.length > 2 ? waypoints.slice(1, -1) : [];
   const pts = dedupe([
     { x: sourceX, y: sourceY },
     ...interior,

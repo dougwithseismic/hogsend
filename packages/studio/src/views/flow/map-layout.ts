@@ -191,6 +191,12 @@ export interface MapLayout {
   edgePoints: Record<string, XY[]>;
   /** Tier clusters of the CONNECTED flow (≥2 members earn a box). */
   clusters: ClusterBox[];
+  /**
+   * Which drawn cluster a node belongs to — the canvas parents these nodes
+   * to their tier box (React Flow subflow), so dragging the box moves the
+   * whole group. Nodes of boxless tiers (and the strip) are absent.
+   */
+  clusterOf: Record<string, SurfaceTier>;
 }
 
 const TIER_ORDER = { acquisition: 0, activation: 1, retention: 2, revenue: 3 };
@@ -232,6 +238,7 @@ export function layoutMap(input: {
   const positions: Record<string, XY> = {};
   const edgePoints: Record<string, XY[]> = {};
   const clusters: ClusterBox[] = [];
+  const clusterOf: Record<string, SurfaceTier> = {};
   let flowBottom = 0;
 
   if (connected.length > 0) {
@@ -297,6 +304,10 @@ export function layoutMap(input: {
       });
       flowBottom = Math.max(flowBottom, laid.y + laid.height / 2);
     }
+    const boxed = new Set(clusters.map((c) => c.tier));
+    for (const node of connected) {
+      if (boxed.has(node.tier)) clusterOf[node.id] = node.tier;
+    }
     for (const edge of merged) {
       const laid = g.edge(edge.from, edge.to) as { points?: XY[] } | undefined;
       if (laid?.points?.length) {
@@ -319,5 +330,5 @@ export function layoutMap(input: {
     };
   });
 
-  return { positions, edgePoints, clusters };
+  return { positions, edgePoints, clusters, clusterOf };
 }

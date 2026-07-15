@@ -48,8 +48,11 @@ const TIER_LABELS: Record<SurfaceTier, string> = {
 };
 
 function ClusterNode({ data }: NodeProps<ClusterRfNode>) {
+  // Draggable: grabbing anywhere in the box moves the WHOLE tier (its cards
+  // are React Flow children of this node), so the operator can rearrange the
+  // machine group-by-group instead of card-by-card.
   return (
-    <div className="pointer-events-none relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012]">
+    <div className="relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012] transition-colors hover:border-white/[0.12]">
       <span className="eyebrow absolute left-4 top-2.5 text-[10px] text-white/25">
         {TIER_LABELS[data.tier]}
       </span>
@@ -107,15 +110,34 @@ function reconcile(
   prevEdges: Map<string, FlowRfEdge>,
   selectedLane: string | null,
 ): { nodes: SurfaceRfNode[]; edges: FlowRfEdge[] } {
+  // Clustered nodes are React Flow CHILDREN of their tier box: positions go
+  // relative to the box origin, and dragging the box carries the group.
+  const origins = new Map<SurfaceTier, XY>(
+    layout.clusters.map((c) => [
+      c.tier,
+      { x: c.x - CLUSTER_PAD, y: c.y - CLUSTER_PAD },
+    ]),
+  );
   const nodes: SurfaceRfNode[] = [];
   for (const node of data.nodes) {
-    const position = manual.get(node.id) ?? layout.positions[node.id];
-    if (!position) continue;
+    const auto = layout.positions[node.id];
+    if (!auto) continue;
+    const tier = layout.clusterOf[node.id];
+    const origin = tier !== undefined ? origins.get(tier) : undefined;
+    const parentId = origin !== undefined ? `cluster#${tier}` : undefined;
+    const layoutPos =
+      origin !== undefined
+        ? { x: auto.x - origin.x, y: auto.y - origin.y }
+        : auto;
+    // Manual positions live in the SAME space the node renders in (relative
+    // when parented) — a drag stores node.position verbatim.
+    const position = manual.get(node.id) ?? layoutPos;
     const prev = prevNodes.get(node.id);
     if (
       prev &&
       prev.position.x === position.x &&
       prev.position.y === position.y &&
+      prev.parentId === parentId &&
       prev.data.fx?.baseCurrency === data.fx?.baseCurrency &&
       sameNodeVisuals(prev.data.node, node)
     ) {
@@ -126,6 +148,7 @@ function reconcile(
       id: node.id,
       type: "surface",
       position,
+      ...(parentId !== undefined ? { parentId } : {}),
       data: { node, fx: data.fx },
     };
     prevNodes.set(node.id, next);
@@ -264,6 +287,7 @@ function FlowCanvasInner({
   const prevNodesRef = useRef<Map<string, SurfaceRfNode>>(new Map());
   const prevEdgesRef = useRef<Map<string, FlowRfEdge>>(new Map());
   const manualPosRef = useRef<Map<string, XY>>(new Map());
+  const manualClusterPosRef = useRef<Map<string, XY>>(new Map());
 
   // The layout is a pure function of the node/edge SET — counts wiggling
   // between polls must not move anything, so the memo keys on ids only.
@@ -276,10 +300,14 @@ function FlowCanvasInner({
     [data],
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: layoutKey IS the dependency that matters — it changes exactly when the node/edge set does
-  const layout = useMemo(
-    () => layoutMap({ nodes: data.nodes, edges: data.edges }),
-    [layoutKey],
-  );
+  const layout = useMemo(() => {
+    // A new epoch is a new coordinate space (cluster parentage can change) —
+    // stale drag memory would place cards relative to boxes that moved or
+    // vanished, so it resets with the layout. Ref-only side effect.
+    manualPosRef.current.clear();
+    manualClusterPosRef.current.clear();
+    return layoutMap({ nodes: data.nodes, edges: data.edges });
+  }, [layoutKey]);
 
   const { nodes: rfNodes, edges: rfEdges } = useMemo(
     () =>
@@ -294,26 +322,31 @@ function FlowCanvasInner({
     [data, layout, selectedLane],
   );
 
-  // Tier cluster boxes — pure layout artifacts, re-minted only when the
-  // layout epoch changes (they hold no animations, so identity churn on a
-  // relayout is free). zIndex -1 parks them under every rail and card;
-  // pointer events pass through so a click inside a box still pans/deselects.
+  // Tier cluster boxes — draggable PARENTS of their member cards (grab the
+  // box, move the group). Re-minted every poll (they hold no animations) so
+  // a dragged box's manual position re-applies before setNodes could snap it
+  // back to the auto-layout. zIndex -1 parks them under every rail and card.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `data` re-applies the manual drag memory (a ref) on every poll, not just on layout epochs
   const clusterNodes = useMemo<ClusterRfNode[]>(
     () =>
-      layout.clusters.map((c) => ({
-        id: `cluster#${c.tier}`,
-        type: "cluster",
-        position: { x: c.x - CLUSTER_PAD, y: c.y - CLUSTER_PAD },
-        data: { tier: c.tier },
-        width: c.width + CLUSTER_PAD * 2,
-        height: c.height + CLUSTER_PAD * 2,
-        zIndex: -1,
-        draggable: false,
-        selectable: false,
-        focusable: false,
-        style: { pointerEvents: "none" },
-      })),
-    [layout],
+      layout.clusters.map((c) => {
+        const id = `cluster#${c.tier}`;
+        return {
+          id,
+          type: "cluster",
+          position: manualClusterPosRef.current.get(id) ?? {
+            x: c.x - CLUSTER_PAD,
+            y: c.y - CLUSTER_PAD,
+          },
+          data: { tier: c.tier },
+          width: c.width + CLUSTER_PAD * 2,
+          height: c.height + CLUSTER_PAD * 2,
+          zIndex: -1,
+          selectable: false,
+          focusable: false,
+        };
+      }),
+    [layout, data],
   );
   const allNodes = useMemo<CanvasNode[]>(
     () => [...clusterNodes, ...rfNodes],
@@ -362,8 +395,13 @@ function FlowCanvasInner({
   }, [fitView, rfNodes.length, layoutKey]);
 
   // A drag is the operator overriding the auto-layout — remember it so the
-  // next poll's reconcile doesn't snap the card back.
+  // next poll's reconcile doesn't snap the card/box back. Cluster boxes have
+  // their own memory (their children ride along via relative positions).
   const onNodeDragStop = (_: unknown, node: Node) => {
+    if (node.type === "cluster") {
+      manualClusterPosRef.current.set(node.id, { ...node.position });
+      return;
+    }
     manualPosRef.current.set(node.id, { ...node.position });
     const prev = prevNodesRef.current.get(node.id);
     if (prev) {
