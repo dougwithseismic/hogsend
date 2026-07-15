@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 26-event catalog, in order", () => {
+  it("is exactly the 29-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -243,6 +243,11 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "funnel.stage_changed",
       "deal.quoted",
       "deal.sold",
+      // Group analytics (account/team tracking) — identify + membership mutations,
+      // emitted from the intent-layer /v1/groups routes only.
+      "group.identified",
+      "group.member_added",
+      "group.member_removed",
     ]);
   });
 

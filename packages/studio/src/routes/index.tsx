@@ -12,6 +12,8 @@ import { ContactsView } from "@/views/contacts-view";
 import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
 import { FlowView } from "@/views/flow-view";
+import { GroupDetailView } from "@/views/group-detail-view";
+import { GroupsView } from "@/views/groups-view";
 import { IntegrationsView } from "@/views/integrations-view";
 import { JourneyDetailView } from "@/views/journey-detail-view";
 import { JourneysView } from "@/views/journeys-view";
@@ -126,6 +128,23 @@ const bucketsRoute = createRoute({
   component: BucketsView,
 });
 
+const groupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/groups",
+  component: GroupsView,
+});
+
+const groupDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/groups/$groupType/$groupKey",
+  // Same prop-threading pattern as the campaign/journey detail routes: read the
+  // params here so the view stays router-agnostic.
+  component: function GroupDetailRoute() {
+    const { groupType, groupKey } = groupDetailRoute.useParams();
+    return <GroupDetailView groupType={groupType} groupKey={groupKey} />;
+  },
+});
+
 const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
@@ -171,6 +190,8 @@ const routeTree = rootRoute.addChildren([
   journeyDetailRoute,
   blueprintDetailRoute,
   bucketsRoute,
+  groupsRoute,
+  groupDetailRoute,
   contactsRoute,
   suppressionsRoute,
   integrationsRoute,

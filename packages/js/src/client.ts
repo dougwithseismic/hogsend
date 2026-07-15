@@ -61,7 +61,10 @@ const DEFAULT_FEED_ID = "in_app";
 export function createHogsend(config: HogsendConfig): Hogsend {
   const resolved = resolveConfig(config);
 
-  const store = createStore<HogsendState>({ identity: EMPTY_IDENTITY });
+  const store = createStore<HogsendState>({
+    identity: EMPTY_IDENTITY,
+    groups: {},
+  });
 
   const identity = createIdentityStore({
     store,
@@ -95,6 +98,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     transport,
     identity,
     flushOnUnload: resolved.flushOnUnload,
+    getGroups: () => store.getSnapshot().groups,
   });
 
   const preferencesClient: PreferencesClient = createPreferencesClient({
@@ -347,6 +351,28 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
   if (resolved.captureAttribution) autoCaptureAttribution();
 
+  /**
+   * Associate the session with a group (`groupType → groupKey`), merging into
+   * the reactive `groups` slice. Association-only: no properties argument by
+   * design — group PROPERTIES are a secret-key write (`@hogsend/client`).
+   */
+  function group(groupType: string, groupKey: string): void {
+    store.setState((prev) => ({
+      ...prev,
+      groups: { ...prev.groups, [groupType]: groupKey },
+    }));
+  }
+
+  /** Clear all group associations. */
+  function resetGroups(): void {
+    store.setState((prev) => ({ ...prev, groups: {} }));
+  }
+
+  /** Read the current group associations. */
+  function getGroups(): Record<string, string> {
+    return store.getSnapshot().groups;
+  }
+
   async function identify(userId: string, traits?: Properties): Promise<void> {
     identity.setUserId(userId);
     const userToken = identity.getUserToken();
@@ -363,7 +389,15 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     getDistinctId: () => identity.getDistinctId(),
     getContactKey: () => identity.getContactKey(),
     isIdentified: () => identity.isIdentified(),
-    reset: () => identity.reset(),
+    reset: () => {
+      identity.reset();
+      // PostHog parity: an identity reset drops group associations too.
+      resetGroups();
+    },
+
+    group,
+    resetGroups,
+    getGroups,
 
     capture: (event, properties, opts) =>
       spine.capture(event, properties, opts),

@@ -91,6 +91,7 @@ export {
   useColorMode,
   watchSystemColorMode,
 } from "./hooks/use-color-mode.js";
+export { type UseGroup, useGroup } from "./hooks/use-group.js";
 export { type UseHogsend, useHogsend } from "./hooks/use-hogsend.js";
 export {
   type FeedNetworkStatus,

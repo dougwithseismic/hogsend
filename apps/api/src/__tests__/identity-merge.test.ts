@@ -24,10 +24,12 @@ const {
   contacts,
   emailPreferences,
   emailSends,
+  groupMemberships,
+  groups,
   journeyStates,
   userEvents,
 } = await import("@hogsend/db");
-const { and, eq, inArray } = await import("drizzle-orm");
+const { and, eq, inArray, like } = await import("drizzle-orm");
 const { createApp, createHogsendClient, mergeAnalyticsIdentities } =
   await import("@hogsend/engine");
 
@@ -113,6 +115,18 @@ const ABSENT_USER = `${RUN}-absent-user`;
 const ABSENT_A_EMAIL = `${RUN}-absent-a@example.com`;
 const ABSENT_B_EMAIL = `${RUN}-absent-b@example.com`;
 
+// ---- (vi-c) group_memberships re-parent case ----
+const G_SURVIVOR_USER = `${RUN}-grp-survivor-user`;
+const G_SURVIVOR_EMAIL = `${RUN}-grp-survivor@example.com`;
+const G_LOSER_EMAIL = `${RUN}-grp-loser@example.com`;
+const G_COMPANY_KEY = `${RUN}-grp-acme.com`;
+
+// ---- (vi-c) group_memberships COLLISION case (both are already members) ----
+const GC_SURVIVOR_USER = `${RUN}-gcol-survivor-user`;
+const GC_SURVIVOR_EMAIL = `${RUN}-gcol-survivor@example.com`;
+const GC_LOSER_EMAIL = `${RUN}-gcol-loser@example.com`;
+const GC_COMPANY_KEY = `${RUN}-gcol-acme.com`;
+
 const createdContactIds: string[] = [];
 
 async function putContact(body: Record<string, unknown>) {
@@ -158,6 +172,8 @@ afterAll(async () => {
     FLIP_USER,
     IDEM_SURVIVOR_USER,
     ABSENT_USER,
+    G_SURVIVOR_USER,
+    GC_SURVIVOR_USER,
     ...createdContactIds,
   ];
   if (keys.length > 0) {
@@ -181,6 +197,10 @@ afterAll(async () => {
     IDEM_LOSER_EMAIL,
     ABSENT_A_EMAIL,
     ABSENT_B_EMAIL,
+    G_SURVIVOR_EMAIL,
+    G_LOSER_EMAIL,
+    GC_SURVIVOR_EMAIL,
+    GC_LOSER_EMAIL,
   ]) {
     await db.delete(emailPreferences).where(eq(emailPreferences.email, email));
   }
@@ -190,6 +210,8 @@ afterAll(async () => {
       .where(inArray(contactAliases.contactId, createdContactIds));
     await db.delete(contacts).where(inArray(contacts.id, createdContactIds));
   }
+  // group_memberships cascade off contacts/groups; drop the run's groups.
+  await db.delete(groups).where(like(groups.groupKey, `${RUN}%`));
 });
 
 // ===========================================================================
@@ -876,5 +898,176 @@ describe("merge with NO analytics provider (graceful no-op)", () => {
     expect(mergeIdentities).not.toHaveBeenCalled();
 
     await noAnalytics.dbClient.end({ timeout: 5 }).catch(() => {});
+  });
+});
+
+// ===========================================================================
+// Integration — (vi-c) group_memberships. `contact_id` is a uuid FK, but the
+// merge SOFT-deletes the loser, so `onDelete: cascade` NEVER fires: without the
+// fold the loser's memberships are stranded on a dead row (survivor's drawer
+// reads "no groups"; the group's member count/list disagree). Both memberships
+// below are seeded through the REAL ingest path (an event carrying a `groups`
+// map), and the merge is driven through the REAL collide-merge — no raw SQL
+// merge surgery.
+// ===========================================================================
+describe("collide-merge re-parents group_memberships (vi-c)", () => {
+  it("moves the loser's membership onto the survivor", async () => {
+    const survivorRes = await putContact({
+      userId: G_SURVIVOR_USER,
+      email: G_SURVIVOR_EMAIL,
+    });
+    const survivorBody = await survivorRes.json();
+    createdContactIds.push(survivorBody.id);
+    const survivorId: string = survivorBody.id;
+
+    // Loser: email-only → loses the SURVIVOR RULE to the identified row.
+    const loserRes = await putContact({ email: G_LOSER_EMAIL });
+    const loserBody = await loserRes.json();
+    createdContactIds.push(loserBody.id);
+    const loserId: string = loserBody.id;
+
+    // The LOSER is the group's member (the survivor is not) — the association
+    // is ensured by ingest from the event's `groups` map.
+    const seed = await postEvent({
+      name: "grp.loser.seed",
+      email: G_LOSER_EMAIL,
+      groups: { company: G_COMPANY_KEY },
+      eventProperties: {},
+    });
+    expect(seed.status).toBe(202);
+    const before = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.contactId, loserId));
+    expect(before).toHaveLength(1);
+
+    // Collide the two rows (userId=survivor + email=loser) → collide-merge.
+    const evtRes = await postEvent({
+      name: "grp.merge.trigger",
+      userId: G_SURVIVOR_USER,
+      email: G_LOSER_EMAIL,
+      eventProperties: {},
+    });
+    expect(evtRes.status).toBe(202);
+
+    // The membership FOLLOWED the survivor; nothing is stranded on the loser.
+    const loserAfter = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.contactId, loserId));
+    expect(loserAfter).toHaveLength(0);
+    const survivorAfter = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.contactId, survivorId));
+    expect(survivorAfter).toHaveLength(1);
+
+    // ...and the survivor's contact drawer now shows the group.
+    const detail = await app.request(`/v1/admin/contacts/${survivorId}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(
+      detailBody.groups.some(
+        (g: { groupType: string; groupKey: string }) =>
+          g.groupType === "company" && g.groupKey === G_COMPANY_KEY,
+      ),
+    ).toBe(true);
+  });
+
+  it("drops the loser's duplicate when the survivor is ALREADY a member (uq(group_id, contact_id))", async () => {
+    const survivorRes = await putContact({
+      userId: GC_SURVIVOR_USER,
+      email: GC_SURVIVOR_EMAIL,
+    });
+    const survivorBody = await survivorRes.json();
+    createdContactIds.push(survivorBody.id);
+    const survivorId: string = survivorBody.id;
+
+    const loserRes = await putContact({ email: GC_LOSER_EMAIL });
+    const loserBody = await loserRes.json();
+    createdContactIds.push(loserBody.id);
+    const loserId: string = loserBody.id;
+
+    // BOTH identities are members of the SAME group before the merge — a blind
+    // rewrite of the loser's row onto the survivor would violate
+    // uq(group_id, contact_id) and abort the whole merge tx.
+    for (const who of [
+      { name: "gcol.survivor.seed", userId: GC_SURVIVOR_USER },
+      { name: "gcol.loser.seed", email: GC_LOSER_EMAIL },
+    ]) {
+      const res = await postEvent({
+        ...who,
+        groups: { company: GC_COMPANY_KEY },
+        eventProperties: {},
+      });
+      expect(res.status).toBe(202);
+    }
+
+    const [group] = await db
+      .select()
+      .from(groups)
+      .where(
+        and(
+          eq(groups.groupType, "company"),
+          eq(groups.groupKey, GC_COMPANY_KEY),
+        ),
+      );
+    const groupId = group?.id ?? "";
+    expect(groupId).not.toBe("");
+
+    // The SURVIVOR's membership carries the authoritative role — the fold keeps
+    // the survivor's row, so this must still be here after the merge.
+    await db
+      .update(groupMemberships)
+      .set({ role: "admin" })
+      .where(
+        and(
+          eq(groupMemberships.groupId, groupId),
+          eq(groupMemberships.contactId, survivorId),
+        ),
+      );
+    const rowsBefore = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId));
+    expect(rowsBefore).toHaveLength(2);
+
+    // The merge tx must COMMIT (202), not 500 on the unique violation.
+    const evtRes = await postEvent({
+      name: "gcol.merge.trigger",
+      userId: GC_SURVIVOR_USER,
+      email: GC_LOSER_EMAIL,
+      eventProperties: {},
+    });
+    expect(evtRes.status).toBe(202);
+
+    // Exactly ONE membership row for (group, survivor) survives — the loser's
+    // duplicate was DROPPED, and the survivor's role/joinedAt won.
+    const rowsAfter = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId));
+    expect(rowsAfter).toHaveLength(1);
+    expect(rowsAfter[0]?.contactId).toBe(survivorId);
+    expect(rowsAfter[0]?.role).toBe("admin");
+
+    const loserAfter = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.contactId, loserId));
+    expect(loserAfter).toHaveLength(0);
+
+    // count == list on the admin surface: one live member, counted once.
+    const detail = await app.request(
+      `/v1/admin/groups/company/${encodeURIComponent(GC_COMPANY_KEY)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.group.memberCount).toBe(1);
+    expect(detailBody.group.recentMembers).toHaveLength(1);
+    expect(detailBody.group.recentMembers[0].contactId).toBe(survivorId);
   });
 });

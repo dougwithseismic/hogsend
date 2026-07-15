@@ -85,6 +85,23 @@ export function formatCurrency(
   );
 }
 
+/**
+ * "5,000 USD" — an amount labelled with its ISO CODE rather than its symbol.
+ * The register for places where several currencies sit side by side and must
+ * stay tellable apart (a group's per-currency revenue totals, which the revenue
+ * spine forbids summing together); `formatCurrency` is the right call anywhere a
+ * single currency owns the figure. A value ingested without a currency renders
+ * with an explicit "(no currency)" rather than a bare number that would read as
+ * the operator's own money.
+ */
+export function formatAmountWithCode(
+  amount: number,
+  currency: string | null,
+): string {
+  const rounded = formatNumber(Math.round(amount));
+  return currency ? `${rounded} ${currency}` : `${rounded} (no currency)`;
+}
+
 /** Seconds → human duration ("2h 5m", "45s"). */
 export function formatDuration(secs: number | null | undefined): string {
   if (secs === null || secs === undefined || Number.isNaN(secs)) return "—";

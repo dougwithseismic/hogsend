@@ -10,6 +10,7 @@ import type {
   DefinedSurface,
   EmailProvider,
   FunnelStageEntry,
+  FxRateProvider,
   JourneySourceLocation,
   PostHogService,
   SmsProvider,
@@ -101,6 +102,7 @@ import type {
 import { buildFlowTopology, type FlowTopology } from "./lib/flow-topology.js";
 import { setFlowTopology } from "./lib/flow-topology-singleton.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
+import { createFxLens, type FxLens, fxProviderFromEnv } from "./lib/fx.js";
 import { hatchet } from "./lib/hatchet.js";
 import {
   createIdentityService,
@@ -108,6 +110,11 @@ import {
 } from "./lib/identity-service.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
+import {
+  FX_SETTINGS_KEY,
+  type FxSetting,
+  getOperatorSetting,
+} from "./lib/operator-settings.js";
 import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
@@ -248,6 +255,15 @@ export interface HogsendClient {
    * engine emission ingest uses — never bespoke per-consumer plumbing.
    */
   identity: IdentityService;
+  /**
+   * The OPTIONAL base-currency FX lens (docs/groups.md §Base-currency lens):
+   * `getBaseCurrency()` resolves the effective reporting currency PER CALL
+   * (code pin → Studio operator setting → env `BASE_CURRENCY`; null = lens
+   * off) and `getRatesToBase()` is the fail-soft quote→base sheet the admin
+   * group revenue views convert through. The per-currency revenue LAW is
+   * untouched; this only serves an opt-in converted view on top of it.
+   */
+  fx: FxLens;
   registry: JourneyRegistry;
   /**
    * Map of enabled journey id → its captured `run` source string. Populated by
@@ -435,6 +451,28 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * The OPTIONAL base-currency FX lens (docs/groups.md §Base-currency lens).
+   * OFF unless a base currency resolves — with no `fx.baseCurrency` pin, no
+   * Studio operator setting, and no env `BASE_CURRENCY`, nothing anywhere
+   * converts.
+   *
+   * - `provider` — a BYO {@link FxRateProvider} rate source. WINS over the env
+   *   presets entirely (the same consumer-over-env spirit as `analytics`,
+   *   minus the registry — exactly one FX source resolves at boot; multiple
+   *   simultaneous rate sources have no use case). Without it, env resolves:
+   *   `FX_PROVIDER=frankfurter` → the ECB preset, else a set `FX_RATES` → the
+   *   sovereign static preset, else no source (lens stays off).
+   * - `baseCurrency` — the code-level PIN: wins over BOTH the Studio operator
+   *   setting and env `BASE_CURRENCY` (the `defaults.timezone` pattern; also
+   *   the test seam, since `env` is a process singleton). Without it the base
+   *   resolves per call: Studio setting (explicit null there = lens OFF,
+   *   beating env) → env `BASE_CURRENCY`.
+   */
+  fx?: {
+    provider?: FxRateProvider;
+    baseCurrency?: string;
   };
   /**
    * Code-first conversion-point definitions (plan §5.1) — `defineConversion`
@@ -1356,6 +1394,33 @@ export function createHogsendClient(
   // emission no-ops; the resolve still happens).
   const identity = createIdentityService({ db, analytics, logger });
 
+  // The OPTIONAL base-currency FX lens. A consumer provider wins over the env
+  // presets wholesale; env otherwise resolves frankfurter (opt-in) or the
+  // sovereign static sheet. `fxProviderFromEnv` throws at boot on a malformed
+  // FX_RATES (fail-loud on config, the EMAIL_PROVIDER posture) — but the
+  // LENS itself is fail-soft at request time: no base currency / no provider /
+  // no rates all resolve to null and the per-currency truth serves unchanged.
+  //
+  // The effective BASE resolves PER CALL (a Studio change needs no reboot),
+  // walking: (1) the code-level pin `opts.fx.baseCurrency` (also the test
+  // seam) — wins over everything; (2) the Studio operator setting when its
+  // row exists — an explicit `baseCurrency: null` there means "operator
+  // turned the lens OFF", which BEATS env; (3) env `BASE_CURRENCY`, the
+  // bootstrap default when NO row exists. No cache on the setting read
+  // (lean-first): only low-QPS admin surfaces resolve rates, and a PK lookup
+  // is nothing.
+  const fxPin = opts.fx?.baseCurrency;
+  const fx = createFxLens({
+    resolveBaseCurrency: async () => {
+      if (fxPin !== undefined) return fxPin;
+      const setting = await getOperatorSetting<FxSetting>(db, FX_SETTINGS_KEY);
+      if (setting) return setting.baseCurrency;
+      return env.BASE_CURRENCY ?? null;
+    },
+    provider: opts.fx?.provider ?? fxProviderFromEnv(env, { db, logger }),
+    logger,
+  });
+
   // Build + install the outbound DESTINATION registry (Phase 3) the
   // self-booting delivery task resolves by `webhook_endpoints.kind`. Order is
   // load-bearing: the env-enabled presets come FIRST and the consumer's
@@ -1491,6 +1556,7 @@ export function createHogsendClient(
     analyticsProviders,
     analytics,
     identity,
+    fx,
     registry,
     journeySources: getJourneySources(),
     journeyConstants: {
