@@ -120,11 +120,27 @@ export function FlowView() {
     (t: FlowTransitionMessage) => {
       // A cold-cache transition (from null) has no rail to ride; the aggregate
       // poll will surface the node. Only edge transitions animate.
+      // Money lands with a flash on its node — INDEPENDENT of whether a rail
+      // exists (a cold-cache purchase still rings the till). The node card
+      // subscribes on the `node:` topic.
+      if (t.value !== null && t.value > 0) {
+        particleBus.publish(`node:${t.to}`, {
+          lane: t.lane,
+          reverse: false,
+          value: t.value,
+          currency: t.currency,
+        });
+      }
       if (t.from === null) return;
       const edgeId = `${t.from}->${t.to}`;
       const rail = edgeRouteRef.current.get(edgeId);
       if (rail) {
-        particleBus.publish(rail.id, { lane: t.lane, reverse: rail.reverse });
+        particleBus.publish(rail.id, {
+          lane: t.lane,
+          reverse: rail.reverse,
+          value: t.value,
+          currency: t.currency,
+        });
         return;
       }
       if (neverKnownEdgesRef.current.has(edgeId)) return;

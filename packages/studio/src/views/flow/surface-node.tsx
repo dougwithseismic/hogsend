@@ -6,10 +6,12 @@ import {
   Globe,
   type LucideIcon,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { FlowGraphNode, FlowNodeKind } from "@/lib/admin-api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { NODE_HEIGHT, NODE_WIDTH } from "./map-layout";
+import { particleBus } from "./particle-bus";
 
 /**
  * A place in the growth machine — same crimzon card language as the journey
@@ -70,6 +72,20 @@ function primaryMoney(node: FlowGraphNode) {
   return { ...top, attributed, currencies: pool.length };
 }
 
+/** Mirrors flow-edge's spawn gate — no flashes/ticks under reduced motion. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+interface MoneyTick {
+  key: number;
+  label: string;
+}
+
 export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
   const { node } = data;
   const Icon = KIND_ICON[node.kind];
@@ -77,11 +93,49 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
   const rate = node.heat?.conversionRate ?? null;
   const stuck = node.dwell?.stuckContacts ?? 0;
 
+  // Money landing HERE rings the till: a gold flash on the card and a
+  // floating "+$49.99" tick. LOCAL state fed by the particle bus (the same
+  // decoupling as live edge pulses), so a sale re-renders exactly this card
+  // and never disturbs the reconcile identity of anything else. The window
+  // total in the card corner trues up on the next poll.
+  const [flash, setFlash] = useState(false);
+  const [ticks, setTicks] = useState<MoneyTick[]>([]);
+  const tickKeyRef = useRef(0);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    const unsubscribe = particleBus.subscribe(`node:${node.id}`, (payload) => {
+      if (payload.value === null || payload.value <= 0) return;
+      setFlash(true);
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setFlash(false), 900);
+      tickKeyRef.current += 1;
+      const amount = payload.currency
+        ? formatCurrency(payload.value, payload.currency, {
+            maximumFractionDigits: payload.value % 1 === 0 ? 0 : 2,
+          })
+        : formatNumber(payload.value);
+      setTicks((prev) => [
+        // Keep at most 3 concurrent ticks — a burst reads as a burst, not a
+        // wall of text.
+        ...prev.slice(-2),
+        { key: tickKeyRef.current, label: `+${amount}` },
+      ]);
+    });
+    return () => {
+      unsubscribe();
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, [node.id]);
+
   return (
     <div
       className={cn(
         "relative overflow-hidden rounded-md border bg-white/[0.015] px-3 py-2",
         "text-white/90 transition-colors",
+        flash && "flow-node-flash",
         selected
           ? "border-accent"
           : "border-hairline-faint hover:border-white/15",
@@ -129,17 +183,53 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
         {node.name}
       </p>
 
-      <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="font-display text-base leading-none text-white">
-          {formatNumber(node.contacts)}
-        </span>
-        <span className="text-[11px] text-white/45">
-          {node.contacts === 1 ? "contact" : "contacts"}
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-white/35">
-          {formatNumber(node.events)} events
-        </span>
-      </div>
+      {node.kind === "builtin" && money ? (
+        // The revenue node is a TILL: cumulative value is the hero stat, the
+        // contact count demotes to the corner.
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="font-display text-base leading-none text-[#f0b429]">
+            {formatCurrency(money.amount, money.currency, {
+              maximumFractionDigits: 0,
+            })}
+          </span>
+          <span className="text-[11px] text-white/45">
+            this window{money.currencies > 1 ? ` +${money.currencies - 1}` : ""}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-white/35">
+            {formatNumber(node.contacts)}{" "}
+            {node.contacts === 1 ? "contact" : "contacts"}
+          </span>
+        </div>
+      ) : (
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="font-display text-base leading-none text-white">
+            {formatNumber(node.contacts)}
+          </span>
+          <span className="text-[11px] text-white/45">
+            {node.contacts === 1 ? "contact" : "contacts"}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-white/35">
+            {formatNumber(node.events)} events
+          </span>
+        </div>
+      )}
+
+      {/* Floating money ticks — one per landed sale, self-removing. */}
+      {ticks.length > 0 ? (
+        <div className="pointer-events-none absolute right-2 top-6">
+          {ticks.map((tick) => (
+            <div
+              key={tick.key}
+              className="flow-money-tick text-right font-mono text-[11px] font-medium text-[#f0b429]"
+              onAnimationEnd={() =>
+                setTicks((prev) => prev.filter((t) => t.key !== tick.key))
+              }
+            >
+              {tick.label}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {stuck > 0 || node.live !== null || rate !== null ? (
         <div className="mt-1.5 flex items-center gap-1">

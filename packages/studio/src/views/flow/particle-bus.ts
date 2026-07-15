@@ -21,6 +21,9 @@ export interface PulsePayload {
    * direction (e.g. course→docs on the docs⇄course rail).
    */
   reverse: boolean;
+  /** Monetary value (2dp) when the event carries money — gold treatment. */
+  value: number | null;
+  currency: string | null;
 }
 
 type PulseCallback = (payload: PulsePayload) => void;

@@ -36,6 +36,9 @@ export interface FlowTransitionMessage {
   to: string;
   lane: string | null;
   event: string;
+  /** Monetary value of the event (2dp), or null — money renders gold. */
+  value: number | null;
+  currency: string | null;
   ts: string;
 }
 

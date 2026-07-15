@@ -59,6 +59,13 @@ export interface FlowTransitionMessage {
   /** Normalized `utm_campaign` acquisition lane (btrim, empty→null). */
   lane: string | null;
   event: string;
+  /**
+   * The event's monetary value (rounded to the numeric(14,2) storage
+   * precision, matching the classifier) — money events render as gold pulses
+   * and flash their landing node in Studio. null = not a valued event.
+   */
+  value: number | null;
+  currency: string | null;
   /** ISO timestamp of the originating event. */
   ts: string;
 }
@@ -115,6 +122,7 @@ export interface PublishFlowTransitionEvent {
   source: string | null;
   properties?: Record<string, unknown> | null;
   value: number | null;
+  currency?: string | null;
   occurredAt: Date;
 }
 
@@ -217,6 +225,11 @@ export async function publishFlowTransition(
   const laneResult = results[results.length - 1];
   const lane = (laneResult?.[1] as string | null | undefined) ?? null;
 
+  // Wire value mirrors STORAGE precision (numeric(14,2)) so the live layer
+  // and the windowed aggregate report the same money for the same event.
+  const value =
+    opts.event.value !== null ? Math.round(opts.event.value * 100) / 100 : null;
+
   const message: FlowTransitionMessage = {
     v: 1,
     contactId: opts.contactId,
@@ -225,6 +238,8 @@ export async function publishFlowTransition(
     to: toNode,
     lane,
     event: opts.event.name,
+    value,
+    currency: opts.event.currency ?? null,
     ts: opts.event.occurredAt.toISOString(),
   };
 

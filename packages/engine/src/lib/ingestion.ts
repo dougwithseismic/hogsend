@@ -625,6 +625,7 @@ export async function ingestEvent(opts: {
         source: hookEvent.source,
         properties: hookEvent.properties,
         value: hookEvent.value,
+        currency: hookEvent.currency,
         occurredAt: hookEvent.occurredAt,
       },
     }).catch((err: unknown) => {

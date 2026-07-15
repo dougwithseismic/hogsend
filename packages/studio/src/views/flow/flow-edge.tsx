@@ -145,7 +145,12 @@ interface LivePulse {
   lane: string | null;
   /** Ride the rail target→source (the return direction of a bidirectional rail). */
   reverse: boolean;
+  /** Money rides gold, slightly larger — a sale should LOOK like a sale. */
+  money: boolean;
 }
+
+/** Gold for money pulses — distinct from every lane colour and the alert red. */
+const MONEY_GOLD = "#f0b429";
 
 export function FlowEdge({
   id,
@@ -182,6 +187,7 @@ export function FlowEdge({
             key: pulseKeyRef.current,
             lane: payload.lane,
             reverse: payload.reverse,
+            money: payload.value !== null && payload.value > 0,
           },
         ];
       });
@@ -290,8 +296,8 @@ export function FlowEdge({
       {pulses.map((pulse) => (
         <circle
           key={pulse.key}
-          r={2.6}
-          fill={pulseFill(pulse.lane)}
+          r={pulse.money ? 3.4 : 2.6}
+          fill={pulse.money ? MONEY_GOLD : pulseFill(pulse.lane)}
           className={pulse.reverse ? "flow-pulse-reverse" : "flow-pulse"}
           style={{
             offsetPath: `path("${d}")`,
