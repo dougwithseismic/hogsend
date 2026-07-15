@@ -16,6 +16,14 @@ import { defineSurface } from "@hogsend/engine";
  *                  `course.completed`, …)
  *   - `checkout.*` — the commerce flow (`checkout.started`, `checkout.completed`)
  *
+ * EVENT-GRADE CONTRACT: Hogsend events are MILESTONES — one per meaningful
+ * state change (`site.visited` = once per session, `course.enrolled`,
+ * `checkout.started`), never hit-grade telemetry. Pageview-level streams
+ * belong in PostHog; duplicating them into `user_events` bloats the spine
+ * every journey/exit/flow query scans, and anonymous hits can't drive
+ * journeys anyway. The flow map reads transitions BETWEEN surfaces, so one
+ * session-grade event carries the same edge a hundred pageviews would.
+ *
  * Tiers place each surface in its lifecycle column: docs / site / demo are
  * ACQUISITION (how people arrive), the course is ACTIVATION (learning the
  * product), checkout is REVENUE. The `app` surface is the consumer's own

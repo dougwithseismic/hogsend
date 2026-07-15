@@ -17,6 +17,10 @@
  * plus a small, SEPARATE B2B lane (site ─▶ Commercial · Enquiry ─▶ Contract
  * signed) so the funnel-stage nodes demo without polluting the SaaS story.
  *
+ * Events here are MILESTONES, per the surface contract (apps/api/src/
+ * surfaces.ts): `site.visited` is session-grade (once per visit), never a
+ * per-pageview stream — pageview telemetry lives in PostHog, not the spine.
+ *
  * Everything is scoped to a `flow_` userId prefix and idempotent. It does NOT
  * wipe other data — bin the tables first if you want a clean slate:
  *
