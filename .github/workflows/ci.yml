@@ -201,20 +201,12 @@ jobs:
     # needs neither Node nor pnpm on the host (the build runs inside the image).
     steps:
       - uses: actions/checkout@v5
-      # Buildx + the GHA cache backend: unchanged dependency layers restore
-      # from cache instead of rebuilding. ghaction-github-runtime exposes the
-      # ACTIONS_RUNTIME_TOKEN a raw `docker buildx build --cache-to type=gha`
-      # needs (normally only wired up inside docker/build-push-action).
-      - uses: docker/setup-buildx-action@v3
-      - uses: crazy-max/ghaction-github-runtime@v3
-      # PRs only READ the layer cache; main pushes refresh it. Exporting with
-      # mode=max costs more than the build itself (~3min), so paying it on
-      # every PR would make the job slower than an uncached plain build.
+      # NOTE: buildx + a GHA layer cache was tried here and measured SLOWER
+      # than the plain build (mode=max export ~2x the build; restore a wash
+      # because the Dockerfile invalidates its dep layers on any source
+      # change). Revisit only after restructuring the Dockerfile for layer
+      # reuse (deps stage before source COPY).
       - name: Build prod image and boot api/worker/migrate
-        env:
-          PREFLIGHT_CACHE_ARGS: >-
-            --cache-from type=gha
-            ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max' || '' }}
         run: bash scripts/preflight-deploy.sh
 
   release-integrity:

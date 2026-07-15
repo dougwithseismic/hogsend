@@ -31,15 +31,7 @@ cd "$ROOT"
 command -v docker >/dev/null 2>&1 || { echo "✗ docker not found — preflight needs Docker"; exit 1; }
 
 echo "▶ Building production image from Dockerfile (the builder Railway uses)…"
-# CI passes PREFLIGHT_CACHE_ARGS (buildx + GHA layer cache) so unchanged
-# dependency layers restore instead of rebuilding. Locally the variable is
-# unset and the plain build below runs exactly as before.
-if [ -n "${PREFLIGHT_CACHE_ARGS:-}" ]; then
-  # shellcheck disable=SC2086 — word-splitting the cache args is intended.
-  docker buildx build --load $PREFLIGHT_CACHE_ARGS -t "$IMAGE" . || { echo "✗ docker build failed — Railway would fail the same way"; exit 1; }
-else
-  docker build -t "$IMAGE" . || { echo "✗ docker build failed — Railway would fail the same way"; exit 1; }
-fi
+docker build -t "$IMAGE" . || { echo "✗ docker build failed — Railway would fail the same way"; exit 1; }
 
 # Valid synthetic env (mirrors apps/api/vitest.config.ts). The HATCHET token is a
 # public test JWT: it decodes (so HatchetClient.init succeeds) but is never used
