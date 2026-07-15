@@ -39,7 +39,7 @@ export const PROMPT_SCENARIOS = [
     id: "voice-lead-qualification",
     file: "src/journeys/voice-lead-qualification.ts",
     prompt:
-      "When a new lead requests a callback, have our Deepgram voice agent call to clarify what they need. After the call, email them a summary and add the lead to our HubSpot funnel.",
+      "When a new lead requests a callback, have our Deepgram voice agent call to clarify what they need, then email a summary and add them to our HubSpot funnel.",
   },
 ] as const;
 

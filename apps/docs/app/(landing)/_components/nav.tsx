@@ -194,6 +194,26 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
           >
             Customer portal
           </Link>
+          <div className="my-2 h-px bg-white/10" />
+          {/* Community — hidden as icon buttons below sm, surfaced here. */}
+          <div className="flex items-center gap-2">
+            <a
+              href={GITHUB_URL}
+              onClick={() => setMenuOpen(false)}
+              className="inline-flex flex-1 items-center gap-2.5 rounded-[6px] border border-white/10 px-3 py-2.5 text-base text-white/80 transition-colors hover:border-white/30 hover:text-white"
+            >
+              <GitHubMark className="size-4" />
+              GitHub
+            </a>
+            <a
+              href={DISCORD_INVITE_URL}
+              onClick={() => setMenuOpen(false)}
+              className="inline-flex flex-1 items-center gap-2.5 rounded-[6px] border border-white/10 px-3 py-2.5 text-base text-white/80 transition-colors hover:border-white/30 hover:text-white"
+            >
+              <DiscordMark className="size-4" />
+              Discord
+            </a>
+          </div>
           <Link
             href="/docs/getting-started"
             onClick={() => setMenuOpen(false)}

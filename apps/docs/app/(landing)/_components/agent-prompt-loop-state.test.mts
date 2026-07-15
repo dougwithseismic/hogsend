@@ -38,8 +38,8 @@ test("the hero loop covers seven distinct lifecycle jobs", () => {
   assert.match(PROMPT_SCENARIOS[5].prompt, /Slack/i);
   assert.match(PROMPT_SCENARIOS[6].prompt, /requests a callback/i);
   assert.match(PROMPT_SCENARIOS[6].prompt, /Deepgram/i);
-  assert.match(PROMPT_SCENARIOS[6].prompt, /After the call/i);
-  assert.match(PROMPT_SCENARIOS[6].prompt, /email them a summary/i);
+  assert.match(PROMPT_SCENARIOS[6].prompt, /clarify what they need/i);
+  assert.match(PROMPT_SCENARIOS[6].prompt, /email a summary/i);
   assert.match(PROMPT_SCENARIOS[6].prompt, /HubSpot funnel/i);
   assert.doesNotMatch(PROMPT_SCENARIOS[6].prompt, /Twilio/i);
 });
