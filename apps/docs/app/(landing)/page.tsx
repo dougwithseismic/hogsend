@@ -28,7 +28,6 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
-import { HeroItem, HeroReveal } from "./_components/hero-reveal";
 import { PsNav } from "./_components/nav";
 import { WordReveal } from "./_components/word-reveal";
 
@@ -411,8 +410,8 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
         }}
       />
       <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
-        <HeroReveal className="flex w-full flex-col items-center">
-          <HeroItem>
+        <div className="flex w-full flex-col items-center">
+          <div className="flex flex-col items-center">
             <a
               href="https://course.hogsend.com"
               aria-label="New course — Measure, Keep, Grow — now live"
@@ -424,9 +423,9 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
               <span className="font-medium">Measure → Keep → Grow</span>
               <span className="text-white/45">· Live</span>
             </a>
-          </HeroItem>
+          </div>
 
-          <HeroItem className="mt-6 md:mt-9">
+          <div className="flex flex-col items-center mt-6 md:mt-9">
             <h1
               className={cn(
                 "max-w-[920px] font-normal text-white text-[36px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
@@ -435,18 +434,18 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
             >
               Your customer lifecycle belongs in your repo.
             </h1>
-          </HeroItem>
+          </div>
 
-          <HeroItem className="mt-4 md:mt-6">
+          <div className="flex flex-col items-center mt-4 md:mt-6">
             <p className="max-w-[680px] text-white/75 text-base leading-[24px] tracking-[-0.025em] md:text-lg md:leading-[27px]">
               Hogsend is lifecycle automation in TypeScript for product-led
               teams. Written by you or your coding agent. Shipped like the rest
               of your product.
             </p>
-          </HeroItem>
+          </div>
 
           {/* Primary path (one-click Railway deploy) + the hosted demo. */}
-          <HeroItem className="mt-6 md:mt-8">
+          <div className="flex flex-col items-center mt-6 md:mt-8">
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Btn href={RAILWAY_DEPLOY_URL} size="lg" newTab>
                 Deploy on Railway
@@ -457,11 +456,11 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
                 </Btn>
               </TrackDemoClick>
             </div>
-          </HeroItem>
+          </div>
 
           {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
               two-colour blob glow. */}
-          <HeroItem className="mt-8 w-full max-w-[620px] md:mt-12">
+          <div className="flex flex-col items-center mt-8 w-full max-w-[620px] md:mt-12">
             <div className="relative w-full text-left">
               <div
                 aria-hidden="true"
@@ -474,15 +473,15 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
               />
               <AgentPromptLoop engineVersion={engineVersion} />
             </div>
-          </HeroItem>
+          </div>
 
-          <HeroItem className="mt-4 md:mt-5">
+          <div className="flex flex-col items-center mt-4 md:mt-5">
             <p className="max-w-[760px] font-mono text-[12px] text-white/45 uppercase leading-5 tracking-[0.06em]">
               Onboarding · Trial conversion · Payment recovery · Retention ·
               Win-back · Across email, in-app, SMS, Discord, and more
             </p>
-          </HeroItem>
-        </HeroReveal>
+          </div>
+        </div>
       </Container>
 
       {/* Works-with strip */}
@@ -627,174 +626,6 @@ function PsProofStrip() {
         </Link>
       </Container>
     </div>
-  );
-}
-
-/* ----------------------------------------------------- platform pitch -- */
-
-/** The four things a product engineer needs to hear once the core mechanism
- * is clear. PostHog is one supported source, not the category Hogsend lives in. */
-const PLATFORM_CARDS: { title: string; body: ReactNode }[] = [
-  {
-    title: "First-party events included",
-    body: "Send product behaviour straight to Hogsend with @hogsend/js or @hogsend/client. Bring PostHog, Stripe, or any webhook when it helps.",
-  },
-  {
-    title: "Lifecycle automation as code",
-    body: "Every journey is a TypeScript function in your repo — reviewed, type-checked, and versioned like the rest of your product. Agents can write them.",
-  },
-  {
-    title: "One command to first send",
-    body: (
-      <>
-        <code className="font-mono text-[13px] text-white/75">
-          create-hogsend
-        </code>{" "}
-        scaffolds ten journeys and thirteen email templates — deploy to Railway
-        in one click, first send in minutes.
-      </>
-    ),
-  },
-  {
-    title: "React components included",
-    body: (
-      <>
-        <code className="font-mono text-[13px] text-white/75">
-          @hogsend/react
-        </code>{" "}
-        ships the in-app feed and notification bell — drop them in and the same
-        journeys reach users inside your product.
-      </>
-    ),
-  },
-];
-
-/* Channels a journey can reach — plus the honest roadmap. */
-const REACH_NOW = ["Email", "SMS", "Discord", "Slack", "In-app"];
-const REACH_SOON = ["Voice agents", "Direct mail"];
-
-/* The batteries — every one is real, in the scaffold, and demoed on the site
- * (React Email templates → /emails; the React kit + link tracking → /components). */
-const TOOLKIT = [
-  "13 React Email templates",
-  "Vanity links, QR codes & link tracking",
-  "Open & click tracking",
-  "Notification bell",
-  "In-app feed",
-  "Preference center",
-  "In-feed survey card",
-  "Discord DMs & presence",
-];
-
-/** One capability chip. `soon` renders the dashed, dimmed roadmap variant. */
-function PitchChip({
-  children,
-  soon,
-}: {
-  children: ReactNode;
-  soon?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 rounded-[6px] px-3.5 py-1.5 font-medium text-[13px] tracking-[-0.025em]",
-        soon
-          ? "border border-white/10 border-dashed text-white/40"
-          : "border border-white/10 bg-white/[0.06] text-white",
-      )}
-    >
-      {!soon && (
-        <span
-          aria-hidden="true"
-          className="size-1.5 rounded-full bg-[#f64838]"
-        />
-      )}
-      {children}
-    </span>
-  );
-}
-
-function PsPlatformPitch() {
-  return (
-    <section className="relative border-[#f6483826] border-b">
-      <Container className="pt-16 pb-20">
-        <Eyebrow>Bring your stack</Eyebrow>
-        <h2
-          className={cn(
-            "mt-6 max-w-[760px] font-normal text-[30px] leading-[1.15] tracking-[-0.02em] md:text-[40px] md:leading-[46px]",
-            DISPLAY,
-          )}
-        >
-          <span className="text-white">Works beautifully with PostHog.</span>{" "}
-          <span className="text-white/40">Works without it, too.</span>
-        </h2>
-
-        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {PLATFORM_CARDS.map((c, i) => (
-            <div
-              key={c.title}
-              className="rounded-lg border border-white/10 bg-white/[0.03] p-6"
-            >
-              <span className="font-mono text-[#f64838] text-[13px]">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <h3 className="mt-3 font-medium text-base text-white tracking-[-0.025em]">
-                {c.title}
-              </h3>
-              <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                {c.body}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Reach + toolkit — the fuller inventory: every channel a journey can
-            hit (incl. the roadmap) and the batteries that ship in the box. */}
-        <div className="mt-10 grid grid-cols-1 gap-10 border-white/10 border-t pt-8 lg:grid-cols-2 lg:gap-12">
-          <div>
-            <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
-              One journey, every channel
-            </span>
-            <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              {REACH_NOW.map((channel) => (
-                <PitchChip key={channel}>{channel}</PitchChip>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
-                Coming soon
-              </span>
-              {REACH_SOON.map((channel) => (
-                <PitchChip key={channel} soon>
-                  {channel}
-                </PitchChip>
-              ))}
-            </div>
-            <p className="mt-3 text-[12px] text-white/35 leading-5 tracking-[-0.02em]">
-              Voice agents land on Vapi and Deepgram — same journey, same
-              contact.
-            </p>
-          </div>
-
-          <div>
-            <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
-              Batteries included
-            </span>
-            <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              {TOOLKIT.map((tool) => (
-                <PitchChip key={tool}>{tool}</PitchChip>
-              ))}
-            </div>
-            <Link
-              href="/components"
-              className="mt-4 inline-block text-[13px] text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
-            >
-              See the React kit demoed →
-            </Link>
-          </div>
-        </div>
-      </Container>
-    </section>
   );
 }
 
@@ -1009,294 +840,6 @@ function PsStudioDemo() {
             />
           </a>
         </TrackDemoClick>
-      </Container>
-    </section>
-  );
-}
-
-/* -------------------------------------------------------------- playbook -- */
-
-/** The lifecycle loop, spelled out as the four things you actually do. Each
- * step links to the lander that goes deep on it. */
-const PLAYBOOK_STEPS = [
-  {
-    title: "Name the moments",
-    body: (
-      <>
-        <code className="font-mono text-[13px] text-white/75">signed_up</code>,{" "}
-        <code className="font-mono text-[13px] text-white/75">
-          project.created
-        </code>
-        ,{" "}
-        <code className="font-mono text-[13px] text-white/75">
-          invoice.payment_failed
-        </code>
-        , quiet for 14 days. PostHog and your product emit most of these
-        already; buckets detect the quiet ones.
-      </>
-    ),
-    link: { label: "Event naming guide →", href: "/event-naming" },
-  },
-  {
-    title: "Write the responses",
-    body: (
-      <>
-        Each response is a journey — a TypeScript function that sends what the
-        moment calls for: an email to the user, a DM in Discord, a Slack ping to
-        your team, an item in the in-app feed. One journey can do all four.
-      </>
-    ),
-    link: { label: "Browse 35 recipes →", href: "/recipes" },
-  },
-  {
-    title: "Watch it work",
-    body: (
-      <>
-        Every send, open, click, and answer lands back on the contact and in
-        PostHog, so a journey charts like any other funnel — you can look at
-        last month&rsquo;s welcome series and see what it converted.
-      </>
-    ),
-    link: { label: "Growth metrics guide →", href: "/growth-metrics" },
-  },
-  {
-    title: "Tweak and re-run",
-    body: (
-      <>
-        A journey is a few dozen lines, so a change is a small diff — move the
-        nudge from day 3 to day 5, rewrite the subject, add a branch. Git keeps
-        every version that ever ran, and an agent can write the diff; your
-        review process still applies.
-      </>
-    ),
-    link: { label: "Built for agents →", href: "/fire-and-forget" },
-  },
-];
-
-function PsPlaybook() {
-  return (
-    <section id="lifecycle" className="relative border-[#f6483826] border-t">
-      <Container className="pt-16 pb-28">
-        <Eyebrow>Lifecycle marketing</Eyebrow>
-
-        <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
-          <h2
-            className={cn(
-              "max-w-[620px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
-              DISPLAY,
-            )}
-          >
-            <span className="text-white">Lifecycle marketing, spelled out</span>{" "}
-            <span className="text-white/40">
-              — the loop a growth team runs.
-            </span>
-          </h2>
-
-          <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
-            A user signs up, tries the product, and either sticks or drifts.
-            Each of those moments has a right response — a welcome minutes after
-            signup, a nudge when a trial stalls, a win-back when a regular goes
-            quiet. Sending the response automatically, per person, on the right
-            channel is the whole discipline. PostHog already records the
-            moments; Hogsend is where you write what happens next.{" "}
-            <a
-              href="https://course.hogsend.com"
-              className="font-medium text-white"
-            >
-              The course
-            </a>{" "}
-            teaches the whole loop — Measure → Keep → Grow, from instrumenting
-            PostHog to your 30/60/90-day plan; the first chapter is free. Or
-            have it{" "}
-            <Link href="/service" className="font-medium text-white">
-              set up for you →
-            </Link>
-          </p>
-        </div>
-
-        <div className="mt-14 grid grid-cols-1 gap-x-10 gap-y-12 md:grid-cols-2 lg:grid-cols-4">
-          {PLAYBOOK_STEPS.map((step, i) => (
-            <div key={step.title} className="border-white/10 border-t pt-6">
-              <span className="font-mono text-[#f64838] text-[13px]">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <h3 className="mt-3 font-medium text-base text-white tracking-[-0.025em]">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                {step.body}
-              </p>
-              <Link
-                href={step.link.href}
-                className="mt-3 inline-block text-[13px] text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
-              >
-                {step.link.label}
-              </Link>
-            </div>
-          ))}
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ---------------------------------------------------------- event fanning -- */
-
-const FAN_SCENARIOS = [
-  {
-    tag: "Onboarding",
-    lead: "The Discord help thread.",
-    rest: "Someone starts a trial, then asks for setup help in Discord. The handle and the trial account are already the same contact — the journey answers with a getting-started email and flags the stuck step to your team in Slack.",
-  },
-  {
-    tag: "Activation",
-    lead: "Watched the demo, did nothing.",
-    rest: "A signup plays the demo twice but never creates a project. The journey waits three days on project.created, then sends the nudge that points at that one action.",
-  },
-  {
-    tag: "Billing",
-    lead: "Card declined.",
-    rest: "A payment fails. The reminder goes out, and the journey stops the instant the payment clears — nobody who already paid gets nagged.",
-  },
-  {
-    tag: "Community",
-    lead: "Quiet in Discord.",
-    rest: "A daily-active member goes silent for two weeks. The drop shows on the same contact as their product usage — a check-in goes out before they fully drift.",
-  },
-  {
-    tag: "Sales",
-    lead: "A prospect logs in.",
-    rest: "A prospect your AE is chasing signs into the product. No email fires — the AE gets a Slack ping with exactly what the prospect did.",
-  },
-  {
-    tag: "Identity",
-    lead: "Anonymous, then known.",
-    rest: "Someone reads pricing anonymously and signs up the next day. The pre-signup events fold onto the new contact; the welcome references what they looked at.",
-  },
-  {
-    tag: "Timing",
-    lead: "Big win at 2am.",
-    rest: "A user hits a milestone in the middle of the night. Their celebration email is scheduled for their morning; the Slack high-five to your team fires now.",
-  },
-  {
-    tag: "Pipelines",
-    lead: "One Stripe event, four destinations.",
-    rest: "payment_succeeded enrolls the customer, updates PostHog, posts to Slack, and starts the receipt journey — one event, no glue code.",
-  },
-  {
-    tag: "Restraint",
-    lead: "Stops the second they convert.",
-    rest: "Every nudge checks the goal first. The moment they pay, the rest of the sequence never sends.",
-  },
-];
-
-const AGENT_READS = [
-  {
-    lead: "Draft the reply, a human sends it.",
-    rest: "An agent drafts the answer from the user's account state; the journey parks on an approval wait. A person edits or approves before anything sends.",
-  },
-  {
-    lead: "Confused vs furious.",
-    rest: "Two people write “this doesn't work.” One is lost — send the how-to. One just lost data — escalate to a human and suppress the automation. Same words, opposite handling.",
-  },
-  {
-    lead: "Cancel reason → the right win-back.",
-    rest: "“Too expensive for a side project” schedules a hobby-tier win-back sixty days out — not a sales call to someone who'd never take it.",
-  },
-];
-
-function PsFanning() {
-  return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
-      <DotPatch className="top-24 right-0 hidden h-40 w-52 lg:block" />
-      <Container className="relative pt-24 pb-6">
-        <Reveal>
-          <Eyebrow>Event fanning</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[880px] font-normal text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
-              DISPLAY,
-            )}
-          >
-            <span className="text-white">
-              Every signal lands on one person.
-            </span>{" "}
-            <span className="text-white/40">Every event can fan back out.</span>
-          </h2>
-          <p className="mt-6 max-w-[560px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
-            Marketing site, product, Discord, Slack, Stripe — events from every
-            surface land on the same contact. A journey reads the signal and
-            sends whatever fits: an email to the user, a DM in Discord, a ping
-            to your team, an event back to PostHog.
-          </p>
-        </Reveal>
-      </Container>
-
-      {/* Scenario carousel — bleeds to the frame edge; the fade is the
-          scroll affordance, and the lead padding travels with the cards. */}
-      <Container className="mt-12 pb-6">
-        <div className="-mx-6 overflow-x-auto md:-mx-10 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent,black_32px,black_calc(100%-120px),transparent)]">
-          <div className="flex w-max gap-4 px-6 md:px-10">
-            {FAN_SCENARIOS.map((s, i) => (
-              <div
-                key={s.lead}
-                className="w-[300px] shrink-0 p-6"
-                style={{
-                  background:
-                    i % 2 === 0
-                      ? "rgba(255,255,255,0.04)"
-                      : "rgba(246,72,56,0.07)",
-                }}
-              >
-                <span className="font-mono text-[#f64838] text-[11px] uppercase tracking-[0.08em]">
-                  {s.tag}
-                </span>
-                <p className="mt-3 text-[14.5px] leading-[22px] tracking-[-0.02em]">
-                  <span className="font-medium text-white">{s.lead}</span>{" "}
-                  <span className="text-white/55">{s.rest}</span>
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Container>
-
-      {/* Agents read the words, not just the events. */}
-      <Container className="pb-24">
-        <Reveal>
-          <div className="mt-10 grid grid-cols-1 gap-10 border-white/10 border-t pt-10 lg:grid-cols-[1fr_1.4fr]">
-            <div>
-              <h3
-                className={cn(
-                  "max-w-[340px] text-white text-[26px] leading-[1.2] tracking-[-0.02em]",
-                  DISPLAY,
-                )}
-              >
-                Agents read the words, not just the events.
-              </h3>
-              <p className="mt-4 max-w-[360px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
-                A journey is an async TypeScript function, so you can call an
-                LLM inside run() and branch on its verdict — or park on a
-                durable wait and let an out-of-band agent fire its decision back
-                as one event. Reviewed in a PR, type-checked like everything
-                else.
-              </p>
-            </div>
-            <div className="flex flex-col">
-              {AGENT_READS.map((item, i) => (
-                <div
-                  key={item.lead}
-                  className={cn("py-4", i > 0 && "border-white/10 border-t")}
-                >
-                  <p className="text-[15px] leading-[23px] tracking-[-0.02em]">
-                    <span className="font-medium text-white">{item.lead}</span>{" "}
-                    <span className="text-white/55">{item.rest}</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Reveal>
       </Container>
     </section>
   );
@@ -2456,423 +1999,6 @@ function PsCorePlatform() {
   );
 }
 
-/* ------------------------------------------------------------ in the open -- */
-
-const OPEN_ROWS = [
-  {
-    label: "Source-available under ELv2",
-    detail:
-      "Read, modify, and self-host all of it for free — the only restriction is offering Hogsend itself as a managed service.",
-  },
-  { label: "11 packages on npm", detail: null },
-  { label: "One-click Railway template", detail: null },
-];
-
-function PsOpen() {
-  return (
-    <section className="relative">
-      <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl border border-[#f6483826]">
-          <div
-            aria-hidden="true"
-            className="absolute inset-y-0 left-0 w-[55%]"
-            style={{
-              background:
-                "linear-gradient(105deg, rgba(246,72,56,0.22) 0%, rgba(246,72,56,0.08) 55%, rgba(255,255,255,0) 100%)",
-            }}
-          />
-          <DotPatch className="bottom-8 left-8 h-28 w-56 opacity-70" />
-          <div className="relative grid grid-cols-1 gap-14 p-8 md:p-12 lg:grid-cols-2">
-            <div>
-              <Eyebrow>In the open</Eyebrow>
-              <h2
-                className={cn(
-                  "mt-8 max-w-[420px] font-normal text-white text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
-                  DISPLAY,
-                )}
-              >
-                An engine you can read end to end.
-              </h2>
-            </div>
-
-            <div className="flex flex-col justify-center">
-              {OPEN_ROWS.map((row, i) => (
-                <div
-                  key={row.label}
-                  className={cn(
-                    "flex flex-col gap-6 py-5 md:flex-row md:items-start",
-                    i > 0 && "border-white/10 border-t",
-                  )}
-                >
-                  <p
-                    className={cn(
-                      "min-w-[260px] text-white text-lg tracking-[-0.025em]",
-                      DISPLAY,
-                    )}
-                  >
-                    {row.label}
-                  </p>
-                  {row.detail && (
-                    <p className="border-white/15 text-white/55 text-sm leading-[21px] tracking-[-0.02em] md:border-l md:pl-6">
-                      {row.detail}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------ platform features -- */
-
-const FEATURE_CARDS = [
-  {
-    lead: "Durable waits survive deploys.",
-    rest: "A user three days into a seven-day wait keeps waiting through restarts and crashes, and resumes exactly where they were.",
-    tint: "rgba(246,72,56,0.07)",
-  },
-  {
-    lead: "In-email answers branch the journey.",
-    rest: "Ask a question inside the email — the click is the answer, and the journey branches on it.",
-    tint: "rgba(255,255,255,0.04)",
-  },
-  {
-    lead: "First-party opens and clicks.",
-    rest: "Links are rewritten on send; engagement lands on your domain and fans back to PostHog as first-party events.",
-    tint: "rgba(246,72,56,0.07)",
-  },
-  {
-    lead: "Buckets are live groups of people.",
-    rest: "Contacts enter and leave on behaviour — kick off journeys on either edge.",
-    tint: "rgba(255,255,255,0.04)",
-  },
-  {
-    lead: "Events fan out, durably.",
-    rest: "A fixed 13-event catalog goes back out to PostHog, Segment, Slack, or any signed webhook — with retries, backoff, and a dead-letter queue.",
-    tint: "rgba(246,72,56,0.07)",
-  },
-  {
-    lead: "Provider is config, not code.",
-    rest: "EMAIL_PROVIDER=postmark swaps the wire underneath — the journey doesn't change.",
-    tint: "rgba(255,255,255,0.04)",
-  },
-  {
-    lead: "Revenue lands on the timeline.",
-    rest: "value and currency are first-class columns on every event — a sale counts once, in its own currency, and your PostHog mirror sees the same number.",
-    tint: "rgba(246,72,56,0.07)",
-  },
-  {
-    lead: "Deal funnels move on your events.",
-    rest: "Ordered stages with money milestones — deal.quoted and deal.sold mint themselves as revenue happens. Bind a CRM, or run without one.",
-    tint: "rgba(255,255,255,0.04)",
-  },
-  {
-    lead: "Attribution, eight models at once.",
-    rest: "Every conversion writes a credit ledger under all eight models — switch lenses in reporting, never re-derive. Holdouts add real incrementality.",
-    tint: "rgba(246,72,56,0.07)",
-  },
-];
-
-function PsFeatures() {
-  return (
-    <section className="relative border-[#f6483826] border-t">
-      <Container className="pt-24 pb-10">
-        <Eyebrow>Platform features</Eyebrow>
-        <div className="mt-8 flex items-end justify-between gap-8">
-          <h2
-            className={cn(
-              "max-w-[880px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
-              DISPLAY,
-            )}
-          >
-            <span className="text-white">
-              Your lifecycle logic, however it branches,
-            </span>{" "}
-            <span className="text-white/40">
-              supported by primitives built for production.
-            </span>
-          </h2>
-          <div className="hidden shrink-0 items-center gap-2 pb-2 md:flex">
-            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-white/10 text-white/40">
-              ←
-            </span>
-            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-white/30 text-white">
-              →
-            </span>
-          </div>
-        </div>
-      </Container>
-
-      <Container className="pb-24">
-        <div className="-mx-6 overflow-x-auto md:-mx-10 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent,black_32px,black_calc(100%-120px),transparent)]">
-          <div className="flex w-max gap-4 px-6 md:px-10">
-            {FEATURE_CARDS.map((c) => (
-              <div
-                key={c.lead}
-                className="w-[280px] shrink-0 p-6"
-                style={{ background: c.tint }}
-              >
-                <p className="text-[15px] leading-[22px] tracking-[-0.02em]">
-                  <span className="font-medium text-white">{c.lead}</span>{" "}
-                  <span className="text-white/55">{c.rest}</span>
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------- built on posthog -- */
-
-const LOOP_ITEMS = [
-  {
-    title: "Engagement becomes PostHog events",
-    body: "Every send, open and click fans back as a first-party event. Build cohorts and funnels on email behaviour.",
-  },
-  {
-    title: "Triggered off events you already have",
-    body: "Journeys react to your PostHog events directly. No reverse-ETL, no sync lag, no second source of truth.",
-  },
-  {
-    title: "Write answers back onto the person",
-    body: "An NPS score, a survey reply, a milestone — written back with identify() onto the PostHog person.",
-  },
-  {
-    title: "Follow people into Discord",
-    body: "See who joins, who's talking, and who's gone quiet — on the same contact as their email and product activity.",
-  },
-  {
-    title: "One profile across everything",
-    body: "Email, product activity, Discord and PostHog sit on a single contact.",
-  },
-  {
-    title: "Identities stitched together",
-    body: "discord_id, email and anonymous IDs fold into one person as you learn who they are.",
-  },
-];
-
-/** First-party tracking, animated: event pills travel from the email to the
- * destinations on a shared clock (home.css keyframes, deterministic). */
-function PsTrackingAnimation() {
-  const pills = [
-    { label: "email.opened", top: "top-3", delay: 0 },
-    { label: "email.link_clicked", top: "top-[calc(50%-14px)]", delay: 3 },
-    { label: "nps.answered", top: "bottom-3", delay: 6 },
-  ];
-  const dests = [
-    { label: "PostHog", delay: 0 },
-    { label: "Slack #growth", delay: 3 },
-    { label: "posthog.identify()", delay: 6 },
-  ];
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
-          First-party tracking
-        </span>
-        <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
-          <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-          live
-        </span>
-      </div>
-
-      <div className="mt-5 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_minmax(150px,220px)_auto]">
-        {/* The email, links rewritten on send. */}
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-          <p className="font-mono text-white/40 text-[11px]">
-            from: hello@yourapp.com
-          </p>
-          <p className="mt-1.5 font-medium text-white text-[13px] tracking-[-0.02em]">
-            Welcome — one thing to try first
-          </p>
-          <div className="mt-2.5 space-y-1.5">
-            <div className="h-1.5 w-11/12 rounded bg-white/10" />
-            <div className="h-1.5 w-3/4 rounded bg-white/10" />
-          </div>
-          <p className="mt-3 font-medium text-[13px] text-[#f64838] underline decoration-[#f64838]/40 underline-offset-2 tracking-[-0.02em]">
-            View your dashboard →
-          </p>
-          <p className="mt-2 font-mono text-white/40 text-[10px]">
-            links rewritten on send · opens pixel injected
-          </p>
-        </div>
-
-        {/* Travel lane. */}
-        <div className="relative hidden h-28 [--ps-lane:110px] sm:block md:[--ps-lane:150px]">
-          <div
-            aria-hidden="true"
-            className="absolute inset-y-2 left-1/2 border-white/10 border-l border-dashed"
-          />
-          {pills.map((pill) => (
-            <span
-              key={pill.label}
-              className={cn(
-                "ps-travel absolute left-0 rounded-full border border-[#f64838]/30 bg-[#f64838]/[0.08] px-2.5 py-1 font-mono text-[#f64838] text-[10.5px]",
-                pill.top,
-              )}
-              style={{ animationDelay: `${pill.delay}s` }}
-            >
-              {pill.label}
-            </span>
-          ))}
-        </div>
-
-        {/* Destinations. */}
-        <div className="flex flex-row gap-2 sm:flex-col">
-          {dests.map((d) => (
-            <span
-              key={d.label}
-              className="ps-arrive rounded-[6px] border border-white/10 bg-white/[0.05] px-3 py-2 font-mono text-white/75 text-[11.5px]"
-              style={{ animationDelay: `${d.delay}s` }}
-            >
-              {d.label}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <p className="mt-4 font-mono text-white/40 text-[10.5px]">
-        durable · signed · retried · dead-lettered
-      </p>
-    </div>
-  );
-}
-
-function PsLoop() {
-  return (
-    <section className="relative border-[#f6483826] border-t">
-      <Container className="pt-16 pb-28">
-        <Reveal>
-          <Eyebrow>PostHog, when you want it</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
-              DISPLAY,
-            )}
-          >
-            <span className="text-white">
-              Plug it in and Hogsend makes it better.
-            </span>{" "}
-            <span className="text-white/40">
-              Leave it out and the lifecycle still runs.
-            </span>
-          </h2>
-        </Reveal>
-
-        <div className="mt-14 grid grid-cols-1 gap-12 lg:grid-cols-2">
-          <div className="flex flex-col">
-            {LOOP_ITEMS.map((item, i) => (
-              <div
-                key={item.title}
-                className={cn("py-5", i > 0 && "border-white/10 border-t")}
-              >
-                <h3 className="flex items-center gap-3 font-medium text-white text-[15px] tracking-[-0.02em]">
-                  <span
-                    aria-hidden="true"
-                    className="size-2 shrink-0 bg-[#f64838]"
-                  />
-                  {item.title}
-                </h3>
-                <p className="mt-1.5 pl-5 text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
-                  {item.body}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* The first-party tracking loop, animated. */}
-          <Reveal delay={0.1} className="self-center">
-            <PsTrackingAnimation />
-          </Reveal>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ repo -- */
-
-const LESSONS = [
-  {
-    label: "Version control",
-    title: "Every change has a history",
-    body: "Every template and journey has a git history. What the welcome email said in March is one git log away, with who changed it and why.",
-  },
-  {
-    label: "Code review",
-    title: "The same pull request as everything else",
-    body: "A journey ships through the same pull request as the rest of your product. Nothing goes live because someone clicked Save.",
-  },
-  {
-    label: "Experiments",
-    title: "Finished tests stay on the record",
-    body: "Variants are code, so finished A/B tests stay in history — the losing copy, the reasoning, the result.",
-  },
-  {
-    label: "Automation",
-    title: "A dozen lines instead of a canvas",
-    body: "A canvas flow is forty drag-and-drops; the same logic is a dozen lines of TypeScript that fit in a diff.",
-  },
-  {
-    label: "Time to ship",
-    title: "The work starts at editing",
-    body: "The scaffold puts 10 journeys and 13 templates in your repo with one command. The work starts at editing, not building.",
-  },
-  {
-    label: "Cost",
-    title: "Costs scale with infrastructure",
-    body: "Self-hosted software costs the same at 50,000 contacts as at 500. Costs scale with your infrastructure, not your list.",
-  },
-];
-
-function PsRepo() {
-  return (
-    <section className="relative border-[#f6483826] border-t">
-      <Container className="relative pt-16 pb-24">
-        <PlusGrid className="top-12 right-0 hidden h-40 w-64 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
-        <Reveal>
-          <Eyebrow>Why a repo</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
-              DISPLAY,
-            )}
-          >
-            <span className="text-white">What the repo gives you.</span>{" "}
-            <span className="text-white/40">
-              The habits that make software dependable.
-            </span>
-          </h2>
-        </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {LESSONS.map((lesson, i) => (
-            <Reveal key={lesson.label} delay={(i % 3) * 0.06}>
-              <div className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-6">
-                <span className="font-mono text-[#f64838] text-[11px] uppercase tracking-[0.08em]">
-                  {lesson.label}
-                </span>
-                <h3 className="mt-3 font-medium text-white text-[15px] tracking-[-0.02em]">
-                  {lesson.title}
-                </h3>
-                <p className="mt-2 text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
-                  {lesson.body}
-                </p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </Container>
-    </section>
-  );
-}
-
 /* --------------------------------------------------------------- hatchet -- */
 
 const HATCHET_PILLARS = [
@@ -3612,19 +2738,12 @@ export default async function HomePage(): Promise<JSX.Element> {
       <PsAgents />
       <PsUseCases />
       <PsProductDemo />
-      <PsPlaybook />
-      <PsFanning />
       {/* Temporarily hidden: <_PsStats /> */}
-      <PsRepo />
       <PsElephant />
       <PsSetup />
       <PsCorePlatform />
       <PsBuildingBlocks />
-      <PsPlatformPitch />
-      <PsOpen />
-      <PsFeatures />
       <PsStudioDemo />
-      <PsLoop />
       <PsHatchet />
       <PsEconomics />
       <PsFaq />
