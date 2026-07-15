@@ -12,7 +12,7 @@ import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { PricingCalculator } from "@/components/landing/pricing-calculator";
-import { CheckoutButton } from "@/components/service/checkout-button";
+import { CheckoutCta } from "@/components/service/checkout-cta";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -363,7 +363,7 @@ export default function PricingPage(): JSX.Element {
                 </p>
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <CheckoutButton
+                  <CheckoutCta
                     tier="managed"
                     label="Get the managed instance"
                     variant="accent"
@@ -405,7 +405,7 @@ export default function PricingPage(): JSX.Element {
                 <CheckList items={SETUP_WEEK_ITEMS} />
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <CheckoutButton
+                  <CheckoutCta
                     tier="setup"
                     label="Buy the setup week"
                     variant="accent"
