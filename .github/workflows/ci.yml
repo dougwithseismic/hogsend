@@ -24,6 +24,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Turborepo remote cache backed by the GitHub Actions cache (no secrets:
+      # a localhost server speaking the Vercel remote-cache protocol). Unchanged
+      # tasks restore instead of re-executing.
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2.5.0
       - run: pnpm lint
       - run: pnpm check-types
       # Full build (incl. the Next docs site). check-types runs fumadocs-mdx +
@@ -40,7 +45,9 @@ jobs:
       # the integration tests connect to. The superuser role lets the migration
       # test create/drop its own throwaway database.
       postgres:
-        image: timescale/timescaledb:latest-pg18
+        # Pinned by digest: a floating latest-pg18 can silently change the DB
+        # under the test gate. Bump deliberately alongside the local compose.
+        image: timescale/timescaledb:latest-pg18@sha256:bb208a255ce7d44d8d6bed4e9e8059b532be4f56fd6d6d962e37d270bfadf1bd
         env:
           POSTGRES_USER: growthhog
           POSTGRES_PASSWORD: growthhog
@@ -73,6 +80,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2.5.0
       - name: Apply migrations
         run: pnpm --filter @hogsend/db db:migrate
       - run: pnpm test
@@ -192,6 +201,11 @@ jobs:
     # needs neither Node nor pnpm on the host (the build runs inside the image).
     steps:
       - uses: actions/checkout@v5
+      # NOTE: buildx + a GHA layer cache was tried here and measured SLOWER
+      # than the plain build (mode=max export ~2x the build; restore a wash
+      # because the Dockerfile invalidates its dep layers on any source
+      # change). Revisit only after restructuring the Dockerfile for layer
+      # reuse (deps stage before source COPY).
       - name: Build prod image and boot api/worker/migrate
         run: bash scripts/preflight-deploy.sh
 
@@ -214,6 +228,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Turborepo cache
+        uses: rharkor/caching-for-turbo@v2.5.0
       # Fast, deterministic version-line invariants (pure file reads, ~1s).
       - run: pnpm release-doctor
       # Heavier real pack -> scaffold -> install -> build smoke (dist-in-tarball).
