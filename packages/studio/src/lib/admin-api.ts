@@ -1691,11 +1691,67 @@ export function getFlow(params: { windowDays: number; laneBy?: FlowLaneBy }) {
   });
 }
 
+// --- Flow node drill-down (who is at a node) ------------------------------
+
+/** One contact at a flow node — the drill-down row (P5). */
+export type FlowNodeContact = {
+  userId: string;
+  contactId: string | null;
+  email: string | null;
+  lastSeenAt: string;
+  /** Hours since this contact's last classified event at the node. */
+  hoursIdle: number;
+  /** True when idle past the dwell threshold. */
+  stuck: boolean;
+};
+
+export type FlowNodeContactsResponse = {
+  node: { id: string; kind: FlowNodeKind; name: string; tier: SurfaceTier };
+  contacts: FlowNodeContact[];
+  /** Enrollment breakdown for journey nodes; null otherwise. */
+  journey: {
+    journeyId: string;
+    counts: {
+      active: number;
+      waiting: number;
+      completed: number;
+      failed: number;
+      exited: number;
+    };
+  } | null;
+  meta: {
+    windowDays: number;
+    dwellThresholdHours: number;
+    stuckOnly: boolean;
+    limit: number;
+  };
+};
+
+export function getFlowNodeContacts(params: {
+  nodeId: string;
+  windowDays?: number;
+  stuckOnly?: boolean;
+  limit?: number;
+}) {
+  return api.get<FlowNodeContactsResponse>(
+    `/v1/admin/flow/nodes/${encodeURIComponent(params.nodeId)}/contacts`,
+    {
+      query: {
+        windowDays: params.windowDays,
+        stuckOnly: params.stuckOnly ? "true" : "false",
+        limit: params.limit,
+      },
+    },
+  );
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
   overview: ["overview"] as const,
   flow: (windowDays: number) => ["flow", windowDays] as const,
+  flowNode: (nodeId: string, windowDays: number, stuckOnly: boolean) =>
+    ["flow-node", nodeId, windowDays, stuckOnly] as const,
   emails: (filters: EmailListFilters) => ["emails", filters] as const,
   email: (id: string) => ["email", id] as const,
   events: (filters: EventListFilters) => ["events", filters] as const,

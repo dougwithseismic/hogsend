@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { Radar, Radio } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
   EmptyState,
   ErrorState,
@@ -19,6 +20,7 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FlowCanvas } from "./flow/flow-canvas";
 import { laneColor } from "./flow/lane-colors";
+import { NodePanel } from "./flow/node-panel";
 import { particleBus } from "./flow/particle-bus";
 import { flowEdgeId } from "./flow/tier-layout";
 import {
@@ -73,6 +75,7 @@ function laneLabel(id: string): string {
 export function FlowView() {
   const [windowDays, setWindowDays] = useState(7);
   const [selectedLane, setSelectedLane] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [live, setLive] = useState(true);
   const queryClient = useQueryClient();
 
@@ -159,6 +162,13 @@ export function FlowView() {
   const chipLanes = data?.lanes.filter((l) => l.id !== "__other") ?? [];
   const hasRealLane =
     data?.lanes.some((l) => l.id !== "organic" && l.id !== "__other") ?? false;
+
+  // Resolve the selected node against the CURRENT map — a node that ages out of
+  // the window closes its panel rather than stranding it on stale data.
+  const selectedNode =
+    selectedNodeId !== null
+      ? (data?.nodes.find((n) => n.id === selectedNodeId) ?? null)
+      : null;
 
   return (
     <div className="space-y-6">
@@ -266,7 +276,50 @@ export function FlowView() {
           description="Once contacts start touching your product, the surfaces they hit — and the paths between them — appear here."
         />
       ) : (
-        <FlowCanvas data={data} selectedLane={activeLane} />
+        // The fixed height MUST live on this wrapper, not on PanelGroup —
+        // react-resizable-panels forces an inline `height: 100%` on the group,
+        // which overrides any height class on it (see journey-flow).
+        <div className="h-[720px] overflow-hidden">
+          <PanelGroup direction="horizontal" className="h-full">
+            {/* The canvas Panel is ALWAYS mounted (id/order stable) so adding
+                the drill-down Panel never remounts it — the row order, viewport
+                and every particle animation live inside it. */}
+            <Panel id="flow-canvas" order={1} minSize={45}>
+              <FlowCanvas
+                data={data}
+                selectedLane={activeLane}
+                onNodeSelect={setSelectedNodeId}
+                onPaneSelect={() => setSelectedNodeId(null)}
+              />
+            </Panel>
+            {selectedNode ? (
+              <>
+                <PanelResizeHandle className="group relative flex w-2 items-center justify-center outline-none">
+                  <div className="h-full w-px bg-hairline-faint transition-colors group-hover:bg-accent/40 group-data-[resize-handle-state=drag]:bg-accent" />
+                </PanelResizeHandle>
+                <Panel
+                  id="flow-node"
+                  order={2}
+                  defaultSize={32}
+                  minSize={22}
+                  collapsible
+                  onCollapse={() => setSelectedNodeId(null)}
+                >
+                  <aside className="h-full overflow-hidden rounded-md border border-hairline-faint bg-white/[0.015]">
+                    {/* Keyed by node id so switching nodes resets the panel's
+                        "Stuck only" default cleanly. */}
+                    <NodePanel
+                      key={selectedNode.id}
+                      node={selectedNode}
+                      windowDays={windowDays}
+                      onClose={() => setSelectedNodeId(null)}
+                    />
+                  </aside>
+                </Panel>
+              </>
+            ) : null}
+          </PanelGroup>
+        </div>
       )}
     </div>
   );

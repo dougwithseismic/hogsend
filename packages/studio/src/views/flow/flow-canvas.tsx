@@ -186,9 +186,13 @@ function sameMoney(
 function FlowCanvasInner({
   data,
   selectedLane,
+  onNodeSelect,
+  onPaneSelect,
 }: {
   data: FlowGraphResponse;
   selectedLane: string | null;
+  onNodeSelect?: (nodeId: string) => void;
+  onPaneSelect?: () => void;
 }) {
   const { fitView } = useReactFlow();
   // Cross-poll memory: row slots (so nodes never jump) and the previous
@@ -252,7 +256,7 @@ function FlowCanvasInner({
     // biome-ignore lint/a11y/noStaticElementInteractions: pointer-leave re-locks pan/zoom; the affordances are the overlay + Lock buttons
     <div
       ref={wrapRef}
-      className="relative h-[720px] overflow-hidden rounded-md border border-hairline-faint bg-black/20"
+      className="relative h-full min-h-[480px] overflow-hidden rounded-md border border-hairline-faint bg-black/20"
       onMouseLeave={() => setInteractive(false)}
     >
       <ReactFlow
@@ -262,6 +266,11 @@ function FlowCanvasInner({
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        // Drill-down: a node click surfaces WHO is there (panel lives OUTSIDE
+        // this tree, so selection never re-mints an edge/node object). A pane
+        // click deselects.
+        onNodeClick={(_, node) => onNodeSelect?.(node.id)}
+        onPaneClick={() => onPaneSelect?.()}
         minZoom={0.15}
         nodesConnectable={false}
         edgesFocusable={false}
@@ -316,13 +325,22 @@ function FlowCanvasInner({
 export function FlowCanvas({
   data,
   selectedLane = null,
+  onNodeSelect,
+  onPaneSelect,
 }: {
   data: FlowGraphResponse;
   selectedLane?: string | null;
+  onNodeSelect?: (nodeId: string) => void;
+  onPaneSelect?: () => void;
 }) {
   return (
     <ReactFlowProvider>
-      <FlowCanvasInner data={data} selectedLane={selectedLane} />
+      <FlowCanvasInner
+        data={data}
+        selectedLane={selectedLane}
+        onNodeSelect={onNodeSelect}
+        onPaneSelect={onPaneSelect}
+      />
     </ReactFlowProvider>
   );
 }

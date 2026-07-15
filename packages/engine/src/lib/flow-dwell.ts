@@ -57,6 +57,19 @@ export interface StuckContact {
   hoursStuck: number;
 }
 
+/**
+ * A contact whose LAST classified node in the window is a given node — the
+ * drill-down's default (unfiltered) view (P5). `hoursIdle` is how long since
+ * that last touch; `stuck` marks the ones past the threshold (the same ones
+ * `listStuckContacts` returns).
+ */
+export interface ContactAtNode {
+  userId: string;
+  lastSeenAt: Date;
+  hoursIdle: number;
+  stuck: boolean;
+}
+
 /** Which node ids this call is allowed to report on (exclusions ∩ nodeIds). */
 function eligibleNodeIds(opts: ComputeDwellOptions): string[] {
   const excluded = new Set(
@@ -194,4 +207,78 @@ export async function listStuckContacts(
     lastSeenAt: new Date(row.occurred_at),
     hoursStuck: Number(row.hours_stuck),
   }));
+}
+
+/**
+ * The contacts whose LAST classified node in the window is `nodeId`, most-recent
+ * first — the drill-down's default view (P5). Same classification + last-event
+ * pick as {@link listStuckContacts}, but WITHOUT the threshold filter: everyone
+ * currently at the node is listed, and `stuck` flags the ones idle past
+ * `thresholdHours`.
+ *
+ * No conversion-destination exclusion here: the operator asked to inspect THIS
+ * node, so a won stage's occupants are shown (that exclusion is a ranking
+ * policy for the aggregate map, not an access rule). The caller validates that
+ * `nodeId` exists in the topology.
+ */
+export async function listRecentContactsAtNode(opts: {
+  db: Database;
+  topology: FlowTopology;
+  nodeId: string;
+  /** Lookback for the last-node computation. Default 30 days. */
+  windowDays?: number;
+  /** Idle hours past which a listed contact is flagged `stuck`. Default 48. */
+  thresholdHours?: number;
+  /** Row cap (1..200). Default 50. */
+  limit?: number;
+}): Promise<ContactAtNode[]> {
+  const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const thresholdHours = opts.thresholdHours ?? DEFAULT_THRESHOLD_HOURS;
+  const limit = Math.min(
+    Math.max(1, opts.limit ?? DEFAULT_STUCK_CONTACTS),
+    MAX_STUCK_CONTACTS,
+  );
+
+  const rows = await opts.db.execute<{
+    user_id: string;
+    occurred_at: Date;
+    hours_idle: number;
+  }>(sql`
+    with classified as (
+      select
+        user_id,
+        occurred_at,
+        id,
+        ${opts.topology.classifierSql()} as node_id
+      from user_events
+      where occurred_at >= now() - make_interval(days => ${windowDays}::int)
+    ),
+    last_events as (
+      select distinct on (user_id)
+        user_id,
+        node_id,
+        occurred_at
+      from classified
+      where node_id is not null
+      order by user_id, occurred_at desc, id desc
+    )
+    select
+      user_id,
+      occurred_at,
+      extract(epoch from (now() - occurred_at)) / 3600.0 as hours_idle
+    from last_events
+    where node_id = ${opts.nodeId}
+    order by occurred_at desc
+    limit ${limit}::int
+  `);
+
+  return rows.map((row) => {
+    const hoursIdle = Number(row.hours_idle);
+    return {
+      userId: row.user_id,
+      lastSeenAt: new Date(row.occurred_at),
+      hoursIdle,
+      stuck: hoursIdle >= thresholdHours,
+    };
+  });
 }
