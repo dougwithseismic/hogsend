@@ -66,10 +66,27 @@ jobs:
       # SHA, so they restore instead of re-executing.
       - name: Turborepo cache
         uses: rharkor/caching-for-turbo@v2.5.0
+      # Phase detection, mirroring the changesets action's own decision rule:
+      # pending changeset files => Phase A (the action only opens/refreshes the
+      # Version PR — 9s of file ops that need no built artifacts), none =>
+      # Phase B (the action may PUBLISH, so the full gates below must run).
+      # Most main pushes are Phase A; skipping the gates there removes ~5-6min
+      # of duplicated work already executed by ci.yml's quality job on the
+      # same SHA.
+      - name: Detect publish phase
+        id: phase
+        run: |
+          if ls .changeset/*.md 2>/dev/null | grep -v 'README.md' | grep -q .; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       # Gate: the engine line must type-check and build before we publish
       # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
       - run: pnpm check-types
+        if: steps.phase.outputs.publish == 'true'
       - run: pnpm build
+        if: steps.phase.outputs.publish == 'true'
       # Release-integrity gate: assert the version-line invariants (ENGINE_VERSION
       # in sync, engine-line uniform, the three scaffold lists agree, no
       # force-major peer, no migration-number collision) before versioning or
