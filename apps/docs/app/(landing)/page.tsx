@@ -25,6 +25,7 @@ import postphant from "@/public/images/postphant.png";
 import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
 import studioSends from "@/public/images/studio/04-sends-history.png";
 import studioJourneys from "@/public/images/studio/08-journeys-overview.png";
+import { AgentPromptLoop } from "./_components/agent-prompt-loop";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
 import {
@@ -157,15 +158,6 @@ function Btn({
     >
       {children}
     </Link>
-  );
-}
-
-/** Inline mono pill, as in Polar's "runs on [Kubernetes]" sentence. */
-function InlinePill({ children }: { children: ReactNode }) {
-  return (
-    <span className="mx-0.5 inline-flex translate-y-[-1px] items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-0.5 align-middle font-mono text-[0.72em] text-white/75">
-      {children}
-    </span>
   );
 }
 
@@ -413,17 +405,16 @@ function HeroDemoSketch() {
 function PsHero() {
   return (
     <section className="relative overflow-hidden">
-      <Container className="relative flex flex-col items-center pt-20 text-center md:pt-24">
-        {/* Announcement pill — the lifecycle course. */}
+      <Container className="relative flex min-h-[60vh] flex-col items-center pt-20 text-center md:pt-24">
         <a
           href="https://course.hogsend.com"
-          className="inline-flex items-center gap-2 rounded-full bg-[#f64838]/[0.08] py-1 pr-4 pl-1 text-[13px] text-white/75"
+          aria-label="New Course Live"
+          className="inline-flex items-center gap-2 rounded-full bg-[#f64838]/[0.08] py-1 pr-3 pl-1 text-[13px] text-white"
         >
           <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
-            Course
+            New Course
           </span>
-          Measure → Keep → Grow — the lifecycle playbook for product-led teams
-          <span className="font-medium text-white">Take it →</span>
+          <span className="font-medium">Live</span>
         </a>
 
         <h1
@@ -434,42 +425,32 @@ function PsHero() {
         >
           Your customer lifecycle belongs in your repo.
         </h1>
-        <p className="mt-6 max-w-[720px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
+        <p className="mt-6 max-w-[680px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Hogsend is lifecycle automation in TypeScript for product-led teams.
-          Written by you—or your coding agent. Reviewed in a PR. Shipped like
-          the rest of your product.
+          Written by you or your coding agent. Shipped like the rest of your
+          product.
         </p>
+
+        {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
+            two-colour blob glow. */}
+        <Reveal delay={0.1} className="w-full max-w-[620px]">
+          <div className="relative mx-auto mt-16 w-full max-w-[620px] text-left">
+            <div
+              aria-hidden="true"
+              className="-inset-x-16 -inset-y-10 pointer-events-none absolute"
+              style={{
+                background:
+                  "radial-gradient(45% 60% at 30% 60%, rgba(246,72,56,0.16), transparent 70%), radial-gradient(40% 55% at 75% 40%, rgba(35,196,137,0.14), transparent 70%)",
+                filter: "blur(24px)",
+              }}
+            />
+            <AgentPromptLoop />
+          </div>
+        </Reveal>
+
         <p className="mt-5 max-w-[760px] font-mono text-[12px] text-white/45 uppercase leading-5 tracking-[0.06em]">
           Onboarding · Trial conversion · Payment recovery · Retention ·
           Win-back · Across email, in-app, SMS, Discord, and more
-        </p>
-
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <Btn href="/docs/getting-started" size="lg">
-            Start building
-          </Btn>
-          <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
-            Deploy on Railway
-          </Btn>
-          <TrackDemoClick placement="hero">
-            <Btn href={DEMO_URL} variant="ghost" size="lg" newTab>
-              Open the Studio demo →
-            </Btn>
-          </TrackDemoClick>
-        </div>
-
-        {/* Scaffold command — the crimzon hero's command strip, light chrome. */}
-        <div className="mt-7 flex items-center gap-4 rounded-[6px] border border-white/10 bg-white/[0.04] py-2.5 pr-3 pl-4">
-          <code className="font-mono text-[13px] text-white/75">
-            <span className="text-[#f64838]">$</span> {INSTALL_COMMAND}
-          </code>
-          <CopyButton
-            value={INSTALL_COMMAND}
-            className="text-white/40 hover:text-white"
-          />
-        </div>
-        <p className="mt-4 text-white/40 text-sm tracking-[-0.025em]">
-          Free to self-host · No per-contact billing
         </p>
       </Container>
 
@@ -848,14 +829,14 @@ function PsProblem() {
           >
             {/* Scroll-linked word reveal — the homepage Manifesto animation,
                 re-keyed to the light palette. */}
-            <WordReveal text="Your product already knows what should happen next. Now it can do it." />
+            <WordReveal text="When lifecycle lives in your codebase, every leak is fixable." />
           </h2>
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-              A signup. A stalled trial. A failed payment. A customer going
-              quiet. Hogsend turns each signal into the next response—without
-              leaving your repo.
+              Onboarding stalls. Trials cool off. Payments fail. Customers go
+              quiet. Hogsend turns each leak into a response your product can
+              ship.
             </p>
             <div className="mt-6 flex items-center gap-6 opacity-80 grayscale">
               <BrandLogo
@@ -1485,8 +1466,13 @@ function PsAgents() {
             DISPLAY,
           )}
         >
-          Agents can write all of it — your review process still applies.
+          Put your growth machine on autopilot.
         </h2>
+        <p className="mt-5 max-w-[620px] text-white/60 text-lg leading-[27px] tracking-[-0.025em]">
+          Your coding agent works where your lifecycle does: inside your
+          codebase. Ask for an outcome and it can write, modify, and validate
+          the journey without another drag-and-drop builder.
+        </p>
 
         <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3">
           {AGENT_CARDS.map((c) => (
@@ -1551,50 +1537,6 @@ function PsAgents() {
             ))}
           </div>
         </div>
-
-        {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
-            two-colour blob glow. */}
-        <Reveal delay={0.1}>
-          <div className="relative mx-auto mt-16 max-w-[620px]">
-            <div
-              aria-hidden="true"
-              className="-inset-x-16 -inset-y-10 pointer-events-none absolute"
-              style={{
-                background:
-                  "radial-gradient(45% 60% at 30% 60%, rgba(246,72,56,0.16), transparent 70%), radial-gradient(40% 55% at 75% 40%, rgba(35,196,137,0.14), transparent 70%)",
-                filter: "blur(24px)",
-              }}
-            />
-            <div className="relative rounded-xl border border-white/15 bg-[#0a0606] p-5 shadow-lg">
-              <span className="inline-flex items-center gap-2 rounded-md border border-[#23c489]/25 bg-[#23c489]/10 px-2.5 py-1 font-mono text-[11px] text-[#23c489]">
-                <span aria-hidden="true" className="size-2 bg-[#23c489]" />
-                src/journeys/winback.ts
-              </span>
-              <p className="mt-3 text-white/75 text-[17px] leading-[26px] tracking-[-0.02em]">
-                Add a win-back journey: trigger when someone enters the
-                went-dormant bucket, check in, wait 7 days, then send the offer.
-                Exit the moment they come back.
-              </p>
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-white/40">
-                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-white/10 font-mono text-[11px]">
-                    @
-                  </span>
-                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-white/10 font-mono text-[11px]">
-                    ⌘
-                  </span>
-                </div>
-                <span className="inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-white">
-                  ↑
-                </span>
-              </div>
-            </div>
-            <p className="relative mt-4 text-center font-mono text-white/40 text-[12px] tracking-[-0.01em]">
-              hogsend skills give agents the context — your type-checker
-              validates the result
-            </p>
-          </div>
-        </Reveal>
       </Container>
     </section>
   );
@@ -2388,30 +2330,27 @@ function PsSetup() {
           }}
         />
         <div className="relative flex flex-col items-center pt-28 pb-32 text-center">
-          <Eyebrow>Instant setup</Eyebrow>
+          <Eyebrow>Start building</Eyebrow>
           <h2
             className={cn(
               "mt-8 max-w-[880px] font-normal text-white text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
               DISPLAY,
             )}
           >
-            Run a single command to ship your first journey immediately.
+            Your first journey is one command away.
           </h2>
 
-          <div className="mt-12 flex items-center gap-4 rounded-[6px] bg-[#101014] py-3.5 pr-4 pl-5 shadow-xl">
-            <code className="font-mono text-[13.5px] text-white/90">
+          <div className="mt-12 flex w-full max-w-[680px] items-center gap-2 rounded-lg border border-white/10 bg-[#101014] p-2 pl-3 shadow-xl sm:gap-4 sm:pl-5">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-left font-mono text-[11px] text-white/90 sm:text-[13.5px]">
               <span className="text-white/40">$ </span>
               {INSTALL_COMMAND}
             </code>
-            <CopyButton value={INSTALL_COMMAND} />
+            <CopyButton value={INSTALL_COMMAND} className="shrink-0" />
           </div>
 
-          <p className="mt-20 max-w-[760px] text-white/75 text-[22px] leading-[38px] tracking-[-0.02em] md:text-[26px] md:leading-[44px]">
-            A thin TypeScript app that triggers on{" "}
-            <InlinePill>PostHog</InlinePill> events, sends through{" "}
-            <InlinePill>Resend</InlinePill> or <InlinePill>Postmark</InlinePill>
-            , and deploys to <InlinePill>Railway</InlinePill> in one click — ten
-            journeys in the scaffold, first send in minutes.
+          <p className="mt-5 max-w-[560px] text-white/45 text-sm leading-[22px] tracking-[-0.02em]">
+            Free to self-host · No per-contact billing · Journeys ready to
+            customize
           </p>
         </div>
       </Container>
