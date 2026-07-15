@@ -400,6 +400,16 @@ function HeroDemoSketch() {
 function PsHero({ engineVersion }: { engineVersion?: string }) {
   return (
     <section className="relative overflow-hidden">
+      {/* Subtle backdrop — the crimzon horizon glow from the original hero,
+       * dialed way down so copy stays legible. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-40 mix-blend-screen"
+        style={{
+          background:
+            "radial-gradient(90% 60% at 50% 115%, rgba(246,72,56,0.28) 0%, rgba(246,72,56,0.1) 45%, transparent 75%)",
+        }}
+      />
       <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
         <HeroReveal className="flex w-full flex-col items-center">
           <HeroItem>
