@@ -1,5 +1,9 @@
 import { graphlib, layout } from "@dagrejs/dagre";
-import type { FlowGraphEdge, FlowGraphNode } from "@/lib/admin-api";
+import type {
+  FlowGraphEdge,
+  FlowGraphNode,
+  FlowNodeKind,
+} from "@/lib/admin-api";
 import type { XY } from "@/views/journeys/flow-layout";
 
 /**
@@ -25,9 +29,30 @@ import type { XY } from "@/views/journeys/flow-layout";
  *   flow-edge), so layout here only provides the STARTING positions.
  */
 
-/** Node card footprint — surface-node.tsx sizes itself from these. */
-export const NODE_WIDTH = 240;
-export const NODE_HEIGHT = 104;
+/**
+ * Per-kind card footprints — surface-node.tsx sizes itself from these and
+ * dagre ranks with them, so the two must stay in lockstep. Surfaces are the
+ * tallest: their browser-chrome header buys them a full extra row.
+ */
+export function nodeSize(kind: FlowNodeKind): {
+  width: number;
+  height: number;
+} {
+  switch (kind) {
+    case "surface":
+      return { width: 264, height: 148 };
+    case "journey":
+      return { width: 248, height: 122 };
+    case "builtin":
+      return { width: 248, height: 130 };
+    default:
+      return { width: 236, height: 110 };
+  }
+}
+
+/** The LARGEST footprint — the unlinked strip's grid pitch. */
+export const NODE_WIDTH = 264;
+export const NODE_HEIGHT = 148;
 
 /** Grid pitch for the unlinked strip. */
 const STRIP_COLS = 4;
@@ -200,14 +225,14 @@ export function layoutMap(input: {
     );
     g.setGraph({
       rankdir: "LR",
-      ranksep: 120,
-      nodesep: 56,
+      ranksep: 150,
+      nodesep: 72,
       edgesep: 24,
       marginx: 32,
       marginy: 32,
     });
     for (const node of connected) {
-      g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+      g.setNode(node.id, nodeSize(node.kind));
     }
     for (const edge of merged) {
       // Unnamed edges: from→to is unique post-merge (no parallel edges), and
@@ -219,11 +244,12 @@ export function layoutMap(input: {
     for (const node of connected) {
       const laid = g.node(node.id);
       if (!laid) continue;
+      const size = nodeSize(node.kind);
       positions[node.id] = {
-        x: laid.x - NODE_WIDTH / 2,
-        y: laid.y - NODE_HEIGHT / 2,
+        x: laid.x - size.width / 2,
+        y: laid.y - size.height / 2,
       };
-      flowBottom = Math.max(flowBottom, laid.y + NODE_HEIGHT / 2);
+      flowBottom = Math.max(flowBottom, laid.y + size.height / 2);
     }
     for (const edge of merged) {
       const laid = g.edge(edge.from, edge.to) as { points?: XY[] } | undefined;

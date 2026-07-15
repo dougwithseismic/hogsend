@@ -319,7 +319,7 @@ function FlowCanvasInner({
     // re-lock every time. Locking is the explicit Lock button only.
     <div
       ref={wrapRef}
-      className="relative h-full min-h-[480px] overflow-hidden rounded-md border border-hairline-faint bg-black/20"
+      className="flow-map relative h-full min-h-[480px] overflow-hidden rounded-md border border-hairline-faint bg-black/20"
     >
       <ReactFlow
         nodes={nodes}

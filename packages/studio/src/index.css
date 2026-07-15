@@ -306,6 +306,18 @@
   animation: flow-node-flash 0.9s ease-out;
 }
 
+/* Cards always ride ABOVE the rails and their neighbours' glow; the one under
+   the pointer (and the selected one) rides above sibling cards too. React Flow
+   writes an inline z-index on every node wrapper, so !important is the only
+   lever — scoped to the control-room canvas. */
+.flow-map .react-flow__node:hover {
+  z-index: 20 !important;
+}
+
+.flow-map .react-flow__node.selected {
+  z-index: 30 !important;
+}
+
 /* …and a floating “+$49.99” that drifts up and removes itself. */
 @keyframes flow-money-tick {
   0% {

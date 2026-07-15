@@ -4,20 +4,30 @@ import {
   Filter,
   GitBranch,
   Globe,
+  Lock,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FlowGraphNode, FlowNodeKind } from "@/lib/admin-api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { NODE_HEIGHT, NODE_WIDTH } from "./map-layout";
+import { nodeSize } from "./map-layout";
 import { particleBus } from "./particle-bus";
 
 /**
- * A place in the growth machine — same crimzon card language as the journey
- * flow's nodes, sized to `NODE_WIDTH`/`NODE_HEIGHT` in `map-layout.ts` (the
- * layout centres handles on those dimensions, so they must stay in lockstep —
- * hence the inline style rather than a duplicated Tailwind size).
+ * A place in the growth machine. Each KIND wears its own chrome so the map
+ * reads at a glance instead of as thirty identical rectangles:
+ *
+ * - `surface`  — a browser mockup: traffic-light dots + an address pill (the
+ *   surface id), page title + stats below. A website LOOKS like a website.
+ * - `journey`  — an automation card: branch icon header with a breathing
+ *   green dot while anyone is enrolled.
+ * - `funnelStage` — a plain measured-step card.
+ * - `builtin`  — the till: gold-framed, revenue as the hero stat.
+ *
+ * Sizes come from `nodeSize()` in `map-layout.ts` (dagre ranks with the same
+ * dimensions, so they must stay in lockstep — hence the inline style rather
+ * than a duplicated Tailwind size).
  *
  * Four handles: horizontal (left/right) carries flow ACROSS tiers, vertical
  * (top/bottom) carries it WITHIN a tier. The layout picks which pair an edge
@@ -56,6 +66,14 @@ const KIND_LABEL: Record<FlowNodeKind, string> = {
   builtin: "Revenue",
 };
 
+/** Gold — money everywhere on the map rides this colour. */
+const GOLD = "#f0b429";
+
+/** The address-pill text: the surface's own id, sans node-namespace prefix. */
+function surfaceSlug(id: string): string {
+  return id.replace(/^surface:/, "");
+}
+
 /**
  * The money to show, and which kind it is. Attributed (the ledger's fractional
  * credit for conversions this node touched) wins when present — it's the causal
@@ -63,7 +81,7 @@ const KIND_LABEL: Record<FlowNodeKind, string> = {
  * would count one sale twice, so we never do.
  *
  * A multi-currency node shows its largest amount (the drill-down breaks it
- * out) — a 240px card cannot honestly render three currencies.
+ * out) — a card this size cannot honestly render three currencies.
  */
 function primaryMoney(node: FlowGraphNode) {
   const heat = node.heat;
@@ -96,9 +114,12 @@ interface MoneyTick {
 export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
   const { node, fx } = data;
   const Icon = KIND_ICON[node.kind];
+  const size = nodeSize(node.kind);
   const money = primaryMoney(node);
   const rate = node.heat?.conversionRate ?? null;
   const stuck = node.dwell?.stuckContacts ?? 0;
+  const isBrowser = node.kind === "surface";
+  const isTill = node.kind === "builtin";
   // The base-currency lens (#496) wins when it can serve: the SAME
   // attributed-beats-direct law as primaryMoney, converted into the
   // operator's reporting currency. Null (lens off / unconvertible) falls
@@ -147,17 +168,47 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
     };
   }, [node.id]);
 
+  // One money slot, whichever chrome hosts it: the base-currency lens beats
+  // the largest native amount (same law as the drill-down).
+  const moneySlot =
+    baseMoney !== null && fx ? (
+      <span
+        className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
+        title={`≈ ${fx.baseCurrency} (operator base currency)${
+          fx.asOf ? ` · rates as of ${fx.asOf}` : ""
+        }`}
+      >
+        {formatCurrency(baseMoney, fx.baseCurrency, {
+          maximumFractionDigits: 0,
+        })}
+      </span>
+    ) : money ? (
+      <span
+        className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
+        title={`${money.attributed ? "Attributed" : "Direct"} revenue${
+          money.currencies > 1 ? " (largest of several currencies)" : ""
+        }`}
+      >
+        {formatCurrency(money.amount, money.currency, {
+          maximumFractionDigits: 0,
+        })}
+      </span>
+    ) : null;
+
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-md border bg-white/[0.015] px-3 py-2",
+        "relative flex flex-col overflow-hidden rounded-lg border",
         "text-white/90 transition-colors",
+        isTill ? "bg-[#f0b429]/[0.03]" : "bg-white/[0.015]",
         flash && "flow-node-flash",
         selected
           ? "border-accent"
-          : "border-hairline-faint hover:border-white/15",
+          : isTill
+            ? "border-[#f0b429]/25 hover:border-[#f0b429]/45"
+            : "border-hairline-faint hover:border-white/20",
       )}
-      style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
+      style={{ width: size.width, height: size.height }}
     >
       <Handle
         id="in-l"
@@ -172,89 +223,145 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
         className={HANDLE_CLASS}
       />
 
-      <div className="flex items-center gap-1.5">
-        <Icon className="h-3 w-3 shrink-0 text-white/40" />
-        <span className="eyebrow text-[11px] text-white/40">
-          {/* Tier rides the eyebrow now that layout is graph-first — it names
-              the lifecycle stage without dictating a column. */}
-          {KIND_LABEL[node.kind]} · {node.tier}
-        </span>
-        {baseMoney !== null && fx ? (
+      {isBrowser ? (
+        // Browser chrome: traffic lights + an address pill. The pill carries
+        // the surface id — the closest thing the wire has to a URL — and the
+        // kind·tier eyebrow moves into its tooltip.
+        <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] bg-white/[0.04] px-2.5 py-1.5">
+          <span className="flex shrink-0 gap-1" aria-hidden="true">
+            <span className="h-[7px] w-[7px] rounded-full bg-[#ff5f57]/80" />
+            <span className="h-[7px] w-[7px] rounded-full bg-[#febc2e]/80" />
+            <span className="h-[7px] w-[7px] rounded-full bg-[#28c840]/80" />
+          </span>
           <span
-            className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
-            title={`≈ ${fx.baseCurrency} (operator base currency)${
-              fx.asOf ? ` · rates as of ${fx.asOf}` : ""
-            }`}
+            className="flex h-[18px] min-w-0 flex-1 items-center gap-1 rounded bg-black/40 px-1.5"
+            title={`${KIND_LABEL[node.kind]} · ${node.tier}`}
           >
-            {formatCurrency(baseMoney, fx.baseCurrency, {
-              maximumFractionDigits: 0,
-            })}
+            <Lock className="h-2.5 w-2.5 shrink-0 text-white/25" />
+            <span className="truncate font-mono text-[10px] leading-none text-white/45">
+              {surfaceSlug(node.id)}
+            </span>
           </span>
-        ) : money ? (
-          <span
-            className="ml-auto shrink-0 font-mono text-[10px] text-white/55"
-            title={`${money.attributed ? "Attributed" : "Direct"} revenue${
-              money.currencies > 1 ? " (largest of several currencies)" : ""
-            }`}
-          >
-            {formatCurrency(money.amount, money.currency, {
-              maximumFractionDigits: 0,
-            })}
-          </span>
-        ) : null}
-      </div>
-
-      <p
-        className="mt-0.5 truncate text-[13px] font-medium leading-snug text-white/90"
-        title={node.name}
-      >
-        {node.name}
-      </p>
-
-      {node.kind === "builtin" && (baseMoney !== null || money) ? (
-        // The revenue node is a TILL: cumulative value is the hero stat, the
-        // contact count demotes to the corner. The base-currency lens (#496)
-        // rules the total when it can serve — one honest number in the
-        // operator's reporting currency; else the largest native currency.
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="font-display text-base leading-none text-[#f0b429]">
-            {baseMoney !== null && fx
-              ? formatCurrency(baseMoney, fx.baseCurrency, {
-                  maximumFractionDigits: 0,
-                })
-              : money
-                ? formatCurrency(money.amount, money.currency, {
-                    maximumFractionDigits: 0,
-                  })
-                : null}
-          </span>
-          <span className="text-[11px] text-white/45">
-            {baseMoney !== null && fx
-              ? `≈ ${fx.baseCurrency} this window`
-              : `this window${money && money.currencies > 1 ? ` +${money.currencies - 1}` : ""}`}
-          </span>
-          <span className="ml-auto font-mono text-[10px] text-white/35">
-            {formatNumber(node.contacts)}{" "}
-            {node.contacts === 1 ? "contact" : "contacts"}
-          </span>
+          {moneySlot}
         </div>
       ) : (
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="font-display text-base leading-none text-white">
-            {formatNumber(node.contacts)}
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 border-b px-2.5 py-1.5",
+            isTill
+              ? "border-[#f0b429]/15 bg-[#f0b429]/[0.08]"
+              : "border-white/[0.06] bg-white/[0.03]",
+          )}
+        >
+          <Icon
+            className={cn(
+              "h-3 w-3 shrink-0",
+              isTill ? "text-[#f0b429]/70" : "text-white/40",
+            )}
+          />
+          <span className="eyebrow truncate text-[11px] text-white/40">
+            {/* Tier rides the eyebrow now that layout is graph-first — it
+                names the lifecycle stage without dictating a column. The till
+                skips it: "Revenue · revenue" says the word twice. */}
+            {isTill
+              ? KIND_LABEL[node.kind]
+              : `${KIND_LABEL[node.kind]} · ${node.tier}`}
           </span>
-          <span className="text-[11px] text-white/45">
-            {node.contacts === 1 ? "contact" : "contacts"}
-          </span>
-          <span className="ml-auto font-mono text-[10px] text-white/35">
-            {formatNumber(node.events)} events
-          </span>
+          {node.kind === "journey" && (node.live ?? 0) > 0 ? (
+            <span
+              className="relative flex h-1.5 w-1.5 shrink-0"
+              title="Contacts enrolled right now"
+            >
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400/90" />
+            </span>
+          ) : null}
+          {moneySlot}
         </div>
       )}
 
+      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 py-1.5">
+        <p
+          className="truncate text-[13px] font-medium leading-snug text-white/90"
+          title={node.name}
+        >
+          {node.name}
+        </p>
+
+        {isTill && (baseMoney !== null || money) ? (
+          // The revenue node is a TILL: cumulative value is the hero stat, the
+          // contact count demotes to the corner. The base-currency lens (#496)
+          // rules the total when it can serve — one honest number in the
+          // operator's reporting currency; else the largest native currency.
+          <div className="mt-1 flex items-baseline gap-1.5">
+            <span
+              className="font-display text-base leading-none"
+              style={{ color: GOLD }}
+            >
+              {baseMoney !== null && fx
+                ? formatCurrency(baseMoney, fx.baseCurrency, {
+                    maximumFractionDigits: 0,
+                  })
+                : money
+                  ? formatCurrency(money.amount, money.currency, {
+                      maximumFractionDigits: 0,
+                    })
+                  : null}
+            </span>
+            <span className="text-[11px] text-white/45">
+              {baseMoney !== null && fx
+                ? `≈ ${fx.baseCurrency} this window`
+                : `this window${money && money.currencies > 1 ? ` +${money.currencies - 1}` : ""}`}
+            </span>
+            <span className="ml-auto font-mono text-[10px] text-white/35">
+              {formatNumber(node.contacts)}{" "}
+              {node.contacts === 1 ? "contact" : "contacts"}
+            </span>
+          </div>
+        ) : (
+          <div className="mt-1 flex items-baseline gap-1.5">
+            <span className="font-display text-base leading-none text-white">
+              {formatNumber(node.contacts)}
+            </span>
+            <span className="text-[11px] text-white/45">
+              {node.contacts === 1 ? "contact" : "contacts"}
+            </span>
+            <span className="ml-auto font-mono text-[10px] text-white/35">
+              {formatNumber(node.events)} events
+            </span>
+          </div>
+        )}
+
+        {stuck > 0 || node.live !== null || rate !== null ? (
+          <div className="mt-1.5 flex items-center gap-1">
+            {stuck > 0 ? (
+              <span
+                className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                title={`Idle here for more than ${node.dwell?.thresholdHours ?? 48}h`}
+              >
+                {formatNumber(stuck)} stuck
+              </span>
+            ) : null}
+            {node.live !== null ? (
+              <span
+                className="rounded bg-white/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-white/60"
+                title="Contacts enrolled in this journey right now"
+              >
+                {formatNumber(node.live)} live
+              </span>
+            ) : null}
+            {rate !== null ? (
+              <span className="ml-auto shrink-0 font-mono text-[10px] text-white/35">
+                {(rate * 100).toFixed(0)}% conv
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
       {/* Floating money ticks — one per landed sale, self-removing. */}
       {ticks.length > 0 ? (
-        <div className="pointer-events-none absolute right-2 top-6">
+        <div className="pointer-events-none absolute right-2 top-8">
           {ticks.map((tick) => (
             <div
               key={tick.key}
@@ -266,32 +373,6 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
               {tick.label}
             </div>
           ))}
-        </div>
-      ) : null}
-
-      {stuck > 0 || node.live !== null || rate !== null ? (
-        <div className="mt-1.5 flex items-center gap-1">
-          {stuck > 0 ? (
-            <span
-              className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
-              title={`Idle here for more than ${node.dwell?.thresholdHours ?? 48}h`}
-            >
-              {formatNumber(stuck)} stuck
-            </span>
-          ) : null}
-          {node.live !== null ? (
-            <span
-              className="rounded bg-white/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-white/60"
-              title="Contacts enrolled in this journey right now"
-            >
-              {formatNumber(node.live)} live
-            </span>
-          ) : null}
-          {rate !== null ? (
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-white/35">
-              {(rate * 100).toFixed(0)}% conv
-            </span>
-          ) : null}
         </div>
       ) : null}
 
