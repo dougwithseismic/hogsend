@@ -11,6 +11,7 @@ import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
 import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
+import { FlowView } from "@/views/flow-view";
 import { GroupDetailView } from "@/views/group-detail-view";
 import { GroupsView } from "@/views/groups-view";
 import { IntegrationsView } from "@/views/integrations-view";
@@ -33,6 +34,12 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: OverviewView,
+});
+
+const flowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/flow",
+  component: FlowView,
 });
 
 const eventsRoute = createRoute({
@@ -170,6 +177,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   overviewRoute,
+  flowRoute,
   eventsRoute,
   sendsRoute,
   templatesRoute,

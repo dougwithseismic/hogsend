@@ -7,6 +7,7 @@ import type {
   CrmStageMap,
   DefinedConversion,
   DefinedFunnel,
+  DefinedSurface,
   EmailProvider,
   FunnelStageEntry,
   FxRateProvider,
@@ -98,6 +99,8 @@ import type {
   EmailService,
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
+import { buildFlowTopology, type FlowTopology } from "./lib/flow-topology.js";
+import { setFlowTopology } from "./lib/flow-topology-singleton.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
 import { createFxLens, type FxLens, fxProviderFromEnv } from "./lib/fx.js";
 import { hatchet } from "./lib/hatchet.js";
@@ -120,6 +123,7 @@ import { createTrackedSmsSender } from "./lib/sms-mailer.js";
 import { SmsProviderRegistry } from "./lib/sms-provider-registry.js";
 import { smsProvidersFromEnv } from "./lib/sms-providers-from-env.js";
 import type { SmsService } from "./lib/sms-service-types.js";
+import { SurfaceRegistry } from "./lib/surface-registry.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import { createUnconfiguredEmailProvider } from "./lib/unconfigured-email-provider.js";
 import { synthesizeChannelLists } from "./lists/channels.js";
@@ -217,6 +221,19 @@ export interface HogsendClient {
    * (provider, pipeline) claim; admin stats/Studio render per funnel.
    */
   funnels: FunnelRegistry;
+  /**
+   * The surface registry (§P3): every `defineSurface` declaration. Feeds the
+   * flow-map classifier — each surface mints a `surface:<id>` node and its
+   * match dimensions become classifier rules at the surface seam.
+   */
+  surfaces: SurfaceRegistry;
+  /**
+   * The control room's flow-map topology (issue #485): the node set + the
+   * event classifier, compiled once from the journey and funnel registries.
+   * `GET /v1/admin/flow` projects through it; the same object is installed as a
+   * process singleton for the container-less ingest path.
+   */
+  flowTopology: FlowTopology;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -508,6 +525,15 @@ export interface HogsendClientOptions {
    * above is sugar for a single `"default"` funnel and composes with these.
    */
   funnels?: DefinedFunnel[];
+  /**
+   * External surfaces as flow-map nodes (§P3) — `defineSurface` results. Each
+   * declares which events belong to a docs site / marketing site / course /
+   * the consumer's own server app, so the control room draws them as nodes
+   * (`surface:<id>`) with a lifecycle tier. Match is DATA (exact events, event
+   * prefixes, ingest source, a SQL-compilable `where`) so the live and
+   * windowed classifiers never disagree. Duplicate ids throw at boot.
+   */
+  surfaces?: DefinedSurface[];
   /**
    * The analytics provider(s) — provider-neutral since the
    * `AnalyticsProvider` contract (the analytics sibling of `EmailProvider`;
@@ -894,6 +920,21 @@ export function createHogsendClient(
     registry: crmProviders,
     funnels,
   });
+
+  // The control room's topology (#485) — every journey and funnel stage becomes
+  // a flow-map node, and the event classifier is compiled from both registries
+  // (to TS for the live path, to SQL for the windowed projection). Built here
+  // because this is the first point where BOTH registries exist. Installed as a
+  // process singleton for the same reason as the CRM config: `ingestEvent` is
+  // container-less by design.
+  const surfaces = new SurfaceRegistry(opts.surfaces ?? []);
+  const flowTopology = buildFlowTopology({
+    registry,
+    funnels,
+    surfaces,
+    logger,
+  });
+  setFlowTopology(flowTopology);
 
   // Conversion-point registry (plan §5.1) — evaluated on every ingest in BOTH
   // the API and worker processes.
@@ -1510,6 +1551,8 @@ export function createHogsendClient(
     smsProvider,
     crmProviders,
     funnels,
+    surfaces,
+    flowTopology,
     analyticsProviders,
     analytics,
     identity,

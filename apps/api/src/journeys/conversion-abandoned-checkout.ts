@@ -5,6 +5,7 @@ import { Events, Templates } from "./constants/index.js";
 export const conversionAbandonedCheckout = defineJourney({
   meta: {
     id: "conversion-abandoned-checkout",
+    tier: "revenue",
     name: "Conversion — Abandoned Checkout",
     enabled: true,
     trigger: { event: Events.CHECKOUT_ABANDONED },

@@ -473,6 +473,55 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
+// --- Flow map (control room, #485) ---
+export {
+  type ComputeDwellOptions,
+  type ContactAtNode,
+  computeNodeDwell,
+  type DwellBucket,
+  listRecentContactsAtNode,
+  listStuckContacts,
+  type StuckContact,
+} from "./lib/flow-dwell.js";
+export {
+  FLOW_TRANSITIONS_CHANNEL,
+  type FlowTransitionMessage,
+  publishFlowTransition,
+  resetFlowLiveRateLimit,
+} from "./lib/flow-live.js";
+export {
+  type ComputeFlowHeatOptions,
+  computeFlowHeat,
+  computeFlowMap,
+  type FlowLane,
+  type FlowLaneBy,
+  type FlowMap,
+  type FlowMapEdge,
+  type FlowMapMode,
+  type FlowMapNode,
+  type FlowMapOptions,
+  type FlowMoney,
+  type FlowNodeDwell,
+  type FlowNodeHeat,
+} from "./lib/flow-map.js";
+export {
+  buildFlowTopology,
+  type ClassifiableEvent,
+  type FlowNode,
+  type FlowNodeKind,
+  type FlowTopology,
+  funnelStageNodeId,
+  journeyIdFromNode,
+  journeyNodeId,
+  REVENUE_NODE_ID,
+  type SurfaceTier,
+  surfaceNodeId,
+} from "./lib/flow-topology.js";
+export {
+  getFlowTopology,
+  resetFlowTopology,
+  setFlowTopology,
+} from "./lib/flow-topology-singleton.js";
 export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";
@@ -648,6 +697,7 @@ export type {
 } from "./lib/sms-service-types.js";
 export { SMS_CHANNEL_ID } from "./lib/sms-tracked.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
+export { SurfaceRegistry } from "./lib/surface-registry.js";
 // --- In-app survey/rating (sendSurvey — producer sugar over sendFeedItem) ---
 export { type SendSurveyOptions, sendSurvey } from "./lib/survey.js";
 export {

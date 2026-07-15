@@ -223,3 +223,136 @@
 .react-flow__attribution a {
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* ========================================================================== */
+/*  Control room — ambient particles riding the flow-map rails (CSS Motion    */
+/*  Path). The path itself comes from the edge component as an inline         */
+/*  `offset-path`; here we just move a particle along it, fading in/out at    */
+/*  the ends so it never pops. Duration + (negative) delay are inline per     */
+/*  particle, seeded from the edge id — so a re-render is byte-identical and  */
+/*  the browser never restarts the animation.                                 */
+/* ========================================================================== */
+@keyframes flow-ambient {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.9;
+  }
+  97% {
+    opacity: 0.9;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.flow-particle {
+  animation: flow-ambient linear infinite;
+}
+
+/* The RETURN direction of a bidirectional rail (docs ⇄ course): identical
+   fades, offset-distance runs 100% → 0% so the dot rides target → source on
+   the same shared path. */
+@keyframes flow-ambient-reverse {
+  0% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.9;
+  }
+  97% {
+    opacity: 0.9;
+  }
+  100% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+}
+
+.flow-particle-reverse {
+  animation: flow-ambient-reverse linear infinite;
+}
+
+/* P4 — a LIVE pulse: the same rail keyframes, but ONE iteration (it removes
+   itself on animationend). Duration is set inline per pulse; a bigger radius +
+   full opacity makes a real, in-the-moment event pop against ambient traffic. */
+.flow-pulse {
+  animation: flow-ambient linear 1;
+}
+
+.flow-pulse-reverse {
+  animation: flow-ambient-reverse linear 1;
+}
+
+/* Money landing on a node — the till rings: a brief gold ring on the card… */
+@keyframes flow-node-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(240, 180, 41, 0);
+    border-color: rgba(240, 180, 41, 0.8);
+  }
+  25% {
+    box-shadow: 0 0 24px 2px rgba(240, 180, 41, 0.35);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(240, 180, 41, 0);
+  }
+}
+
+.flow-node-flash {
+  animation: flow-node-flash 0.9s ease-out;
+}
+
+/* Cards always ride ABOVE the rails and their neighbours' glow; the one under
+   the pointer (and the selected one) rides above sibling cards too. React Flow
+   writes an inline z-index on every node wrapper, so !important is the only
+   lever — scoped to the control-room canvas. Cluster boxes are EXCLUDED:
+   elevating a box that surrounds every card would put it above them and
+   swallow their clicks. */
+.flow-map .react-flow__node:hover:not(.react-flow__node-cluster) {
+  z-index: 20 !important;
+}
+
+.flow-map .react-flow__node.selected:not(.react-flow__node-cluster) {
+  z-index: 30 !important;
+}
+
+/* …and a floating “+$49.99” that drifts up and removes itself. */
+@keyframes flow-money-tick {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px);
+  }
+}
+
+.flow-money-tick {
+  animation: flow-money-tick 1.4s ease-out forwards;
+}
+
+/* The global reduce-motion rule collapses durations to ~0, which would park
+   every particle at the end of its rail. Take them off the canvas instead.
+   (Pulses are also gated at spawn time in flow-edge — this is belt-and-braces.) */
+@media (prefers-reduced-motion: reduce) {
+  .flow-particle,
+  .flow-particle-reverse,
+  .flow-pulse,
+  .flow-pulse-reverse,
+  .flow-money-tick {
+    animation: none;
+    visibility: hidden;
+  }
+
+  .flow-node-flash {
+    animation: none;
+  }
+}

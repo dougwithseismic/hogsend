@@ -1,14 +1,20 @@
 ---
 "@hogsend/attribution": minor
+"@hogsend/cli": minor
+"@hogsend/client": minor
+"@hogsend/db": minor
 "@hogsend/email": minor
 "hogsend": minor
+"@hogsend/js": minor
 "@hogsend/mcp": minor
 "@hogsend/plugin-discord": minor
 "@hogsend/plugin-meta-capi": minor
+"@hogsend/plugin-posthog": minor
 "@hogsend/plugin-postmark": minor
 "@hogsend/plugin-resend": minor
 "@hogsend/plugin-telegram": minor
 "@hogsend/plugin-twilio": minor
+"@hogsend/react": minor
 "@hogsend/sms": minor
 "create-hogsend": minor
 ---

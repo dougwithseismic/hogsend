@@ -32,6 +32,7 @@ import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { surfaces } from "./surfaces.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const discordConnector = buildDiscordConnector();
@@ -42,6 +43,9 @@ const client = createHogsendClient({
   buckets,
   lists,
   funnels,
+  // Flow-map surfaces (#485): external touchpoints (docs/site/demo/course/
+  // checkout) + the product app become control-room nodes.
+  surfaces,
   email: { templates },
   // Feeds the Studio journey-graph route the app's `as const` constant maps so
   // `Templates.X`/`Events.X` member expressions in journey source resolve to
@@ -177,6 +181,19 @@ async function shutdown(signal: string) {
     logger.info("Server closed");
     process.exit(0);
   });
+  // `server.close()` waits for in-flight connections — and an SSE stream (the
+  // Studio control room's live feed) never ends on its own, which would push
+  // EVERY deploy onto the forced-exit path below. Give short requests a grace
+  // window, then sever whatever is still open (SSE clients reconnect) so the
+  // close callback's cleanup actually runs.
+  const sever = setTimeout(() => {
+    if ("closeAllConnections" in server) {
+      (
+        server as unknown as { closeAllConnections(): void }
+      ).closeAllConnections();
+    }
+  }, 2_000);
+  sever.unref();
   setTimeout(() => {
     logger.error("Forced shutdown after timeout");
     process.exit(1);

@@ -5,6 +5,7 @@ import { Events, Templates } from "./constants/index.js";
 export const activationNudgeSeries = defineJourney({
   meta: {
     id: "activation-nudge-series",
+    tier: "activation",
     name: "Activation — Behavioral Nudges",
     enabled: true,
     trigger: { event: Events.USER_CREATED },

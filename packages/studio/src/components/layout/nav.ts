@@ -13,6 +13,7 @@ import {
   Megaphone,
   Plug,
   QrCode,
+  Radar,
   Send,
   Settings,
   Users,
@@ -26,6 +27,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard },
+  { label: "Control room", path: "/flow", icon: Radar },
   { label: "Events", path: "/events", icon: Activity },
   { label: "Sends", path: "/sends", icon: Send },
   { label: "Templates", path: "/templates", icon: Mail },

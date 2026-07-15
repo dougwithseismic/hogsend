@@ -1803,10 +1803,157 @@ export function cancelCampaign(id: string) {
   );
 }
 
+// --- Flow map (control room) ---------------------------------------------
+
+/** Lifecycle column a node is drawn in — the flow map's x-axis. */
+export type SurfaceTier =
+  | "acquisition"
+  | "activation"
+  | "retention"
+  | "revenue";
+
+export type FlowNodeKind = "surface" | "journey" | "funnelStage" | "builtin";
+
+/** An amount in one currency — never summed across currencies. */
+export type FlowMoney = { amount: number; currency: string };
+
+/** Conversion + revenue overlay — attributed and direct revenue stay separate. */
+export type FlowNodeHeat = {
+  conversionRate: number | null;
+  attributedRevenue: FlowMoney[];
+  directRevenue: FlowMoney[];
+  /**
+   * The same money through the operator's base-currency lens (#496) — null
+   * when the lens is off or any currency lacks a rate (a partial sum lies).
+   */
+  attributedRevenueBase: number | null;
+  directRevenueBase: number | null;
+};
+
+/** Pile-up: contacts whose last classified node is this one, idle past threshold. */
+export type FlowNodeDwell = {
+  stuckContacts: number;
+  thresholdHours: number;
+  oldestLastSeenAt: string | null;
+  p50HoursStuck: number | null;
+};
+
+export type FlowGraphNode = {
+  id: string;
+  kind: FlowNodeKind;
+  name: string;
+  /** Optional lifecycle badge — display metadata, never structure. */
+  tier?: SurfaceTier;
+  /** Surface rendering hint — "source" marks a traffic origin (slim chip). */
+  display?: "source";
+  contacts: number;
+  events: number;
+  /** Contacts enrolled right now — journey nodes only; null everywhere else. */
+  live: number | null;
+  /** Conversion + revenue overlay — null in raw mode (unmeasured, not zero). */
+  heat: FlowNodeHeat | null;
+  /** Pile-up stats — null in raw mode (unmeasured, not zero). */
+  dwell: FlowNodeDwell | null;
+};
+
+export type FlowGraphEdge = {
+  from: string;
+  to: string;
+  transitions: number;
+  contacts: number;
+  /** Lane → transition count (top lanes + `__other`) — null until P3. */
+  lanes: Record<string, number> | null;
+};
+
+export type FlowGraphResponse = {
+  window: { days: number; from: string; to: string };
+  nodes: FlowGraphNode[];
+  edges: FlowGraphEdge[];
+  /** Lanes seen in the window, with contact counts — empty until P3. */
+  lanes: { id: string; count: number }[];
+  /** The operator's base-currency lens (#496); null = lens off. */
+  fx: { baseCurrency: string; asOf: string | null } | null;
+  meta: {
+    /** True when the engine shrank the window to bound the scan. */
+    truncated: boolean;
+    effectiveWindowDays: number;
+    generatedAt: string;
+  };
+};
+
+/** Acquisition-lane dimension the map colours by (P3). */
+export type FlowLaneBy = "utm_campaign" | "utm_source";
+
+export function getFlow(params: { windowDays: number; laneBy?: FlowLaneBy }) {
+  return api.get<FlowGraphResponse>("/v1/admin/flow", {
+    query: {
+      windowDays: params.windowDays,
+      ...(params.laneBy ? { laneBy: params.laneBy } : {}),
+    },
+  });
+}
+
+// --- Flow node drill-down (who is at a node) ------------------------------
+
+/** One contact at a flow node — the drill-down row (P5). */
+export type FlowNodeContact = {
+  userId: string;
+  contactId: string | null;
+  email: string | null;
+  lastSeenAt: string;
+  /** Hours since this contact's last classified event at the node. */
+  hoursIdle: number;
+  /** True when idle past the dwell threshold. */
+  stuck: boolean;
+};
+
+export type FlowNodeContactsResponse = {
+  node: { id: string; kind: FlowNodeKind; name: string; tier?: SurfaceTier };
+  contacts: FlowNodeContact[];
+  /** Enrollment breakdown for journey nodes; null otherwise. */
+  journey: {
+    journeyId: string;
+    counts: {
+      active: number;
+      waiting: number;
+      completed: number;
+      failed: number;
+      exited: number;
+    };
+  } | null;
+  meta: {
+    windowDays: number;
+    dwellThresholdHours: number;
+    stuckOnly: boolean;
+    limit: number;
+  };
+};
+
+export function getFlowNodeContacts(params: {
+  nodeId: string;
+  windowDays?: number;
+  stuckOnly?: boolean;
+  limit?: number;
+}) {
+  return api.get<FlowNodeContactsResponse>(
+    `/v1/admin/flow/nodes/${encodeURIComponent(params.nodeId)}/contacts`,
+    {
+      query: {
+        windowDays: params.windowDays,
+        stuckOnly: params.stuckOnly ? "true" : "false",
+        limit: params.limit,
+      },
+    },
+  );
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
   overview: ["overview"] as const,
+  flow: (windowDays: number) => ["flow", windowDays] as const,
+  flowNode: (nodeId: string, windowDays: number, stuckOnly: boolean) =>
+    ["flow-node", nodeId, windowDays, stuckOnly] as const,
   emails: (filters: EmailListFilters) => ["emails", filters] as const,
   email: (id: string) => ["email", id] as const,
   events: (filters: EventListFilters) => ["events", filters] as const,
