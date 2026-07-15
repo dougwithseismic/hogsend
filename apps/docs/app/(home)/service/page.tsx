@@ -19,7 +19,7 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
-import { CheckoutButton } from "@/components/service/checkout-button";
+import { CheckoutCta } from "@/components/service/checkout-cta";
 import { ServiceInquiryForm } from "@/components/service/inquiry-form";
 
 // Bare label — the root layout template appends " — Hogsend".
@@ -376,7 +376,7 @@ export default function ServicePage(): JSX.Element {
                 </p>
 
                 <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <CheckoutButton
+                  <CheckoutCta
                     tier="setup"
                     label="Buy the setup week"
                     variant="accent"
