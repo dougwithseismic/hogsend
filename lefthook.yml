@@ -14,7 +14,10 @@ pre-commit:
 pre-push:
   parallel: true
   commands:
+    # Affected-only: scope both gates to workspaces changed vs origin/main.
+    # A docs-only push skips the DB-backed api suite entirely; CI remains the
+    # authoritative full-suite gate on every PR/push.
     check-types:
-      run: pnpm check-types
+      run: pnpm exec turbo run check-types --filter='...[origin/main]'
     test:
-      run: pnpm test
+      run: pnpm exec turbo run test --filter='...[origin/main]'
