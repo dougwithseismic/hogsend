@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type FocusEvent, useEffect, useState } from "react";
 import {
   advancePromptFrame,
+  holdPromptFrame,
   INITIAL_PROMPT_FRAME,
   movePromptFrame,
   PROMPT_SCENARIOS,
@@ -17,8 +18,11 @@ const SENDING_DELAY_MS = 650;
 export function AgentPromptLoop() {
   const [frame, setFrame] = useState(INITIAL_PROMPT_FRAME);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocusWithin, setIsFocusWithin] = useState(false);
+  const [isInteractionSend, setIsInteractionSend] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const isHolding = isHovered || isFocusWithin;
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -42,7 +46,9 @@ export function AgentPromptLoop() {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion || isPaused) return;
+    const shouldCompleteInteractionSend =
+      frame.phase === "sending" && isInteractionSend;
+    if (reduceMotion || (isHolding && !shouldCompleteInteractionSend)) return;
 
     const delay =
       frame.phase === "typing"
@@ -50,33 +56,34 @@ export function AgentPromptLoop() {
         : frame.phase === "ready"
           ? READY_DELAY_MS
           : SENDING_DELAY_MS;
-    const timeout = window.setTimeout(
-      () => setFrame((current) => advancePromptFrame(current)),
-      delay,
-    );
+    const timeout = window.setTimeout(() => {
+      setFrame((current) => {
+        const nextFrame = advancePromptFrame(current);
+        return current.phase === "sending" && isHolding
+          ? holdPromptFrame(nextFrame)
+          : nextFrame;
+      });
+      if (frame.phase === "sending") setIsInteractionSend(false);
+    }, delay);
 
     return () => window.clearTimeout(timeout);
-  }, [frame, isPaused, reduceMotion]);
+  }, [frame, isHolding, isInteractionSend, reduceMotion]);
 
   const scenario = PROMPT_SCENARIOS[frame.promptIndex];
   const visiblePrompt = scenario.prompt.slice(0, frame.visibleCharacters);
-  const isTyping = frame.phase === "typing" && !isPaused;
-  const isSending = frame.phase === "sending" && !isPaused;
-  const promptNumber = String(frame.promptIndex + 1).padStart(2, "0");
-  const promptTotal = String(PROMPT_SCENARIOS.length).padStart(2, "0");
+  const isTyping = frame.phase === "typing" && !isHolding;
+  const isSending =
+    frame.phase === "sending" && (!isHolding || isInteractionSend);
 
   const makeStaticIfNeeded = (nextFrame: PromptFrame): PromptFrame => {
-    if (!reduceMotion && !isPaused) return nextFrame;
+    if (!reduceMotion && !isHolding) return nextFrame;
 
-    return {
-      ...nextFrame,
-      visibleCharacters: PROMPT_SCENARIOS[nextFrame.promptIndex].prompt.length,
-      phase: "ready",
-    };
+    return holdPromptFrame(nextFrame);
   };
 
   const movePrompt = (direction: -1 | 1) => {
     const nextFrame = makeStaticIfNeeded(movePromptFrame(frame, direction));
+    setIsInteractionSend(false);
     setFrame(nextFrame);
     setAnnouncement(
       `${direction === 1 ? "Next" : "Previous"} prompt: ${PROMPT_SCENARIOS[nextFrame.promptIndex].prompt}`,
@@ -84,7 +91,7 @@ export function AgentPromptLoop() {
   };
 
   const submitPrompt = () => {
-    if (reduceMotion || isPaused) {
+    if (reduceMotion) {
       const nextFrame = makeStaticIfNeeded(movePromptFrame(frame, 1));
       setFrame(nextFrame);
       setAnnouncement(
@@ -93,16 +100,46 @@ export function AgentPromptLoop() {
       return;
     }
 
+    setIsInteractionSend(true);
     setFrame(submitPromptFrame(frame));
     setAnnouncement("Prompt sent. Loading the next example.");
   };
 
+  const holdCurrentPrompt = () => {
+    setFrame((current) => holdPromptFrame(current, isInteractionSend));
+  };
+
+  const holdPromptOnHover = () => {
+    setIsHovered(true);
+    holdCurrentPrompt();
+  };
+
+  const holdPromptOnFocus = () => {
+    setIsFocusWithin(true);
+    holdCurrentPrompt();
+  };
+
+  const releasePromptOnBlur = (event: FocusEvent<HTMLFieldSetElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (
+      !(nextTarget instanceof Node) ||
+      !event.currentTarget.contains(nextTarget)
+    ) {
+      setIsFocusWithin(false);
+    }
+  };
+
   return (
-    <div
-      className="relative rounded-xl border border-white/15 bg-[#0a0606] p-5 shadow-lg transition-[border-color,box-shadow] duration-300 hover:border-[#23c489]/35 hover:shadow-[0_0_32px_rgba(35,196,137,0.12)]"
+    <fieldset
+      aria-label="Lifecycle prompt examples"
+      className="relative min-w-0 rounded-xl border border-white/15 bg-[#0a0606] p-5 shadow-lg transition-[border-color,box-shadow] duration-300 hover:border-[#23c489]/35 hover:shadow-[0_0_32px_rgba(35,196,137,0.12)]"
       data-prompt-id={scenario.id}
       data-prompt-phase={frame.phase}
       data-prompt-surface
+      onBlurCapture={releasePromptOnBlur}
+      onFocusCapture={holdPromptOnFocus}
+      onMouseEnter={holdPromptOnHover}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <span className="inline-flex items-center gap-2 rounded-md border border-[#23c489]/25 bg-[#23c489]/10 px-2.5 py-1 font-mono text-[11px] text-[#23c489]">
         <span aria-hidden="true" className="size-2 bg-[#23c489]" />
@@ -137,9 +174,6 @@ export function AgentPromptLoop() {
           >
             ←
           </button>
-          <span className="min-w-[52px] text-center font-mono text-[10px] tracking-[0.08em] text-white/35">
-            {promptNumber} / {promptTotal}
-          </span>
           <button
             type="button"
             aria-label="Next prompt"
@@ -148,23 +182,6 @@ export function AgentPromptLoop() {
             onClick={() => movePrompt(1)}
           >
             →
-          </button>
-          <button
-            type="button"
-            aria-label={
-              reduceMotion
-                ? "Prompt animation disabled by motion preference"
-                : isPaused
-                  ? "Resume prompt animation"
-                  : "Pause prompt animation"
-            }
-            aria-pressed={isPaused}
-            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-[6px] border border-white/10 font-mono text-[10px] transition-colors hover:border-white/25 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#23c489]/70 disabled:cursor-default disabled:opacity-35"
-            data-prompt-pause
-            disabled={reduceMotion}
-            onClick={() => setIsPaused((current) => !current)}
-          >
-            {isPaused ? "▶" : "Ⅱ"}
           </button>
         </div>
         <button
@@ -187,6 +204,6 @@ export function AgentPromptLoop() {
           <span className="relative">↑</span>
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }

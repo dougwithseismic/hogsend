@@ -15,13 +15,13 @@ export const PROMPT_SCENARIOS = [
     id: "prerelease-discord",
     file: "src/journeys/prerelease-discord.ts",
     prompt:
-      "DM everyone on Discord who signed up for the pre-release. Stop the moment they activate.",
+      "DM everyone on Discord who signed up for the pre-release, mint each person a unique discount code in Stripe, and follow up by email if they haven't used it within 2 days.",
   },
   {
     id: "payment-recovery",
     file: "src/journeys/payment-recovery.ts",
     prompt:
-      "Recover every failed payment: warn them in-app, follow up by email, and stop as soon as billing recovers.",
+      "Payment failures spiked this month. Build a recovery series that starts with an in-app warning, follows up by email, and stops as soon as billing recovers.",
   },
   {
     id: "proposal-approval",
@@ -39,7 +39,7 @@ export const PROMPT_SCENARIOS = [
     id: "voice-lead-qualification",
     file: "src/journeys/voice-lead-qualification.ts",
     prompt:
-      "When a new lead requests a callback, have our Deepgram or Twilio voice agent call them to understand what they need. After the call, email a summary and introduce them to the founder and their assigned account executive.",
+      "When a new lead requests a callback, have our Deepgram voice agent call to clarify what they need. After the call, email them a summary and add the lead to our HubSpot funnel.",
   },
 ] as const;
 
@@ -103,5 +103,18 @@ export function submitPromptFrame(frame: PromptFrame): PromptFrame {
     ...frame,
     visibleCharacters: PROMPT_SCENARIOS[frame.promptIndex].prompt.length,
     phase: "sending",
+  };
+}
+
+export function holdPromptFrame(
+  frame: PromptFrame,
+  preserveSending = false,
+): PromptFrame {
+  if (preserveSending && frame.phase === "sending") return frame;
+
+  return {
+    ...frame,
+    visibleCharacters: PROMPT_SCENARIOS[frame.promptIndex].prompt.length,
+    phase: "ready",
   };
 }
