@@ -1,13 +1,15 @@
 ---
 title: Introduction
-description: The lifecycle automation layer PostHog doesn't have yet. Scaffold an app, define journeys in TypeScript, and ship your first lifecycle emails in minutes.
+description: Lifecycle automation in TypeScript for product-led teams. Build onboarding, conversion, retention, and win-back journeys in your repo.
 ---
 
 ## What is Hogsend?
 
-Hogsend is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A PostHog webhook, a call from your own app, a Stripe event — they all normalize to a single thing: an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, your CRM, your warehouse. Not drag-and-drop canvases. Code.
+**Your customer lifecycle belongs in your repo.**
 
-If you're a PostHog team that's been putting off lifecycle emails because Customer.io is overkill and building it yourself is a rabbit hole — this is the thing you'd build anyway. We just built it first.
+Hogsend is lifecycle automation in TypeScript for product-led teams. It is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A call from your own app, a Stripe event, a PostHog webhook — they all normalize to an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, CRM, or warehouse.
+
+Journeys are written by you—or your coding agent—then reviewed in a PR, tested, versioned, and shipped like the rest of your product. Not drag-and-drop canvases. Code.
 
 ### Install the engine, own your content
 
@@ -18,20 +20,20 @@ Hogsend ships as an npm package — `@hogsend/engine` — that your app installs
 
 ### Why Hogsend exists
 
-PostHog is incredible at product analytics. But when you want to *act* on what you see — send a nudge when someone drops off onboarding, recover a failed payment, re-engage a dormant user — you're on your own. Hogsend bridges that gap.
+Acquisition fills the bucket. Weak activation, stalled trials, failed payments, disengagement, and missed follow-up empty it. Your product already emits the signals, but acting on them usually means cron jobs, webhook glue, or a second platform that drifts away from the product.
 
-Think of it as a starting point for lifecycle automation: scaffold it, ship your first emails, and see what moves activation. When you outgrow it — or when PostHog ships their own marketing automation — you'll have a clean event model and proven journeys to migrate.
+Hogsend closes that response gap. Scaffold the framework, ship your first journeys, and improve activation, conversion, and retention with the same workflow you use to improve the product.
 
-### PostHog-first, not PostHog-only
+### First-party by default; PostHog when you want it
 
-Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom API calls, any system that can send an HTTP request can feed events into Hogsend. All examples in these docs lead with PostHog because that's the primary use case, with Stripe as the common secondary source.
+`@hogsend/js` and `@hogsend/client` give your product its own event and identity spine. Stripe webhooks, custom API calls, and any system that can send an HTTP request can feed the same stream. PostHog is a first-class optional integration: bring the events and identities you already capture, and fan lifecycle outcomes back into your analytics.
 
 **The email provider is swappable — [Resend](https://resend.com) is the default** (fast, developer-friendly, great deliverability). [Postmark](/docs/guides/email) ships as an opt-in provider, and you can bring any other behind the `EmailProvider` contract — render, preferences, and first-party tracking come along no matter which wire you choose. The same lifecycle event stream fans out to Slack, PostHog, Segment, a CRM, or a warehouse through [outbound destinations](/docs/data-api/destinations). Push notifications are on the roadmap.
 
 ## How it works
 
 1. **Scaffold your app** — `pnpm dlx create-hogsend@latest my-app` emits a thin app that pins `@hogsend/engine` and holds your content.
-2. **Events flow in** — Point a PostHog webhook at your app, call `POST /v1/events` from your own code, or wire any `defineWebhookSource()` (Stripe, Clerk, your CRM). They all normalize to one event for a user through `ingestEvent()`.
+2. **Events flow in** — Send them from `@hogsend/js`, call `POST /v1/events` from your server, point a PostHog webhook at the app, or wire any `defineWebhookSource()` (Stripe, Clerk, your CRM). They all normalize to one event for a user through `ingestEvent()`.
 3. **Your code reacts** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
 4. **Email sends through a swappable provider** — [Resend](https://resend.com) by default, [Postmark](/docs/guides/email) opt-in, or any other behind the `EmailProvider` contract. React Email templates with first-party open/click tracking, unsubscribe management, and deliverability monitoring — all engine-owned, so they come along with any provider.
 5. **Engagement flows back out** — Opens, clicks, sends, journey completions, and bucket transitions fan out to PostHog, Segment, Slack, a CRM, or a warehouse via [outbound destinations](/docs/data-api/destinations).
@@ -65,7 +67,7 @@ To log into [Studio](/docs/operating/studio), create the first admin first. Publ
 
 ## Quick example
 
-A PostHog `user_signed_up` event triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not. Journey files import from the environment-free `@hogsend/engine/journeys` surface so the same function can run in a unit test; app and worker entry points use the main `@hogsend/engine` runtime surface.
+A `user_signed_up` event from your app or analytics source triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not. Journey files import from the environment-free `@hogsend/engine/journeys` surface so the same function can run in a unit test; app and worker entry points use the main `@hogsend/engine` runtime surface.
 
 ```ts
 import { days, defineJourney, sendEmail } from "@hogsend/engine/journeys";
@@ -115,13 +117,14 @@ You register this journey by adding it to the `journeys` array your app exports 
 
 - **A versioned engine** — `@hogsend/engine` is a semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations.
 - **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off — or `ctx.waitForEvent()` pauses until the user actually _does_ something (with a timeout fallback), so journeys react to behavior, not just the clock.
-- **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
+- **First-party event SDKs** — Send typed product events directly with `@hogsend/js`, `@hogsend/client`, or the public data API.
+- **Optional PostHog integration** — Point a PostHog webhook at your app and events flow through automatically; send lifecycle outcomes back through an outbound destination.
 - **Swappable email delivery** — Resend by default, Postmark opt-in, or bring your own behind the `EmailProvider` contract. React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center — all engine-owned, so they come along with any provider.
 - **A public data plane** — Write contacts, events, and transactional emails from your own code with one ingest-scoped key via [`POST /v1/events`](/docs/data-api/events) or the typed [`@hogsend/client`](/docs/data-api/client-sdk).
 - **Outbound destinations** — Fan the lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse over the durable webhook spine with [`defineDestination()`](/docs/data-api/destinations).
 - **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.
 - **Two-track migrations** — Engine schema ships upstream in `@hogsend/db` and gates boot; your own client schema is yours to evolve. Both run from a single `pnpm db:migrate`.
-- **Admin API** — Contacts, journey control, email metrics, alerting, audit logs. Everything you need to operate without a UI.
+- **Admin API and Studio** — The same operational surface powers the CLI and visual Studio for contacts, journey control, email metrics, alerting, and audit logs.
 - **Self-hosted** — Deploy to Railway (or anywhere that runs Node.js + Postgres). Your data stays yours.
 
 ## Next steps

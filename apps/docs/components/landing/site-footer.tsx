@@ -152,8 +152,8 @@ export function SiteFooter({ className }: { className?: string }) {
           <div className="col-span-2 max-w-sm sm:col-span-3 lg:col-span-1 lg:pr-6">
             <Logo />
             <p className="mt-5 text-base leading-6 tracking-[-0.02em] text-white/60">
-              Code-first lifecycle email for teams on PostHog. Your provider,
-              your data, your repo. Free to self-host under ELv2.
+              Lifecycle automation in TypeScript for product-led teams. Written
+              by you or your coding agent. Your data, your providers, your repo.
             </p>
           </div>
 

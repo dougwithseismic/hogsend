@@ -43,7 +43,7 @@ export function SoftwareApplicationJsonLd(): JSX.Element {
         url: SITE_URL,
         sameAs: [GITHUB_URL, NPM_URL],
         description:
-          "Source-available lifecycle email engine for teams on PostHog. Durable TypeScript journeys in your repo, sent through your own Resend or Postmark account.",
+          "Lifecycle automation in TypeScript for product-led teams. Durable journeys live in your repo, work with coding agents, and run across email, in-app, SMS, Discord, and more.",
       }}
     />
   );
