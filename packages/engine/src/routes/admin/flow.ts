@@ -1,7 +1,10 @@
 import { ATTRIBUTION_MODELS } from "@hogsend/attribution";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { streamSSE } from "hono/streaming";
 import type { AppEnv } from "../../app.js";
+import { FLOW_TRANSITIONS_CHANNEL } from "../../lib/flow-live.js";
 import { computeFlowMap } from "../../lib/flow-map.js";
+import { getRedis } from "../../lib/redis.js";
 
 /**
  * GET /v1/admin/flow — the control room's flow map: how contacts actually
@@ -108,9 +111,27 @@ const flowRoute = createRoute({
   },
 });
 
-export const adminFlowRouter = new OpenAPIHono<AppEnv>().openapi(
-  flowRoute,
-  async (c) => {
+/**
+ * GET /v1/admin/flow/stream — the LIVE layer (P4). An SSE stream of flow
+ * transitions over `flow:transitions` (Redis pub/sub via a DEDICATED subscriber
+ * connection). Each event pushed through `ingestEvent` that classifies to a
+ * node publishes one transition; Studio rides the matching rail with a bright
+ * particle. Auth + rate-limit + audit come from the parent `adminRouter`.
+ */
+const streamRoute = createRoute({
+  method: "get",
+  path: "/stream",
+  tags: ["Admin"],
+  summary: "SSE stream of live flow transitions",
+  description:
+    "Server-Sent Events over `flow:transitions` (Redis pub/sub via a DEDICATED subscriber connection). Emits a `ready` event carrying the current topology node ids (deploy-skew detection), then one `transition` event per classified ingest, plus a `ping` heartbeat every 25s. Closes the subscriber on disconnect.",
+  responses: {
+    200: { description: "SSE stream" },
+  },
+});
+
+export const adminFlowRouter = new OpenAPIHono<AppEnv>()
+  .openapi(flowRoute, async (c) => {
     const { db, flowTopology } = c.get("container");
     const { windowDays, mode, model, dwellThresholdHours, laneBy } =
       c.req.valid("query");
@@ -124,5 +145,68 @@ export const adminFlowRouter = new OpenAPIHono<AppEnv>().openapi(
       laneBy,
     });
     return c.json(flow, 200);
-  },
-);
+  })
+  .openapi(streamRoute, async (c) => {
+    const { flowTopology } = c.get("container");
+    // Snapshot the current node ids so Studio can detect deploy-skew (a stream
+    // referencing a node the loaded map doesn't carry → refetch).
+    const nodeIds = flowTopology.nodes().map((n) => n.id);
+
+    return streamSSE(c, async (stream) => {
+      // DEDICATED subscriber connection — NEVER `.subscribe()` on the shared
+      // getRedis() singleton (it would poison the rate-limiter/auth/cache).
+      const sub = getRedis().duplicate();
+      let closed = false;
+      const teardown = async () => {
+        if (closed) return;
+        closed = true;
+        try {
+          await sub.unsubscribe(FLOW_TRANSITIONS_CHANNEL);
+        } catch {
+          // best-effort
+        }
+        // Close the duplicate; no leak.
+        sub.disconnect();
+      };
+      stream.onAbort(() => {
+        void teardown();
+      });
+
+      sub.on("message", (_ch, msg) => {
+        // writeSSE rejects after close — swallow.
+        void stream
+          .writeSSE({ event: "transition", data: msg })
+          .catch(() => {});
+      });
+      // A dead subscriber must KILL the stream, not leave it pinging: the
+      // client's watchdog only sees frames, and a healthy-looking ping loop
+      // over a dead subscription would silently deliver nothing forever.
+      // Closing lets the client reconnect onto a fresh subscriber.
+      sub.on("end", () => {
+        void teardown();
+      });
+      sub.on("error", () => {
+        // ioredis retries internally first; "error" alone isn't fatal — but
+        // combined with "end" (gave up) the teardown above fires. Swallow to
+        // keep an unhandled-error crash out of the stream.
+      });
+
+      try {
+        await sub.subscribe(FLOW_TRANSITIONS_CHANNEL);
+        await stream.writeSSE({
+          event: "ready",
+          data: JSON.stringify({ nodes: nodeIds }),
+        });
+        // Keep-alive heartbeat until aborted or torn down (a dead subscriber
+        // tears down — see above — so the client reconnects instead of
+        // trusting pings from a stream that can no longer deliver).
+        while (!stream.aborted && !closed) {
+          await stream.sleep(25_000);
+          if (stream.aborted || closed) break;
+          await stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
+        }
+      } finally {
+        await teardown();
+      }
+    });
+  });

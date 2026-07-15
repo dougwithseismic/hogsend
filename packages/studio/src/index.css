@@ -253,10 +253,19 @@
   animation: flow-ambient linear infinite;
 }
 
+/* P4 — a LIVE pulse: the same rail keyframes, but ONE iteration (it removes
+   itself on animationend). Duration is set inline per pulse; a bigger radius +
+   full opacity makes a real, in-the-moment event pop against ambient traffic. */
+.flow-pulse {
+  animation: flow-ambient linear 1;
+}
+
 /* The global reduce-motion rule collapses durations to ~0, which would park
-   every particle at the end of its rail. Take them off the canvas instead. */
+   every particle at the end of its rail. Take them off the canvas instead.
+   (Pulses are also gated at spawn time in flow-edge — this is belt-and-braces.) */
 @media (prefers-reduced-motion: reduce) {
-  .flow-particle {
+  .flow-particle,
+  .flow-pulse {
     animation: none;
     visibility: hidden;
   }

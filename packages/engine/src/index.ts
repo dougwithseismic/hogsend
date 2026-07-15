@@ -467,6 +467,12 @@ export {
   type StuckContact,
 } from "./lib/flow-dwell.js";
 export {
+  FLOW_TRANSITIONS_CHANNEL,
+  type FlowTransitionMessage,
+  publishFlowTransition,
+  resetFlowLiveRateLimit,
+} from "./lib/flow-live.js";
+export {
   type ComputeFlowHeatOptions,
   computeFlowHeat,
   computeFlowMap,

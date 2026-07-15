@@ -39,6 +39,7 @@ import {
   getConversionRegistry,
 } from "./conversions.js";
 import { getCrmSyncConfig } from "./crm-registry-singleton.js";
+import { publishFlowTransition } from "./flow-live.js";
 import { recordFunnelProgressAtIngest } from "./funnel-progress.js";
 import { applyFunnelTransitionsAtIngest } from "./funnel-transitions.js";
 import type { Logger } from "./logger.js";
@@ -600,6 +601,40 @@ export async function ingestEvent(opts: {
         occurredAt: insertedRow.occurredAt,
       }
     : null;
+
+  // (5g) Live flow transition (flow map P4) — classify the fresh event through
+  // the registry-backed topology and, if it maps to a node, publish the
+  // transition onto Redis pub/sub for the Studio control room. TWO deliberate
+  // deviations from the sibling hooks' shape:
+  // - It runs BEFORE (5d)/(6): both of those synchronously RE-INGEST child
+  //   events (deal.quoted/deal.sold, bucket.entered/left), and each child runs
+  //   its own (5g). Publishing the parent's transition first keeps the
+  //   contact's from-chain ordered (P→stage, stage→revenue) instead of
+  //   inverting it on every valued deal. The Redis commands are enqueued
+  //   synchronously at the call, so invocation order IS wire order.
+  // - It is fire-and-forget: a cosmetic notification must never add Redis
+  //   latency (or a Redis outage's connect timeouts) to the ingest hot path.
+  //   The event is already durable; a publish fault only warns.
+  if (insertedRow && hookEvent) {
+    void publishFlowTransition({
+      logger,
+      userKey: resolvedKey,
+      contactId,
+      event: {
+        name: hookEvent.name,
+        source: hookEvent.source,
+        properties: hookEvent.properties,
+        value: hookEvent.value,
+        occurredAt: hookEvent.occurredAt,
+      },
+    }).catch((err: unknown) => {
+      logger.warn("Flow transition publish failed", {
+        event: event.event,
+        userId: resolvedKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   // (5c) Conversion-point evaluation (plan §5.1) — the unique
   // (definition, event) index makes any replay a no-op.

@@ -1,4 +1,7 @@
 import type { Edge, EdgeProps } from "@xyflow/react";
+import { useEffect, useRef, useState } from "react";
+import { laneColor } from "./lane-colors";
+import { particleBus } from "./particle-bus";
 
 /**
  * The "railway" edge — the control room's whole visual language.
@@ -18,6 +21,12 @@ import type { Edge, EdgeProps } from "@xyflow/react";
  *   `Math.random()`. A re-render must produce byte-identical inline styles or
  *   the browser restarts every animation (and the map visibly stutters on
  *   each poll).
+ *
+ * P4 — LIVE pulses: a fresh transition from the SSE stream spawns ONE bright,
+ * single-shot particle (a `flow-pulse`) that rides source→target once and
+ * removes itself. These are LOCAL component state fed by `particle-bus`, NEVER
+ * part of `edge.data` — so a live event re-renders exactly this one edge and
+ * can't disturb the reconcile identity every ambient animation depends on.
  */
 
 export type FlowEdgeData = {
@@ -78,7 +87,61 @@ function seeded(key: string, index: number): number {
 const NEUTRAL_STROKE = "rgba(255,255,255,0.45)";
 const NEUTRAL_PARTICLE = "rgba(255,255,255,0.9)";
 
+/** Bright white for a live pulse whose lane isn't the focused one. */
+const PULSE_WHITE = "rgba(255,255,255,0.98)";
+
+/** Most concurrent live pulses on one rail; overflow becomes a surge instead. */
+const MAX_PULSES = 6;
+/** How long a surge (pulse overflow) keeps the rail hot. */
+const SURGE_MS = 30_000;
+/** Ambient particle ceiling (top bucket) — a surge respects it. */
+const MAX_PARTICLES = PARTICLE_BUCKETS[PARTICLE_BUCKETS.length - 1] as number;
+
+/** True when the viewer asked for reduced motion — no pulses then. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+interface LivePulse {
+  key: number;
+  lane: string | null;
+}
+
 export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
+  // Live pulses (P4) — transient, LOCAL to this edge. A surge flag stands in for
+  // pulses when the concurrent cap is hit, so a stampede never floods the SVG.
+  const [pulses, setPulses] = useState<LivePulse[]>([]);
+  const [surge, setSurge] = useState(false);
+  const pulseKeyRef = useRef(0);
+  const surgeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    const unsubscribe = particleBus.subscribe(id, (payload) => {
+      setPulses((prev) => {
+        if (prev.length >= MAX_PULSES) {
+          // Cap hit — flip to a surge instead of piling on more circles.
+          setSurge(true);
+          if (surgeTimerRef.current) clearTimeout(surgeTimerRef.current);
+          surgeTimerRef.current = setTimeout(() => setSurge(false), SURGE_MS);
+          return prev;
+        }
+        pulseKeyRef.current += 1;
+        return [...prev, { key: pulseKeyRef.current, lane: payload.lane }];
+      });
+    });
+    return () => {
+      unsubscribe();
+      if (surgeTimerRef.current) clearTimeout(surgeTimerRef.current);
+    };
+  }, [id]);
+
   if (!data) return null;
   const { d, length, weight, color } = data;
   // A lane is selected (color set) but this edge carries none of it: dim the
@@ -86,10 +149,28 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
   // animation on the map.
   const dimmed = color !== null && weight === 0;
   const width = strokeWidthFor(weight);
-  const count = dimmed ? 0 : particleCountFor(weight);
+  const baseCount = dimmed ? 0 : particleCountFor(weight);
+  // Surge adds two ambient dots (capped at the top bucket) and brightens the
+  // glow — a visible "this rail is hot right now" without more pulses.
+  const count =
+    surge && !dimmed ? Math.min(MAX_PARTICLES, baseCount + 2) : baseCount;
+  const glowOpacity = dimmed ? 0.12 : surge ? 0.7 : 0.5;
   const duration = Math.max(1.5, length / PARTICLE_SPEED);
+  // A pulse is the "express" — twice ambient speed, so a real event visibly
+  // shoots ahead of the resting traffic.
+  const pulseDuration = Math.max(0.75, length / (PARTICLE_SPEED * 2));
   const stroke = dimmed ? NEUTRAL_STROKE : (color ?? NEUTRAL_STROKE);
   const particleFill = color ?? NEUTRAL_PARTICLE;
+
+  // A pulse takes the focused lane's colour only when its OWN lane is that lane
+  // (proxied by colour equality — the palette is deterministic per lane id);
+  // otherwise it's bright white. The wire encodes an un-attributed contact as
+  // lane:null while the aggregate names that bucket "organic" — fold null to
+  // organic so pulses light up when the Organic chip is focused.
+  const pulseFill = (lane: string | null): string =>
+    color !== null && laneColor(lane ?? "organic") === color
+      ? color
+      : PULSE_WHITE;
 
   return (
     <>
@@ -100,7 +181,7 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
           stroke={stroke}
           strokeWidth={width}
           strokeLinecap="round"
-          opacity={dimmed ? 0.12 : 0.5}
+          opacity={glowOpacity}
         />
       </g>
       {Array.from({ length: count }, (_, i) => (
@@ -117,6 +198,23 @@ export function FlowEdge({ id, data }: EdgeProps<FlowRfEdge>) {
             // first paint instead of dribbling particles out of the source.
             animationDelay: `-${(seeded(id, i) * duration).toFixed(3)}s`,
           }}
+        />
+      ))}
+      {pulses.map((pulse) => (
+        <circle
+          key={pulse.key}
+          r={2.6}
+          fill={pulseFill(pulse.lane)}
+          className="flow-pulse"
+          style={{
+            offsetPath: `path("${d}")`,
+            // No negative delay: a live pulse starts at the SOURCE and rides
+            // the rail once — the whole point is watching it depart.
+            animationDuration: `${pulseDuration}s`,
+          }}
+          onAnimationEnd={() =>
+            setPulses((prev) => prev.filter((p) => p.key !== pulse.key))
+          }
         />
       ))}
     </>

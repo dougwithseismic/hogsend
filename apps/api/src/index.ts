@@ -181,6 +181,19 @@ async function shutdown(signal: string) {
     logger.info("Server closed");
     process.exit(0);
   });
+  // `server.close()` waits for in-flight connections — and an SSE stream (the
+  // Studio control room's live feed) never ends on its own, which would push
+  // EVERY deploy onto the forced-exit path below. Give short requests a grace
+  // window, then sever whatever is still open (SSE clients reconnect) so the
+  // close callback's cleanup actually runs.
+  const sever = setTimeout(() => {
+    if ("closeAllConnections" in server) {
+      (
+        server as unknown as { closeAllConnections(): void }
+      ).closeAllConnections();
+    }
+  }, 2_000);
+  sever.unref();
   setTimeout(() => {
     logger.error("Forced shutdown after timeout");
     process.exit(1);

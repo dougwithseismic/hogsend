@@ -1,12 +1,17 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Radar } from "lucide-react";
-import { useState } from "react";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Radar, Radio } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EmptyState,
   ErrorState,
   PageHeader,
   TableSkeleton,
 } from "@/components/states";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getFlow, qk } from "@/lib/admin-api";
@@ -14,6 +19,12 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FlowCanvas } from "./flow/flow-canvas";
 import { laneColor } from "./flow/lane-colors";
+import { particleBus } from "./flow/particle-bus";
+import { flowEdgeId } from "./flow/tier-layout";
+import {
+  type FlowTransitionMessage,
+  useFlowStream,
+} from "./flow/use-flow-stream";
 
 /**
  * The control room — how contacts actually move through the product, drawn
@@ -24,11 +35,27 @@ import { laneColor } from "./flow/lane-colors";
  * stuck"); traffic between them is the glow + particle density on each rail.
  * The engine picks the classifier, the attribution model and the dwell
  * threshold — this view sends only the window, so the map an operator sees is
- * the map the engine considers canonical. (A live stream layer lands in P4
- * against this same response shape.)
+ * the map the engine considers canonical.
+ *
+ * P4 — the LIVE layer: a "Live" toggle (default on) subscribes to
+ * `GET /v1/admin/flow/stream`. Each real transition rides its matching rail as
+ * a bright pulse (via `particle-bus`, so React Flow's store is never touched)
+ * and tightens the poll cadence; an unknown edge (a map gone stale vs a deploy)
+ * triggers a bounded refetch. The stream degrades to polling on its own.
  */
 
-const POLL_INTERVAL_MS = 30_000;
+/**
+ * Poll cadence: brisk while live, calm when off. Live is 10s, not 5s: the
+ * SSE pulses carry the immediacy, the poll is only the truth layer — and the
+ * engine's poll-collapsing memo has a 5s TTL, so a 5s poll would recompute
+ * the full windowed aggregate on EVERY tick.
+ */
+const LIVE_POLL_INTERVAL_MS = 10_000;
+const IDLE_POLL_INTERVAL_MS = 30_000;
+/** Distinct unknown edges before we assume the loaded map is stale. */
+const STALE_EDGE_THRESHOLD = 3;
+/** At most one stale-map refetch this often. */
+const STALE_REFETCH_COOLDOWN_MS = 10_000;
 
 const WINDOWS = [
   { value: "1", label: "Last 24 hours" },
@@ -46,16 +73,78 @@ function laneLabel(id: string): string {
 export function FlowView() {
   const [windowDays, setWindowDays] = useState(7);
   const [selectedLane, setSelectedLane] = useState<string | null>(null);
+  const [live, setLive] = useState(true);
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: qk.flow(windowDays),
     // Always colour by campaign — the chip row lets the operator focus a lane.
     queryFn: () => getFlow({ windowDays, laneBy: "utm_campaign" }),
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: live ? LIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS,
     placeholderData: keepPreviousData,
   });
 
   const data = query.data;
+
+  // The edge ids currently drawn — kept in a ref so the stream callback reads
+  // the freshest map without re-subscribing the EventSource on every poll.
+  const knownEdgesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    knownEdgesRef.current = new Set(
+      (data?.edges ?? []).map((e) => flowEdgeId(e)),
+    );
+  }, [data]);
+  // Distinct unknown edges seen since the last refetch, and when we last fired
+  // one — so a stale map self-heals without a refetch storm. Edges that were
+  // STILL unknown after a refetch are remembered as never-known (a live
+  // from-node can predate the selected window — the aggregate will never draw
+  // that edge) so they can't drive a perpetual invalidate cycle.
+  const unknownEdgesRef = useRef<Set<string>>(new Set());
+  const neverKnownEdgesRef = useRef<Set<string>>(new Set());
+  const lastStaleRefetchRef = useRef(0);
+
+  const changeWindow = (days: number) => {
+    setWindowDays(days);
+    // A new window is a new truth — forget the never-known verdicts.
+    neverKnownEdgesRef.current.clear();
+    unknownEdgesRef.current.clear();
+  };
+
+  const handleTransition = useCallback(
+    (t: FlowTransitionMessage) => {
+      // A cold-cache transition (from null) has no rail to ride; the aggregate
+      // poll will surface the node. Only edge transitions animate.
+      if (t.from === null) return;
+      const edgeId = `${t.from}->${t.to}`;
+      if (knownEdgesRef.current.has(edgeId)) {
+        particleBus.publish(edgeId, { lane: t.lane });
+        return;
+      }
+      if (neverKnownEdgesRef.current.has(edgeId)) return;
+      // Unknown edge: the drawn map predates this path. Refetch once we've seen
+      // a few DISTINCT unknown edges (one-off is likely a race with the poll),
+      // rate-limited so a burst can't hammer the API.
+      unknownEdgesRef.current.add(edgeId);
+      if (unknownEdgesRef.current.size < STALE_EDGE_THRESHOLD) return;
+      const now = Date.now();
+      if (now - lastStaleRefetchRef.current < STALE_REFETCH_COOLDOWN_MS) return;
+      lastStaleRefetchRef.current = now;
+      // Whatever is still unknown when we ASK again is, if it stays unknown,
+      // never-known: move the batch over so the same ids can't re-trigger.
+      for (const id of unknownEdgesRef.current) {
+        neverKnownEdgesRef.current.add(id);
+      }
+      unknownEdgesRef.current.clear();
+      // Partial-key match invalidates every window's flow query.
+      queryClient.invalidateQueries({ queryKey: ["flow"] });
+    },
+    [queryClient],
+  );
+
+  const { status: streamStatus } = useFlowStream({
+    enabled: live,
+    onTransition: handleTransition,
+  });
   // Only honour a selection that still exists in the current window — a lane
   // that ages out clears itself rather than dimming the whole map with no chip
   // left to toggle. Explicit null check: a falsy-but-real lane id must not
@@ -78,12 +167,17 @@ export function FlowView() {
         description="Every place your contacts touch, and how they move between them."
         action={
           <div className="flex items-end gap-2">
+            {live && streamStatus === "unavailable" ? (
+              <span className="mb-1.5 rounded-full border border-hairline-faint px-2.5 py-1 text-[11px] text-white/50">
+                Live stream unavailable — polling
+              </span>
+            ) : null}
             <div className="space-y-1.5">
               <Label htmlFor="flow-window">Time range</Label>
               <Select
                 id="flow-window"
                 value={String(windowDays)}
-                onChange={(e) => setWindowDays(Number(e.target.value))}
+                onChange={(e) => changeWindow(Number(e.target.value))}
               >
                 {WINDOWS.map((w) => (
                   <option key={w.value} value={w.value}>
@@ -92,6 +186,15 @@ export function FlowView() {
                 ))}
               </Select>
             </div>
+            <Button
+              variant={live ? "default" : "outline"}
+              size="sm"
+              onClick={() => setLive((v) => !v)}
+              title="Stream contact movement live"
+            >
+              <Radio className="h-4 w-4" />
+              {live ? "Live" : "Go live"}
+            </Button>
           </div>
         }
       />
