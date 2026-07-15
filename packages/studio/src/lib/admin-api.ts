@@ -804,6 +804,141 @@ export function setBucketEnabled(id: string, enabled: boolean) {
   }>(`/v1/admin/buckets/${encodeURIComponent(id)}`, { json: { enabled } });
 }
 
+// --- Groups --------------------------------------------------------------
+
+/**
+ * One currency's worth of a group's money. The revenue spine's law: totals are
+ * grouped PER CURRENCY and never summed across them (a GBP deal and a USD deal
+ * don't add), so the UI renders them side by side — it must never add them up.
+ * `currency` is null for a valued event ingested without one.
+ */
+export type GroupRevenueTotal = {
+  currency: string | null;
+  total: number;
+};
+
+/**
+ * The base-currency FX lens block — non-null on a list/detail response exactly
+ * when the lens served rates, so converted figures can be labelled honestly
+ * ("≈ in USD, rates as of <date>"). `asOf` is null when the rate sheet carries
+ * no date.
+ */
+export type GroupFx = {
+  baseCurrency: string;
+  asOf: string | null;
+};
+
+/**
+ * One row of `GET /v1/admin/groups` — an account/team/company-level record
+ * tracked from events + memberships. Mirrors the engine group schema
+ * (routes/admin/groups.ts). `properties` is an opaque bag; `memberCount` is a
+ * server-computed rollup over live memberships. Observe-only: groups are
+ * authored in the data plane, never from Studio.
+ *
+ * Money arrives twice: `revenueTotals` (per currency, the truth) and
+ * `revenueBase` (the same money converted into the operator's base currency —
+ * the opt-in lens). `revenueBase` is null when the lens is off OR when any of
+ * this group's currencies lacks a rate, because a partial sum would lie.
+ */
+export type AdminGroup = {
+  id: string;
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  properties: Record<string, unknown>;
+  memberCount: number;
+  revenueTotals: GroupRevenueTotal[];
+  revenueBase: number | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+/** One member of a group (a `group_memberships` row joined to its contact). */
+export type AdminGroupMember = {
+  contactId: string;
+  email: string | null;
+  externalId: string | null;
+  role: string | null;
+  joinedAt: string;
+};
+
+/** One event tagged with a group (a `user_events` row), newest first. */
+export type AdminGroupEvent = {
+  id: string;
+  event: string;
+  occurredAt: string;
+  userId: string;
+};
+
+/** `GET /:groupType/:groupKey` — the group plus its recent members + events. */
+export type AdminGroupDetail = AdminGroup & {
+  recentMembers: AdminGroupMember[];
+  recentEvents: AdminGroupEvent[];
+};
+
+/**
+ * Server-side sort keys. `revenue` ranks on a cross-currency scalar — an
+ * ordering heuristic the server never displays (exact for a single-currency
+ * deployment, approximate for a mixed one; base-converted when the FX lens
+ * covers every currency in play).
+ */
+export type GroupSort = "lastSeen" | "members" | "revenue" | "name";
+
+export type GroupListFilters = {
+  limit?: number;
+  offset?: number;
+  groupType?: string;
+  /** Case-insensitive substring over the group key or display name. */
+  search?: string;
+  sort?: GroupSort;
+  order?: "asc" | "desc";
+};
+
+export function listGroups(filters: GroupListFilters = {}) {
+  return api.get<{
+    groups: AdminGroup[];
+    total: number;
+    limit: number;
+    offset: number;
+    fx: GroupFx | null;
+  }>("/v1/admin/groups", {
+    query: {
+      limit: filters.limit,
+      offset: filters.offset,
+      groupType: filters.groupType || undefined,
+      search: filters.search || undefined,
+      sort: filters.sort,
+      order: filters.order,
+    },
+  });
+}
+
+export function getGroup(groupType: string, groupKey: string) {
+  return api.get<{ group: AdminGroupDetail; fx: GroupFx | null }>(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
+      groupKey,
+    )}`,
+  );
+}
+
+export function listGroupMembers(
+  groupType: string,
+  groupKey: string,
+  query?: { limit?: number; offset?: number },
+) {
+  return api.get<{
+    members: AdminGroupMember[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>(
+    `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
+      groupKey,
+    )}/members`,
+    { query },
+  );
+}
+
 // --- Contacts ------------------------------------------------------------
 
 export type Contact = {
@@ -857,11 +992,22 @@ export type ContactRevenue = {
   lastValuedAt: string | null;
 };
 
+/** One group a contact belongs to — a `group_memberships` row joined to its
+ * live group, linking to that group's Studio page. */
+export type ContactGroup = {
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  role: string | null;
+  joinedAt: string;
+};
+
 export function getContact(id: string) {
   return api.get<{
     contact: Contact;
     preferences: ContactPreferences;
     revenue: ContactRevenue;
+    groups: ContactGroup[];
   }>(`/v1/admin/contacts/${encodeURIComponent(id)}`);
 }
 
@@ -1011,6 +1157,51 @@ export function revokeApiKey(id: string) {
   return api.delete<{ revoked: boolean }>(
     `/v1/admin/api-keys/${encodeURIComponent(id)}`,
   );
+}
+
+// --- Operator settings — Currency (FX lens) --------------------------------
+
+/**
+ * `GET/PUT/DELETE /v1/admin/settings/fx` — the base-currency choice behind the
+ * groups FX lens. The precedence the card renders: a setting ROW wins over env
+ * (`baseCurrency: null` in the row = the operator EXPLICITLY turned the lens
+ * off, beating env `BASE_CURRENCY`); NO row = env decides, else off. Every
+ * mutation returns this same full state, so one shape serves all three verbs.
+ */
+export type FxSettingState = {
+  /** The stored operator choice, or null when no row exists. */
+  setting: { baseCurrency: string | null } | null;
+  /** The env bootstrap default (`BASE_CURRENCY`). */
+  env: { baseCurrency: string | null };
+  /** What the lens actually resolves right now (null = off). */
+  effective: { baseCurrency: string | null };
+  /**
+   * The rate source probed against the effective base — null when none is
+   * configured at all. `servesEffectiveBase: false` with a base set means
+   * converted figures will NOT appear (e.g. a USD-quoted static sheet asked
+   * for EUR — the honesty rule).
+   */
+  provider: {
+    id: string;
+    asOf: string | null;
+    servesEffectiveBase: boolean;
+  } | null;
+};
+
+export function getFxSetting() {
+  return api.get<FxSettingState>("/v1/admin/settings/fx");
+}
+
+/** `baseCurrency: null` = explicitly turn the lens OFF (beats env). */
+export function putFxSetting(baseCurrency: string | null) {
+  return api.put<FxSettingState>("/v1/admin/settings/fx", {
+    json: { baseCurrency },
+  });
+}
+
+/** Remove the override entirely — fall back to env `BASE_CURRENCY`. */
+export function deleteFxSetting() {
+  return api.delete<FxSettingState>("/v1/admin/settings/fx");
 }
 
 // --- Events (test events) ------------------------------------------------
@@ -1640,6 +1831,14 @@ export const qk = {
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
+  groups: (filters: GroupListFilters) => ["groups", filters] as const,
+  group: (groupType: string, groupKey: string) =>
+    ["group", groupType, groupKey] as const,
+  groupMembers: (
+    groupType: string,
+    groupKey: string,
+    filter: { limit?: number; offset?: number },
+  ) => ["group-members", groupType, groupKey, filter] as const,
   contacts: (filters: ContactListFilters) => ["contacts", filters] as const,
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,
@@ -1647,6 +1846,7 @@ export const qk = {
   lists: ["lists"] as const,
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
+  fxSetting: ["fx-setting"] as const,
   domain: ["domain"] as const,
   readiness: ["readiness"] as const,
   integrations: ["integrations"] as const,

@@ -36,6 +36,9 @@ const WEBHOOK_EVENT_TYPES = [
   "funnel.stage_changed",
   "deal.quoted",
   "deal.sold",
+  "group.identified",
+  "group.member_added",
+  "group.member_removed",
 ] as const;
 
 type OutboundEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

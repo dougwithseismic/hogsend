@@ -58,6 +58,25 @@ interface BucketEventPayload {
 }
 
 /**
+ * The serialized group shape carried on `group.identified` — mirrors
+ * {@link SerializedContact}: the internal columns (`organizationId`,
+ * `deletedAt`) are omitted and timestamps are ISO strings. Structurally
+ * identical to the `/v1/groups` route's `serializeGroup` output so the emit
+ * reuses that one serializer without a layering inversion (lib → routes).
+ */
+export interface SerializedGroup {
+  id: string;
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  properties: Record<string, unknown> | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * The typed per-event payload map. `data` in each delivered envelope is exactly
  * `OutboundPayloads[E]` for the emitted event `E`. Producers (the 12 hook
  * points) construct these; subscribers receive them under `envelope.data`.
@@ -253,6 +272,34 @@ export interface OutboundPayloads {
   "deal.quoted": CrmDealEventPayload;
   /** A deal FIRST reached canonical `sold`. Value = deal value. */
   "deal.sold": CrmDealEventPayload;
+  /**
+   * A group was identified (upserted) via `POST /v1/groups` — the serialized
+   * group with its merged property bag. Fires on every successful identify
+   * (intent-layer only, never the pageview-driven ingest association path).
+   */
+  "group.identified": SerializedGroup;
+  /**
+   * A contact was added to a group via `POST /v1/groups/.../members` — emitted
+   * ONLY when THIS call inserted the membership (a re-add is a no-op).
+   */
+  "group.member_added": {
+    groupType: string;
+    groupKey: string;
+    groupId: string;
+    contactId: string;
+    role: string | null;
+  };
+  /**
+   * A contact was removed from a group via
+   * `DELETE /v1/groups/.../members/{contactId}` — emitted ONLY when THIS call
+   * actually deleted a membership row.
+   */
+  "group.member_removed": {
+    groupType: string;
+    groupKey: string;
+    groupId: string;
+    contactId: string;
+  };
 }
 
 /** Shared payload for the `crm.*` outbound family. */

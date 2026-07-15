@@ -1,6 +1,11 @@
-import { contacts, emailPreferences } from "@hogsend/db";
+import {
+  contacts,
+  emailPreferences,
+  groupMemberships,
+  groups,
+} from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   contactSearchFilter,
@@ -47,6 +52,17 @@ const revenueSchema = z.object({
     }),
   ),
   lastValuedAt: z.string().nullable(),
+});
+
+// The contact's live group memberships (`group_memberships` joined to `groups`),
+// each linking to that group's Studio page. A contact is many-to-many with
+// groups; soft-deleted groups are excluded.
+const contactGroupSchema = z.object({
+  groupType: z.string(),
+  groupKey: z.string(),
+  displayName: z.string().nullable(),
+  role: z.string().nullable(),
+  joinedAt: z.string(),
 });
 
 const listRoute = createRoute({
@@ -99,6 +115,7 @@ const getRoute = createRoute({
             contact: contactSchema,
             preferences: preferencesSchema,
             revenue: revenueSchema,
+            groups: z.array(contactGroupSchema),
           }),
         },
       },
@@ -301,7 +318,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
 
     // email_preferences.user_id uses external_id when present, else the contact
     // uuid as the deterministic fallback (risk 10 — email-only contacts).
-    const [prefRows, revenue] = await Promise.all([
+    const [prefRows, revenue, groupRows] = await Promise.all([
       db
         .select()
         .from(emailPreferences)
@@ -313,12 +330,44 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         db,
         key: contact.externalId ?? contact.anonymousId ?? contact.id,
       }),
+      // The contact's live group memberships (mirrors the admin groups router's
+      // join idiom): `group_memberships` → `groups`, live groups only, ordered
+      // by group type then most-recently-joined.
+      db
+        .select({
+          groupType: groups.groupType,
+          groupKey: groups.groupKey,
+          displayName: groups.displayName,
+          role: groupMemberships.role,
+          joinedAt: groupMemberships.joinedAt,
+        })
+        .from(groupMemberships)
+        .innerJoin(groups, eq(groupMemberships.groupId, groups.id))
+        .where(
+          and(
+            eq(groupMemberships.contactId, contact.id),
+            isNull(groups.deletedAt),
+          ),
+        )
+        .orderBy(asc(groups.groupType), desc(groupMemberships.joinedAt)),
     ]);
 
     const prefs = prefRows[0] ? serializePrefs(prefRows[0]) : null;
+    const groupsList = groupRows.map((r) => ({
+      groupType: r.groupType,
+      groupKey: r.groupKey,
+      displayName: r.displayName,
+      role: r.role,
+      joinedAt: r.joinedAt.toISOString(),
+    }));
 
     return c.json(
-      { contact: serializeContact(contact), preferences: prefs, revenue },
+      {
+        contact: serializeContact(contact),
+        preferences: prefs,
+        revenue,
+        groups: groupsList,
+      },
       200,
     );
   })

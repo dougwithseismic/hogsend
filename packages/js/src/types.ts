@@ -187,6 +187,14 @@ export type ColorMode = "light" | "dark";
 export interface HogsendState {
   identity: IdentitySlice;
   preferences?: PreferencesState;
+  /**
+   * Group associations (`groupType → groupKey`) attached to every capture.
+   * Association-only by design: the browser SDK never sends group PROPERTIES
+   * (those are a secret-key write via `@hogsend/client`). Reset by
+   * {@link Hogsend.resetGroups} and by {@link Hogsend.reset} (identity reset
+   * drops group associations, matching PostHog).
+   */
+  groups: Record<string, string>;
   /** Keyed by feedId (v2). */
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
@@ -232,8 +240,22 @@ export interface Hogsend {
   /** Canonical key from the last 202 (for `posthog.identify`, zero PII). */
   getContactKey(): string | null;
   isIdentified(): boolean;
-  /** Logout: mint a new anon id, drop the known id. */
+  /** Logout: mint a new anon id, drop the known id AND all group associations. */
   reset(): void;
+
+  // ── groups (association-only) ──
+  /**
+   * Associate the session with a group by its `groupType → groupKey`. Merges
+   * into the reactive `groups` slice; every subsequent {@link Hogsend.capture}
+   * carries the full `groups` map. ASSOCIATION-ONLY — group PROPERTIES are a
+   * secret-key write (`@hogsend/client` `groups.identify`), never sent from the
+   * browser, so there is no properties argument by design.
+   */
+  group(groupType: string, groupKey: string): void;
+  /** Clear all group associations (the `groups` slice → `{}`). */
+  resetGroups(): void;
+  /** Read the current group associations (`groupType → groupKey`). */
+  getGroups(): Record<string, string>;
 
   // ── the spine (single telemetry path) ──
   capture(

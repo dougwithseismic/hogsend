@@ -78,6 +78,13 @@ export const WEBHOOK_EVENT_TYPES = [
   "funnel.stage_changed",
   "deal.quoted",
   "deal.sold",
+  // Group dimension (account/team/company-level). Emitted from the intent-layer
+  // `/v1/groups` routes ONLY (never the ingest/associateGroups path):
+  // `group.identified` on a successful identify, `group.member_added` /
+  // `group.member_removed` on membership mutations.
+  "group.identified",
+  "group.member_added",
+  "group.member_removed",
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

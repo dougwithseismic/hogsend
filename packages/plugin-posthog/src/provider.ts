@@ -67,6 +67,8 @@ export function createPostHogProvider(
       oauth: true,
       // posthog-node exposes a native `alias` wire (anon-absorb merge).
       identityMerge: true,
+      // posthog-node supports `$groups` on capture + `groupIdentify`.
+      groups: true,
     },
 
     async getPersonProperties(distinctId: string) {
@@ -103,6 +105,14 @@ export function createPostHogProvider(
 
     capture(opts) {
       captureEvent({ client, ...opts });
+    },
+
+    groupIdentify({ groupType, groupKey, properties }) {
+      // Fire-and-forget: rides the same async posthog-node queue as `capture`
+      // (we deliberately do NOT await). Merges properties onto the group
+      // profile by its (groupType, groupKey) natural key — the group analog of
+      // the `$set` person write above.
+      client.groupIdentify({ groupType, groupKey, properties });
     },
 
     async shutdown() {

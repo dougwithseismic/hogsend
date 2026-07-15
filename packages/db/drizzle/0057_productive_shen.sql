@@ -1,0 +1,1 @@
+CREATE INDEX "user_events_valued_groups_idx" ON "user_events" USING gin ("groups" jsonb_path_ops) WHERE ("user_events"."value" is not null and "user_events"."groups" is not null);

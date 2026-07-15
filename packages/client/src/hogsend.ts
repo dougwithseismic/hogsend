@@ -3,6 +3,7 @@ import { CampaignsResource } from "./resources/campaigns.js";
 import { ContactsResource } from "./resources/contacts.js";
 import { EmailsResource } from "./resources/emails.js";
 import { EventsResource } from "./resources/events.js";
+import { GroupsResource } from "./resources/groups.js";
 import { ListsResource } from "./resources/lists.js";
 import { WebhooksResource } from "./resources/webhooks.js";
 import type { HogsendOptions } from "./types.js";
@@ -22,6 +23,14 @@ export class Hogsend {
   readonly emails: EmailsResource;
   readonly lists: ListsResource;
   readonly campaigns: CampaignsResource;
+  /**
+   * Manage account/team/company-level {@link GroupsResource groups} — the
+   * SECRET-KEY-ONLY group data plane (`/v1/groups`): identify (upsert) group
+   * properties, read/list groups, and add/remove/list members. Group property
+   * writes never leave the server; a browser (`pk_`) key may only ASSOCIATE a
+   * `groups` map onto an ingested event.
+   */
+  readonly groups: GroupsResource;
   /**
    * Manage outbound webhook endpoints (the signed event stream Hogsend emits to
    * subscriber URLs). REQUIRES a full-admin `apiKey` — this resource hits the
@@ -51,6 +60,7 @@ export class Hogsend {
     this.emails = new EmailsResource(http);
     this.lists = new ListsResource(http);
     this.campaigns = new CampaignsResource(http);
+    this.groups = new GroupsResource(http);
     this.webhooks = new WebhooksResource(http);
   }
 }

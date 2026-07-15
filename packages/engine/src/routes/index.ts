@@ -12,6 +12,7 @@ import { emailRouter } from "./email/index.js";
 import { emailsRouter } from "./emails/index.js";
 import { eventsRouter } from "./events/index.js";
 import { feedRouter } from "./feed/index.js";
+import { groupsRouter } from "./groups/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
 import { trackingRouter } from "./tracking/index.js";
@@ -116,7 +117,13 @@ export function registerRoutes(
   // secret-only there, PUT/POST publishable). Any FUTURE secret-only
   // `/contacts/<x>` or `/lists/<x>` route must mount its own
   // `requireApiKey + requireScope("ingest")` (fail-closed by construction).
-  for (const base of ["/emails", "/campaigns"]) {
+  //
+  // `/groups` is the same shape: the ENTIRE surface (group property writes,
+  // membership mutations, AND reads) is operator data, so it is secret-only. A
+  // browser (pk_) key never touches `/v1/groups`; it associates groups ONLY by
+  // attaching a `groups` map to an ingested event on the publishable
+  // `/v1/events` route (association-only, no property write).
+  for (const base of ["/emails", "/campaigns", "/groups"]) {
     v1.use(base, requireApiKey, requireScope("ingest"));
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
@@ -134,6 +141,7 @@ export function registerRoutes(
   v1.route("/emails", emailsRouter);
   v1.route("/lists", listsRouter);
   v1.route("/campaigns", campaignsRouter);
+  v1.route("/groups", groupsRouter);
 
   app.route("/v1", v1);
 

@@ -1,4 +1,4 @@
-import { isNotNull } from "drizzle-orm";
+import { isNotNull, sql } from "drizzle-orm";
 import {
   char,
   index,
@@ -19,6 +19,10 @@ export const userEvents = pgTable(
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
+    // Group association map captured at event time (groupType → groupKey), e.g.
+    // { company: "acme.com" }. Feeds group membership + group-level analytics.
+    // Nullable — most events carry no group context.
+    groups: jsonb("groups").$type<Record<string, string>>(),
     // The event's own monetary worth (a deal value on `deal.sold`, an order
     // total on `order.completed`) — first-class so revenue is SQL-aggregable,
     // never buried in the properties bag. Negative values are legal (refunds).
@@ -41,6 +45,15 @@ export const userEvents = pgTable(
     index("user_events_valued_user_idx")
       .on(table.userId, table.occurredAt)
       .where(isNotNull(table.value)),
+    // The group-revenue twin of the index above: a GIN over the `groups`
+    // association map, partial to the VALUED + GROUPED slice (a small fraction
+    // of a small fraction), so the admin group rollups' containment lookups
+    // (`groups @> '{"company":"acme.com"}'::jsonb`) never scan the event spine.
+    // `jsonb_path_ops` — containment is the only operator these queries use, and
+    // it indexes smaller/faster than the default `jsonb_ops`.
+    index("user_events_valued_groups_idx")
+      .using("gin", table.groups.op("jsonb_path_ops"))
+      .where(sql`(${isNotNull(table.value)} and ${isNotNull(table.groups)})`),
     index("user_events_user_id_idx").on(table.userId),
     index("user_events_event_idx").on(table.event),
     index("user_events_source_idx").on(table.source),

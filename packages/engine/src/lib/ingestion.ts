@@ -2,6 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
+  GroupsAssociation,
   PropertyCondition,
 } from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
@@ -41,6 +42,7 @@ import {
 import { getCrmSyncConfig } from "./crm-registry-singleton.js";
 import { recordFunnelProgressAtIngest } from "./funnel-progress.js";
 import { applyFunnelTransitionsAtIngest } from "./funnel-transitions.js";
+import { associateGroups } from "./groups.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -69,6 +71,14 @@ export interface IngestEvent {
   eventProperties: Record<string, unknown>;
   /** D2: → `contacts.properties` merge ONLY. */
   contactProperties?: Record<string, unknown>;
+  /**
+   * The groupType→groupKey association map for this event — persisted on
+   * `user_events.groups`, drives group membership (each group row is ensured +
+   * a `group_memberships` row upserted for the resolved contact), and forwards
+   * to analytics as `$groups` alongside the mirrored capture. Optional (null on
+   * `user_events` when unset).
+   */
+  groups?: GroupsAssociation;
   /**
    * The event's own monetary worth (deal value, order total). Stored on the
    * first-class `user_events.value` column — the revenue spine every rollup,
@@ -393,6 +403,7 @@ export async function ingestEvent(opts: {
         userId: resolvedKey,
         event: event.event,
         properties: event.eventProperties,
+        groups: event.groups ?? null,
         value,
         currency,
         source: event.source ?? null,
@@ -416,6 +427,7 @@ export async function ingestEvent(opts: {
         userId: resolvedKey,
         event: event.event,
         properties: event.eventProperties,
+        groups: event.groups ?? null,
         value,
         currency,
         source: event.source ?? null,
@@ -476,6 +488,10 @@ export async function ingestEvent(opts: {
       mirrorProvider.capture({
         distinctId: resolvedKey,
         event: event.event,
+        // Group context rides the mirrored capture as `$groups` so PostHog (et
+        // al.) can attribute the event to its account/team. Undefined when the
+        // event carries no group association.
+        groups: event.groups,
         // The revenue spine fans out with the event: `value`/`currency` ride as
         // plain properties so the analytics tool (PostHog et al.) can sum
         // revenue without a Hogsend round-trip. Property-bag keys of the same
@@ -490,6 +506,28 @@ export async function ingestEvent(opts: {
     } catch (err) {
       logger.debug("event mirror capture failed (non-fatal)", {
         event: event.event,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // (2d) Sovereign group association — the STANDALONE (DB-first) path, run on
+  // every ingest regardless of the analytics mirror config above. Ensures each
+  // group row exists and upserts a `group_memberships` row for the resolved
+  // contact (idempotent, no property write, no analytics). Placed on the
+  // fresh-insert side of the idempotency guard (the duplicate path returned at
+  // the early `stored:false`), so a same-key replay never re-associates.
+  // Best-effort: the `user_events` row is already durably stored (the plain
+  // path has NO idempotency key, so a thrown error + ingest retry would
+  // DOUBLE-insert the event) — a group-write hiccup must never fail an
+  // already-stored event.
+  if (event.groups && Object.keys(event.groups).length > 0) {
+    try {
+      await associateGroups({ db, contactId, groups: event.groups });
+    } catch (err) {
+      logger.warn("group association failed (non-fatal)", {
+        event: event.event,
+        userId: resolvedKey,
         error: err instanceof Error ? err.message : String(err),
       });
     }

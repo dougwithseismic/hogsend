@@ -176,6 +176,109 @@ export interface ListCampaignsResult {
 }
 
 // ---------------------------------------------------------------------------
+// Groups (hs.groups.*) — the SECRET-KEY-ONLY group data plane (`/v1/groups`).
+// A group is account/team/company-level state addressed by its
+// `(groupType, groupKey)` natural key. Group PROPERTY writes are secret-key
+// only (this resource); the browser SDK may only ASSOCIATE (attach a `groups`
+// map to an event), never write properties.
+// ---------------------------------------------------------------------------
+
+/** A group as returned by `/v1/groups` (identify / get / list). */
+export interface Group {
+  id: string;
+  groupType: string;
+  groupKey: string;
+  displayName: string | null;
+  properties: Record<string, unknown> | null;
+  // ISO strings (the server serializes `Date` columns via `.toISOString()`).
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A group-membership row as returned by `groups.addMember`. */
+export interface GroupMembership {
+  id: string;
+  groupId: string;
+  contactId: string;
+  role: string | null;
+  /** ISO string. */
+  joinedAt: string;
+}
+
+/** A member row (the contact behind a membership) from `groups.listMembers`. */
+export interface GroupMember {
+  contactId: string;
+  email: string | null;
+  externalId: string | null;
+  role: string | null;
+  /** ISO string. */
+  joinedAt: string;
+}
+
+/** Input to `groups.identify` (upsert a group by its natural key). */
+export interface IdentifyGroupInput {
+  groupType: string;
+  groupKey: string;
+  displayName?: string;
+  /** Merged onto the group's property bag (new keys win). */
+  properties?: Record<string, unknown>;
+}
+
+/** Input to `groups.get` — the `(groupType, groupKey)` natural key. */
+export interface GetGroupInput {
+  groupType: string;
+  groupKey: string;
+}
+
+/** Input to `groups.list`. All fields optional; newest-seen first. */
+export interface ListGroupsInput {
+  /** Filter to a single group type. */
+  groupType?: string;
+  /** Page size, 1–200 (server default 50). */
+  limit?: number;
+  offset?: number;
+}
+
+/** Input to `groups.addMember`. */
+export interface AddGroupMemberInput {
+  groupType: string;
+  groupKey: string;
+  /** The contact's uuid. */
+  contactId: string;
+  /** Optional membership role label. */
+  role?: string;
+}
+
+/** Result of `groups.addMember`. `created` is false for a re-add. */
+export interface AddGroupMemberResult {
+  membership: GroupMembership;
+  created: boolean;
+}
+
+/** Input to `groups.removeMember`. */
+export interface RemoveGroupMemberInput {
+  groupType: string;
+  groupKey: string;
+  contactId: string;
+}
+
+/** Result of `groups.removeMember`. `removed` is false when nothing matched. */
+export interface RemoveGroupMemberResult {
+  removed: boolean;
+}
+
+/** Input to `groups.listMembers`. Newest-joined first. */
+export interface ListGroupMembersInput {
+  groupType: string;
+  groupKey: string;
+  /** Page size, 1–200 (server default 50). */
+  limit?: number;
+  offset?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Resource inputs
 // ---------------------------------------------------------------------------
 
@@ -270,7 +373,10 @@ export type OutboundEventType =
   | "link.arrived"
   | "funnel.stage_changed"
   | "deal.quoted"
-  | "deal.sold";
+  | "deal.sold"
+  | "group.identified"
+  | "group.member_added"
+  | "group.member_removed";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed

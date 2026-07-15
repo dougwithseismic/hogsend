@@ -169,6 +169,19 @@ First-party link click and email open tracking. All tracking code is engine-owne
 
 Full documentation: `docs/tracking.md`
 
+### Group analytics (account/team tracking)
+
+First-class account/team/company-level **groups** — Hogsend's sovereign, standalone answer to PostHog group analytics. A group is identified by its `(groupType, groupKey)` natural key (e.g. `company` + `acme.com`). Everything works with zero analytics provider; when PostHog IS configured it's an automatic win (associations forward as `$groups`, property writes call `groupIdentify`). Full docs: `docs/groups.md`.
+
+- **DB** — `groups` (natural key `(groupType, groupKey)`, PARTIAL-unique on live rows `WHERE deleted_at IS NULL`; `organizationId` deliberately omitted from the arbiter; soft-delete), `group_memberships` (uuid FK join `groupId`→`contactId`, unique `(groupId, contactId)`, optional `role`, hard-delete on remove), and `user_events.groups` (jsonb `Record<string,string>` per-event association).
+- **Core** — portable `Group`/`GroupMembership`/`GroupIdentifyInput`/`GroupMemberInput` types + `GroupsAssociation` map (`@hogsend/core`, `types/group.ts`), Zod validators (`schemas/group.schema.ts`). Analytics contract gains an OPTIONAL group wire (`packages/core/src/providers/analytics.ts`): `CaptureOptions.groups` (→ `$groups`), `groupIdentify`, `capabilities.groups` — a provider that can't do groups omits them and the engine no-ops.
+- **Engine** — the group service (`lib/groups.ts`: `identifyGroup` partial-index upsert + best-effort `groupIdentify`, `associateGroups`, `addGroupMember`/`removeGroupMember` with a contact-existence guard, `getGroup`/`listGroups`/`listGroupMembers`); ingest (`lib/ingestion.ts`) persists `user_events.groups`, ensures membership via `associateGroups` (association-only, no property write), and forwards `$groups` on the mirrored capture; the **secret-key-only** `/v1/groups` router (`routes/groups/index.ts`, guarded `requireApiKey`+`requireScope("ingest")` in `routes/index.ts`) for identify / member add-remove-list / get / list; read-only admin endpoints (`routes/admin/groups.ts`, `requireAdmin`) powering Studio.
+- **Security boundary** — group PROPERTY writes + membership mutations + reads are secret-key only (`/v1/groups`, `@hogsend/client` `groups.*`, the HMAC-signed Segment webhook). Publishable/browser keys may ONLY associate — attach a `groups` map to an event via `hogsend.group()` → `/v1/events` — never write group properties or read groups.
+- **SDKs** — browser `@hogsend/js` `hogsend.group()`/`resetGroups()`/`getGroups()` (association-only, reactive slice), React `@hogsend/react` `useGroup()`, server `@hogsend/client` `groups.*` (secret-key data plane).
+- **Integrations** — Segment `group` calls (`webhook-sources/presets/segment.ts`) write the `company` group + traits (signed → safe) and associate the contact; the outbound catalog (`lib/webhook-signing.ts`, mirrored into `@hogsend/cli` + `@hogsend/client`) gains `group.identified` / `group.member_added` / `group.member_removed`, emitted from the intent-layer `/v1/groups` routes ONLY (never the ingest/`associateGroups` path).
+- **Studio** — observe-only `groups-view.tsx` (list) + `group-detail-view.tsx` (detail: stats, properties, recent members, recent tagged events); no create/edit UI (authoring stays in the data plane).
+- **Deferred** — group-level JOURNEYS (journeys stay person-scoped; a person-journey does not yet read group state), org-scoped uniqueness, and group merge/alias.
+
 ### Condition evaluation engine
 
 `@hogsend/core` provides a composable condition system (`evaluateCondition()`) supporting four types: `property` (property operator checks), `event` (event existence with optional time window), `email_engagement` (open/click tracking via emailSends/linkClicks), and `composite` (AND/OR composition). Used by enrollment guards, journey context event checks, and exit conditions.

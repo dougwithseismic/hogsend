@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { GitBranch, Mail, Zap } from "lucide-react";
 import { useState } from "react";
 import { PropertyTable } from "@/components/property-table";
@@ -249,6 +250,48 @@ export function ContactDetailDrawer({
                 </dd>
               </div>
             </dl>
+
+            <section>
+              <h3 className="eyebrow mb-3 text-white/50">Groups</h3>
+              {(() => {
+                const memberships = contactQuery.data?.groups ?? [];
+                if (memberships.length === 0) {
+                  return (
+                    <p className="text-sm text-white/60">
+                      Not a member of any group.
+                    </p>
+                  );
+                }
+                return (
+                  <ul className="flex flex-wrap gap-2">
+                    {memberships.map((g) => (
+                      <li key={`${g.groupType}:${g.groupKey}`}>
+                        <Link
+                          to="/groups/$groupType/$groupKey"
+                          params={{
+                            groupType: g.groupType,
+                            groupKey: g.groupKey,
+                          }}
+                          className="inline-flex items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.015] px-2.5 py-1.5 hover:bg-white/[0.04]"
+                        >
+                          <span className="text-sm font-medium text-white">
+                            {g.displayName || g.groupKey}
+                          </span>
+                          <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
+                            {g.groupType}
+                          </code>
+                          {g.role ? (
+                            <span className="text-xs text-white/50">
+                              {g.role}
+                            </span>
+                          ) : null}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
+            </section>
 
             {(() => {
               const revenue = contactQuery.data?.revenue;

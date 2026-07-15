@@ -17,6 +17,12 @@ export interface EventSpineOptions {
   path?: string;
   batchMs?: number;
   flushOnUnload?: boolean;
+  /**
+   * Read the current group associations (`groupType → groupKey`) attached to
+   * every capture. Association-only — the spine never sends group properties.
+   * Omitted (or an empty map) means no `groups` field on the payload.
+   */
+  getGroups?: () => Record<string, string>;
 }
 
 /** The EventSpine — the stable core contract every surface depends on. */
@@ -48,6 +54,7 @@ export function createEventSpine(opts: EventSpineOptions): EventSpine {
     capture: async (event, properties, captureOpts) => {
       const userId = opts.identity.getUserId();
       const userToken = opts.identity.getUserToken();
+      const groups = opts.getGroups?.();
       queue.enqueue({
         name: event,
         eventProperties: properties ?? {},
@@ -56,6 +63,8 @@ export function createEventSpine(opts: EventSpineOptions): EventSpine {
         ...(userId ? { userId } : {}),
         // The token only authorizes a claimed userId; never sent anon-only.
         ...(userId && userToken ? { userToken } : {}),
+        // Association-only group map; omitted when empty.
+        ...(groups && Object.keys(groups).length ? { groups } : {}),
         ...(captureOpts?.idempotencyKey
           ? { idempotencyKey: captureOpts.idempotencyKey }
           : {}),
