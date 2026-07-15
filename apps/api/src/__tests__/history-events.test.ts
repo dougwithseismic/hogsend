@@ -12,7 +12,9 @@ process.env.DATABASE_URL =
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-const { contacts, userEvents } = await import("@hogsend/db");
+const { contacts, emailSends, smsSends, userEvents } = await import(
+  "@hogsend/db"
+);
 const { eq } = await import("drizzle-orm");
 const { hours } = await import("@hogsend/core");
 const { createHogsendClient, createJourneyContext } = await import(
@@ -110,10 +112,103 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(emailSends).where(eq(emailSends.userId, USER_A));
+  await db.delete(smsSends).where(eq(smsSends.userId, USER_A));
   await db.delete(userEvents).where(eq(userEvents.userId, USER_A));
   await db.delete(userEvents).where(eq(userEvents.userId, USER_B));
   await db.delete(contacts).where(eq(contacts.externalId, USER_A));
   await db.delete(contacts).where(eq(contacts.externalId, USER_B));
+});
+
+describe("ctx.history delivery", () => {
+  it("counts only attempts that reached the provider", async () => {
+    const sentAt = new Date("2026-07-15T08:00:00.000Z");
+    const emailTemplate = `${RUN}-email-history`;
+    const emailFailedOnly = `${RUN}-email-failed-only`;
+    const smsTemplate = `${RUN}-sms-history`;
+    const smsFailedOnly = `${RUN}-sms-failed-only`;
+    const phone = `+1555${String(Date.now()).slice(-7)}`;
+
+    await db.insert(emailSends).values([
+      {
+        userId: USER_A,
+        userEmail: EMAIL_A,
+        toEmail: EMAIL_A,
+        fromEmail: "noreply@hogsend.com",
+        subject: "sent",
+        templateKey: emailTemplate,
+        status: "sent",
+        sentAt,
+      },
+      {
+        userId: USER_A,
+        userEmail: EMAIL_A,
+        toEmail: EMAIL_A,
+        fromEmail: "noreply@hogsend.com",
+        subject: "blocked",
+        templateKey: emailTemplate,
+        status: "failed",
+      },
+      {
+        userId: USER_A,
+        userEmail: EMAIL_A,
+        toEmail: EMAIL_A,
+        fromEmail: "noreply@hogsend.com",
+        subject: "blocked only",
+        templateKey: emailFailedOnly,
+        status: "failed",
+      },
+    ]);
+    await db.insert(smsSends).values([
+      {
+        userId: USER_A,
+        toPhone: phone,
+        fromPhone: "+15005550006",
+        body: "sent",
+        templateKey: smsTemplate,
+        status: "sent",
+        sentAt,
+      },
+      {
+        userId: USER_A,
+        toPhone: phone,
+        fromPhone: "+15005550006",
+        body: "",
+        templateKey: smsTemplate,
+        status: "failed",
+      },
+      {
+        userId: USER_A,
+        toPhone: phone,
+        fromPhone: "+15005550006",
+        body: "",
+        templateKey: smsFailedOnly,
+        status: "failed",
+      },
+    ]);
+
+    const ctx = makeCtx(USER_A, EMAIL_A);
+    await expect(
+      ctx.history.email({ email: EMAIL_A, template: emailTemplate }),
+    ).resolves.toEqual({
+      sent: true,
+      lastSentAt: sentAt.toISOString(),
+      count: 1,
+    });
+    await expect(
+      ctx.history.email({ email: EMAIL_A, template: emailFailedOnly }),
+    ).resolves.toEqual({ sent: false, lastSentAt: null, count: 0 });
+    await expect(
+      ctx.history.sms({ phone, template: smsTemplate }),
+    ).resolves.toEqual({
+      sent: true,
+      lastSentAt: sentAt.toISOString(),
+      count: 1,
+    });
+    await expect(
+      ctx.history.sms({ phone, template: smsFailedOnly }),
+    ).resolves.toEqual({ sent: false, lastSentAt: null, count: 0 });
+  });
 });
 
 describe("ctx.history.events()", () => {

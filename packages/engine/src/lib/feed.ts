@@ -9,7 +9,7 @@ import { getListRegistry } from "../lists/registry-singleton.js";
 import { resolveOrCreateContact, resolveRecipient } from "./contacts.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
-import { readRecipientPreferences } from "./preferences.js";
+import { readRecipientPreferences } from "./recipient-preferences.js";
 import { getRedis } from "./redis.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
@@ -76,9 +76,62 @@ export interface SendFeedItemResult {
 export async function sendFeedItem(
   opts: SendFeedItemOptions,
 ): Promise<SendFeedItemResult> {
-  const db = getDb();
   const { recipient } = opts;
+  // Keep the production recipient contract in front of the scoped test
+  // override.  The normal path eventually enforces this in
+  // `resolveOrCreateContact`, but an override deliberately avoids the database;
+  // without this pure check a zero-recipient feed item passed in journey tests
+  // and failed only in production.
+  if (
+    !recipient.userId?.trim() &&
+    !recipient.email?.trim() &&
+    !recipient.anonymousId?.trim()
+  ) {
+    throw new Error(
+      "resolveOrCreateContact requires at least one of userId, email, " +
+        "anonymousId, discordId",
+    );
+  }
   const category = opts.category ?? IN_APP_LIST_ID;
+
+  const boundary = getJourneyBoundary();
+  const override = boundary?.services?.feed;
+  if (boundary && override) {
+    let overrideKey: string | undefined = opts.idempotencyKey;
+    if (!overrideKey) {
+      const site = opts.idempotencyLabel ?? boundary.currentLabel ?? opts.type;
+      overrideKey = deriveJourneyKey({
+        kind: "send",
+        anchor: boundary.runAnchor,
+        site,
+        discriminant: `feed:${opts.type}`,
+      });
+      registerKey(boundary, overrideKey);
+    }
+    const runOverride = () =>
+      override({
+        recipient,
+        type: opts.type,
+        ...(opts.title !== undefined ? { title: opts.title } : {}),
+        ...(opts.body !== undefined ? { body: opts.body } : {}),
+        ...(opts.blocks !== undefined ? { blocks: opts.blocks } : {}),
+        ...(opts.actionUrl !== undefined ? { actionUrl: opts.actionUrl } : {}),
+        ...(opts.metadata !== undefined ? { metadata: opts.metadata } : {}),
+        category,
+        ...(opts.templateKey !== undefined
+          ? { templateKey: opts.templateKey }
+          : {}),
+        ...(opts.journeyStateId !== undefined
+          ? { journeyStateId: opts.journeyStateId }
+          : {}),
+        ...(overrideKey ? { idempotencyKey: overrideKey } : {}),
+      });
+    return overrideKey
+      ? boundary.memoize([overrideKey], runOverride)
+      : runOverride();
+  }
+
+  const db = getDb();
 
   // (1) Resolve recipient → canonical key. Throws on a zero-key recipient (same
   // contract as `resolveOrCreateContact`). This is a server/journey-side send —
@@ -108,7 +161,6 @@ export async function sendFeedItem(
   // preference verdict INSIDE the memo closure (step 3) so the skip/allow verdict
   // is RECORDED by the durable memo and replays verbatim — the live-flipped
   // preference is never re-read on a replay.
-  const boundary = getJourneyBoundary();
   let key: string | undefined = opts.idempotencyKey;
   if (!key && boundary) {
     const site = opts.idempotencyLabel ?? boundary.currentLabel ?? opts.type;

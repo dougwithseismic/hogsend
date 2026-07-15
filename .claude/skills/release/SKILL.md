@@ -1,127 +1,137 @@
 ---
 name: release
-description: Cut a Hogsend npm release — the two-phase changesets flow, caret/version-line discipline, and the critical gotcha that CI CANNOT publish a brand-new @hogsend/* package (its first publish must be manual). Use when releasing or publishing @hogsend/* or create-hogsend, adding a new publishable package, bumping versions, reviewing a "Version Packages" PR, or debugging why a package didn't appear on npm despite a green release.
+description: Use when releasing or publishing @hogsend/* or create-hogsend, adding a publishable package or scaffold dependency, bumping versions, reviewing a "Version Packages" PR, or diagnosing a package that is missing from npm.
 ---
 
 # Releasing Hogsend
 
-Canonical reference: `docs/RELEASING.md`. This skill is the **operational runbook + the gotchas that doc doesn't cover yet**. Read the 🚨 section first if you are shipping a *new* package — it has caused a broken public release.
+Canonical reference: `docs/RELEASING.md`. This skill is the operational checklist for applying that policy. Normal releases, including the first publish of a new package, run in CI. Never publish from a feature branch and never invent a replacement version for a failed release.
 
-## 🤖 `release-doctor` enforces most of this now (added 2026-06-07)
+## Executable release gates
 
-Much of the discipline below is no longer manual — `scripts/release-doctor.mjs` makes it executable:
+- `pnpm release-doctor` checks `ENGINE_VERSION`, the disk-derived engine line, pending changeset coverage, scaffold dependency lists and caret pins, peer-dependency traps, raw-source runtime types, migration numbers, and publish visibility. It runs in the **Release integrity** PR job and before release.
+- `pnpm release-doctor --fix-changeset` writes or refreshes `.changeset/engine-line-uniform.md` after a changeset touches any engine-line package. Use it instead of maintaining a hard-coded package count.
+- `pnpm version-packages` runs `changeset version` and `release-doctor --sync`, so the Version Packages PR receives the matching `ENGINE_VERSION` automatically.
+- `pnpm --filter create-hogsend verify` builds and packs the actual local packages, checks publish-time tarball surfaces, tests a clean consumer, generates fresh scaffolds, and installs/type-checks/tests/builds them without publishing.
+- After `changeset publish`, `scripts/verify-published.mjs` resolves every reported `name@version` directly from npm. A missing package fails the release job.
 
-- **`pnpm release-doctor`** (the `--check` default) ASSERTS the version-line invariants: `ENGINE_VERSION` ↔ engine version, all engine-line packages on one version, the three scaffold lists agreeing (`HOGSEND_PACKAGES` ≡ `verify-scaffold.sh` PACKAGES ≡ template `@hogsend` deps), caret pins, no force-major peer trap, no migration-number collision, public/private publishConfig. It runs as the **Release integrity** CI job (every PR) and at the top of `release.yml`.
-- **`pnpm version-packages`** = `changeset version && release-doctor --sync` — so the Version PR now **auto-bumps `ENGINE_VERSION`** to match the freshly-bumped engine. The old manual "hand-edit ENGINE_VERSION on the version PR branch" step is GONE.
-- **`release.yml` post-publish** runs `scripts/verify-published.mjs` — GETs every just-published `name@version` from the registry and **fails loudly if any 404s** (the new-package gotcha).
-- **`verify-scaffold.sh`** runs in the **Release integrity** CI job (path-gated to packaging changes) AND as the manual `pnpm --filter create-hogsend verify` — it builds + packs the real tarballs and scaffolds a fresh app, asserting the built `dist/` travels in each tarball. 🚨 **Heisenbug fixed 2026-06-07:** the tarball checks were `tar -tzf "$tgz" | grep -q 'package/dist/'` under `set -o pipefail` — `grep -q`'s first-match early-exit SIGPIPEs `tar`; GNU tar (Linux/CI) exits non-zero on SIGPIPE so `pipefail` FALSELY failed the check ("missing package/dist/**"), while BSD tar (macOS) doesn't, so it never reproduced locally. Fixed with a `tar_has()` helper that captures the listing first then greps a here-string. Lesson: in `pipefail` scripts, NEVER `bigcmd | grep -q` — capture then grep.
+## Two-phase release flow
 
-The runbook below is still the source of *why*; the doctor is the *enforcement*. If you add a new engine-line package, update `HOGSEND_PACKAGES` + `verify-scaffold.sh` PACKAGES + the template deps (the doctor's 3-way check fails until they agree) — the doctor derives its engine-line set from `HOGSEND_PACKAGES`, so there's no fourth list.
+1. Make the feature and documentation changes.
+2. Add the intended `.changeset/*.md`, run `pnpm release-doctor --fix-changeset` when the engine line is touched, then run `pnpm changeset status` and `pnpm release-doctor`.
+3. Open the feature PR, make all required checks green, and merge it to `main`.
+4. The release workflow opens or updates the rolling **Version Packages** PR.
+5. Merge every feature intended for the release first. Run `pnpm release:check`, review the Version Packages diff, and confirm the new versions, changelogs, `ENGINE_VERSION`, and scaffold pins.
+6. Merge the Version Packages PR deliberately. That merge runs `pnpm release` and publishes packages/tags. Keep auto-merge off for this PR.
+7. Confirm the release job's registry verification, then perform the clean external-install checks below.
 
-## The flow (two-phase changesets)
+`changeset publish` skips private workspaces. Do not publish locally during the normal flow and do not push release tags by hand.
 
-1. Make your code/doc changes.
-2. `pnpm changeset` (or hand-write `.changeset/*.md`) declaring bump types per package. `pnpm changeset status` previews the result — **always run it** and read the cascade (see "Version-line discipline").
-3. Commit, open a PR, get CI green (`ci.yml`: Lint & types, Tests, Migration safety, Deploy preflight), merge to `main`.
-4. **Phase A** — `release.yml` runs on the merge and opens a **"Version Packages"** PR (`changeset version`: bumps versions, writes CHANGELOGs, deletes consumed changesets).
-5. **Review that Version PR.** Confirm every package lands on the version you expect and that all *scaffold-pinned* packages stay on one compatible minor line (`grep '"version"'` the diff). The version bump is permanent once published.
-6. Merge the Version PR → **Phase B** — `release.yml` runs `pnpm release` (`pnpm build && changeset publish`), publishing public packages + pushing git tags. Merging to `main` also deploys the docs to Railway.
+## New package first publish: CI is the normal path
 
-`changeset publish` auto-skips private packages (`@hogsend/api`, `growthhog` root, `@repo/typescript-config`).
+The current `NPM_TOKEN` can create new scoped package names. GitHub release run `29253259806` used the token whose secret metadata has been unchanged since 2026-06-01 to create `@hogsend/attribution@0.44.0` on 2026-07-13; the post-publish verifier then resolved it from npm. This is direct evidence against the old blanket claim that CI cannot create a new `@hogsend/*` package.
 
-## 🚨 New-package gotcha (this broke a release — read before shipping a new @hogsend/* package)
+`@hogsend/plugin-postmark` and `@hogsend/client` are already published packages, so they have no pending first-publish action. Do not preserve package-specific warnings after the registry entry exists.
 
-**The CI publish token can publish new *versions* of existing packages but typically CANNOT *create* a brand-new package name** — granular npm tokens are scoped to packages that already exist.
+For a new name:
 
-What it looks like when it fails — and why it's dangerous:
-- `changeset publish` prints `🦋 success ... @hogsend/<new>@X.Y.Z` and pushes a git tag. **CI stays green. The package is NOT on npm** (registry returns 404). changesets misreports the failure.
-- If `create-hogsend` published in the same run and the scaffold depends on `@hogsend/<new>`, the **public scaffold is now broken** — `npx create-hogsend` → `pnpm install` 404s on the missing package.
+1. Use the normal feature PR -> Version Packages PR -> CI publish flow.
+2. Before merging the Version Packages PR, inspect the `NPM_TOKEN` secret metadata. If it has been replaced since the known successful run, confirm the replacement retains package-create rights in the `@hogsend` scope.
+3. Let `scripts/verify-published.mjs` verify the exact versions reported by Changesets. Do not treat Changesets' success text alone as proof.
+4. Verify the new package in a clean directory before testing anything that depends on it.
+5. If it is scaffold-pinned, verify the released scaffold only after all of its `@hogsend/*` dependencies resolve. This order distinguishes a missing package from a scaffold problem.
 
-**The fix — the first publish of any new `@hogsend/*` package must be MANUAL:**
+## Safe manual recovery after a verified CI publish failure
+
+Manual publication is a recovery path only when the release job attempted the reviewed version and a direct registry check proves that exact `name@version` is missing. This applies whether the publish step failed explicitly or the post-publish verifier caught the absence.
+
+1. Record the missing package and version from the failed release output, then confirm that exact version is absent with `npm view <name>@<version>`.
+2. Create a clean detached worktree at the failed run's `headSha`. It must be the reviewed Version Packages merge commit containing that exact version, not a feature branch and not a later `main`.
+3. Confirm `packages/<package>/package.json` still contains the missing version.
+4. Authenticate a maintainer with `@hogsend` create rights, install the reviewed lockfile, build the package if it ships generated `dist/`, and publish from that package directory with **pnpm**:
+
+   ```bash
+   package_name="@hogsend/<package>"
+   package_dir="packages/<package>"
+   missing_version="<missing-version>"
+   recovery="$(mktemp -d)/checkout"
+   git worktree add --detach "$recovery" <reviewed-version-packages-commit>
+   cd "$recovery"
+   pnpm install --frozen-lockfile
+   test "$(node -p "require('./$package_dir/package.json').version")" = "$missing_version"
+   pnpm --filter "$package_name" build # only when the package ships dist/
+   if npm view "$package_name@$missing_version" version >/dev/null 2>&1; then exit 1; fi
+   pnpm --dir "$package_dir" publish --access public --no-git-checks
+   ```
+
+5. Verify the exact registry entry and a clean external install, then rerun the failed release job. Existing versions are skipped and the rerun may report no newly published packages, which also skips `verify-published.mjs`; retain the independent registry/install evidence.
+6. Verify the expected tag points to the reviewed release commit with `git ls-remote --tags origin "refs/tags/@hogsend/<package>@<missing-version>"`. If it is absent or points elsewhere, stop and investigate the release workflow. Do not create or push a tag by hand.
+
+Never bump to a new version as a workaround, publish the repository's current/later version, or push a tag manually. Use `pnpm publish`, never raw `npm publish`: pnpm rewrites `workspace:^` dependencies to registry semver ranges while raw npm can publish the workspace protocol verbatim.
+
+## Post-publish verification order
+
 ```bash
-npm login                                   # a maintainer account with @hogsend publish rights
-npm whoami                                  # confirm you're authed
-cd packages/<new-package>
-pnpm --filter @hogsend/<new-package> build  # if it ships a built dist (e.g. studio) — ensure dist is fresh
-pnpm publish --access public --no-git-checks
+# Keep these distinct: create-hogsend may be a patch ahead of the engine line.
+package_version="<package-version>"
+scaffolder_version="<create-hogsend-version>"
+
+# 1. The exact package/version must exist.
+npm view @hogsend/<new-package>@"$package_version" name version --json
+
+# 2. Its tarball must install by itself outside the monorepo.
+tmp="$(mktemp -d)"
+printf '{"private":true}\n' >"$tmp/package.json"
+pnpm --dir "$tmp" add @hogsend/<new-package>@"$package_version"
+
+# 3. Only for a scaffold dependency: generate the released scaffold, then install it.
+npx -y create-hogsend@"$scaffolder_version" "$tmp/app" --pm pnpm --no-git --no-install
+node -e 'const p=require(process.argv[1]); if (!p.devDependencies?.["@hogsend/<new-package>"]) process.exit(1)' "$tmp/app/package.json"
+pnpm --dir "$tmp/app" install
+pnpm --dir "$tmp/app" check-types
+pnpm --dir "$tmp/app" test
+pnpm --dir "$tmp/app" build
+rm -rf "$tmp"
 ```
-🚨 **`pnpm publish`, NEVER raw `npm publish`** (learned the hard way on `@hogsend/mcp@0.41.0`, 2026-07-11): raw `npm publish` ships `workspace:^` dependency specifiers VERBATIM into the tarball — the package "publishes fine" but every standalone `npm/pnpm install` of it fails with `Unsupported URL Type "workspace:"`. Only `pnpm publish` rewrites `workspace:^` to the real `^X.Y.Z` at pack time (CI's `changeset publish` flow also handles this — the trap is exclusively the manual path). Versions are immutable, so the broken one can only be `npm deprecate`d, not fixed. After publishing, ALWAYS verify with a standalone install from a scratch dir (`npm i @hogsend/<new-package>` outside the workspace), not just a registry GET.
 
-A 404 on the `PUT` = not authed / not authorized to create in the `@hogsend` scope. A 403 "cannot publish over previously published versions" = it's already there (success). If the account uses passkey/browser 2FA, run the publish interactively (npm opens the browser); a non-interactive shell gets `EOTP`. After it exists once, future versions publish via CI normally. You **cannot** pre-set an OIDC Trusted Publisher on a package that doesn't exist yet, so the first publish can't be tokenless either — do it manually, then add the Trusted Publisher (npmjs.com → package → Settings).
+For a package that ships built artifacts, also inspect the installed/tarball surface (for example, `@hogsend/studio/dist/index.html`). A registry GET proves existence; the clean install proves dependency metadata is consumable.
 
-🚨 **`@hogsend/plugin-postmark` is exactly such a brand-new package — its FIRST publish MUST be MANUAL.** It's a new `@hogsend/*` name (the opt-in Postmark `EmailProvider`), so the CI publish token cannot CREATE it. Publish it by hand once, on the engine version line:
-```bash
-npm login                                            # maintainer with @hogsend create rights
-npm whoami
-pnpm --filter @hogsend/plugin-postmark build
-cd packages/plugin-postmark && pnpm publish --access public --no-git-checks
-```
-Then verify it on the registry (`curl -s https://registry.npmjs.org/@hogsend%2fplugin-postmark | head -c 300`) BEFORE relying on CI for it, and add an OIDC Trusted Publisher. After it exists once, future versions publish via CI on the engine line like everything else. It is opt-in and NOT scaffold-pinned, so a missing first publish does NOT break `npx create-hogsend` (unlike `@hogsend/client`) — but a consumer doing `pnpm add @hogsend/plugin-postmark` will 404 until the manual publish lands.
+## Engine line and scaffold dependency rules
 
-## Verify — CI green ≠ published
+- `.changeset/config.json` has `linked: []`. Every publishable `@hogsend/*` package plus the bare `hogsend` alias is discovered from disk and rides one engine version. If a changeset touches one member, run `pnpm release-doctor --fix-changeset` so all members and `create-hogsend` receive the required bump.
+- Do not write or maintain a fixed package count in release guidance. Adding a public package automatically extends the disk-derived engine line.
+- `create-hogsend` stays on the engine's major/minor line and may be a patch ahead, never behind. `pnpm version-packages` syncs the emitted `ENGINE_VERSION` to the newly versioned engine.
+- The scaffold uses `^{{ENGINE_VERSION}}`. Caret pins tolerate patch movement within the release line while keeping generated apps compatible.
+- `HOGSEND_PACKAGES` is only the subset the generated app installs, not the full engine line. Optional packages such as `@hogsend/plugin-postmark` stay out. Current defaults such as `@hogsend/cli`, `@hogsend/client`, and the test-only `@hogsend/testing` stay in because the template depends on them.
+- Never add an `@hogsend/*` package to another publishable package's `peerDependencies`; Changesets can force an unintended major bump. Use the repository's established runtime/dev dependency pattern instead.
 
-Never trust a green release for a new package. Always:
-```bash
-# 1. Direct registry GET (authoritative; bypasses npm CLI cache). "Not found" = not published.
-curl -s https://registry.npmjs.org/@hogsend%2f<pkg> | head -c 300
+### Adding a scaffold dependency
 
-# 2. End-to-end: a fresh scaffold must resolve every @hogsend dep from the registry.
-cd /tmp && rm -rf hs-verify
-npx -y create-hogsend@<version> hs-verify --pm pnpm --no-git --no-install
-pnpm -C /tmp/hs-verify install            # expect exit 0
-ls /tmp/hs-verify/node_modules/@hogsend/  # all scaffold-pinned packages present
-# studio specifically ships a built SPA — confirm its dist travelled:
-ls /tmp/hs-verify/node_modules/@hogsend/studio/dist/index.html
-rm -rf /tmp/hs-verify
-```
-`docs/RELEASING.md §7` also has `pnpm -r publish --dry-run --no-git-checks` for a no-registry resolution check. Note: §7 claims "CI's first real run is the canonical end-to-end check" — that is **false for new packages** (the gotcha above); do the scaffold-install check yourself.
+Treat runtime and development dependencies the same for list parity. Make these changes together, before merging the feature PR:
 
-## Version-line discipline (why the scaffold pins caret)
+1. Add `@hogsend/<name>: ^{{ENGINE_VERSION}}` to the appropriate `dependencies` or `devDependencies` section in `packages/create-hogsend/template/_package.json`.
+2. Add the short name to `HOGSEND_PACKAGES` in `packages/create-hogsend/src/template-manifest.ts`.
+3. Add it to `PACKAGES` in both `packages/create-hogsend/scripts/verify-scaffold.sh` and `packages/create-hogsend/scripts/pack-tarballs.sh`. If it ships `dist/`, add its build and tarball-surface assertion too.
+4. Add changesets for the new package and `create-hogsend` so both the package and public template release together; then run `pnpm release-doctor --fix-changeset`.
+5. Extend the clean packed-consumer check when the new package needs proof that its own runtime/type dependencies work without the scaffold supplying them.
+6. Run `pnpm release-doctor` and `pnpm --filter create-hogsend verify`.
 
-- The scaffold template `packages/create-hogsend/template/_package.json` pins **`^{{ENGINE_VERSION}}`** (caret), consistent with `RELEASING.md §5`. `ENGINE_VERSION` and the `HOGSEND_PACKAGES` list both live in `packages/create-hogsend/src/template-manifest.ts` — keep `ENGINE_VERSION` equal to `@hogsend/engine`'s version, and **add any new scaffold-pinned package to `HOGSEND_PACKAGES`**.
-- **Why caret, not exact:** bumping a package that `@hogsend/engine` depends on (`email`, `plugin-posthog`, `plugin-resend`) cascades engine to a *patch* (e.g. `0.1.0 → 0.1.1`) via `updateInternalDependencies: "patch"`, and drags its `linked` siblings (`db`, `core`). An exact pin can't equal both `0.1.0` and `0.1.1` and the scaffold breaks. A caret (`^0.1.0`) absorbs same-minor drift, so all deps just need to land on the same minor line.
-- Changeset *bump types* (patch/minor) cannot align two packages that start on different version lines (e.g. `0.0.1` vs `0.1.0`) onto one number — caret pinning is what makes the single `ENGINE_VERSION` token work across the drift.
+The doctor checks the manifest list, verifier list, and both template dependency sections as one set. The full scaffold verifier then catches packing, rewrite, install, type, test, and build failures.
 
-### 🚨 The `linked` group is DISBANDED (`linked: []`) — declare every engine-line package explicitly (2026-06-07 learnings)
+## Package checklist
 
-The changeset `linked` group used to be `[engine, db, core, cli, client]`, but it caused TWO broken releases and was removed:
-1. **`linked` does NOT auto-bump siblings.** Bumping only `engine` in a linked group leaves `db/core/cli/client` un-bumped — `linked` merely forces *already-bumped* members to share one number. So you must list every engine-line package in the changeset anyway.
-2. **A brand-new member (no release history) corrupts the linked math** — it jumped `engine` to `1.0.0` on a `minor` changeset.
+1. Set `private: false`, the current engine-line version, an intentional `files` allowlist, and `publishConfig.access: public`.
+2. Ship `src/` for raw-TypeScript packages. Build and include `dist/` only for packages whose exports require it. Put consumer-required runtime types in published dependencies, not only devDependencies.
+3. Add the package changeset, then run `pnpm release-doctor --fix-changeset` and `pnpm release-doctor`.
+4. If the scaffold imports it, complete the scaffold sequence above; otherwise keep it out of the scaffold lists.
+5. Use the normal CI first publish, verify the exact registry version and clean install, and only use manual recovery after an actual verified failure.
 
-**The discipline now:** each release, write a changeset that EXPLICITLY bumps all THIRTEEN engine-line packages (`engine, db, core, cli, client, email, plugin-posthog, plugin-resend, plugin-postmark, plugin-discord, plugin-telegram, studio` + the bare `hogsend` CLI alias) to the same bump type. They all start uniform, so they land uniform. **Don't trust this count from memory — `release-doctor` derives the set from disk, so a newly-added `@hogsend/*` package silently joins the line; if your changeset misses it the doctor fails with the exact missing names (e.g. it caught `plugin-discord`/`plugin-telegram` being added here).** `verify-scaffold.sh` catches drift in the nine *scaffold-pinned* packages, and `release-doctor`'s "all engine-line packages share one version" check — which derives its set from disk (every publishable `@hogsend/*` package PLUS the bare `hogsend`) — catches drift across all thirteen, including the opt-in, non-scaffold-pinned providers/connectors (`plugin-postmark`, `plugin-discord`, `plugin-telegram`).
+## Vendored agent skills
 
-🚨 **The bare `hogsend` package (packages/hogsend) is the un-scoped CLI alias** — bin forwards to `@hogsend/cli/bin` so `npx hogsend`/`pnpm dlx hogsend` work. It rides the engine line and is NOT scaffold-pinned (leave it out of the three scaffold lists). Its first publish (0.13.2, 2026-06-11) went out via CI — the CI token CAN create new packages now, so the manual-first-publish rule above is a backstop, not a requirement; `verify-published.mjs` still catches a silent create-failure. New transient gotcha seen on that release: `TLOG_CREATE_ENTRY_ERROR` from rekor.sigstore.dev (npm provenance) can fail individual packages — `gh run rerun <id> --failed` until it clears (changeset publish skips already-published packages, so reruns are safe); a LOCAL publish bypasses provenance as the fallback.
-
-🚨 **`@hogsend/plugin-postmark` is on the engine line but is NOT scaffold-pinned.** It's the opt-in Postmark `EmailProvider` (Resend stays the scaffold default), so it is deliberately absent from `HOGSEND_PACKAGES`, `verify-scaffold.sh`'s `PACKAGES`, and `template/_package.json` deps — the doctor's 3-way scaffold check (`HOGSEND_PACKAGES ≡ verify-scaffold ≡ template deps`) must keep all three at the **nine** scaffold packages; do NOT add plugin-postmark to those lists or every scaffolded app would install the Postmark SDK by default. BUT it still rides the engine version line (matching engine) and MUST be bumped to the same line in every release changeset. `release-doctor`'s "all engine-line packages share one version" check now derives its set FROM DISK (every publishable `@hogsend/*` package, not `HOGSEND_PACKAGES`), so plugin-postmark **is** covered — drift off the line fails the doctor automatically. You still must add it to your changeset to actually *bump* it (the doctor enforces uniformity, not the bump itself). (Same shape — and same automatic coverage — applies to a future `@hogsend/plugin-ses`.)
-
-🚨 **Peer-dependency = forced MAJOR bump.** changesets force-bumps a package to **major** whenever one of its `peerDependencies` is bumped. `@hogsend/client` peer-depended on `@hogsend/email` (bumped every release) → it computed `1.0.0` every time. Fixed by moving `@hogsend/email` to `client`'s `devDependencies` only (it's an optional, type-only peer; every consumer has it via `@hogsend/engine`). **Do NOT re-add `@hogsend/email` (or any frequently-bumped `@hogsend/*`) to `peerDependencies`.**
-
-**Always sanity-check with a throwaway `pnpm changeset version` (then `git reset --hard`)** — `changeset status` bump-type labels lie for these cases; only the computed numbers tell the truth.
-
-## `@hogsend/cli` + `@hogsend/client` — ON the engine line, scaffold dependencies
-
-Both `@hogsend/cli` and `@hogsend/client` are now **on the engine version line** (shipped at `0.7.0`). They're listed in `HOGSEND_PACKAGES` and pinned by the scaffold as `^{{ENGINE_VERSION}}`. They must be bumped to the engine version every release — but via EXPLICIT changeset entries, NOT the `linked` group (which is disbanded — see the gotcha above).
-
-- **The scaffold DEPENDS on `@hogsend/cli` and `@hogsend/client`.** Keep them in `template/_package.json` deps (`^{{ENGINE_VERSION}}`) and in `HOGSEND_PACKAGES` (`template-manifest.ts`). The verification harness (`packages/create-hogsend/scripts/verify-scaffold.sh`) packs both — they're in its `PACKAGES=(...)` array — and **builds them before packing** (`pnpm --filter @hogsend/cli build`, `pnpm --filter @hogsend/client build`) because both ship `dist/` (client ships only `dist`; cli ships `dist` + `src`). With cli on `0.6.0` the produced tarball is `hogsend-cli-0.6.0.tgz`, matching `copy.ts`'s `rewriteTarballDeps` (`hogsend-<name>-${ENGINE_VERSION}.tgz`).
-- 🚨 **`@hogsend/client`'s FIRST npm publish must be MANUAL.** It's a brand-new `@hogsend/*` package, so the CI publish token cannot CREATE it (see the New-package gotcha above). Publish it by hand once — `cd packages/client && pnpm --filter @hogsend/client build && pnpm publish --access public --no-git-checks` — and verify it on the registry **before** `create-hogsend` ships with the `^{{ENGINE_VERSION}}` pin that depends on it. Otherwise a public scaffold install 404s. After it exists once, future versions publish via CI on the engine line.
-
-### Vendored agent skills (packages/cli/skills) — content-audited
-
-The Claude Code skills shipped to scaffolded apps have a **single source**: `packages/cli/skills/`. `@hogsend/cli` ships that dir in its tarball (`files[]`), and `create-hogsend`'s `scripts/sync-skills.mjs` build-copies it into `template/.claude/skills/` (gitignored build artifact; rides the `template` tarball entry). `hogsend skills add` / `hogsend upgrade` install/refresh from the same source.
-
-- **On an engine public-API change, content-audit `packages/cli/skills/*`** for staleness (imports, option names, ctx primitives, factory wiring). Since cli is now on the engine line, it bumps with the linked group automatically — the audit is a *content review* step to keep the shipped skills accurate.
-- **Keep `@hogsend/cli` published.** A scaffolded app's later-fetch + refresh path (`pnpm dlx hogsend skills add --all --force`, `hogsend upgrade`) and the `hogsend doctor` staleness nudge all resolve `@hogsend/cli` from npm. It IS now a scaffold dependency too, but those refresh paths still resolve it from the registry — if it ever falls off, they silently break.
-
-## Adding a new publishable package — checklist
-
-1. `package.json`: `private: false`, `version` on the right line, `files`, `publishConfig.access: public`. Most packages ship **raw `.ts`** (`RELEASING.md §6`); **`@hogsend/studio` is the exception** — it ships a built `dist/` (`files: ["dist"]`, built by `vite build`), and the engine mounts `/studio` by resolving `@hogsend/studio/package.json` then `./dist`, so the tarball MUST contain `dist/index.html` + assets.
-2. **If it's on the engine version line** (almost everything `@hogsend/*` is — e.g. `@hogsend/plugin-postmark`): set its `version` to the current engine version and add an explicit changeset entry bumping it with the rest of the engine line each release. Being on the line does NOT make it scaffold-pinned.
-3. **If the scaffold depends on it** (i.e. it's a default the scaffolded app needs): add to `template/_package.json` deps as `^{{ENGINE_VERSION}}` **and** to `HOGSEND_PACKAGES` in `template-manifest.ts` **and** `verify-scaffold.sh`'s `PACKAGES` (the doctor's 3-way check requires all three agree). Opt-in providers like `@hogsend/plugin-postmark` are NOT scaffold deps — leave them OUT of all three lists.
-4. Add a `create-hogsend` changeset so the template republishes with the new dep (only when step 3 applied).
-5. **Do the first publish manually** (🚨 section — `@hogsend/plugin-postmark` is a current pending example), then verify on the registry + via a scaffold install (for scaffold deps) or a direct `pnpm add` (for opt-in packages), then add an OIDC Trusted Publisher for it.
+`packages/cli/skills/` is the source for the Claude Code skills in scaffolded apps. `@hogsend/cli` publishes that directory, and `create-hogsend` copies it into the template at build time. On an engine public-API change, content-audit those skills for stale imports, options, and context methods. The CLI is bumped explicitly through the uniform engine-line changeset, not a linked group.
 
 ## Auth
 
-Publish auth is configured in `release.yml` + `docs/RELEASING.md §8`. The skill-relevant point: a new package's first publish needs a maintainer with **create** rights in the scope (granular token auth usually can't create a package), and tokenless OIDC Trusted Publishing can only be configured for a package *after* it exists — so it can't cover the first publish.
+`release.yml` mirrors the repository's `NPM_TOKEN` into `NODE_AUTH_TOKEN`. The token currently has demonstrated package-create rights; if its metadata changes, revalidate that capability before introducing a new name. Trusted Publishing remains the tokenless target, but it can only be configured after a package exists.
 
-> Public repo: keep maintainer identities, account names, 2FA methods, and "which packages are token-only vs OIDC" out of this file. Those operational specifics live in the project's private memory, not here.
+> Public repo: keep maintainer identities, account names, 2FA methods, and package-by-package auth details out of this file.

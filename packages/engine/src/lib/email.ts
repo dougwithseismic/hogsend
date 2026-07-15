@@ -75,8 +75,6 @@ export interface SendEmailResult {
 export async function sendEmail(
   opts: SendEmailOptions,
 ): Promise<SendEmailResult> {
-  const service = getEmailService();
-
   // Exactly-once across a durable replay. When inside a journey run, derive a
   // deterministic, branch-stable key (anchored on the replay-stable
   // `boundary.runAnchor` = Hatchet run id, NOT the freshly-minted stateId) so a
@@ -109,6 +107,7 @@ export async function sendEmail(
       secret: process.env.BETTER_AUTH_SECRET,
       externalId: opts.userId,
       email: opts.to,
+      ...(boundary?.now ? { now: boundary.now() } : {}),
     });
   }
 
@@ -157,6 +156,24 @@ export async function sendEmail(
     headers,
   } as unknown as EmailServiceSendOptions;
 
+  const effect = {
+    to: opts.to,
+    userId: opts.userId,
+    template: String(opts.template),
+    ...(opts.subject !== undefined ? { subject: opts.subject } : {}),
+    props: sendOptions.props as Record<string, unknown>,
+    category: boundary?.category ?? "journey",
+    ...(opts.journeyName !== undefined
+      ? { journeyName: opts.journeyName }
+      : {}),
+    ...(opts.journeyStateId !== undefined
+      ? { journeyStateId: opts.journeyStateId }
+      : {}),
+    ...(resolvedIdempotencyKey
+      ? { idempotencyKey: resolvedIdempotencyKey }
+      : {}),
+  };
+
   // Layer 1 (fast path): when inside a journey on an eviction-capable engine,
   // run the provider send through Hatchet's durable `memo` so a replay returns
   // the recorded `{ emailSendId, sentAt }` WITHOUT re-hitting the provider or
@@ -164,6 +181,10 @@ export async function sendEmail(
   // eviction is unavailable — Layer 2 (the DB key above) still guarantees
   // exactly-once. Outside a journey, send directly (no boundary).
   const doSend = async (): Promise<SendEmailResult> => {
+    if (boundary?.services?.email) {
+      return boundary.services.email(effect);
+    }
+    const service = getEmailService();
     const result = await service.send(sendOptions);
     return {
       emailSendId: result.emailSendId,

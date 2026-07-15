@@ -1,3 +1,8 @@
+// Install the production Hatchet binding. The `./journeys` authoring subpath
+// intentionally omits this side effect so journey modules stay test-importable
+// without database or Hatchet credentials.
+import "./journeys/journey-task-runtime.js";
+
 // @hogsend/engine — public API surface (the committed semver boundary).
 //
 // Content (journeys, webhook sources, workflows) is injected into these
@@ -222,6 +227,11 @@ export {
   deriveJourneyKey,
   getJourneyBoundary,
   type JourneyBoundary,
+  type JourneyConnectorEffect,
+  type JourneyEmailEffect,
+  type JourneyFeedEffect,
+  type JourneyServiceOverrides,
+  type JourneySmsEffect,
   parseJourneySendSite,
   registerKey,
   registerRecordLabel,
@@ -451,6 +461,11 @@ export type {
 } from "./lib/email-service-types.js";
 // --- Enrollment guards ---
 export { checkEmailPreferences } from "./lib/enrollment-guards.js";
+export {
+  type EnrollmentPolicyFacts,
+  type EnrollmentPolicyResult,
+  evaluateEnrollmentPolicy,
+} from "./lib/enrollment-policy.js";
 // --- In-app feed (sendFeedItem — sibling of sendEmail/sendConnectorAction) ---
 export {
   IN_APP_LIST_ID,

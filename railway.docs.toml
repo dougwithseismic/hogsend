@@ -7,7 +7,16 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.docs"
-watchPatterns = ["apps/docs/**", "Dockerfile.docs", "pnpm-lock.yaml", "railway.docs.toml"]
+watchPatterns = [
+  "apps/docs/**",
+  "packages/**",
+  "Dockerfile.docs",
+  "Dockerfile.docs.dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.docs.toml",
+]
 
 [deploy]
 # Dockerfile.docs ships the Next.js standalone output, so the server entry is the

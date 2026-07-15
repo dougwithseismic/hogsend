@@ -15,6 +15,72 @@ export interface HatchetMemoCtx {
   supportsEviction?: boolean;
 }
 
+export interface JourneyEmailEffect {
+  to: string;
+  userId: string;
+  template: string;
+  subject?: string;
+  props: Record<string, unknown>;
+  category: string;
+  journeyName?: string;
+  journeyStateId?: string;
+  idempotencyKey?: string;
+}
+
+export interface JourneySmsEffect {
+  to: string;
+  userId: string;
+  template: string;
+  props: Record<string, unknown>;
+  category: string;
+  journeyName?: string;
+  journeyStateId?: string;
+  idempotencyKey?: string;
+}
+
+export interface JourneyConnectorEffect {
+  connectorId: string;
+  action: string;
+  args?: unknown;
+  idempotencyKey?: string;
+}
+
+export interface JourneyFeedEffect {
+  recipient: { userId?: string; email?: string; anonymousId?: string };
+  type: string;
+  title?: string;
+  body?: string;
+  blocks?: unknown[];
+  actionUrl?: string;
+  metadata?: Record<string, unknown>;
+  category: string;
+  templateKey?: string;
+  journeyStateId?: string;
+  idempotencyKey?: string;
+}
+
+/** Scoped service replacements, primarily for deterministic journey tests. */
+export interface JourneyServiceOverrides {
+  email?: (
+    effect: JourneyEmailEffect,
+  ) => Promise<{ emailSendId: string; sentAt: string }>;
+  sms?: (effect: JourneySmsEffect) => Promise<{
+    smsSendId: string;
+    status: "sent" | "suppressed" | "unsubscribed" | "no_consent" | "skipped";
+    reason?: string;
+    sentAt?: string;
+  }>;
+  connector?: (effect: JourneyConnectorEffect) => Promise<unknown>;
+  /** Required with `connector`; validates an action before scoped capture. */
+  connectorActionExists?: (connectorId: string, action: string) => boolean;
+  feed?: (effect: JourneyFeedEffect) => Promise<{
+    feedItemId: string | null;
+    recipientKey: string | null;
+    suppressed: boolean;
+    createdAt: string | null;
+  }>;
+}
+
 /**
  * Per-enrollment, per-run state threaded through `AsyncLocalStorage` so the
  * standalone `sendEmail` / `ctx.trigger` side-effect helpers can be made
@@ -91,6 +157,16 @@ export interface JourneyBoundary {
    * harness contexts) compile unchanged.
    */
   category?: string;
+  /** Async-scope-local effects used before process singletons or databases. */
+  services?: JourneyServiceOverrides;
+  /**
+   * Scope-local wall clock for synchronous side-effect metadata such as
+   * unsubscribe-token expiry. Production supplies the real clock; deterministic
+   * harnesses can supply their virtual clock without installing process-global
+   * fake timers. Optional so existing non-production boundary fixtures keep the
+   * historical real-time fallback.
+   */
+  now?: () => Date;
 }
 
 const journeyBoundaryAls = new AsyncLocalStorage<JourneyBoundary>();

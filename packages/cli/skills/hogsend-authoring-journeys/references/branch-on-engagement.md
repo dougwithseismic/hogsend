@@ -7,8 +7,7 @@ the user did (or didn't do) in the meantime. The branch primitives live on
 ## The pattern
 
 ```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const activation = defineJourney({

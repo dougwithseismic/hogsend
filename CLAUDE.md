@@ -6,6 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Hogsend** — code-first, agentic-ready lifecycle orchestration engine for teams on PostHog + Resend. Turborepo monorepo using pnpm workspaces. Full product spec lives in `docs/product-spec.md`.
 
+## Toolchain policy
+
+- The release toolchain is Node.js 22.x (`>=22.13`) and exactly pnpm `11.12.0`,
+  pinned by `.node-version` / the root `packageManager` field and used by CI and
+  Docker.
+- pnpm 9 and 10 are not supported for repository development or release
+  verification. Keep pnpm settings in `pnpm-workspace.yaml`; do not add
+  compatibility copies under `package.json#pnpm`.
+- GitHub workflows intentionally use `pnpm/action-setup@v5`. Its direct
+  installer works with the pinned pnpm version; v6's self-update bootstrap
+  currently crashes before repository installs run. `release-doctor` enforces
+  this until the upstream bootstrap is safe here.
+- Run `corepack enable` once if `pnpm --version` does not report `11.12.0`. If
+  the `corepack` command is absent, install Corepack first; newer Node builds no
+  longer bundle it.
+
 ## Commands
 
 ```bash

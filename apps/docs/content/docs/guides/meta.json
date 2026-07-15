@@ -2,6 +2,7 @@
   "title": "Building",
   "pages": [
     "journeys",
+    "testing-journeys",
     "journey-blueprints",
     "buckets",
     "events",

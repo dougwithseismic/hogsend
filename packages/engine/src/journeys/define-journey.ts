@@ -6,19 +6,18 @@ import type {
   JourneyMetaInput,
   JourneyRunFn,
 } from "@hogsend/core/types";
-import { hatchet } from "../lib/hatchet.js";
 import {
-  JOURNEY_EXECUTION_TIMEOUT,
-  JOURNEY_SCHEDULE_TIMEOUT,
-} from "./constants.js";
-import {
-  type EventPayloadInput,
-  executeJourneyRun,
-} from "./execute-journey-run.js";
+  createJourneyTask,
+  hasJourneyTaskFactory,
+  type JourneyTask,
+} from "./journey-task-factory.js";
 
 export interface DefinedJourney {
   meta: JourneyMeta;
-  task: ReturnType<typeof hatchet.durableTask>;
+  /** Original author function. Testing harnesses execute this directly. */
+  run: JourneyRunFn;
+  /** Production Hatchet task, materialized eagerly by the runtime or lazily on access. */
+  task: JourneyTask;
   /**
    * The journey's `run` function serialized via `Function.prototype.toString()`,
    * captured at definition time. This is the substrate the Studio journey-graph
@@ -145,35 +144,26 @@ export function defineJourney(options: {
       : {}),
   };
 
-  const task = hatchet.durableTask({
-    name: `journey-${meta.id}`,
-    onEvents: [meta.trigger.event],
-    executionTimeout: JOURNEY_EXECUTION_TIMEOUT,
-    // retries STAYS 0 — deliberately. A retry replays `run()` from the top, and
-    // the tracked mailer / connector machinery is "missed > doubled": a `queued`
-    // row is RE-DRIVEN and a failed send NULLs its idempotency key (tracked.ts
-    // ~150-176, 496-514). That is safe only while nothing re-invokes a run whose
-    // `provider.send()` already delivered but whose durable status flip didn't
-    // commit — turning retries on would re-deliver that email/connector message
-    // (a DUPLICATE). Enabling retries requires making sends provider-idempotent
-    // first (Resend/Postmark `Idempotency-Key`); tracked as a follow-up.
-    retries: 0,
-    // `scheduleTimeout` widens the queue-wait ceiling (SDK default ~5m) so a
-    // durable-wait RESUME re-queued during a redeploy's slot saturation reclaims
-    // a slot instead of being cancelled (which strands the enrollment). Unlike
-    // retries this adds NO replay — it is pure head-room, so it is safe on its own.
-    scheduleTimeout: JOURNEY_SCHEDULE_TIMEOUT,
-    // The full enrollment + run lifecycle lives in `executeJourneyRun`, shared
-    // verbatim with the blueprint interpreter task (spec §6) — code journeys
-    // and blueprints execute through the IDENTICAL machinery.
-    fn: async (input: EventPayloadInput, hatchetCtx) =>
-      executeJourneyRun({
-        meta,
-        run: options.run,
-        input,
-        hatchetCtx,
-      }),
-  });
+  const definition = { meta, run: options.run, runSource, source };
 
-  return { meta, task, runSource, source };
+  // Main-engine imports install the production task factory before callers can
+  // invoke defineJourney, preserving the existing eager task behavior. The
+  // environment-free authoring subpath intentionally leaves it uninstalled;
+  // its task getter remains dormant in unit tests and materializes after the
+  // production runtime is loaded by a worker.
+  if (hasJourneyTaskFactory()) {
+    return {
+      ...definition,
+      task: createJourneyTask(meta, options.run),
+    };
+  }
+
+  let task: JourneyTask | undefined;
+  return Object.defineProperty(definition, "task", {
+    enumerable: true,
+    get: () => {
+      task ??= createJourneyTask(meta, options.run);
+      return task;
+    },
+  }) as DefinedJourney;
 }

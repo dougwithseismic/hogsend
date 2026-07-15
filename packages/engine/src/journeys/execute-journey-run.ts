@@ -1,10 +1,6 @@
 import type { Conditions } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
-import {
-  type DurationObject,
-  durationToMs,
-  evaluatePropertyConditions,
-} from "@hogsend/core";
+import { type DurationObject, durationToMs } from "@hogsend/core";
 import type {
   JourneyMeta,
   JourneyRunFn,
@@ -24,6 +20,7 @@ import {
   checkEmailPreferences,
   checkEntryLimit,
 } from "../lib/enrollment-guards.js";
+import { evaluateEnrollmentPolicy } from "../lib/enrollment-policy.js";
 import { hatchet } from "../lib/hatchet.js";
 import { isHeldOut } from "../lib/holdout.js";
 import { ingestEvent } from "../lib/ingestion.js";
@@ -266,6 +263,7 @@ export async function executeJourneyRun(
   // subscription via `ctx.guard.isSubscribed()` after every wait, so
   // bypassing the entry-time preference gate never emails an unsubscriber.)
   if (!state) {
+    // Preserve the cheap first gate: disabled definitions never touch the DB.
     if (!meta.enabled) {
       return { status: "skipped", reason: "journey_disabled" };
     }
@@ -273,19 +271,15 @@ export async function executeJourneyRun(
     const configOverride = await db.query.journeyConfigs.findFirst({
       where: eq(journeyConfigs.journeyId, meta.id),
     });
-    if (configOverride && !configOverride.enabled) {
-      return { status: "skipped", reason: "journey_disabled_by_admin" };
-    }
-
-    if (meta.trigger.where?.length) {
-      if (
-        !evaluatePropertyConditions({
-          conditions: meta.trigger.where,
-          properties,
-        })
-      ) {
-        return { status: "skipped", reason: "trigger_conditions_not_met" };
-      }
+    const basePolicy = evaluateEnrollmentPolicy({
+      journey: meta,
+      properties,
+      facts: {
+        ...(configOverride ? { adminEnabled: configOverride.enabled } : {}),
+      },
+    });
+    if (!basePolicy.allowed) {
+      return { status: "skipped", reason: basePolicy.reason };
     }
 
     const entryAllowed = await checkEntryLimit({
@@ -293,16 +287,23 @@ export async function executeJourneyRun(
       journey: meta,
       userId,
     });
-    if (!entryAllowed.allowed) {
-      return {
-        status: "skipped",
-        reason: entryAllowed.reason ?? "entry_limit",
-      };
+    const entryPolicy = evaluateEnrollmentPolicy({
+      journey: meta,
+      properties,
+      facts: { entry: entryAllowed },
+    });
+    if (!entryPolicy.allowed) {
+      return { status: "skipped", reason: entryPolicy.reason };
     }
 
     const prefs = await checkEmailPreferences({ db, userId });
-    if (prefs.unsubscribed) {
-      return { status: "skipped", reason: "user_unsubscribed" };
+    const preferencePolicy = evaluateEnrollmentPolicy({
+      journey: meta,
+      properties,
+      facts: { unsubscribed: prefs.unsubscribed },
+    });
+    if (!preferencePolicy.allowed) {
+      return { status: "skipped", reason: preferencePolicy.reason };
     }
 
     // HOLDOUT DIVERSION (impact plan §4.1) — deliberately LAST in the guard
@@ -320,7 +321,12 @@ export async function executeJourneyRun(
         percent: meta.holdout.percent,
         salt: meta.holdout.salt,
       });
-      if (diverted) {
+      const holdoutPolicy = evaluateEnrollmentPolicy({
+        journey: meta,
+        properties,
+        facts: { heldOut: diverted },
+      });
+      if (!holdoutPolicy.allowed) {
         const priorHoldout = await db.query.journeyStates.findFirst({
           where: and(
             eq(journeyStates.userId, userId),
@@ -392,7 +398,7 @@ export async function executeJourneyRun(
             }).catch(logger.warn);
           }
         }
-        return { status: "skipped", reason: "held_out" };
+        return { status: "skipped", reason: holdoutPolicy.reason };
       }
     }
 
@@ -403,8 +409,13 @@ export async function executeJourneyRun(
         inArray(journeyStates.status, ["active", "waiting"]),
       ),
     });
-    if (activeState) {
-      return { status: "skipped", reason: "already_active" };
+    const activePolicy = evaluateEnrollmentPolicy({
+      journey: meta,
+      properties,
+      facts: { alreadyActive: Boolean(activeState) },
+    });
+    if (!activePolicy.allowed) {
+      return { status: "skipped", reason: activePolicy.reason };
     }
 
     // A successful insert always returns exactly one row, so undefined here
@@ -547,6 +558,9 @@ export async function executeJourneyRun(
     seenKeys: new Set<string>(),
     seenRecordLabels: new Set<string>(),
     memoize: createMemoize(hatchetCtx),
+    // Keep production behavior on the real wall clock while allowing scoped
+    // test boundaries to substitute a deterministic virtual clock.
+    now: () => new Date(),
     journeyId: meta.id,
     // `meta.suppress` is a required DurationObject, but a `{}` / zero
     // duration must yield 0 (disabled); `durationToMs` maps both to 0.

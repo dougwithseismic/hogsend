@@ -1,0 +1,224 @@
+---
+title: Testing journeys
+description: Run deterministic journey tests with virtual time, scripted events, in-memory history, and captured outbound effects.
+---
+
+`@hogsend/testing` runs the original function passed to `defineJourney` without
+Postgres, Redis, Hatchet, Docker, or provider credentials. Sleeps and event
+timeouts advance a private virtual clock immediately; outbound effects are
+captured rather than delivered.
+
+Journey modules that will be unit tested should import authoring primitives from
+the environment-free entry point. The same module still receives a real Hatchet
+task when it is passed to the production worker:
+
+```ts
+import {
+  days,
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+  sendFeedItem,
+  sendSms,
+} from "@hogsend/engine/journeys";
+```
+
+The main `@hogsend/engine` entry is the production runtime and validates its
+database, authentication, and Hatchet environment at import time. Do not import
+that main entry from a journey module you want to load in a zero-infrastructure
+unit test. `@hogsend/testing` itself is runner-agnostic; the `/vitest` entry is
+optional matcher sugar and requires Vitest in the consuming project.
+
+## A first test
+
+```ts
+import { days } from "@hogsend/core";
+import { createJourneyTest } from "@hogsend/testing";
+import "@hogsend/testing/vitest";
+import { expect, it } from "vitest";
+import { templates } from "../emails/registry.js";
+import { onboardingJourney } from "./onboarding.js";
+
+it("stops nudging after activation", async () => {
+  const test = createJourneyTest(onboardingJourney, {
+    user: {
+      id: "u1",
+      email: "dev@acme.com",
+      properties: { plan: "trial" },
+    },
+    now: "2026-07-14T09:00:00Z",
+    timezone: "Europe/Prague",
+    templates,
+  });
+
+  test.events.after(days(2), "project.created", { projectId: "p1" });
+  await test.run();
+
+  expect(test.mailbox).toHaveSent("welcome");
+  expect(test.mailbox).not.toHaveSent("inactivity-nudge");
+});
+```
+
+When `run()` starts, the harness records one enrollment event using
+`journey.meta.trigger.event` and `user.properties`. Do not script that trigger
+yourself; `events.*` is for additional immediate or future events.
+
+Every harness can run once. Create a new harness for another user path. Unless
+specified, the clock begins at `2025-01-01T00:00:00.000Z`, the timezone is
+`UTC`, and journey/state identifiers are stable.
+
+## Script event paths
+
+Use `events.emit` at virtual now, `events.after` for a relative event, or
+`events.at` for an absolute instant. Pass the target as the third argument to
+`emit`, or the fourth argument to `after` and `at`, to send an event as another
+user. This is useful for proving user isolation.
+
+```ts
+test.events.after(days(1), "project.created", { ready: false });
+test.events.after(days(3), "project.created", { ready: true });
+test.events.after(days(2), "project.created", {}, { userId: "someone-else" });
+test.events.emit("project.created", {}, { userId: "someone-else" });
+```
+
+`ctx.waitForEvent` uses the same property predicates as production. It selects
+the earliest matching future event, treats an event exactly at the timeout as a
+match, and uses insertion order to break equal-time ties. A lookback selects the
+most recent matching recorded event. With no match, virtual time advances to the
+timeout so the journey's timeout branch runs.
+
+Events named in `meta.exitOn` interrupt a sleep, digest, or event wait. Changes
+to subscription state can also be scheduled mid-run:
+
+```ts
+test.guard.after(days(1), false);
+```
+
+All scripted events become visible to `ctx.history` once the clock crosses their
+timestamp. Seed older event, journey, email, and SMS rows through the `history`
+option; seed recorded `ctx.once` values through `once`. To exercise a
+cross-enrollment `meta.suppress` window, give a seeded email or SMS row the
+owning `journeyId`. Dates are validated and normalized to UTC when the harness
+is created.
+
+## Entry checks
+
+Journey functions are tested independently of enrollment. Test the production
+enrollment policy separately with `entry.check()`:
+
+```ts
+expect(test.entry.check({ unsubscribed: true })).toEqual({
+  allowed: false,
+  reason: "user_unsubscribed",
+});
+```
+
+The check uses the production guard order and reason strings for disabled
+journeys, admin overrides, trigger predicates, entry limits, unsubscribe,
+holdout, and already-active enrollment fixtures.
+
+## Assert and render sends
+
+The Vitest entry point adds deep-partial mailbox matchers:
+
+```ts
+expect(test.mailbox).toHaveSent("welcome", {
+  channel: "email",
+  to: "dev@acme.com",
+  props: { plan: "trial" },
+});
+expect(test.mailbox).toHaveSentTimes("welcome", 1);
+```
+
+When `templates` is supplied, render the exact captured props through the real
+React email component for snapshots:
+
+```ts
+const rendered = await test.mailbox.renderEmail("welcome");
+expect(rendered.html).toMatchSnapshot();
+```
+
+Email and SMS are in `mailbox`. Connector actions, feed items, triggers, waits,
+checkpoints, and exits are in `effects` and the chronological `timeline`.
+SMS follows production's explicit opt-in rule: `smsConsent` defaults to
+`"missing"`, so a non-transactional send returns `no_consent` and is not added
+to the mailbox. Grant consent explicitly when testing a delivery path, and pass
+`smsTemplates` when you want runtime SMS-template key validation:
+
+```ts
+const test = createJourneyTest(smsJourney, {
+  user,
+  smsConsent: "granted",
+  smsTemplates,
+});
+```
+
+Use `smsConsent: "opted_out"` for a channel opt-out and `"suppressed"` for a
+phone-level STOP/suppression. Transactional SMS bypasses missing consent and
+topic gates, but never the phone-level suppression or global unsubscribe.
+Static recipient preference facts can model email transport suppression and
+topic/channel opt-outs across all captured services:
+
+```ts
+preferences: {
+  suppressed: true,
+  categories: { product: false, in_app: false, discord: false },
+  defaultOptIn: { product: false },
+}
+```
+
+`defaultOptIn` mirrors production list polarity. A `false` list is blocked
+unless `categories` contains an explicit `true` grant. Anonymous-only feed
+recipients have no preference surface, so enrolled-user preferences are not
+applied to them.
+
+When a journey calls `sendConnectorAction`, pass its production action
+definitions (or small `{ connectorId, name, audience?, result? }` fixtures) as
+`connectorActions`. Unknown actions then fail in the harness just as they do in
+production, member-directed actions honor scheduled global unsubscribe changes,
+and `result` can script a value for code that branches on the connector response.
+The global `subscribed` guard also suppresses captured email, SMS, and feed
+delivery after it becomes false. A journey's `meta.suppress` window is enforced
+independently for email and SMS, including seeded prior enrollments. Explicit
+email, SMS, and feed idempotency keys are deduplicated in memory.
+
+Always await journey effects. Fire-and-forget promises can outlive `run()` in
+ordinary JavaScript, and the harness does not virtualize or drain arbitrary
+third-party timers.
+Calls your journey makes directly to third-party SDKs are outside `ctx` and
+remain your responsibility to mock.
+
+## Scenario tables
+
+Use a scenario table to compare several deterministic paths. Every row receives
+a fresh isolated harness, and a failed row does not stop later rows. This is a
+table runner for explicit event paths, not a probabilistic or Monte Carlo
+simulator.
+
+```ts
+const simulation = await runJourneyScenarios(onboardingJourney, [
+  {
+    name: "creates project",
+    user,
+    events: [{ after: days(2), event: "project.created" }],
+  },
+  { name: "goes quiet", user: { ...user, id: "u2" } },
+]);
+```
+
+Results include status, virtual duration, mailbox, triggers, checkpoints, and
+timeline for each row. The summary aggregates outcomes, sends by
+channel/template, triggers, checkpoints, and min/average/max virtual duration.
+Invalid harness options, malformed event scripts, setup errors, and journey
+errors are captured as failed rows; later rows still run with fresh state.
+
+## What virtual time means
+
+Journey time reached through `JourneyContext` is virtual: `ctx.sleep`,
+`ctx.sleepUntil`, `ctx.waitForEvent`, `ctx.digest`, `ctx.now`, and `ctx.when`.
+Built-in captured effect metadata derived inside the journey boundary, including
+unsubscribe-token expiry, uses that same virtual clock so mailbox snapshots stay
+stable.
+Ambient `Date.now()`, `new Date()`, timers, and third-party libraries still use
+the real process clock. Prefer `ctx.now()` inside journey code when a timestamp
+belongs to journey behavior.

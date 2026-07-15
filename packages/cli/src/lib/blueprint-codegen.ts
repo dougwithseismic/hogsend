@@ -594,7 +594,7 @@ export function generateJourneyFile(
 
   const exportName = camelCase(opts.journeyId);
   return [
-    `import { ${imports.join(", ")} } from "@hogsend/engine";`,
+    `import { ${imports.join(", ")} } from "@hogsend/engine/journeys";`,
     "",
     "/**",
     // blueprint.id is blueprint-controlled and lands inside this block comment.

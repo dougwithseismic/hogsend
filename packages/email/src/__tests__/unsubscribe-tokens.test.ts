@@ -167,6 +167,27 @@ describe("unsubscribe tokens", () => {
     const expectedExp = Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
     expect(Math.abs(payload.exp - expectedExp)).toBeLessThan(5);
   });
+
+  it("uses an explicit clock snapshot for deterministic expiry", () => {
+    const now = new Date("2026-07-14T09:00:00.987Z");
+    const options = {
+      secret: SECRET,
+      externalId: "user-deterministic",
+      email: "user@example.com",
+      action: "unsubscribe" as const,
+      now,
+    };
+
+    const first = generateUnsubscribeToken(options);
+    const second = generateUnsubscribeToken(options);
+    const [encodedPayload] = first.split(".");
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload as string, "base64url").toString("utf8"),
+    ) as { exp: number };
+
+    expect(second).toBe(first);
+    expect(payload.exp).toBe(Math.floor(now.getTime() / 1000) + 30 * 24 * 3600);
+  });
 });
 
 describe("unsubscribe URLs", () => {
@@ -222,5 +243,24 @@ describe("unsubscribe URLs", () => {
     const token = parsed.searchParams.get("token") as string;
     const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.action).toBe("manage");
+  });
+
+  it("forwards an explicit clock snapshot into URL tokens", () => {
+    const now = new Date("2026-07-14T09:00:00.987Z");
+    const url = generateUnsubscribeUrl({
+      baseUrl,
+      secret: SECRET,
+      externalId: "user-deterministic",
+      email: "user@example.com",
+      now,
+    });
+
+    const token = new URL(url).searchParams.get("token") as string;
+    const [encodedPayload] = token.split(".");
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload as string, "base64url").toString("utf8"),
+    ) as { exp: number };
+
+    expect(payload.exp).toBe(Math.floor(now.getTime() / 1000) + 30 * 24 * 3600);
   });
 });

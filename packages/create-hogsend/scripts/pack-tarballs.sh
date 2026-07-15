@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEST="${1:?usage: pack-tarballs.sh <destination-dir>}"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio)
+PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
 
 mkdir -p "$DEST"
 

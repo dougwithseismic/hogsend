@@ -6,7 +6,16 @@ dockerfilePath = "Dockerfile"
 # redeploy. @hogsend/api bundles all of packages/** via tsup noExternal, so any
 # package edit is a real input for the worker too. Override in the dashboard if
 # you need a narrower scope.
-watchPatterns = ["apps/api/**", "packages/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+watchPatterns = [
+  "apps/api/**",
+  "packages/**",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.worker.toml",
+]
 
 [deploy]
 # Run mode = worker (node directly, not pnpm — see railway.toml / Dockerfile).

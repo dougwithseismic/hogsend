@@ -212,7 +212,7 @@ describe("generateJourneyFile — seed example blueprint", () => {
 
   it("emits only the imports the body needs and a camelCase export", () => {
     expect(output).toContain(
-      'import { defineJourney, sendEmail } from "@hogsend/engine";',
+      'import { defineJourney, sendEmail } from "@hogsend/engine/journeys";',
     );
     expect(output).not.toContain("sendConnectorAction");
     expect(output).toContain("export const activationNudge = defineJourney({");
@@ -758,7 +758,7 @@ describe("generateJourneyFile — meta extras and connectors", () => {
       journeyId: "connector-demo",
     });
     expect(output).toContain(
-      'import { defineJourney, sendConnectorAction } from "@hogsend/engine";',
+      'import { defineJourney, sendConnectorAction } from "@hogsend/engine/journeys";',
     );
     expect(output).toContain(
       'await sendConnectorAction({ connectorId: "discord", action: "sendChannelMessage", idempotencyLabel: "notify-discord" });',

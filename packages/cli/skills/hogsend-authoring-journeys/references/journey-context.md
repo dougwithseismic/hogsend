@@ -5,8 +5,8 @@ orchestration primitives only** — the things that need Hatchet's durable
 execution or the journey's bound state (sleep, checkpoints, triggering events,
 reading history). It is deliberately small.
 
-It is the `JourneyContext` type from `@hogsend/core`. Everything below is a real
-method.
+It is the `JourneyContext` type exported by `@hogsend/engine/journeys`.
+Everything below is a real method.
 
 ## Durable timing
 
@@ -169,8 +169,10 @@ You don't fire it from `run` — it receives the lifecycle automatically:
 
 See the **hogsend-authoring-destinations** skill. (PostHog is now JUST a
 destination, `kind="posthog"`.) If you need a fire-and-forget raw write inside a
-journey, `getPostHog()` is still importable from `@hogsend/engine` — but for
-fan-out, reach for a destination, not an in-journey vendor call.
+production-only module, `getPostHog()` remains on the main `@hogsend/engine`
+runtime entry — but for fan-out, reach for a destination, not an in-journey
+vendor call. Importing that runtime entry from a journey module also means a
+zero-infrastructure test must mock or wrap the vendor call.
 
 ## Guards
 
@@ -209,16 +211,19 @@ const { sent, lastSentAt, count } = await ctx.history.email({
 These are **standalone imports**, not methods — keeping `ctx` to pure
 orchestration:
 
-- **`sendEmail()`** — `import { sendEmail } from "@hogsend/engine"`. See
+- **`sendEmail()`** —
+  `import { sendEmail } from "@hogsend/engine/journeys"`. See
   `references/sending-email-from-a-journey.md`.
 - **`getPostHog()`** — `import { getPostHog } from "@hogsend/engine"` for the raw
-  PostHog service (a fire-and-forget escape hatch). For fanning lifecycle data out
-  to product/data tools, prefer an outbound DESTINATION (see above) — it delivers
-  durably and is vendor-neutral. Note: capture and `$set` person WRITES use the
-  `phc_` project key; person READS (`getPersonProperties`) additionally need
-  `POSTHOG_PERSONAL_API_KEY` (the project key is write-only by PostHog's design)
-  and soft-fail to `{}` without it.
-- **SMS / push / Slack** — plain functions you import, never on `ctx`.
+  PostHog service (a runtime-only, fire-and-forget escape hatch). For fanning
+  lifecycle data out to product/data tools, prefer an outbound DESTINATION (see
+  above) — it delivers durably and is vendor-neutral. Note: capture and `$set`
+  person WRITES use the `phc_` project key; person READS
+  (`getPersonProperties`) additionally need `POSTHOG_PERSONAL_API_KEY` (the
+  project key is write-only by PostHog's design) and soft-fail to `{}` without
+  it.
+- **SMS / feed / connector actions** — plain functions from
+  `@hogsend/engine/journeys`, never on `ctx`.
 - There is **no `ctx.db`, no `ctx.sendEmail`, no `ctx.hatchet`** surfaced to
   consumer journeys. If you reach for one of those, you are modelling it wrong —
   use a primitive above or a standalone import.

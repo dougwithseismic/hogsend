@@ -5,9 +5,9 @@ description: React to PostHog events with durable TypeScript flows — welcome s
 
 Journeys are where Hogsend turns your PostHog events into action. A user signs up? Send a welcome sequence. They haven't used the core feature after 3 days? Nudge them. Their payment fails? Start a recovery flow. A Stripe subscription cancels? Trigger a win-back campaign.
 
-Each journey is a durable TypeScript function — no drag-and-drop canvas, no YAML state machines. You write it like regular code, and [Hatchet](https://hatchet.run) makes it durable. Your `await ctx.sleep(days(3))` call literally pauses execution for three days and resumes exactly where it left off, surviving restarts and deploys.
+Each journey is a durable TypeScript function — no drag-and-drop canvas, no YAML state machines. You write it like regular code, and [Hatchet](https://hatchet.run) makes it durable. Your `await ctx.sleep({ duration: days(3) })` call literally pauses execution for three days and resumes exactly where it left off, surviving restarts and deploys.
 
-Journeys are **your content**. You author them in your own scaffolded app (under `src/journeys/`), import the authoring helpers from `@hogsend/engine`, and register them in an array that *you* own. The engine never imports your journeys — you inject them into the engine's factories. See [Engine vs content](/docs/concepts/philosophy) for the content-vs-framework boundary.
+Journeys are **your content**. You author them in your own scaffolded app (under `src/journeys/`), import definitions, types, duration helpers, and effects from the environment-free `@hogsend/engine/journeys` entry point, and register them in an array that *you* own. App and worker bootstrap files use the main `@hogsend/engine` runtime entry. The engine never imports your journeys — you inject them into its factories. See [Engine vs content](/docs/concepts/philosophy) for the content-vs-framework boundary.
 
 > If you don't have an app yet, scaffold one with `pnpm dlx create-hogsend@latest my-app` and follow [Getting Started](/docs/getting-started). The scaffold ships an example `welcome` journey you can copy.
 
@@ -15,8 +15,7 @@ Journeys are **your content**. You author them in your own scaffolded app (under
 
 ```ts
 // src/journeys/activation-welcome.ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const activationWelcome = defineJourney({
@@ -72,14 +71,14 @@ export const activationWelcome = defineJourney({
 
 No drag-and-drop canvas, no YAML state machine. Just TypeScript with `if`, `await`, and loops.
 
-Everything content needs — `defineJourney`, `sendEmail`, the duration helpers — imports from `@hogsend/engine` (which re-exports `@hogsend/core`, so `days`/`hours`/`minutes` are available either way). You never reach into engine internals with relative paths.
+Everything a testable journey module needs — `defineJourney`, its types, `sendEmail`, and the duration helpers — imports from `@hogsend/engine/journeys`. This subpath does not install the production Hatchet task runtime, so `@hogsend/testing` can load and run the original function without production credentials. Reserve the main `@hogsend/engine` entry for app and worker bootstrap code. You never reach into engine internals with relative paths.
 
 ## `defineJourney()`
 
-Every journey is created with `defineJourney()` from `@hogsend/engine`. It takes two things: metadata describing _when_ and _how_ the journey runs, and a `run` function containing the actual logic.
+Every journey is created with `defineJourney()` from `@hogsend/engine/journeys`. It takes two things: metadata describing _when_ and _how_ the journey runs, and a `run` function containing the actual logic.
 
 ```ts
-import { defineJourney } from "@hogsend/engine";
+import { defineJourney } from "@hogsend/engine/journeys";
 
 export const myJourney = defineJourney({
   meta: { /* JourneyMeta */ },
@@ -87,7 +86,7 @@ export const myJourney = defineJourney({
 });
 ```
 
-`defineJourney()` returns a `DefinedJourney` (`{ meta, task }`) where `task` is a Hatchet durable task named `journey-${meta.id}`, wired to `onEvents: [meta.trigger.event]` with a `720h` execution timeout and `retries: 0`. You export this from your journey file and add it to the `journeys` array in your `src/journeys/index.ts` (see [Registering a journey](#registering-a-journey)).
+`defineJourney()` returns a `DefinedJourney` with `meta`, the original `run` function, and a production `task`. The Hatchet task is named `journey-${meta.id}`, wired to `onEvents: [meta.trigger.event]` with a `720h` execution timeout and `retries: 0`; the authoring subpath leaves it dormant until the production runtime is loaded. You export this from your journey file and add it to the `journeys` array in your `src/journeys/index.ts` (see [Registering a journey](#registering-a-journey)).
 
 ## `JourneyMeta`
 
@@ -237,7 +236,7 @@ interface JourneyUser {
 
 ### `JourneyContext`
 
-The context object provides durable execution primitives. It does not include service integrations like email or PostHog -- those are standalone imports from `@hogsend/engine`, keeping the context focused on orchestration. (See [How it works](/docs/concepts/how-it-works) for why.)
+The context object provides durable execution primitives. It does not include service integrations. Journey effects such as email, SMS, feed items, and connector actions are standalone imports from `@hogsend/engine/journeys`, keeping the context focused on orchestration. Runtime-only services such as the raw `getPostHog()` escape hatch remain on the main `@hogsend/engine` entry and need a mock or adapter in zero-infrastructure tests. (See [How it works](/docs/concepts/how-it-works) for why.)
 
 ## `ctx.sleep()`
 
@@ -639,10 +638,10 @@ if (sent) {
 
 ## Duration helpers
 
-Hogsend provides three duration helper functions. They are re-exported from `@hogsend/engine` (and live in `@hogsend/core`), so a single import line covers both your journeys and the helpers. They return a `DurationObject` used by `ctx.sleep()`, `entryPeriod`, `suppress`, and `ctx.history.hasEvent()`.
+Hogsend provides three duration helper functions through the environment-free journey authoring entry point. They return a `DurationObject` used by `ctx.sleep()`, `entryPeriod`, `suppress`, and `ctx.history.hasEvent()`.
 
 ```ts
-import { days, hours, minutes } from "@hogsend/engine";
+import { days, hours, minutes } from "@hogsend/engine/journeys";
 
 days(3)      // { hours: 72 }
 hours(12)    // { hours: 12 }
@@ -765,8 +764,7 @@ Add any new event names and template keys to `src/journeys/constants/index.ts`.
 
 ```ts
 // src/journeys/conversion-abandoned-checkout.ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const conversionAbandonedCheckout = defineJourney({
@@ -823,7 +821,7 @@ Import it and add it to the exported `journeys` array in your `src/journeys/inde
 
 ```ts
 // src/journeys/index.ts
-import type { DefinedJourney } from "@hogsend/engine";
+import type { DefinedJourney } from "@hogsend/engine/journeys";
 import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
 import { welcome } from "./welcome.js";
 
@@ -864,8 +862,7 @@ Once a journey is in the array (and enabled via `ENABLED_JOURNEYS`), it automati
 Here is a complete journey that handles payment failure recovery with escalating urgency:
 
 ```ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 export const churnPrevention = defineJourney({

@@ -11,7 +11,7 @@ Add your journey to the `journeys` array (and re-export it for tests / direct
 reference):
 
 ```ts
-import type { DefinedJourney } from "@hogsend/engine";
+import type { DefinedJourney } from "@hogsend/engine/journeys";
 import { activation } from "./activation.js";
 import { testOnboarding } from "./test-onboarding.js";
 import { welcome } from "./welcome.js";
@@ -58,12 +58,14 @@ const worker = createWorker({ container: client, journeys, buckets, extraWorkflo
 await worker.start();
 ```
 
-If you build a new entry point or a test harness, the rule is: **pass the same
+If you build new production entry points, the rule is: **pass the same
 `journeys` array to both `createHogsendClient({ journeys })` and
 `createWorker({ container, journeys })`.** A journey missing from the worker is
 defined but never executes; missing from the client and ingested events won't
 route to it. (`buckets` and `extraWorkflows` are the sibling content arrays the
-scaffold threads through the same way — pass them when present.)
+scaffold threads through the same way — pass them when present.) A unit test
+imports the same environment-free journey definition and passes it directly to
+`createJourneyTest`; it does not boot either production factory.
 
 ## 3. (Optional) `ENABLED_JOURNEYS`
 

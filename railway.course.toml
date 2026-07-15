@@ -6,7 +6,16 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.course"
-watchPatterns = ["apps/course/**", "Dockerfile.course", "pnpm-lock.yaml", "railway.course.toml"]
+watchPatterns = [
+  "apps/course/**",
+  "packages/**",
+  "Dockerfile.course",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.course.toml",
+]
 
 [deploy]
 # Apply DB migrations before the new version receives traffic. Runs the bundled

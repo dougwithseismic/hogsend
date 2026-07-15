@@ -11,7 +11,16 @@ dockerfilePath = "Dockerfile"
 # the plugin packages silently did NOT redeploy this service. @hogsend/api
 # bundles all of packages/** via tsup noExternal, so any of them is a real input.
 # Override in the dashboard if you need a narrower scope.
-watchPatterns = ["apps/api/**", "packages/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+watchPatterns = [
+  "apps/api/**",
+  "packages/**",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.toml",
+]
 
 [deploy]
 # Two-track migrations: engine MUST succeed first, then the client track. The

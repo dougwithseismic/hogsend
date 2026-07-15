@@ -68,8 +68,6 @@ export interface SendSmsResult {
  * `sms_sends.idempotencyKey` index (Layer 2) and Hatchet's `memo` (Layer 1).
  */
 export async function sendSms(opts: SendSmsOptions): Promise<SendSmsResult> {
-  const service = getSmsService();
-
   const boundary = getJourneyBoundary();
   let resolvedIdempotencyKey: string | undefined = opts.idempotencyKey;
   if (!resolvedIdempotencyKey && boundary) {
@@ -100,7 +98,28 @@ export async function sendSms(opts: SendSmsOptions): Promise<SendSmsResult> {
     category: boundary?.category ?? "journey",
   } as unknown as SmsServiceSendOptions;
 
+  const effect = {
+    to: opts.to,
+    userId: opts.userId,
+    template: String(opts.template),
+    props: sendOptions.props as Record<string, unknown>,
+    category: boundary?.category ?? "journey",
+    ...(opts.journeyName !== undefined
+      ? { journeyName: opts.journeyName }
+      : {}),
+    ...(opts.journeyStateId !== undefined
+      ? { journeyStateId: opts.journeyStateId }
+      : {}),
+    ...(resolvedIdempotencyKey
+      ? { idempotencyKey: resolvedIdempotencyKey }
+      : {}),
+  };
+
   const doSend = async (): Promise<SendSmsResult> => {
+    if (boundary?.services?.sms) {
+      return boundary.services.sms(effect);
+    }
+    const service = getSmsService();
     const result = await service.send(sendOptions);
     return {
       smsSendId: result.smsSendId,

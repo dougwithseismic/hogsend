@@ -17,6 +17,8 @@
     "./create-admin": "./src/lib/create-admin.ts",
     "./api-key-hash": "./src/lib/api-key-hash.ts",
     "./posthog-scopes": "./src/lib/posthog-scopes.ts",
+    "./journeys": "./src/journeys/authoring.ts",
+    "./testing": "./src/testing.ts",
     "./mcp/authoring-guide": "./src/mcp/authoring-guide.ts",
     "./package.json": "./package.json"
   },
@@ -29,6 +31,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
     "lint": "biome check .",
     "clean": "rm -rf node_modules .turbo"
   },

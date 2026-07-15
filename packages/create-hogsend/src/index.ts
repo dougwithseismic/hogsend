@@ -302,6 +302,7 @@ async function main(): Promise<void> {
       templateDir: templateDir(),
       targetDir,
       appName: opts.appName,
+      packageManager: opts.packageManager,
       skills: opts.skills,
       tarballDir,
     });
@@ -312,6 +313,7 @@ async function main(): Promise<void> {
       templateDir: templateDir(),
       targetDir,
       appName: opts.appName,
+      packageManager: opts.packageManager,
       skills: opts.skills,
       tarballDir,
     });

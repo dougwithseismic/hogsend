@@ -1,4 +1,4 @@
-import type { DefinedJourney } from "@hogsend/engine";
+import type { DefinedJourney } from "@hogsend/engine/journeys";
 import { testOnboarding } from "./test-onboarding.js";
 import { welcome } from "./welcome.js";
 

@@ -1,5 +1,9 @@
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import {
+  days,
+  defineJourney,
+  hours,
+  sendEmail,
+} from "@hogsend/engine/journeys";
 import { Events, Templates } from "./constants/index.js";
 
 /**

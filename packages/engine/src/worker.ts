@@ -1,4 +1,5 @@
 import type { DefinedBucket } from "./buckets/define-bucket.js";
+import "./journeys/journey-task-runtime.js";
 import {
   collectBucketReactionJourneys,
   selectBucketReactionTasks,

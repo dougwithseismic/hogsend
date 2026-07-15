@@ -1,6 +1,7 @@
 import { parseEnabledFilter } from "../journeys/registry.js";
 import type { DefinedList, ListMeta } from "./define-list.js";
 import { setListRegistry } from "./registry-singleton.js";
+import { isListSubscribed } from "./subscription.js";
 
 /**
  * In-process index of the defined email lists (D3). Mirrors `BucketRegistry` /
@@ -61,8 +62,11 @@ export class ListRegistry {
    * {@link ListRegistry.isSubscribedByDefault}), matching legacy semantics.
    */
   isSubscribed(categories: Record<string, boolean>, id: string): boolean {
-    const defaultOptIn = this.isSubscribedByDefault(id);
-    return defaultOptIn ? categories[id] !== false : categories[id] === true;
+    return isListSubscribed({
+      categories,
+      id,
+      defaultOptIn: this.isSubscribedByDefault(id),
+    });
   }
 
   /**
