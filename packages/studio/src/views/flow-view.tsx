@@ -20,7 +20,7 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FlowCanvas } from "./flow/flow-canvas";
 import { laneColor } from "./flow/lane-colors";
-import { flowEdgeId, visibleFlow } from "./flow/map-layout";
+import { mergeBidirectional, visibleFlow } from "./flow/map-layout";
 import { NodePanel } from "./flow/node-panel";
 import { particleBus } from "./flow/particle-bus";
 import {
@@ -90,13 +90,15 @@ export function FlowView() {
 
   const data = query.data;
 
-  // The edge ids currently drawn — kept in a ref so the stream callback reads
-  // the freshest map without re-subscribing the EventSource on every poll.
-  const knownEdgesRef = useRef<Set<string>>(new Set());
+  // The direction→rail routing for the edges currently drawn — kept in a ref
+  // so the stream callback reads the freshest map without re-subscribing the
+  // EventSource on every poll. Bidirectional pairs share one rail: either
+  // direction id routes to the canonical rail with a reverse flag.
+  const edgeRouteRef = useRef<Map<string, { id: string; reverse: boolean }>>(
+    new Map(),
+  );
   useEffect(() => {
-    knownEdgesRef.current = new Set(
-      (data?.edges ?? []).map((e) => flowEdgeId(e)),
-    );
+    edgeRouteRef.current = mergeBidirectional(data?.edges ?? []).route;
   }, [data]);
   // Distinct unknown edges seen since the last refetch, and when we last fired
   // one — so a stale map self-heals without a refetch storm. Edges that were
@@ -120,8 +122,9 @@ export function FlowView() {
       // poll will surface the node. Only edge transitions animate.
       if (t.from === null) return;
       const edgeId = `${t.from}->${t.to}`;
-      if (knownEdgesRef.current.has(edgeId)) {
-        particleBus.publish(edgeId, { lane: t.lane });
+      const rail = edgeRouteRef.current.get(edgeId);
+      if (rail) {
+        particleBus.publish(rail.id, { lane: t.lane, reverse: rail.reverse });
         return;
       }
       if (neverKnownEdgesRef.current.has(edgeId)) return;

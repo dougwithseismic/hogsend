@@ -253,6 +253,30 @@
   animation: flow-ambient linear infinite;
 }
 
+/* The RETURN direction of a bidirectional rail (docs ⇄ course): identical
+   fades, offset-distance runs 100% → 0% so the dot rides target → source on
+   the same shared path. */
+@keyframes flow-ambient-reverse {
+  0% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.9;
+  }
+  97% {
+    opacity: 0.9;
+  }
+  100% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+}
+
+.flow-particle-reverse {
+  animation: flow-ambient-reverse linear infinite;
+}
+
 /* P4 — a LIVE pulse: the same rail keyframes, but ONE iteration (it removes
    itself on animationend). Duration is set inline per pulse; a bigger radius +
    full opacity makes a real, in-the-moment event pop against ambient traffic. */
@@ -260,12 +284,18 @@
   animation: flow-ambient linear 1;
 }
 
+.flow-pulse-reverse {
+  animation: flow-ambient-reverse linear 1;
+}
+
 /* The global reduce-motion rule collapses durations to ~0, which would park
    every particle at the end of its rail. Take them off the canvas instead.
    (Pulses are also gated at spawn time in flow-edge — this is belt-and-braces.) */
 @media (prefers-reduced-motion: reduce) {
   .flow-particle,
-  .flow-pulse {
+  .flow-particle-reverse,
+  .flow-pulse,
+  .flow-pulse-reverse {
     animation: none;
     visibility: hidden;
   }

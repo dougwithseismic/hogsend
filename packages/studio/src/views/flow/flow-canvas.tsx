@@ -23,7 +23,12 @@ import {
   strokeWidthFor,
 } from "./flow-edge";
 import { laneColor } from "./lane-colors";
-import { flowEdgeId, layoutMap, type MapLayout } from "./map-layout";
+import {
+  flowEdgeId,
+  layoutMap,
+  type MapLayout,
+  mergeBidirectional,
+} from "./map-layout";
 import { SurfaceNode, type SurfaceRfNode } from "./surface-node";
 
 // Module-scope, per React Flow's rule: a fresh object here re-instantiates
@@ -37,10 +42,19 @@ const edgeTypes: EdgeTypes = { flow: FlowEdge };
  * edges with the same key paint byte-identically, so a poll that doesn't move
  * this signature reuses the previous object and its animations survive.
  */
-function edgeVisualKey(weight: number, color: string | null): string {
-  const dimmed = color !== null && weight === 0;
-  const particles = dimmed ? 0 : particleCountFor(weight);
-  return `${strokeWidthFor(weight)}:${particles}:${color ?? ""}:${dimmed ? 1 : 0}`;
+function edgeVisualKey(
+  weight: number,
+  reverseWeight: number | null,
+  color: string | null,
+): string {
+  const combined = weight + (reverseWeight ?? 0);
+  const dimmed = color !== null && combined === 0;
+  const fwd = dimmed || weight <= 0 ? 0 : particleCountFor(weight);
+  const rev =
+    dimmed || reverseWeight === null || reverseWeight <= 0
+      ? 0
+      : particleCountFor(reverseWeight);
+  return `${strokeWidthFor(combined)}:${fwd}:${rev}:${color ?? ""}:${dimmed ? 1 : 0}`;
 }
 
 /**
@@ -85,24 +99,34 @@ function reconcile(
     nodes.push(next);
   }
 
+  // Bidirectional pairs render as ONE rail carrying dots both ways.
+  const { merged } = mergeBidirectional(data.edges);
   const edges: FlowRfEdge[] = [];
-  for (const edge of data.edges) {
-    const id = flowEdgeId(edge);
+  for (const edge of merged) {
+    const id = edge.id;
     // With a lane selected, the buckets are driven by THAT lane's count (0 =
     // this edge carries none of it) and the rail takes the lane colour; with no
     // lane, total transitions drive the neutral-white resting map. Explicit
     // null check: a falsy-but-real lane id must still select.
     const weight =
       selectedLane !== null
-        ? (edge.lanes?.[selectedLane] ?? 0)
-        : edge.transitions;
+        ? (edge.forward.lanes?.[selectedLane] ?? 0)
+        : edge.forward.transitions;
+    const reverseWeight = edge.reverse
+      ? selectedLane !== null
+        ? (edge.reverse.lanes?.[selectedLane] ?? 0)
+        : edge.reverse.transitions
+      : null;
     const color = selectedLane !== null ? laneColor(selectedLane) : null;
     const waypoints = layout.edgePoints[id];
     const prev = prevEdges.get(id);
     const sameStyle =
       prev !== undefined &&
-      edgeVisualKey(prev.data?.weight ?? 0, prev.data?.color ?? null) ===
-        edgeVisualKey(weight, color);
+      edgeVisualKey(
+        prev.data?.weight ?? 0,
+        prev.data?.reverseWeight ?? null,
+        prev.data?.color ?? null,
+      ) === edgeVisualKey(weight, reverseWeight, color);
     // Waypoints are compared by REFERENCE — the layout memo re-produces the
     // same object until the node/edge SET changes, so an idle poll reuses the
     // previous edge and its animations survive. Endpoint moves (drag) reach
@@ -120,9 +144,11 @@ function reconcile(
       type: "flow",
       data: {
         waypoints,
-        transitions: edge.transitions,
-        contacts: edge.contacts,
+        transitions: edge.forward.transitions,
+        contacts: edge.forward.contacts,
         weight,
+        reverseTransitions: edge.reverse?.transitions ?? null,
+        reverseWeight,
         color,
       },
     };

@@ -41,6 +41,74 @@ export function flowEdgeId(edge: Pick<FlowGraphEdge, "from" | "to">): string {
   return `${edge.from}->${edge.to}`;
 }
 
+/**
+ * A bidirectional pair (docs→course AND course→docs) rendered as ONE rail
+ * carrying dots BOTH ways — the Railway trick (two keyframe directions on a
+ * shared path) instead of two parallel rails with an ugly return loop.
+ * `forward` is the canonical direction (`from < to` lexicographically, or the
+ * only direction that exists); `reverse` is the opposite flow when present.
+ */
+export interface MergedFlowEdge {
+  id: string;
+  from: string;
+  to: string;
+  forward: FlowGraphEdge;
+  reverse: FlowGraphEdge | null;
+}
+
+/**
+ * Merge opposite-direction edges into single bidirectional rails, plus a
+ * routing table from EITHER direction's id to the merged rail (the live
+ * particle layer publishes by direction; the rail decides which way the
+ * pulse rides).
+ */
+export function mergeBidirectional(edges: FlowGraphEdge[]): {
+  merged: MergedFlowEdge[];
+  route: Map<string, { id: string; reverse: boolean }>;
+} {
+  const byId = new Map(edges.map((e) => [flowEdgeId(e), e]));
+  const merged: MergedFlowEdge[] = [];
+  const route = new Map<string, { id: string; reverse: boolean }>();
+  const consumed = new Set<string>();
+
+  for (const edge of edges) {
+    const id = flowEdgeId(edge);
+    if (consumed.has(id)) continue;
+    const oppositeId = `${edge.to}->${edge.from}`;
+    const opposite = byId.get(oppositeId);
+    if (opposite && !consumed.has(oppositeId)) {
+      // Canonical direction of a PAIR: lexicographically smaller `from`, so
+      // both polls agree on which rail object owns the pair.
+      const canonical = edge.from < edge.to ? edge : opposite;
+      const other = canonical === edge ? opposite : edge;
+      const canonicalId = flowEdgeId(canonical);
+      merged.push({
+        id: canonicalId,
+        from: canonical.from,
+        to: canonical.to,
+        forward: canonical,
+        reverse: other,
+      });
+      route.set(canonicalId, { id: canonicalId, reverse: false });
+      route.set(flowEdgeId(other), { id: canonicalId, reverse: true });
+      consumed.add(id);
+      consumed.add(oppositeId);
+      continue;
+    }
+    merged.push({
+      id,
+      from: edge.from,
+      to: edge.to,
+      forward: edge,
+      reverse: null,
+    });
+    route.set(id, { id, reverse: false });
+    consumed.add(id);
+  }
+
+  return { merged, route };
+}
+
 export interface VisibleFlow {
   nodes: FlowGraphNode[];
   edges: FlowGraphEdge[];
@@ -99,8 +167,11 @@ export function layoutMap(input: {
   nodes: FlowGraphNode[];
   edges: FlowGraphEdge[];
 }): MapLayout {
+  // Bidirectional pairs are ONE rail — laid out (and ranked by dagre) once,
+  // not as an edge plus a return loop.
+  const { merged } = mergeBidirectional(input.edges);
   const linked = new Set<string>();
-  for (const edge of input.edges) {
+  for (const edge of merged) {
     linked.add(edge.from);
     linked.add(edge.to);
   }
@@ -138,9 +209,9 @@ export function layoutMap(input: {
     for (const node of connected) {
       g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
     }
-    for (const edge of input.edges) {
-      // Unnamed edges: from→to is unique in the flow map (no parallel edges),
-      // and naming an edge requires a multigraph.
+    for (const edge of merged) {
+      // Unnamed edges: from→to is unique post-merge (no parallel edges), and
+      // naming an edge requires a multigraph.
       g.setEdge(edge.from, edge.to);
     }
     layout(g);
@@ -154,10 +225,10 @@ export function layoutMap(input: {
       };
       flowBottom = Math.max(flowBottom, laid.y + NODE_HEIGHT / 2);
     }
-    for (const edge of input.edges) {
+    for (const edge of merged) {
       const laid = g.edge(edge.from, edge.to) as { points?: XY[] } | undefined;
       if (laid?.points?.length) {
-        edgePoints[flowEdgeId(edge)] = laid.points.map((p) => ({
+        edgePoints[edge.id] = laid.points.map((p) => ({
           x: p.x,
           y: p.y,
         }));

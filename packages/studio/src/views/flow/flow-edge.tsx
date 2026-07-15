@@ -46,6 +46,13 @@ export type FlowEdgeData = {
    */
   weight: number;
   /**
+   * The OPPOSITE direction of a bidirectional rail (docs ⇄ course), or null
+   * for a one-way edge. One shared path, dots riding both ways — the Railway
+   * trick — instead of a parallel rail plus a return loop.
+   */
+  reverseTransitions: number | null;
+  reverseWeight: number | null;
+  /**
    * Lane colour when a lane is selected (glow + particles take it); `null` =
    * no lane selected, the calm neutral-white resting map.
    */
@@ -136,6 +143,8 @@ function prefersReducedMotion(): boolean {
 interface LivePulse {
   key: number;
   lane: string | null;
+  /** Ride the rail target→source (the return direction of a bidirectional rail). */
+  reverse: boolean;
 }
 
 export function FlowEdge({
@@ -167,7 +176,14 @@ export function FlowEdge({
           return prev;
         }
         pulseKeyRef.current += 1;
-        return [...prev, { key: pulseKeyRef.current, lane: payload.lane }];
+        return [
+          ...prev,
+          {
+            key: pulseKeyRef.current,
+            lane: payload.lane,
+            reverse: payload.reverse,
+          },
+        ];
       });
     });
     return () => {
@@ -191,12 +207,20 @@ export function FlowEdge({
   ]);
   const d = roundedPath(pts, 12);
   const length = polylineLength(pts);
-  // A lane is selected (color set) but this edge carries none of it: dim the
-  // rail and kill its particles, but STAY MOUNTED — unmounting restarts every
-  // animation on the map.
-  const dimmed = color !== null && weight === 0;
-  const width = strokeWidthFor(weight);
-  const baseCount = dimmed ? 0 : particleCountFor(weight);
+  const { reverseWeight } = data;
+  // A bidirectional rail carries BOTH directions' traffic: the glow width is
+  // the combined volume, and each direction gets its own dot stream.
+  const combined = weight + (reverseWeight ?? 0);
+  // A lane is selected (color set) but this edge carries none of it (in
+  // EITHER direction): dim the rail and kill its particles, but STAY
+  // MOUNTED — unmounting restarts every animation on the map.
+  const dimmed = color !== null && combined === 0;
+  const width = strokeWidthFor(combined);
+  const baseCount = dimmed || weight <= 0 ? 0 : particleCountFor(weight);
+  const reverseCount =
+    dimmed || reverseWeight === null || reverseWeight <= 0
+      ? 0
+      : particleCountFor(reverseWeight);
   // Surge adds two ambient dots (capped at the top bucket) and brightens the
   // glow — a visible "this rail is hot right now" without more pulses.
   const count =
@@ -247,16 +271,32 @@ export function FlowEdge({
           }}
         />
       ))}
+      {Array.from({ length: reverseCount }, (_, i) => (
+        <circle
+          // biome-ignore lint/suspicious/noArrayIndexKey: the index IS the particle's identity (and its phase seed)
+          key={`r${i}`}
+          r={1.6}
+          fill={particleFill}
+          className="flow-particle-reverse"
+          style={{
+            offsetPath: `path("${d}")`,
+            animationDuration: `${duration}s`,
+            // A distinct seed namespace so the return stream doesn't mirror
+            // the outbound one in lockstep.
+            animationDelay: `-${(seeded(`${id}#r`, i) * duration).toFixed(3)}s`,
+          }}
+        />
+      ))}
       {pulses.map((pulse) => (
         <circle
           key={pulse.key}
           r={2.6}
           fill={pulseFill(pulse.lane)}
-          className="flow-pulse"
+          className={pulse.reverse ? "flow-pulse-reverse" : "flow-pulse"}
           style={{
             offsetPath: `path("${d}")`,
-            // No negative delay: a live pulse starts at the SOURCE and rides
-            // the rail once — the whole point is watching it depart.
+            // No negative delay: a live pulse starts at ITS source end and
+            // rides the rail once — the whole point is watching it depart.
             animationDuration: `${pulseDuration}s`,
           }}
           onAnimationEnd={() =>

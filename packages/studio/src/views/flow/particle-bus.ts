@@ -16,6 +16,11 @@
 export interface PulsePayload {
   /** The transition's acquisition lane (for pulse colour), or null. */
   lane: string | null;
+  /**
+   * True when the transition rides a bidirectional rail AGAINST its canonical
+   * direction (e.g. course→docs on the docs⇄course rail).
+   */
+  reverse: boolean;
 }
 
 type PulseCallback = (payload: PulsePayload) => void;
