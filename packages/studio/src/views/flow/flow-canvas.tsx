@@ -15,11 +15,7 @@ import {
 import { Lock, MousePointerClick } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type {
-  FlowGraphNode,
-  FlowGraphResponse,
-  SurfaceTier,
-} from "@/lib/admin-api";
+import type { FlowGraphNode, FlowGraphResponse } from "@/lib/admin-api";
 import type { XY } from "@/views/journeys/flow-layout";
 import {
   FlowEdge,
@@ -29,6 +25,9 @@ import {
 } from "./flow-edge";
 import { laneColor } from "./lane-colors";
 import {
+  BAND_ORDER,
+  bandOf,
+  type FlowBand,
   flowEdgeId,
   layoutMap,
   type MapLayout,
@@ -36,16 +35,9 @@ import {
 } from "./map-layout";
 import { SurfaceNode, type SurfaceRfNode } from "./surface-node";
 
-/** The faint labeled box behind one tier's connected nodes (zIndex -1). */
-type ClusterRfNode = Node<{ tier: SurfaceTier }, "cluster">;
+/** The faint labeled box behind one band's nodes (zIndex -1). */
+type ClusterRfNode = Node<{ label: string }, "cluster">;
 type CanvasNode = SurfaceRfNode | ClusterRfNode;
-
-const TIER_LABELS: Record<SurfaceTier, string> = {
-  acquisition: "Acquisition",
-  activation: "Activation",
-  retention: "Retention",
-  revenue: "Revenue",
-};
 
 function ClusterNode({ data }: NodeProps<ClusterRfNode>) {
   // The box BODY is inert (pointer events pass through to cards and pane) —
@@ -54,7 +46,7 @@ function ClusterNode({ data }: NodeProps<ClusterRfNode>) {
   return (
     <div className="pointer-events-none relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012]">
       <span className="cluster-drag-handle eyebrow pointer-events-auto absolute left-3 top-2 cursor-grab rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/35 transition-colors hover:border-white/20 hover:text-white/60 active:cursor-grabbing">
-        {TIER_LABELS[data.tier]}
+        {data.label}
       </span>
     </div>
   );
@@ -68,8 +60,10 @@ const nodeTypes: NodeTypes = {
 };
 const edgeTypes: EdgeTypes = { flow: FlowEdge };
 
-/** Breathing room between a cluster's border and its member cards. */
-const CLUSTER_PAD = 10;
+/** Breathing room between a band box's border and its member cards. */
+const CLUSTER_PAD = 14;
+/** Extra headroom at the top of a box — the label pill lives there. */
+const CLUSTER_PAD_TOP = 44;
 
 /**
  * The complete visual signature of an edge under the current lane selection —
@@ -110,21 +104,21 @@ function reconcile(
   prevEdges: Map<string, FlowRfEdge>,
   selectedLane: string | null,
 ): { nodes: SurfaceRfNode[]; edges: FlowRfEdge[] } {
-  // Clustered nodes are React Flow CHILDREN of their tier box: positions go
+  // Banded nodes are React Flow CHILDREN of their band box: positions go
   // relative to the box origin, and dragging the box carries the group.
-  const origins = new Map<SurfaceTier, XY>(
+  const origins = new Map<FlowBand, XY>(
     layout.clusters.map((c) => [
-      c.tier,
-      { x: c.x - CLUSTER_PAD, y: c.y - CLUSTER_PAD },
+      c.id.replace(/^band#/, "") as FlowBand,
+      { x: c.x - CLUSTER_PAD, y: c.y - CLUSTER_PAD_TOP },
     ]),
   );
   const nodes: SurfaceRfNode[] = [];
   for (const node of data.nodes) {
     const auto = layout.positions[node.id];
     if (!auto) continue;
-    const tier = layout.clusterOf[node.id];
-    const origin = tier !== undefined ? origins.get(tier) : undefined;
-    const parentId = origin !== undefined ? `cluster#${tier}` : undefined;
+    const band = layout.clusterOf[node.id];
+    const origin = band !== undefined ? origins.get(band) : undefined;
+    const parentId = origin !== undefined ? `band#${band}` : undefined;
     const layoutPos =
       origin !== undefined
         ? { x: auto.x - origin.x, y: auto.y - origin.y }
@@ -157,9 +151,23 @@ function reconcile(
 
   // Bidirectional pairs render as ONE rail carrying dots both ways.
   const { merged } = mergeBidirectional(data.edges);
+  // Handle picking is structural: a rail into a LOWER band leaves the bottom
+  // and enters the top; into a HIGHER band, the reverse; within a band it
+  // runs side-to-side.
+  const bandIndex = new Map(
+    data.nodes.map((n) => [n.id, BAND_ORDER.indexOf(bandOf(n))]),
+  );
   const edges: FlowRfEdge[] = [];
   for (const edge of merged) {
     const id = edge.id;
+    const from = bandIndex.get(edge.from) ?? 0;
+    const to = bandIndex.get(edge.to) ?? 0;
+    const [sourceHandle, targetHandle] =
+      from < to
+        ? ["out-b", "in-t"]
+        : from > to
+          ? ["out-t", "in-b"]
+          : ["out-r", "in-l"];
     // With a lane selected, the buckets are driven by THAT lane's count (0 =
     // this edge carries none of it) and the rail takes the lane colour; with no
     // lane, total transitions drive the neutral-white resting map. Explicit
@@ -174,7 +182,6 @@ function reconcile(
         : edge.reverse.transitions
       : null;
     const color = selectedLane !== null ? laneColor(selectedLane) : null;
-    const waypoints = layout.edgePoints[id];
     const prev = prevEdges.get(id);
     const sameStyle =
       prev !== undefined &&
@@ -183,11 +190,15 @@ function reconcile(
         prev.data?.reverseWeight ?? null,
         prev.data?.color ?? null,
       ) === edgeVisualKey(weight, reverseWeight, color);
-    // Waypoints are compared by REFERENCE — the layout memo re-produces the
-    // same object until the node/edge SET changes, so an idle poll reuses the
-    // previous edge and its animations survive. Endpoint moves (drag) reach
-    // the edge through React Flow's own props, not through this object.
-    if (prev && sameStyle && prev.data?.waypoints === waypoints) {
+    // Rails are handle-to-handle (no frozen interior waypoints), so identity
+    // reuse only needs the style and the picked handles to hold still —
+    // endpoint moves reach the edge through React Flow's own props.
+    if (
+      prev &&
+      sameStyle &&
+      prev.sourceHandle === sourceHandle &&
+      prev.targetHandle === targetHandle
+    ) {
       edges.push(prev);
       continue;
     }
@@ -195,11 +206,10 @@ function reconcile(
       id,
       source: edge.from,
       target: edge.to,
-      sourceHandle: "out-r",
-      targetHandle: "in-l",
+      sourceHandle,
+      targetHandle,
       type: "flow",
       data: {
-        waypoints,
         transitions: edge.forward.transitions,
         contacts: edge.forward.contacts,
         weight,
@@ -329,25 +339,22 @@ function FlowCanvasInner({
   // biome-ignore lint/correctness/useExhaustiveDependencies: `data` re-applies the manual drag memory (a ref) on every poll, not just on layout epochs
   const clusterNodes = useMemo<ClusterRfNode[]>(
     () =>
-      layout.clusters.map((c) => {
-        const id = `cluster#${c.tier}`;
-        return {
-          id,
-          type: "cluster",
-          position: manualClusterPosRef.current.get(id) ?? {
-            x: c.x - CLUSTER_PAD,
-            y: c.y - CLUSTER_PAD,
-          },
-          data: { tier: c.tier },
-          width: c.width + CLUSTER_PAD * 2,
-          height: c.height + CLUSTER_PAD * 2,
-          zIndex: -1,
-          selectable: false,
-          focusable: false,
-          // Only the label pill initiates a group drag (see ClusterNode).
-          dragHandle: ".cluster-drag-handle",
-        };
-      }),
+      layout.clusters.map((c) => ({
+        id: c.id,
+        type: "cluster",
+        position: manualClusterPosRef.current.get(c.id) ?? {
+          x: c.x - CLUSTER_PAD,
+          y: c.y - CLUSTER_PAD_TOP,
+        },
+        data: { label: c.label },
+        width: c.width + CLUSTER_PAD * 2,
+        height: c.height + CLUSTER_PAD + CLUSTER_PAD_TOP,
+        zIndex: -1,
+        selectable: false,
+        focusable: false,
+        // Only the label pill initiates a group drag (see ClusterNode).
+        dragHandle: ".cluster-drag-handle",
+      })),
     [layout, data],
   );
   const allNodes = useMemo<CanvasNode[]>(

@@ -1842,7 +1842,8 @@ export type FlowGraphNode = {
   id: string;
   kind: FlowNodeKind;
   name: string;
-  tier: SurfaceTier;
+  /** Optional lifecycle badge — display metadata, never structure. */
+  tier?: SurfaceTier;
   /** Surface rendering hint — "source" marks a traffic origin (slim chip). */
   display?: "source";
   contacts: number;
@@ -1907,7 +1908,7 @@ export type FlowNodeContact = {
 };
 
 export type FlowNodeContactsResponse = {
-  node: { id: string; kind: FlowNodeKind; name: string; tier: SurfaceTier };
+  node: { id: string; kind: FlowNodeKind; name: string; tier?: SurfaceTier };
   contacts: FlowNodeContact[];
   /** Enrollment breakdown for journey nodes; null otherwise. */
   journey: {

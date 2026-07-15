@@ -72,7 +72,12 @@ export interface SurfaceMeta {
   id: string;
   /** Display label. Defaults to `id`. */
   name?: string;
-  tier: SurfaceTier;
+  /**
+   * OPTIONAL lifecycle badge (`acquisition | activation | retention |
+   * revenue`) — display metadata only. The flow map's structure comes from
+   * what a node IS (source / surface / funnel / journey), never from this.
+   */
+  tier?: SurfaceTier;
   match: SurfaceMatch;
   /**
    * Rendering hint for the flow map: `"source"` marks a traffic ORIGIN
@@ -205,7 +210,7 @@ export function defineSurface(meta: SurfaceMeta): DefinedSurface {
       );
     }
   }
-  if (!SURFACE_TIERS.includes(meta.tier)) {
+  if (meta.tier !== undefined && !SURFACE_TIERS.includes(meta.tier)) {
     throw new Error(
       `defineSurface("${id}"): unknown tier "${meta.tier}" — expected one of ${SURFACE_TIERS.join(", ")}`,
     );

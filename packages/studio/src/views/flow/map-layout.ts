@@ -1,41 +1,30 @@
 import { graphlib, layout } from "@dagrejs/dagre";
-import type {
-  FlowGraphEdge,
-  FlowGraphNode,
-  SurfaceTier,
-} from "@/lib/admin-api";
+import type { FlowGraphEdge, FlowGraphNode } from "@/lib/admin-api";
 import type { XY } from "@/views/journeys/flow-layout";
 
 /**
- * Graph-first layout for the control room — the map is shaped by how nodes
- * actually LINK, not by lifecycle columns.
+ * Band layout for the control room — the map is structured by what a node
+ * IS, not by an opinionated lifecycle taxonomy.
  *
- * The original design pinned every node into a fixed tier column
- * (acquisition → revenue). Run against a real registry that meant thirty
- * disconnected journey cards standing in a column pretending to be structure,
- * while the actual machine — surfaces linked by traffic — hid between them.
- * The redesign (2026-07-15, superseding the ticket's layout lock):
+ * Four horizontal bands, top to bottom:
  *
- * - Only nodes that EARN canvas space are drawn by default: traffic, a live
- *   enrollment, a pile-up, or an edge. Everything else sits behind a
- *   "show all registered" toggle ({@link visibleFlow}).
- * - The connected graph is laid out left-to-right by dagre over the REAL
- *   edges — the same engine the journey graph uses — so flow reads as flow.
- *   Tier is a badge on the card, not a position law.
- * - Visible-but-unlinked nodes (traffic but no transitions yet) sit in a
- *   compact strip BELOW the flow, visibly apart: present, honest, not fake
- *   structure.
- * - Nodes are draggable; edges anchor to live handle coordinates (see
- *   flow-edge), so layout here only provides the STARTING positions.
+ *   Sources   — traffic origins (`display: "source"` surfaces)
+ *   Surfaces  — the product's touchpoints (site, docs, checkout, …)
+ *   Pipeline  — funnel stages + the builtin revenue till
+ *   Journeys  — the automations
+ *
+ * Traffic darts BETWEEN the bands: sources feed surfaces, surfaces feed the
+ * pipeline, journeys reach back up into surfaces. Within a band, nodes are
+ * ordered by the flow itself (a dagre pass over the real edges provides the
+ * left-to-right ordering), so upstream still reads left and downstream right.
+ *
+ * `tier` is optional display metadata (a badge on the card) — it plays no
+ * part in the structure. That's deliberate: everything else in Hogsend is
+ * customizable, so the map's shape must come from facts (node kind), not
+ * from a vocabulary an operator may not share.
  */
 
-/**
- * Per-kind card footprints — surface-node.tsx sizes itself from these and
- * dagre ranks with them, so the two must stay in lockstep. Surfaces are the
- * tallest: their browser-chrome header buys them a full extra row. A
- * `display: "source"` surface (a traffic ORIGIN, not a place contacts dwell)
- * collapses to a slim inlet chip.
- */
+/** Per-kind card footprints — surface-node.tsx sizes itself from these. */
 export function nodeSize(node: Pick<FlowGraphNode, "kind" | "display">): {
   width: number;
   height: number;
@@ -53,16 +42,31 @@ export function nodeSize(node: Pick<FlowGraphNode, "kind" | "display">): {
   }
 }
 
-/** The LARGEST footprint — the unlinked strip's grid pitch. */
-export const NODE_WIDTH = 264;
-export const NODE_HEIGHT = 148;
+/** The structural row a node lives in — derived from what it IS. */
+export type FlowBand = "sources" | "surfaces" | "pipeline" | "journeys";
 
-/** Grid pitch for the unlinked strip. */
-const STRIP_COLS = 4;
-const STRIP_GAP_X = 48;
-const STRIP_GAP_Y = 40;
-/** Vertical gap separating the unlinked strip from the connected flow. */
-const STRIP_MARGIN_TOP = 120;
+export const BAND_ORDER: FlowBand[] = [
+  "sources",
+  "surfaces",
+  "pipeline",
+  "journeys",
+];
+
+export const BAND_LABELS: Record<FlowBand, string> = {
+  sources: "Sources",
+  surfaces: "Surfaces",
+  pipeline: "Pipeline",
+  journeys: "Journeys",
+};
+
+export function bandOf(
+  node: Pick<FlowGraphNode, "kind" | "display">,
+): FlowBand {
+  if (node.display === "source") return "sources";
+  if (node.kind === "surface") return "surfaces";
+  if (node.kind === "journey") return "journeys";
+  return "pipeline";
+}
 
 /** Stable edge id — `from`→`to` is unique in the flow map. */
 export function flowEdgeId(edge: Pick<FlowGraphEdge, "from" | "to">): string {
@@ -176,9 +180,10 @@ export function visibleFlow(
   };
 }
 
-/** A faint labeled box behind one lifecycle tier's connected nodes. */
+/** A faint labeled box behind one band's nodes. */
 export interface ClusterBox {
-  tier: SurfaceTier;
+  id: string;
+  label: string;
   x: number;
   y: number;
   width: number;
@@ -187,148 +192,112 @@ export interface ClusterBox {
 
 export interface MapLayout {
   positions: Record<string, XY>;
-  /** dagre-routed node-avoiding waypoints per edge id. */
-  edgePoints: Record<string, XY[]>;
-  /** Tier clusters of the CONNECTED flow (≥2 members earn a box). */
+  /** Band boxes (a band earns a box with ≥2 members). */
   clusters: ClusterBox[];
   /**
-   * Which drawn cluster a node belongs to — the canvas parents these nodes
-   * to their tier box (React Flow subflow), so dragging the box moves the
-   * whole group. Nodes of boxless tiers (and the strip) are absent.
+   * Which drawn box a node belongs to — the canvas parents these nodes to
+   * their band box (React Flow subflow), so dragging the box moves the group.
    */
-  clusterOf: Record<string, SurfaceTier>;
+  clusterOf: Record<string, FlowBand>;
 }
 
-const TIER_ORDER = { acquisition: 0, activation: 1, retention: 2, revenue: 3 };
+const MARGIN = 32;
+const GAP_X = 48;
+const GAP_Y = 40;
+/** Vertical breathing room between bands — the space traffic darts across. */
+const BAND_GAP = 130;
+/** Wrap a band into a new row past this width, so one band can't sprawl. */
+const MAX_ROW_WIDTH = 1720;
 
 /**
- * Positions for the visible graph: dagre LR over the connected component(s),
- * then the unlinked strip below. Deterministic for a given (node set, edge
- * set) — insertion order is sorted, and dagre is stable for stable input —
- * so a poll that changes only COUNTS re-produces identical positions and no
- * animation restarts.
+ * Band positions: nodes grouped into their structural row, ordered WITHIN
+ * the row by the flow itself — a dagre LR pass over the real edges yields
+ * each connected node's x, so upstream reads left. Deterministic for a given
+ * (node set, edge set): sorted inputs, stable dagre, no traffic in the keys.
  */
 export function layoutMap(input: {
   nodes: FlowGraphNode[];
   edges: FlowGraphEdge[];
 }): MapLayout {
-  // Bidirectional pairs are ONE rail — laid out (and ranked by dagre) once,
-  // not as an edge plus a return loop.
   const { merged } = mergeBidirectional(input.edges);
+
+  // Flow-informed x-ordering for connected nodes (unlinked nodes sort last).
+  const xOrder = new Map<string, number>();
   const linked = new Set<string>();
   for (const edge of merged) {
     linked.add(edge.from);
     linked.add(edge.to);
   }
-  // Sorted insertion: tier first (a soft left-to-right bias for ties dagre is
-  // free to break), then id — NEVER traffic, which wiggles between polls.
   const connected = input.nodes
     .filter((n) => linked.has(n.id))
-    .sort(
-      (a, b) =>
-        TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || a.id.localeCompare(b.id),
-    );
-  const isolated = input.nodes
-    .filter((n) => !linked.has(n.id))
-    .sort(
-      (a, b) =>
-        TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || a.id.localeCompare(b.id),
-    );
-
-  const positions: Record<string, XY> = {};
-  const edgePoints: Record<string, XY[]> = {};
-  const clusters: ClusterBox[] = [];
-  const clusterOf: Record<string, SurfaceTier> = {};
-  let flowBottom = 0;
-
+    .sort((a, b) => a.id.localeCompare(b.id));
   if (connected.length > 0) {
-    // COMPOUND graph: each lifecycle tier is a dagre cluster, so its nodes
-    // are laid out TOGETHER — the "clustering" that turns a web of cards
-    // back into a readable machine. `tier#` cannot collide with node ids
-    // (those use the `kind:` namespaces).
-    const g = new graphlib.Graph({
-      directed: true,
-      compound: true,
-    }).setDefaultEdgeLabel(() => ({}));
-    g.setGraph({
-      rankdir: "LR",
-      // Clusters add their own breathing room, so the raw separations sit
-      // tighter than the uncluttered layout needed.
-      ranksep: 120,
-      nodesep: 56,
-      edgesep: 24,
-      marginx: 32,
-      marginy: 32,
-    });
-    const tierCounts = new Map<SurfaceTier, number>();
-    for (const node of connected) {
-      tierCounts.set(node.tier, (tierCounts.get(node.tier) ?? 0) + 1);
-    }
-    for (const tier of tierCounts.keys()) {
-      g.setNode(`tier#${tier}`, {});
-    }
+    const g = new graphlib.Graph({ directed: true }).setDefaultEdgeLabel(
+      () => ({}),
+    );
+    g.setGraph({ rankdir: "LR", ranksep: 60, nodesep: 24 });
     for (const node of connected) {
       g.setNode(node.id, nodeSize(node));
-      g.setParent(node.id, `tier#${node.tier}`);
     }
     for (const edge of merged) {
-      // Unnamed edges: from→to is unique post-merge (no parallel edges), and
-      // naming an edge requires a multigraph.
       g.setEdge(edge.from, edge.to);
     }
     layout(g);
-
     for (const node of connected) {
       const laid = g.node(node.id);
-      if (!laid) continue;
-      const size = nodeSize(node);
-      positions[node.id] = {
-        x: laid.x - size.width / 2,
-        y: laid.y - size.height / 2,
-      };
-      flowBottom = Math.max(flowBottom, laid.y + size.height / 2);
-    }
-    for (const [tier, count] of tierCounts) {
-      // A one-card box is noise — the box earns its ink by GROUPING.
-      if (count < 2) continue;
-      const laid = g.node(`tier#${tier}`);
-      if (!laid || !Number.isFinite(laid.x) || !Number.isFinite(laid.width)) {
-        continue;
-      }
-      clusters.push({
-        tier,
-        x: laid.x - laid.width / 2,
-        y: laid.y - laid.height / 2,
-        width: laid.width,
-        height: laid.height,
-      });
-      flowBottom = Math.max(flowBottom, laid.y + laid.height / 2);
-    }
-    const boxed = new Set(clusters.map((c) => c.tier));
-    for (const node of connected) {
-      if (boxed.has(node.tier)) clusterOf[node.id] = node.tier;
-    }
-    for (const edge of merged) {
-      const laid = g.edge(edge.from, edge.to) as { points?: XY[] } | undefined;
-      if (laid?.points?.length) {
-        edgePoints[edge.id] = laid.points.map((p) => ({
-          x: p.x,
-          y: p.y,
-        }));
-      }
+      if (laid) xOrder.set(node.id, laid.x);
     }
   }
 
-  // The unlinked strip: real activity, no transitions yet. A visibly separate
-  // grid below the flow — present without pretending to be part of it.
-  isolated.forEach((node, i) => {
-    positions[node.id] = {
-      x: 32 + (i % STRIP_COLS) * (NODE_WIDTH + STRIP_GAP_X),
-      y:
-        (connected.length > 0 ? flowBottom + STRIP_MARGIN_TOP : 32) +
-        Math.floor(i / STRIP_COLS) * (NODE_HEIGHT + STRIP_GAP_Y),
-    };
-  });
+  const positions: Record<string, XY> = {};
+  const clusters: ClusterBox[] = [];
+  const clusterOf: Record<string, FlowBand> = {};
+  let y = MARGIN;
 
-  return { positions, edgePoints, clusters, clusterOf };
+  for (const band of BAND_ORDER) {
+    const members = input.nodes
+      .filter((n) => bandOf(n) === band)
+      .sort(
+        (a, b) =>
+          (xOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (xOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+          a.id.localeCompare(b.id),
+      );
+    if (members.length === 0) continue;
+
+    const bandTop = y;
+    let x = MARGIN;
+    let rowHeight = 0;
+    let maxRight = MARGIN;
+    for (const node of members) {
+      const size = nodeSize(node);
+      if (x > MARGIN && x + size.width > MAX_ROW_WIDTH) {
+        x = MARGIN;
+        y += rowHeight + GAP_Y;
+        rowHeight = 0;
+      }
+      positions[node.id] = { x, y };
+      maxRight = Math.max(maxRight, x + size.width);
+      rowHeight = Math.max(rowHeight, size.height);
+      x += size.width + GAP_X;
+    }
+    const bandBottom = y + rowHeight;
+
+    if (members.length >= 2) {
+      clusters.push({
+        id: `band#${band}`,
+        label: BAND_LABELS[band],
+        x: MARGIN,
+        y: bandTop,
+        width: maxRight - MARGIN,
+        height: bandBottom - bandTop,
+      });
+      for (const node of members) {
+        clusterOf[node.id] = band;
+      }
+    }
+    y = bandBottom + BAND_GAP;
+  }
+
+  return { positions, clusters, clusterOf };
 }

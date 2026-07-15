@@ -49,7 +49,7 @@ const KIND_LABEL: Record<FlowNodeKind, string> = {
   builtin: "Revenue",
 };
 
-const TIER_LABEL: Record<FlowGraphNode["tier"], string> = {
+const TIER_LABEL: Record<NonNullable<FlowGraphNode["tier"]>, string> = {
   acquisition: "Acquisition",
   activation: "Activation",
   retention: "Retention",
@@ -267,9 +267,11 @@ export function NodePanel({
             <span className="eyebrow text-[10px] text-white/40">
               {KIND_LABEL[node.kind]}
             </span>
-            <span className="rounded-full border border-hairline-faint px-1.5 py-0.5 text-[10px] text-white/50">
-              {TIER_LABEL[node.tier]}
-            </span>
+            {node.tier !== undefined ? (
+              <span className="rounded-full border border-hairline-faint px-1.5 py-0.5 text-[10px] text-white/50">
+                {TIER_LABEL[node.tier]}
+              </span>
+            ) : null}
           </div>
           <h3
             className="mt-0.5 truncate font-medium text-[15px] text-white/90"

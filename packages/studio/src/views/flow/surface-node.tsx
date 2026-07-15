@@ -132,6 +132,12 @@ function NodeHandles() {
         className={HANDLE_CLASS}
       />
       <Handle
+        id="in-b"
+        type="target"
+        position={Position.Bottom}
+        className={HANDLE_CLASS}
+      />
+      <Handle
         id="out-r"
         type="source"
         position={Position.Right}
@@ -141,6 +147,12 @@ function NodeHandles() {
         id="out-b"
         type="source"
         position={Position.Bottom}
+        className={HANDLE_CLASS}
+      />
+      <Handle
+        id="out-t"
+        type="source"
+        position={Position.Top}
         className={HANDLE_CLASS}
       />
     </>
@@ -333,10 +345,10 @@ export function SurfaceNode({ data, selected }: NodeProps<SurfaceRfNode>) {
             )}
           />
           <span className="eyebrow truncate text-[11px] text-white/40">
-            {/* Tier rides the eyebrow now that layout is graph-first — it
-                names the lifecycle stage without dictating a column. The till
-                skips it: "Revenue · revenue" says the word twice. */}
-            {isTill
+            {/* Tier is an OPTIONAL badge riding the eyebrow — structure comes
+                from the bands, never from here. The till skips it either way:
+                "Revenue · revenue" says the word twice. */}
+            {isTill || node.tier === undefined
               ? KIND_LABEL[node.kind]
               : `${KIND_LABEL[node.kind]} · ${node.tier}`}
           </span>

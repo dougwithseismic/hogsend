@@ -306,14 +306,16 @@ const edgeOf = (from: string, to: string) =>
   flow.edges.find((e) => e.from === from && e.to === to);
 
 describe("curated classification", () => {
-  it("registers journeys as retention nodes with real counts", () => {
-    expect(nodeOf(JOURNEY_NODE)).toMatchObject({
+  it("registers journeys as nodes with real counts (tier optional)", () => {
+    const node = nodeOf(JOURNEY_NODE);
+    expect(node).toMatchObject({
       kind: "journey",
       name: "Flow map fixture",
-      tier: "retention",
       contacts: 2,
       events: 2,
     });
+    // The fixture journey declares no tier — the badge is honestly absent.
+    expect(node?.tier).toBeUndefined();
   });
 
   it("registers funnel stages, with the money stages in the revenue tier", () => {

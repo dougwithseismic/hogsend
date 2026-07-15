@@ -59,7 +59,8 @@ export interface FlowNode {
   id: string;
   kind: FlowNodeKind;
   name: string;
-  tier: SurfaceTier;
+  /** Optional lifecycle badge — display metadata, never structure. */
+  tier?: SurfaceTier;
   /** Surface rendering hint (`defineSurface({ display: "source" })`). */
   display?: "source";
 }
@@ -320,9 +321,8 @@ export function buildFlowTopology({
       id: journeyNodeId(meta.id),
       kind: "journey",
       name: meta.name || meta.id,
-      // The journey's own declared lifecycle stage; retention is the
-      // historical default for the unannotated.
-      tier: meta.tier ?? "retention",
+      // The journey's own declared lifecycle badge — absent when unannotated.
+      ...(meta.tier !== undefined ? { tier: meta.tier } : {}),
     });
   }
 
@@ -426,7 +426,7 @@ export function buildFlowTopology({
       id: nodeId,
       kind: "surface",
       name: surface.meta.name || surfaceId,
-      tier: surface.meta.tier,
+      ...(surface.meta.tier !== undefined ? { tier: surface.meta.tier } : {}),
       ...(surface.meta.display === "source" ? { display: "source" } : {}),
     });
 

@@ -60,7 +60,10 @@ const flowNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["surface", "journey", "funnelStage", "builtin"]),
   name: z.string(),
-  tier: z.enum(["acquisition", "activation", "retention", "revenue"]),
+  /** Optional lifecycle badge — display metadata, never structure. */
+  tier: z
+    .enum(["acquisition", "activation", "retention", "revenue"])
+    .optional(),
   /** Surface rendering hint — "source" marks a traffic origin (slim chip). */
   display: z.enum(["source"]).optional(),
   contacts: z.number(),
@@ -222,12 +225,9 @@ const nodeContactsRoute = createRoute({
               id: z.string(),
               kind: z.enum(["surface", "journey", "funnelStage", "builtin"]),
               name: z.string(),
-              tier: z.enum([
-                "acquisition",
-                "activation",
-                "retention",
-                "revenue",
-              ]),
+              tier: z
+                .enum(["acquisition", "activation", "retention", "revenue"])
+                .optional(),
             }),
             contacts: z.array(nodeContactSchema),
             /** Enrollment breakdown for journey nodes; null otherwise. */

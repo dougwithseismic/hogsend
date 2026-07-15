@@ -794,7 +794,9 @@ async function runFlowMap({
       // surface parked in the first tier.
       kind: registered?.kind ?? "surface",
       name: registered?.name ?? id,
-      tier: registered?.tier ?? "acquisition",
+      // The lifecycle badge is optional metadata — an unregistered (raw-mode)
+      // node honestly has none.
+      ...(registered?.tier !== undefined ? { tier: registered.tier } : {}),
       ...(registered?.display !== undefined
         ? { display: registered.display }
         : {}),

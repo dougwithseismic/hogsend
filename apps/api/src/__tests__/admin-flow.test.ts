@@ -193,16 +193,18 @@ describe("GET /v1/admin/flow", () => {
   it("reports node totals, including a contact who never transitions", () => {
     // 2 walkers + the site-only contact + the padding contact; 3 walk events
     // + PAD padding events.
-    expect(nodeOf(SITE)).toMatchObject({
+    const site = nodeOf(SITE);
+    expect(site).toMatchObject({
       kind: "surface",
       name: SITE,
-      tier: "acquisition",
       contacts: 4,
       events: 3 + PAD,
       live: null,
       heat: null,
       dwell: null,
     });
+    // Raw-mode nodes are unregistered — no lifecycle badge to claim.
+    expect(site?.tier).toBeUndefined();
     // The site-only contact contributes to the site node but to no edge.
     expect(flow.edges.some((e) => e.to === SITE)).toBe(false);
 
