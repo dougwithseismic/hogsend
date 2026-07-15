@@ -47,7 +47,7 @@ jobs:
       postgres:
         # Pinned by digest: a floating latest-pg18 can silently change the DB
         # under the test gate. Bump deliberately alongside the local compose.
-        image: timescale/timescaledb:latest-pg18@sha256:68d73d98c13352d88a0bdeff0c31effcc3e740dce2ddb26ca89f63482b592df7
+        image: timescale/timescaledb:latest-pg18@sha256:bb208a255ce7d44d8d6bed4e9e8059b532be4f56fd6d6d962e37d270bfadf1bd
         env:
           POSTGRES_USER: growthhog
           POSTGRES_PASSWORD: growthhog
