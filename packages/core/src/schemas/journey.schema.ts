@@ -93,6 +93,11 @@ export const journeyMetaSchema = z.object({
     where: z.array(propertyConditionSchema).optional(),
   }),
 
+  // Flow-map lifecycle tier (defaults to "retention" in the topology).
+  tier: z
+    .enum(["acquisition", "activation", "retention", "revenue"])
+    .optional(),
+
   entryLimit: z.enum(["once", "once_per_period", "unlimited"]),
   entryPeriod: z
     .object({

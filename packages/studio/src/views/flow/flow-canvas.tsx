@@ -48,12 +48,12 @@ const TIER_LABELS: Record<SurfaceTier, string> = {
 };
 
 function ClusterNode({ data }: NodeProps<ClusterRfNode>) {
-  // Draggable: grabbing anywhere in the box moves the WHOLE tier (its cards
-  // are React Flow children of this node), so the operator can rearrange the
-  // machine group-by-group instead of card-by-card.
+  // The box BODY is inert (pointer events pass through to cards and pane) —
+  // only the label pill drags the group. Grab-anywhere looked right but made
+  // every click inside the box a group drag, so cards were unclickable.
   return (
-    <div className="relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012] transition-colors hover:border-white/[0.12]">
-      <span className="eyebrow absolute left-4 top-2.5 text-[10px] text-white/25">
+    <div className="pointer-events-none relative h-full w-full rounded-2xl border border-white/[0.05] bg-white/[0.012]">
+      <span className="cluster-drag-handle eyebrow pointer-events-auto absolute left-3 top-2 cursor-grab rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/35 transition-colors hover:border-white/20 hover:text-white/60 active:cursor-grabbing">
         {TIER_LABELS[data.tier]}
       </span>
     </div>
@@ -344,6 +344,8 @@ function FlowCanvasInner({
           zIndex: -1,
           selectable: false,
           focusable: false,
+          // Only the label pill initiates a group drag (see ClusterNode).
+          dragHandle: ".cluster-drag-handle",
         };
       }),
     [layout, data],

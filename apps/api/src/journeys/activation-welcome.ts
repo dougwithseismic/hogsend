@@ -5,6 +5,7 @@ import { Events, Templates } from "./constants/index.js";
 export const activationWelcome = defineJourney({
   meta: {
     id: "activation-welcome",
+    tier: "activation",
     name: "Activation — Welcome Series",
     enabled: true,
     trigger: { event: Events.USER_CREATED },

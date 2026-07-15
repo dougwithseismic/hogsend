@@ -45,6 +45,13 @@ export interface JourneyMeta {
   description?: string;
   enabled: boolean;
 
+  /**
+   * Lifecycle tier the control-room flow map draws this journey in — the
+   * same vocabulary surfaces use (`acquisition | activation | retention |
+   * revenue`). Defaults to `retention` when unset.
+   */
+  tier?: "acquisition" | "activation" | "retention" | "revenue";
+
   trigger: {
     event: string;
     where?: PropertyCondition[];

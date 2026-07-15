@@ -320,7 +320,9 @@ export function buildFlowTopology({
       id: journeyNodeId(meta.id),
       kind: "journey",
       name: meta.name || meta.id,
-      tier: "retention",
+      // The journey's own declared lifecycle stage; retention is the
+      // historical default for the unannotated.
+      tier: meta.tier ?? "retention",
     });
   }
 

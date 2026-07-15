@@ -5,6 +5,7 @@ import { Events, Templates } from "./constants/index.js";
 export const conversionTrialUpgrade = defineJourney({
   meta: {
     id: "conversion-trial-upgrade",
+    tier: "revenue",
     name: "Conversion — Trial to Paid",
     enabled: true,
     trigger: { event: Events.TRIAL_STARTED },

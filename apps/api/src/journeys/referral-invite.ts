@@ -5,6 +5,7 @@ import { Events, Templates } from "./constants/index.js";
 export const referralInvite = defineJourney({
   meta: {
     id: "referral-invite",
+    tier: "acquisition",
     name: "Referral — Post-Achievement Invite",
     enabled: true,
     trigger: { event: Events.MILESTONE_REACHED },
