@@ -22,7 +22,8 @@ import { fileURLToPath } from "node:url";
  *   9. (optional, interactive; only when PostHog was chosen) runs the real
  *      `hogsend connect posthog` OAuth flow against a briefly-booted API
  *
- * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
+ * After this, `hogsend dev` (or the manual `dev` + `worker:dev` pair) just
+ * works. Docs: docs.hogsend.com
  */
 
 // Default seed tenant baked into the hatchet-lite image. Overridden at runtime
@@ -961,8 +962,7 @@ async function main(): Promise<void> {
       // is serving yet until you start them.
       `  ${dim("Local infra is up (Postgres, Redis, Hatchet) — your app isn't running yet. Start it:")}`,
       "",
-      `    ${cyan(pmRun("dev"))}          ${dim(`# API + Studio on :${apiPort}`)}`,
-      `    ${cyan(pmRun("worker:dev"))}   ${dim("# Hatchet worker, 2nd terminal — runs your journeys")}`,
+      `    ${cyan(pmExec("hogsend dev"))}   ${dim(`# API + worker + Studio on :${apiPort}, one terminal`)}`,
       "",
       link("Studio", studioUrl, "# your dashboard (once dev is running)"),
       link(

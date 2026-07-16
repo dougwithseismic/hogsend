@@ -220,11 +220,12 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     ? `${color.dim("Agent skills:")} ${color.cyan(".claude/skills")}   ${color.dim("· Claude Code discovers them automatically")}`
     : `${color.dim("Add agent skills later:")} ${color.cyan(dlxCmd(pm, "hogsend skills add"))}`;
 
-  // Run-it: the two commands that actually start the app (it does NOT run after
-  // bootstrap — bootstrap only brings up the infra it depends on).
+  // Run-it: the one command that actually starts the app (it does NOT run
+  // after bootstrap — bootstrap only brings up the infra it depends on).
+  // `hogsend dev` is the daily driver: API + worker + health + URLs, one
+  // terminal (the manual `dev` + `worker:dev` pair is in the README).
   const run = [
-    `${color.cyan(scriptCmd(pm, "dev"))}   ${color.dim("# API + Studio on :3002")}`,
-    `${color.cyan(scriptCmd(pm, "worker:dev"))}   ${color.dim("# Hatchet worker, 2nd terminal — runs your journeys")}`,
+    `${color.cyan(binCmd(pm, "hogsend dev"))}   ${color.dim("# API + worker + Studio on :3002, one terminal")}`,
   ];
 
   // Where to go next — the three touchpoints the onboarding hinges on.
@@ -233,7 +234,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     linkRow(
       "Studio",
       STUDIO_LOCAL_URL,
-      `# dashboard — open it after ${scriptCmd(pm, "dev")}`,
+      `# dashboard — open it after ${binCmd(pm, "hogsend dev")}`,
     ),
     linkRow(
       "Docs",
@@ -428,8 +429,7 @@ async function main(): Promise<void> {
   } else {
     const pm = opts.packageManager;
     const cd = isCurrentDir(opts) ? "" : `    cd ${opts.dir}\n`;
-    const dev = scriptCmd(pm, "dev");
-    const worker = scriptCmd(pm, "worker:dev");
+    const dev = binCmd(pm, "hogsend dev");
     const skillsNote = opts.skills
       ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
@@ -451,8 +451,7 @@ async function main(): Promise<void> {
   Welcome to Hogsend. Next steps:
 
 ${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap")}     # Docker infra + .env + Hatchet token + migrate
-    ${dev}           # API + Studio on :3002
-    ${worker}    # Hatchet worker (second terminal)
+    ${dev}   # API + worker + Studio on :3002, one terminal
 
 ${links}
 ${skillsNote}${posthogNote}
