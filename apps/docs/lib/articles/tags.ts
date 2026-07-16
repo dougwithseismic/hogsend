@@ -1,6 +1,6 @@
 /**
- * Blog tag registry. Every `tags` entry in a post's frontmatter must be a key
- * here — unknown tags fail the build via `getTag` in lib/blog/index.ts.
+ * Article tag registry. Every `tags` entry in a post's frontmatter must be a key
+ * here — unknown tags fail the build via `getTag` in lib/articles/index.ts.
  */
 export const TAGS = {
   growth: { label: "Growth" },

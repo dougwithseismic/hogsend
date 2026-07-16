@@ -1,20 +1,20 @@
 import type { Metadata } from "next";
 import type { JSX } from "react";
-import { NewsletterCard } from "@/components/blog/newsletter-card";
-import { FeaturedPostCard, PostCard } from "@/components/blog/post-card";
-import { TagNav } from "@/components/blog/tag-nav";
+import { NewsletterCard } from "@/components/articles/newsletter-card";
+import { FeaturedPostCard, PostCard } from "@/components/articles/post-card";
+import { TagNav } from "@/components/articles/tag-nav";
 import { Eyebrow } from "@/components/ds/badge";
 import { Section } from "@/components/ds/section";
-import { getAllPosts, getFeaturedPost, getLiveTags } from "@/lib/blog";
+import { getAllPosts, getFeaturedPost, getLiveTags } from "@/lib/articles";
 
 export const metadata: Metadata = {
-  title: "Blog",
+  title: "Articles",
   description:
     "Growth, technical marketing, and go-to-market for teams that code — field notes from client work by Doug Silkstone and guests.",
-  alternates: { canonical: "/blog" },
+  alternates: { canonical: "/articles" },
 };
 
-export default function BlogPage(): JSX.Element {
+export default function ArticlesPage(): JSX.Element {
   const posts = getAllPosts();
   const featured = getFeaturedPost(posts);
   const feed = posts.filter((p) => p !== featured);
@@ -22,7 +22,7 @@ export default function BlogPage(): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
       <Section divider={false} containerClassName="pt-32 pb-16">
-        <Eyebrow className="mb-4">Blog</Eyebrow>
+        <Eyebrow className="mb-4">Articles</Eyebrow>
         <h1 className="max-w-3xl font-display text-[40px] text-white leading-[1.1] tracking-[-0.02em] md:text-[56px]">
           Growth, for teams that code
         </h1>

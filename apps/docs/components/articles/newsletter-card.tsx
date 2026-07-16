@@ -3,8 +3,8 @@ import { Eyebrow } from "@/components/ds/badge";
 import { EmailCapture } from "@/components/landing/email-capture";
 
 /**
- * Closing band on blog pages: the standard footer email capture inside a
- * card, with blog-specific framing.
+ * Closing band on article pages: the standard footer email capture inside a
+ * card, with articles-specific framing.
  */
 export function NewsletterCard(): JSX.Element {
   return (

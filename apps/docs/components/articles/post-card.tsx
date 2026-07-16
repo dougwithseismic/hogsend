@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { JSX } from "react";
-import { type BlogPost, formatPostDate } from "@/lib/blog";
-import { getAuthor } from "@/lib/blog/authors";
-import { TAGS, type TagSlug } from "@/lib/blog/tags";
+import { type Article, formatPostDate } from "@/lib/articles";
+import { getAuthor } from "@/lib/articles/authors";
+import { TAGS, type TagSlug } from "@/lib/articles/tags";
 import { cn } from "@/lib/cn";
 import { AuthorChip } from "./author";
 import { PostCover } from "./post-cover";
@@ -24,9 +24,9 @@ function TagRow({ tags }: { tags: string[] }): JSX.Element {
 
 /**
  * Featured post: full-width band — cover left, content right on desktop.
- * The big card at the top of /blog.
+ * The big card at the top of /articles.
  */
-export function FeaturedPostCard({ post }: { post: BlogPost }): JSX.Element {
+export function FeaturedPostCard({ post }: { post: Article }): JSX.Element {
   const author = getAuthor(post.data.author);
   return (
     <Link
@@ -64,7 +64,7 @@ export function PostCard({
   post,
   className,
 }: {
-  post: BlogPost;
+  post: Article;
   className?: string;
 }): JSX.Element {
   const author = getAuthor(post.data.author);
@@ -99,7 +99,7 @@ export function PostCard({
 }
 
 /** Compact card for the related-posts grid at the bottom of an article. */
-export function RelatedPostCard({ post }: { post: BlogPost }): JSX.Element {
+export function RelatedPostCard({ post }: { post: Article }): JSX.Element {
   const author = getAuthor(post.data.author);
   return (
     <Link

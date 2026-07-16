@@ -1,6 +1,6 @@
 import Image from "next/image";
 import type { JSX } from "react";
-import type { Author } from "@/lib/blog/authors";
+import type { Author } from "@/lib/articles/authors";
 import { cn } from "@/lib/cn";
 
 function initials(name: string): string {

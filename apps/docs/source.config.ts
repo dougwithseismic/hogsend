@@ -10,20 +10,20 @@ export const docs = defineDocs({
   dir: "content/docs",
 });
 
-export const blog = defineCollections({
+export const articles = defineCollections({
   type: "doc",
-  dir: "content/blog",
+  dir: "content/articles",
   schema: frontmatterSchema.extend({
     /** Publication date (YYYY-MM-DD; YAML may parse it as a Date). */
     date: z
       .union([z.string(), z.date()])
       .transform((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v))
       .pipe(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-    /** Author id — must exist in lib/blog/authors.ts. */
+    /** Author id — must exist in lib/articles/authors.ts. */
     author: z.string(),
-    /** Tag slugs — must exist in lib/blog/tags.ts. */
+    /** Tag slugs — must exist in lib/articles/tags.ts. */
     tags: z.array(z.string()).min(1),
-    /** Pin this post as the big featured card on /blog. */
+    /** Pin this post as the big featured card on /articles. */
     featured: z.boolean().default(false),
     /** Optional cover image path under /public. */
     image: z.string().optional(),

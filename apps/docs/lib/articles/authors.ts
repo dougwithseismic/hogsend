@@ -1,5 +1,5 @@
 /**
- * Blog author registry. A post's `author` frontmatter field must be a key
+ * Article author registry. A post's `author` frontmatter field must be a key
  * here. Guest authors get added as new entries — no code changes elsewhere.
  */
 export type Author = {
@@ -27,6 +27,6 @@ export const AUTHORS: Record<string, Author> = {
 
 export function getAuthor(id: string): Author {
   const author = AUTHORS[id];
-  if (!author) throw new Error(`Unknown blog author: ${id}`);
+  if (!author) throw new Error(`Unknown article author: ${id}`);
   return author;
 }

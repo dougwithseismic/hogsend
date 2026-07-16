@@ -1,15 +1,15 @@
 import Link from "next/link";
 import type { JSX } from "react";
-import type { TagSlug } from "@/lib/blog/tags";
+import type { TagSlug } from "@/lib/articles/tags";
 import { cn } from "@/lib/cn";
 
 type TagNavProps = {
   tags: { slug: TagSlug; label: string; count: number }[];
-  /** The active tag slug, or undefined on the unfiltered /blog page. */
+  /** The active tag slug, or undefined on the unfiltered /articles page. */
   active?: TagSlug;
 };
 
-/** Horizontal tag filter row under the blog header — "All" + live tags. */
+/** Horizontal tag filter row under the articles header — "All" + live tags. */
 export function TagNav({ tags, active }: TagNavProps): JSX.Element {
   const pill = (isActive: boolean) =>
     cn(
@@ -21,16 +21,16 @@ export function TagNav({ tags, active }: TagNavProps): JSX.Element {
 
   return (
     <nav
-      aria-label="Blog topics"
+      aria-label="Article topics"
       className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link href="/blog" className={pill(active === undefined)}>
+      <Link href="/articles" className={pill(active === undefined)}>
         All
       </Link>
       {tags.map((t) => (
         <Link
           key={t.slug}
-          href={`/blog/tag/${t.slug}`}
+          href={`/articles/tag/${t.slug}`}
           className={pill(active === t.slug)}
         >
           {t.label}
