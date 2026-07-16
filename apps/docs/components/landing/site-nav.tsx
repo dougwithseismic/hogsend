@@ -10,13 +10,13 @@ import {
   type DesktopDownload,
   resolveDesktopDownload,
 } from "@/lib/desktop-download";
+import { CATEGORIES, type CategorySlug } from "@/lib/playbook/categories";
 import { DISCORD_INVITE_URL, GITHUB_URL } from "@/lib/site";
 import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Components", href: "/components" },
   { label: "Templates", href: "/emails" },
-  { label: "Playbook", href: "/playbook" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
@@ -111,6 +111,31 @@ export const RECIPE_LINKS: MenuItem[] = [
     href: "/recipes/category/pipelines",
   },
 ];
+
+/**
+ * Playbook categories surfaced in the nav — only the lifecycle stages that
+ * have live plays (add a slug here when a category's first play ships;
+ * `referral` is still empty). Labels/blurbs come from the canonical registry
+ * so the menu can't drift from the /playbook chips.
+ */
+const PLAYBOOK_NAV_CATEGORIES: CategorySlug[] = [
+  "activation",
+  "onboarding",
+  "retention",
+  "revenue",
+  "winback",
+  "deliverability",
+  "measurement",
+];
+
+/** Items in the "Playbook" dropdown — deep links into the URL-synced explorer. */
+export const PLAYBOOK_LINKS: MenuItem[] = PLAYBOOK_NAV_CATEGORIES.map(
+  (slug) => ({
+    label: CATEGORIES[slug].label,
+    description: CATEGORIES[slug].blurb,
+    href: `/playbook?category=${slug}`,
+  }),
+);
 
 /** GitHub mark (inline so we don't pull an icon dep for the wordmark). */
 function GitHubMark({ className }: { className?: string }): JSX.Element {
@@ -310,6 +335,12 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             items={RECIPE_LINKS}
             footer={{ label: "Browse all 35 recipes →", href: "/recipes" }}
           />
+          <NavDropdown
+            label="Playbook"
+            triggerHref="/playbook"
+            items={PLAYBOOK_LINKS}
+            footer={{ label: "Browse all 13 plays →", href: "/playbook" }}
+          />
 
           {NAV_LINKS.map((link) => (
             <li key={link.href}>
@@ -440,6 +471,27 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
           >
             Browse all 35 recipes →
+          </Link>
+          <div className="my-2 h-px bg-hairline-faint" />
+          <span className="px-1 pt-1 pb-1.5 text-white/40 text-xs uppercase tracking-[0.08em]">
+            Playbook
+          </span>
+          {PLAYBOOK_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              className="rounded-[6px] px-1 py-2.5 text-base text-white/80 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {link.label}
+            </Link>
+          ))}
+          <Link
+            href="/playbook"
+            onClick={() => setMenuOpen(false)}
+            className="rounded-[6px] px-1 py-2.5 text-base text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Browse all 13 plays →
           </Link>
           <div className="mt-3">
             <Button
