@@ -438,9 +438,12 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 
           <div className="flex flex-col items-center mt-4 md:mt-6">
             <p className="max-w-[680px] text-white/75 text-base leading-[24px] tracking-[-0.025em] md:text-lg md:leading-[27px]">
-              Hogsend is lifecycle automation in TypeScript for product-led
+              Hogsend is the lifecycle automation framework for product-led
               teams. Written by you or your coding agent. Shipped like the rest
               of your product.
+            </p>
+            <p className="mt-3 font-mono text-[13px] text-white/45 tracking-[-0.01em]">
+              Think Next.js for growth engineering.
             </p>
           </div>
 
@@ -753,6 +756,39 @@ function PsProblem() {
             </div>
           ))}
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------ manifesto -- */
+
+/** The "why now" manifesto quote — a big centered display statement, two-tone
+ * (white lede → faint body), mirroring the use-case ProblemStatement block. */
+function PsManifesto() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
+        <Reveal className="flex flex-col items-center text-center">
+          <Eyebrow className="mb-8">Why now</Eyebrow>
+          <p
+            className={cn(
+              "mx-auto max-w-[920px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Go-to-market is an engineering discipline now. The
+              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word &mdash;
+              it&rsquo;s the job.
+            </span>{" "}
+            <span className="text-white/40">
+              Hogsend is ten years of product-led growth, handed to the scrappy
+              teams who build it in code.
+            </span>
+          </p>
+        </Reveal>
       </Container>
     </section>
   );
@@ -2739,6 +2775,7 @@ export default async function HomePage(): Promise<JSX.Element> {
       <PsProofStrip />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
+      <PsManifesto />
       <PsCode />
       <PsAgents />
       <PsUseCases />
