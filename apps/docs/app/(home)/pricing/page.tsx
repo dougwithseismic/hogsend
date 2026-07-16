@@ -321,14 +321,15 @@ export default function PricingPage(): JSX.Element {
 
                 <div className="mt-auto pt-8">
                   <div className="border-white/[0.08] border-t pt-6">
-                    <Button href="/docs/getting-started" variant="accent" icon>
+                    <Button
+                      href="/docs/getting-started"
+                      variant="accent"
+                      icon
+                      className="w-full justify-center"
+                    >
                       Start building
                     </Button>
                   </div>
-
-                  <p className="eyebrow mt-6 text-white/50">
-                    Software: $0 · every release included
-                  </p>
                 </div>
               </div>
             </Card>
@@ -366,18 +367,15 @@ export default function PricingPage(): JSX.Element {
                 </p>
 
                 <div className="mt-auto pt-8">
-                  <div className="border-white/[0.08] border-t pt-6">
+                  <div className="border-white/[0.08] border-t pt-6 text-center">
                     <CheckoutCta
                       tier="managed"
                       label="Get the managed instance"
                       variant="accent"
                       next="/pricing"
+                      className="w-full justify-center"
                     />
                   </div>
-
-                  <p className="eyebrow mt-6 text-white/50">
-                    Monthly · single-tenant · yours to take over
-                  </p>
                 </div>
               </div>
             </Card>
@@ -436,14 +434,15 @@ export default function PricingPage(): JSX.Element {
 
                 <div className="mt-auto pt-8">
                   <div className="border-white/[0.08] border-t pt-6">
-                    <Button href="/service#enquire" variant="accent" icon>
+                    <Button
+                      href="/service#enquire"
+                      variant="accent"
+                      icon
+                      className="w-full justify-center"
+                    >
                       Book a call
                     </Button>
                   </div>
-
-                  <p className="eyebrow mt-6 text-white/50">
-                    Monthly · 3-month minimum · your accounts
-                  </p>
                 </div>
               </div>
             </Card>

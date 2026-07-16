@@ -27,18 +27,27 @@ export function CheckoutCta({
   label,
   variant = "accent",
   next,
+  className,
 }: {
   tier: ServiceTierId;
   label: string;
   variant?: "accent" | "outline";
   /** Page to return to after sign-in / on cancel (e.g. "/pricing"). */
   next?: string;
+  /** Extra classes for the rendered Button (e.g. "w-full justify-center"). */
+  className?: string;
 }): JSX.Element {
   const checkoutEnabled = useFeatureFlag(FeatureFlag.SELF_SERVE_CHECKOUT);
 
   if (checkoutEnabled) {
     return (
-      <CheckoutButton tier={tier} label={label} variant={variant} next={next} />
+      <CheckoutButton
+        tier={tier}
+        label={label}
+        variant={variant}
+        next={next}
+        className={className}
+      />
     );
   }
 
@@ -47,7 +56,7 @@ export function CheckoutCta({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <Button href={href} variant={variant} icon>
+      <Button href={href} variant={variant} icon className={className}>
         Reach out to get started
       </Button>
       <p className="text-sm text-white/50">
