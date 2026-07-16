@@ -7,6 +7,7 @@ import { UserMenu } from "@/components/auth/user-menu";
 import { NavBell } from "@/components/hogsend/nav-bell";
 import {
   NavDropdown,
+  PLAYBOOK_LINKS,
   RECIPE_LINKS,
   USE_CASE_LINKS,
 } from "@/components/landing/site-nav";
@@ -15,7 +16,7 @@ import { DISCORD_INVITE_URL, GITHUB_URL } from "@/lib/site";
 import { DiscordMark, GitHubMark, InkLogo } from "./brand";
 
 /* The landing nav — the spike-polar 54px bar, now carrying the same surfaced
- * navigation as the interior SiteNav: the Use-cases and Recipes mega panels
+ * navigation as the interior SiteNav: the Use-cases, Recipes and Playbook mega panels
  * (shared data + panel component, restyled trigger) plus the flat links and a
  * mobile panel (the old PsNav had NO links at all below md).
  *
@@ -25,7 +26,6 @@ import { DiscordMark, GitHubMark, InkLogo } from "./brand";
  * top clearance (pt-32) keeps working with no per-page changes. */
 
 const FLAT_LINKS = [
-  { label: "Playbook", href: "/playbook" },
   { label: "Templates", href: "/emails" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
@@ -81,6 +81,13 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
               triggerHref="/recipes"
               items={RECIPE_LINKS}
               footer={{ label: "Browse all 35 recipes →", href: "/recipes" }}
+              triggerClassName={TRIGGER_CLASS}
+            />
+            <NavDropdown
+              label="Playbook"
+              triggerHref="/playbook"
+              items={PLAYBOOK_LINKS}
+              footer={{ label: "Browse all 13 plays →", href: "/playbook" }}
               triggerClassName={TRIGGER_CLASS}
             />
             {FLAT_LINKS.map((l) => (
@@ -188,6 +195,27 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 transition-colors hover:text-white"
           >
             Browse all 35 recipes →
+          </Link>
+          <div className="my-2 h-px bg-white/10" />
+          <span className="px-1 pt-1 pb-1.5 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+            Playbook
+          </span>
+          {PLAYBOOK_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={() => setMenuOpen(false)}
+              className="rounded-[6px] px-1 py-2.5 text-base text-white/80 transition-colors hover:text-white"
+            >
+              {l.label}
+            </Link>
+          ))}
+          <Link
+            href="/playbook"
+            onClick={() => setMenuOpen(false)}
+            className="rounded-[6px] px-1 py-2.5 text-base text-white/60 transition-colors hover:text-white"
+          >
+            Browse all 13 plays →
           </Link>
           <Link
             href="/portal"
