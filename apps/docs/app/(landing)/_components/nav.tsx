@@ -87,7 +87,7 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
               label="Playbook"
               triggerHref="/playbook"
               items={PLAYBOOK_LINKS}
-              footer={{ label: "Browse all 13 plays →", href: "/playbook" }}
+              footer={{ label: "Browse all 19 plays →", href: "/playbook" }}
               triggerClassName={TRIGGER_CLASS}
             />
             {FLAT_LINKS.map((l) => (
@@ -215,7 +215,7 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
             onClick={() => setMenuOpen(false)}
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 transition-colors hover:text-white"
           >
-            Browse all 13 plays →
+            Browse all 19 plays →
           </Link>
           <Link
             href="/portal"

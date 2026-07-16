@@ -114,9 +114,9 @@ export const RECIPE_LINKS: MenuItem[] = [
 
 /**
  * Playbook categories surfaced in the nav — only the lifecycle stages that
- * have live plays (add a slug here when a category's first play ships;
- * `referral` is still empty). Labels/blurbs come from the canonical registry
- * so the menu can't drift from the /playbook chips.
+ * have live plays (add a slug here when a category's first play ships).
+ * Labels/blurbs come from the canonical registry so the menu can't drift
+ * from the /playbook chips.
  */
 const PLAYBOOK_NAV_CATEGORIES: CategorySlug[] = [
   "activation",
@@ -124,6 +124,7 @@ const PLAYBOOK_NAV_CATEGORIES: CategorySlug[] = [
   "retention",
   "revenue",
   "winback",
+  "referral",
   "deliverability",
   "measurement",
 ];
@@ -339,7 +340,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             label="Playbook"
             triggerHref="/playbook"
             items={PLAYBOOK_LINKS}
-            footer={{ label: "Browse all 13 plays →", href: "/playbook" }}
+            footer={{ label: "Browse all 19 plays →", href: "/playbook" }}
           />
 
           {NAV_LINKS.map((link) => (
@@ -491,7 +492,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             onClick={() => setMenuOpen(false)}
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
           >
-            Browse all 13 plays →
+            Browse all 19 plays →
           </Link>
           <div className="mt-3">
             <Button
