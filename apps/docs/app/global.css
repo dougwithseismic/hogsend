@@ -220,3 +220,22 @@ samp {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Thermal texture morph — counter-phased slow opacity/drift loop; two sister
+   images running this in opposite phase read as one morphing field. */
+@keyframes thermal-morph {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(1.06) translate(1.5%, -1%);
+  }
+}
+
+.thermal-morph {
+  animation: thermal-morph 18s ease-in-out infinite;
+  will-change: opacity, transform;
+}

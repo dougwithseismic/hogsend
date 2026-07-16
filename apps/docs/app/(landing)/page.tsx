@@ -11,6 +11,11 @@ import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { Reveal } from "@/components/ds/reveal";
+import {
+  HalftoneOverlay,
+  ThermalCard,
+  ThermalLayer,
+} from "@/components/ds/thermal";
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
@@ -409,6 +414,10 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
             "radial-gradient(90% 60% at 50% 115%, rgba(246,72,56,0.28) 0%, rgba(246,72,56,0.1) 45%, transparent 75%)",
         }}
       />
+      {/* Generated thermal smoke morphing behind the copy, halftone riding
+          only where it glows. */}
+      <ThermalLayer strength={0.4} />
+      <HalftoneOverlay className="opacity-70" />
       <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
         <div className="flex w-full flex-col items-center">
           <div className="flex flex-col items-center">
@@ -1112,9 +1121,10 @@ function PsAgents() {
           </span>
           <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
             {BLUEPRINT_CARDS.map((c) => (
-              <div
+              <ThermalCard
                 key={c.title}
-                className="rounded-lg border border-white/10 bg-white/[0.03] p-6"
+                strength={0.08}
+                className="rounded-lg bg-white/[0.03]"
               >
                 <h3 className="font-medium text-base text-white tracking-[-0.025em]">
                   {c.title}
@@ -1122,7 +1132,7 @@ function PsAgents() {
                 <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
                   {c.body}
                 </p>
-              </div>
+              </ThermalCard>
             ))}
           </div>
         </div>
