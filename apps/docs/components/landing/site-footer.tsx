@@ -36,6 +36,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "Telegram", href: "/telegram" },
       { label: "Recipes", href: "/recipes" },
       { label: "Studio", href: "/docs/operating/studio" },
+      { label: "Articles", href: "/articles" },
       { label: "Changelog", href: "/changelog" },
     ],
   },

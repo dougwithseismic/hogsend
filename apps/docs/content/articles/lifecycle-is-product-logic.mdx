@@ -1,0 +1,43 @@
+---
+title: Lifecycle email is product logic. Treat it like product logic.
+description: The lifecycle stack usually lives in one marketer's browser tabs — invisible, unreviewed, and moving at click-speed while the product ships daily. That gap just got a lot more expensive.
+date: 2026-07-14
+author: doug
+tags: [growth, lifecycle, engineering]
+featured: true
+---
+
+Most companies don't have a lifecycle "codebase." They have a silo.
+
+It starts reasonably: someone owns marketing, and they pick the platform they already know — [Customer.io](/docs/compare/customer-io), [Brevo](/docs/compare/brevo), [Klaviyo](/docs/compare/klaviyo), whatever they used at the last job. The account lives on their email address. They wire up the [welcome series](/docs/recipes/welcome-series), the [trial nudges](/use-cases/trial-conversion), the [win-back flow](/use-cases/winback), clicking it together in the visual builder. It works. Nobody else ever looks at it.
+
+That's the whole system. Not a second codebase — a second *world*, with one inhabitant.
+
+## The silo fails in predictable ways
+
+**It lives and dies with its owner.** The workflows are on their login, named in their private shorthand, documented nowhere. When they leave — or just go on holiday during a billing incident — the company discovers that nobody else can even *read* the lifecycle layer, let alone change it.
+
+**Nobody ever sees it.** Product changes ship through review; everyone can read the diff. The trial-expiry flow changes when one person drags a node on a canvas, and the change history is a modified-date. There is no PR to comment on, no test to fail, no diff to read. Problems surface as customer replies.
+
+**The owner becomes the bottleneck.** Every lifecycle change — new trigger, new condition, new message — queues behind one person clicking through a UI. Meanwhile the product team ships features continuously, each one changing what users do, which events fire, what "activated" even means. The silo doesn't just move slower; it falls further behind every sprint, because its inputs are moving and its throughput is fixed.
+
+## AI made the gap embarrassing
+
+This was survivable when everyone was slow. It isn't anymore. An engineering team with AI-assisted development ships in an afternoon what used to take a week — new features, new flows, new events. The lifecycle layer's clock speed didn't change: it's still one person, clicking.
+
+The result is a widening mismatch at the exact seam where product meets revenue. The product outruns the messaging about the product. [Onboarding emails](/use-cases/onboarding) reference screens that were redesigned two sprints ago. The upgrade nudge fires on an event the product stopped emitting. Nobody notices, because nobody can see it.
+
+And the thing AI accelerates is *code*. [An agent can write, review, and test a TypeScript journey](/docs/agents); it cannot click through Customer.io's UI on someone else's login. Locking lifecycle logic in a dashboard doesn't just keep humans out — it keeps your fastest new contributor out too.
+
+## What treating it like product logic means
+
+Move the lifecycle layer [into the repo](/docs/concepts/philosophy), next to the product it serves:
+
+- **Shared, not owned.** Journeys are files. Anyone on the team can read them, and the person who knows the billing edge cases reviews the trial-expiry change before it ships.
+- **Versioned.** When reactivation tanks, `git log` says what changed and `git revert` fixes it. No archaeology in a vendor UI.
+- **Same vocabulary as the product.** The `Events.TRIAL_STARTED` constant the journey triggers on is the one the product emits. Rename it and the compiler finds every break — the silo's "event that quietly stopped firing" class of bug becomes impossible. ([Your event names matter more than you think](/articles/event-naming-is-a-growth-decision).)
+- **As fast as the rest of the team.** A lifecycle change is a PR, which means it moves at the same speed as everything else — including when an AI writes it.
+
+Marketing still needs to see what's running — that's a read surface ([dashboards, send logs, journey state](/docs/operating/studio)), and it can be excellent without being an editor. But authorship belongs where the speed is.
+
+The silo made sense when email tools were the only way to send email. Now it's a single point of failure attached to your revenue, moving at 2015 speed while everything around it compounds. That's the gap.

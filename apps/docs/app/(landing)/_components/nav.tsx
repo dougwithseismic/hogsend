@@ -28,6 +28,7 @@ const FLAT_LINKS = [
   { label: "Templates", href: "/emails" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
+  { label: "Articles", href: "/articles" },
   { label: "Changelog", href: "/changelog" },
 ];
 

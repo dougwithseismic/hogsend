@@ -382,16 +382,18 @@ export function EmailCapture({
 
   // Move focus into the freshly rendered step on each change so keyboard and
   // screen-reader users aren't stranded on the control that just unmounted —
-  // the step's fieldset announces its aria-label on focus. Skip the first
-  // render so we never auto-focus (and scroll to) the demo on page load.
+  // the step's fieldset announces its aria-label on focus. Only focus when the
+  // step actually CHANGED (not on mount): a boolean "skip first run" ref
+  // breaks under StrictMode's double-effect (refs persist across the re-run),
+  // which made every client navigation focus-scroll the page to this form.
   const groupRef = useRef<HTMLFieldSetElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const mounted = useRef(false);
+  const prevStep = useRef(step);
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
+    if (prevStep.current === step) {
       return;
     }
+    prevStep.current = step;
     if (step === "form") {
       nameRef.current?.focus();
     } else {

@@ -1,0 +1,40 @@
+---
+title: "GTM for engineers: shipping is not launching"
+description: Engineering-led products die quietly because the team treats the merge as the finish line. A launch is a distribution event, and distribution can be engineered too.
+date: 2026-06-12
+author: doug
+tags: [gtm, growth]
+---
+
+The most common failure I see in engineering-led products isn't the product. It's that the team ships a genuinely good feature, posts one tweet, and goes back to the backlog. The merge felt like the finish line, so nobody ran the part where users find out.
+
+Shipping is a repo event. Launching is a distribution event. They're different jobs, and the second one is more learnable than most engineers think — because it decomposes the same way systems do.
+
+## A launch is a pipeline, not a moment
+
+Treat "people who would benefit from this feature" as a queue to drain, not an audience to blast:
+
+1. **Existing users who hit the problem.** You have the events. Query for everyone who ran into the limitation this feature removes — the error, the abandoned flow, the support ticket — and tell *them* first, specifically, referencing the thing they hit. This is the highest-conversion message you will ever send and most teams never send it.
+2. **Existing users who haven't hit it yet.** In-product surface or lifecycle email, gated on the segment actually being relevant. Announcing your enterprise SSO feature to hobby-tier users trains everyone to ignore you.
+3. **The public.** Changelog, blog post, communities where the problem gets discussed. This is the layer teams treat as the whole launch. It's the smallest audience of the three that will actually convert.
+
+Notice the ordering: inside-out. The public post works better when your own users are already talking about the feature, and it costs nothing to sequence it that way.
+
+## Write the announcement before the code
+
+Old advice, still underused: draft the changelog entry when you *start* the work. Not as ceremony — as a spec test. If the entry reads "improved performance of the sync engine," you're about to spend three weeks on something you can't announce. Either find the user-visible claim ("syncs 10k-row tables in under a second") or question the prioritization.
+
+The draft also forces the instrumentation question early: how will you know it worked? "Launch went well" should mean a number — activations of the feature by the segment it was built for — and the event for that number has to exist before launch day, not after.
+
+## The repeatable part
+
+One good launch is luck. The compounding move is making it a checklist that runs on every release, the same way tests run on every commit:
+
+- Segment query written: who hit this problem?
+- Direct message to that segment drafted and scheduled
+- Lifecycle touch gated on relevance, not sprayed
+- Changelog entry states a claim a user can verify
+- Adoption event instrumented, dashboard exists
+- Public post links to all of the above
+
+Boring, mechanical, and it works — which is the point. Distribution doesn't require becoming a different kind of company. It requires treating "users find out" as part of the definition of done.

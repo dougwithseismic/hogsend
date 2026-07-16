@@ -1,0 +1,34 @@
+---
+title: "Measure, keep, grow — in that order"
+description: Most early teams run the sequence backwards — acquisition first, retention when churn hurts, measurement never. The order isn't a preference. Each stage is the input to the next.
+date: 2026-05-28
+author: doug
+tags: [growth, technical-marketing]
+---
+
+Ask an early-stage team about growth and you'll usually hear an acquisition plan: content, ads, launches, outbound. Ask what happens to users after signup and the answer gets vague. Ask how they'd *know* what happens after signup and the answer is a shrug at a half-configured analytics project.
+
+That's the growth sequence run backwards. The order that works is measure → keep → grow, and it's not a stylistic preference — each stage is literally the input to the next one.
+
+## Measure: you can't keep what you can't see
+
+Before retention work is possible, you need to see behavior: what did the user do, when, and what happened next. Concretely, the floor is:
+
+- A signup event with acquisition context (where did they come from)
+- An activation event — the moment they first got the product's value, defined explicitly, argued about, written down
+- The 3–5 usage events that constitute "actually using it"
+- Enough identity plumbing that the same human isn't three anonymous profiles
+
+That's a week of instrumentation work, maybe two. Teams skip it because it doesn't *feel* like growth. Then every downstream question — why do users churn? which acquisition channel produces users who stay? — becomes unanswerable, and the growth conversation runs on vibes.
+
+## Keep: retention is where the math lives
+
+The reason retention comes before acquisition is arithmetic, not philosophy. Acquisition pours into whatever retention curve you have. If the curve flattens at 30%, growth compounds; if it decays to zero, you're refilling a leaking bucket at ever-increasing cost — and worse, you're *learning* from users who were never going to stay.
+
+Retention work is unglamorous: onboarding that gets people to the activation event faster, lifecycle nudges when usage stalls, win-back when it stops, killing the confusing screen everyone drops off on. All of it depends on stage one — "usage stalled" is only a trigger if you measured usage.
+
+## Grow: acquisition, now with a denominator
+
+Once users stick, acquisition stops being a leap of faith and becomes an engineering problem with known constants. You know what an activated user is worth, so you know what you can pay. You know which channels produce users who retain (measured, stage one), so you scale those and cut the ones producing tourists. And the retention machinery (stage two) means every marginal user you buy is worth more than it would have been a quarter ago.
+
+Teams that run the sequence in order look slower for the first two months and faster forever after. Teams that run it backwards get the launch spike, watch it decay, and start over — usually with a new acquisition plan.
