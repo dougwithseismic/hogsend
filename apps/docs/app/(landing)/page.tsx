@@ -417,7 +417,7 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
       />
       {/* Generated thermal smoke morphing behind the copy, halftone riding
           only where it glows. */}
-      <ThermalLayer strength={0.22} />
+      <ThermalLayer strength={0.17} />
       <HalftoneOverlay className="opacity-40" />
       <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
         <div className="flex w-full flex-col items-center">
@@ -452,7 +452,7 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
               teams. Written by you or your coding agent. Shipped like the rest
               of your product.
             </p>
-            <p className="mt-3 font-mono text-[13px] text-white/45 tracking-[-0.01em]">
+            <p className="mt-3 font-mono text-[13px] text-white/45 uppercase tracking-[0.08em]">
               Think Next.js for growth engineering.
             </p>
           </div>
