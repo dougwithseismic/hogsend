@@ -1,0 +1,123 @@
+---
+title: Summon registrants where they actually are
+description: A go-live push across in-app, Discord, and email the minute the doors open.
+hook: Three hundred registered; the reminder landed at 2pm in an inbox tab nobody had open.
+category: activation
+personas: [gtm]
+channels: [email, discord, in-app]
+tags: [webinars, events, channels]
+date: 2026-07-16
+timeToResults: one week
+---
+
+A registration-to-attendance journey that stops treating email as the only
+doorbell: when the event goes live, the join link lands in the app, in
+Discord DMs, and in the inbox — whichever surface the registrant actually
+inhabits at that minute.
+
+## When to run it
+
+You run webinars, live demos, or launch streams. Registrations look
+healthy and the room doesn't, because the only go-live signal was an email
+competing with everything else that arrived at the same hour. The people
+who missed it weren't uninterested — they were somewhere else.
+
+## Why it works
+
+At doors-open the constraint isn't the message, it's presence. A reminder
+is worth exactly as much as the surface it appears on at that minute: a
+notification inside your product reaches whoever has it open, a Discord DM
+reaches the community members who live there, and email is the floor that
+reaches everyone eventually — which is the problem, at a moment when
+eventually is too late. Channels that report back make this a branch
+instead of a guess: a DM that can't be delivered says so, and the fallback
+fires in the same second.
+
+## The play
+
+1. Anchor the sequence to the start time, not to the send before it.
+2. At doors-open, push the join link on every owned surface at once:
+   in-app notification, chat DM where the account is linked, email as the
+   floor.
+3. Keep it to one line and one link. The message is a doorbell, not a
+   newsletter.
+4. When a channel refuses — closed DMs, no linked account — fall back
+   instead of double-sending.
+5. Send no-shows the replay within the hour of ending, while the calendar
+   block is still fresh.
+
+## Ship it with Hogsend
+
+One journey per registration: a durable sleep until start time, then the
+in-app [feed item](/docs/client-side/events), then the
+[Discord DM](/docs/integrations/discord) — which soft-refuses
+(`delivered: false`, never a throw) for unlinked contacts or closed DMs,
+so email picks up exactly the people the DM couldn't reach.
+
+```ts
+import {
+  defineJourney,
+  hours,
+  sendConnectorAction,
+  sendEmail,
+  sendFeedItem,
+} from "@hogsend/engine";
+
+export const webinarGoLive = defineJourney({
+  meta: {
+    id: "webinar-go-live",
+    trigger: { event: "webinar.registered" },
+    entryLimit: "unlimited",
+    suppress: hours(0),
+    exitOn: [{ event: "webinar.joined" }],
+  },
+  run: async (user, ctx) => {
+    const startsAt = new Date(String(user.properties.startsAt));
+    await ctx.sleepUntil(startsAt, { label: "doors-open" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const joinUrl = String(user.properties.joinUrl);
+
+    // the bell, for anyone with the product open right now
+    await sendFeedItem({
+      recipient: { userId: user.id },
+      type: "event",
+      title: "We're live — come in",
+      actionUrl: joinUrl,
+    });
+
+    // Discord DM for linked community members; soft-refuses otherwise
+    const dm = (await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: { member: user.email, content: `We're live: ${joinUrl}` },
+    })) as { delivered?: boolean };
+
+    if (!dm.delivered) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "events/were-live",
+        props: { joinUrl },
+      });
+    }
+  },
+});
+```
+
+If they join off the calendar invite before the push, `exitOn` cancels the
+run mid-sleep and nothing sends. For community-hosted events there's a
+sharper variant: journeys can trigger on `discord.presence_active`, the
+event a member emits when they surface in your server — so the summon can
+land the moment they appear, as in the
+[quiet-members recipe](/docs/recipes/re-engage-quiet-discord-members).
+Presence is an activity stream, not an online-status lookup: you can act
+when someone shows up, not check who's online.
+
+## How you'll know
+
+Show rate against your email-only baseline, and joins by surface — each
+channel carries its own link, so the click events tell you which doorbell
+actually got answered. That per-channel split is also the honest budget
+for next time: if the bell and the DMs fill the room, the reminder email
+can stop being three reminder emails.
