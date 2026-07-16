@@ -10,6 +10,7 @@ import { getMDXComponents } from "@/components/mdx";
 import { CopyPlayPrompt } from "@/components/playbook/copy-play-prompt";
 import { LadderCta } from "@/components/playbook/ladder-cta";
 import { PlayCard } from "@/components/playbook/play-card";
+import { PlayPager } from "@/components/playbook/play-pager";
 import { PlayViewTracker } from "@/components/playbook/play-tracking";
 import { PlaybookCapture } from "@/components/playbook/playbook-capture";
 import {
@@ -61,7 +62,16 @@ export default async function PlayPage({
   if (!play) notFound();
 
   const category = CATEGORIES[play.data.category as CategorySlug];
-  const related = toPlayIndex(getRelatedPlays(getAllPlays(), play));
+  const allPlays = getAllPlays();
+  const related = toPlayIndex(getRelatedPlays(allPlays, play));
+  // Prev/next in the same order as the index grid (newest first).
+  const ordered = toPlayIndex(allPlays);
+  const position = ordered.findIndex((p) => p.url === play.url);
+  const prevPlay = position > 0 ? ordered[position - 1] : undefined;
+  const nextPlay =
+    position >= 0 && position < ordered.length - 1
+      ? ordered[position + 1]
+      : undefined;
   const MDXBody = play.data.body;
   const canonicalUrl = `${SITE_URL}${play.url}`;
   const agentPrompt = await buildPlayPrompt({
@@ -165,6 +175,10 @@ export default async function PlayPage({
           </div>
         </Section>
       ) : null}
+
+      <Section containerClassName="pb-20">
+        <PlayPager prev={prevPlay} next={nextPlay} />
+      </Section>
     </main>
   );
 }
