@@ -152,7 +152,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What does the managed instance include?",
-    a: "Running the software: your own single-tenant Hogsend provisioned in its own Railway project, upgrades applied as they ship, monitoring, and the infrastructure cost. It does not include lifecycle work — journey authoring and strategy are the setup week and the done-for-you plan. The Railway project belongs to you from day one, so leaving means taking over the project or cancelling — nothing migrates.",
+    a: "Running the software: your own single-tenant Hogsend provisioned in its own Railway project, upgrades applied as they ship, monitoring, and the infrastructure cost. It does not include lifecycle work — journey authoring and strategy are the done-for-you plan (or the one-time setup week, if you only want the install). The Railway project belongs to you from day one, so leaving means taking over the project or cancelling — nothing migrates.",
   },
   {
     q: "What infrastructure does Hogsend need?",
@@ -496,87 +496,12 @@ export default function PricingPage(): JSX.Element {
         </div>
       </Section>
 
-      {/* ---- 3.3 What you actually pay for ------------------------------ */}
-      <Section>
-        <SectionHeading
-          eyebrow="Real costs"
-          title="What you actually pay for"
-          subtitle="Two line items, and neither of them comes from us."
-        />
-
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          <Reveal delay={0}>
-            <Card className="h-full">
-              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                Hosting
-              </h3>
-              <p className="mt-2.5 text-base text-white/60 leading-6">
-                A Railway project (
-                <Link
-                  href="/docs/operating/deploy-railway"
-                  className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
-                >
-                  one-click template
-                </Link>
-                , three env vars) or any Docker / Node 22 + Postgres host you
-                already run. The stack is Postgres (TimescaleDB), Redis,
-                Hatchet-Lite, and two Node services — the template provisions
-                all of it;{" "}
-                <code className="font-mono text-sm">pnpm bootstrap</code> stands
-                it up locally. The Hatchet token is minted by your own
-                Hatchet-Lite instance, not bought.
-              </p>
-              <p className="mt-4 text-base text-white/60 leading-6">
-                The entire stack — API, worker, Postgres/TimescaleDB, Redis, and
-                the Hatchet orchestrator — runs on Railway for roughly
-                $20–40/month at 5,000–50,000 contacts. The floor of that range
-                is measured — a small production instance of ours metered at
-                about $20/month of compute in July 2026 — and the top is an
-                estimate with headroom.
-              </p>
-            </Card>
-          </Reveal>
-
-          <Reveal delay={0.08}>
-            <Card className="h-full">
-              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                Email delivery
-              </h3>
-              <p className="mt-2.5 text-base text-white/60 leading-6">
-                Your own Resend or Postmark account, at their rates, on your
-                domain reputation. On Resend&apos;s transactional plans, Pro at
-                $20/month covers 50,000 emails; 100,000 emails is about
-                $35/month.
-              </p>
-            </Card>
-          </Reveal>
-
-          <Reveal delay={0.16}>
-            <Card className="h-full">
-              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                That&apos;s the whole list
-              </h3>
-              <p className="mt-2.5 text-base text-white/60 leading-6">
-                There is no Hogsend line item. You run the stack yourself, and
-                contact count meters into neither bill.
-              </p>
-            </Card>
-          </Reveal>
-        </div>
-
-        <p className="eyebrow mt-6 text-white/50">
-          Railway and Resend list prices checked July 2026.
-        </p>
-      </Section>
-
-      {/* ---- 3.3b Pricing calculator ------------------------------------ */}
-      <PricingCalculator />
-
-      {/* ---- 3.4 The rent models, compared ------------------------------ */}
+      {/* ---- 3.3 Compared + calculator (merged) -------------------------- */}
       <Section>
         <SectionHeading
           eyebrow="Compared"
           title="How the hosted tools price it"
+          subtitle="They meter contacts, profiles, or sends. Hogsend runs on your infrastructure, so there is no meter — the table shows their structure, the calculator shows both at your size."
         />
 
         <Reveal delay={0.08} className="mt-12">
@@ -652,6 +577,37 @@ export default function PricingPage(): JSX.Element {
             the prices for software they host and run for you. Hogsend runs on
             your own infrastructure — whether you operate it or we do — so there
             is no per-contact or per-send line.
+          </p>
+        </Reveal>
+
+        {/* At your size — the calculator, merged in under the table. */}
+        <div className="mt-20">
+          <SectionHeading
+            align="center"
+            eyebrow="At your size"
+            title="Two structures, side by side"
+            subtitle="Set your list size and monthly send volume. The left column is a contact-metered platform; the right column is Hogsend."
+          />
+          <div className="mt-12">
+            <PricingCalculator />
+          </div>
+        </div>
+
+        {/* Real costs, condensed — the whole bill in one paragraph. */}
+        <Reveal delay={0.1}>
+          <p className="mt-12 max-w-3xl text-base text-white/70 leading-6">
+            That&apos;s the whole bill: hosting — the{" "}
+            <Link
+              href="/docs/operating/deploy-railway"
+              className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
+            >
+              one-click Railway template
+            </Link>{" "}
+            provisions the entire stack for roughly $20–40/month at 5,000–50,000
+            contacts, the floor measured on a production instance of ours in
+            July 2026 — and your own Resend or Postmark account at their rates.
+            There is no Hogsend line item, and contact count meters into neither
+            bill.
           </p>
 
           <p className="mt-8 text-sm text-white/60">
