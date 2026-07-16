@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import type { JSX } from "react";
 import { ShareButtons } from "@/components/articles/share-buttons";
 import { Section } from "@/components/ds/section";
-import { ThermalLayer } from "@/components/ds/thermal";
+import { HalftoneOverlay, ThermalLayer } from "@/components/ds/thermal";
 import { getMDXComponents } from "@/components/mdx";
 import { CopyPlayPrompt } from "@/components/playbook/copy-play-prompt";
 import { LadderCta } from "@/components/playbook/ladder-cta";
@@ -19,7 +19,11 @@ import {
   playbookSource,
   toPlayIndex,
 } from "@/lib/playbook";
-import { CATEGORIES, type CategorySlug } from "@/lib/playbook/categories";
+import {
+  CATEGORIES,
+  type CategorySlug,
+  categoryHorizonGlow,
+} from "@/lib/playbook/categories";
 import { PERSONAS, type PersonaSlug } from "@/lib/playbook/personas";
 import { buildPlayPrompt } from "@/lib/playbook/prompt";
 import { SITE_URL } from "@/lib/site";
@@ -85,7 +89,17 @@ export default async function PlayPage({
     <main className="flex flex-1 flex-col">
       <PlayViewTracker slug={slug} category={play.data.category} />
       <Section divider={false} containerClassName="pt-32 pb-12">
-        <ThermalLayer strength={0.05} />
+        {/* Category-coded hero — the homepage horizon glow recolored to this
+            play's category accent, over the morphing thermal smoke. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-70 mix-blend-screen"
+          style={{
+            background: categoryHorizonGlow(play.data.category as CategorySlug),
+          }}
+        />
+        <ThermalLayer strength={0.08} />
+        <HalftoneOverlay className="opacity-30" />
         <Link
           href="/playbook"
           className="mb-8 inline-flex items-center gap-1.5 text-sm text-white/50 transition-colors hover:text-white"
