@@ -9,6 +9,7 @@ import { RelatedPostCard } from "@/components/articles/post-card";
 import { PostCover } from "@/components/articles/post-cover";
 import { ShareButtons } from "@/components/articles/share-buttons";
 import { Section } from "@/components/ds/section";
+import { ThermalLayer } from "@/components/ds/thermal";
 import { getMDXComponents } from "@/components/mdx";
 import {
   articlesSource,
@@ -68,6 +69,8 @@ export default async function ArticlePage({
   return (
     <main className="flex flex-1 flex-col">
       <Section divider={false} containerClassName="pt-32 pb-12">
+        {/* Barely-there thermal wash behind the article header. */}
+        <ThermalLayer strength={0.05} />
         <Link
           href="/articles"
           className="mb-8 inline-flex items-center gap-1.5 text-sm text-white/50 transition-colors hover:text-white"
