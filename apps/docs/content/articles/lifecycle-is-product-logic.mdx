@@ -1,45 +1,43 @@
 ---
 title: Lifecycle email is product logic. Treat it like product logic.
-description: The welcome series, the trial nudge, the win-back — they decide what your product does next for a user. So why do they live in a dashboard nobody reviews?
+description: The lifecycle stack usually lives in one marketer's browser tabs — invisible, unreviewed, and moving at click-speed while the product ships daily. That gap just got a lot more expensive.
 date: 2026-07-14
 author: doug
 tags: [growth, lifecycle, engineering]
 featured: true
 ---
 
-Every SaaS team I've worked with has two codebases. One is the product: reviewed, tested, versioned, deployed through CI. The other is the lifecycle layer — the welcome series, the trial-expiry nudge, the win-back sequence — and it lives in a marketing dashboard where the change history is "Sarah edited this workflow 3 weeks ago."
+Most companies don't have a lifecycle "codebase." They have a silo.
 
-Both codebases decide what your product does next for a user. Only one of them gets treated like it matters.
+It starts reasonably: someone owns marketing, and they pick the platform they already know — [Customer.io](/docs/compare/customer-io), [Brevo](/docs/compare/brevo), [Klaviyo](/docs/compare/klaviyo), whatever they used at the last job. The account lives on their email address. They wire up the [welcome series](/docs/recipes/welcome-series), the [trial nudges](/use-cases/trial-conversion), the [win-back flow](/use-cases/winback), clicking it together in the visual builder. It works. Nobody else ever looks at it.
 
-## The dashboard tax
+That's the whole system. Not a second codebase — a second *world*, with one inhabitant.
 
-Visual workflow builders optimize for the demo, not the tenth month of operation. The costs show up later:
+## The silo fails in predictable ways
 
-- **No review.** A branch condition gets flipped by accident and nobody notices until a customer forwards the wrong email to support.
-- **No tests.** You can't write an assertion against a drag-and-drop canvas. The QA process is "send it to yourself and squint."
-- **No environments.** The workflow that runs in production is the only copy that exists. There is no staging lifecycle.
-- **No composition.** Twelve workflows that each check "is this user on a paid plan?" twelve slightly different ways.
+**It lives and dies with its owner.** The workflows are on their login, named in their private shorthand, documented nowhere. When they leave — or just go on holiday during a billing incident — the company discovers that nobody else can even *read* the lifecycle layer, let alone change it.
 
-None of this is the vendor's fault, exactly. It's the medium. Logic that lives outside the repo drifts from the product it's supposed to serve, because the repo is where the product's truth lives.
+**Nobody ever sees it.** Product changes ship through review; everyone can read the diff. The trial-expiry flow changes when one person drags a node on a canvas, and the change history is a modified-date. There is no PR to comment on, no test to fail, no diff to read. Problems surface as customer replies.
 
-## What "product logic" treatment actually means
+**The owner becomes the bottleneck.** Every lifecycle change — new trigger, new condition, new message — queues behind one person clicking through a UI. Meanwhile the product team ships features continuously, each one changing what users do, which events fire, what "activated" even means. The silo doesn't just move slower; it falls further behind every sprint, because its inputs are moving and its throughput is fixed.
 
-Moving lifecycle into code isn't about developer aesthetics. It buys you the same things it buys the rest of the product:
+## AI made the gap embarrassing
 
-**Review.** A journey change is a pull request. The person who knows the billing edge cases sees the trial-expiry change before it ships.
+This was survivable when everyone was slow. It isn't anymore. An engineering team with AI-assisted development ships in an afternoon what used to take a week — new features, new flows, new events. The lifecycle layer's clock speed didn't change: it's still one person, clicking.
 
-**Tests.** "A user who signs up and never creates a project gets exactly one nudge, then stops" is an assertion, not a hope.
+The result is a widening mismatch at the exact seam where product meets revenue. The product outruns the messaging about the product. [Onboarding emails](/use-cases/onboarding) reference screens that were redesigned two sprints ago. The upgrade nudge fires on an event the product stopped emitting. Nobody notices, because nobody can see it.
 
-**Versioning.** When the win-back sequence tanks reactivation, `git log` tells you what changed and `git revert` fixes it.
+And the thing AI accelerates is *code*. [An agent can write, review, and test a TypeScript journey](/docs/agents); it cannot click through Customer.io's UI on someone else's login. Locking lifecycle logic in a dashboard doesn't just keep humans out — it keeps your fastest new contributor out too.
 
-**Shared vocabulary.** The `Events.TRIAL_STARTED` constant your journey triggers on is the same one the product emits. Rename it and the compiler tells you every place that breaks.
+## What treating it like product logic means
 
-## The counterargument, taken seriously
+Move the lifecycle layer [into the repo](/docs/concepts/philosophy), next to the product it serves:
 
-"But marketers can't edit code." True, and worth being honest about: putting journeys in the repo moves authorship to engineers. Two things make that a better trade than it looks.
+- **Shared, not owned.** Journeys are files. Anyone on the team can read them, and the person who knows the billing edge cases reviews the trial-expiry change before it ships.
+- **Versioned.** When reactivation tanks, `git log` says what changed and `git revert` fixes it. No archaeology in a vendor UI.
+- **Same vocabulary as the product.** The `Events.TRIAL_STARTED` constant the journey triggers on is the one the product emits. Rename it and the compiler finds every break — the silo's "event that quietly stopped firing" class of bug becomes impossible. ([Your event names matter more than you think](/articles/event-naming-is-a-growth-decision).)
+- **As fast as the rest of the team.** A lifecycle change is a PR, which means it moves at the same speed as everything else — including when an AI writes it.
 
-First, in most PLG teams the dashboard workflows were already being written by whoever understood the data — usually a growth engineer — because the conditions ("has created a project, is on a workspace with 3+ seats, hasn't hit the paywall") are product conditions. The dashboard wasn't empowering marketing; it was forcing engineers to program with a mouse.
+Marketing still needs to see what's running — that's a read surface ([dashboards, send logs, journey state](/docs/operating/studio)), and it can be excellent without being an editor. But authorship belongs where the speed is.
 
-Second, observation and authorship are different jobs. Marketing needs to see what's running, who's in which journey, what got sent, what converted. That's a read surface, and it can be excellent without being an editor. The mistake is conflating "stakeholders need visibility" with "stakeholders need a canvas."
-
-The teams that ship the best lifecycle programs I've seen run it exactly like the rest of their product: logic in the repo, dashboards for observing the run. That's not a tooling preference. It's just what taking the revenue seriously looks like.
+The silo made sense when email tools were the only way to send email. Now it's a single point of failure attached to your revenue, moving at 2015 speed while everything around it compounds. That's the gap.
