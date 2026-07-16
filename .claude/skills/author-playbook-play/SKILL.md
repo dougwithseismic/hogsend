@@ -18,6 +18,7 @@ description: One sentence, for meta tags and cards.
 hook: The one-line symptom the reader recognizes — present tense, their pain.
 category: one of activation | onboarding | retention | revenue | winback | referral | deliverability | measurement (registry: lib/playbook/categories.ts)
 personas: [] or a subset of gtm | founders | recruiters | internal | agencies (registry: lib/playbook/personas.ts; empty = everyone)
+channels: subset of email | sms | ads | video (registry: lib/playbook/channels.ts) — only channels the play's body actually uses; feeds the filter drawer
 tags: [two, or, three]
 date: YYYY-MM-DD
 timeToResults: honest — "same day", "one week", "2–4 weeks", "ongoing"
