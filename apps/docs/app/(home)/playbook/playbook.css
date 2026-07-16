@@ -1,0 +1,58 @@
+/* Play body typography — the five-part template as numbered sections. Scoped
+   by class so it can't leak into docs/articles surfaces. */
+
+.play-prose {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  counter-reset: play-step;
+}
+
+.play-prose > :first-child {
+  margin-top: 0;
+}
+
+.play-prose p {
+  margin-block: 1.25rem;
+}
+
+.play-prose h2 {
+  counter-increment: play-step;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-block: 3rem 1rem;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.play-prose h2::before {
+  content: counter(play-step, decimal-leading-zero);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.play-prose ol,
+.play-prose ul {
+  margin-block: 1.25rem;
+  padding-inline-start: 1.5rem;
+}
+
+.play-prose li {
+  margin-block: 0.5rem;
+}
+
+.play-prose a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+}
+
+.play-prose a:hover {
+  text-decoration-color: rgba(255, 255, 255, 0.7);
+}
