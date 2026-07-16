@@ -1,6 +1,6 @@
 ---
 title: Warm up a new sending domain without burning it
-description: A staged-volume journey that ramps a fresh sending domain's reputation before real send volume hits it.
+description: A staged-volume ramp that builds a fresh sending domain's reputation before real volume hits it.
 hook: A brand-new sending domain goes straight to spam the day you turn on real volume.
 category: deliverability
 personas: [agencies]
@@ -9,44 +9,68 @@ date: 2026-07-12
 timeToResults: 2–4 weeks
 ---
 
-{/* Draft skeleton — voice pass pending (#492 content phase). */}
-
 ## When to run it
 
-You see `payment_failed` events and no follow-up. Placeholder symptom copy —
-one short paragraph naming the trigger and who feels it.
+You're standing up lifecycle email on a new domain or subdomain — a client
+launch, a migration off a shared IP, a `mail.` subdomain to isolate
+marketing from transactional. Mailbox providers have no history for the
+domain, and no history is treated as suspicion: full volume on day one is
+the classic self-inflicted deliverability wound, and recovering a burned
+domain takes far longer than warming one.
 
 ## Why it works
 
-Placeholder mechanism copy — why the timing and channel work, with a real
-number where we honestly have one.
+Inbox providers score senders on the pattern of their history: volume
+growth, bounce rate, complaint rate, and whether recipients engage. A ramp
+that starts small and grows steadily *is* the good-sender pattern. Sending
+the early, small batches to your most-engaged recipients stacks the deck —
+their opens and clicks are the positive signals that compound into
+reputation, which is why warmup order matters as much as warmup volume.
 
 ## The play
 
-1. Placeholder step one.
-2. Placeholder step two.
-3. Placeholder step three.
+1. Do the table stakes first: SPF, DKIM, and DMARC on the new domain, and
+   a matching tracking domain so links resolve through it too.
+2. Segment by engagement — recipients who opened or clicked recently go
+   first. Hogsend's first-party open/click tracking means you already have
+   this data on your own sends.
+3. Ramp on a schedule: start in the low dozens per day, roughly double
+   every few days, and hold volume flat for a day whenever bounces or
+   complaints tick up.
+4. Suppress hard bounces immediately — a warming domain has no reputation
+   cushion to absorb them.
+5. Only route real campaign volume once the ramp completes clean.
 
 ## Ship it with Hogsend
 
-```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+Broadcast waves split a send into scheduled slices, so the ramp is
+configuration instead of a spreadsheet and a calendar. The engagement
+segment comes from your own send history.
 
-export const sendingDomainWarmup = defineJourney({
-  meta: {
-    id: "sending-domain-warmup",
-    trigger: { event: "sending_domain.created" },
-    entryLimit: { type: "once_per_period", period: days(30) },
-  },
-  run: async (user, ctx) => {
-    await sendEmail({ to: user.email, template: "dunning-notice" });
-    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
-  },
-});
+```ts
+// A warmup wave plan: the same broadcast, released in slices.
+// Each wave goes to the next tranche of the engaged-first segment.
+const warmupWaves = [
+  { day: 1, recipients: 50 },
+  { day: 3, recipients: 100 },
+  { day: 6, recipients: 250 },
+  { day: 9, recipients: 500 },
+  { day: 13, recipients: 1_000 },
+  { day: 18, recipients: 2_500 },
+  // hold or step back a wave if bounces/complaints rise
+];
 ```
+
+Bounces and complaints flow back through the provider webhook
+(`email.bounced` / `email.complained`) and suppress automatically —
+[campaigns and broadcasts](/docs/guides/campaigns) covers waves and the
+delivery events end to end.
 
 ## How you'll know
 
-Placeholder metric copy — the event that proves recovery, e.g. recovered
-`payment_succeeded` within 7 days of `payment_failed`.
+Bounce rate and complaint rate per wave — bounces under a couple of
+percent and complaints well under one in a thousand are the widely
+published thresholds providers punish past. The engine's `email.delivered`
+and `email.opened` events give you per-wave delivery and engagement
+without leaving Hogsend; if a wave degrades, hold the ramp rather than
+push through it.

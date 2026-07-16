@@ -9,44 +9,84 @@ date: 2026-07-07
 timeToResults: ongoing
 ---
 
-{/* Draft skeleton — voice pass pending (#492 content phase). */}
-
 ## When to run it
 
-You see `payment_failed` events and no follow-up. Placeholder symptom copy —
-one short paragraph naming the trigger and who feels it.
+Every filled role produces a runner-up you'd have happily hired — vetted,
+interviewed, liked by the team. Six months later a near-identical role
+opens and the process starts from a cold job board, because the silver
+medalist lives in a closed ATS ticket nobody re-reads.
 
 ## Why it works
 
-Placeholder mechanism copy — why the timing and channel work, with a real
-number where we honestly have one.
+A silver medalist is the cheapest strong candidate you will ever source:
+the screening is done, the interviews are done, and the rejection was
+circumstantial, not qualitative. What kills the channel is silence — a
+candidate who hears nothing for six months applies elsewhere and
+remembers you as a no. A light cadence keeps the relationship warm at
+near-zero cost, and the tone can be honest precisely because you're not
+selling a live role.
 
 ## The play
 
-1. Placeholder step one.
-2. Placeholder step two.
-3. Placeholder step three.
+1. Emit a `candidate.rejected` event from your ATS with a
+   `silverMedalist` flag — the recruiter sets it at rejection time, while
+   the judgment is fresh.
+2. Two days after the rejection, send a personal note that says the true
+   thing: strong candidate, close call, we want to stay in touch.
+3. Every couple of months, send something with no ask in it — team news,
+   a relevant role at a friendly company, a launch.
+4. When a matching role opens, the re-approach is warm: "you were our
+   next call."
+5. Exit the moment they're hired or ask to be removed.
 
 ## Ship it with Hogsend
 
 ```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
 
-export const silverMedalistKeepWarm = defineJourney({
+export const silverMedalist = defineJourney({
   meta: {
     id: "silver-medalist-keep-warm",
-    trigger: { event: "candidate.rejected" },
-    entryLimit: { type: "once_per_period", period: days(30) },
+    trigger: {
+      event: "candidate.rejected",
+      where: (b) => b.prop("silverMedalist").eq(true),
+    },
+    entryLimit: "once",
+    suppress: hours(0),
+    exitOn: [
+      { event: "candidate.hired" },
+      { event: "candidate.opted_out" },
+    ],
   },
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, template: "dunning-notice" });
-    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+    await ctx.sleep({ duration: days(2), label: "let-rejection-land" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "talent/stay-in-touch",
+    });
+
+    for (const touch of ["check-in-1", "check-in-2", "check-in-3"]) {
+      await ctx.sleep({ duration: days(60), label: touch });
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "talent/keep-warm-note",
+        idempotencyLabel: touch,
+      });
+    }
   },
 });
 ```
 
+The waits are durable — a journey that spans six months survives every
+deploy in between, which is exactly why this play doesn't work as a
+calendar reminder.
+
 ## How you'll know
 
-Placeholder metric copy — the event that proves recovery, e.g. recovered
-`payment_succeeded` within 7 days of `payment_failed`.
+Track `candidate.reengaged` (a reply or a re-application) against the
+keep-warm cohort, and time-to-fill on roles where the shortlist opened
+with a silver medalist versus a cold search. One rehire from the pool
+beats a sourcing fee, and the events to prove it are already flowing.

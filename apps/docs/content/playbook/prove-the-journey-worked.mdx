@@ -9,44 +9,73 @@ date: 2026-07-14
 timeToResults: one month
 ---
 
-{/* Draft skeleton — voice pass pending (#492 content phase). */}
-
 ## When to run it
 
-You see `payment_failed` events and no follow-up. Placeholder symptom copy —
-one short paragraph naming the trigger and who feels it.
+The journey has been live for a quarter, the send counts look healthy, and
+someone asks the only question that matters: did it work? If the answer
+starts with "well, opens are up", you have engagement numbers standing in
+for an outcome. For an agency this is existential — the retainer renews on
+proof, not on sends.
 
 ## Why it works
 
-Placeholder mechanism copy — why the timing and channel work, with a real
-number where we honestly have one.
+The reason most journeys can't be defended is that the outcome was never
+defined as an event. "Improve retention" can't be measured; "a
+`session.started` within 14 days of the winback send" can. Naming the
+outcome event *before* shipping does two things: it forces the journey to
+have a falsifiable job, and it makes the measurement free — the conversion
+is a query over events you're already collecting, not a data project.
 
 ## The play
 
-1. Placeholder step one.
-2. Placeholder step two.
-3. Placeholder step three.
+1. For each journey, write the claim as an event within a window: trigger
+   → outcome, e.g. `invoice.payment_failed` → `invoice.paid` within 7
+   days.
+2. Ship the journey with a holdout — a slice of eligible users who enter
+   nothing. This is the difference between "conversions happened" and
+   "the journey caused them".
+3. Read the three tiers honestly: touched (saw the journey), attributed
+   (converted inside the window), incremental (lift over the holdout).
+   Only the last one is allowed to say "caused".
+4. Review monthly. Kill or rewrite journeys whose lift is
+   indistinguishable from zero — a lifecycle system earns trust by
+   deleting its own dead weight.
 
 ## Ship it with Hogsend
 
-```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+The holdout is one line of journey meta; the engine assigns eligible users
+to the held-out cohort and the lift endpoint does the comparison.
 
-export const proveTheJourneyWorked = defineJourney({
+```ts
+import { days, defineJourney, hours } from "@hogsend/engine";
+
+export const winbackMeasured = defineJourney({
   meta: {
-    id: "prove-the-journey-worked",
-    trigger: { event: "journey.completed" },
-    entryLimit: { type: "once_per_period", period: days(30) },
+    id: "dormant-user-winback",
+    trigger: { event: "user.inactive_90d" },
+    entryLimit: "once_per_period",
+    entryPeriod: days(90),
+    suppress: hours(0),
+    // 10% of eligible users enter nothing — the control group.
+    holdout: { percent: 10 },
   },
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, template: "dunning-notice" });
-    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+    // …the winback play, unchanged
   },
 });
 ```
 
+At low volume the lift report says "not enough data yet" instead of
+dressing noise in a percentage — the win probability is suppressed under
+10 combined conversions. The full model — attribution windows, scoped
+credit, and the three claim tiers — is documented in
+[conversions & impact](/docs/conversions/impact), and
+[cross-journey funnels](/docs/recipes/cross-journey-funnels) covers
+measuring a sequence of journeys as one path.
+
 ## How you'll know
 
-Placeholder metric copy — the event that proves recovery, e.g. recovered
-`payment_succeeded` within 7 days of `payment_failed`.
+This play's output *is* the knowing: a monthly one-pager per journey —
+trigger, outcome event, window, conversion rate, lift over holdout. The
+first time it kills a journey everyone assumed was working, it has paid
+for the setup.

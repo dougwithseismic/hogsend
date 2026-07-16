@@ -9,44 +9,86 @@ date: 2026-07-04
 timeToResults: one week
 ---
 
-{/* Draft skeleton — voice pass pending (#492 content phase). */}
-
 ## When to run it
 
-You see `payment_failed` events and no follow-up. Placeholder symptom copy —
-one short paragraph naming the trigger and who feels it.
+The offer is signed and the start date is six weeks out. In between, the
+new hire hears nothing from you and plenty from everyone else — a
+counter-offer from their current employer, a recruiter with a shinier
+role. Ghosted start dates and cold-feet renegotiations cluster in exactly
+this silent window.
 
 ## Why it works
 
-Placeholder mechanism copy — why the timing and channel work, with a real
-number where we honestly have one.
+Signing an offer is an emotional peak; the weeks after are where doubt
+lives. A pre-boarding sequence keeps the decision feeling made: a note
+from their future manager, what their first week actually looks like, the
+team they're joining. Each touch is small, but the cumulative effect is
+that by day one they've already "started" — and a counter-offer has to
+beat a relationship, not a PDF.
 
 ## The play
 
-1. Placeholder step one.
-2. Placeholder step two.
-3. Placeholder step three.
+1. Trigger on `candidate.offer_accepted` with the start date as an event
+   property — the whole sequence keys off that date.
+2. Week one: a personal welcome from the hiring manager, not from
+   `no-reply@`.
+3. Midway: the practical stuff — first-week schedule, who they'll meet,
+   what to bring — the email people actually save.
+4. Three days out: a short "we're ready for you" with day-one logistics.
+5. Exit instantly if the hire withdraws or the start date moves.
 
 ## Ship it with Hogsend
 
-```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+`ctx.sleepUntil` plus the `ctx.when` scheduler turn "three days before the
+start date, at 9am their time" into one line — the waits are durable, so a
+six-week gap survives every deploy in between.
 
-export const preBoardingSequence = defineJourney({
+```ts
+import { durationToMs } from "@hogsend/core";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const preBoarding = defineJourney({
   meta: {
     id: "pre-boarding-sequence",
     trigger: { event: "candidate.offer_accepted" },
-    entryLimit: { type: "once_per_period", period: days(30) },
+    entryLimit: "once",
+    suppress: hours(0),
+    exitOn: [{ event: "candidate.withdrawn" }],
   },
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, template: "dunning-notice" });
-    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+    const startDate = new Date(String(user.properties.startDate));
+    const daysBefore = (n: number) =>
+      new Date(startDate.getTime() - durationToMs(days(n)));
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/manager-welcome",
+    });
+
+    await ctx.sleepUntil(daysBefore(14), { label: "two-weeks-out" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/first-week-guide",
+    });
+
+    await ctx.sleepUntil(daysBefore(3), { label: "three-days-out" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/day-one-logistics",
+    });
   },
 });
 ```
 
+The same date-anchored shape drives the [event reminder sequence
+recipe](/docs/recipes/event-reminder-sequence).
+
 ## How you'll know
 
-Placeholder metric copy — the event that proves recovery, e.g. recovered
-`payment_succeeded` within 7 days of `payment_failed`.
+Day-one show rate, and replies — pre-boarding emails from a real manager
+address get answered, and every reply is a hire who's still engaged. If
+you run enough volume, compare withdrawal rates before and after the
+sequence shipped.

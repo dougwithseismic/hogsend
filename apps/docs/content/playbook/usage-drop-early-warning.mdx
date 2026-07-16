@@ -9,44 +9,82 @@ date: 2026-07-05
 timeToResults: same week
 ---
 
-{/* Draft skeleton — voice pass pending (#492 content phase). */}
-
 ## When to run it
 
-You see `payment_failed` events and no follow-up. Placeholder symptom copy —
-one short paragraph naming the trigger and who feels it.
+Churn reviews keep finding the same story: the account's usage fell off a
+cliff weeks before the cancellation, and nobody was looking. By the time
+the cancellation email arrives, the customer has already re-solved the
+problem somewhere else — the save conversation you're having is the one
+that should have happened at the drop.
 
 ## Why it works
 
-Placeholder mechanism copy — why the timing and channel work, with a real
-number where we honestly have one.
+At the moment usage drops, the customer still has the workflow, the data,
+and the muscle memory in your product — switching costs are still on your
+side. Two weeks later, none of that is true. An early-warning play converts
+churn from a verdict you receive into a signal you act on, and the outreach
+that works at this stage is a genuine check-in ("did something change on
+your side?"), not a discount.
 
 ## The play
 
-1. Placeholder step one.
-2. Placeholder step two.
-3. Placeholder step three.
+1. Define the drop upstream — a scheduled job or a PostHog cohort that
+   compares this week's core-action count to the trailing average — and
+   emit one event, `usage.dropped`, with the size of the drop.
+2. Route big drops to a human: an internal alert with the account, the
+   number, and the owner. Small drops get the automated check-in.
+3. Send the check-in as plain text from a person, one question, no CTA
+   button. It should read like an email a founder would actually write.
+4. Give the account two weeks to recover before it counts as saved or
+   lost.
 
 ## Ship it with Hogsend
 
-```ts
-import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+The detection lives in your analytics; the journey handles the response.
+Property conditions on the trigger split the human path from the automated
+one.
 
-export const usageDropEarlyWarning = defineJourney({
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const usageDropWarning = defineJourney({
   meta: {
     id: "usage-drop-early-warning",
-    trigger: { event: "usage.drop_detected" },
-    entryLimit: { type: "once_per_period", period: days(30) },
+    trigger: {
+      event: "usage.dropped",
+      where: (b) => b.prop("dropPct").gte(50),
+    },
+    // A slow slide re-fires the detector; don't re-enter for a month.
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(0),
   },
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, template: "dunning-notice" });
-    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "retention/founder-checkin",
+    });
+    const recovered = await ctx.waitForEvent({
+      event: "usage.recovered",
+      timeout: days(14),
+      label: "await-recovery",
+    });
+    if (recovered.timedOut) {
+      // Escalate to a human while there's still an account to save.
+      await ctx.trigger({ event: "account.at_risk", userId: user.id });
+    }
   },
 });
 ```
 
+Routing the `account.at_risk` escalation into Slack or Discord is the
+[lifecycle alerts recipe](/docs/recipes/lifecycle-alerts-in-slack).
+
 ## How you'll know
 
-Placeholder metric copy — the event that proves recovery, e.g. recovered
-`payment_succeeded` within 7 days of `payment_failed`.
+Recovery rate: accounts emitting `usage.recovered` within 14 days of
+`usage.dropped`. Over a quarter, compare churn among flagged-and-contacted
+accounts against what your churn reviews used to find — the play pays for
+itself with a small number of saves, because these are existing-revenue
+accounts.
