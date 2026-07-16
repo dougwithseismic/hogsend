@@ -9,6 +9,9 @@ date: 2026-07-14
 timeToResults: one month
 ---
 
+A measurement discipline that ties every automation to one outcome, defined
+before it ships — so "did it work" has a number instead of an anecdote.
+
 ## When to run it
 
 The journey has been live for a quarter, the send counts look healthy, and
@@ -28,8 +31,8 @@ is a query over events you're already collecting, not a data project.
 
 ## The play
 
-1. For each journey, write the claim as an event within a window: trigger
-   → outcome, e.g. `invoice.payment_failed` → `invoice.paid` within 7
+1. For each journey, write the claim as an outcome within a window:
+   trigger → result, e.g. payment failed → payment recovered within 7
    days.
 2. Ship the journey with a holdout — a slice of eligible users who enter
    nothing. This is the difference between "conversions happened" and

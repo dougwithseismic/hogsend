@@ -9,6 +9,10 @@ date: 2026-07-08
 timeToResults: one week
 ---
 
+A single well-aimed re-engagement email for users who quietly stopped
+showing up months ago — led by what's new since they left, not by "we miss
+you".
+
 ## When to run it
 
 Your contacts table is full of people who used the product, stopped, and
@@ -29,13 +33,13 @@ segment honest.
 
 ## The play
 
-1. Detect dormancy upstream — a nightly job or PostHog cohort that emits
-   `user.inactive_90d` when a once-active user crosses the threshold.
+1. Detect dormancy upstream — a nightly job or an analytics cohort that
+   flags a once-active user crossing the 90-day threshold.
 2. Send one email: two or three concrete changes since their last login,
    one link back in. No discount on the first touch — lead with product.
 3. Wait two weeks. If they came back, done. If not, one final note — this
    is where an offer belongs, if you use one at all.
-4. Exit the instant a session starts, and never enter someone twice in a
+4. Stop the instant they log back in, and never enter someone twice in a
    quarter.
 
 ## Ship it with Hogsend

@@ -9,6 +9,9 @@ date: 2026-07-04
 timeToResults: one week
 ---
 
+A short sequence of emails between the signed offer and day one that keeps a
+new hire feeling like part of the team before they've badged in once.
+
 ## When to run it
 
 The offer is signed and the start date is six weeks out. In between, the
@@ -28,8 +31,8 @@ beat a relationship, not a PDF.
 
 ## The play
 
-1. Trigger on `candidate.offer_accepted` with the start date as an event
-   property — the whole sequence keys off that date.
+1. Start the sequence at offer acceptance, anchored to the start date —
+   every touch is timed off that date, not off the send before it.
 2. Week one: a personal welcome from the hiring manager, not from
    `no-reply@`.
 3. Midway: the practical stuff — first-week schedule, who they'll meet,

@@ -89,6 +89,10 @@ export const AnalyticsEvent = {
   /** A ladder-CTA rung on a play clicked, with `{ rung, slug }` where
    * `rung ∈ {self-serve, managed, dfy}`. Dual-leg like PLAY_VIEWED. */
   PLAY_CTA_CLICKED: "docs.play_cta_clicked",
+  /** The "copy for your agent" button on a play — the play copied as an
+   * implement-this prompt, with `{ slug }`. The strongest intent signal a
+   * play emits. */
+  PLAY_PROMPT_COPIED: "docs.play_prompt_copied",
   /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
    * server-side to the Hogsend ingest API carrying the email, so the dogfood
    * lead alert can route on it. NOT a client `capture()`; the constant lives

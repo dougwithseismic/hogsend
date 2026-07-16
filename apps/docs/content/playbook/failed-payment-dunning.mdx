@@ -6,9 +6,12 @@ category: revenue
 personas: [founders]
 tags: [dunning, stripe, billing]
 date: 2026-07-16
-blueprint: failed-payment-dunning
 timeToResults: same day
 ---
+
+A short email sequence that chases a failed subscription payment until the
+card recovers — or the customer has clearly gone. Works with any billing
+provider that can tell you a payment failed.
 
 ## When to run it
 
@@ -31,11 +34,11 @@ next week's batch.
 
 1. Send a plain, blame-free notice immediately: what failed, what happens
    next, one link to update the card.
-2. Wait three days — Stripe retries on its own schedule, and a successful
-   retry should end the conversation, not trigger a reminder.
+2. Wait three days — your billing provider retries on its own schedule, and
+   a successful retry should end the conversation, not trigger a reminder.
 3. If the payment still hasn't recovered, send one firmer reminder with the
    date service pauses.
-4. Stop the instant `invoice.paid` lands, and never dun a customer who
+4. Stop the instant the payment recovers, and never dun a customer who
    cancelled on purpose.
 
 ## Ship it with Hogsend
@@ -83,11 +86,8 @@ export const dunning = defineJourney({
 });
 ```
 
-This play also ships as a Journey Blueprint under the same id — create it in
-Studio or from an agent, and `hogsend blueprints promote
-failed-payment-dunning` generates exactly this file into your repo. The full
-version — Stripe preset setup, a second escalation, and an operator alert on
-final failure — is the [failed payment dunning
+The full version — Stripe preset setup, a second escalation, and an operator
+alert on final failure — is the [failed payment dunning
 recipe](/docs/recipes/failed-payment-dunning).
 
 ## How you'll know

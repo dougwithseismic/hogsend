@@ -9,6 +9,10 @@ date: 2026-07-02
 timeToResults: same day
 ---
 
+A helping-hand email for people who started your hardest setup step and
+didn't finish it — sent while they're still in the attempt, with the
+shortest way around the blocker.
+
 ## When to run it
 
 There's a setup step between signup and value — connect a data source,
@@ -29,8 +33,8 @@ work".
 
 ## The play
 
-1. Instrument the step as two events: `setup.step_started` and
-   `setup.completed`. The gap between them is the play's trigger.
+1. Track two moments: when someone starts the blocking step and when they
+   finish it. The gap between them is the play's trigger.
 2. Wait a few hours after the start — long enough to not interrupt, short
    enough to still be in their working day.
 3. Send the shortcut: a direct link back into the step, the one docs page
@@ -75,6 +79,6 @@ the [concierge onboarding recipe](/docs/recipes/concierge-onboarding).
 ## How you'll know
 
 Completion rate of the blocking step, before and after. The step is
-already two events, so the funnel exists the moment you ship the
-instrumentation — watch `setup.step_started → setup.completed` conversion
-and the time between them.
+already two tracked moments, so the funnel exists the moment you ship the
+instrumentation — watch started → completed conversion and the time
+between them.

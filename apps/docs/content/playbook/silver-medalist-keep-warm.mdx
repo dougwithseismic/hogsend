@@ -9,6 +9,10 @@ date: 2026-07-07
 timeToResults: ongoing
 ---
 
+A slow-cadence email sequence that keeps your best rejected candidates warm
+until the next role opens — so the shortlist starts from a relationship, not
+a job board.
+
 ## When to run it
 
 Every filled role produces a runner-up you'd have happily hired — vetted,
@@ -28,9 +32,8 @@ selling a live role.
 
 ## The play
 
-1. Emit a `candidate.rejected` event from your ATS with a
-   `silverMedalist` flag — the recruiter sets it at rejection time, while
-   the judgment is fresh.
+1. Flag the silver medalist in your ATS at rejection time, while the
+   judgment is fresh — that flag is what the sequence keys off.
 2. Two days after the rejection, send a personal note that says the true
    thing: strong candidate, close call, we want to stay in touch.
 3. Every couple of months, send something with no ask in it — team news,
@@ -86,7 +89,7 @@ calendar reminder.
 
 ## How you'll know
 
-Track `candidate.reengaged` (a reply or a re-application) against the
+Track re-engagement (a reply or a re-application) against the
 keep-warm cohort, and time-to-fill on roles where the shortlist opened
 with a silver medalist versus a cold search. One rehire from the pool
 beats a sourcing fee, and the events to prove it are already flowing.

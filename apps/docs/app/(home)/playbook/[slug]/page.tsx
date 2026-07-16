@@ -7,6 +7,7 @@ import { ShareButtons } from "@/components/articles/share-buttons";
 import { Section } from "@/components/ds/section";
 import { ThermalLayer } from "@/components/ds/thermal";
 import { getMDXComponents } from "@/components/mdx";
+import { CopyPlayPrompt } from "@/components/playbook/copy-play-prompt";
 import { LadderCta } from "@/components/playbook/ladder-cta";
 import { PlayCard } from "@/components/playbook/play-card";
 import { PlayViewTracker } from "@/components/playbook/play-tracking";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/playbook";
 import { CATEGORIES, type CategorySlug } from "@/lib/playbook/categories";
 import { PERSONAS, type PersonaSlug } from "@/lib/playbook/personas";
+import { buildPlayPrompt } from "@/lib/playbook/prompt";
 import { SITE_URL } from "@/lib/site";
 import "../playbook.css";
 
@@ -62,6 +64,12 @@ export default async function PlayPage({
   const related = toPlayIndex(getRelatedPlays(getAllPlays(), play));
   const MDXBody = play.data.body;
   const canonicalUrl = `${SITE_URL}${play.url}`;
+  const agentPrompt = await buildPlayPrompt({
+    slug,
+    title: play.data.title,
+    hook: play.data.hook,
+    url: canonicalUrl,
+  });
 
   return (
     <main className="flex flex-1 flex-col">
@@ -111,6 +119,7 @@ export default async function PlayPage({
           <div className="grid gap-12 md:grid-cols-[220px_minmax(0,1fr)] md:gap-16">
             <aside className="hidden md:block">
               <div className="sticky top-32 flex flex-col gap-8">
+                <CopyPlayPrompt slug={slug} prompt={agentPrompt} />
                 <ShareButtons
                   url={canonicalUrl}
                   slug={slug}
@@ -123,12 +132,17 @@ export default async function PlayPage({
               <article className="play-prose max-w-[42rem]">
                 <MDXBody components={getMDXComponents()} />
               </article>
+              <CopyPlayPrompt
+                slug={slug}
+                prompt={agentPrompt}
+                className="mt-12 md:hidden"
+              />
               <ShareButtons
                 url={canonicalUrl}
                 slug={slug}
                 title={play.data.title}
                 campaignPrefix="playbook"
-                className="mt-12 md:hidden"
+                className="mt-8 md:hidden"
               />
             </div>
           </div>

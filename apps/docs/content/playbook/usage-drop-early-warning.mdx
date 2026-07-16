@@ -9,6 +9,10 @@ date: 2026-07-05
 timeToResults: same week
 ---
 
+An early-warning system that turns a falling usage curve into a human
+check-in while the account can still be saved — instead of a churn
+post-mortem after the cancellation lands.
+
 ## When to run it
 
 Churn reviews keep finding the same story: the account's usage fell off a
@@ -28,9 +32,10 @@ your side?"), not a discount.
 
 ## The play
 
-1. Define the drop upstream — a scheduled job or a PostHog cohort that
+1. Define the drop upstream — a scheduled job or an analytics cohort that
    compares this week's core-action count to the trailing average — and
-   emit one event, `usage.dropped`, with the size of the drop.
+   turn it into a single "usage dropped" signal carrying the size of the
+   drop.
 2. Route big drops to a human: an internal alert with the account, the
    number, and the owner. Small drops get the automated check-in.
 3. Send the check-in as plain text from a person, one question, no CTA
@@ -83,8 +88,8 @@ Routing the `account.at_risk` escalation into Slack or Discord is the
 
 ## How you'll know
 
-Recovery rate: accounts emitting `usage.recovered` within 14 days of
-`usage.dropped`. Over a quarter, compare churn among flagged-and-contacted
+Recovery rate: accounts whose usage returns to baseline within 14 days of
+the drop signal. Over a quarter, compare churn among flagged-and-contacted
 accounts against what your churn reviews used to find — the play pays for
 itself with a small number of saves, because these are existing-revenue
 accounts.
