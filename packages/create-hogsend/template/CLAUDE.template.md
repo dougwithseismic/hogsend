@@ -60,8 +60,9 @@ silently do nothing.
 ## Commands
 
 ```bash
-pnpm dev            # HTTP API on :3002
-pnpm worker:dev     # Hatchet worker (second terminal)
+pnpm hogsend dev    # daily driver: API + worker + health + URLs, one terminal
+pnpm dev            # manual: HTTP API on :3002
+pnpm worker:dev     # manual: Hatchet worker (second terminal)
 pnpm db:generate    # generate a migration from src/schema changes
 pnpm db:migrate     # run migrations
 pnpm test           # vitest
