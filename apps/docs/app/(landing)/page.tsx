@@ -14,6 +14,7 @@ import { Reveal } from "@/components/ds/reveal";
 import {
   HalftoneOverlay,
   ThermalCard,
+  ThermalHover,
   ThermalLayer,
 } from "@/components/ds/thermal";
 import { isHogsendConfigured } from "@/components/hogsend/config";
@@ -416,8 +417,8 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
       />
       {/* Generated thermal smoke morphing behind the copy, halftone riding
           only where it glows. */}
-      <ThermalLayer strength={0.4} />
-      <HalftoneOverlay className="opacity-70" />
+      <ThermalLayer strength={0.22} />
+      <HalftoneOverlay className="opacity-40" />
       <Container className="relative flex min-h-[46vh] flex-col items-center pt-14 text-center md:min-h-[60vh] md:pt-24">
         <div className="flex w-full flex-col items-center">
           <div className="flex flex-col items-center">
@@ -458,16 +459,18 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 
           {/* Primary path (scaffold in one command) + the hosted demo. */}
           <div className="flex flex-col items-center mt-6 gap-3 md:mt-8">
-            <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-white/[0.03] py-2 pr-2 pl-4">
-              <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
-                <span className="text-white/40">$ </span>
-                {INSTALL_COMMAND}
-              </code>
-              <CopyButton
-                value={INSTALL_COMMAND}
-                className="shrink-0 text-white/40 hover:text-white"
-              />
-            </span>
+            <ThermalHover>
+              <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-white/[0.03] py-2 pr-2 pl-4">
+                <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
+                  <span className="text-white/40">$ </span>
+                  {INSTALL_COMMAND}
+                </code>
+                <CopyButton
+                  value={INSTALL_COMMAND}
+                  className="shrink-0 text-white/40 hover:text-white"
+                />
+              </span>
+            </ThermalHover>
             <TrackDemoClick placement="home-hero">
               <Link
                 href={DEMO_URL}
@@ -499,7 +502,9 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
                   filter: "blur(24px)",
                 }}
               />
-              <AgentPromptLoop engineVersion={engineVersion} />
+              <ThermalHover rounded="rounded-xl">
+                <AgentPromptLoop engineVersion={engineVersion} />
+              </ThermalHover>
             </div>
           </div>
 
@@ -571,6 +576,9 @@ function PsProductDemo() {
           live product components float over it. */}
       <Container className="relative mt-12">
         <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
+          {/* Thermal smoke bed under the horizon glow. */}
+          <ThermalLayer strength={0.45} />
+          <HalftoneOverlay className="opacity-40" />
           <WaveLines
             className="absolute inset-0 h-full w-full opacity-80"
             stroke="rgba(255,140,118,0.5)"
@@ -2411,27 +2419,28 @@ function PsUseCases() {
         {/* The four deep-dive landers — full pages, one per use case. */}
         <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {USE_CASE_DEEP_DIVES.map((d) => (
-            <Link
-              key={d.href}
-              href={d.href}
-              className="group rounded-[6px] border border-white/10 p-6 transition-colors hover:border-[#f64838]/60"
-            >
-              <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
-                Deep dive
-              </span>
-              <h3 className="mt-2 font-medium text-base text-white tracking-[-0.025em]">
-                {d.title}{" "}
-                <span
-                  aria-hidden="true"
-                  className="text-white/40 transition-colors group-hover:text-[#f64838]"
-                >
-                  →
+            <ThermalHover key={d.href}>
+              <Link
+                href={d.href}
+                className="group block rounded-[6px] border border-white/10 p-6 transition-colors hover:border-[#f64838]/40"
+              >
+                <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+                  Deep dive
                 </span>
-              </h3>
-              <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                {d.body}
-              </p>
-            </Link>
+                <h3 className="mt-2 font-medium text-base text-white tracking-[-0.025em]">
+                  {d.title}{" "}
+                  <span
+                    aria-hidden="true"
+                    className="text-white/40 transition-colors group-hover:text-[#f64838]"
+                  >
+                    →
+                  </span>
+                </h3>
+                <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                  {d.body}
+                </p>
+              </Link>
+            </ThermalHover>
           ))}
         </div>
 

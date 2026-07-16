@@ -12,12 +12,12 @@ import { cn } from "@/lib/cn";
  */
 
 const TEXTURES = [
-  "/images/textures/thermal-1.png",
-  "/images/textures/thermal-2.png",
+  "/images/textures/thermal-1.webp",
+  "/images/textures/thermal-2.webp",
 ];
 
 /** Cool end of the spectrum — violet/indigo with crimson embers. */
-export const THERMAL_COOL = "/images/textures/thermal-cool.png";
+export const THERMAL_COOL = "/images/textures/thermal-cool.webp";
 
 type ThermalLayerProps = {
   className?: string;
@@ -87,6 +87,69 @@ export function HalftoneOverlay({ className }: { className?: string }) {
         opacity: 0.5,
       }}
     />
+  );
+}
+
+type ThermalHoverProps = {
+  children: ReactNode;
+  className?: string;
+  /** Rounding of the kiss ring — match the wrapped element. */
+  rounded?: string;
+};
+
+/**
+ * Featherweight cursor kiss for small inline UI (command chips, prompt
+ * cards): no texture, just the white-hot hairline + bloom near the pointer.
+ * Wrap the target; the ring hugs this wrapper's bounds.
+ */
+export function ThermalHover({
+  children,
+  className,
+  rounded = "rounded-[6px]",
+}: ThermalHoverProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  const onMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty("--hx", `${e.clientX - r.left}px`);
+    el.style.setProperty("--hy", `${e.clientY - r.top}px`);
+    el.style.setProperty("--ho", "1");
+  }, []);
+
+  const onLeave = useCallback(() => {
+    ref.current?.style.setProperty("--ho", "0");
+  }, []);
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: mousemove only drives a decorative glow; no action is triggered.
+    <div
+      ref={ref}
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+      className={cn("relative", className)}
+      style={{ "--hx": "50%", "--hy": "50%", "--ho": "0" } as CSSProperties}
+    >
+      {children}
+      <div
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-0 transition-opacity duration-300",
+          rounded,
+        )}
+        style={{
+          opacity: "calc(var(--ho) * 0.6)",
+          border: "1px solid rgba(255, 210, 160, 0.7)",
+          boxShadow: [
+            "inset 0 0 10px -6px rgba(255, 176, 92, 0.7)",
+            "0 0 12px -5px rgba(246, 72, 56, 0.7)",
+          ].join(","),
+          maskImage:
+            "radial-gradient(110px circle at var(--hx) var(--hy), black, transparent 70%)",
+        }}
+      />
+    </div>
   );
 }
 
