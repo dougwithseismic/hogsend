@@ -1,7 +1,14 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { type JSX, useCallback, useMemo } from "react";
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/cn";
 import type { PlayIndexEntry } from "@/lib/playbook";
 import {
@@ -15,6 +22,8 @@ import {
   type PersonaSlug,
 } from "@/lib/playbook/personas";
 import { PlayCard } from "./play-card";
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 type Filters = {
   q: string;
@@ -30,6 +39,15 @@ function readFilters(params: URLSearchParams): Filters {
     category: isCategorySlug(category) ? category : undefined,
     persona: isPersonaSlug(persona) ? persona : undefined,
   };
+}
+
+function buildUrl(next: Filters): string {
+  const sp = new URLSearchParams();
+  if (next.q) sp.set("q", next.q);
+  if (next.category) sp.set("category", next.category);
+  if (next.persona) sp.set("persona", next.persona);
+  const qs = sp.toString();
+  return qs ? `/playbook?${qs}` : "/playbook";
 }
 
 function matches(play: PlayIndexEntry, f: Filters): boolean {
@@ -57,19 +75,54 @@ export function PlaybookExplorer({
 }): JSX.Element {
   const router = useRouter();
   const params = useSearchParams();
-  const filters = readFilters(new URLSearchParams(params));
+  const urlFilters = readFilters(params);
+  const [q, setQ] = useState(() => urlFilters.q);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const setFilters = useCallback(
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const filters = useMemo<Filters>(
+    () => ({ q, category: urlFilters.category, persona: urlFilters.persona }),
+    [q, urlFilters.category, urlFilters.persona],
+  );
+
+  const navigateNow = useCallback(
     (next: Filters) => {
-      const sp = new URLSearchParams();
-      if (next.q) sp.set("q", next.q);
-      if (next.category) sp.set("category", next.category);
-      if (next.persona) sp.set("persona", next.persona);
-      const qs = sp.toString();
-      router.replace(qs ? `/playbook?${qs}` : "/playbook", { scroll: false });
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      router.replace(buildUrl(next), { scroll: false });
     },
     [router],
   );
+
+  const navigateDebounced = useCallback(
+    (next: Filters) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        router.replace(buildUrl(next), { scroll: false });
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    [router],
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setQ(value);
+      navigateDebounced({ ...filters, q: value });
+    },
+    [filters, navigateDebounced],
+  );
+
+  const handleReset = useCallback(() => {
+    setQ("");
+    navigateNow({ q: "" });
+  }, [navigateNow]);
 
   const visible = useMemo(
     () => plays.filter((p) => matches(p, filters)),
@@ -90,8 +143,8 @@ export function PlaybookExplorer({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             type="search"
-            value={filters.q}
-            onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+            value={q}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search plays — symptom, channel, event…"
             aria-label="Search plays"
             className="w-full max-w-md rounded-md border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white placeholder:text-white/35 focus:border-white/25 focus:outline-none"
@@ -102,7 +155,7 @@ export function PlaybookExplorer({
               value={filters.persona ?? ""}
               onChange={(e) => {
                 const v = e.target.value;
-                setFilters({
+                navigateNow({
                   ...filters,
                   persona: isPersonaSlug(v) ? v : undefined,
                 });
@@ -124,7 +177,8 @@ export function PlaybookExplorer({
         >
           <button
             type="button"
-            onClick={() => setFilters({ ...filters, category: undefined })}
+            onClick={() => navigateNow({ ...filters, category: undefined })}
+            aria-pressed={filters.category === undefined}
             className={chip(filters.category === undefined)}
           >
             All
@@ -134,11 +188,12 @@ export function PlaybookExplorer({
               key={c}
               type="button"
               onClick={() =>
-                setFilters({
+                navigateNow({
                   ...filters,
                   category: filters.category === c ? undefined : c,
                 })
               }
+              aria-pressed={filters.category === c}
               className={chip(filters.category === c)}
             >
               {CATEGORIES[c].label}
@@ -160,7 +215,7 @@ export function PlaybookExplorer({
           </p>
           <button
             type="button"
-            onClick={() => setFilters({ q: "" })}
+            onClick={handleReset}
             className="text-sm text-white underline underline-offset-4 hover:text-white/80"
           >
             Reset filters
