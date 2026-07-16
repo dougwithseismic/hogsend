@@ -7,6 +7,7 @@ import { AuthorChip, AuthorSidebar } from "@/components/articles/author";
 import { NewsletterCard } from "@/components/articles/newsletter-card";
 import { RelatedPostCard } from "@/components/articles/post-card";
 import { PostCover } from "@/components/articles/post-cover";
+import { ShareButtons } from "@/components/articles/share-buttons";
 import { Section } from "@/components/ds/section";
 import { getMDXComponents } from "@/components/mdx";
 import {
@@ -18,6 +19,7 @@ import {
 } from "@/lib/articles";
 import { getAuthor } from "@/lib/articles/authors";
 import { TAGS, type TagSlug } from "@/lib/articles/tags";
+import { SITE_URL } from "@/lib/site";
 import "../articles.css";
 
 type Params = { slug: string };
@@ -61,6 +63,7 @@ export default async function ArticlePage({
   const minutes = await getReadingMinutes(post);
   const related = getRelatedPosts(getAllPosts(), post);
   const MDXBody = post.data.body;
+  const canonicalUrl = `${SITE_URL}${post.url}`;
 
   return (
     <main className="flex flex-1 flex-col">
@@ -106,18 +109,36 @@ export default async function ArticlePage({
         />
       </Section>
 
-      <Section divider={false} containerClassName="py-8 md:py-12">
-        <div className="grid gap-12 md:grid-cols-[220px_minmax(0,1fr)] md:gap-16">
-          <aside className="hidden md:block">
-            <div className="sticky top-32">
-              <AuthorSidebar author={author} />
+      {/* Plain section (not <Section>): its overflow-hidden would break the
+          sidebar's position: sticky. */}
+      <section className="relative text-white">
+        <div className="container-page py-8 md:py-12">
+          <div className="grid gap-12 md:grid-cols-[220px_minmax(0,1fr)] md:gap-16">
+            <aside className="hidden md:block">
+              <div className="sticky top-32 flex flex-col gap-8">
+                <AuthorSidebar author={author} />
+                <ShareButtons
+                  url={canonicalUrl}
+                  slug={slug}
+                  title={post.data.title}
+                />
+              </div>
+            </aside>
+            <div className="min-w-0">
+              <article className="article-prose max-w-[42rem]">
+                <MDXBody components={getMDXComponents()} />
+              </article>
+              {/* Mobile share row — the sidebar is hidden below md. */}
+              <ShareButtons
+                url={canonicalUrl}
+                slug={slug}
+                title={post.data.title}
+                className="mt-12 md:hidden"
+              />
             </div>
-          </aside>
-          <article className="article-prose max-w-[42rem]">
-            <MDXBody components={getMDXComponents()} />
-          </article>
+          </div>
         </div>
-      </Section>
+      </section>
 
       {related.length > 0 ? (
         <Section containerClassName="py-16">
