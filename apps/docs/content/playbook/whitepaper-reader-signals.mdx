@@ -1,0 +1,111 @@
+---
+title: Find out who actually read the whitepaper
+description: Per-recipient tracked links inside a lead magnet, so reading depth ranks the follow-up.
+hook: Two hundred people downloaded the PDF and you can't name one who read past the intro.
+category: revenue
+personas: [gtm]
+channels: [email]
+tags: [lead-magnets, tracked-links, content]
+date: 2026-07-16
+timeToResults: same day
+---
+
+Tracked links inside the whitepaper you already give away, minted per
+recipient — so the download list becomes a reading list, ranked by which
+sections each lead actually opened.
+
+## When to run it
+
+You gate a whitepaper behind a form, count the fills as leads, and hand
+the list to the same follow-up sequence. But a download only tells you the
+title worked. You don't know who opened the file, who stopped at the
+executive summary, and who sat with the pricing appendix — so the reader
+with a live buying question gets the same drip as the one collecting PDFs.
+
+## Why it works
+
+A download is an intention; a click inside the document is behavior. The
+links are references the reader wants anyway — the case study, the docs,
+the pricing appendix — and because the tracking is a first-party redirect,
+it works from inside a PDF reader, where an open pixel can't. Which link
+they clicked is the real signal: someone leaving the document for your
+pricing page has a different question than someone checking a methodology
+footnote, and the follow-up can answer the actual question instead of
+re-introducing the company.
+
+## The play
+
+1. Put the links a reader would want anyway inside the document, at the
+   decision points: the case study, the docs, the pricing appendix.
+2. Generate each recipient's links at delivery time, so a click resolves
+   to a named person — you already know who they are from the form.
+3. Score by section, not by click count. Pricing outranks methodology.
+4. Route high-intent sections to a human follow-up the same day; everyone
+   else stays in the nurture.
+5. Cap it: one human follow-up per reader per month, however many clicks.
+
+## Ship it with Hogsend
+
+Mint the links `type: "personal"` at delivery time — only personal links
+(carrying a `distinctId`) enroll journeys; a public link records stats but
+never fires into the event bus.
+
+```ts
+import { mintLink } from "@hogsend/engine";
+
+// at delivery time, one per recipient per linked section
+const pricing = await mintLink({
+  db: client.db,
+  baseUrl: client.env.API_PUBLIC_URL,
+  url: "https://example.com/pricing",
+  type: "personal",
+  distinctId: lead.email,
+  source: "whitepaper",
+  campaign: "state-of-onboarding-2026",
+});
+// embed pricing.url in this recipient's copy of the document
+```
+
+The journey watches for the section that means a buying question:
+
+```ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+
+export const whitepaperPricingReader = defineJourney({
+  meta: {
+    id: "whitepaper-pricing-reader",
+    trigger: {
+      event: "link.clicked",
+      where: (b) => [
+        b.prop("campaign").eq("state-of-onboarding-2026"),
+        b.prop("linkUrl").contains("/pricing"),
+      ],
+    },
+    // one follow-up per reader per month, however many clicks
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: days(1),
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "sales/whitepaper-pricing-follow-up",
+      props: { section: user.properties.linkUrl },
+    });
+  },
+});
+```
+
+A forwarded copy still credits the original recipient — read that as a
+warm intro happening inside the account, not as noise. The mechanics are
+documented in [link tracking](/docs/guides/link-tracking).
+
+## How you'll know
+
+Read rate — recipients with at least one in-document click over total
+downloads — and the section breakdown, which tells you what the market
+actually wants answered. Then reply and meeting rate on section-routed
+follow-ups against your old everyone-gets-the-sequence baseline; clicks
+and sends are both events, so the comparison is one
+[funnel](/docs/conversions/impact).
