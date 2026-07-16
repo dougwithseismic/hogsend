@@ -81,6 +81,18 @@ export const AnalyticsEvent = {
    * ingest on the visitor's contact (`hs_anon_id`, or the signed-in contact) —
    * see TrackDemoClick in components/analytics/track.tsx. */
   DEMO_LINK_CLICKED: "docs.demo_link_clicked",
+  /** A playbook play opened, with `{ slug, category }`. Besides the anonymous
+   * PostHog capture it fires through the docs' own Hogsend client, so which
+   * plays a visitor reads lands in the dogfood ingest as an intent signal —
+   * see PlayViewTracker in components/playbook/play-tracking.tsx. */
+  PLAY_VIEWED: "docs.play_viewed",
+  /** A ladder-CTA rung on a play clicked, with `{ rung, slug }` where
+   * `rung ∈ {self-serve, managed, dfy}`. Dual-leg like PLAY_VIEWED. */
+  PLAY_CTA_CLICKED: "docs.play_cta_clicked",
+  /** The "copy for your agent" button on a play — the play copied as an
+   * implement-this prompt, with `{ slug }`. The strongest intent signal a
+   * play emits. */
+  PLAY_PROMPT_COPIED: "docs.play_prompt_copied",
   /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
    * server-side to the Hogsend ingest API carrying the email, so the dogfood
    * lead alert can route on it. NOT a client `capture()`; the constant lives

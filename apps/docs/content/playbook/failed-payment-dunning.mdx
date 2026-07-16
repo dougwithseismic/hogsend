@@ -1,0 +1,98 @@
+---
+title: Recover failed payments before they become churn
+description: A three-touch dunning journey off the payment_failed event.
+hook: Involuntary churn is eating revenue you already earned.
+category: revenue
+personas: [founders]
+tags: [dunning, stripe, billing]
+date: 2026-07-16
+timeToResults: same day
+---
+
+A short email sequence that chases a failed subscription payment until the
+card recovers — or the customer has clearly gone. Works with any billing
+provider that can tell you a payment failed.
+
+## When to run it
+
+Your Stripe dashboard shows `invoice.payment_failed` events and your email
+tool shows nothing. Cards expire, limits get hit, banks flag a charge — the
+customer didn't decide to leave, their payment did. Without a dunning flow
+the only message they get is the failure itself, and the subscription
+quietly lapses at the end of the retry schedule.
+
+## Why it works
+
+Most failed payments are a stale card, not a churn decision — the customer
+already converted once and the fix is one click on an update-card link. That
+makes dunning the highest-leverage lifecycle email there is: warm recipient,
+known dollar amount, single clear action. The race is against the retry
+window, so the first notice goes out the moment the failure lands, not in
+next week's batch.
+
+## The play
+
+1. Send a plain, blame-free notice immediately: what failed, what happens
+   next, one link to update the card.
+2. Wait three days — your billing provider retries on its own schedule, and
+   a successful retry should end the conversation, not trigger a reminder.
+3. If the payment still hasn't recovered, send one firmer reminder with the
+   date service pauses.
+4. Stop the instant the payment recovers, and never dun a customer who
+   cancelled on purpose.
+
+## Ship it with Hogsend
+
+The trigger comes from the built-in Stripe webhook source — one environment
+variable, no Stripe SDK. `ctx.waitForEvent` resolves the wait the second a
+retry succeeds, and `exitOn` guarantees a recovered or cancelled customer
+exits mid-anything.
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const dunning = defineJourney({
+  meta: {
+    id: "failed-payment-dunning",
+    trigger: { event: "invoice.payment_failed" },
+    // A flapping card re-enters at most once a week.
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(4),
+    exitOn: [
+      { event: "invoice.paid" }, // recovered — stop immediately
+      { event: "subscription.deleted" }, // cancelled — stop dunning
+    ],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "billing/payment-failed",
+    });
+    const retry = await ctx.waitForEvent({
+      event: "invoice.paid",
+      timeout: days(3),
+      label: "await-first-retry",
+    });
+    if (!retry.timedOut) return; // the card recovered
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "billing/payment-failed",
+      idempotencyLabel: "dunning-reminder",
+    });
+  },
+});
+```
+
+The full version — Stripe preset setup, a second escalation, and an operator
+alert on final failure — is the [failed payment dunning
+recipe](/docs/recipes/failed-payment-dunning).
+
+## How you'll know
+
+Count `invoice.paid` within 7 days of an `invoice.payment_failed` that
+entered the journey — a two-step [funnel](/docs/conversions/impact) on
+events you already emit. Recovered invoices carry a dollar amount, so this
+is also the easiest play to defend in a pricing conversation.

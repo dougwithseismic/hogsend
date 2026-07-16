@@ -1,0 +1,97 @@
+---
+title: Keep new hires warm between offer and day one
+description: A pre-boarding drip that keeps signed candidates engaged before their start date.
+hook: New hires go quiet between the signed offer and their first day, and some don't show up.
+category: onboarding
+personas: [recruiters, internal]
+tags: [recruiting, onboarding, pre-boarding]
+date: 2026-07-04
+timeToResults: one week
+---
+
+A short sequence of emails between the signed offer and day one that keeps a
+new hire feeling like part of the team before they've badged in once.
+
+## When to run it
+
+The offer is signed and the start date is six weeks out. In between, the
+new hire hears nothing from you and plenty from everyone else — a
+counter-offer from their current employer, a recruiter with a shinier
+role. Ghosted start dates and cold-feet renegotiations cluster in exactly
+this silent window.
+
+## Why it works
+
+Signing an offer is an emotional peak; the weeks after are where doubt
+lives. A pre-boarding sequence keeps the decision feeling made: a note
+from their future manager, what their first week actually looks like, the
+team they're joining. Each touch is small, but the cumulative effect is
+that by day one they've already "started" — and a counter-offer has to
+beat a relationship, not a PDF.
+
+## The play
+
+1. Start the sequence at offer acceptance, anchored to the start date —
+   every touch is timed off that date, not off the send before it.
+2. Week one: a personal welcome from the hiring manager, not from
+   `no-reply@`.
+3. Midway: the practical stuff — first-week schedule, who they'll meet,
+   what to bring — the email people actually save.
+4. Three days out: a short "we're ready for you" with day-one logistics.
+5. Exit instantly if the hire withdraws or the start date moves.
+
+## Ship it with Hogsend
+
+`ctx.sleepUntil` plus the `ctx.when` scheduler turn "three days before the
+start date, at 9am their time" into one line — the waits are durable, so a
+six-week gap survives every deploy in between.
+
+```ts
+import { durationToMs } from "@hogsend/core";
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const preBoarding = defineJourney({
+  meta: {
+    id: "pre-boarding-sequence",
+    trigger: { event: "candidate.offer_accepted" },
+    entryLimit: "once",
+    suppress: hours(0),
+    exitOn: [{ event: "candidate.withdrawn" }],
+  },
+  run: async (user, ctx) => {
+    const startDate = new Date(String(user.properties.startDate));
+    const daysBefore = (n: number) =>
+      new Date(startDate.getTime() - durationToMs(days(n)));
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/manager-welcome",
+    });
+
+    await ctx.sleepUntil(daysBefore(14), { label: "two-weeks-out" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/first-week-guide",
+    });
+
+    await ctx.sleepUntil(daysBefore(3), { label: "three-days-out" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "preboarding/day-one-logistics",
+    });
+  },
+});
+```
+
+The same date-anchored shape drives the [event reminder sequence
+recipe](/docs/recipes/event-reminder-sequence).
+
+## How you'll know
+
+Day-one show rate, and replies — pre-boarding emails from a real manager
+address get answered, and every reply is a hire who's still engaged. If
+you run enough volume, compare withdrawal rates before and after the
+sequence shipped.

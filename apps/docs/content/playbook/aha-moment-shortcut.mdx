@@ -1,0 +1,84 @@
+---
+title: Shortcut the setup that blocks activation
+description: A journey that detects a stalled setup step and offers a faster path around it.
+hook: The one setup step that unlocks value blocks half your signups before they ever see it.
+category: activation
+personas: []
+tags: [activation, setup, onboarding]
+date: 2026-07-02
+timeToResults: same day
+---
+
+A helping-hand email for people who started your hardest setup step and
+didn't finish it — sent while they're still in the attempt, with the
+shortest way around the blocker.
+
+## When to run it
+
+There's a setup step between signup and value — connect a data source,
+verify a domain, install a snippet — and your funnel shows people starting
+it and not finishing. They didn't reject the product; they hit friction on
+the way to it, usually somewhere you can't see (a permissions dialog, a
+colleague who owns the DNS).
+
+## Why it works
+
+Someone who *started* the blocking step has already told you two things:
+they want the outcome, and something specific stopped them. That's the
+easiest email in lifecycle to write, because you know exactly what to
+offer — the docs page for that step, a sample-data shortcut that skips it,
+or a human. Timing matters more than polish: an hour later they're still
+in the attempt; a week later they've mentally filed the product as "didn't
+work".
+
+## The play
+
+1. Track two moments: when someone starts the blocking step and when they
+   finish it. The gap between them is the play's trigger.
+2. Wait a few hours after the start — long enough to not interrupt, short
+   enough to still be in their working day.
+3. Send the shortcut: a direct link back into the step, the one docs page
+   that covers the common failure, and an explicit "reply and a human will
+   do it with you".
+4. Offer a way to see value *without* the step where you can — sample
+   data, a sandbox — so the blocked path isn't the only path.
+
+## Ship it with Hogsend
+
+```ts
+import { defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const setupShortcut = defineJourney({
+  meta: {
+    id: "aha-moment-shortcut",
+    trigger: { event: "setup.step_started" },
+    entryLimit: "once",
+    suppress: hours(0),
+    // Finishing setup any other way ends the journey mid-wait.
+    exitOn: [{ event: "setup.completed" }],
+  },
+  run: async (user, ctx) => {
+    const finished = await ctx.waitForEvent({
+      event: "setup.completed",
+      timeout: hours(4),
+      label: "await-setup",
+    });
+    if (!finished.timedOut) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "activation/setup-shortcut",
+    });
+  },
+});
+```
+
+For the high-touch variant — a human offering to do the setup live — see
+the [concierge onboarding recipe](/docs/recipes/concierge-onboarding).
+
+## How you'll know
+
+Completion rate of the blocking step, before and after. The step is
+already two tracked moments, so the funnel exists the moment you ship the
+instrumentation — watch started → completed conversion and the time
+between them.

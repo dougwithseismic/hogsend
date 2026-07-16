@@ -1,0 +1,81 @@
+---
+title: Trial signups but no second session
+description: A rescue journey for trial users who never come back after session one.
+hook: Trial users log in once, get excited, and never open a second session.
+category: onboarding
+personas: [founders]
+tags: [trial, onboarding, retention]
+date: 2026-07-03
+timeToResults: 2–3 days
+---
+
+One well-timed email that pulls a trial user back for the second session —
+the one where the habit forms — built from what they left behind in session
+one.
+
+## When to run it
+
+Session one looks great in the analytics — signups explore, click around,
+sometimes even set something up — and then a large share never log in
+again. Nothing went wrong that a support ticket would catch; the trial just
+lost the fight for their attention against everything else in their week.
+
+## Why it works
+
+The second session is where a trial becomes a habit: the user comes back
+*on purpose*, to the thing they left behind. A rescue email works because
+it restores the context that evaporated — what they set up, what it was
+about to show them, and the shortest path back in. It works best framed as
+unfinished business ("your import finished", "here's what your data looks
+like now"), not as a generic "we miss you".
+
+## The play
+
+1. Start the clock when the *first* session ends — the rescue is timed
+   from when they leave, not from when they signed up.
+2. Give them two days to come back on their own.
+3. If they haven't, send one email built from their own session: the thing
+   they created, the next step it unlocks, one link straight back into it.
+4. Exit the moment a second session starts, so nobody engaged gets
+   "rescued".
+
+## Ship it with Hogsend
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const secondSessionRescue = defineJourney({
+  meta: {
+    id: "second-session-rescue",
+    trigger: { event: "session.first_ended" },
+    entryLimit: "once",
+    suppress: hours(0),
+    exitOn: [{ event: "session.started" }],
+  },
+  run: async (user, ctx) => {
+    const returned = await ctx.waitForEvent({
+      event: "session.started",
+      timeout: days(2),
+      label: "await-second-session",
+    });
+    if (!returned.timedOut) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "onboarding/come-back-to-it",
+      props: user.properties, // what they set up rides into the template
+    });
+  },
+});
+```
+
+The trial-length version — reminders keyed to the expiry date instead of
+the session gap — is the [trial conversion sequence
+recipe](/docs/recipes/trial-conversion-sequence).
+
+## How you'll know
+
+Second-session rate within 72 hours of the first session, for rescued
+versus unrescued cohorts. Downstream, watch trial-to-paid for users who
+had a second session versus those who didn't — that gap is the number
+that justifies the play.

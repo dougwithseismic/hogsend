@@ -1,0 +1,85 @@
+---
+title: Know the moment your proposal gets opened
+description: Tracked links inside proposal PDFs, with a follow-up journey off the click.
+hook: You sent the proposal three days ago and you're refreshing your inbox.
+category: revenue
+personas: [founders, agencies]
+tags: [proposals, tracked-links, sales]
+date: 2026-07-15
+timeToResults: same day
+---
+
+Tracked links inside your proposals, so the open becomes a signal you can act
+on instead of a thing you wonder about — and the follow-up lands while the
+prospect is still reading.
+
+## When to run it
+
+You send proposals as PDFs or Notion links and then wait blind. You don't
+know whether the prospect opened it the same afternoon or never at all, so
+the follow-up goes out on a guessed schedule — usually too late for the
+warm ones and too pushy for the cold ones.
+
+## Why it works
+
+A proposal open is the single strongest buying signal in the deal, and it
+has a short half-life: the prospect is literally reading your pricing right
+now. Following up inside that window means your reply lands while the
+questions are fresh, instead of three days later when the tab is closed.
+The mechanism is a link the prospect was going to click anyway — no pixel,
+no tracker script, works inside a PDF.
+
+## The play
+
+1. Replace the raw links inside the proposal (the case study, the pricing
+   page, the booking link) with tracked short links.
+2. When a click lands, notify yourself immediately — email, Slack, or
+   Discord — with which link and which deal.
+3. Follow up personally within the hour. The journey's job is the timing;
+   the message should still be yours.
+4. Cap it: one notification per proposal, not one per click.
+
+## Ship it with Hogsend
+
+Mint the link with a slug you choose, drop it in the proposal, and let the
+click event drive the journey. Hogsend's click tracking is first-party —
+the redirect runs through your own domain, and unfurl bots don't count as
+opens.
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const proposalOpened = defineJourney({
+  meta: {
+    id: "proposal-opened-follow-up",
+    trigger: {
+      event: "link.clicked",
+      where: (b) => b.prop("campaign").eq("proposal"),
+    },
+    // One heads-up per proposal per week, however many clicks land.
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(0),
+  },
+  run: async (user, ctx) => {
+    // The "user" here is you — route the alert to the deal owner.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "internal/proposal-opened",
+      props: user.properties,
+    });
+  },
+});
+```
+
+Vanity links (`/l/pricing-acme`) and QR codes come from the same
+[link-tracking machinery](/docs/guides/link-tracking), so the play covers
+printed leave-behinds too.
+
+## How you'll know
+
+Time-to-first-touch after the open, and reply rate on follow-ups sent
+inside the window versus your old fixed schedule. The click events and the
+follow-up sends are both in Hogsend, so the comparison is one
+[funnel](/docs/conversions/impact) — no spreadsheet reconciliation.

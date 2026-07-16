@@ -1,0 +1,84 @@
+---
+title: Send stakeholders a usage digest they'll actually read
+description: A weekly digest journey that ships a usage summary instead of a dashboard link nobody opens.
+hook: Stakeholders ask for a usage report, you send a dashboard link, and nobody opens it.
+category: retention
+personas: [internal]
+tags: [digest, reporting, retention]
+date: 2026-07-06
+timeToResults: one week
+---
+
+A weekly email that pushes the three numbers that matter to the people who
+asked for them — replacing the dashboard link nobody opens.
+
+## When to run it
+
+Someone important asked to "stay in the loop" on usage, you shared a
+dashboard, and the view counts say what view counts always say. Dashboards
+answer questions people remember to ask; a digest shows up in the inbox
+where the audience already lives, on a rhythm they don't have to maintain.
+
+## Why it works
+
+A digest inverts the effort: instead of the stakeholder pulling numbers,
+the numbers push themselves — pre-summarized, at a fixed weekly moment
+that builds the reading habit. The discipline it forces is editorial:
+picking the three numbers that matter is the work the dashboard was
+letting everyone skip. For customer-facing versions the same mechanics
+double as retention — a weekly "here's what your account did" email is a
+weekly reason the product stays installed.
+
+## The play
+
+1. Pick three numbers and one trend. If the digest needs a scroll bar,
+   it's a dashboard again.
+2. Collapse the week's activity into one email per recipient — never one
+   email per event.
+3. Land it at the same local time every week; the consistency is what
+   builds the habit.
+4. Put the "why" next to each number — the digest is read by people who
+   don't know what a normal week looks like.
+
+## Ship it with Hogsend
+
+`ctx.digest` absorbs a rolling week of events into one execution and
+records the flush, so a replay can't double-send and there's no
+idempotency bookkeeping of your own. Grouping the events is plain
+TypeScript.
+
+```ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+
+export const weeklyDigest = defineJourney({
+  meta: {
+    id: "weekly-usage-digest",
+    // Any activity opens a window; the rest of the week folds in.
+    trigger: { event: "report.created" },
+    entryLimit: "unlimited", // a fresh window opens after each flush
+    // The digest already collapses the week — no extra min-gap on top.
+    suppress: days(0),
+  },
+  run: async (user, ctx) => {
+    const digest = await ctx.digest({ window: days(7) });
+    const byType = Object.groupBy(digest.events, (e) => e.name);
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "retention/weekly-digest",
+      props: { sections: byType },
+    });
+  },
+});
+```
+
+That's the rolling, per-user shape. The whole-audience-every-Monday shape
+is deliberately *not* a journey — it's one query in a cron task. Both
+variants, with the trade-offs, are in the [weekly digest
+recipe](/docs/recipes/weekly-digest).
+
+## How you'll know
+
+Opens and clicks on the digest itself — Hogsend's tracking is first-party,
+so both are on the send row with no provider settings. The number to watch
+over a quarter: does the stakeholder stop asking for ad-hoc reports?

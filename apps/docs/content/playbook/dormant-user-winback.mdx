@@ -1,0 +1,92 @@
+---
+title: Re-open the conversation at 90 days dormant
+description: A winback journey that fires off a 90-day inactivity threshold instead of a generic drip.
+hook: A user who hasn't logged in for 90 days just falls off every list you have.
+category: winback
+personas: [gtm]
+tags: [winback, lifecycle, retention]
+date: 2026-07-08
+timeToResults: one week
+---
+
+A single well-aimed re-engagement email for users who quietly stopped
+showing up months ago — led by what's new since they left, not by "we miss
+you".
+
+## When to run it
+
+Your contacts table is full of people who used the product, stopped, and
+were never spoken to again. They're not in the onboarding flow, they're
+not in the newsletter segment anyone thinks about, and they're not in a
+sales pipeline — dormancy is the lifecycle stage nobody owns.
+
+## Why it works
+
+A dormant user already crossed your hardest barrier once: they signed up,
+learned the interface, and had a reason. Winning them back means removing
+whatever ended that reason — and after 90 days, the most common answer is
+simply that the product moved on without them. That's why the winback that
+works leads with what's *new since they left*, not with "we miss you". The
+threshold matters too: at 30 days you're interrupting a normal lull; at 90
+you're provably re-opening, which keeps the send volume small and the
+segment honest.
+
+## The play
+
+1. Detect dormancy upstream — a nightly job or an analytics cohort that
+   flags a once-active user crossing the 90-day threshold.
+2. Send one email: two or three concrete changes since their last login,
+   one link back in. No discount on the first touch — lead with product.
+3. Wait two weeks. If they came back, done. If not, one final note — this
+   is where an offer belongs, if you use one at all.
+4. Stop the instant they log back in, and never enter someone twice in a
+   quarter.
+
+## Ship it with Hogsend
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const dormantWinback = defineJourney({
+  meta: {
+    id: "dormant-user-winback",
+    trigger: { event: "user.inactive_90d" },
+    entryLimit: "once_per_period",
+    entryPeriod: days(90),
+    suppress: hours(0),
+    exitOn: [{ event: "session.started" }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "winback/whats-new",
+    });
+    const back = await ctx.waitForEvent({
+      event: "session.started",
+      timeout: days(14),
+      label: "await-return",
+    });
+    if (!back.timedOut) return;
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "winback/final-note",
+      idempotencyLabel: "winback-final",
+    });
+  },
+});
+```
+
+The `ctx.guard.isSubscribed()` re-check after the long wait matters:
+someone who unsubscribed during the two weeks never gets the second
+email.
+
+## How you'll know
+
+Return sessions within 14 days of the first send — the `session.started`
+events are the same ones driving the exit rule, so the funnel costs
+nothing to build. Watch the reactivated users a month on: a winback that
+produces one session and a second disappearance moved vanity numbers, not
+retention.

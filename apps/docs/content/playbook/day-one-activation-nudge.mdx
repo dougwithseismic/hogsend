@@ -1,0 +1,83 @@
+---
+title: Nudge signups to the aha moment on day one
+description: A same-day nudge journey off the signup event, pointed at the core action.
+hook: Signups create an account, poke around for two minutes, and never come back to finish setup.
+category: activation
+personas: [gtm]
+tags: [activation, onboarding, signup]
+date: 2026-07-01
+timeToResults: same day
+---
+
+A conditional welcome-day email that only goes to the signups who stall
+before your product's first moment of value — the ones who got there on
+their own never see it.
+
+## When to run it
+
+Your signup funnel converts but your activation funnel doesn't: accounts
+get created, the core action — first project, first import, first send —
+never happens. The gap between `user.signed_up` and that first value event
+is where most trials die, and it's widest in the first 24 hours.
+
+## Why it works
+
+A signup is the peak of the user's intent; every hour after it, the reason
+they signed up gets colder. A nudge that lands the same day speaks to
+someone who still remembers why they came. The key is to nudge only the
+people who actually stalled — a welcome blast to everyone trains users to
+ignore you, while a conditional nudge reads as "we noticed you got stuck".
+
+## The play
+
+1. Pick ONE activation moment — the single action that predicts retention,
+   not a checklist of five — and make sure your analytics records it.
+2. On signup, wait a few hours for that moment to happen on its own.
+3. If it hasn't, send one email that removes the biggest blocker: link
+   straight into the step, not to the homepage.
+4. If it has, stay silent. The best onboarding email is the one the
+   activated user never receives.
+
+## Ship it with Hogsend
+
+`ctx.waitForEvent` is the whole trick: the journey enters on signup, waits
+durably for the activation event, and only the timed-out branch sends. No
+cron, no state table, no "did we already email them" flag.
+
+```ts
+import { defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const dayOneNudge = defineJourney({
+  meta: {
+    id: "day-one-activation-nudge",
+    trigger: { event: "user.signed_up" },
+    entryLimit: "once",
+    suppress: hours(0),
+  },
+  run: async (user, ctx) => {
+    const activated = await ctx.waitForEvent({
+      event: "project.created",
+      timeout: hours(6),
+      label: "await-first-project",
+    });
+    if (!activated.timedOut) return; // they got there on their own
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "activation/first-project-nudge",
+    });
+  },
+});
+```
+
+For the multi-step version — milestone celebrations and a second nudge —
+see the [activation milestones
+recipe](/docs/recipes/activation-milestones).
+
+## How you'll know
+
+Activation rate within 24 hours of signup, split by whether the nudge was
+sent. Because the journey only emails the stalled cohort, the honest
+comparison is stalled-and-nudged versus stalled-before-you-shipped-it — or
+put a [holdout](/docs/conversions/impact) on the journey and let the lift
+number settle the question.

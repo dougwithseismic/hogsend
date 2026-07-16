@@ -1,0 +1,95 @@
+---
+title: Catch the usage drop before the churn email
+description: An early-warning journey off a detected usage drop, before the account goes quiet for good.
+hook: Usage quietly drops for two weeks before anyone notices, and by then it's a churn call.
+category: retention
+personas: [founders]
+tags: [retention, churn, usage]
+date: 2026-07-05
+timeToResults: same week
+---
+
+An early-warning system that turns a falling usage curve into a human
+check-in while the account can still be saved — instead of a churn
+post-mortem after the cancellation lands.
+
+## When to run it
+
+Churn reviews keep finding the same story: the account's usage fell off a
+cliff weeks before the cancellation, and nobody was looking. By the time
+the cancellation email arrives, the customer has already re-solved the
+problem somewhere else — the save conversation you're having is the one
+that should have happened at the drop.
+
+## Why it works
+
+At the moment usage drops, the customer still has the workflow, the data,
+and the muscle memory in your product — switching costs are still on your
+side. Two weeks later, none of that is true. An early-warning play converts
+churn from a verdict you receive into a signal you act on, and the outreach
+that works at this stage is a genuine check-in ("did something change on
+your side?"), not a discount.
+
+## The play
+
+1. Define the drop upstream — a scheduled job or an analytics cohort that
+   compares this week's core-action count to the trailing average — and
+   turn it into a single "usage dropped" signal carrying the size of the
+   drop.
+2. Route big drops to a human: an internal alert with the account, the
+   number, and the owner. Small drops get the automated check-in.
+3. Send the check-in as plain text from a person, one question, no CTA
+   button. It should read like an email a founder would actually write.
+4. Give the account two weeks to recover before it counts as saved or
+   lost.
+
+## Ship it with Hogsend
+
+The detection lives in your analytics; the journey handles the response.
+Property conditions on the trigger split the human path from the automated
+one.
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const usageDropWarning = defineJourney({
+  meta: {
+    id: "usage-drop-early-warning",
+    trigger: {
+      event: "usage.dropped",
+      where: (b) => b.prop("dropPct").gte(50),
+    },
+    // A slow slide re-fires the detector; don't re-enter for a month.
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(0),
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "retention/founder-checkin",
+    });
+    const recovered = await ctx.waitForEvent({
+      event: "usage.recovered",
+      timeout: days(14),
+      label: "await-recovery",
+    });
+    if (recovered.timedOut) {
+      // Escalate to a human while there's still an account to save.
+      await ctx.trigger({ event: "account.at_risk", userId: user.id });
+    }
+  },
+});
+```
+
+Routing the `account.at_risk` escalation into Slack or Discord is the
+[lifecycle alerts recipe](/docs/recipes/lifecycle-alerts-in-slack).
+
+## How you'll know
+
+Recovery rate: accounts whose usage returns to baseline within 14 days of
+the drop signal. Over a quarter, compare churn among flagged-and-contacted
+accounts against what your churn reviews used to find — the play pays for
+itself with a small number of saves, because these are existing-revenue
+accounts.

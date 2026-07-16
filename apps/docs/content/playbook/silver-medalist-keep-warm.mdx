@@ -1,0 +1,95 @@
+---
+title: Keep silver-medalist candidates warm for the next role
+description: A keep-warm journey off a rejection event, for the runner-up you'll want to re-contact.
+hook: The runner-up candidate goes cold the moment you send the rejection email.
+category: winback
+personas: [recruiters]
+tags: [recruiting, talent, keep-warm]
+date: 2026-07-07
+timeToResults: ongoing
+---
+
+A slow-cadence email sequence that keeps your best rejected candidates warm
+until the next role opens — so the shortlist starts from a relationship, not
+a job board.
+
+## When to run it
+
+Every filled role produces a runner-up you'd have happily hired — vetted,
+interviewed, liked by the team. Six months later a near-identical role
+opens and the process starts from a cold job board, because the silver
+medalist lives in a closed ATS ticket nobody re-reads.
+
+## Why it works
+
+A silver medalist is the cheapest strong candidate you will ever source:
+the screening is done, the interviews are done, and the rejection was
+circumstantial, not qualitative. What kills the channel is silence — a
+candidate who hears nothing for six months applies elsewhere and
+remembers you as a no. A light cadence keeps the relationship warm at
+near-zero cost, and the tone can be honest precisely because you're not
+selling a live role.
+
+## The play
+
+1. Flag the silver medalist in your ATS at rejection time, while the
+   judgment is fresh — that flag is what the sequence keys off.
+2. Two days after the rejection, send a personal note that says the true
+   thing: strong candidate, close call, we want to stay in touch.
+3. Every couple of months, send something with no ask in it — team news,
+   a relevant role at a friendly company, a launch.
+4. When a matching role opens, the re-approach is warm: "you were our
+   next call."
+5. Exit the moment they're hired or ask to be removed.
+
+## Ship it with Hogsend
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const silverMedalist = defineJourney({
+  meta: {
+    id: "silver-medalist-keep-warm",
+    trigger: {
+      event: "candidate.rejected",
+      where: (b) => b.prop("silverMedalist").eq(true),
+    },
+    entryLimit: "once",
+    suppress: hours(0),
+    exitOn: [
+      { event: "candidate.hired" },
+      { event: "candidate.opted_out" },
+    ],
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: days(2), label: "let-rejection-land" });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "talent/stay-in-touch",
+    });
+
+    for (const touch of ["check-in-1", "check-in-2", "check-in-3"]) {
+      await ctx.sleep({ duration: days(60), label: touch });
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "talent/keep-warm-note",
+        idempotencyLabel: touch,
+      });
+    }
+  },
+});
+```
+
+The waits are durable — a journey that spans six months survives every
+deploy in between, which is exactly why this play doesn't work as a
+calendar reminder.
+
+## How you'll know
+
+Track re-engagement (a reply or a re-application) against the
+keep-warm cohort, and time-to-fill on roles where the shortlist opened
+with a silver medalist versus a cold search. One rehire from the pool
+beats a sourcing fee, and the events to prove it are already flowing.
