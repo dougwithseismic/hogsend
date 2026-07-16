@@ -18,7 +18,7 @@ import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Pricing: free to self-host, no per-contact billing",
   description:
-    "Hogsend is free to self-host under ELv2 — no per-contact, per-profile, or per-send pricing. Rather not run it? We run your single-tenant instance for $149/month, install it for $2,300, or install and operate the lifecycle program for $1,500/month.",
+    "Hogsend is free to self-host under ELv2 — no per-contact, per-profile, or per-send pricing. Rather not run it? We run your single-tenant instance for $149/month, or install it and operate the lifecycle program with you for $1,500/month — the install alone is $2,300.",
   alternates: { canonical: "/pricing" },
   keywords: [
     "hogsend pricing",
@@ -42,7 +42,20 @@ const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
 /*  Copy data                                                                */
 /* ------------------------------------------------------------------------ */
 
+// The lean card bullets — the strongest five lines. The full list lives in
+// EVERYTHING_ITEMS and renders in the "everything in the box" strip below.
 const ZERO_DOLLAR_ITEMS: ReactNode[] = [
+  "The engine and all 11 packages",
+  "10 production journeys in the scaffold",
+  "Durable execution (Hatchet)",
+  "First-party open & link tracking",
+  <>
+    Every future version (
+    <code className="font-mono text-sm">pnpm up &quot;@hogsend/*&quot;</code>)
+  </>,
+];
+
+const EVERYTHING_ITEMS: ReactNode[] = [
   "The engine and all 11 packages",
   "10 production journeys in the scaffold",
   "Journey Blueprints — agent-authored journeys, promotable to code",
@@ -70,21 +83,14 @@ const MANAGED_ITEMS: ReactNode[] = [
   "Your own single-tenant instance in its own Railway project",
   "Upgrades applied as they ship",
   "The stack monitored and kept healthy",
-  "Your data, your API keys, your sending domain",
   "Infrastructure cost included",
   "The Railway project is yours — take it over or cancel anytime",
 ];
 
-const SETUP_WEEK_ITEMS: ReactNode[] = [
-  "Deployed on your infrastructure — Railway, Docker, or your own host",
-  "PostHog webhooks wired in, event taxonomy agreed",
-  "Resend or Postmark connected, domain auth sorted",
-  "Your templates ported to React Email",
-  "First journeys live, handover in your repo",
-];
-
 const DONE_FOR_YOU_ITEMS: ReactNode[] = [
-  "Month one: everything in the setup week",
+  "Month one: Hogsend deployed, PostHog and your email provider wired in, templates ported, first journeys live in your repo",
+  "A PostHog account analysis, and the program built on it",
+  "Doug, founding growth engineer, working directly with you throughout",
   "New journeys and experiments as your product and funnel change",
   "Monitoring, so a stalled or broken send gets caught",
   "A weekly report on the program",
@@ -162,7 +168,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Can someone set Hogsend up for me?",
-    a: "Yes, at three levels. The setup week is a one-time, remote engagement at $2,300: Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, and your first journeys live in your repo. You can buy it on the pricing page. Done-for-you is $1,500/month with a three-month minimum: month one is the install, and from month two we operate the program — new journeys, experiments, and a weekly report — book a call from the service page to start it. If you only want the software run, the managed instance is $149/month.",
+    a: "Yes. Done-for-you is $1,500/month with a three-month minimum: month one is the install — Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, first journeys live in your repo — plus a PostHog account analysis, and from there we operate the program together: new journeys, experiments, and a weekly report. Book a call to start it. If you only want the install, the setup week is the same week of work as a one-time engagement at $2,300, purchasable on this page. If you only want the software run, the managed instance is $149/month.",
   },
   {
     q: "Will features move behind a paid tier later?",
@@ -260,7 +266,8 @@ export default function PricingPage(): JSX.Element {
             There is no paid tier. You pay for hosting and for your own Resend
             or Postmark account — contact count appears in neither bill. If
             you&apos;d rather not run it yourself, we&apos;ll run your instance
-            for $149/month — or install it for you in a week.
+            for $149/month — or install it and run the lifecycle program with
+            you for $1,500/month.
           </p>
           <div className="mt-10">
             <CtaTrio centered />
@@ -277,23 +284,13 @@ export default function PricingPage(): JSX.Element {
           align="center"
           eyebrow="The plans"
           title="What $0 gets you"
-          subtitle="The software is one card with everything in it. The other three buy operations: we run your instance, install it once, or install it and run the whole lifecycle program."
+          subtitle="The software is free with everything in it. The other two buy operations: we run your instance, or we install it and run the whole lifecycle program with you."
         />
 
-        <div className="mt-12 grid items-start gap-6 md:grid-cols-2">
-          <Reveal delay={0.08}>
-            <Card className="relative w-full overflow-hidden border-accent/40 p-8">
-              {/* Red radial glow rising from the card's bottom edge. */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
-                }}
-              />
-
-              <div className="relative flex flex-col">
+        <div className="mt-12 grid items-stretch gap-6 md:grid-cols-3">
+          <Reveal delay={0.08} className="h-full">
+            <Card className="relative h-full w-full overflow-hidden p-8">
+              <div className="relative flex h-full flex-col">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base text-white">Self-hosted</span>
                   <TagPill accent>Everything</TagPill>
@@ -318,23 +315,29 @@ export default function PricingPage(): JSX.Element {
 
                 <CheckList items={ZERO_DOLLAR_ITEMS} />
 
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button href="/docs/getting-started" variant="accent" icon>
-                    Start building
-                  </Button>
-                </div>
-
-                <p className="eyebrow mt-6 text-white/50">
-                  Software: $0 · every release included
+                <p className="mt-4 text-base text-white/60 leading-6">
+                  The full list is below — everything in the box, in every plan.
                 </p>
+
+                <div className="mt-auto pt-8">
+                  <div className="border-white/[0.08] border-t pt-6">
+                    <Button href="/docs/getting-started" variant="accent" icon>
+                      Start building
+                    </Button>
+                  </div>
+
+                  <p className="eyebrow mt-6 text-white/50">
+                    Software: $0 · every release included
+                  </p>
+                </div>
               </div>
             </Card>
           </Reveal>
 
           {/* Managed instance — we run your single-tenant Hogsend. */}
-          <Reveal delay={0.12}>
-            <Card className="relative w-full overflow-hidden p-8">
-              <div className="relative flex flex-col">
+          <Reveal delay={0.12} className="h-full">
+            <Card className="relative h-full w-full overflow-hidden p-8">
+              <div className="relative flex h-full flex-col">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base text-white">Managed instance</span>
                   <TagPill>We run it</TagPill>
@@ -350,7 +353,7 @@ export default function PricingPage(): JSX.Element {
                 <p className="mt-4 text-base text-white/70 leading-6">
                   Your own single-tenant Hogsend, run by us. It covers running
                   the software, not working on your lifecycle — journeys and
-                  strategy are the two cards below.
+                  strategy are the done-for-you plan.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">What it covers</p>
@@ -362,73 +365,45 @@ export default function PricingPage(): JSX.Element {
                   this is $149 flat on your own single-tenant stack.
                 </p>
 
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <CheckoutCta
-                    tier="managed"
-                    label="Get the managed instance"
-                    variant="accent"
-                    next="/pricing"
-                  />
-                </div>
+                <div className="mt-auto pt-8">
+                  <div className="border-white/[0.08] border-t pt-6">
+                    <CheckoutCta
+                      tier="managed"
+                      label="Get the managed instance"
+                      variant="accent"
+                      next="/pricing"
+                    />
+                  </div>
 
-                <p className="eyebrow mt-6 text-white/50">
-                  Monthly · single-tenant · yours to take over
-                </p>
+                  <p className="eyebrow mt-6 text-white/50">
+                    Monthly · single-tenant · yours to take over
+                  </p>
+                </div>
               </div>
             </Card>
           </Reveal>
 
-          {/* The setup week — done-for-you installation. */}
-          <Reveal delay={0.16}>
-            <Card className="relative w-full overflow-hidden p-8">
-              <div className="relative flex flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">Setup week</span>
-                  <TagPill>The install</TagPill>
-                </div>
+          {/* Done-for-you — the highlighted plan: install in month one, then
+              operate the program together. The setup week is folded in here
+              and survives as the footnote below the grid. */}
+          <Reveal delay={0.16} className="h-full">
+            <Card className="relative h-full w-full overflow-hidden border-accent/40 p-8">
+              {/* Red radial glow rising from the card's bottom edge. */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  background:
+                    "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
+                }}
+              />
 
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $2,300
-                  </span>
-                  <span className="text-base text-white/60">/one week</span>
-                </div>
-
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Hogsend installed by the person who built it — the install
-                  only, no ongoing engagement. It&apos;s your repo and your
-                  accounts from day one.
-                </p>
-
-                <p className="eyebrow mt-8 text-white/50">How the week runs</p>
-
-                <CheckList items={SETUP_WEEK_ITEMS} />
-
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <CheckoutCta
-                    tier="setup"
-                    label="Buy the setup week"
-                    variant="accent"
-                    next="/pricing"
-                  />
-                </div>
-
-                <p className="eyebrow mt-6 text-white/50">
-                  One-time · remote · yours to keep
-                </p>
-              </div>
-            </Card>
-          </Reveal>
-
-          {/* Done-for-you — install in month one, then operate. */}
-          <Reveal delay={0.2}>
-            <Card className="relative w-full overflow-hidden p-8">
-              <div className="relative flex flex-col">
+              <div className="relative flex h-full flex-col">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base text-white">
                     Done-for-you lifecycle
                   </span>
-                  <TagPill>Install + operate</TagPill>
+                  <TagPill accent>Founder-led</TagPill>
                 </div>
 
                 <div className="mt-5 flex items-baseline gap-1.5">
@@ -439,8 +414,9 @@ export default function PricingPage(): JSX.Element {
                 </div>
 
                 <p className="mt-4 text-base text-white/70 leading-6">
-                  Three-month minimum. Month one is the install — everything in
-                  the setup week. From month two onward we operate it.
+                  Three months to a lifecycle program that&apos;s live and
+                  running. Month one is the install; from then on we operate it
+                  with you.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">What it covers</p>
@@ -458,17 +434,65 @@ export default function PricingPage(): JSX.Element {
                   .
                 </p>
 
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button href="/service#enquire" variant="accent" icon>
-                    Book a call
-                  </Button>
-                </div>
+                <div className="mt-auto pt-8">
+                  <div className="border-white/[0.08] border-t pt-6">
+                    <Button href="/service#enquire" variant="accent" icon>
+                      Book a call
+                    </Button>
+                  </div>
 
-                <p className="eyebrow mt-6 text-white/50">
-                  Monthly · 3-month minimum · your accounts
-                </p>
+                  <p className="eyebrow mt-6 text-white/50">
+                    Monthly · 3-month minimum · your accounts
+                  </p>
+                </div>
               </div>
             </Card>
+          </Reveal>
+        </div>
+
+        {/* Setup-week footnote — the install alone, still purchasable. */}
+        <Reveal delay={0.24}>
+          <div className="mt-8 flex flex-col items-center gap-4 text-center">
+            <p className="text-base text-white/60 leading-6">
+              Just want the install? The setup week is $2,300 one-time — Hogsend
+              deployed, wired to PostHog and your email provider, and your first
+              journeys live in your repo.
+            </p>
+            <CheckoutCta
+              tier="setup"
+              label="Buy the setup week"
+              variant="outline"
+              next="/pricing"
+            />
+          </div>
+        </Reveal>
+
+        {/* Everything in the box — the full $0 list, out of the cards. */}
+        <div className="mt-20">
+          <SectionHeading
+            align="center"
+            eyebrow="Included"
+            title="Everything in the box"
+            subtitle="The full $0 list. It ships in every plan — the paid ones buy operations, not features."
+          />
+          <Reveal delay={0.08}>
+            <ul className="mx-auto mt-10 grid max-w-5xl gap-x-10 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+              {EVERYTHING_ITEMS.map((item, index) => (
+                <li
+                  // Static, never-reordered checklist.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: stable list
+                  key={index}
+                  className="flex items-start gap-3 text-base text-white/80 leading-6"
+                >
+                  <Check
+                    aria-hidden="true"
+                    className="mt-1 size-4 shrink-0 text-accent"
+                    strokeWidth={2}
+                  />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </Reveal>
         </div>
       </Section>
