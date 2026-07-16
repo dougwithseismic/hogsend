@@ -11,6 +11,7 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { ThermalHover } from "@/components/ds/thermal";
 import { PricingCalculator } from "@/components/landing/pricing-calculator";
 import { CheckoutCta } from "@/components/service/checkout-cta";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
@@ -289,163 +290,172 @@ export default function PricingPage(): JSX.Element {
 
         <div className="mt-12 grid items-stretch gap-6 md:grid-cols-3">
           <Reveal delay={0.08} className="h-full">
-            <Card className="relative h-full w-full overflow-hidden p-8">
-              <div className="relative flex h-full flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">Self-hosted</span>
-                  <TagPill accent>Everything</TagPill>
-                </div>
+            <ThermalHover className="h-full w-full" rounded="rounded-md">
+              <Card className="relative h-full w-full overflow-hidden p-8">
+                <div className="relative flex h-full flex-col">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base text-white">Self-hosted</span>
+                    <TagPill accent>Everything</TagPill>
+                  </div>
 
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $0
-                  </span>
-                  <span className="text-base text-white/60">/forever</span>
-                </div>
+                  <div className="mt-5 flex items-baseline gap-1.5">
+                    <span className="font-display text-[40px] text-white leading-[48px]">
+                      $0
+                    </span>
+                    <span className="text-base text-white/60">/forever</span>
+                  </div>
 
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  The engine, the scaffold, the tooling, and every release after
-                  this one. Nothing is held back for the other cards — they buy
-                  operations, not features.
-                </p>
+                  <p className="mt-4 text-base text-white/70 leading-6">
+                    The engine, the scaffold, the tooling, and every release
+                    after this one. Nothing is held back for the other cards —
+                    they buy operations, not features.
+                  </p>
 
-                <p className="eyebrow mt-8 text-white/50">
-                  What&apos;s included
-                </p>
+                  <p className="eyebrow mt-8 text-white/50">
+                    What&apos;s included
+                  </p>
 
-                <CheckList items={ZERO_DOLLAR_ITEMS} />
+                  <CheckList items={ZERO_DOLLAR_ITEMS} />
 
-                <p className="mt-4 text-base text-white/60 leading-6">
-                  The full list is below — everything in the box, in every plan.
-                </p>
+                  <p className="mt-4 text-base text-white/60 leading-6">
+                    The full list is below — everything in the box, in every
+                    plan.
+                  </p>
 
-                <div className="mt-auto pt-8">
-                  <div className="border-white/[0.08] border-t pt-6">
-                    <Button
-                      href="/docs/getting-started"
-                      variant="accent"
-                      icon
-                      className="w-full justify-center"
-                    >
-                      Start building
-                    </Button>
+                  <div className="mt-auto pt-8">
+                    <div className="border-white/[0.08] border-t pt-6">
+                      <Button
+                        href="/docs/getting-started"
+                        variant="accent"
+                        icon
+                        className="w-full justify-center"
+                      >
+                        Start building
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </ThermalHover>
           </Reveal>
 
           {/* Managed instance — we run your single-tenant Hogsend. */}
           <Reveal delay={0.12} className="h-full">
-            <Card className="relative h-full w-full overflow-hidden p-8">
-              <div className="relative flex h-full flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">Managed instance</span>
-                  <TagPill>We run it</TagPill>
-                </div>
+            <ThermalHover className="h-full w-full" rounded="rounded-md">
+              <Card className="relative h-full w-full overflow-hidden p-8">
+                <div className="relative flex h-full flex-col">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base text-white">
+                      Managed instance
+                    </span>
+                    <TagPill>We run it</TagPill>
+                  </div>
 
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $149
-                  </span>
-                  <span className="text-base text-white/60">/per month</span>
-                </div>
+                  <div className="mt-5 flex items-baseline gap-1.5">
+                    <span className="font-display text-[40px] text-white leading-[48px]">
+                      $149
+                    </span>
+                    <span className="text-base text-white/60">/per month</span>
+                  </div>
 
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Your own single-tenant Hogsend, run by us. It covers running
-                  the software, not working on your lifecycle — journeys and
-                  strategy are the done-for-you plan.
-                </p>
+                  <p className="mt-4 text-base text-white/70 leading-6">
+                    Your own single-tenant Hogsend, run by us. It covers running
+                    the software, not working on your lifecycle — journeys and
+                    strategy are the done-for-you plan.
+                  </p>
 
-                <p className="eyebrow mt-8 text-white/50">What it covers</p>
+                  <p className="eyebrow mt-8 text-white/50">What it covers</p>
 
-                <CheckList items={MANAGED_ITEMS} />
+                  <CheckList items={MANAGED_ITEMS} />
 
-                <p className="mt-6 text-base text-white/60 leading-6">
-                  At 50,000 contacts Loops lists $249/month, priced per contact;
-                  this is $149 flat on your own single-tenant stack.
-                </p>
+                  <p className="mt-6 text-base text-white/60 leading-6">
+                    At 50,000 contacts Loops lists $249/month, priced per
+                    contact; this is $149 flat on your own single-tenant stack.
+                  </p>
 
-                <div className="mt-auto pt-8">
-                  <div className="border-white/[0.08] border-t pt-6 text-center">
-                    <CheckoutCta
-                      tier="managed"
-                      label="Get the managed instance"
-                      variant="accent"
-                      next="/pricing"
-                      className="w-full justify-center"
-                    />
+                  <div className="mt-auto pt-8">
+                    <div className="border-white/[0.08] border-t pt-6 text-center">
+                      <CheckoutCta
+                        tier="managed"
+                        label="Get the managed instance"
+                        variant="accent"
+                        next="/pricing"
+                        className="w-full justify-center"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </ThermalHover>
           </Reveal>
 
           {/* Done-for-you — the highlighted plan: install in month one, then
               operate the program together. The setup week is folded in here
               and survives as the footnote below the grid. */}
           <Reveal delay={0.16} className="h-full">
-            <Card className="relative h-full w-full overflow-hidden border-accent/40 p-8">
-              {/* Red radial glow rising from the card's bottom edge. */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
-                }}
-              />
+            <ThermalHover className="h-full w-full" rounded="rounded-md">
+              <Card className="relative h-full w-full overflow-hidden border-accent/40 p-8">
+                {/* Red radial glow rising from the card's bottom edge. */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
+                  }}
+                />
 
-              <div className="relative flex h-full flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">
-                    Done-for-you lifecycle
-                  </span>
-                  <TagPill accent>Founder-led</TagPill>
-                </div>
+                <div className="relative flex h-full flex-col">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base text-white">
+                      Done-for-you lifecycle
+                    </span>
+                    <TagPill accent>Founder-led</TagPill>
+                  </div>
 
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $1,500
-                  </span>
-                  <span className="text-base text-white/60">/per month</span>
-                </div>
+                  <div className="mt-5 flex items-baseline gap-1.5">
+                    <span className="font-display text-[40px] text-white leading-[48px]">
+                      $1,500
+                    </span>
+                    <span className="text-base text-white/60">/per month</span>
+                  </div>
 
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Three months to a lifecycle program that&apos;s live and
-                  running. Month one is the install; from then on we operate it
-                  with you.
-                </p>
+                  <p className="mt-4 text-base text-white/70 leading-6">
+                    Three months to a lifecycle program that&apos;s live and
+                    running. Month one is the install; from then on we operate
+                    it with you.
+                  </p>
 
-                <p className="eyebrow mt-8 text-white/50">What it covers</p>
+                  <p className="eyebrow mt-8 text-white/50">What it covers</p>
 
-                <CheckList items={DONE_FOR_YOU_ITEMS} />
+                  <CheckList items={DONE_FOR_YOU_ITEMS} />
 
-                <p className="mt-6 text-base text-white/60 leading-6">
-                  Full detail on the{" "}
-                  <Link
-                    href="/service"
-                    className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
-                  >
-                    service page
-                  </Link>
-                  .
-                </p>
-
-                <div className="mt-auto pt-8">
-                  <div className="border-white/[0.08] border-t pt-6">
-                    <Button
-                      href="/service#enquire"
-                      variant="accent"
-                      icon
-                      className="w-full justify-center"
+                  <p className="mt-6 text-base text-white/60 leading-6">
+                    Full detail on the{" "}
+                    <Link
+                      href="/service"
+                      className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
                     >
-                      Book a call
-                    </Button>
+                      service page
+                    </Link>
+                    .
+                  </p>
+
+                  <div className="mt-auto pt-8">
+                    <div className="border-white/[0.08] border-t pt-6">
+                      <Button
+                        href="/service#enquire"
+                        variant="accent"
+                        icon
+                        className="w-full justify-center"
+                      >
+                        Book a call
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </ThermalHover>
           </Reveal>
         </div>
 
