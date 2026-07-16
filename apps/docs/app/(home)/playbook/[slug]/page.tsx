@@ -9,6 +9,7 @@ import { ThermalLayer } from "@/components/ds/thermal";
 import { getMDXComponents } from "@/components/mdx";
 import { LadderCta } from "@/components/playbook/ladder-cta";
 import { PlayCard } from "@/components/playbook/play-card";
+import { PlayViewTracker } from "@/components/playbook/play-tracking";
 import {
   getAllPlays,
   getRelatedPlays,
@@ -63,6 +64,7 @@ export default async function PlayPage({
 
   return (
     <main className="flex flex-1 flex-col">
+      <PlayViewTracker slug={slug} category={play.data.category} />
       <Section divider={false} containerClassName="pt-32 pb-12">
         <ThermalLayer strength={0.05} />
         <Link
@@ -134,7 +136,7 @@ export default async function PlayPage({
 
       <Section containerClassName="py-16">
         <p className="eyebrow mb-6 text-white/50">Run it your way</p>
-        <LadderCta />
+        <LadderCta slug={slug} />
       </Section>
 
       {related.length > 0 ? (
