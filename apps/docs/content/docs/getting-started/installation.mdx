@@ -5,25 +5,46 @@ description: Scaffold a fresh Hogsend app, run it locally against Docker, and fi
 
 You install Hogsend by **scaffolding a fresh app** that consumes the versioned `@hogsend/engine` package. You do not clone or fork a monorepo — your repo owns content (journeys, templates, webhook sources, routes, your own migrations) and pins the engine.
 
-The whole local spine is one scaffold command plus one bootstrap command. `pnpm bootstrap` brings up Docker, writes your `.env`, **auto-mints your Hatchet token**, runs both migration tracks, and **auto-mints an ingest-scoped data-plane key** — so you reach a running, sending app without bringing your own credentials for local dev.
+The whole local spine is one scaffold command — local setup runs as part of it by default. The scaffolder brings up Docker, writes your `.env`, **auto-mints your Hatchet token**, runs and verifies both migration tracks, and **auto-mints your API keys** — so you reach a running, sending app without bringing your own credentials for local dev.
+
+<Callout type="warn">
+  Docker must be installed **and running** before you scaffold — local setup brings the infrastructure up as containers and stops with an error if the daemon is down.
+</Callout>
 
 ## 1. Scaffold the app
 
 ```bash
-pnpm create hogsend@latest my-app --domain mysite.com
+pnpm dlx create-hogsend@latest my-app --domain mysite.com
 # or: npx create-hogsend@latest my-app --domain mysite.com
 # or scaffold into the current folder:
-pnpm create hogsend@latest . --domain mysite.com
+pnpm dlx create-hogsend@latest . --domain mysite.com
 ```
 
-This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and offers to run local setup for you (Docker, `.env`, Hatchet token, data-plane key, migrations — that's [step 2](#2-bootstrap-your-local-stack)). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and — unless you say no — runs the full local setup itself (Docker, `.env`, Hatchet token, API keys, migrations — [step 2](#2-what-setup-just-did) describes what it did). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+
+In an interactive terminal, you'll see the following prompts:
+
+```txt title="Terminal"
+Project name? (or "." for the current folder)  my-app
+Sending domain? (blank to configure later)
+Where will events come from? (space to toggle — pick all that apply, or none)
+    ◼ My app code   @hogsend/client SDK, pre-wired — zero config
+    ◻ PostHog       connected at the end of setup (browser OAuth) — no key needed
+Package manager?  pnpm
+Install dependencies now?  Yes
+Initialize a git repo?  Yes
+Include Claude Code skills + a tailored CLAUDE.md? (recommended)  Yes
+Set up local infra now? (Docker, .env, Hatchet token, migrate)  Yes
+```
+
+Say yes to the last prompt (the default) and the scaffolder runs the full setup — the next section describes what it did, not what you have to do.
 
 `--domain` wires your sending domain at scaffold time: `env.example` gets `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com`, and the bootstrap-copied `.env` inherits them. That arms [test mode](/docs/operating/test-mode) — until the domain verifies, every send redirects safely to your own inbox. Skip the flag and the env keeps a commented placeholder block to fill in later; in an interactive terminal you're prompted for it (blank to configure later).
 
 For a fully hands-off run with no prompts, add `--yes`:
 
 ```bash
-pnpm create hogsend@latest my-app --domain mysite.com --yes   # scaffold + install + bootstrap, zero prompts
+pnpm dlx create-hogsend@latest my-app --domain mysite.com --yes   # scaffold + install + setup, zero prompts
 ```
 
 Useful flags:
@@ -46,12 +67,14 @@ Useful flags:
 For an AI agent (or CI) driving the whole thing with zero prompts and a verifiable outcome:
 
 ```bash
-pnpm create hogsend@latest my-app --yes \
+pnpm dlx create-hogsend@latest my-app --yes \
   --domain mysite.com \
   --admin-email you@example.com --admin-password 'min-8-chars' --posthog
 # then: background `pnpm dev` + `pnpm worker:dev`, poll GET /v1/health
 # until "status":"healthy", and operate via `pnpm hogsend … --json`.
 ```
+
+The exit code is honest: `0` means infra up, migrations verified, keys minted — a run with issues exits non-zero and lists them. The scaffold also ships `.claude/skills/` and a tailored `CLAUDE.md` with a zero-to-running runbook, so an agent working inside the repo already knows the drill.
 
 The emitted app pins every `@hogsend/*` package to a single engine version line, so the api, worker, and database migrations always move together.
 
@@ -96,21 +119,19 @@ The engine itself is a dependency in `node_modules` — you never edit it. The e
   `@hogsend/*` packages ship **raw `.ts`** (no `dist`). That is why the scaffold sets `tsup.config.ts` `noExternal: ["@hogsend/*"]` (bundles the engine source at build) and `vitest.config.ts` `server.deps.inline: [/@hogsend\/engine/]` (lets Vite transform raw `.ts` for tests). Never run `node src/index.ts` directly — dev is `tsx watch`, production is a `tsup` build then `node dist/...`.
 </Callout>
 
-## 2. Bootstrap your local stack
+## 2. What setup just did
 
-```bash
-pnpm bootstrap
-```
-
-One idempotent command does the whole local setup. It runs seven steps and is safe to re-run any time:
+The setup the scaffolder ran is the same script as `pnpm bootstrap`. It runs these steps, in order:
 
 1. **Checks Docker** is installed and the daemon is running.
 2. **Creates `.env`** from `.env.example` with a freshly generated `BETTER_AUTH_SECRET` (keeps an existing `.env` untouched).
-3. **Resolves ports** — auto-remaps any host port already in use so multiple stacks can run side by side, and syncs the chosen ports back into `.env`.
+3. **Resolves ports** — probes `5434`, `6380`, `7077`, `8888`, and the app port `3002`, auto-remaps any busy one so multiple stacks can run side by side, and syncs the chosen ports back into `.env`.
 4. **Starts the containers** (`docker compose up -d --wait`).
 5. **Mints your Hatchet token** by creating one inside the hatchet-lite container and writing `HATCHET_CLIENT_TOKEN` to `.env`.
-6. **Runs both migration tracks** (`pnpm db:migrate` — engine track, then client track).
-7. **Mints an ingest-scoped data-plane key** (`hsk_…`) and writes `HOGSEND_API_KEY` to `.env` — the key you'll use to call the public data plane.
+6. **Runs both migration tracks** (`pnpm db:migrate` — engine track, then client track) and **verifies the schema actually reached HEAD** — the same probe the api's boot guard runs.
+7. **Mints two API keys** into `.env`: an ingest-scoped `HOGSEND_API_KEY` (`hsk_…` — the key your app and the [`@hogsend/client`](/docs/data-api/client-sdk) SDK use to call the data plane) and a full-admin `HOGSEND_ADMIN_KEY` (the key the [`hogsend` CLI](/docs/cli) uses).
+8. **Offers to create your first Studio admin** (interactive only; a no-op when `STUDIO_ADMIN_EMAIL` is already set — sign-up is closed by design, see [step 5](#watch-it-in-studio)).
+9. **If you picked PostHog**: offers the one-click browser OAuth connect.
 
 It boots:
 
@@ -118,16 +139,24 @@ It boots:
 - **Redis** 8 (default port **6380**) — PostHog property caching
 - **Hatchet-Lite** — workflow engine; dashboard on **8888**, gRPC on **7077** (with its own internal Postgres)
 
-`BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`, and `HOGSEND_API_KEY` are all generated for you — you bring no credentials for local dev. The one value you supply yourself, and only when you want a *real* email to land, is your Resend key:
+`BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`, `HOGSEND_API_KEY`, and `HOGSEND_ADMIN_KEY` are all generated for you — you bring no credentials for local dev. The one value you supply yourself, and only when you want a *real* email to land, is your Resend key:
 
 | Variable | How to get it |
 |---|---|
 | `RESEND_API_KEY` | [Resend dashboard](https://resend.com/api-keys) → API Keys (starts with `re_`) |
 
-Using npm / yarn / bun? Run `npm run bootstrap` / `yarn bootstrap` / `bun run bootstrap`.
+### Re-running setup
+
+Skipped setup during create (`--no-setup` or answered no), moved machines, or reset Docker? Run it yourself from the app directory:
+
+```bash
+pnpm bootstrap
+```
+
+It's idempotent and safe to re-run any time — and honest about failures: a run with issues exits non-zero and lists them. Using npm / yarn / bun? Run `npm run bootstrap` / `yarn bootstrap` / `bun run bootstrap`.
 
 <Callout type="info">
-  Prefer to do it by hand? `pnpm bootstrap` is `cp .env.example .env` + `docker compose up -d` + `pnpm db:migrate`, plus a generated secret, an auto-minted Hatchet token, an auto-minted data-plane key, and host-port-conflict handling. See [Configuration](/docs/getting-started/configuration) for every variable and the two migration tracks, and [Get a Hatchet token](/docs/getting-started/hatchet) for the manual token path.
+  Prefer to do it by hand? `pnpm bootstrap` is `cp .env.example .env` + `docker compose up -d` + `pnpm db:migrate`, plus a generated secret, an auto-minted Hatchet token, auto-minted API keys, and host-port-conflict handling. See [Configuration](/docs/getting-started/configuration) for every variable and the two migration tracks, and [Get a Hatchet token](/docs/getting-started/hatchet) for the manual token path.
 </Callout>
 
 <Callout type="warn">
@@ -142,7 +171,7 @@ One command, one terminal:
 pnpm hogsend dev
 ```
 
-[`hogsend dev`](/docs/cli/dev) skips the docker step when bootstrap's containers are already running, checks `.env`, runs migrations, spawns the API and the worker as line-prefixed child processes, waits for `GET /v1/health`, then prints the local URLs (API, Studio, Hatchet dashboard) plus a one-line domain/test-mode status when an admin key is configured. Ctrl+C tears the whole tree down.
+[`hogsend dev`](/docs/cli/dev) skips the docker step when setup's containers are already running, checks `.env`, runs migrations, spawns the API and the worker as line-prefixed child processes, waits for `GET /v1/health`, then prints the local URLs (API, Studio, Hatchet dashboard) plus a one-line domain/test-mode status when an admin key is configured. Ctrl+C tears the whole tree down.
 
 ### Manual alternative — two terminals
 
@@ -168,7 +197,7 @@ You want `"status": "healthy"` with both `schema.engine.inSync` and `schema.clie
 
 The scaffold ships a `test-onboarding` journey that runs to completion with **no email and no external accounts** — it exists to prove the pipeline end-to-end, and to show off the whole point of code-first lifecycle. Its `run()` branches on `user.properties.plan` and fires internal events with `ctx.trigger` along the way (open `src/journeys/test-onboarding.ts` and read it — it's ~30 lines of plain TypeScript).
 
-Events go through the public data plane (`POST /v1/events`), which requires a key with the `ingest` scope. Bootstrap already minted one into `HOGSEND_API_KEY` in `.env` — pull it into a shell variable so the curl commands below can use it:
+Events go through the public data plane (`POST /v1/events`), which requires a key with the `ingest` scope. Setup already minted one into `HOGSEND_API_KEY` in `.env` — pull it into a shell variable so the curl commands below can use it:
 
 ```bash title="load the auto-minted ingest key from .env"
 export HOGSEND_API_KEY=$(grep -E '^HOGSEND_API_KEY=' .env | cut -d= -f2-)
@@ -249,7 +278,7 @@ pnpm hogsend domain check                # poll every 15s until verified
 
 ### Watch it in Studio
 
-[Studio](/docs/operating/studio) is login-only — **public sign-up is disabled**, and there is no web create-admin form. Mint the first admin from your server before signing in (skip this if you already did it via the `pnpm bootstrap` prompt or `STUDIO_ADMIN_EMAIL`):
+[Studio](/docs/operating/studio) is login-only — **public sign-up is disabled**, and there is no web create-admin form. Mint the first admin from your server before signing in (skip this if you already did it via the setup prompt, `--admin-email`, or `STUDIO_ADMIN_EMAIL`):
 
 ```bash
 pnpm studio:admin   # → hogsend studio admin create (prompts for email + password)
@@ -301,7 +330,7 @@ pnpm db:migrate          # apply any new engine migrations, then your client tra
 This is never a git merge of a fork. See [Upgrading & Customizing](/docs/operating/upgrading) for the full upgrade flow and the Extend → Patch → Eject ladder — how to change engine behavior without losing clean upgrades.
 
 <Callout type="info">
-  Need a one-by-one breakdown of every step, with `--json` output for agents? `pnpm dlx hogsend setup` is the CLI equivalent of `pnpm bootstrap`, and [`hogsend dev`](/docs/cli/dev) is the setup-and-run superset. See [hogsend setup](/docs/cli/setup).
+  Need a step-by-step breakdown with `--json` output for agents? [`hogsend setup`](/docs/cli/setup) is a lighter subset of `pnpm bootstrap` (compose up + `.env` + secret + migrate — no token/key minting, no port remap), and [`hogsend dev`](/docs/cli/dev) is the setup-and-run superset.
 </Callout>
 
 ## Contributing to the engine

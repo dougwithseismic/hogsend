@@ -11,7 +11,7 @@ But there's a gap. PostHog tells you *what users do*. It doesn't help you *respo
 
 Hogsend fills that gap. It listens to your PostHog events and reacts to them with durable, code-first journeys that send emails, check conditions, wait, and branch — all without touching your application code.
 
-> Want to see it instead of read about it? `pnpm dlx create-hogsend@latest my-app` scaffolds a running app, and `pnpm bootstrap` brings up the full stack for you. See [Installation](/docs/getting-started/installation).
+> Want to see it instead of read about it? `pnpm dlx create-hogsend@latest my-app` scaffolds an app and brings up the full local stack for you in one run. See [Installation](/docs/getting-started/installation).
 
 ## PostHog is building this themselves
 
@@ -74,7 +74,7 @@ Every PostHog team eventually needs lifecycle emails. The question is whether yo
 
 Hogsend is opinionated. It assumes PostHog is your analytics platform and sends email through a swappable provider — Resend by default. It doesn't try to be everything — it just does lifecycle email really well, with the assumption that PostHog is where you want engagement flowing back.
 
-Getting there is one command. `pnpm dlx create-hogsend@latest my-app` scaffolds a thin app that pins `@hogsend/engine` and holds your content; `pnpm bootstrap` then checks Docker, writes `.env` with a fresh `BETTER_AUTH_SECRET`, brings up Postgres + Redis + hatchet-lite, auto-mints your Hatchet token, runs the migrations, and mints an ingest-scoped data-plane key — all into `.env`. Set `RESEND_API_KEY` before sending real email, point your PostHog webhook at the app, and your event stream starts driving journeys.
+Getting there is one command. `pnpm dlx create-hogsend@latest my-app` scaffolds a thin app that pins `@hogsend/engine` and holds your content, then runs local setup itself: checks Docker, writes `.env` with a fresh `BETTER_AUTH_SECRET`, brings up Postgres + Redis + hatchet-lite, auto-mints your Hatchet token, runs the migrations, and mints your API keys — all into `.env`. Set `RESEND_API_KEY` before sending real email, point your PostHog webhook at the app, and your event stream starts driving journeys.
 
 When you're ready for more — push notifications, SMS, in-app messages, or PostHog's own marketing automation — you'll have a clean event model, proven journey logic, and engagement data already in PostHog to build on.
 

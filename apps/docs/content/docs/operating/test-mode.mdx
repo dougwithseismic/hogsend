@@ -63,5 +63,5 @@ Every surface reports the same `testMode` block, so pick whichever you're neares
 | `EMAIL_DOMAIN` | string, optional | derived from `EMAIL_FROM` host | The sending domain the status (and `auto` arming) keys on. `create-hogsend --domain` writes it for you. |
 
 <Callout type="info">
-  The scaffolded `env.example` ships a commented "Sending domain" block; `pnpm create hogsend@latest --domain mysite.com` fills in `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com` at scaffold time, so a fresh app is born with test mode armed and safe.
+  The scaffolded `env.example` ships a commented "Sending domain" block; `pnpm dlx create-hogsend@latest --domain mysite.com` fills in `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com` at scaffold time, so a fresh app is born with test mode armed and safe.
 </Callout>

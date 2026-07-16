@@ -45,14 +45,12 @@ The folders in that table *are* your content: you write the primitives, collect 
 One command gives you the whole thing — a thin app pinned to the engine, every primitive folder stubbed with a working example, and a local stack:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app
+pnpm dlx create-hogsend@latest my-app   # scaffold + install + local setup, one run
 cd my-app
-pnpm bootstrap     # Docker + .env + auto-mints the Hatchet token + migrate + data-plane key
-pnpm dev           # HTTP API on http://localhost:3002
-pnpm worker:dev    # Hatchet worker (second terminal)
+pnpm hogsend dev                        # API + worker + Studio on :3002, one terminal
 ```
 
-`pnpm bootstrap` is idempotent and safe to re-run, and needs **no credentials for local dev**: it starts TimescaleDB + Redis + Hatchet-Lite, generates a `BETTER_AUTH_SECRET`, **auto-mints the `HATCHET_CLIENT_TOKEN`**, runs both migration tracks, mints an ingest-scoped `HOGSEND_API_KEY`, and offers to create your first Studio admin. Set a real `RESEND_API_KEY` (starts `re_`) before sending live email with the default provider. The full walkthrough is in [Installation](/docs/getting-started/installation).
+The scaffolder's setup step (the same script as `pnpm bootstrap` — idempotent, safe to re-run) needs **no credentials for local dev**: it starts TimescaleDB + Redis + Hatchet-Lite, generates a `BETTER_AUTH_SECRET`, **auto-mints the `HATCHET_CLIENT_TOKEN`**, runs both migration tracks, mints an ingest-scoped `HOGSEND_API_KEY` plus a full-admin `HOGSEND_ADMIN_KEY`, and offers to create your first Studio admin. Set a real `RESEND_API_KEY` (starts `re_`) before sending live email with the default provider. The full walkthrough is in [Installation](/docs/getting-started/installation).
 
 What you get maps one-to-one onto the toolkit:
 

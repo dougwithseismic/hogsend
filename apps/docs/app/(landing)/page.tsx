@@ -1502,7 +1502,7 @@ const SCAFFOLD_LINES = [
   { text: "$ pnpm dlx create-hogsend@latest my-app", dim: false },
   { text: "✔ Scaffolding my-app", dim: true },
   { text: "✔ 10 journeys · 13 templates · Docker + env wired", dim: true },
-  { text: "→ cd my-app && pnpm bootstrap", dim: false },
+  { text: "→ cd my-app && pnpm hogsend dev", dim: false },
 ];
 
 /** Light journey-trace mock — the crimzon JourneyTrace clip, redrawn in the
@@ -1562,7 +1562,7 @@ const HOW_STEPS = [
   {
     n: "01",
     title: "Scaffold your app",
-    body: "pnpm create hogsend@latest emits a thin app that pins @hogsend/engine and holds your content. Pass --domain to wire your sending domain from the start.",
+    body: "pnpm dlx create-hogsend@latest emits a thin app that pins @hogsend/engine and holds your content. Pass --domain to wire your sending domain from the start.",
     media: (
       <div className="overflow-hidden rounded-2xl bg-[#0a0a0c]">
         <div className="flex items-center gap-3 border-white/[0.06] border-b px-4 py-2.5">
@@ -2582,8 +2582,8 @@ function PsClosingCta() {
             </h2>
             <p className="mt-5 max-w-[560px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
               The scaffold command sets up the app, Docker, env, and ten
-              journeys — the welcome series included. pnpm bootstrap brings the
-              stack up. Or deploy the Railway template in a click.
+              journeys — the welcome series included. pnpm hogsend dev runs the
+              stack. Or deploy the Railway template in a click.
             </p>
 
             {/* Every line a fact. */}

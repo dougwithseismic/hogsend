@@ -53,13 +53,13 @@ pnpm dlx create-hogsend@latest my-app
 
 This emits a thin app that pins `@hogsend/engine`, contains only content, and has the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The starter journeys (`src/journeys/welcome.ts` is the one to edit first), the PostHog webhook source, the email templates, and your `Events`/`Templates` constants are copied in as **editable starter content** — they're yours from minute one, not locked inside the engine.
 
-The scaffolder then offers to set up your local stack. That step (`pnpm bootstrap`, which you can also re-run by hand — it's idempotent) does everything you'd otherwise do by hand:
+The scaffolder then runs local setup for you by default. That step (the same script as `pnpm bootstrap`, which you can also re-run by hand — it's idempotent) does everything you'd otherwise do by hand:
 
 1. **Checks Docker is running**, then brings up TimescaleDB (Postgres), Redis, and hatchet-lite via `docker-compose.yml`.
 2. **Creates `.env`** from `.env.example` and generates a fresh `BETTER_AUTH_SECRET`.
 3. **Auto-mints your Hatchet token** from inside the hatchet-lite container and writes `HATCHET_CLIENT_TOKEN` to `.env`. No dashboard trip — local dev is bring-your-own-token-free. (Production is where you bring your own Hatchet token; see [Get a Hatchet token](/docs/getting-started/hatchet).)
 4. **Runs migrations** — both the engine track and your client track.
-5. **Mints an ingest-scoped data-plane key** (`hsk_…`) and writes `HOGSEND_API_KEY` to `.env`, so the `@hogsend/client` SDK and the `hogsend` CLI can talk to your instance immediately.
+5. **Mints two API keys** — an ingest-scoped `HOGSEND_API_KEY` (`hsk_…`) for the `@hogsend/client` SDK, and a full-admin `HOGSEND_ADMIN_KEY` for the `hogsend` CLI — so both can talk to your instance immediately.
 6. **Offers to create your first Studio admin** — an interactive, skippable prompt (a no-op in CI / non-TTY, or when `STUDIO_ADMIN_EMAIL` is already set). Public sign-up is disabled, so the first admin is minted from your server — by this prompt, by `hogsend studio admin create`, or by the `STUDIO_ADMIN_EMAIL` env bootstrap on a zero-user database.
 
 Then you run two processes — the api and the worker:
@@ -149,7 +149,7 @@ Hogsend is built for a specific outcome: **you ship lifecycle marketing that gen
 
 The typical path:
 
-1. **Day 1** — Scaffold with `create-hogsend`, run `pnpm bootstrap`, connect PostHog, deploy the included welcome journey
+1. **Day 1** — Scaffold with `create-hogsend` (local setup runs as part of it), connect PostHog, deploy the included welcome journey
 2. **Week 1** — Add payment-failure recovery and trial-expiring nudges. Watch open rates.
 3. **Week 2** — Tune timing based on data. Add a dormancy reactivation flow.
 4. **Month 1** — You have 4-5 journeys running, measurably improving activation and reducing churn

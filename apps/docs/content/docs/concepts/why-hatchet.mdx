@@ -11,25 +11,24 @@ The point of this page: you get all of that without learning Hatchet. `@hogsend/
 
 ## The fastest path to a running engine
 
-Scaffold a fresh app, then run one command. You do not bring your own Hatchet token for local development — `bootstrap` mints it.
+Scaffold a fresh app — local setup runs as part of it — then start the dev stack. You do not bring your own Hatchet token for local development — setup mints it.
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
 cd my-app
-pnpm bootstrap     # Docker + .env + Hatchet token + migrate
-pnpm dev           # HTTP api on http://localhost:3002
-pnpm worker:dev    # Hatchet worker, in a second terminal
+pnpm hogsend dev   # API + worker + Studio on :3002, one terminal
 ```
 
-`pnpm bootstrap` is the whole local setup, and it is idempotent — safe to re-run. It runs seven steps for you:
+The scaffolder's setup step is the same script as `pnpm bootstrap` (run that yourself if you skipped it during create), and it is idempotent — safe to re-run. It runs eight steps for you:
 
 1. **Checks Docker** is installed and the daemon is running.
 2. **Prepares `.env`** — copies `.env.example` and writes a fresh `BETTER_AUTH_SECRET`.
-3. **Resolves ports** — if `5434`/`6380`/`7077`/`8888` are taken it remaps to the next free port and syncs them back into `.env`.
+3. **Resolves ports** — if `5434`/`6380`/`7077`/`8888`/`3002` are taken it remaps to the next free port and syncs them back into `.env`.
 4. **Starts containers** — TimescaleDB, Redis, and hatchet-lite via `docker compose up -d --wait`.
 5. **Mints the Hatchet token** — execs `hatchet-admin token create` inside the hatchet-lite container and writes `HATCHET_CLIENT_TOKEN` into `.env`. This is the value the engine throws without; you do not create it by hand locally.
-6. **Runs migrations** — `db:migrate`, engine track then client track.
-7. **Mints a data-plane key** — an ingest-scoped `hsk_…` written to `HOGSEND_API_KEY`, so the [data API](/docs/data-api) and [client SDK](/docs/data-api/client-sdk) work the moment you boot.
+6. **Runs migrations** — `db:migrate`, engine track then client track — and verifies the schema reached HEAD.
+7. **Mints two API keys** — an ingest-scoped `hsk_…` written to `HOGSEND_API_KEY`, so the [data API](/docs/data-api) and [client SDK](/docs/data-api/client-sdk) work the moment you boot, plus a full-admin `HOGSEND_ADMIN_KEY` for the [`hogsend` CLI](/docs/cli).
+8. **Offers to create your first Studio admin** (interactive terminals only; sign-up is closed by design).
 
 When it finishes, the hatchet-lite dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`). Your first journey to edit is `src/journeys/welcome.ts`.
 
