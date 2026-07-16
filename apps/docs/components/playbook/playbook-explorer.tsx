@@ -85,6 +85,14 @@ export function PlaybookExplorer({
     };
   }, []);
 
+  // Re-sync local q with the URL when it changes externally (back/forward
+  // navigation, or a client-side nav to /playbook?q=... while mounted).
+  // Skipped while a debounce is pending so it doesn't clobber in-flight typing.
+  useEffect(() => {
+    if (debounceRef.current) return;
+    setQ(urlFilters.q);
+  }, [urlFilters.q]);
+
   const filters = useMemo<Filters>(
     () => ({ q, category: urlFilters.category, persona: urlFilters.persona }),
     [q, urlFilters.category, urlFilters.persona],
@@ -105,6 +113,7 @@ export function PlaybookExplorer({
     (next: Filters) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
         router.replace(buildUrl(next), { scroll: false });
       }, SEARCH_DEBOUNCE_MS);
     },
