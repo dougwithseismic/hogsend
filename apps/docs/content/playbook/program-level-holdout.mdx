@@ -1,0 +1,90 @@
+---
+title: Hold five percent out of everything
+description: A standing global control group that gives the whole lifecycle program a denominator.
+hook: Someone asked what the lifecycle program is actually worth and the room went quiet.
+category: measurement
+personas: [gtm, internal]
+channels: [email, sms]
+tags: [holdout, incrementality, measurement]
+date: 2026-07-16
+timeToResults: ongoing
+---
+
+A small fixed slice of contacts that never receives a marketing send — so
+"is any of this working" has a control group instead of a feeling.
+
+## When to run it
+
+You already run per-journey holdouts and can defend each journey on its
+own lift. Then someone asks about the program: what would happen if all of
+it stopped? Per-journey numbers don't sum into that answer, because
+journeys interact — one journey's completion is another's trigger, and a
+user held out of the winback still gets the digest. The program question
+needs a program control.
+
+## Why it works
+
+Overlapping journeys contaminate each other's controls; the only cohort
+that isolates the whole program's effect is one untouched by all of it.
+Deterministic assignment — a hash of the contact, not a nightly coin flip
+— keeps the same contacts in control across every send, and that
+consistency is what makes a quarter-over-quarter read possible at all.
+Keeping the slice small keeps the measurement tax affordable: five percent
+of contacts underserved is the price of knowing the other ninety-five are
+worth serving.
+
+## The play
+
+1. Carve a fixed, small percentage of contacts excluded from every
+   marketing message on every channel. Transactional keeps flowing —
+   receipts and resets are the product, not the program.
+2. Mark the cohort durably, so every dashboard can slice by it.
+3. Define the program's outcomes up front: activation rate, paid
+   conversion, second-month retention.
+4. Read quarterly, control versus everyone else. Expect small differences
+   and demand consistency across reads before you call the number real.
+5. Rotate membership on a long cycle — nobody should live in the dark
+   forever, and a fresh cohort revalidates the last one's answer.
+
+## Ship it with Hogsend
+
+The global control group is two environment variables. Assignment is a
+deterministic hash of the contact key (capped at 15%, the industry
+ceiling), every non-transactional email and SMS to a control contact is
+skipped at send time, and each withheld contact emits a
+`contact.control_group` marker once — that marker is what your reporting
+slices on.
+
+```bash
+# every non-transactional email and SMS skips this slice of contacts
+GLOBAL_CONTROL_PERCENT=5
+# rotating the salt re-buckets the population
+GLOBAL_CONTROL_SALT=2026-q3
+```
+
+Control contacts still enter journeys — the withholding happens at send
+time, so what you're measuring is the effect of the messages themselves.
+The per-journey layer stays as it was:
+
+```ts
+// per-journey lift, alongside the global control
+holdout: { percent: 10 },
+```
+
+Per-journey lift is a built-in read —
+`GET /v1/admin/journeys/{id}/lift` — with the win probability suppressed
+below 10 combined conversions rather than dressed up as a percentage.
+Program-level lift doesn't have an endpoint yet: today the comparison is
+your query over the `contact.control_group` marker and your outcome
+events, and the standing cohort is the substrate any future incrementality
+reporting reads. The claim tiers and windows are in
+[conversions & impact](/docs/conversions/impact).
+
+## How you'll know
+
+This play's output is the knowing: a quarterly one-pager — outcome rates
+for control versus everyone else, with cohort sizes attached. At low
+volume the honest answer is "not enough data yet", and saying so beats a
+confident number built on noise. The first time the program's budget is
+defended with a control group instead of an anecdote, the five percent has
+paid its rent.

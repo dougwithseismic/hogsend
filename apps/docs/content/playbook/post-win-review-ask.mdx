@@ -1,0 +1,86 @@
+---
+title: Ask for the review at the moment of the win
+description: A review ask that rides success events instead of the quarterly blast.
+hook: Angry users review you unprompted; happy ones need to be asked — and never are.
+category: referral
+personas: [gtm, founders]
+channels: [email]
+tags: [reviews, advocacy, nps]
+date: 2026-07-16
+timeToResults: one week
+---
+
+One email asking for a public review, sent in the hours after a customer
+just won with your product — and never sent again.
+
+## When to run it
+
+Your review page is thinner and angrier than your customer base, because
+frustration motivates itself and satisfaction doesn't. The quarterly
+"leave us a review" blast goes out regardless of what any recipient felt
+that week, so it reads as marketing and performs like it.
+
+## Why it works
+
+Willingness to say something nice in public peaks right after a felt win —
+a top survey score, a milestone crossed, a renewal signed. An ask that
+arrives inside that window, names the win, and offers exactly one link to
+exactly one review form removes every step where goodwill leaks: no
+"choose a platform" menu, no login maze, no next Tuesday. Asking each
+customer once at the right moment beats asking everyone often at the
+wrong one — and a hard once-ever cap is what keeps the ask feeling like a
+favor between people rather than a campaign.
+
+## The play
+
+1. Pick win events you already record: a top satisfaction score, a
+   milestone, a renewal.
+2. Send within hours, while the win is still felt, and reference the win
+   itself.
+3. One destination, one click — the review form, not a menu of platforms.
+4. Ask once per customer, ever. Never chase a non-response.
+5. Route low scores somewhere else entirely: a reply-to-founder
+   conversation, not a review link.
+
+## Ship it with Hogsend
+
+Trigger on the win, breathe for a few hours so the ask doesn't collide
+with the survey's own thank-you, and let `entryLimit: "once"` enforce the
+cap forever.
+
+```ts
+import { defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const postWinReviewAsk = defineJourney({
+  meta: {
+    id: "post-win-review-ask",
+    trigger: {
+      event: "nps.submitted",
+      where: (b) => b.prop("score").gte(9),
+    },
+    // one review ask per customer, ever
+    entryLimit: "once",
+    suppress: hours(0),
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(3), label: "let-the-thank-you-land" });
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "advocacy/review-ask",
+      props: { score: user.properties.score },
+    });
+  },
+});
+```
+
+Put the review-form URL through a [tracked link](/docs/guides/link-tracking)
+in the template, so the click is an event and the ask has a measurable
+yes.
+
+## How you'll know
+
+Review-form clicks and new public reviews per hundred wins, against
+whatever the blast produced. Watch the unsubscribe rate on the template as
+the guardrail — a well-timed ask should cost you almost none.

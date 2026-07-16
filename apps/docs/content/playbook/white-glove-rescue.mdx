@@ -1,0 +1,102 @@
+---
+title: Offer a human before they ask for one
+description: A rescue journey that fires on struggle signals and books a working session, not a docs link.
+hook: The trial hit the same error three times last night; this morning they got nothing.
+category: onboarding
+personas: [founders]
+channels: [email]
+tags: [onboarding, white-glove, support]
+date: 2026-07-16
+timeToResults: same day
+---
+
+A journey that watches for signs of someone fighting your product —
+repeated failures on the same step, a burst of retries — and answers with
+a person instead of a tooltip.
+
+## When to run it
+
+Your product's setup has a step people genuinely struggle with, and a
+converted trial is worth enough to justify a call. Struggling users rarely
+file tickets — they retry, get quieter, and leave. Absence-based nudges
+catch the ones who closed the tab; this play catches the ones still in it,
+losing.
+
+## Why it works
+
+A user failing the same step three times is present and motivated — the
+single best moment for a human touch, and the moment most onboarding
+automation misses because it triggers on what *didn't* happen. Offering a
+scheduled working session converts the frustration before it converts to
+silence, and it reads as service, not surveillance, because it arrives
+while the problem is real. Gating on explicit failure also keeps the
+volume low enough that a founder can actually staff the sessions.
+
+## The play
+
+1. Instrument failure, not just success: the setup step's error path and
+   the attempt count.
+2. Set a threshold that means fighting, not fumbling — the third failure
+   on the same step, not the first.
+3. Send a short personal note offering a working session. Booking link
+   first; the docs link is the postscript, not the pitch.
+4. If they get through on their own, send nothing — exit on success.
+5. If nothing changes after the offer, put a person on the decision
+   instead of another email.
+
+## Ship it with Hogsend
+
+The escalation at the end is `ctx.trigger` — it pushes a real event
+through ingest, so another journey, an outbound webhook to your team's
+channel, or both can pick it up.
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const whiteGloveRescue = defineJourney({
+  meta: {
+    id: "white-glove-rescue",
+    trigger: {
+      event: "setup.step_failed",
+      where: (b) => b.prop("attempt").gte(3),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(14),
+    suppress: hours(12),
+    exitOn: [{ event: "setup.completed" }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "onboarding/working-session-offer",
+      props: { step: user.properties.step },
+    });
+
+    const recovered = await ctx.waitForEvent({
+      event: "setup.completed",
+      timeout: days(3),
+      label: "await-recovery",
+    });
+    if (recovered.timedOut) {
+      // still stuck after the offer — a person decides what happens next
+      await ctx.trigger({
+        event: "onboarding.needs_help",
+        userId: user.id,
+        properties: { step: String(user.properties.step ?? "") },
+      });
+    }
+  },
+});
+```
+
+If they complete the step at any point — before the email, during the wait
+— the `exitOn` fires and the journey ends without sending anything else.
+
+## How you'll know
+
+Recovery rate on the gated step within three days, for users who got the
+offer versus the weeks before the play existed; session bookings; and
+whether rescued accounts convert at trial end. The failure events, the
+offer, and the completion are all in the same event stream, so the
+before/after is one [funnel](/docs/conversions/impact).

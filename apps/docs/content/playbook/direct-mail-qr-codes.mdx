@@ -1,0 +1,120 @@
+---
+title: Close the loop on direct mail with QR codes
+description: Personalized QR codes that resolve a scan to a person — or a whole office to an account.
+hook: The lumpy-mail campaign got compliments on sales calls and zeros in the CRM.
+category: revenue
+personas: [gtm, founders]
+channels: [direct-mail]
+tags: [direct-mail, qr-codes, account-based]
+date: 2026-07-16
+timeToResults: 2–4 weeks
+---
+
+A QR code minted for each physical piece you mail, so a scan lands in your
+event stream as a named person — or, printed once per office, folds every
+scanner at that address into the account.
+
+## When to run it
+
+You send mailers, handwritten notes, or swag boxes to target accounts. It
+works — people mention the package on calls — but nothing connects the
+spend to pipeline, so the budget survives on anecdote and gets cut the
+first quarter someone asks for numbers.
+
+## Why it works
+
+Direct mail's problem was never response — it's that responses were
+invisible. A QR code is a tracked link that survives printing: the scan is
+a click, with a timestamp and a redirect you control. Minted per
+recipient, the scan is self-identifying — nobody types anything, because
+the code was printed for the person the envelope was addressed to. At
+office scale you flip it: one code per address, and the landing page tags
+every scanner into that account — three scans from one office in a week is
+a buying committee you can see. The scan timestamps also tell you when the
+mail physically landed, which no carrier report does.
+
+## The play
+
+1. Give every piece a QR code unique to its recipient, pointing at a
+   landing page that continues the piece's message — never the generic
+   homepage.
+2. For office or account sends, print one code per address and have the
+   landing page record every scanner against that account.
+3. Alert the owner on scan. Mail scanned this morning is a warm call this
+   afternoon.
+4. Measure from the scan, not the send: scan-to-meeting, and
+   time-from-drop-to-first-scan.
+
+## Ship it with Hogsend
+
+Mint a personal link per recipient, pull the print-ready QR from the
+[links API or Studio](/docs/guides/link-tracking#qr-codes), and let the
+scan drive the journey. The QR encodes a durable engine URL, not the slug
+— you can retarget the destination after the print run and every code
+keeps working.
+
+```ts
+import { mintLink } from "@hogsend/engine";
+
+// one per recipient on the print run
+const link = await mintLink({
+  db: client.db,
+  baseUrl: client.env.API_PUBLIC_URL,
+  url: "https://example.com/from-the-mailer",
+  type: "personal",
+  distinctId: contact.email,
+  source: "direct-mail",
+  campaign: "q3-founders-mailer",
+});
+// GET /v1/admin/links/:id/qr?format=svg — print-ready, or use Studio's QR view
+```
+
+```ts
+import { days, defineJourney, hours, sendEmail } from "@hogsend/engine";
+
+export const mailerScanned = defineJourney({
+  meta: {
+    id: "q3-mailer-scanned",
+    trigger: {
+      event: "link.clicked",
+      where: (b) => [
+        b.prop("campaign").eq("q3-founders-mailer"),
+        b.prop("source").eq("qr"),
+      ],
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(0),
+  },
+  run: async (user, ctx) => {
+    // the scanner is identified — the code was printed for them
+    await sendEmail({
+      to: "sales@example.com",
+      userId: user.id,
+      template: "internal/mailer-scanned",
+      props: user.properties,
+    });
+  },
+});
+```
+
+For the office variant, the landing page does the account fold — one
+capture creates the contact, the group, and the membership:
+
+```ts
+// on the landing page behind an office-level code
+hogsend.group("company", "acme.com");
+hogsend.capture("mail.qr_scanned", { campaign: "q3-founders-mailer" });
+```
+
+Group membership is a data dimension you read server-side today — journeys
+stay person-scoped, so the account view is for your pipeline review, not a
+trigger.
+
+## How you'll know
+
+Scans per hundred pieces, first-scan lag (your real delivery report), and
+meetings where a scan preceded the booking. Each link's stats split
+`clickCount` from `scanCount` and report per-destination, so one campaign
+reads as one table — and the office codes tell you which accounts have
+more than one person paying attention.

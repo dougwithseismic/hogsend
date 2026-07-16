@@ -8,6 +8,9 @@ export const CHANNELS = {
   sms: { label: "SMS" },
   ads: { label: "Paid ads" },
   video: { label: "Video" },
+  discord: { label: "Discord" },
+  "in-app": { label: "In-app" },
+  "direct-mail": { label: "Direct mail" },
 } as const;
 
 export type ChannelSlug = keyof typeof CHANNELS;
