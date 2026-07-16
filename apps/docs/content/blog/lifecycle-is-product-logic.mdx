@@ -1,0 +1,45 @@
+---
+title: Lifecycle email is product logic. Treat it like product logic.
+description: The welcome series, the trial nudge, the win-back — they decide what your product does next for a user. So why do they live in a dashboard nobody reviews?
+date: 2026-07-14
+author: doug
+tags: [growth, lifecycle, engineering]
+featured: true
+---
+
+Every SaaS team I've worked with has two codebases. One is the product: reviewed, tested, versioned, deployed through CI. The other is the lifecycle layer — the welcome series, the trial-expiry nudge, the win-back sequence — and it lives in a marketing dashboard where the change history is "Sarah edited this workflow 3 weeks ago."
+
+Both codebases decide what your product does next for a user. Only one of them gets treated like it matters.
+
+## The dashboard tax
+
+Visual workflow builders optimize for the demo, not the tenth month of operation. The costs show up later:
+
+- **No review.** A branch condition gets flipped by accident and nobody notices until a customer forwards the wrong email to support.
+- **No tests.** You can't write an assertion against a drag-and-drop canvas. The QA process is "send it to yourself and squint."
+- **No environments.** The workflow that runs in production is the only copy that exists. There is no staging lifecycle.
+- **No composition.** Twelve workflows that each check "is this user on a paid plan?" twelve slightly different ways.
+
+None of this is the vendor's fault, exactly. It's the medium. Logic that lives outside the repo drifts from the product it's supposed to serve, because the repo is where the product's truth lives.
+
+## What "product logic" treatment actually means
+
+Moving lifecycle into code isn't about developer aesthetics. It buys you the same things it buys the rest of the product:
+
+**Review.** A journey change is a pull request. The person who knows the billing edge cases sees the trial-expiry change before it ships.
+
+**Tests.** "A user who signs up and never creates a project gets exactly one nudge, then stops" is an assertion, not a hope.
+
+**Versioning.** When the win-back sequence tanks reactivation, `git log` tells you what changed and `git revert` fixes it.
+
+**Shared vocabulary.** The `Events.TRIAL_STARTED` constant your journey triggers on is the same one the product emits. Rename it and the compiler tells you every place that breaks.
+
+## The counterargument, taken seriously
+
+"But marketers can't edit code." True, and worth being honest about: putting journeys in the repo moves authorship to engineers. Two things make that a better trade than it looks.
+
+First, in most PLG teams the dashboard workflows were already being written by whoever understood the data — usually a growth engineer — because the conditions ("has created a project, is on a workspace with 3+ seats, hasn't hit the paywall") are product conditions. The dashboard wasn't empowering marketing; it was forcing engineers to program with a mouse.
+
+Second, observation and authorship are different jobs. Marketing needs to see what's running, who's in which journey, what got sent, what converted. That's a read surface, and it can be excellent without being an editor. The mistake is conflating "stakeholders need visibility" with "stakeholders need a canvas."
+
+The teams that ship the best lifecycle programs I've seen run it exactly like the rest of their product: logic in the repo, dashboards for observing the run. That's not a tooling preference. It's just what taking the revenue seriously looks like.

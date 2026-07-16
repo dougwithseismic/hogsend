@@ -1,0 +1,41 @@
+---
+title: Your event names are a growth decision you already made
+description: Six months from now, someone will try to build a funnel, a journey, or a report on top of the events you're naming today. Most tracking plans fail that person.
+date: 2026-06-30
+author: doug
+tags: [technical-marketing, growth]
+---
+
+Tracking plans get written like nobody will ever read them. `clicked_button_2`, `SignUp`, `sign_up`, `user_signed_up` — all four in the same project, all four meaning slightly different things, none documented. Then six months later someone tries to build a trial-conversion funnel and discovers the "signup" step fires on page load.
+
+Event naming feels like a hygiene chore. It's actually a growth decision, because every downstream system — funnels, journeys, attribution, alerts — inherits whatever you decide today and multiplies the cost of getting it wrong.
+
+## The three failure modes
+
+**Ambiguity.** `subscription_changed` — upgraded? downgraded? cancelled? The analyst guesses, the journey misfires, and the "we should win back downgrades" project dies in a data-archaeology phase.
+
+**Actor confusion.** Did the *user* do it, or did the *system*? `invoice_created` fired by a cron job will happily enroll people in a journey meant for purchase behavior. Name system events so they can't be mistaken for intent.
+
+**Payload poverty.** The event fires but carries nothing. `plan_upgraded` without `from_plan`, `to_plan`, and `seats` means the interesting question — who upgrades from what? — needs a schema change and a quarter of waiting for new data.
+
+## A convention that survives contact with reality
+
+The one I deploy on client projects, stolen shamelessly from the object-action school:
+
+```
+object.action          # noun first, past-tense verb
+project.created
+trial.started
+invoice.payment_failed
+```
+
+Object first groups related events together in every autocomplete you'll ever use. Past tense states a fact — the thing happened — which is what an event is. And properties carry the dimensions, not the name: one `plan.changed` event with a `direction` property beats `plan_upgraded` + `plan_downgraded` + `plan_crossgraded` breeding in your schema.
+
+Two rules that matter more than the convention itself:
+
+1. **Write the events down where the code lives.** A constants file that both the product and the lifecycle layer import. If a journey triggers on `Events.TRIAL_STARTED` and the product emits `Events.TRIAL_STARTED`, the two can't drift — a rename is a compiler error, not a silent funnel break.
+2. **Name for the reader, not the writer.** The test: could someone who joined last week build a correct funnel from the event names alone, without asking anyone? That person is the customer of your tracking plan.
+
+## The payoff compounds
+
+Clean events are why some teams ship a new lifecycle journey in an afternoon — trigger on the event, branch on its properties, done — while others schedule a two-week "instrumentation audit" first. The gap isn't tooling. It's that one team made the naming decision deliberately and the other made it by accident, one `clicked_button_2` at a time.
