@@ -26,7 +26,7 @@ import { ServiceInquiryForm } from "@/components/service/inquiry-form";
 export const metadata: Metadata = {
   title: "Done-for-you lifecycle email for PostHog-native startups",
   description:
-    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. Done-for-you at $1,500/month with a three-month minimum, month one is the install — or the install alone as a $2,300 setup week.",
+    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program with you. Done-for-you at $1,500/month, three-month minimum: month one is the install plus a PostHog account analysis. Just want the install? That's the $2,300 setup week.",
   alternates: { canonical: "/service" },
   keywords: [
     "done-for-you email",
@@ -108,19 +108,13 @@ const METHOD_STEPS: Parameters<typeof ProcessSteps>[0]["steps"] = [
   },
 ];
 
-const SETUP_ITEMS: string[] = [
-  "I learn your product and map the moments in your funnel that are losing you customers.",
-  "I design and write the emails and sequences that recover them.",
-  "I get it sending from your own account, on your domain — set up end to end.",
-  "Your first revenue-recovery journeys go live against your real customers.",
-  "You can see every send and result, without touching the build.",
-];
-
 const DONE_FOR_YOU_ITEMS: string[] = [
-  "Month one: everything in the setup week, from mapping to live journeys.",
-  "New journeys and experiments as your product and funnel change.",
-  "Monitoring, so a stalled or broken send gets caught — not discovered months later.",
-  "A weekly report on the program.",
+  "Month one: Hogsend deployed, PostHog and your email provider wired in, templates ported, first journeys live in your repo",
+  "A PostHog account analysis, and the program built on it",
+  "Doug, founding growth engineer, working directly with you throughout",
+  "New journeys and experiments as your product and funnel change",
+  "Monitoring, so a stalled or broken send gets caught",
+  "A weekly report on the program",
 ];
 
 const OWNERSHIP_TAGS: string[] = [
@@ -232,8 +226,8 @@ export default function ServicePage(): JSX.Element {
               </Button>
             </div>
             <p className="eyebrow mt-6 text-white/50">
-              Done-for-you $1,500/month · 3-month minimum · $2,300 setup week ·
-              No per-contact billing
+              Done-for-you $1,500/month · 3-month minimum · No per-contact
+              billing
             </p>
           </Reveal>
 
@@ -249,7 +243,7 @@ export default function ServicePage(): JSX.Element {
           <dl className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
             <Stat value="$1,500/mo" label="Done-for-you, 3-month minimum" />
             <Stat value="Month one" label="Is the install" />
-            <Stat value="$2,300" label="Setup week, one-time" />
+            <Stat value="Included" label="A PostHog account analysis" />
             <Stat value="$0" label="Per-contact fees" />
           </dl>
         </Reveal>
@@ -289,18 +283,18 @@ export default function ServicePage(): JSX.Element {
         </Reveal>
       </Section>
 
-      {/* ---- Pricing: done-for-you + the setup week -------------------- */}
+      {/* ---- Pricing: the done-for-you plan ---------------------------- */}
       <Section id="pricing">
         <SectionHeading
           eyebrow="How it's priced"
-          title="Installed and run, or the install alone"
-          subtitle="One price if you want the program installed and operated; one if you only want the install. No per-contact meter."
+          title="One plan: installed and operated"
+          subtitle="Three months to a lifecycle program that's live and running. Month one is the install; from then on we operate it with you. No per-contact meter."
         />
 
-        <div className="mt-12 grid items-stretch gap-6 md:grid-cols-2">
-          {/* Done-for-you — the accent-highlighted main offer. */}
+        <div className="mx-auto mt-12 max-w-xl">
+          {/* Done-for-you — the accent-highlighted single offer. */}
           <Reveal delay={0.08}>
-            <Card className="relative flex h-full flex-col overflow-hidden border-accent/40 p-8">
+            <Card className="relative flex flex-col overflow-hidden border-accent/40 p-8">
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0"
@@ -312,7 +306,7 @@ export default function ServicePage(): JSX.Element {
               <div className="relative flex flex-1 flex-col">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base text-white">Done-for-you</span>
-                  <TagPill accent>Install + operate</TagPill>
+                  <TagPill accent>Founder-led</TagPill>
                 </div>
 
                 <div className="mt-5 flex items-baseline gap-1.5">
@@ -323,73 +317,48 @@ export default function ServicePage(): JSX.Element {
                 </div>
 
                 <p className="mt-4 text-base text-white/70 leading-6">
-                  Three-month minimum. Month one is the install — everything in
-                  the setup week. From month two onward I operate it: new
-                  journeys, experiments, and a weekly report.
+                  Three-month minimum. Month one is the install; from month two
+                  onward I operate it: new journeys, experiments, and a weekly
+                  report.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">What it covers</p>
                 <CheckList items={DONE_FOR_YOU_ITEMS} />
 
-                <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <Button href="#enquire" variant="accent" icon>
-                    Request a call
-                  </Button>
-                  <p className="eyebrow mt-6 text-white/50">
-                    Monthly · 3-month minimum · your accounts
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </Reveal>
-
-          {/* The setup week — the install alone. */}
-          <Reveal delay={0.16}>
-            <Card className="relative flex h-full flex-col overflow-hidden p-8">
-              <div className="relative flex flex-1 flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">The setup week</span>
-                  <TagPill>Just the install</TagPill>
-                </div>
-
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $2,300
-                  </span>
-                  <span className="text-base text-white/60">/one week</span>
-                </div>
-
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  A fixed one-week engagement — the install only. Your program
-                  gets found, designed, built, and handed over; running it from
-                  there is yours.
-                </p>
-
-                <p className="eyebrow mt-8 text-white/50">
-                  What the week covers
-                </p>
-                <CheckList items={SETUP_ITEMS} />
-
-                <p className="mt-6 text-base text-white/60 leading-6">
-                  By the end you have a lifecycle program working against your
-                  real customers — not a deck describing one.
-                </p>
-
-                <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <CheckoutCta
-                    tier="setup"
-                    label="Buy the setup week"
-                    variant="accent"
-                    next="/service"
-                  />
-                  <p className="eyebrow mt-6 text-white/50">
-                    One-time · remote · yours to keep
-                  </p>
+                <div className="mt-auto pt-8">
+                  <div className="border-white/[0.08] border-t pt-6">
+                    <Button
+                      href="#enquire"
+                      variant="accent"
+                      icon
+                      className="w-full justify-center"
+                    >
+                      Request a call
+                    </Button>
+                  </div>
                 </div>
               </div>
             </Card>
           </Reveal>
         </div>
+
+        {/* Setup-week footnote — the install alone, still purchasable. */}
+        <Reveal delay={0.16}>
+          <div className="mt-8 flex flex-col items-center gap-4 text-center">
+            <p className="mx-auto max-w-2xl text-base text-white/60 leading-6">
+              Just want the install? The setup week is $2,300 one-time — the
+              same month-one work as a fixed one-week engagement: Hogsend
+              deployed, wired to PostHog and your email provider, and your first
+              journeys live in your repo. Running it from there is yours.
+            </p>
+            <CheckoutCta
+              tier="setup"
+              label="Buy the setup week"
+              variant="outline"
+              next="/service"
+            />
+          </div>
+        </Reveal>
 
         <Reveal delay={0.2}>
           <p className="mt-8 text-sm text-white/60">
