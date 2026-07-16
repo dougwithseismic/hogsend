@@ -2,9 +2,9 @@
 
 import type { JSX, KeyboardEvent } from "react";
 import { useState } from "react";
+import { TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { Reveal } from "@/components/ds/reveal";
-import { Section, SectionHeading } from "@/components/ds/section";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
 
 /* ------------------------------------------------------------------------ */
@@ -147,8 +147,9 @@ function CalcSlider({
  * Pricing calculator — two sliders (contacts, sends/month) against verified
  * published tiers. The per-contact column quotes Resend Marketing's
  * contact-metered tiers; the Hogsend column is licence $0 + the Resend
- * transactional tier the sends fit in + your existing infra. Fires
- * `docs.calculator_used` on slider release only.
+ * transactional tier the sends fit in + infra. Fires `docs.calculator_used`
+ * on slider release only. Renders bare content — the pricing page owns the
+ * surrounding Section and heading (it sits merged under the compare table).
  */
 export function PricingCalculator(): JSX.Element {
   // Defaults: 25,000 contacts / 50,000 sends per month.
@@ -166,14 +167,8 @@ export function PricingCalculator(): JSX.Element {
   }
 
   return (
-    <Section>
-      <SectionHeading
-        eyebrow="At your size"
-        title="Two structures, side by side"
-        subtitle="Set your list size and monthly send volume. One column is metered on contacts; the other has no per-contact line item."
-      />
-
-      <Reveal delay={0.08} className="mt-12">
+    <div>
+      <Reveal delay={0.08}>
         <Card className="rounded-[10px] bg-white/[0.02] p-8">
           <div className="grid gap-x-12 gap-y-8 md:grid-cols-2">
             <CalcSlider
@@ -198,7 +193,12 @@ export function PricingCalculator(): JSX.Element {
         {/* Per-contact comparison — Resend Marketing's published tiers. */}
         <Reveal delay={0.12}>
           <Card className="h-full rounded-[10px] bg-white/[0.02] p-8">
-            <p className="eyebrow text-white/50">Contact-metered platform</p>
+            <div className="flex items-center justify-between gap-4">
+              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
+                A contact-metered tool
+              </h3>
+              <TagPill>Them</TagPill>
+            </div>
 
             <div className="mt-5 flex items-baseline gap-1.5">
               {contactTier ? (
@@ -238,7 +238,12 @@ export function PricingCalculator(): JSX.Element {
         {/* Hogsend's structure — licence, provider tier, infra. */}
         <Reveal delay={0.16}>
           <Card className="h-full rounded-[10px] border-accent/40 bg-white/[0.02] p-8">
-            <p className="eyebrow text-white/50">Hogsend, self-hosted</p>
+            <div className="flex items-center justify-between gap-4">
+              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
+                Hogsend, self-hosted
+              </h3>
+              <TagPill accent>Hogsend</TagPill>
+            </div>
 
             <div className="mt-5 flex flex-col gap-4">
               <div className="flex items-baseline justify-between gap-4">
@@ -265,7 +270,7 @@ export function PricingCalculator(): JSX.Element {
               <div className="flex items-baseline justify-between gap-4">
                 <span className="text-sm text-white/60">Infrastructure</span>
                 <span className="text-right text-sm text-white/80">
-                  your existing Postgres/Redis/Railway bill
+                  ~$20–40/mo on Railway
                 </span>
               </div>
             </div>
@@ -283,9 +288,10 @@ export function PricingCalculator(): JSX.Element {
       <Reveal delay={0.2}>
         <p className="eyebrow mt-4 text-white/50">
           Resend tiers from resend.com/pricing; Loops figure is Loops&apos;
-          published pricing at 50,000 contacts. Both checked June 2026.
+          published pricing at 50,000 contacts. Both checked June 2026. Railway
+          infra measured July 2026.
         </p>
       </Reveal>
-    </Section>
+    </div>
   );
 }

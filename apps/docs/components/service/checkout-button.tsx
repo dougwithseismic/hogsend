@@ -13,18 +13,21 @@ export function CheckoutButton({
   label,
   variant = "accent",
   next,
+  className,
 }: {
   tier: ServiceTierId;
   label: string;
   variant?: "accent" | "outline";
   /** Page to return to after sign-in / on cancel (e.g. "/pricing"). */
   next?: string;
+  /** Extra classes for the rendered Button (e.g. "w-full justify-center"). */
+  className?: string;
 }): JSX.Element {
   return (
     <form method="post" action="/api/checkout">
       <input type="hidden" name="tier" value={tier} />
       {next ? <input type="hidden" name="next" value={next} /> : null}
-      <Button type="submit" variant={variant} icon>
+      <Button type="submit" variant={variant} icon className={className}>
         {label}
       </Button>
     </form>
