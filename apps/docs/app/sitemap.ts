@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { RECIPE_CATEGORIES } from "@/app/(home)/recipes/_data/types";
+import { getAllPlays } from "@/lib/playbook";
 import { SITE_URL } from "@/lib/site";
 import { source } from "@/lib/source";
 
@@ -42,6 +43,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: page.url.startsWith("/docs/compare") ? 0.8 : 0.5,
   }));
 
+  const playbookPages = [
+    {
+      url: `${SITE_URL}/playbook`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    },
+    ...getAllPlays().map((play) => ({
+      url: `${SITE_URL}${play.url}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
+  ];
+
   return [
     {
       url: SITE_URL,
@@ -50,6 +66,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     ...marketingPages,
+    ...playbookPages,
     {
       url: `${SITE_URL}/changelog`,
       lastModified: now,
