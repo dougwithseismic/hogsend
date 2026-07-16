@@ -40,6 +40,8 @@ export const playbook = defineCollections({
     category: z.string(),
     /** Persona slugs — must exist in lib/playbook/personas.ts. Empty = everyone. */
     personas: z.array(z.string()).default([]),
+    /** Channel slugs — must exist in lib/playbook/channels.ts. */
+    channels: z.array(z.string()).default([]),
     /** Freeform search keywords. */
     tags: z.array(z.string()).default([]),
     /** Publication date (YYYY-MM-DD; YAML may parse it as a Date). */
