@@ -25,6 +25,7 @@ import { DiscordMark, GitHubMark, InkLogo } from "./brand";
  * top clearance (pt-32) keeps working with no per-page changes. */
 
 const FLAT_LINKS = [
+  { label: "Playbook", href: "/playbook" },
   { label: "Templates", href: "/emails" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
