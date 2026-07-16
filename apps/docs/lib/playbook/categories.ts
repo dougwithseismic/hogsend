@@ -52,3 +52,21 @@ export type CategorySlug = keyof typeof CATEGORIES;
 export function isCategorySlug(slug: string): slug is CategorySlug {
   return slug in CATEGORIES;
 }
+
+/** Hex accent → rgba() at the given alpha (for glow gradients). */
+function accentRgba(hex: string, alpha: number): string {
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/**
+ * The homepage hero's crimzon horizon glow, recolored to a category accent —
+ * a bottom-anchored radial that mix-blend-screens over the near-black
+ * surface (see PsHero in app/(landing)/page.tsx for the original recipe).
+ */
+export function categoryHorizonGlow(slug: CategorySlug): string {
+  const accent = CATEGORIES[slug].accent;
+  return `radial-gradient(90% 85% at 50% 115%, ${accentRgba(accent, 0.45)} 0%, ${accentRgba(accent, 0.16)} 50%, transparent 78%)`;
+}

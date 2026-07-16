@@ -2,6 +2,7 @@ import { playbook } from "collections/server";
 import { loader } from "fumadocs-core/source";
 import { toFumadocsSource } from "fumadocs-mdx/runtime/server";
 import { type CategorySlug, isCategorySlug } from "./categories";
+import { type ChannelSlug, isChannelSlug } from "./channels";
 import { isPersonaSlug, type PersonaSlug } from "./personas";
 
 export const playbookSource = loader({
@@ -23,6 +24,11 @@ export function getAllPlays(): Play[] {
     for (const persona of play.data.personas) {
       if (!isPersonaSlug(persona)) {
         throw new Error(`Unknown persona "${persona}" in ${play.url}`);
+      }
+    }
+    for (const channel of play.data.channels) {
+      if (!isChannelSlug(channel)) {
+        throw new Error(`Unknown channel "${channel}" in ${play.url}`);
       }
     }
   }
@@ -48,6 +54,7 @@ export type PlayIndexEntry = {
   hook: string;
   category: CategorySlug;
   personas: PersonaSlug[];
+  channels: ChannelSlug[];
   tags: string[];
   installs: boolean;
   timeToResults?: string;
@@ -60,6 +67,7 @@ export function toPlayIndex(plays: Play[]): PlayIndexEntry[] {
     hook: p.data.hook,
     category: p.data.category as CategorySlug,
     personas: p.data.personas as PersonaSlug[],
+    channels: p.data.channels as ChannelSlug[],
     tags: p.data.tags,
     installs: Boolean(p.data.blueprint),
     timeToResults: p.data.timeToResults,

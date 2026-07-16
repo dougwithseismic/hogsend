@@ -1,0 +1,103 @@
+---
+title: Turn video watch-depth into a buying signal
+description: Completion-optimized video ads feeding watch-depth retargeting, then per-person video signals on your own site.
+hook: You pay the same to retarget a three-second scroller as the person who watched the whole demo twice.
+category: revenue
+personas: [gtm]
+channels: [ads, video, email]
+tags: [retargeting, video, paid-ads]
+date: 2026-07-16
+timeToResults: 1–2 weeks
+---
+
+Cheap video ads sorted by how much of them people actually watch, so
+retargeting spend concentrates on demonstrated attention — and once the
+videos on your own site are instrumented too, on named people you can reach
+directly.
+
+## When to run it
+
+You run paid social and your retargeting audience is "everyone who saw
+anything." Lower-funnel CPMs are expensive, and right now that budget treats
+a scroll-past and a full watch as the same person. Meanwhile the demo videos
+on your own site play to an analytics void — you know the page got visits,
+not who watched what.
+
+## Why it works
+
+Finishing a video is a cost the viewer chose to pay, which makes watch-depth
+one of the few paid-social signals that can't be faked by an accidental
+click. Ad platforms sell completion-optimized video views at some of their
+cheapest rates (Meta's buying objective for this is ThruPlay), so you can
+buy attention wholesale and pay retail only for the people who proved they
+have it. The same mechanism gets sharper on your own site: there, watch
+depth attaches to a person instead of an anonymous audience, and several
+deep watches in a short window reads less like browsing and more like a
+hand raised.
+
+## The play
+
+1. Run video-view campaigns optimized for completions, not clicks. The
+   creative's only job is to be worth finishing.
+2. Build retargeting audiences segmented by watch depth — quarter, half,
+   three-quarters, completed — and point your lower-funnel spend at the deep
+   segments only.
+3. Instrument the video player on your own site the same way: record
+   starts, progress milestones, completions, replays, and shares, per
+   person rather than per audience.
+4. Define a hand-raise threshold: most of two or more videos watched within
+   a week or so.
+5. When a known person crosses it, act like they asked a question — a
+   personal email or a booking link within hours, not a drip.
+
+## Ship it with Hogsend
+
+Wire the player's progress into events (`video.progress` with a percentage,
+`video.completed` at the end), send them through the same endpoint as the
+rest of your tracking, and let the journey watch for the second deep watch:
+
+```ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+
+export const deepWatcherHandRaise = defineJourney({
+  meta: {
+    id: "deep-watcher-hand-raise",
+    trigger: {
+      event: "video.completed",
+      where: (b) => b.prop("percentWatched").gte(90),
+    },
+    // One outreach per person per month, however many videos they binge.
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: days(3),
+  },
+  run: async (user, ctx) => {
+    // The hand-raise is the SECOND deep watch inside a week.
+    const second = await ctx.waitForEvent({
+      event: "video.completed",
+      timeout: days(7),
+      label: "await-second-watch",
+    });
+    if (second.timedOut) return;
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "sales/watched-the-demos",
+      props: { video: second.properties?.title },
+    });
+  },
+});
+```
+
+Anonymous viewers still count — their watch events accumulate against the
+anonymous profile and fold into the contact when they later identify, so
+the threshold can trip on their first signup.
+
+## How you'll know
+
+Two comparisons. On the paid side: cost per qualified conversation from the
+deep-watch segments versus your broad retargeting audience. On the site
+side: reply and booking rate on hand-raise outreach versus the same message
+sent to a cold list — the watch events and the sends are both in Hogsend,
+so it's one [funnel](/docs/conversions/impact).

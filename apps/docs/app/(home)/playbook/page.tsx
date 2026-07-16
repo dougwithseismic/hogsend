@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { type JSX, Suspense } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Section } from "@/components/ds/section";
+import { HalftoneOverlay, ThermalLayer } from "@/components/ds/thermal";
 import { PlaybookCapture } from "@/components/playbook/playbook-capture";
 import { PlaybookExplorer } from "@/components/playbook/playbook-explorer";
 import { getAllPlays, toPlayIndex } from "@/lib/playbook";
@@ -18,17 +19,31 @@ export default function PlaybookPage(): JSX.Element {
 
   return (
     <main className="flex flex-1 flex-col">
-      <Section divider={false} containerClassName="pt-32 pb-12">
-        <Eyebrow className="mb-4">The Playbook</Eyebrow>
-        <h1 className="max-w-3xl font-display text-[40px] text-white leading-[1.1] tracking-[-0.02em] md:text-[56px]">
-          Plays that install
-        </h1>
-        <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">
-          Lifecycle normally shows results in a month. If you're sending traffic
-          without a robust lifecycle system, these plays show results within a
-          day — each one ends with the journey code that runs it.
-        </p>
-      </Section>
+      {/* Hero — the homepage treatment: crimzon horizon glow + morphing
+          thermal smoke + halftone, centered display copy (see PsHero). */}
+      <section className="relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-40 mix-blend-screen"
+          style={{
+            background:
+              "radial-gradient(90% 60% at 50% 115%, rgba(246,72,56,0.28) 0%, rgba(246,72,56,0.1) 45%, transparent 75%)",
+          }}
+        />
+        <ThermalLayer strength={0.17} />
+        <HalftoneOverlay className="opacity-40" />
+        <div className="container-page relative flex flex-col items-center pt-32 pb-16 text-center md:pb-24">
+          <Eyebrow className="mb-4">Plays that install</Eyebrow>
+          <h1 className="max-w-4xl font-display text-[40px] text-white leading-[1.08] tracking-[-0.02em] md:text-[64px]">
+            The Growth Engineer's Playbook
+          </h1>
+          <p className="mt-5 max-w-2xl text-base text-white/70 leading-6 md:text-lg md:leading-7">
+            Concrete lifecycle plays you can ship in a day or two. Run one, show
+            the team the metric it moved, then let it keep running without you —
+            each play ends with the code that runs it.
+          </p>
+        </div>
+      </section>
 
       <Section containerClassName="py-12">
         <Suspense>

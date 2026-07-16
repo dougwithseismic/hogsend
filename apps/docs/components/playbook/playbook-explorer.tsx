@@ -1,5 +1,6 @@
 "use client";
 
+import { SlidersHorizontal } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   type JSX,
@@ -17,10 +18,21 @@ import {
   isCategorySlug,
 } from "@/lib/playbook/categories";
 import {
+  CHANNELS,
+  type ChannelSlug,
+  isChannelSlug,
+} from "@/lib/playbook/channels";
+import {
   isPersonaSlug,
   PERSONAS,
   type PersonaSlug,
 } from "@/lib/playbook/personas";
+import {
+  isResultsBucketSlug,
+  type ResultsBucketSlug,
+  resultsBucket,
+} from "@/lib/playbook/results";
+import { FilterDrawer } from "./filter-drawer";
 import { PlayCard } from "./play-card";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -29,15 +41,21 @@ type Filters = {
   q: string;
   category?: CategorySlug;
   persona?: PersonaSlug;
+  channel?: ChannelSlug;
+  results?: ResultsBucketSlug;
 };
 
 function readFilters(params: URLSearchParams): Filters {
   const category = params.get("category") ?? "";
   const persona = params.get("persona") ?? "";
+  const channel = params.get("channel") ?? "";
+  const results = params.get("results") ?? "";
   return {
     q: params.get("q") ?? "",
     category: isCategorySlug(category) ? category : undefined,
     persona: isPersonaSlug(persona) ? persona : undefined,
+    channel: isChannelSlug(channel) ? channel : undefined,
+    results: isResultsBucketSlug(results) ? results : undefined,
   };
 }
 
@@ -46,6 +64,8 @@ function buildUrl(next: Filters): string {
   if (next.q) sp.set("q", next.q);
   if (next.category) sp.set("category", next.category);
   if (next.persona) sp.set("persona", next.persona);
+  if (next.channel) sp.set("channel", next.channel);
+  if (next.results) sp.set("results", next.results);
   const qs = sp.toString();
   return qs ? `/playbook?${qs}` : "/playbook";
 }
@@ -53,6 +73,9 @@ function buildUrl(next: Filters): string {
 function matches(play: PlayIndexEntry, f: Filters): boolean {
   if (f.category && play.category !== f.category) return false;
   if (f.persona && !play.personas.includes(f.persona)) return false;
+  if (f.channel && !play.channels.includes(f.channel)) return false;
+  if (f.results && resultsBucket(play.timeToResults) !== f.results)
+    return false;
   if (f.q) {
     const q = f.q.toLowerCase();
     const haystack = [
@@ -61,6 +84,7 @@ function matches(play: PlayIndexEntry, f: Filters): boolean {
       ...play.tags,
       CATEGORIES[play.category].label,
       ...play.personas.map((p) => PERSONAS[p].label),
+      ...play.channels.map((c) => CHANNELS[c].label),
     ]
       .join(" ")
       .toLowerCase();
@@ -71,8 +95,9 @@ function matches(play: PlayIndexEntry, f: Filters): boolean {
 
 /**
  * Client-side instant filter over the serialized play index: search input +
- * persona selector + category chip row, all URL-synced (?q=&category=&persona=)
- * so filtered views are shareable.
+ * category chip row inline, with the granular axes (persona, channel, time
+ * to results) in a side drawer. All URL-synced so filtered views are
+ * shareable.
  */
 export function PlaybookExplorer({
   plays,
@@ -83,6 +108,7 @@ export function PlaybookExplorer({
   const params = useSearchParams();
   const urlFilters = readFilters(params);
   const [q, setQ] = useState(() => urlFilters.q);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -100,8 +126,20 @@ export function PlaybookExplorer({
   }, [urlFilters.q]);
 
   const filters = useMemo<Filters>(
-    () => ({ q, category: urlFilters.category, persona: urlFilters.persona }),
-    [q, urlFilters.category, urlFilters.persona],
+    () => ({
+      q,
+      category: urlFilters.category,
+      persona: urlFilters.persona,
+      channel: urlFilters.channel,
+      results: urlFilters.results,
+    }),
+    [
+      q,
+      urlFilters.category,
+      urlFilters.persona,
+      urlFilters.channel,
+      urlFilters.results,
+    ],
   );
 
   const navigateNow = useCallback(
@@ -144,6 +182,12 @@ export function PlaybookExplorer({
     [plays, filters],
   );
 
+  const drawerCount = [
+    filters.persona,
+    filters.channel,
+    filters.results,
+  ].filter(Boolean).length;
+
   const chip = (isActive: boolean) =>
     cn(
       "shrink-0 rounded-full border px-4 py-1.5 text-sm transition-colors duration-200",
@@ -155,7 +199,7 @@ export function PlaybookExplorer({
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
           <input
             type="search"
             value={q}
@@ -164,27 +208,24 @@ export function PlaybookExplorer({
             aria-label="Search plays"
             className="w-full max-w-md rounded-md border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white placeholder:text-white/35 focus:border-white/25 focus:outline-none"
           />
-          <label className="flex items-center gap-2 text-sm text-white/50">
-            For
-            <select
-              value={filters.persona ?? ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                navigateNow({
-                  ...filters,
-                  persona: isPersonaSlug(v) ? v : undefined,
-                });
-              }}
-              className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white focus:border-white/25 focus:outline-none"
-            >
-              <option value="">Everyone</option>
-              {(Object.keys(PERSONAS) as PersonaSlug[]).map((p) => (
-                <option key={p} value={p}>
-                  {PERSONAS[p].label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-2 rounded-md border px-4 py-2.5 text-sm transition-colors duration-200",
+              drawerCount > 0
+                ? "border-accent/60 bg-accent-tint text-white"
+                : "border-white/10 text-white/60 hover:border-white/25 hover:text-white",
+            )}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            Filters
+            {drawerCount > 0 ? (
+              <span className="rounded-full bg-white/15 px-1.5 font-mono text-[11px] text-white">
+                {drawerCount}
+              </span>
+            ) : null}
+          </button>
         </div>
         <nav
           aria-label="Play categories"
@@ -237,6 +278,25 @@ export function PlaybookExplorer({
           </button>
         </div>
       )}
+
+      <FilterDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        filters={{
+          persona: filters.persona,
+          channel: filters.channel,
+          results: filters.results,
+        }}
+        onChange={(next) => navigateNow({ ...filters, ...next })}
+        onClearAll={() =>
+          navigateNow({
+            ...filters,
+            persona: undefined,
+            channel: undefined,
+            results: undefined,
+          })
+        }
+      />
     </div>
   );
 }
