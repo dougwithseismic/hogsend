@@ -10,6 +10,7 @@ import { getMDXComponents } from "@/components/mdx";
 import { LadderCta } from "@/components/playbook/ladder-cta";
 import { PlayCard } from "@/components/playbook/play-card";
 import { PlayViewTracker } from "@/components/playbook/play-tracking";
+import { PlaybookCapture } from "@/components/playbook/playbook-capture";
 import {
   getAllPlays,
   getRelatedPlays,
@@ -137,6 +138,7 @@ export default async function PlayPage({
       <Section containerClassName="py-16">
         <p className="eyebrow mb-6 text-white/50">Run it your way</p>
         <LadderCta slug={slug} />
+        <PlaybookCapture placement="play" className="mt-10 max-w-xl" />
       </Section>
 
       {related.length > 0 ? (

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { type JSX, Suspense } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Section } from "@/components/ds/section";
+import { PlaybookCapture } from "@/components/playbook/playbook-capture";
 import { PlaybookExplorer } from "@/components/playbook/playbook-explorer";
 import { getAllPlays, toPlayIndex } from "@/lib/playbook";
 
@@ -33,6 +34,10 @@ export default function PlaybookPage(): JSX.Element {
         <Suspense>
           <PlaybookExplorer plays={plays} />
         </Suspense>
+      </Section>
+
+      <Section containerClassName="py-16">
+        <PlaybookCapture placement="index" className="mx-auto max-w-xl" />
       </Section>
     </main>
   );
