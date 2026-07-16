@@ -7,9 +7,9 @@ import { CATEGORIES } from "@/lib/playbook/categories";
 import { PERSONAS } from "@/lib/playbook/personas";
 
 /**
- * Typographic library card — no cover image, category accent bar on top,
- * title + hook + persona chips + installs badge, wrapped in the ds cursor
- * kiss (ThermalHover). Deliberately NOT the articles feed look.
+ * Typographic library card — no cover image, category label in its accent
+ * color, title + hook + persona chips + installs badge, wrapped in the ds
+ * cursor kiss (ThermalHover). Deliberately NOT the articles feed look.
  */
 export function PlayCard({
   play,
@@ -29,11 +29,6 @@ export function PlayCard({
           "duration-200 hover:border-white/15",
         )}
       >
-        <span
-          aria-hidden
-          className="absolute inset-x-0 top-0 h-[2px]"
-          style={{ backgroundColor: category.accent }}
-        />
         <div className="flex items-center justify-between gap-2">
           <span
             className="font-mono text-[11px] uppercase tracking-[0.06em]"

@@ -33,14 +33,14 @@ export default function PlaybookPage(): JSX.Element {
         <ThermalLayer strength={0.17} />
         <HalftoneOverlay className="opacity-40" />
         <div className="container-page relative flex flex-col items-center pt-32 pb-16 text-center md:pb-24">
-          <Eyebrow className="mb-4">The Playbook</Eyebrow>
-          <h1 className="max-w-3xl font-display text-[40px] text-white leading-[1.1] tracking-[-0.02em] md:text-[64px]">
-            Plays that install
+          <Eyebrow className="mb-4">Plays that install</Eyebrow>
+          <h1 className="max-w-4xl font-display text-[40px] text-white leading-[1.08] tracking-[-0.02em] md:text-[64px]">
+            The Growth Engineer's Playbook
           </h1>
           <p className="mt-5 max-w-2xl text-base text-white/70 leading-6 md:text-lg md:leading-7">
-            Lifecycle normally shows results in a month. If you're sending
-            traffic without a robust lifecycle system, these plays show results
-            within a day — each one ends with the journey code that runs it.
+            Concrete lifecycle plays you can ship in a day or two. Run one, show
+            the team the metric it moved, then let it keep running without you —
+            each play ends with the code that runs it.
           </p>
         </div>
       </section>
