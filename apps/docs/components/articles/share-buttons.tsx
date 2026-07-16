@@ -5,13 +5,18 @@ import { type JSX, useState } from "react";
 
 /**
  * Per-platform share URL with UTM attribution: utm_source is the platform,
- * medium is social, campaign identifies the article by slug.
+ * medium is social, campaign identifies the page by prefix + slug.
  */
-function shareUrl(base: string, slug: string, source: string): string {
+function shareUrl(
+  base: string,
+  campaign: string,
+  slug: string,
+  source: string,
+): string {
   const u = new URL(base);
   u.searchParams.set("utm_source", source);
   u.searchParams.set("utm_medium", "social");
-  u.searchParams.set("utm_campaign", `article-${slug}`);
+  u.searchParams.set("utm_campaign", `${campaign}-${slug}`);
   return u.toString();
 }
 
@@ -59,6 +64,8 @@ type ShareButtonsProps = {
   url: string;
   slug: string;
   title: string;
+  /** utm_campaign prefix — "article" (default) or "playbook". */
+  campaignPrefix?: string;
   className?: string;
 };
 
@@ -67,6 +74,7 @@ export function ShareButtons({
   url,
   slug,
   title,
+  campaignPrefix = "article",
   className,
 }: ShareButtonsProps): JSX.Element {
   const [copied, setCopied] = useState(false);
@@ -74,28 +82,30 @@ export function ShareButtons({
   const targets = [
     {
       label: "Share on X",
-      href: `https://x.com/intent/post?text=${encodeURIComponent(title)}&url=${encodeURIComponent(shareUrl(url, slug, "x"))}`,
+      href: `https://x.com/intent/post?text=${encodeURIComponent(title)}&url=${encodeURIComponent(shareUrl(url, campaignPrefix, slug, "x"))}`,
       icon: <XMark className="size-3.5" />,
     },
     {
       label: "Share on LinkedIn",
-      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl(url, slug, "linkedin"))}`,
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl(url, campaignPrefix, slug, "linkedin"))}`,
       icon: <LinkedInMark className="size-4" />,
     },
     {
       label: "Share on Reddit",
-      href: `https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl(url, slug, "reddit"))}&title=${encodeURIComponent(title)}`,
+      href: `https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl(url, campaignPrefix, slug, "reddit"))}&title=${encodeURIComponent(title)}`,
       icon: <RedditMark className="size-4" />,
     },
     {
       label: "Share on Hacker News",
-      href: `https://news.ycombinator.com/submitlink?u=${encodeURIComponent(shareUrl(url, slug, "hackernews"))}&t=${encodeURIComponent(title)}`,
+      href: `https://news.ycombinator.com/submitlink?u=${encodeURIComponent(shareUrl(url, campaignPrefix, slug, "hackernews"))}&t=${encodeURIComponent(title)}`,
       icon: <HNMark className="size-4" />,
     },
   ];
 
   async function copyLink() {
-    await navigator.clipboard.writeText(shareUrl(url, slug, "copy-link"));
+    await navigator.clipboard.writeText(
+      shareUrl(url, campaignPrefix, slug, "copy-link"),
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

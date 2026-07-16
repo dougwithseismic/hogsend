@@ -55,7 +55,13 @@ function matches(play: PlayIndexEntry, f: Filters): boolean {
   if (f.persona && !play.personas.includes(f.persona)) return false;
   if (f.q) {
     const q = f.q.toLowerCase();
-    const haystack = [play.title, play.hook, ...play.tags]
+    const haystack = [
+      play.title,
+      play.hook,
+      ...play.tags,
+      CATEGORIES[play.category].label,
+      ...play.personas.map((p) => PERSONAS[p].label),
+    ]
       .join(" ")
       .toLowerCase();
     if (!haystack.includes(q)) return false;

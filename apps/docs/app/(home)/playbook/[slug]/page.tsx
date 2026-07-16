@@ -112,6 +112,7 @@ export default async function PlayPage({
                   url={canonicalUrl}
                   slug={slug}
                   title={play.data.title}
+                  campaignPrefix="playbook"
                 />
               </div>
             </aside>
@@ -123,6 +124,7 @@ export default async function PlayPage({
                 url={canonicalUrl}
                 slug={slug}
                 title={play.data.title}
+                campaignPrefix="playbook"
                 className="mt-12 md:hidden"
               />
             </div>
