@@ -444,18 +444,34 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
             </p>
           </div>
 
-          {/* Primary path (one-click Railway deploy) + the hosted demo. */}
-          <div className="flex flex-col items-center mt-6 md:mt-8">
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <Btn href={RAILWAY_DEPLOY_URL} size="lg" newTab>
-                Deploy on Railway
-              </Btn>
-              <TrackDemoClick placement="home-hero">
-                <Btn href={DEMO_URL} variant="outline" size="lg" newTab>
-                  See the live demo
-                </Btn>
-              </TrackDemoClick>
-            </div>
+          {/* Primary path (scaffold in one command) + the hosted demo. */}
+          <div className="flex flex-col items-center mt-6 gap-3 md:mt-8">
+            <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-white/[0.03] py-2 pr-2 pl-4">
+              <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
+                <span className="text-white/40">$ </span>
+                {INSTALL_COMMAND}
+              </code>
+              <CopyButton
+                value={INSTALL_COMMAND}
+                className="shrink-0 text-white/40 hover:text-white"
+              />
+            </span>
+            <TrackDemoClick placement="home-hero">
+              <Link
+                href={DEMO_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="group inline-flex items-center gap-1.5 font-medium text-sm text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
+              >
+                See the live demo
+                <span
+                  aria-hidden="true"
+                  className="transition-transform group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
+              </Link>
+            </TrackDemoClick>
           </div>
 
           {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
@@ -605,18 +621,7 @@ function PsProofStrip() {
     <div className="border-[#f6483833] border-b">
       <Container className="flex flex-col gap-3 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3">
         <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
-          In the open
-        </span>
-        {/* One command to first send — the real eye-turner. */}
-        <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/10 bg-white/[0.03] py-1.5 pr-1.5 pl-3">
-          <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[12.5px] text-white/90 [scrollbar-width:none]">
-            <span className="text-white/40">$ </span>
-            {INSTALL_COMMAND}
-          </code>
-          <CopyButton
-            value={INSTALL_COMMAND}
-            className="shrink-0 text-white/40 hover:text-white"
-          />
+          Open Source
         </span>
         <Link
           href={NPM_URL}
