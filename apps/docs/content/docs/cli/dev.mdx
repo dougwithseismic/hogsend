@@ -56,5 +56,5 @@ hogsend dev --fire signup --email a@b.com --prop plan=pro
 ```
 
 <Callout type="info">
-  `hogsend dev` shares its setup steps with [`hogsend setup`](/docs/cli/setup) — it is the "setup **and** run, one command" superset. Scaffolded apps also ship `pnpm bootstrap`, which additionally mints the local Hatchet token and an ingest-scoped `HOGSEND_API_KEY`, and remaps conflicting host ports; `hogsend dev` detects and reuses everything bootstrap set up. A typical first run is `pnpm bootstrap` once, then `hogsend dev` every day after.
+  `hogsend dev` shares its setup steps with [`hogsend setup`](/docs/cli/setup) — it is the "setup **and** run, one command" superset. Scaffolded apps also ship `pnpm bootstrap`, which additionally mints the local Hatchet token and an ingest-scoped `HOGSEND_API_KEY`, and remaps conflicting host ports; `hogsend dev` detects and reuses everything setup created. A typical flow is the scaffolder's setup once (or `pnpm bootstrap` if you skipped it), then `hogsend dev` every day after.
 </Callout>

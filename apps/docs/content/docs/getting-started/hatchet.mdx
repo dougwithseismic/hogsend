@@ -5,19 +5,17 @@ description: Hogsend's one prerequisite. Local dev auto-mints it for you in boot
 
 [Hatchet](https://hatchet.run) is the durable execution engine underneath every journey — it's what makes `ctx.sleep(days(2))` survive a deploy and resume two days later exactly where it left off. Hogsend connects to whatever Hatchet you point it at through three environment variables, and a token is the one thing the engine needs before its first boot.
 
-Good news for getting started: **you don't have to mint one by hand for local dev.** The scaffolder's `pnpm bootstrap` step brings up a local hatchet-lite container and mints a token straight into your `.env`. The manual paths below are for production, or for the times you want to do it yourself.
+Good news for getting started: **you don't have to mint one by hand for local dev.** The scaffolder's setup step brings up a local hatchet-lite container and mints a token straight into your `.env`. The manual paths below are for production, or for the times you want to do it yourself.
 
-## The fast path — let bootstrap do it
+## The fast path — let setup do it
 
-If you're following [Installation](/docs/getting-started/installation), you've already scaffolded an app:
+If you're following [Installation](/docs/getting-started/installation), the scaffold already did this — its setup step runs the local first-run for you:
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
-cd my-app
-pnpm bootstrap
 ```
 
-`pnpm bootstrap` runs a 7-step local setup. Step 5 is **minting the Hatchet token**: it starts `hatchet-lite` in Docker, reads the tenant id out of the running container, mints a token with `hatchet-admin token create`, and writes it to `.env` as `HATCHET_CLIENT_TOKEN`. The local `.env.example` already sets the other two values for the insecure compose path:
+Setup (the same script as `pnpm bootstrap`, if you skipped it during create) runs an 8-step local setup. Step 5 is **minting the Hatchet token**: it starts `hatchet-lite` in Docker, reads the tenant id out of the running container, mints a token with `hatchet-admin token create`, and writes it to `.env` as `HATCHET_CLIENT_TOKEN`. The local `.env.example` already sets the other two values for the insecure compose path:
 
 ```bash
 HATCHET_CLIENT_HOST_PORT=localhost:7077
@@ -27,12 +25,12 @@ HATCHET_CLIENT_TLS_STRATEGY=none
 So for local dev there is nothing to copy-paste. You get:
 
 ```text
-[5/7] Minting Hatchet token
+[5/8] Minting Hatchet token
   ✓ Minted a Hatchet API token → .env
 ```
 
 <Callout type="info">
-  Bootstrap is idempotent. Re-running it sees an existing valid token and leaves it alone (`✓ HATCHET_CLIENT_TOKEN already set — keeping it`). It also auto-mints an ingest-scoped data-plane key (`HOGSEND_API_KEY`) in a later step, so your local instance is ready to receive events the moment it boots.
+  Setup is idempotent. Re-running it (`pnpm bootstrap`) sees an existing valid token and leaves it alone (`✓ HATCHET_CLIENT_TOKEN already set — keeping it`). It also auto-mints two API keys (an ingest-scoped `HOGSEND_API_KEY` and a full-admin `HOGSEND_ADMIN_KEY`) in a later step, so your local instance is ready to receive events the moment it boots.
 </Callout>
 
 The local hatchet-lite dashboard is at [`http://localhost:8888`](http://localhost:8888), default login `admin@example.com` / `Admin123!!` — handy for watching journey runs, even though you won't need to touch it to mint a token.

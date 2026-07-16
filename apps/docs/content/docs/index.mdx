@@ -40,28 +40,25 @@ Hogsend closes that response gap. Scaffold the framework, ship your first journe
 
 ## Get started in minutes
 
-Scaffold a fresh app, bring the stack up with one command, then run the dev loop:
+Scaffold a fresh app — local setup runs as part of the scaffold — then start the dev stack:
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
 cd my-app
-
-pnpm bootstrap              # one command: Docker + .env + Hatchet token + migrate
-pnpm dev                    # HTTP API on http://localhost:3002
-pnpm worker:dev             # Hatchet worker, in a second terminal
+pnpm hogsend dev   # API + worker + Studio on :3002, one terminal
 ```
 
-`pnpm bootstrap` is idempotent and safe to re-run. In one pass it:
+Accept the defaults at every prompt (Docker must be installed and running) and the scaffolder does the whole first run for you. Its setup step is the same script as `pnpm bootstrap` — idempotent, safe to re-run any time. In one pass it:
 
 - **Checks Docker** is installed and the daemon is running.
 - **Creates `.env`** from `.env.example` with a freshly generated `BETTER_AUTH_SECRET`.
-- **Resolves ports** — auto-remaps any busy host port (Postgres, Redis, Hatchet) to the next free one and writes them back to `.env`.
+- **Resolves ports** — auto-remaps any busy host port (Postgres, Redis, Hatchet, the app itself) to the next free one and writes them back to `.env`.
 - **Starts containers** — TimescaleDB, Redis, and hatchet-lite via Docker Compose.
 - **Auto-mints your Hatchet token** — no bring-your-own-token step locally; it sets `HATCHET_CLIENT_TOKEN` for you. (Bring your own only in production / Hatchet Cloud.)
-- **Runs migrations** — both the engine track and your client track.
-- **Mints an ingest-scoped data-plane key** — writes a `HOGSEND_API_KEY` (`hsk_…`) so the [data API](/docs/data-api) and [`@hogsend/client`](/docs/data-api/client-sdk) work out of the box.
+- **Runs migrations** — both the engine track and your client track — and verifies the schema reached HEAD.
+- **Mints two API keys** — an ingest-scoped `HOGSEND_API_KEY` (`hsk_…`) so the [data API](/docs/data-api) and [`@hogsend/client`](/docs/data-api/client-sdk) work out of the box, and a full-admin `HOGSEND_ADMIN_KEY` that powers the [`hogsend` CLI](/docs/cli).
 
-Set `RESEND_API_KEY` in `.env` before sending real email — everything else is wired for you. Prefer one command? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and bootstraps in a single hands-off step (or pass `.` instead of a name to scaffold into the current folder). The Hatchet dashboard runs at `http://localhost:8888` (`admin@example.com` / `Admin123!!`).
+Set `RESEND_API_KEY` in `.env` before sending real email — everything else is wired for you. Driving it from an agent or CI? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and sets up in a single hands-off step with an honest exit code (or pass `.` instead of a name to scaffold into the current folder). The Hatchet dashboard runs at `http://localhost:8888` (`admin@example.com` / `Admin123!!`).
 
 To log into [Studio](/docs/operating/studio), create the first admin first. Public sign-up is disabled, so the first admin is minted from your server — run `pnpm studio:admin` (which calls `hogsend studio admin create`), or set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) and the API mints it on boot into an empty user table. There is no web sign-up form.
 
