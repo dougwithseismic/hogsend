@@ -1,0 +1,52 @@
+---
+title: Keep silver-medalist candidates warm for the next role
+description: A keep-warm journey off a rejection event, for the runner-up you'll want to re-contact.
+hook: The runner-up candidate goes cold the moment you send the rejection email.
+category: winback
+personas: [recruiters]
+tags: [recruiting, talent, keep-warm]
+date: 2026-07-07
+timeToResults: ongoing
+---
+
+{/* Draft skeleton — voice pass pending (#492 content phase). */}
+
+## When to run it
+
+You see `payment_failed` events and no follow-up. Placeholder symptom copy —
+one short paragraph naming the trigger and who feels it.
+
+## Why it works
+
+Placeholder mechanism copy — why the timing and channel work, with a real
+number where we honestly have one.
+
+## The play
+
+1. Placeholder step one.
+2. Placeholder step two.
+3. Placeholder step three.
+
+## Ship it with Hogsend
+
+```ts
+import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const silverMedalistKeepWarm = defineJourney({
+  meta: {
+    id: "silver-medalist-keep-warm",
+    trigger: { event: "candidate.rejected" },
+    entryLimit: { type: "once_per_period", period: days(30) },
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "dunning-notice" });
+    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+  },
+});
+```
+
+## How you'll know
+
+Placeholder metric copy — the event that proves recovery, e.g. recovered
+`payment_succeeded` within 7 days of `payment_failed`.

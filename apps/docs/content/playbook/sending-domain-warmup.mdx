@@ -1,0 +1,52 @@
+---
+title: Warm up a new sending domain without burning it
+description: A staged-volume journey that ramps a fresh sending domain's reputation before real send volume hits it.
+hook: A brand-new sending domain goes straight to spam the day you turn on real volume.
+category: deliverability
+personas: [agencies]
+tags: [deliverability, email, domain-warmup]
+date: 2026-07-12
+timeToResults: 2–4 weeks
+---
+
+{/* Draft skeleton — voice pass pending (#492 content phase). */}
+
+## When to run it
+
+You see `payment_failed` events and no follow-up. Placeholder symptom copy —
+one short paragraph naming the trigger and who feels it.
+
+## Why it works
+
+Placeholder mechanism copy — why the timing and channel work, with a real
+number where we honestly have one.
+
+## The play
+
+1. Placeholder step one.
+2. Placeholder step two.
+3. Placeholder step three.
+
+## Ship it with Hogsend
+
+```ts
+import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const sendingDomainWarmup = defineJourney({
+  meta: {
+    id: "sending-domain-warmup",
+    trigger: { event: "sending_domain.created" },
+    entryLimit: { type: "once_per_period", period: days(30) },
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "dunning-notice" });
+    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+  },
+});
+```
+
+## How you'll know
+
+Placeholder metric copy — the event that proves recovery, e.g. recovered
+`payment_succeeded` within 7 days of `payment_failed`.

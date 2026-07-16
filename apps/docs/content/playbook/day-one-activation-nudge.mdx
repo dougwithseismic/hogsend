@@ -1,0 +1,53 @@
+---
+title: Nudge signups to the aha moment on day one
+description: A same-day nudge journey off the signup event, pointed at the core action.
+hook: Signups create an account, poke around for two minutes, and never come back to finish setup.
+category: activation
+personas: [gtm]
+tags: [activation, onboarding, signup]
+date: 2026-07-01
+blueprint: day-one-activation-nudge
+timeToResults: same day
+---
+
+{/* Draft skeleton — voice pass pending (#492 content phase). */}
+
+## When to run it
+
+You see `payment_failed` events and no follow-up. Placeholder symptom copy —
+one short paragraph naming the trigger and who feels it.
+
+## Why it works
+
+Placeholder mechanism copy — why the timing and channel work, with a real
+number where we honestly have one.
+
+## The play
+
+1. Placeholder step one.
+2. Placeholder step two.
+3. Placeholder step three.
+
+## Ship it with Hogsend
+
+```ts
+import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const dayOneActivationNudge = defineJourney({
+  meta: {
+    id: "day-one-activation-nudge",
+    trigger: { event: "user.signed_up" },
+    entryLimit: { type: "once_per_period", period: days(30) },
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "dunning-notice" });
+    await ctx.sleep({ duration: days(3), label: "dunning-wait" });
+  },
+});
+```
+
+## How you'll know
+
+Placeholder metric copy — the event that proves recovery, e.g. recovered
+`payment_succeeded` within 7 days of `payment_failed`.
