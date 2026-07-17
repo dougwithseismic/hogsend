@@ -256,3 +256,185 @@ describe("reserved-key stripping at both context-seeding sites", () => {
     expect(providerSends).toHaveLength(0);
   });
 });
+
+/** A journey whose send DEPENDS on the arm (the dogfood pattern: same
+ * template, arm-selected subject — send key is arm-independent, so no
+ * idempotencyLabel is needed). */
+function makeVariantSendJourney(opts: {
+  journeyId: string;
+  event: string;
+  capture?: string[];
+}) {
+  return defineJourney({
+    meta: {
+      id: opts.journeyId,
+      name: "Variant send test",
+      enabled: true,
+      trigger: { event: opts.event },
+      entryLimit: "unlimited",
+      suppress: { hours: 0 },
+    },
+    run: async (user: JourneyUser, ctx: JourneyContext) => {
+      const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+      opts.capture?.push(arm);
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: "welcome",
+        subject:
+          arm === "outcome"
+            ? "Welcome - your first journey live in 15 minutes"
+            : "Welcome - let's get you set up",
+        props: { name: "Ada" },
+      });
+    },
+  });
+}
+
+describe("ctx.variant — replay / re-entry / holdout invariants", () => {
+  it("persists the derived arm and replays it with EXACTLY ONE send (same run id)", async () => {
+    const journeyId = `${RUN}-replay`;
+    const userId = trackUser(`${RUN}-replay-user`);
+    const capture: string[] = [];
+    const journey = makeVariantSendJourney({
+      journeyId,
+      event: `${RUN}-replay-ev`,
+      capture,
+    });
+    registerJourney(journey);
+    const fn = grabFn();
+    const runId = `${RUN}-wfr-replay`;
+
+    // DRIVE 1 — derive, record, send.
+    await fn(input(userId), makeCtx(runId));
+    expect(capture).toHaveLength(1);
+    expect(capture[0]).toBe(
+      pickVariant({
+        journeyId,
+        key: "welcome-subject",
+        userId,
+        arms: ["setup", "outcome"],
+      }),
+    );
+    expect(providerSends).toHaveLength(1);
+
+    // DRIVE 2 — same run id = replay-from-top. The recorded arm returns
+    // verbatim; the send short-circuits on its idempotency key.
+    await fn(input(userId), makeCtx(runId));
+    expect(capture).toHaveLength(2);
+    expect(capture[1]).toBe(capture[0]);
+    expect(providerSends).toHaveLength(1);
+
+    const sendRows = await db
+      .select({ id: emailSends.id })
+      .from(emailSends)
+      .where(eq(emailSends.userId, userId));
+    expect(sendRows).toHaveLength(1);
+
+    const stateRows = await db
+      .select({ context: journeyStates.context })
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(stateRows).toHaveLength(1);
+    expect(
+      (stateRows[0]?.context as Record<string, unknown>).__variants__,
+    ).toEqual({ "welcome-subject": capture[0] });
+  });
+
+  it("a re-entry (new run id) mints a new state row and re-derives the SAME arm", async () => {
+    const journeyId = `${RUN}-reentry`;
+    const userId = trackUser(`${RUN}-reentry-user`);
+    const capture: string[] = [];
+    const journey = makeVariantSendJourney({
+      journeyId,
+      event: `${RUN}-reentry-ev`,
+      capture,
+    });
+    registerJourney(journey);
+    const fn = grabFn();
+
+    await fn(input(userId), makeCtx(`${RUN}-wfr-re-a`));
+    await fn(input(userId), makeCtx(`${RUN}-wfr-re-b`));
+
+    // Two legitimate enrollments → two sends, two rows, SAME arm in both
+    // bags (the hash has no enrollment-scoped component).
+    expect(capture).toHaveLength(2);
+    expect(capture[1]).toBe(capture[0]);
+    expect(providerSends).toHaveLength(2);
+
+    const rows = await db
+      .select({ context: journeyStates.context })
+      .from(journeyStates)
+      .where(eq(journeyStates.userId, userId));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect((row.context as Record<string, unknown>).__variants__).toEqual({
+        "welcome-subject": capture[0],
+      });
+    }
+  });
+
+  it("arm-equals-templateKey collision under one label still throws the loud key-collision error", async () => {
+    const journeyId = `${RUN}-collide`;
+    // A user whose arm resolves to the LITERAL templateKey "welcome" — the
+    // first send's discriminant — so the second unconditional "welcome"
+    // send derives the SAME key under the same nearest label ("start").
+    const userId = findUser(
+      `${RUN}-cu`,
+      (id) =>
+        pickVariant({
+          journeyId,
+          key: "tmpl-pick",
+          userId: id,
+          arms: ["welcome", "other-template"],
+        }) === "welcome",
+    );
+    const journey = defineJourney({
+      meta: {
+        id: journeyId,
+        name: "Variant collision test",
+        enabled: true,
+        trigger: { event: `${RUN}-collide-ev` },
+        entryLimit: "unlimited",
+        suppress: { hours: 0 },
+      },
+      run: async (user: JourneyUser, ctx: JourneyContext) => {
+        const arm = await ctx.variant("tmpl-pick", [
+          "welcome",
+          "other-template",
+        ]);
+        await sendEmail({
+          to: user.email,
+          userId: user.id,
+          journeyStateId: user.stateId,
+          template: arm as "welcome",
+          subject: "First (arm-selected)",
+          props: { name: "Ada" },
+        });
+        // Same template, same nearest label ("start") → duplicate key →
+        // the documented idempotencyLabel fix applies. The engine throws
+        // loudly instead of silently dropping the second message.
+        await sendEmail({
+          to: user.email,
+          userId: user.id,
+          journeyStateId: user.stateId,
+          template: "welcome",
+          subject: "Second (unconditional)",
+          props: { name: "Ada" },
+        });
+      },
+    });
+    registerJourney(journey);
+    const fn = grabFn();
+
+    await expect(
+      fn(input(userId), makeCtx(`${RUN}-wfr-collide`)),
+    ).rejects.toThrow(/duplicate idempotency key/);
+
+    // First send succeeded; the run then failed at the collision.
+    expect(providerSends).toHaveLength(1);
+    const row = await readState(userId, journeyId);
+    expect(row.status).toBe("failed");
+  });
+});
