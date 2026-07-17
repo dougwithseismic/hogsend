@@ -1,6 +1,7 @@
 import { ATTRIBUTION_MODELS } from "@hogsend/attribution";
+import { campaigns } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { computeLift } from "../../lib/lift-stats.js";
 import { countsSchema, liftVerdictSchema } from "./impact-schemas.js";
@@ -350,9 +351,121 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
         (a.journeyId < b.journeyId ? -1 : a.journeyId > b.journeyId ? 1 : 0),
     );
 
-    // Tasks 5–6 of the 2b plan replace these with the campaign rollup and
-    // the batched global-control readout.
-    const campaignRows: z.infer<typeof campaignRowSchema>[] = [];
+    // (d) Campaigns — correlational only, ACTIVITY-windowed enumeration:
+    // ids come from the in-window email_sends split_part rollup ∪ in-window
+    // attribution_credits.campaign_id (NOT "newest 50 created in window" —
+    // that drops older-but-active multi-step/scheduled campaigns whose
+    // sends fall inside the window). Cap 50 by send volume desc.
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const [campaignSendRows, campaignCreditRows] = await Promise.all([
+      db.execute<{
+        campaign_id: string;
+        sends: number;
+        delivered: number;
+        opened: number;
+        clicked: number;
+      }>(sql`
+        select split_part(idempotency_key, ':', 2) as campaign_id,
+          count(*)::int as sends,
+          count(delivered_at)::int as delivered,
+          count(opened_at)::int as opened,
+          count(clicked_at)::int as clicked
+        from email_sends
+        where idempotency_key like 'campaign:%'
+          and created_at >= ${sinceTs}
+        group by 1
+      `),
+      db.execute<{
+        campaign_id: string;
+        currency: string | null;
+        value: number;
+        conversions: number;
+      }>(sql`
+        select campaign_id::text as campaign_id, currency,
+               coalesce(sum(value), 0)::float8 as value,
+               sum(weight)::float8 as conversions
+        from attribution_credits
+        where model = ${model}
+          and converted_at >= ${sinceTs}
+          and campaign_id is not null
+        group by campaign_id, currency
+      `),
+    ]);
+
+    const sendsByCampaign = new Map(
+      [...campaignSendRows]
+        // split_part can only be trusted on well-formed keys; a malformed
+        // segment would break the uuid-typed campaigns lookup below.
+        .filter((r) => UUID_RE.test(r.campaign_id))
+        .map((r) => [
+          r.campaign_id,
+          {
+            sends: Number(r.sends),
+            delivered: Number(r.delivered),
+            opened: Number(r.opened),
+            clicked: Number(r.clicked),
+          },
+        ]),
+    );
+    const creditsByCampaign = new Map<
+      string,
+      Array<{ currency: string | null; value: number; conversions: number }>
+    >();
+    for (const r of [...campaignCreditRows]) {
+      const list = creditsByCampaign.get(r.campaign_id) ?? [];
+      list.push({
+        currency: r.currency,
+        value: Number(r.value),
+        conversions: Number(r.conversions),
+      });
+      creditsByCampaign.set(r.campaign_id, list);
+    }
+
+    const campaignIds = [
+      ...new Set([...sendsByCampaign.keys(), ...creditsByCampaign.keys()]),
+    ]
+      .sort(
+        (a, b) =>
+          (sendsByCampaign.get(b)?.sends ?? 0) -
+          (sendsByCampaign.get(a)?.sends ?? 0),
+      )
+      .slice(0, 50);
+
+    const campaignInfo =
+      campaignIds.length > 0
+        ? await db
+            .select({
+              id: campaigns.id,
+              name: campaigns.name,
+              status: campaigns.status,
+            })
+            .from(campaigns)
+            .where(inArray(campaigns.id, campaignIds))
+        : [];
+    const infoById = new Map(campaignInfo.map((r) => [r.id, r]));
+
+    // Ids with no campaigns row (hard-deleted) are dropped — name/status
+    // are unknowable and the wire contract requires both.
+    const campaignRows = campaignIds.flatMap((cid) => {
+      const info = infoById.get(cid);
+      if (!info) return [];
+      const funnel = sendsByCampaign.get(cid) ?? {
+        sends: 0,
+        delivered: 0,
+        opened: 0,
+        clicked: 0,
+      };
+      return [
+        {
+          campaignId: cid,
+          name: info.name,
+          status: info.status,
+          ...funnel,
+          attributed: creditsByCampaign.get(cid) ?? [],
+        },
+      ];
+    });
     const globalControl: z.infer<typeof globalControlSchema> = {
       state: "off",
     };

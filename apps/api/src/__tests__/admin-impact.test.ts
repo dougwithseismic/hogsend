@@ -13,7 +13,7 @@ const {
   journeyStates,
   userEvents,
 } = await import("@hogsend/db");
-const { eq, inArray, like } = await import("drizzle-orm");
+const { eq, inArray, like, sql } = await import("drizzle-orm");
 const { createApp, createHogsendClient, defineConversion, defineJourney } =
   await import("@hogsend/engine");
 
@@ -873,5 +873,151 @@ describe("GET /v1/admin/impact/overview — journeys", () => {
     expect(ia).toBeGreaterThanOrEqual(0);
     expect(ia).toBeLessThan(ib); // 2 converters beats 1
     expect(ib).toBeLessThan(ic); // ties on converters → enrollments desc
+  });
+});
+
+// ---------- Task 5: overview campaigns ----------
+
+describe("GET /v1/admin/impact/overview — campaigns", () => {
+  let oldCampaignId = "";
+
+  it("activity-windowed: an OLD campaign with in-window sends appears with a correct funnel", async () => {
+    const [camp] = await db
+      .insert(campaigns)
+      .values({
+        name: `${RUN} Old Campaign`,
+        audienceKind: "list",
+        audienceId: "test-list",
+        templateKey: "welcome",
+        status: "sent",
+        createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      })
+      .returning({ id: campaigns.id });
+    if (!camp) throw new Error("campaign insert failed");
+    oldCampaignId = camp.id;
+    const now = new Date();
+    await db.insert(emailSends).values([
+      {
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-c-u1@example.test`,
+        subject: "t",
+        idempotencyKey: `campaign:${oldCampaignId}:0:${RUN}-c-u1@example.test`,
+        deliveredAt: now,
+        openedAt: now,
+        clickedAt: now,
+      },
+      {
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-c-u2@example.test`,
+        subject: "t",
+        idempotencyKey: `campaign:${oldCampaignId}:0:${RUN}-c-u2@example.test`,
+        deliveredAt: now,
+      },
+      {
+        // multi-step key — split_part(…, ':', 2) still isolates the id
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-c-u3@example.test`,
+        subject: "t",
+        idempotencyKey: `campaign:${oldCampaignId}:1:${RUN}-c-u3@example.test`,
+      },
+    ]);
+
+    const body = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    expect(body.campaigns.causal).toBe(false);
+    expect(body.campaigns.rows.length).toBeLessThanOrEqual(50);
+    const row = body.campaigns.rows.find(
+      (r: { campaignId: string }) => r.campaignId === oldCampaignId,
+    );
+    expect(row).toBeDefined();
+    expect(row.name).toBe(`${RUN} Old Campaign`);
+    expect(row.status).toBe("sent");
+    expect(row).toMatchObject({
+      sends: 3,
+      delivered: 2,
+      opened: 1,
+      clicked: 1,
+    });
+    expect(row.attributed).toEqual([]);
+  });
+
+  it("split_part totals match a per-campaign LIKE cross-check", async () => {
+    const body = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    const row = body.campaigns.rows.find(
+      (r: { campaignId: string }) => r.campaignId === oldCampaignId,
+    );
+    const checkRows = await db.execute<{ sends: number }>(sql`
+      select count(*)::int as sends
+      from email_sends
+      where idempotency_key like ${`campaign:${oldCampaignId}:%`}
+    `);
+    expect(row.sends).toBe(Number([...checkRows][0]?.sends ?? -1));
+  });
+
+  it("a credits-only campaign (zero in-window sends) still appears via the union", async () => {
+    const [camp] = await db
+      .insert(campaigns)
+      .values({
+        name: `${RUN} Credit Campaign`,
+        audienceKind: "list",
+        audienceId: "test-list",
+        templateKey: "welcome",
+        status: "sent",
+      })
+      .returning({ id: campaigns.id });
+    if (!camp) throw new Error("campaign insert failed");
+    const convId = await seedConversion({ userKey: `${RUN}-c-u4` });
+    await db.insert(attributionCredits).values({
+      conversionId: convId,
+      model: "linear",
+      touchpointEventId: crypto.randomUUID(),
+      touchpointEvent: "email.link_clicked",
+      channel: "email",
+      touchpointAt: new Date(),
+      weight: 1,
+      value: 15,
+      currency: "USD",
+      campaignId: camp.id,
+      convertedAt: new Date(),
+    });
+    const body = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    const row = body.campaigns.rows.find(
+      (r: { campaignId: string }) => r.campaignId === camp.id,
+    );
+    expect(row).toBeDefined();
+    expect(row.sends).toBe(0);
+    expect(row.attributed).toEqual([
+      { currency: "USD", value: 15, conversions: 1 },
+    ]);
+  });
+
+  it("malformed campaign idempotency keys are ignored, never a crash", async () => {
+    await db.insert(emailSends).values({
+      fromEmail: "no-reply@example.test",
+      toEmail: `${RUN}-c-u5@example.test`,
+      subject: "t",
+      idempotencyKey: `campaign:not-a-uuid:${RUN}-c-u5@example.test`,
+    });
+    const res = await app.request("/v1/admin/impact/overview", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(
+      body.campaigns.rows.find(
+        (r: { campaignId: string }) => r.campaignId === "not-a-uuid",
+      ),
+    ).toBeUndefined();
   });
 });
