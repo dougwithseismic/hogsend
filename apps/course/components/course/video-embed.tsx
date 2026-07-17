@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useHogsend } from "@hogsend/react";
+import { createHogsendEmitter } from "@hogsend/video/hogsend";
+import { VideoPlayer } from "@hogsend/video/react";
+import { useMemo, useState } from "react";
 import { MediaDoneToggle } from "@/components/course/media-toggle";
 import { CopyLinkButton } from "@/components/course/share-link";
+import { isHogsendConfigured } from "@/components/hogsend/provider";
 
 /**
  * Privacy-light YouTube embed: renders the static thumbnail with a play
@@ -33,13 +37,17 @@ export function VideoEmbed({
     <figure id={`wb-media-${id}`} className="not-prose my-8 scroll-mt-28">
       <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
-          <iframe
-            src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1`}
-            title={title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            className="absolute inset-0 h-full w-full"
-          />
+          isHogsendConfigured ? (
+            <TrackedYouTube id={id} title={title} channel={channel} />
+          ) : (
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1`}
+              title={title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="absolute inset-0 h-full w-full"
+            />
+          )
         ) : (
           <button
             type="button"
@@ -98,5 +106,37 @@ export function VideoEmbed({
         </span>
       </div>
     </figure>
+  );
+}
+
+/**
+ * Same youtube-nocookie playback (IFrame API + enablejsapi), now emitting the
+ * playbook's watch-depth contract — video.started / video.progress (25/50/75/90,
+ * percentWatched) / video.completed — through the course's Hogsend client, so
+ * anonymous watches fold into the contact on later identify. Only rendered when
+ * Hogsend is configured AND the reader already clicked play, so the privacy
+ * posture (no third-party script before opt-in) is unchanged.
+ */
+function TrackedYouTube({
+  id,
+  title,
+  channel,
+}: {
+  id: string;
+  title: string;
+  channel: string;
+}) {
+  const { capture } = useHogsend();
+  const emitter = useMemo(() => createHogsendEmitter({ capture }), [capture]);
+  const context = useMemo(() => ({ channel, courseVideo: true }), [channel]);
+  return (
+    <VideoPlayer
+      src={{ youtube: id }}
+      title={title}
+      emitter={emitter}
+      context={context}
+      autoplay
+      className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full"
+    />
   );
 }

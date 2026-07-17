@@ -93,17 +93,25 @@ export function VideoPlayer({
     const source = JSON.parse(srcKey) as VideoPlayerSrc;
     let detach: (() => void) | undefined;
     let adapter: ProviderAdapter | undefined;
-    if ("youtube" in source && mountRef.current) {
+    // The provider SDKs replace/fill the element they're given; hand them an
+    // imperative child so they never touch the React-owned container div.
+    let inner: HTMLDivElement | undefined;
+    const mount = mountRef.current;
+    if (mount && !("url" in source)) {
+      inner = document.createElement("div");
+      mount.appendChild(inner);
+    }
+    if ("youtube" in source && inner) {
       adapter = createYouTubeAdapter({
         videoId: source.youtube,
-        element: mountRef.current,
+        element: inner,
         playerVars: autoplay ? { autoplay: 1, mute: muted ? 1 : 0 } : {},
         source: title !== undefined ? { title } : undefined,
       });
-    } else if ("vimeo" in source && mountRef.current) {
+    } else if ("vimeo" in source && inner) {
       adapter = createVimeoAdapter({
         videoId: source.vimeo,
-        element: mountRef.current,
+        element: inner,
         source: title !== undefined ? { title } : undefined,
       });
     } else if ("url" in source && videoRef.current) {
@@ -113,7 +121,12 @@ export function VideoPlayer({
       });
     }
     if (adapter) detach = tracker.attach(adapter);
-    return () => detach?.();
+    return () => {
+      detach?.();
+      // The SDK may have replaced `inner` with its own iframe — clear whatever
+      // it left behind so a re-run starts from an empty container.
+      if (mount) mount.replaceChildren();
+    };
   }, [tracker, srcKey, title, muted, autoplay]);
 
   useEffect(() => {
