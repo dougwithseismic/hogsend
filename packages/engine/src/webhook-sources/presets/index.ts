@@ -1,11 +1,13 @@
 import type { env as engineEnv } from "../../env.js";
 import type { DefinedWebhookSource } from "../define-webhook-source.js";
 import { clerkSource } from "./clerk.js";
+import { intercomSource } from "./intercom.js";
 import { segmentSource } from "./segment.js";
 import { stripeSource } from "./stripe.js";
 import { supabaseSource } from "./supabase.js";
 
 export { clerkSource } from "./clerk.js";
+export { intercomSource } from "./intercom.js";
 export { segmentSource } from "./segment.js";
 export { stripeSource } from "./stripe.js";
 export { supabaseSource } from "./supabase.js";
@@ -19,9 +21,10 @@ export const PRESET_SOURCES = {
   supabase: supabaseSource,
   stripe: stripeSource,
   segment: segmentSource,
+  intercom: intercomSource,
 } satisfies Record<string, DefinedWebhookSource>;
 
-/** The stable id of a shipped preset (`"clerk" | "supabase" | "stripe" | "segment"`). */
+/** The stable id of a shipped preset (`"clerk" | "supabase" | "stripe" | "segment" | "intercom"`). */
 export type PresetId = keyof typeof PRESET_SOURCES;
 
 /** The slice of the validated env `presetsFromEnv` reads (preset secrets + override). */
@@ -31,6 +34,7 @@ type PresetEnv = Pick<
   | "SUPABASE_WEBHOOK_SECRET"
   | "STRIPE_WEBHOOK_SECRET"
   | "SEGMENT_WEBHOOK_SECRET"
+  | "INTERCOM_CLIENT_SECRET"
   | "ENABLED_WEBHOOK_PRESETS"
 >;
 

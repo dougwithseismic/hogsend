@@ -810,6 +810,7 @@ export {
 // --- Integration presets (Section 2.3/2.4) ---
 export {
   clerkSource,
+  intercomSource,
   PRESET_SOURCES,
   type PresetId,
   presetsFromEnv,

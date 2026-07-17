@@ -1,6 +1,7 @@
 import {
   Code2,
   Database,
+  LifeBuoy,
   Lock,
   Shield,
   Users,
@@ -21,13 +22,15 @@ import { type StackItem, StackPicker } from "@/components/landing/stack-picker";
 export const metadata: Metadata = {
   title: "Integrations",
   description:
-    "PostHog is the default source. Events also flow in from signed webhooks (Stripe, Clerk, Supabase, Segment), your own app, or any custom source, and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
+    "PostHog is the default source. Events also flow in from signed webhooks (Stripe, Clerk, Supabase, Segment, Intercom), your own app, or any custom source, and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
   alternates: { canonical: "/integrations" },
   keywords: [
     "posthog integration",
     "webhook integrations",
     "stripe",
     "segment",
+    "intercom",
+    "customer support automation",
     "lifecycle email",
     "email automation",
     "data warehouse",
@@ -112,6 +115,16 @@ const SOURCES: Connector[] = [
     title: "Segment",
     description:
       "Pipe your existing Segment track calls in as a source. One secret enables the preset; every event is signature-checked.",
+    tag: "signed webhook · preset",
+  },
+  {
+    mark: {
+      kind: "icon",
+      icon: <LifeBuoy size={ICON_SIZE} strokeWidth={1.5} />,
+    },
+    title: "Intercom & Fin",
+    description:
+      "Support conversations become lifecycle triggers — a Fin AI resolution, an escalation, a bad CSAT rating. Set the client secret and support.* events fire journeys, keyed to the same contact as their product activity.",
     tag: "signed webhook · preset",
   },
   {
@@ -247,6 +260,21 @@ CLERK_WEBHOOK_SECRET=whsec_...
 # user.updated          → contact.updated
 # waitlistEntry.created → waitlist.joined`,
 
+  // From content/docs/integrations/intercom.mdx
+  intercom: `# Intercom Developer Hub → your app → Webhooks
+#   URL  https://api.hogsend.com/v1/webhooks/intercom
+#   Subscribe to the conversation topics you trigger on.
+
+# Hogsend .env — your Intercom app's Client Secret
+INTERCOM_CLIENT_SECRET=your_intercom_client_secret
+
+# X-Hub-Signature (HMAC-SHA1 of the raw body) is verified
+# before the transform runs — fail-closed, no SDK.
+# conversation.user.created   → support.conversation_started
+# conversation.admin.closed   → support.resolved   (Fin closes too)
+# conversation.admin.assigned → support.escalated
+# conversation.rating.added   → support.rated       (numeric rating)`,
+
   // From content/docs/integrations/supabase.mdx
   supabase: `# Supabase → Database → Webhooks → Create a new hook
 #   Table   auth.users · Events: Insert, Update, Delete
@@ -305,6 +333,14 @@ const STACK_ITEMS: StackItem[] = [
       "A built-in preset watching auth.users. Signups, profile changes, and deletions become contact lifecycle events.",
     guideHref: "/docs/integrations/supabase",
     snippet: <CodeHighlight code={STACK_SNIPPETS.supabase ?? ""} lang="bash" />,
+  },
+  {
+    id: "intercom",
+    label: "Intercom",
+    blurb:
+      "A built-in preset. Support moments — Fin resolutions, escalations, CSAT ratings — become support.* events, keyed to the customer's own app user id so they fold onto the existing contact.",
+    guideHref: "/docs/integrations/intercom",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.intercom ?? ""} lang="bash" />,
   },
 ];
 
@@ -385,7 +421,7 @@ export default function IntegrationsPage(): JSX.Element {
           <SectionHeading
             eyebrow="Sources — events in"
             title="Everything your users do, in one stream"
-            subtitle="One command connects PostHog; four signed-webhook presets auto-enable the moment you set their secret — no handler, no glue. Or send from your own code, or define a source of your own."
+            subtitle="One command connects PostHog; five signed-webhook presets auto-enable the moment you set their secret — no handler, no glue. Or send from your own code, or define a source of your own."
           />
         </Reveal>
 

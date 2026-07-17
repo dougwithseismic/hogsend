@@ -38,6 +38,7 @@ Provider webhook  →  POST /v1/webhooks/{id}
 | [Supabase](/docs/integrations/supabase) | `POST /v1/webhooks/supabase` | `SUPABASE_WEBHOOK_SECRET` | `svix` (+ plain-secret fallback) |
 | [Stripe](/docs/integrations/stripe) | `POST /v1/webhooks/stripe` | `STRIPE_WEBHOOK_SECRET` | `stripe` |
 | [Segment](/docs/integrations/segment) | `POST /v1/webhooks/segment` | `SEGMENT_WEBHOOK_SECRET` | `hmac-hex` |
+| [Intercom & Fin](/docs/integrations/intercom) | `POST /v1/webhooks/intercom` | `INTERCOM_CLIENT_SECRET` | `x-hub` (HMAC-SHA1) |
 
 PostHog is deliberately absent from this table: its receiver is scaffold content with match auth (PostHog's webhook destinations send a configurable header, not a signature), and it's set up by [`hogsend connect posthog`](/docs/integrations/posthog/connect) or [by hand](/docs/integrations/posthog/manual-setup).
 
@@ -111,6 +112,7 @@ Building a webhook source from scratch — auth, schema, and `transform()` — i
   <Card title="Supabase" href="/docs/integrations/supabase" />
   <Card title="Stripe" href="/docs/integrations/stripe" />
   <Card title="Segment" href="/docs/integrations/segment" />
+  <Card title="Intercom & Fin" href="/docs/integrations/intercom" />
   <Card title="Discord" href="/docs/integrations/discord" />
   <Card title="Telegram" href="/docs/integrations/telegram" />
   <Card title="Vercel AI SDK" href="/docs/integrations/ai-sdk" />
