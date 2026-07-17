@@ -502,3 +502,145 @@ describe("GET /v1/admin/journeys/{id}/impact — version cohorts", () => {
     ).toBeUndefined();
   });
 });
+
+// ---------- Task 3: variant arms ----------
+
+describe("GET /v1/admin/journeys/{id}/impact — variant arms", () => {
+  const J = `${RUN}-vart`;
+
+  it("enumerates arms from the jsonb bag with quotes stripped, excludes bag-less and held_out rows, joins engagement, and lifts vs the WHOLE holdout", async () => {
+    const s1 = await seedState({
+      userId: `${RUN}-x-u1`,
+      journeyId: J,
+      context: { __variants__: { subject: "setup" } },
+    });
+    await seedState({
+      userId: `${RUN}-x-u2`,
+      journeyId: J,
+      context: { __variants__: { subject: "outcome" } },
+    });
+    const s3 = await seedState({
+      userId: `${RUN}-x-u3`,
+      journeyId: J,
+      context: { __variants__: { subject: "setup" } },
+    });
+    // bag-less treated row: enrolled before the experiment shipped —
+    // excluded from arms, still counted in overall treatment
+    await seedState({ userId: `${RUN}-x-u4`, journeyId: J });
+    // held_out rows: the shared control cohort for every arm
+    await seedState({
+      userId: `${RUN}-x-h1`,
+      journeyId: J,
+      status: "held_out",
+    });
+    // belt-and-suspenders: a held_out row WITH a bag must still be excluded
+    await seedState({
+      userId: `${RUN}-x-h2`,
+      journeyId: J,
+      status: "held_out",
+      context: { __variants__: { subject: "setup" } },
+    });
+    await seedConversion({ userKey: `${RUN}-x-u1` });
+
+    await db.insert(emailSends).values([
+      {
+        journeyStateId: s1,
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-x-u1@example.test`,
+        subject: "t",
+        openedAt: new Date(),
+        clickedAt: new Date(),
+      },
+      {
+        journeyStateId: s1,
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-x-u1@example.test`,
+        subject: "t",
+      },
+      {
+        journeyStateId: s3,
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-x-u3@example.test`,
+        subject: "t",
+      },
+    ]);
+
+    const res = await app.request(`/v1/admin/journeys/${J}/impact`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+
+    expect(body.variants).toHaveLength(1);
+    const v = body.variants[0];
+    expect(v.key).toBe("subject");
+    // quote-stripping: jsonb_each_text unwraps the recordOnce JSON-string
+    // values — a jsonb_each implementation would leak "\"setup\""
+    expect(v.arms.map((a: { arm: string }) => a.arm)).toEqual([
+      "outcome",
+      "setup",
+    ]);
+
+    const setup = v.arms[1];
+    expect(setup.enrollments).toBe(2); // u1 + u3; held_out u-h2 excluded
+    expect(setup.converters).toBe(1);
+    expect(setup.rate).toBeCloseTo(0.5);
+    expect(setup.engagement).toEqual({
+      causal: false,
+      sends: 3,
+      opened: 1,
+      clicked: 1,
+    });
+    // arm vs the WHOLE held-out cohort (2 control contacts)
+    expect(setup.liftVsControl).not.toBeNull();
+    expect(setup.liftVsControl.causal).toBe(true);
+    expect(typeof setup.liftVsControl.suppressed).toBe("boolean");
+
+    const outcome = v.arms[0];
+    expect(outcome.enrollments).toBe(1);
+    expect(outcome.engagement).toEqual({
+      causal: false,
+      sends: 0,
+      opened: 0,
+      clicked: 0,
+    });
+
+    // arm cohorts may sum below the treated total (bag-less u4) — labeled,
+    // never forced into a pseudo-arm
+    expect(body.overall.treatment.contacts).toBe(4);
+    expect(setup.enrollments + outcome.enrollments).toBeLessThan(
+      body.overall.treatment.contacts,
+    );
+  });
+
+  it("untrusted arm strings ride as data — enumerated verbatim, never a crash", async () => {
+    await seedState({
+      userId: `${RUN}-x-u9`,
+      journeyId: J,
+      context: { __variants__: { subject: "<img src=x onerror=1>" } },
+    });
+    const res = await app.request(`/v1/admin/journeys/${J}/impact`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.variants[0].arms.map((a: { arm: string }) => a.arm)).toContain(
+      "<img src=x onerror=1>",
+    );
+  });
+
+  it("liftVsControl is null when the journey has no held-out contacts", async () => {
+    const J2 = `${RUN}-vart2`;
+    await seedState({
+      userId: `${RUN}-y-u1`,
+      journeyId: J2,
+      context: { __variants__: { subject: "setup" } },
+    });
+    const res = await app.request(`/v1/admin/journeys/${J2}/impact`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+    expect(body.variants).toHaveLength(1);
+    expect(body.variants[0].arms[0].liftVsControl).toBeNull();
+    expect(body.variants[0].arms[0].engagement.causal).toBe(false);
+  });
+});

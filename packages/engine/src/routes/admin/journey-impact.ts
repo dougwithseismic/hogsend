@@ -316,8 +316,112 @@ export const journeyImpactRouter = new OpenAPIHono<AppEnv>().openapi(
       };
     });
 
-    // Task 3 of the 2b plan replaces this with the variant-arm queries.
-    const variants: z.infer<typeof variantSchema>[] = [];
+    // 5. Variants — arms enumerated FROM DATA (a removed arm still reports
+    // its historical cohort; injection is closed at the seeding strip, 1d).
+    // jsonb_each_text unwraps the recordOnce-stored JSON string values to
+    // bare text (record-once.ts:93). held_out rows never run run() so never
+    // carry variants (the status filter is belt-and-suspenders). Rows
+    // enrolled before an experiment shipped have no arm — excluded by the
+    // `?` operator filter, so arm cohorts may sum < treatment total.
+    // Control for EVERY arm = the overall held-out cohort (Decision B).
+    const [variantCountRows, engagementRows] = await Promise.all([
+      db.execute<{
+        variant_key: string;
+        arm: string;
+        enrollments: number;
+        converters: number;
+      }>(sql`
+        select
+          v.key as variant_key,
+          v.arm as arm,
+          count(distinct js.user_id)::int as enrollments,
+          (count(distinct js.user_id) filter (where exists (
+            select 1 from conversions c
+            where c.user_key = js.user_id
+              and c.occurred_at >= js.created_at${definitionSql}
+          )))::int as converters
+        from journey_states js
+        cross join lateral
+          jsonb_each_text(js.context -> '__variants__') as v(key, arm)
+        where js.journey_id = ${id}
+          and js.created_at >= ${sinceTs}
+          and js.status != 'held_out'
+          and js.context ? '__variants__'
+        group by v.key, v.arm
+        order by v.key, v.arm
+      `),
+      db.execute<{
+        variant_key: string;
+        arm: string;
+        sends: number;
+        opened: number;
+        clicked: number;
+      }>(sql`
+        select v.key as variant_key, v.arm as arm,
+               count(es.id)::int as sends,
+               count(es.opened_at)::int as opened,
+               count(es.clicked_at)::int as clicked
+        from journey_states js
+        cross join lateral
+          jsonb_each_text(js.context -> '__variants__') as v(key, arm)
+        join email_sends es on es.journey_state_id = js.id
+        where js.journey_id = ${id}
+          and js.created_at >= ${sinceTs}
+          and js.status != 'held_out'
+          and js.context ? '__variants__'
+        group by v.key, v.arm
+      `),
+    ]);
+
+    const engagementByArm = new Map(
+      [...engagementRows].map((r) => [
+        `${r.variant_key}:${r.arm}`,
+        {
+          sends: Number(r.sends),
+          opened: Number(r.opened),
+          clicked: Number(r.clicked),
+        },
+      ]),
+    );
+    const controlCounts = {
+      contacts: liftResult.control.contacts,
+      converters: liftResult.control.converters,
+    };
+    const armsByKey = new Map<string, z.infer<typeof variantArmSchema>[]>();
+    for (const r of [...variantCountRows]) {
+      const enrollments = Number(r.enrollments);
+      const converters = Number(r.converters);
+      const engagement = engagementByArm.get(`${r.variant_key}:${r.arm}`) ?? {
+        sends: 0,
+        opened: 0,
+        clicked: 0,
+      };
+      const arm = {
+        arm: r.arm,
+        enrollments,
+        converters,
+        rate: enrollments > 0 ? converters / enrollments : 0,
+        engagement: { causal: false as const, ...engagement },
+        liftVsControl:
+          controlCounts.contacts > 0
+            ? {
+                causal: true as const,
+                ...computeLift({
+                  treatment: { contacts: enrollments, converters },
+                  control: controlCounts,
+                }),
+              }
+            : null,
+      };
+      const list = armsByKey.get(r.variant_key) ?? [];
+      list.push(arm);
+      armsByKey.set(r.variant_key, list);
+    }
+    // SQL already ordered by (key, arm); Map preserves insertion order.
+    const variants = [...armsByKey.entries()].map(([key, arms]) => ({
+      key,
+      arms,
+    }));
 
     return c.json(
       {
