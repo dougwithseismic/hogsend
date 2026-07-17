@@ -6,6 +6,7 @@ import {
   computeJourneyLift,
   computeLiftValues,
 } from "../../lib/journey-lift.js";
+import { computeLift } from "../../lib/lift-stats.js";
 import {
   cohortSchema,
   countsSchema,
@@ -129,6 +130,12 @@ export const impactResponseSchema = z.object({
   variants: z.array(variantSchema),
 });
 
+/** timestamptz → ISO string; tolerant of driver Date/string variance. */
+function toIso(value: unknown): string | null {
+  if (value == null) return null;
+  return new Date(value as string | Date).toISOString();
+}
+
 const errorSchema = z.object({ error: z.string() });
 
 const impactRoute = createRoute({
@@ -218,9 +225,98 @@ export const journeyImpactRouter = new OpenAPIHono<AppEnv>().openapi(
       verdict: causal ? liftResult.verdict : null,
     };
 
-    // Tasks 2–3 of the 2b plan replace these with the grouped
-    // version-cohort and variant-arm queries.
-    const versions: z.infer<typeof versionSchema>[] = [];
+    // 4. Versions — ONE grouped query; control matched by SAME hash, not a
+    // date-range slice: (a) exact even when two code versions run
+    // concurrently (blue-green — date windows would cross-contaminate);
+    // (b) survives gaps and low-traffic versions; (c) treatment and control
+    // share the identical exposure period by construction. The per-row ITT
+    // clock (occurred_at >= created_at) equalizes post-assignment exposure
+    // within the version. Label pick is latest-by-created_at (array_agg
+    // form) — max() is lexicographic and shows stale labels after a
+    // label-only rename (the label is excluded from the hash).
+    const definitionSql = definitionId
+      ? sql` and c.definition_id = ${definitionId}`
+      : sql``;
+    const sinceTs = sql`${since.toISOString()}::timestamptz`;
+    const versionRows = await db.execute<{
+      hash: string | null;
+      label: string | null;
+      first_enrolled_at: string | Date | null;
+      last_enrolled_at: string | Date | null;
+      enrollments: number;
+      converters: number;
+      control_contacts: number;
+      control_converters: number;
+    }>(sql`
+      select
+        js.journey_version_hash as hash,
+        (array_agg(js.journey_version_label order by js.created_at desc)
+           filter (where js.journey_version_label is not null))[1] as label,
+        min(js.created_at) filter (where js.status != 'held_out')
+          as first_enrolled_at,
+        max(js.created_at) filter (where js.status != 'held_out')
+          as last_enrolled_at,
+        count(distinct js.user_id)
+          filter (where js.status != 'held_out')::int as enrollments,
+        (count(distinct js.user_id) filter (where js.status != 'held_out'
+          and exists (
+            select 1 from conversions c
+            where c.user_key = js.user_id
+              and c.occurred_at >= js.created_at${definitionSql}
+        )))::int as converters,
+        count(distinct js.user_id)
+          filter (where js.status = 'held_out')::int as control_contacts,
+        (count(distinct js.user_id) filter (where js.status = 'held_out'
+          and exists (
+            select 1 from conversions c
+            where c.user_key = js.user_id
+              and c.occurred_at >= js.created_at${definitionSql}
+        )))::int as control_converters
+      from journey_states js
+      where js.journey_id = ${id}
+        and js.created_at >= ${sinceTs}
+      group by js.journey_version_hash
+      order by min(js.created_at) desc
+    `);
+
+    const versions = [...versionRows].map((r) => {
+      const enrollments = Number(r.enrollments);
+      const converters = Number(r.converters);
+      const controlContacts = Number(r.control_contacts);
+      const controlConverters = Number(r.control_converters);
+      return {
+        hash: r.hash,
+        label: r.label,
+        firstEnrolledAt: toIso(r.first_enrolled_at),
+        lastEnrolledAt: toIso(r.last_enrolled_at),
+        enrollments,
+        converters,
+        rate: enrollments > 0 ? converters / enrollments : 0,
+        liftVsControl:
+          controlContacts > 0
+            ? {
+                causal: true as const,
+                control: {
+                  contacts: controlContacts,
+                  converters: controlConverters,
+                  rate:
+                    controlContacts > 0
+                      ? controlConverters / controlContacts
+                      : 0,
+                },
+                ...computeLift({
+                  treatment: { contacts: enrollments, converters },
+                  control: {
+                    contacts: controlContacts,
+                    converters: controlConverters,
+                  },
+                }),
+              }
+            : null,
+      };
+    });
+
+    // Task 3 of the 2b plan replaces this with the variant-arm queries.
     const variants: z.infer<typeof variantSchema>[] = [];
 
     return c.json(

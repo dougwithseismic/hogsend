@@ -347,3 +347,158 @@ describe("GET /v1/admin/journeys/{id}/impact — overall block", () => {
     expect(typeof body.overall.verdict.smallSample).toBe("boolean");
   });
 });
+
+// ---------- Task 2: version cohorts ----------
+
+describe("GET /v1/admin/journeys/{id}/impact — version cohorts", () => {
+  const J = `${RUN}-vjour`;
+  const DAY = 24 * 60 * 60 * 1000;
+  const at = (daysAgo: number) => new Date(Date.now() - daysAgo * DAY);
+
+  it("groups by hash with same-hash contemporaneous controls (interleaved created_at)", async () => {
+    // hash A and hash B interleave in time (blue-green deploy): a date
+    // window would cross-contaminate; same-hash matching must not.
+    // Label pick trap: lexicographic max("v9-old","a2-new") = "v9-old";
+    // latest-by-created_at = "a2-new".
+    await seedState({
+      userId: `${RUN}-v-a1`,
+      journeyId: J,
+      hash: "aaaaaaaaaaaa",
+      label: "v9-old",
+      createdAt: at(20),
+    });
+    await seedState({
+      userId: `${RUN}-v-b1`,
+      journeyId: J,
+      hash: "bbbbbbbbbbbb",
+      label: "v2",
+      createdAt: at(15),
+    });
+    await seedState({
+      userId: `${RUN}-v-a2`,
+      journeyId: J,
+      hash: "aaaaaaaaaaaa",
+      label: "a2-new",
+      createdAt: at(10),
+    });
+    await seedState({
+      userId: `${RUN}-v-b2`,
+      journeyId: J,
+      hash: "bbbbbbbbbbbb",
+      label: "v2",
+      createdAt: at(5),
+    });
+    await seedState({
+      userId: `${RUN}-v-ha`,
+      journeyId: J,
+      status: "held_out",
+      hash: "aaaaaaaaaaaa",
+      createdAt: at(19),
+    });
+    await seedState({
+      userId: `${RUN}-v-hb`,
+      journeyId: J,
+      status: "held_out",
+      hash: "bbbbbbbbbbbb",
+      createdAt: at(14),
+    });
+    // pre-versioning row (NULL-hash bucket)
+    await seedState({
+      userId: `${RUN}-v-n1`,
+      journeyId: J,
+      hash: null,
+      createdAt: at(30),
+    });
+    // converters: one treated + one CONTROL converter, both under hash A
+    await seedConversion({ userKey: `${RUN}-v-a1`, occurredAt: at(1) });
+    await seedConversion({ userKey: `${RUN}-v-ha`, occurredAt: at(2) });
+
+    const res = await app.request(`/v1/admin/journeys/${J}/impact`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+
+    // newest first by first activity: min(created_at) desc → B, A, null
+    expect(body.versions.map((v: { hash: string | null }) => v.hash)).toEqual([
+      "bbbbbbbbbbbb",
+      "aaaaaaaaaaaa",
+      null,
+    ]);
+
+    const a = body.versions[1];
+    expect(a.label).toBe("a2-new"); // latest-by-created_at, NOT max()
+    expect(a.enrollments).toBe(2);
+    expect(a.converters).toBe(1);
+    expect(a.rate).toBeCloseTo(0.5);
+    expect(a.firstEnrolledAt).not.toBeNull();
+    expect(a.lastEnrolledAt).not.toBeNull();
+    expect(new Date(a.firstEnrolledAt).getTime()).toBeLessThan(
+      new Date(a.lastEnrolledAt).getTime(),
+    );
+    expect(a.liftVsControl).not.toBeNull();
+    expect(a.liftVsControl.causal).toBe(true);
+    expect(a.liftVsControl.control).toEqual({
+      contacts: 1,
+      converters: 1,
+      rate: 1,
+    });
+
+    const b = body.versions[0];
+    // same-hash matching: hash A's control converter must NOT leak into B
+    expect(b.label).toBe("v2");
+    expect(b.liftVsControl.control).toEqual({
+      contacts: 1,
+      converters: 0,
+      rate: 0,
+    });
+
+    const unversioned = body.versions[2];
+    expect(unversioned.hash).toBeNull();
+    expect(unversioned.enrollments).toBe(1);
+    expect(unversioned.label).toBeNull();
+    // no held_out rows carry the NULL hash → no causal block
+    expect(unversioned.liftVsControl).toBeNull();
+  });
+
+  it("a hash with only held_out rows renders enrollments 0 / firstEnrolledAt null", async () => {
+    await seedState({
+      userId: `${RUN}-v-hc`,
+      journeyId: J,
+      status: "held_out",
+      hash: "cccccccccccc",
+      createdAt: at(3),
+    });
+    const res = await app.request(`/v1/admin/journeys/${J}/impact`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+    const cRow = body.versions.find(
+      (v: { hash: string | null }) => v.hash === "cccccccccccc",
+    );
+    expect(cRow.enrollments).toBe(0);
+    expect(cRow.converters).toBe(0);
+    expect(cRow.rate).toBe(0);
+    expect(cRow.firstEnrolledAt).toBeNull();
+    expect(cRow.lastEnrolledAt).toBeNull();
+    expect(cRow.liftVsControl).not.toBeNull();
+    expect(cRow.liftVsControl.control.contacts).toBe(1);
+  });
+
+  it("windows by days: rows older than the window are excluded", async () => {
+    await seedState({
+      userId: `${RUN}-v-old`,
+      journeyId: J,
+      hash: "dddddddddddd",
+      createdAt: at(120),
+    });
+    const res = await app.request(`/v1/admin/journeys/${J}/impact?days=90`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+    expect(
+      body.versions.find(
+        (v: { hash: string | null }) => v.hash === "dddddddddddd",
+      ),
+    ).toBeUndefined();
+  });
+});
