@@ -29,6 +29,11 @@ export const reactivationDormancy = defineJourney({
       // through `ingestEvent`'s `checkExits`.
       { event: wentDormant.left },
     ],
+    // D7: 15% on winbacks — effects are small and the cost of withholding
+    // from dormant users is low, so a bigger control buys resolution cheaply.
+    holdout: { percent: 15 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

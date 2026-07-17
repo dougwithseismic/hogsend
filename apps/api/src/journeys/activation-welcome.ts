@@ -11,6 +11,16 @@ export const activationWelcome = defineJourney({
     entryLimit: "once",
     suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }],
+    // Impact experiments (D7): 10% deterministic holdout; lift reads default
+    // to the seeded zero-config "revenue" conversion. NOTE: user.created
+    // also triggers activation-nudge-series, ai-onboarding, feedback-nps and
+    // sms-welcome — three of the five hold out, so each journey's measured
+    // lift is MARGINAL on top of the others' sends, never additive.
+    holdout: { percent: 10 },
+    goal: "revenue",
+    // Label bumps with the welcome-subject A/B (the run-body edit forks the
+    // content hash; the label names the epoch for humans).
+    version: "2026-07-welcome-subject-ab",
   },
 
   run: async (user, ctx) => {

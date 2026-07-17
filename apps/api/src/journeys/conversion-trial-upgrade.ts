@@ -14,6 +14,10 @@ export const conversionTrialUpgrade = defineJourney({
       { event: Events.SUBSCRIPTION_CREATED },
       { event: Events.USER_DELETED },
     ],
+    // D7: 10% holdout on steady lifecycle mail.
+    holdout: { percent: 10 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {
