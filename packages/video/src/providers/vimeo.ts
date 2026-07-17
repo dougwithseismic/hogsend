@@ -94,11 +94,12 @@ export function createVimeoAdapter(opts: VimeoAdapterOptions): ProviderAdapter {
         player.on("bufferstart", () => sink.onBuffering(true));
         player.on("bufferend", () => sink.onBuffering(false));
       });
-      return () => void player?.destroy();
+      // Cleanup happens in destroy() — the tracker calls both on detach.
+      return undefined;
     },
     destroy() {
       destroyed = true;
-      void player?.destroy();
+      void player?.destroy().catch(() => {});
       player = undefined;
     },
   };

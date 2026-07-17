@@ -25,14 +25,15 @@ export function useVideoTracker(
 ): { tracker: VideoTracker; state: Readonly<PlayerState> } {
   const [tracker] = useState(() => createVideoTracker(opts));
   const attachedRef = useRef(false);
+  // Attach at most once; destroy only on unmount (a destroyed tracker cannot
+  // be revived, so the cleanup must not run on adapter-identity churn).
   useEffect(() => {
     if (opts.adapter && !attachedRef.current) {
       attachedRef.current = true;
       tracker.attach(opts.adapter);
     }
-    return () => tracker.destroy();
-    // The tracker is created once; options changes after mount are ignored by design.
   }, [tracker, opts.adapter]);
+  useEffect(() => () => tracker.destroy(), [tracker]);
   const state = useVideoState(tracker);
   return { tracker, state };
 }
