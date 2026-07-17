@@ -255,6 +255,10 @@ export {
   setJourneySources,
 } from "./journeys/journey-sources-singleton.js";
 export {
+  computeJourneyVersionHash,
+  normalizeRunSource,
+} from "./journeys/journey-version.js";
+export {
   type RecordNamespace,
   recordOnce,
 } from "./journeys/record-once.js";
