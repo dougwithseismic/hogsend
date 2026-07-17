@@ -28,6 +28,7 @@ import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
+import { stableStringify } from "../lib/stable-stringify.js";
 
 /** Insert chunk size, reusing the import-contacts precedent (Section 6.6). */
 const BATCH_SIZE = 500;
@@ -48,20 +49,6 @@ export function computeCriteriaHash(
   return createHash("sha256")
     .update(stableStringify(criteria ?? null))
     .digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
-  return `{${entries.join(",")}}`;
 }
 
 /**
