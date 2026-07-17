@@ -3,6 +3,8 @@ title: GTM dataLayer bridge
 description: "Two-way interop between @hogsend/js and window.dataLayer — mirror captured events out to GTM, and pipe an allowlist of existing dataLayer events into the capture spine to trigger journeys."
 ---
 
+import { DataLayerDemo } from "../../../components/hogsend/datalayer-demo";
+
 Most sites already run Google Tag Manager with a populated `window.dataLayer` (`add_to_cart`, `sign_up`, `purchase`). The `dataLayer` bridge wires Hogsend to it in both directions, so you can trigger journeys off instrumentation you already have and let any GTM tag react to Hogsend events. Both directions are **off by default** — opt in per direction.
 
 ```ts
@@ -17,6 +19,12 @@ createHogsend({
 ```
 
 In React, pass the same object as the `dataLayer` prop on `<HogsendProvider>`.
+
+## Try it
+
+This live demo mounts its own client with `push: true` and `watch: { events: ["sign_up", "purchase"] }`, then shows `window.dataLayer` in real time. Capture an event and watch its `hogsend.*` mirror appear; push a bare `sign_up` and watch Hogsend ingest it (its `hogsend.*` echo confirms the round-trip); push `page_view` and see the allowlist drop it.
+
+<DataLayerDemo />
 
 ## Outbound — mirror captured events to GTM
 
