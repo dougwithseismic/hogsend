@@ -3,11 +3,15 @@
  */
 
 export {
+  isOutbound,
   isSelfOrGtm,
+  markOutbound,
+  OUTBOUND_MARK,
   OUTBOUND_PREFIX,
   outboundEntry,
   pluckScalars,
   resolveInbound,
+  resolveOutbound,
   type StartDataLayerBridgeOptions,
   startDataLayerBridge,
 } from "./bridge.js";

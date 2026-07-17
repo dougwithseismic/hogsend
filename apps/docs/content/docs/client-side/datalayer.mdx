@@ -31,9 +31,31 @@ dataLayer.push({
 
 - The `event` field is what a GTM trigger matches on — a Custom Event trigger of `hogsend.purchase` (or the regex `hogsend\..*` for all of them).
 - Read properties with a Data Layer Variable at `hogsend.properties.plan`.
-- Every spine event flows, including internal ones (`campaign.arrived`, `inapp.*`, `banner.*`). Filter to the ones you want in GTM.
+- By default **every** spine event flows, including internal ones (`campaign.arrived`, `inapp.*`, `banner.*`).
 
-The `hogsend.` prefix is fixed — it doubles as the loop guard (below).
+### Pick which events, and reshape them
+
+`push: true` mirrors everything. Pass an object to narrow it down or change the shape — so you don't have to push the whole firehose:
+
+```ts
+dataLayer: {
+  push: {
+    // Only mirror these captured events (omit `events` to mirror all).
+    events: ["purchase", "signup_completed"],
+    // Optional: reshape/rename the entry, or return null to drop it. Omit for
+    // the default `{ event: "hogsend.<name>", hogsend: { … } }` shape.
+    transform: (event, properties) => ({
+      event: `hs_${event}`,
+      value: properties.value,
+    }),
+  },
+}
+```
+
+- `events` — an outbound allowlist. Only these captured events mirror out; everything else (including the noisy internal `inapp.*`) is skipped. Applied **before** `transform`.
+- `transform` — fully owns the emitted entry. Return the dataLayer object to push, or `null` to drop the event.
+
+A `transform` can rename the outbound `event` to anything (even a name your `watch` allowlist matches) — the bridge tags every entry it emits with a non-enumerable marker, so its own emissions are **never** re-ingested, regardless of the name. The tag is invisible to GTM. The default (untransformed) shape keeps the fixed `hogsend.` prefix, which also doubles as a name-level loop guard.
 
 ## Inbound — pipe dataLayer events into journeys
 

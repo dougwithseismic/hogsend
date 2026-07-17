@@ -1,11 +1,12 @@
 /**
  * GTM/GA4 `dataLayer` bridge. Two opt-in directions:
- *   • outbound — every SDK-captured event is pushed to `window.dataLayer` as
- *     `{ event: "hogsend.<name>", hogsend: { event, properties } }`.
+ *   • outbound — SDK-captured events are pushed to `window.dataLayer` (by
+ *     default as `{ event: "hogsend.<name>", hogsend: { event, properties } }`;
+ *     filterable by name and reshapable via a `transform`).
  *   • inbound  — an explicit allowlist of `dataLayer` events is piped into the
  *     capture spine, so existing GTM instrumentation can trigger journeys.
  *
- * The allowlist / loop-guard / scalar-filter logic is pure (node-testable);
+ * The filter / loop-guard / scalar / resolve logic is pure (node-testable);
  * only {@link startDataLayerBridge} touches `window`.
  */
 
@@ -14,11 +15,34 @@ import type {
   DataLayerEntry,
   DataLayerInbound,
   DataLayerMapFn,
+  DataLayerPushConfig,
   Properties,
 } from "../types.js";
 
 /** Outbound prefix. Fixed (not configurable) so the loop guard stays trivial. */
 export const OUTBOUND_PREFIX = "hogsend.";
+
+/**
+ * Non-enumerable tag stamped on every entry the bridge emits. The inbound
+ * watcher skips tagged entries, so an outbound mirror can never be re-ingested
+ * even when a `transform` renames it to something the `watch` allowlist matches.
+ * Non-enumerable → invisible to GTM (`Object.keys`, `for…in`, JSON).
+ */
+export const OUTBOUND_MARK = Symbol.for("hogsend.dataLayer.outbound");
+
+/** Stamp an entry as bridge-emitted (see {@link OUTBOUND_MARK}). */
+export function markOutbound(entry: DataLayerEntry): DataLayerEntry {
+  Object.defineProperty(entry, OUTBOUND_MARK, {
+    value: true,
+    enumerable: false,
+  });
+  return entry;
+}
+
+/** Whether an entry was emitted by the bridge itself. */
+export function isOutbound(entry: object): boolean {
+  return (entry as Record<symbol, unknown>)[OUTBOUND_MARK] === true;
+}
 
 /** Build the outbound dataLayer entry for a captured event. */
 export function outboundEntry(
@@ -82,6 +106,22 @@ export function resolveInbound(
   return { event: name, properties: pluckScalars(entry) };
 }
 
+/**
+ * Resolve the dataLayer entry to mirror for a captured event, or null to skip.
+ *   1. `events` filter (when set) — only listed names mirror out.
+ *   2. a `transform` (when set) fully owns the entry (its return, or null).
+ *   3. otherwise the default namespaced `hogsend.<name>` entry.
+ */
+export function resolveOutbound(
+  event: string,
+  properties: Properties,
+  push: DataLayerPushConfig,
+): DataLayerEntry | null {
+  if (push.events && !push.events.includes(event)) return null;
+  if (push.transform) return push.transform(event, properties);
+  return outboundEntry(event, properties);
+}
+
 /** Options for {@link startDataLayerBridge}. */
 export interface StartDataLayerBridgeOptions {
   config: DataLayerConfig;
@@ -117,10 +157,13 @@ export function startDataLayerBridge(
 
   const teardowns: Array<() => void> = [];
 
-  // Outbound: push every captured event onto the dataLayer.
-  if (config.push) {
+  // Outbound: mirror captured events onto the dataLayer (filtered/reshaped).
+  const push: DataLayerPushConfig | undefined =
+    config.push === true ? {} : config.push || undefined;
+  if (push) {
     registerOutbound((event, properties) => {
-      arr.push(outboundEntry(event, properties));
+      const entry = resolveOutbound(event, properties, push);
+      if (entry) arr.push(markOutbound(entry));
     });
     teardowns.push(() => registerOutbound(undefined));
   }
@@ -131,6 +174,9 @@ export function startDataLayerBridge(
     const map = config.watch.map;
     const handle = (entry: unknown): void => {
       if (!entry || typeof entry !== "object") return;
+      // Never re-ingest what the bridge itself emitted (robust vs a transform
+      // that renames the outbound event to a watched name).
+      if (isOutbound(entry)) return;
       const resolved = resolveInbound(entry as DataLayerEntry, allowlist, map);
       if (resolved) capture(resolved.event, resolved.properties);
     };
