@@ -24,12 +24,23 @@ export const activationWelcome = defineJourney({
   },
 
   run: async (user, ctx) => {
+    // THE dogfood A/B (D7): subject line of the first send. Deterministic,
+    // recorded arm — same template both arms, so the send key is
+    // arm-independent (no idempotencyLabel needed; a replay re-derives the
+    // identical key). Holdout diverts BEFORE run(), so arms split the
+    // treatment cohort only; per-variant lift = arm vs the whole held-out
+    // cohort, per-arm opens/clicks ride /impact's variants block.
+    const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+
     await sendEmail({
       to: user.email,
       userId: user.id,
       journeyStateId: user.stateId,
       template: Templates.ACTIVATION_WELCOME,
-      subject: "Welcome to Hogsend — let's get you set up",
+      subject:
+        arm === "outcome"
+          ? "Welcome to Hogsend — your first journey live in 15 minutes"
+          : "Welcome to Hogsend — let's get you set up",
       journeyName: user.journeyName,
     });
 
