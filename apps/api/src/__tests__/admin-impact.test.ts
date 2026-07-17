@@ -644,3 +644,234 @@ describe("GET /v1/admin/journeys/{id}/impact — variant arms", () => {
     expect(body.variants[0].arms[0].engagement.causal).toBe(false);
   });
 });
+
+// ---------- Task 4: overview journeys ----------
+
+describe("GET /v1/admin/impact/overview — journeys", () => {
+  it("returns 401 without auth", async () => {
+    const res = await app.request("/v1/admin/impact/overview");
+    expect(res.status).toBe(401);
+  });
+
+  it("unions states-observed and ledger-only journeys, flags registration, nests causal literals", async () => {
+    // DB-only id: unregistered, in-window states
+    await seedState({ userId: `${RUN}-o-u1`, journeyId: `${RUN}-db-only` });
+    // ledger-only id: in-window credits, NO states — "this journey
+    // attributed £X" must not vanish because enrollments predate the window
+    const convId = await seedConversion({ userKey: `${RUN}-o-u2` });
+    await db.insert(attributionCredits).values({
+      conversionId: convId,
+      model: "linear",
+      touchpointEventId: crypto.randomUUID(),
+      touchpointEvent: "email.link_clicked",
+      channel: "email",
+      touchpointAt: new Date(),
+      weight: 1,
+      value: 40,
+      currency: "USD",
+      journeyId: `${RUN}-ledger-only`,
+      convertedAt: new Date(),
+    });
+
+    const res = await app.request("/v1/admin/impact/overview", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.days).toBe(90);
+    expect(body.model).toBe("linear");
+    expect(body.rankedBy).toBe("converters");
+
+    const rows: Array<Record<string, any>> = body.journeys;
+    const dbOnly = rows.find((j) => j.journeyId === `${RUN}-db-only`);
+    expect(dbOnly).toBeDefined();
+    expect(dbOnly?.registered).toBe(false);
+    expect(dbOnly?.name).toBeNull();
+    expect(dbOnly?.goalDefinitionId).toBeNull();
+    expect(dbOnly?.holdoutPercent).toBeNull();
+    expect(dbOnly?.observational).toMatchObject({
+      causal: false,
+      enrollments: 1,
+      converters: 0,
+      rate: 0,
+    });
+    expect(dbOnly?.attributed).toEqual({
+      causal: false,
+      model: "linear",
+      values: [],
+    });
+    expect(dbOnly?.lift).toBeNull();
+
+    const ledgerOnly = rows.find((j) => j.journeyId === `${RUN}-ledger-only`);
+    expect(ledgerOnly).toBeDefined();
+    expect(ledgerOnly?.registered).toBe(false);
+    expect(ledgerOnly?.observational).toEqual({
+      causal: false,
+      enrollments: 0,
+      converters: 0,
+      rate: 0,
+    });
+    expect(ledgerOnly?.attributed.causal).toBe(false);
+    expect(ledgerOnly?.attributed.values).toEqual([
+      { currency: "USD", value: 40, conversions: 1 },
+    ]);
+
+    // registered journey enrichment + goal-scoped swap: base any-definition
+    // converters for goal-journey would be 2 (g-u1 sale + g-u2 other); the
+    // per-journey goal WHERE swaps to 1 with enrollments intact
+    const goal = rows.find((j) => j.journeyId === `${RUN}-goal-journey`);
+    expect(goal).toBeDefined();
+    expect(goal?.registered).toBe(true);
+    expect(goal?.name).toBe("Impact Goal Journey");
+    expect(goal?.versionLabel).toBeNull(); // seeded rows carried no label
+    expect(goal?.goalDefinitionId).toBe(`${RUN}-sale`);
+    expect(goal?.holdoutPercent).toBe(10);
+    expect(goal?.observational.enrollments).toBe(2);
+    expect(goal?.observational.converters).toBe(1);
+    // CAUSAL — held-out cohort exists in window (g-h1 from Task 1)
+    expect(goal?.lift).not.toBeNull();
+    expect(goal?.lift.causal).toBe(true);
+    expect(goal?.lift.control).toEqual({
+      contacts: 1,
+      converters: 0,
+      rate: 0,
+    });
+    expect(typeof goal?.lift.suppressed).toBe("boolean");
+  });
+
+  it("sums exactly ONE model's credits; the model query param switches it", async () => {
+    const convId = await seedConversion({ userKey: `${RUN}-o-u3` });
+    const base = {
+      conversionId: convId,
+      touchpointEvent: "email.link_clicked",
+      channel: "email",
+      touchpointAt: new Date(),
+      journeyId: `${RUN}-model-j`,
+      convertedAt: new Date(),
+    };
+    await db.insert(attributionCredits).values([
+      {
+        ...base,
+        model: "linear",
+        touchpointEventId: crypto.randomUUID(),
+        weight: 0.5,
+        value: 10,
+        currency: "USD",
+      },
+      {
+        ...base,
+        model: "linear",
+        touchpointEventId: crypto.randomUUID(),
+        weight: 0.5,
+        value: 10,
+        currency: "USD",
+      },
+      {
+        ...base,
+        model: "first",
+        touchpointEventId: crypto.randomUUID(),
+        weight: 1,
+        value: 99,
+        currency: "USD",
+      },
+    ]);
+
+    const linear = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    const linearRow = linear.journeys.find(
+      (j: { journeyId: string }) => j.journeyId === `${RUN}-model-j`,
+    );
+    expect(linearRow.attributed.model).toBe("linear");
+    expect(linearRow.attributed.values).toEqual([
+      { currency: "USD", value: 20, conversions: 1 },
+    ]);
+
+    const first = await (
+      await app.request("/v1/admin/impact/overview?model=first", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    expect(first.model).toBe("first");
+    const firstRow = first.journeys.find(
+      (j: { journeyId: string }) => j.journeyId === `${RUN}-model-j`,
+    );
+    expect(firstRow.attributed.model).toBe("first");
+    expect(firstRow.attributed.values).toEqual([
+      { currency: "USD", value: 99, conversions: 1 },
+    ]);
+  });
+
+  it("keeps per-currency values separate — never summed across currencies", async () => {
+    const convId = await seedConversion({ userKey: `${RUN}-o-u4` });
+    const base = {
+      conversionId: convId,
+      model: "linear",
+      touchpointEvent: "email.link_clicked",
+      channel: "email",
+      touchpointAt: new Date(),
+      journeyId: `${RUN}-fx-j`,
+      convertedAt: new Date(),
+    };
+    await db.insert(attributionCredits).values([
+      {
+        ...base,
+        touchpointEventId: crypto.randomUUID(),
+        weight: 0.5,
+        value: 10,
+        currency: "USD",
+      },
+      {
+        ...base,
+        touchpointEventId: crypto.randomUUID(),
+        weight: 0.5,
+        value: 5,
+        currency: "EUR",
+      },
+    ]);
+    const body = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    const row = body.journeys.find(
+      (j: { journeyId: string }) => j.journeyId === `${RUN}-fx-j`,
+    );
+    expect(row.attributed.values).toHaveLength(2);
+    expect(row.attributed.values).toEqual(
+      expect.arrayContaining([
+        { currency: "USD", value: 10, conversions: 0.5 },
+        { currency: "EUR", value: 5, conversions: 0.5 },
+      ]),
+    );
+  });
+
+  it("ranks by converters desc, enrollments desc, journeyId asc", async () => {
+    // rank-a: 2 converters / 2 enrolled; rank-b: 1 / 3; rank-c: 1 / 1
+    await seedState({ userId: `${RUN}-r-a1`, journeyId: `${RUN}-rank-a` });
+    await seedState({ userId: `${RUN}-r-a2`, journeyId: `${RUN}-rank-a` });
+    await seedConversion({ userKey: `${RUN}-r-a1` });
+    await seedConversion({ userKey: `${RUN}-r-a2` });
+    await seedState({ userId: `${RUN}-r-b1`, journeyId: `${RUN}-rank-b` });
+    await seedState({ userId: `${RUN}-r-b2`, journeyId: `${RUN}-rank-b` });
+    await seedState({ userId: `${RUN}-r-b3`, journeyId: `${RUN}-rank-b` });
+    await seedConversion({ userKey: `${RUN}-r-b1` });
+    await seedState({ userId: `${RUN}-r-c1`, journeyId: `${RUN}-rank-c` });
+    await seedConversion({ userKey: `${RUN}-r-c1` });
+
+    const body = await (
+      await app.request("/v1/admin/impact/overview", {
+        headers: AUTH_HEADER,
+      })
+    ).json();
+    const ids = body.journeys.map((j: { journeyId: string }) => j.journeyId);
+    const ia = ids.indexOf(`${RUN}-rank-a`);
+    const ib = ids.indexOf(`${RUN}-rank-b`);
+    const ic = ids.indexOf(`${RUN}-rank-c`);
+    expect(ia).toBeGreaterThanOrEqual(0);
+    expect(ia).toBeLessThan(ib); // 2 converters beats 1
+    expect(ib).toBeLessThan(ic); // ties on converters → enrollments desc
+  });
+});
