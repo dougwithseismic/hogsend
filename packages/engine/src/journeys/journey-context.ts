@@ -53,6 +53,11 @@ import { toSleepDuration } from "../lib/hatchet-duration.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
 import {
+  pickVariant,
+  validateVariantArms,
+  validateVariantKey,
+} from "../lib/variant.js";
+import {
   JOURNEY_EXECUTION_TIMEOUT,
   JOURNEY_EXECUTION_TIMEOUT_HOURS,
 } from "./constants.js";
@@ -87,6 +92,26 @@ const DIGEST_DEFAULT_LOOKBACK: DurationObject = { minutes: 15 };
  * whole `run()`) doesn't spam the log with the same authoring advisory.
  */
 const digestWarned = new Set<string>();
+
+/**
+ * `journeyId:key` pairs already warned about a recorded-arm / arms-array
+ * divergence this process. Warn-once so a replay-from-top (which re-runs the
+ * whole `run()`) doesn't spam the log with the same advisory (mirrors
+ * digestWarned above).
+ */
+const variantWarned = new Set<string>();
+
+function warnVariantOnce(
+  logger: Logger,
+  journeyId: string,
+  key: string,
+  message: string,
+): void {
+  const warnKey = `${journeyId}:${key}`;
+  if (variantWarned.has(warnKey)) return;
+  variantWarned.add(warnKey);
+  logger.warn(message);
+}
 
 /**
  * Quote a string as a CEL single-quoted string literal, escaping backslashes
@@ -887,6 +912,103 @@ export function createJourneyContext(
     });
   };
 
+  // Deterministic experiment arm (ctx.variant, impact experiments Decision
+  // B). Assignment is a pure sha256 bucket (lib/variant.ts), RECORDED once
+  // per enrollment under the reserved __variants__ bag; the recorded value
+  // wins VERBATIM on every later call within this enrollment — including a
+  // replay after a deploy that changed `arms`. compute is SYNCHRONOUS and
+  // pure (hash only): no clock, no awaits, no durable calls — ctx.variant is
+  // positionally invisible in Hatchet's journal, like ctx.throttle. NO
+  // registerRecordLabel: re-reading the same key returning the same arm is
+  // intended reuse, not an authoring bug. No boundary-label write, no
+  // transition log — the jsonb bag IS the observability.
+  const performVariant = async <const A extends readonly [string, ...string[]]>(
+    key: string,
+    arms: A,
+  ): Promise<A[number]> => {
+    // 1. KEY SYNTAX ONLY — runs BEFORE the recordOnce read (it gates the
+    // jsonb path). Arms validation is deliberately NOT here: a deploy that
+    // ships malformed arms must degrade in-flight enrollments to the
+    // recorded fast path (no crash), while FRESH assignments still fail
+    // loudly in dev via the compute below.
+    validateVariantKey(key);
+    const journeyId = config.journeyId;
+    if (!journeyId) {
+      throw new Error(
+        "ctx.variant requires the journey id on the context (always set by " +
+          "the engine; pass journeyId in test configs)",
+      );
+    }
+
+    // 2. RECORD ONCE — first winning writer computes; everyone after
+    // (replay, reuse, zombie racer) reads the committed arm back.
+    const assigned = await recordOnce({
+      db,
+      stateId,
+      namespace: "__variants__",
+      key,
+      compute: () => {
+        validateVariantArms(arms);
+        return pickVariant({ journeyId, key, userId, arms });
+      },
+    });
+
+    // 3. TYPE GUARD — a fast-path value that is NOT a string is never
+    // returned into author code (defends against pre-stripping legacy rows
+    // with injected objects). Recompute from the pure hash (replay-stable by
+    // construction) and repair the poisoned slot under a type guard so the
+    // impact readout's GROUP BY dimension stays a clean string set. The
+    // guarded jsonb_set only ever replaces a NON-string value, so it can
+    // never clobber a legitimately committed arm; concurrent repairers
+    // compute the identical pure value.
+    if (typeof assigned !== "string") {
+      warnVariantOnce(
+        logger,
+        journeyId,
+        key,
+        `ctx.variant: journey "${journeyId}" key "${key}" carried a ` +
+          "non-string recorded value (pre-strip legacy row); recomputed " +
+          "the arm deterministically and repaired the record",
+      );
+      validateVariantArms(arms);
+      const fresh = pickVariant({ journeyId, key, userId, arms });
+      await db
+        .update(journeyStates)
+        .set({
+          context: sql`jsonb_set(
+            coalesce(${journeyStates.context}, '{}'::jsonb),
+            ARRAY['__variants__', ${key}]::text[],
+            to_jsonb(${fresh}::text),
+            true
+          )`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(journeyStates.id, stateId),
+            sql`jsonb_typeof(${journeyStates.context} -> '__variants__' -> ${key}) IS DISTINCT FROM 'string'`,
+          ),
+        );
+      return fresh as A[number];
+    }
+
+    // 4. STALE-ARM ADVISORY — recorded value wins VERBATIM (Decision B),
+    // even when a redeploy changed the arms mid-enrollment. Warn once per
+    // process per journeyId:key; NEVER throw here.
+    if (!(arms as readonly string[]).includes(assigned)) {
+      warnVariantOnce(
+        logger,
+        journeyId,
+        key,
+        `ctx.variant: journey "${journeyId}" key "${key}" recorded arm ` +
+          `"${assigned}" is not in the current arms [${arms.join(", ")}]; ` +
+          "returning the recorded arm verbatim (an enrollment keeps its " +
+          "entry-time assignment across deploys)",
+      );
+    }
+    return assigned as A[number];
+  };
+
   return {
     when: createWhenBuilder({
       timezone: resolvedTimezone,
@@ -1070,6 +1192,8 @@ export function createJourneyContext(
       // clobber the value the winner already handed to author code.
       return recordOnce({ db, stateId, namespace: "__once__", key, compute });
     },
+
+    variant: performVariant,
 
     digest(opts) {
       return performDigest(opts);

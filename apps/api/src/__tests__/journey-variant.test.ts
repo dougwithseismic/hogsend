@@ -23,9 +23,12 @@ const {
 
 const { journeyStates } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
-const { createHogsendClient, recordOnce, stripRecordNamespaces } = await import(
-  "@hogsend/engine"
-);
+const {
+  createHogsendClient,
+  createJourneyContext,
+  recordOnce,
+  stripRecordNamespaces,
+} = await import("@hogsend/engine");
 type RecordDb = Parameters<typeof recordOnce>[0]["db"];
 
 // Mock-free container: these blocks only touch Postgres via recordOnce.
@@ -301,5 +304,228 @@ describe("stripRecordNamespaces — the seeding injection filter", () => {
     const out = stripRecordNamespaces(input);
     expect(out).toEqual({ plan: "pro" });
     expect(input).toEqual({ plan: "pro" });
+  });
+});
+
+/** Build a real journey context wired to the container db + a spy logger.
+ * `journeyId` is required by ctx.variant (pass it in test configs — the
+ * engine always sets it in executeJourneyRun). */
+function makeVariantCtx(opts: {
+  stateId: string;
+  userId: string;
+  journeyId?: string;
+  db?: unknown;
+}) {
+  const warn = vi.fn();
+  const sleepFor = vi.fn(async () => ({}));
+  const waitFor = vi.fn(async () => ({}));
+  const ctx = createJourneyContext({
+    db: (opts.db ?? db) as Parameters<typeof createJourneyContext>[0]["db"],
+    hatchet: mockHatchet as Parameters<
+      typeof createJourneyContext
+    >[0]["hatchet"],
+    hatchetCtx: {
+      sleepFor: sleepFor as unknown as (d: unknown) => Promise<unknown>,
+      waitFor: waitFor as unknown as (
+        c: unknown,
+      ) => Promise<Record<string, unknown>>,
+    },
+    // biome-ignore lint/suspicious/noExplicitAny: minimal registry stub
+    registry: { get: () => undefined } as any,
+    // biome-ignore lint/suspicious/noExplicitAny: minimal logger stub
+    logger: { info: vi.fn(), warn, error: vi.fn() } as any,
+    stateId: opts.stateId,
+    userId: opts.userId,
+    userEmail: `${opts.userId}@example.com`,
+    journeyContext: {},
+    resolvedTimezone: "UTC",
+    ...(opts.journeyId ? { journeyId: opts.journeyId } : {}),
+  });
+  return { ctx, warn, sleepFor, waitFor };
+}
+
+describe("ctx.variant — engine context implementation", () => {
+  it("throws when the context has no journeyId (before any db read)", async () => {
+    const accesses: string[] = [];
+    const spyDb = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          accesses.push(String(prop));
+          throw new Error(`db touched: ${String(prop)}`);
+        },
+      },
+    );
+    const { ctx } = makeVariantCtx({
+      stateId: "unused",
+      userId: "u",
+      db: spyDb,
+    });
+    await expect(ctx.variant("k", ["a", "b"])).rejects.toThrow(/journey id/);
+    expect(accesses).toEqual([]);
+  });
+
+  it("key validation precedes durability — malformed key, spy db untouched", async () => {
+    const accesses: string[] = [];
+    const spyDb = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          accesses.push(String(prop));
+          throw new Error(`db touched: ${String(prop)}`);
+        },
+      },
+    );
+    const { ctx } = makeVariantCtx({
+      stateId: "unused",
+      userId: "u",
+      journeyId: "j",
+      db: spyDb,
+    });
+    await expect(ctx.variant("bad key", ["a", "b"])).rejects.toThrow(
+      RangeError,
+    );
+    await expect(ctx.variant("a:b", ["a", "b"])).rejects.toThrow(RangeError);
+    expect(accesses).toEqual([]);
+  });
+
+  it("derives, records, and persists the deterministic arm; issues zero durable calls", async () => {
+    const stateId = await freshState();
+    const userId = `${RUN}-ctx-derive`;
+    const journeyId = `${RUN}-jd`;
+    const { ctx, sleepFor, waitFor } = makeVariantCtx({
+      stateId,
+      userId,
+      journeyId,
+    });
+
+    const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+    const { pickVariant } = await import("@hogsend/engine/testing");
+    expect(arm).toBe(
+      pickVariant({
+        journeyId,
+        key: "welcome-subject",
+        userId,
+        arms: ["setup", "outcome"],
+      }),
+    );
+
+    const bag = await readContext(stateId);
+    expect(bag.__variants__).toEqual({ "welcome-subject": arm });
+
+    // Journal invisibility: ctx.variant is positionally invisible — NO
+    // durable Hatchet calls, like ctx.throttle.
+    expect(sleepFor).not.toHaveBeenCalled();
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("arms validation fires ONLY via compute — a recorded key skips it", async () => {
+    const stateId = await freshState({
+      __variants__: { pick: "a" },
+    });
+    const { ctx } = makeVariantCtx({
+      stateId,
+      userId: `${RUN}-ctx-armskip`,
+      journeyId: `${RUN}-ja`,
+    });
+    // Duplicate arms are malformed, but the recorded fast path never
+    // validates them — a deploy shipping bad arms must not crash an
+    // in-flight enrollment.
+    await expect(ctx.variant("pick", ["a", "a"])).resolves.toBe("a");
+  });
+
+  it("arms validation throws on a FRESH assignment (compute path)", async () => {
+    const stateId = await freshState();
+    const { ctx } = makeVariantCtx({
+      stateId,
+      userId: `${RUN}-ctx-armfresh`,
+      journeyId: `${RUN}-jf`,
+    });
+    await expect(ctx.variant("pick", ["a", "a"])).rejects.toThrow(RangeError);
+    await expect(ctx.variant("empty", ["" as string, "b"])).rejects.toThrow(
+      RangeError,
+    );
+  });
+
+  it("recorded arm wins VERBATIM across an arms change; warns once per process per journeyId:key", async () => {
+    const journeyId = `${RUN}-jwarn`;
+    const stateId = await freshState({
+      __variants__: { "welcome-subject": "legacy-arm" },
+    });
+    const { ctx, warn } = makeVariantCtx({
+      stateId,
+      userId: `${RUN}-ctx-legacy`,
+      journeyId,
+    });
+
+    const first = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+    expect(first).toBe("legacy-arm");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(journeyId);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("welcome-subject");
+    expect(String(warn.mock.calls[0]?.[0])).toContain("legacy-arm");
+
+    // Same ctx, same key: no re-warn.
+    const second = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+    expect(second).toBe("legacy-arm");
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A NEW context (fresh logger) for the same journeyId:key — the
+    // warn-once set is process-level, so still no new warning.
+    const fresh = makeVariantCtx({
+      stateId,
+      userId: `${RUN}-ctx-legacy`,
+      journeyId,
+    });
+    await expect(
+      fresh.ctx.variant("welcome-subject", ["setup", "outcome"]),
+    ).resolves.toBe("legacy-arm");
+    expect(fresh.warn).not.toHaveBeenCalled();
+  });
+
+  it("never returns a non-string fast-path value: recomputes deterministically and repairs the slot", async () => {
+    const journeyId = `${RUN}-jpoison`;
+    const userId = `${RUN}-ctx-poison`;
+    const stateId = await freshState({
+      __variants__: { poisoned: { evil: true }, sibling: "kept" },
+    });
+    const { ctx, warn } = makeVariantCtx({ stateId, userId, journeyId });
+
+    const arm = await ctx.variant("poisoned", ["a", "b"]);
+    const { pickVariant } = await import("@hogsend/engine/testing");
+    const expected = pickVariant({
+      journeyId,
+      key: "poisoned",
+      userId,
+      arms: ["a", "b"],
+    });
+    expect(arm).toBe(expected);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // The guarded jsonb repair replaced the injected object with the
+    // derived arm STRING (keeps the 2b readout dimension clean) and
+    // preserved the sibling key.
+    const bag = await readContext(stateId);
+    expect(bag.__variants__).toEqual({ poisoned: expected, sibling: "kept" });
+  });
+
+  it("same-key reuse + Promise.all race commit a single arm", async () => {
+    const stateId = await freshState();
+    const userId = `${RUN}-ctx-race`;
+    const journeyId = `${RUN}-jr`;
+    const { ctx } = makeVariantCtx({ stateId, userId, journeyId });
+
+    const [x, y] = await Promise.all([
+      ctx.variant("race", ["a", "b"]),
+      ctx.variant("race", ["a", "b"]),
+    ]);
+    const z = await ctx.variant("race", ["a", "b"]);
+    expect(x).toBe(y);
+    expect(z).toBe(x);
+
+    const bag = await readContext(stateId);
+    expect(Object.keys(bag.__variants__ as Record<string, unknown>)).toEqual([
+      "race",
+    ]);
   });
 });
