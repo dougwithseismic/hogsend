@@ -37,6 +37,7 @@ import {
 } from "./journey-boundary.js";
 import { createJourneyContext, TERMINAL_STATUSES } from "./journey-context.js";
 import { logTransition } from "./journey-log.js";
+import { stripRecordNamespaces } from "./record-once.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
@@ -355,7 +356,11 @@ export async function executeJourneyRun(
               journeyId: meta.id,
               currentNodeId: "held-out",
               status: "held_out",
-              context: properties,
+              // Reserved record-once namespaces are STRIPPED from event
+              // properties before seeding (injection fix): a publishable-key
+              // event must never pre-fill __once__/__digest__/__throttle__/
+              // __variants__.
+              context: stripRecordNamespaces(properties),
               // Stamped so the per-version lift readout can match control
               // by SAME hash (D4): held_out rows are once-ever per
               // (user, journey), so this diversion-era stamp anchors that
@@ -444,9 +449,12 @@ export async function executeJourneyRun(
       userId,
       userEmail,
       journeyId: meta.id,
+      // Same strip as the held_out site. `extraContext` is engine-supplied
+      // (e.g. the blueprint interpreter's __blueprintVersion pin) and is
+      // deliberately NOT filtered.
       context: options.extraContext
-        ? { ...properties, ...options.extraContext }
-        : properties,
+        ? { ...stripRecordNamespaces(properties), ...options.extraContext }
+        : stripRecordNamespaces(properties),
       hatchetRunId: workflowRunId,
       journeyVersionHash: meta.versionHash ?? null,
       journeyVersionLabel: meta.version ?? null,
