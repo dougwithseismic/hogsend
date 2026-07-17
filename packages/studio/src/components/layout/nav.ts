@@ -15,6 +15,7 @@ import {
   QrCode,
   Send,
   Settings,
+  TrendingUp,
   Users,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard },
+  { label: "Impact", path: "/impact", icon: TrendingUp },
   { label: "Events", path: "/events", icon: Activity },
   { label: "Sends", path: "/sends", icon: Send },
   { label: "Templates", path: "/templates", icon: Mail },

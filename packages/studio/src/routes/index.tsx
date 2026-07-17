@@ -13,6 +13,7 @@ import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
 import { GroupDetailView } from "@/views/group-detail-view";
 import { GroupsView } from "@/views/groups-view";
+import { ImpactView } from "@/views/impact-view";
 import { IntegrationsView } from "@/views/integrations-view";
 import { JourneyDetailView } from "@/views/journey-detail-view";
 import { JourneysView } from "@/views/journeys-view";
@@ -33,6 +34,12 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: OverviewView,
+});
+
+const impactRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/impact",
+  component: ImpactView,
 });
 
 const eventsRoute = createRoute({
@@ -170,6 +177,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   overviewRoute,
+  impactRoute,
   eventsRoute,
   sendsRoute,
   templatesRoute,
