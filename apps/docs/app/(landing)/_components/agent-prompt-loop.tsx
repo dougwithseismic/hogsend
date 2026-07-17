@@ -172,19 +172,24 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
         }
       `}</style>
 
-      {/* title bar — an agent session replay, not a chat input */}
+      {/* title bar — a CLI session replay, not a chat input */}
       <div className="flex items-center justify-between gap-2 border-white/10 border-b px-4 py-2.5 sm:px-5">
         <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
-          <svg
-            width="9"
-            height="8"
-            viewBox="0 0 9 8"
+          <span
             aria-hidden="true"
-            className="text-[#f64838]"
-          >
-            <path d="M4.5 0L9 8H0z" fill="currentColor" />
-          </svg>
-          agent session
+            className="block h-[9px] w-[15px] bg-[#f64838]"
+            style={{
+              WebkitMaskImage: "url(/images/logos/hogsend-boar.svg)",
+              maskImage: "url(/images/logos/hogsend-boar.svg)",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+              WebkitMaskPosition: "center",
+              maskPosition: "center",
+              WebkitMaskSize: "contain",
+              maskSize: "contain",
+            }}
+          />
+          CLI
         </span>
         {engineVersion ? (
           <span
