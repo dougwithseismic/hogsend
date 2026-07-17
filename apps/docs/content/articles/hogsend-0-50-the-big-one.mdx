@@ -1,0 +1,60 @@
+---
+title: "What's in Hogsend 0.50, and why"
+description: A bigger-than-usual release, walked through one feature at a time. Everything here exists because running our own growth on Hogsend surfaced a gap worth closing — video engagement, dataLayer interop, unit-tested Journeys, incrementality, event plugins, contact groupings, and a one-command install. Plus a note on who "we" actually is.
+date: 2026-07-18
+author: doug
+tags: [engineering, growth]
+featured: true
+---
+
+A quick note before the feature list, because it explains the whole shape of this release.
+
+When Hogsend says "we," it's the royal we. Everything you see here — the engine, the docs, this post, the Journeys that send our own emails — is built by one person: me, Doug Silkstone. Mongrel growth engineer, founder, or nerd, depending on who you ask.
+
+That matters because it dictates how the roadmap gets set. I run Hogsend's own lifecycle *on* Hogsend, so the to-do list isn't a bet about what users might want — it's a list of the things that slowed me down last week doing real growth work. When I hit a wall, the wall goes on the roadmap. 0.50 is bigger than usual simply because there were a lot of walls this cycle. Here's each one, and what closing it actually gets you.
+
+## `@hogsend/video` — knowing whether a video got watched
+
+We send a lot of video: walkthroughs, demos, the short thing that explains a concept faster than a paragraph. The gap was always the same. You can see the email was opened, and then the trail goes cold. Did they watch it? Stop at fifteen seconds? Finish?
+
+`@hogsend/video` wraps YouTube, Vimeo, and native HTML5 and turns playback into normalized watch-depth events — you get quartile milestones you can branch on. The practical payoff is that a follow-up can be specific: re-send to the people who dropped off early, do something different for the ones who watched to the end. Video stops being a dead end in the funnel and becomes a signal you can act on, like any click.
+
+## The `@hogsend/js` dataLayer bridge — using events you already have
+
+If you've been around a while, you probably already push events to a tag manager via `window.dataLayer`. Re-instrumenting all of that just to feed Hogsend would be busywork, so the bridge is two-way instead.
+
+Events you already push to `window.dataLayer` reach Hogsend with no extra wiring, and Hogsend events flow back onto the dataLayer for anything downstream that reads it. If you have a tag manager, your events are in Hogsend the moment you install. And if you're trying to move *off* GTM, this is the piece that lets you migrate gradually without dropping events on the way.
+
+## `@hogsend/testing` — a safety net for your Journeys
+
+This one came straight out of a nervous habit. Our welcome series had grown to a dozen branches, and every improvement carried a quiet worry: would the edit that fixes the day-3 email break the unsubscribe path on day 7? You don't hear about that from a compiler — you hear about it from a customer, a few days later.
+
+That's the same fear you get editing untested code, so the fix is the same idea. `@hogsend/testing` runs your Journeys against a fake clock and a fake mailbox, in-process, at unit-test speed. You can assert that the welcome series sends the right template on day 3, that an unsubscribe mid-flow stops the next send, that a divergent branch never double-sends. Your lifecycle logic is code, so it can have the same test coverage as the rest of your code — and CI catches the broken flow before anyone else does. It's a small thing that removes a specific, recurring anxiety.
+
+## Incrementality & bandits — proving a Journey earns its place
+
+Every lifecycle program eventually runs into an honest question: did this actually move the number, or would those people have converted anyway? Open rates don't answer it.
+
+Per-Journey holdouts do. Set a holdout percentage on a Journey, and Hogsend withholds it from a deterministic slice, tracks that held-out cohort, and reports lift with a real win-probability you can read from `/studio`. That lets you keep or retire a series based on evidence rather than attachment. Multi-armed bandits are the next step along the same line: let a winning variant earn more traffic on its own, instead of waiting for you to read an A/B test by hand. The point is modest and useful — you get to know which of your automations are actually pulling their weight.
+
+## Event plugins — reacting to more of what customers do
+
+People don't only click emails. They take Vapi calls, reply to SMS, open Crisp and Intercom threads, get resolved by Fin. Each of those was a moment a Journey arguably should react to and couldn't. 0.50 adds plugins for **Vapi, Twilio, Crisp, Intercom, Fin, and more**, each arriving as first-class events that can trigger, branch, or exit a Journey. It widens the set of things your automation can notice without you writing an integration from scratch.
+
+## Contact groupings — treating an account as an account
+
+Bill, Derek, and Bob all work at Acme, and until now Hogsend saw three separate people. That's fine for a solo-user product and awkward the moment your funnel is account-shaped. Contact groupings roll individual events up to the company they belong to: group by account, team, or company, reason about the org rather than just the person, associate events to a group from any SDK, and read it back in Studio. If you do anything account-based, this is the primitive that was missing.
+
+## `npx create-hogsend` — a proper front door
+
+None of the above helps if getting started is a slog. `npx create-hogsend` scaffolds a working, code-first lifecycle engine — Journeys, templates, webhook sources, the lot — wired and ready to run, so you go from nothing to a running engine in a few minutes. It was overdue, and every bit of friction in those first five minutes is friction I watch people hit.
+
+## A few smaller things
+
+- **The Growth Engineers Playbook** — the plays behind a lot of this, tool-agnostic and honest about what works, at [/playbook](/playbook). If a feature above is the *what*, the playbook is the *how*.
+- **A renewed design** — the same density, a bit more character.
+- **A small easter egg** for **FIFA World Cup 2026™** — Canada, Mexico, and the United States — landing Sunday. Have a look around and see if you spot it.
+
+---
+
+If there's a theme, it's just that nothing here is speculative. Each piece is the residue of doing real growth work on Hogsend and deciding not to route around the sharp edge one more time. That's the whole method — and, for now, the whole team. Thanks for reading. 🐗
