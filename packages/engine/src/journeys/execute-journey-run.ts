@@ -131,6 +131,15 @@ export async function insertEnrollment(opts: {
    * lock-free (the default).
    */
   serializeWithGraphLock?: boolean;
+  /**
+   * Content fingerprint + label of the definition this enrollment enters
+   * under (meta.versionHash / meta.version). Stamped once here; never
+   * updated — no UPDATE path in the engine ever touches the version
+   * columns. Optional for API back-compat (dogfood tests call this
+   * directly); executeJourneyRun always passes them.
+   */
+  journeyVersionHash?: string | null;
+  journeyVersionLabel?: string | null;
 }): Promise<JourneyStateRow | undefined> {
   const values = {
     userId: opts.userId,
@@ -140,6 +149,8 @@ export async function insertEnrollment(opts: {
     status: "active" as const,
     context: opts.context,
     hatchetRunId: opts.hatchetRunId,
+    journeyVersionHash: opts.journeyVersionHash ?? null,
+    journeyVersionLabel: opts.journeyVersionLabel ?? null,
   };
   const onConflict = {
     target: [journeyStates.userId, journeyStates.journeyId],
@@ -345,6 +356,12 @@ export async function executeJourneyRun(
               currentNodeId: "held-out",
               status: "held_out",
               context: properties,
+              // Stamped so the per-version lift readout can match control
+              // by SAME hash (D4): held_out rows are once-ever per
+              // (user, journey), so this diversion-era stamp anchors that
+              // version's control cohort forever.
+              journeyVersionHash: meta.versionHash ?? null,
+              journeyVersionLabel: meta.version ?? null,
               exitedAt: heldOutAt,
             })
             .returning({ id: journeyStates.id });
@@ -431,6 +448,8 @@ export async function executeJourneyRun(
         ? { ...properties, ...options.extraContext }
         : properties,
       hatchetRunId: workflowRunId,
+      journeyVersionHash: meta.versionHash ?? null,
+      journeyVersionLabel: meta.version ?? null,
       serializeWithGraphLock: options.serializeEnrollment,
     });
     if (!state) {
