@@ -1,7 +1,7 @@
 "use client";
 
 import { useHogsend } from "@hogsend/react";
-import type { VideoEmitter, VideoEvent } from "@hogsend/video";
+import type { PlayerState, VideoEmitter, VideoEvent } from "@hogsend/video";
 import { createHogsendEmitter } from "@hogsend/video/hogsend";
 import { VideoPlayer } from "@hogsend/video/react";
 import Link from "next/link";
@@ -33,7 +33,17 @@ const SIM_LOOP: Array<[string, string]> = [
   ["video.replay", "milestones reset"],
 ];
 const SIM_TICK_MS = 1700;
-const MAX_LINES = 7;
+const MAX_LINES = 14;
+
+/** Badge label from the player's live status; "standby" until playback. */
+const STATUS_LABEL: Record<PlayerState["status"], string> = {
+  idle: "standby",
+  loading: "loading",
+  playing: "playing",
+  paused: "paused",
+  buffering: "buffering",
+  ended: "stopped",
+};
 
 /** Lovable's heart mark, inline (not in the BrandLogo registry — one-off). */
 function LovableMark({ className }: { className?: string }) {
@@ -65,6 +75,7 @@ function LovableMark({ className }: { className?: string }) {
  */
 export function ManifestoVideo() {
   const [playing, setPlaying] = useState(false);
+  const [status, setStatus] = useState<PlayerState["status"]>("idle");
   const [lines, setLines] = useState<FeedLine[]>([]);
   const keyRef = useRef(0);
   const simIndexRef = useRef(0);
@@ -106,14 +117,22 @@ export function ManifestoVideo() {
     [push],
   );
 
+  const onStateChange = useCallback(
+    (s: Readonly<PlayerState>) => setStatus(s.status),
+    [],
+  );
+
+  const statusLabel = playing ? STATUS_LABEL[status] : "standby";
+  const live = playing && status === "playing";
+
   return (
-    <div className="mx-auto mt-14 grid w-full max-w-[920px] gap-4 text-left md:grid-cols-[1fr_300px]">
+    <div className="mx-auto mt-14 grid w-full max-w-[920px] items-stretch gap-4 text-left md:grid-cols-[1fr_300px]">
       <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
           isHogsendConfigured ? (
-            <CapturingPlayer onEvent={onEvent} />
+            <CapturingPlayer onEvent={onEvent} onStateChange={onStateChange} />
           ) : (
-            <Player onEvent={onEvent} />
+            <Player onEvent={onEvent} onStateChange={onStateChange} />
           )
         ) : (
           <button
@@ -144,18 +163,33 @@ export function ManifestoVideo() {
         )}
       </div>
 
-      <div className="flex flex-col overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0606]">
+      {/* Same height as the embed: the grid row is sized by the player's
+          aspect-video box and this panel stretches to it (fixed height on
+          mobile where the columns stack). */}
+      <div className="flex h-[260px] flex-col overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0606] md:h-full">
         {/* Terminal chrome, matching the hero window. */}
-        <div className="flex items-center justify-between border-white/10 border-b px-3 py-2">
+        <div className="flex shrink-0 items-center justify-between border-white/10 border-b px-3 py-2">
           <span className="font-mono text-[11px] text-white/40 tracking-wide">
             @hogsend/video — event feed
           </span>
-          <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
-            <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-            {lines.some((l) => !l.sim) ? "live" : "loop"}
+          <span
+            className={cn(
+              "flex items-center gap-1.5 font-mono text-[11px]",
+              live ? "text-[#23c489]" : "text-white/40",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                live ? "ps-pulse bg-[#23c489]" : "bg-white/30",
+              )}
+            />
+            {statusLabel}
           </span>
         </div>
-        <div className="flex min-h-[150px] flex-1 flex-col justify-end gap-1 px-3 py-2.5 font-mono text-[11px]">
+        {/* Auto-scrolling feed: new lines enter at the bottom, older ones
+            drift up and fade out under the top mask. */}
+        <div className="flex min-h-0 flex-1 flex-col justify-end gap-1 overflow-hidden px-3 py-2.5 font-mono text-[11px] [mask-image:linear-gradient(to_bottom,transparent_0%,black_32%)]">
           {lines.map((l, i) => (
             <p
               key={l.key}
@@ -177,7 +211,7 @@ export function ManifestoVideo() {
             </p>
           ))}
         </div>
-        <div className="border-white/10 border-t px-3 py-2.5 text-[11px] text-white/40 leading-relaxed tracking-[-0.01em]">
+        <div className="shrink-0 border-white/10 border-t px-3 py-2.5 text-[11px] text-white/40 leading-relaxed tracking-[-0.01em]">
           Lenny interviews <span className="text-white/70">Elena Verna</span> —
           Head of Growth at{" "}
           <span className="inline-flex items-baseline gap-1 text-white/70">
@@ -206,28 +240,29 @@ export function ManifestoVideo() {
   );
 }
 
+interface PlayerProps {
+  emitter?: VideoEmitter;
+  onEvent: (e: VideoEvent) => void;
+  onStateChange: (s: Readonly<PlayerState>) => void;
+}
+
 /** Player + capture to the docs Hogsend client (provider wraps the app root). */
-function CapturingPlayer({ onEvent }: { onEvent: (e: VideoEvent) => void }) {
+function CapturingPlayer(props: Omit<PlayerProps, "emitter">) {
   const { capture } = useHogsend();
   const [emitter] = useState<VideoEmitter>(() =>
     createHogsendEmitter({ capture }),
   );
-  return <Player emitter={emitter} onEvent={onEvent} />;
+  return <Player emitter={emitter} {...props} />;
 }
 
-function Player({
-  emitter,
-  onEvent,
-}: {
-  emitter?: VideoEmitter;
-  onEvent: (e: VideoEvent) => void;
-}) {
+function Player({ emitter, onEvent, onStateChange }: PlayerProps) {
   return (
     <VideoPlayer
       src={{ youtube: VIDEO_ID }}
       title={VIDEO_TITLE}
       emitter={emitter}
       onEvent={onEvent}
+      onStateChange={onStateChange}
       context={{ section: "why-now", page: "landing" }}
       autoplay
       className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full"

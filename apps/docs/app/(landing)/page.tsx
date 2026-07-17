@@ -3099,9 +3099,9 @@ export default async function HomePage(): Promise<JSX.Element> {
       <PsNav />
       <PsHero engineVersion={engineVersion} />
       <PsProofStrip />
+      <PsManifesto />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
-      <PsManifesto />
       <PsCode />
       <PsAgents />
       <PsUseCases />
