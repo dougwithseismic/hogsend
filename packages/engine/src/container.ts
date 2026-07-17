@@ -460,7 +460,9 @@ export interface HogsendClientOptions {
   /**
    * Code-first conversion-point definitions (plan §5.1) — `defineConversion`
    * results. Evaluated inside `ingestEvent` after every fresh event insert;
-   * fired instances land in the `conversions` table.
+   * fired instances land in the `conversions` table. Every journey
+   * `meta.goal` is boot-validated against this set (plus the seeded
+   * "revenue" definition when active) — an unknown goal throws here.
    */
   conversions?: DefinedConversion[];
   /**
