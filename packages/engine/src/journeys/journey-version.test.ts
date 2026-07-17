@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { JourneyMeta } from "@hogsend/core/types";
+import type { JourneyMeta, JourneyMetaInput } from "@hogsend/core/types";
 import { stableStringify } from "../lib/stable-stringify.js";
+import { defineJourney } from "./define-journey.js";
 import {
   computeJourneyVersionHash,
   normalizeRunSource,
@@ -193,4 +194,43 @@ test("blueprint graph bodies (URLs, escaped quotes) hash stably", () => {
     h1,
   );
   assert.equal(h1, "858e91668b94");
+});
+
+test("defineJourney attaches the content hash and overwrites any authored value", () => {
+  const base: JourneyMetaInput = {
+    id: "jv-attach",
+    name: "Attach",
+    enabled: true,
+    trigger: { event: "jv.test" },
+    entryLimit: "once",
+    suppress: {},
+    version: "v1",
+  };
+  const run = async () => {};
+  const j1 = defineJourney({ meta: base, run });
+  assert.match(j1.meta.versionHash ?? "", /^[0-9a-f]{12}$/);
+  // Self-consistent: recomputing over the attached meta + captured source
+  // reproduces the hash (versionHash and version are excluded inputs).
+  assert.equal(
+    computeJourneyVersionHash({ meta: j1.meta, body: j1.runSource }),
+    j1.meta.versionHash,
+  );
+  // Label-only change: same content hash, new label.
+  const j2 = defineJourney({ meta: { ...base, version: "v2" }, run });
+  assert.equal(j2.meta.versionHash, j1.meta.versionHash);
+  assert.equal(j2.meta.version, "v2");
+  // An authored versionHash (JS caller — the type omits it) is overwritten.
+  const j3 = defineJourney({
+    meta: { ...base, versionHash: "aaaaaaaaaaaa" } as JourneyMetaInput,
+    run,
+  });
+  assert.equal(j3.meta.versionHash, j1.meta.versionHash);
+  // A body change forks.
+  const j4 = defineJourney({
+    meta: base,
+    run: async () => {
+      return;
+    },
+  });
+  assert.notEqual(j4.meta.versionHash, j1.meta.versionHash);
 });
