@@ -58,8 +58,16 @@ export function DayfieldHeroSection({
         initialHour={initialHour}
         controls={controls}
       >
-        {/* centered hero column — pb reserves room for the day-arc bar */}
-        <div className="absolute inset-0 z-20 flex flex-col items-center pb-[124px]">
+        {/* centered hero column — reserve room for the day-arc bar only when
+            the preview scrubber is actually shown; for a normal visitor that
+            row is hidden, so we drop the gap and let the works-with strip sit
+            at the base of the hero with the open-source row directly beneath. */}
+        <div
+          className={cn(
+            "absolute inset-0 z-20 flex flex-col items-center",
+            controls ? "pb-[124px]" : "pb-8",
+          )}
+        >
           <div className="dayfield-rise mx-auto flex w-full max-w-[1256px] flex-1 flex-col items-center justify-center px-6 pt-16 text-center md:px-10">
             {/* announcement pill */}
             <a

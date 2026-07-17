@@ -42,6 +42,7 @@ import {
   type UseCaseValue,
 } from "./_components/code-picker";
 import { PsNav } from "./_components/nav";
+import { PsFrame } from "./_components/page-frame";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -3077,17 +3078,6 @@ function PsFooter() {
         </div>
       </Container>
     </footer>
-  );
-}
-
-/** Full-height vertical hairlines at the content-frame edges — the crimzon
- * PageFrame idiom, re-keyed to a light red-tint rule. */
-function PsFrame() {
-  return (
-    <div
-      aria-hidden="true"
-      className="-translate-x-1/2 pointer-events-none fixed inset-y-0 left-1/2 z-40 hidden w-full max-w-[1256px] border-[#f6483826] border-x lg:block"
-    />
   );
 }
 

@@ -206,13 +206,23 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
         {announcement}
       </span>
 
-      {/* terminal feed — sessions accumulate and the view follows the tail */}
+      {/* terminal feed — sessions accumulate and the view follows the tail.
+          The top/bottom edges fade via a mask on the scrollport itself, not a
+          coloured overlay — so scrolled content dissolves into whatever sits
+          behind the box (the opaque classic shell or the translucent day-field
+          glass) regardless of the text colour underneath. */}
       <div className="relative">
         <div
           ref={viewportRef}
           aria-hidden="true"
           className="h-[148px] overflow-y-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-5"
           data-animated-prompt
+          style={{
+            maskImage:
+              "linear-gradient(to bottom, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)",
+          }}
         >
           <div className="flex flex-col gap-[16px] font-mono text-[12px] leading-[19px] tracking-[-0.01em] sm:text-[12.5px]">
             {history.map((sessionIndex, i) => (
@@ -239,9 +249,6 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
             />
           </div>
         </div>
-        {/* fade scrolled content off the feed's own edges */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-[#0a0606] to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-gradient-to-t from-[#0a0606] to-transparent" />
       </div>
 
       {/* controls */}
