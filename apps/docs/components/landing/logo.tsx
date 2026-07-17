@@ -2,8 +2,10 @@ import type { JSX } from "react";
 import { cn } from "@/lib/cn";
 
 /**
- * Hogsend brand lockup: an accent-red rounded tile holding a minimal white
- * "send/spark" glyph, followed by the "Hogsend" wordmark in white.
+ * Hogsend brand lockup: an accent-red rounded tile holding the boar mark,
+ * followed by the "Hogsend" wordmark in white. The boar ships as a
+ * single-color SVG in `public/images/logos/hogsend-boar.svg` and is painted
+ * via CSS mask so it inherits `currentColor` (white on the accent tile).
  */
 export function Logo({ className }: { className?: string }): JSX.Element {
   return (
@@ -12,22 +14,19 @@ export function Logo({ className }: { className?: string }): JSX.Element {
         aria-hidden="true"
         className="flex size-7 shrink-0 items-center justify-center rounded-[6px] bg-accent text-white"
       >
-        {/* Minimal "send" glyph (paper-plane / spark) in white */}
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-          className="size-4"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M3.5 12 20 4.5 14 20l-3.2-6.4L3.5 12Z" fill="currentColor" />
-          <path
-            d="m10.8 13.2 6.4-7.4"
-            stroke="#F64838"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </svg>
+        <span
+          className="block h-[13px] w-[22px] bg-current"
+          style={{
+            WebkitMaskImage: "url(/images/logos/hogsend-boar.svg)",
+            maskImage: "url(/images/logos/hogsend-boar.svg)",
+            WebkitMaskRepeat: "no-repeat",
+            maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+            maskPosition: "center",
+            WebkitMaskSize: "contain",
+            maskSize: "contain",
+          }}
+        />
       </span>
       <span className="font-display font-semibold text-lg leading-none tracking-tight">
         Hogsend

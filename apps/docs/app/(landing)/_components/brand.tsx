@@ -6,18 +6,25 @@ import { cn } from "@/lib/cn";
 const DISPLAY = "[font-family:var(--ps-display)]";
 
 /** Monochrome Hogsend lockup — rendered single-colour, white on ink. The
- * `light` prop is vestigial from the light spike (both grounds are dark now). */
+ * `light` prop is vestigial from the light spike (both grounds are dark now).
+ * The boar mark is painted via CSS mask so it inherits `currentColor`. */
 export function InkLogo({ light: _light }: { light?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2 text-white">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
+      <span
         aria-hidden="true"
-        className="size-[18px]"
-      >
-        <path d="M3.5 12 20 4.5 14 20l-3.2-6.4L3.5 12Z" fill="currentColor" />
-      </svg>
+        className="block h-[15px] w-[27px] bg-current"
+        style={{
+          WebkitMaskImage: "url(/images/logos/hogsend-boar.svg)",
+          maskImage: "url(/images/logos/hogsend-boar.svg)",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+          maskPosition: "center",
+          WebkitMaskSize: "contain",
+          maskSize: "contain",
+        }}
+      />
       <span
         className={cn(
           "font-semibold text-[17px] leading-none tracking-[-0.02em]",

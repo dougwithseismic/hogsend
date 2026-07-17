@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="hogsend-banner.png" alt="Hogsend" width="100%" />
+  <img src="hogsend-logo.png" alt="Hogsend" width="120" />
 </p>
 
 # Hogsend
