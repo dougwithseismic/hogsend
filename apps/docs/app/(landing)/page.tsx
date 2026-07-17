@@ -21,7 +21,7 @@ import { isHogsendConfigured } from "@/components/hogsend/config";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
 import { getEngineVersion } from "@/lib/engine-version";
-import { DEMO_URL, GITHUB_URL, NPM_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
+import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
 import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
 import studioSends from "@/public/images/studio/04-sends-history.png";
@@ -76,6 +76,8 @@ export const metadata: Metadata = {
 
 const DISPLAY = "[font-family:var(--ps-display)]";
 const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
+const AGENT_CLOSING_PROMPT =
+  "Visit hogsend.com/docs and implement lifecycle marketing for our product — start with the welcome series.";
 
 /* ---------------------------------------------------------------- atoms -- */
 
@@ -553,37 +555,30 @@ function PsProductDemo() {
         </p>
       </Container>
 
-      {/* A contained ink panel carrying the crimzon planet-horizon glow; the
-          live product components float over it. */}
-      <Container className="relative mt-12">
-        <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
-          {/* Thermal smoke bed under the horizon glow. */}
-          <ThermalLayer strength={0.45} />
-          <HalftoneOverlay className="opacity-40" />
-          <WaveLines
-            className="absolute inset-0 h-full w-full opacity-80"
-            stroke="rgba(255,140,118,0.5)"
-            count={8}
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
-            }}
-          />
-          {/* The crisp horizon arc. */}
-          <div
-            aria-hidden="true"
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
-            }}
-          />
-        </div>
-      </Container>
+      {/* The crimzon planet horizon, full-bleed — hero treatment, no
+          contained panel, rules and glow run edge to edge. */}
+      <div className="relative mt-12 h-[300px] md:h-[340px]">
+        {/* Thermal smoke bed under the horizon glow. */}
+        <ThermalLayer strength={0.45} />
+        <HalftoneOverlay className="opacity-40" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(70% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+          }}
+        />
+        {/* The crisp horizon arc. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(52% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+          }}
+        />
+      </div>
 
       <Container className="-mt-[210px] relative z-10 pb-20 md:-mt-[230px]">
         <PsHeroDemo />
@@ -2839,79 +2834,120 @@ function PsFaq() {
 
 function PsClosingCta() {
   return (
-    <section className="relative">
-      <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl bg-[#070303]">
-          {/* Red glow bleeding in from the left edge — the crimzon card. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(70% 100% at 0% 60%, rgba(246,72,56,0.3), rgba(246,72,56,0.08) 45%, transparent 70%)",
-            }}
-          />
-          <WaveLines
-            className="absolute inset-y-0 right-0 h-full w-[58%] opacity-70"
-            stroke="rgba(255,140,118,0.4)"
-            count={9}
-          />
-          <div className="relative p-8 md:p-14">
-            <Eyebrow light>Get started</Eyebrow>
-            <h2
+    <section className="relative overflow-hidden border-[#f6483826] border-t">
+      {/* Bookend horizon: the crimzon glow the page OPENED on returns at the
+          bottom edge — the scroll ends where it began, on the thermal
+          horizon. Stronger than the hero's; nothing sits below but footer. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 mix-blend-screen"
+        style={{
+          background:
+            "radial-gradient(85% 55% at 50% 108%, rgba(246,72,56,0.38) 0%, rgba(246,72,56,0.12) 45%, transparent 75%)",
+        }}
+      />
+      <ThermalLayer strength={0.2} />
+      <HalftoneOverlay className="opacity-40" />
+
+      <Container className="relative flex flex-col items-center justify-center pt-24 text-center md:pt-32">
+        <Eyebrow light>Get started</Eyebrow>
+        <h2
+          className={cn(
+            "mt-6 max-w-[760px] text-balance font-normal text-[40px] text-white leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+            DISPLAY,
+          )}
+        >
+          First send in minutes.
+        </h2>
+        <p className="mt-5 max-w-[560px] text-balance text-base text-white/65 leading-[24px] tracking-[-0.02em]">
+          One prompt scaffolds the app, Docker, env, and ten journeys — the
+          welcome series included. Your agent reads the docs and does the rest.
+        </p>
+
+        {/* Not a shell command — a prompt for your coding agent, staged in
+            the same window chrome as the hero's agent session. */}
+        <div className="mt-10 flex w-full max-w-[640px] flex-col items-center">
+          <ThermalHover rounded="rounded-xl" className="w-full">
+            <div className="w-full overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] text-left shadow-lg">
+              {/* title bar — matches the hero agent-session window */}
+              <div className="flex items-center justify-between gap-2 border-white/10 border-b px-4 py-2.5 sm:px-5">
+                <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+                  <svg
+                    width="9"
+                    height="8"
+                    viewBox="0 0 9 8"
+                    aria-hidden="true"
+                    className="text-[#f64838]"
+                  >
+                    <path d="M4.5 0L9 8H0z" fill="currentColor" />
+                  </svg>
+                  your agent, one prompt
+                </span>
+                <CopyButton
+                  value={AGENT_CLOSING_PROMPT}
+                  className="shrink-0 text-white/40 hover:text-white"
+                />
+              </div>
+              <p className="flex gap-2 px-4 py-4 font-mono text-[12.5px] text-white/85 leading-[20px] tracking-[-0.01em] sm:px-5 md:text-[13.5px] md:leading-[22px]">
+                <span className="shrink-0 text-[#f64838]">❯</span>
+                <span className="min-w-0">{AGENT_CLOSING_PROMPT}</span>
+              </p>
+            </div>
+          </ThermalHover>
+          <p className="mt-3 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+            Paste into your coding agent
+          </p>
+        </div>
+      </Container>
+
+      {/* Where to go next — a contained link strip. Rules span the content
+          column fully; column rules run cell-height with no floating gaps. */}
+      <Container className="relative mt-14 px-0 md:mt-20 md:px-0">
+        <nav
+          aria-label="Explore Hogsend"
+          className="grid grid-cols-1 border-white/10 border-t sm:grid-cols-2 lg:grid-cols-4"
+        >
+          {(
+            [
+              ["Playbook", "GTM plays with real journey code", "/playbook"],
+              ["Course", "Measure → Keep → Grow", "https://course.hogsend.com"],
+              [
+                "How it stacks up",
+                "Feature matrix vs Loops, Klaviyo & more",
+                "/docs/compare/feature-matrix",
+              ],
+              [
+                "Source-available",
+                "ELv2 — read the code on GitHub",
+                GITHUB_URL,
+              ],
+            ] as const
+          ).map(([label, detail, href], i) => (
+            <Link
+              key={label}
+              href={href}
               className={cn(
-                "max-w-[640px] font-normal text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[48px] md:leading-[56px]",
-                DISPLAY,
+                "group/cell flex flex-col gap-1.5 px-6 py-6 text-left transition-colors hover:bg-white/[0.04] md:py-7",
+                i > 0 && "border-white/10 sm:border-l",
+                i === 2 && "sm:border-l-0 lg:border-l",
+                i >= 2 && "border-white/10 border-t lg:border-t-0",
               )}
             >
-              First send in minutes.
-            </h2>
-            <p className="mt-5 max-w-[560px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
-              The scaffold command sets up the app, Docker, env, and ten
-              journeys — the welcome series included. pnpm hogsend dev runs the
-              stack. Or deploy the Railway template in a click.
-            </p>
-
-            {/* Every line a fact. */}
-            <ul className="mt-8 flex flex-col gap-2.5">
-              {[
-                "Free to self-host · source-available under ELv2",
-                "Ten journeys in the scaffold, welcome series included",
-                "Sends through your own Resend or Postmark account",
-                "One-click Railway template, 3 required env vars",
-              ].map((line) => (
-                <li
-                  key={line}
-                  className="flex items-center gap-3 text-[15px] text-white/80 tracking-[-0.02em]"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-white/25 text-[11px] text-white/80"
-                  >
-                    ✓
-                  </span>
-                  {line}
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-10 flex flex-wrap items-center gap-4">
-              <Btn href="/docs/getting-started" size="lg">
-                Start building
-              </Btn>
-              <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
-                Deploy on Railway
-              </Btn>
-              <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
-                <code className="font-mono text-[12.5px] text-white/90">
-                  <span className="text-[#f6907f]">$ </span>
-                  {INSTALL_COMMAND}
-                </code>
-                <CopyButton value={INSTALL_COMMAND} />
+              <span className="font-mono text-[11px] text-white/45 uppercase tracking-[0.08em]">
+                {label}
               </span>
-            </div>
-          </div>
-        </div>
+              <span className="text-[15px] text-white/85 tracking-[-0.02em]">
+                {detail}{" "}
+                <span
+                  aria-hidden="true"
+                  className="inline-block text-white/40 transition-transform group-hover/cell:translate-x-0.5 group-hover/cell:text-white"
+                >
+                  →
+                </span>
+              </span>
+            </Link>
+          ))}
+        </nav>
       </Container>
     </section>
   );
