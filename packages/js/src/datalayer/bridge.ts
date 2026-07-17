@@ -26,15 +26,18 @@ export const OUTBOUND_PREFIX = "hogsend.";
  * Non-enumerable tag stamped on every entry the bridge emits. The inbound
  * watcher skips tagged entries, so an outbound mirror can never be re-ingested
  * even when a `transform` renames it to something the `watch` allowlist matches.
- * Non-enumerable → invisible to GTM (`Object.keys`, `for…in`, JSON).
+ * Non-enumerable → invisible to GTM (`Object.keys`, `for…in`, JSON). Module-local
+ * (not `Symbol.for`) — the guard only needs to recognize its own emissions.
  */
-export const OUTBOUND_MARK = Symbol.for("hogsend.dataLayer.outbound");
+export const OUTBOUND_MARK = Symbol("hogsend.dataLayer.outbound");
 
 /** Stamp an entry as bridge-emitted (see {@link OUTBOUND_MARK}). */
 export function markOutbound(entry: DataLayerEntry): DataLayerEntry {
+  // `configurable` so re-marking a reused entry object is idempotent, not a throw.
   Object.defineProperty(entry, OUTBOUND_MARK, {
     value: true,
     enumerable: false,
+    configurable: true,
   });
   return entry;
 }
@@ -158,8 +161,8 @@ export function startDataLayerBridge(
   const teardowns: Array<() => void> = [];
 
   // Outbound: mirror captured events onto the dataLayer (filtered/reshaped).
-  const push: DataLayerPushConfig | undefined =
-    config.push === true ? {} : config.push || undefined;
+  // `true` → mirror all (empty config); the `if` narrows away false/undefined.
+  const push = config.push === true ? {} : config.push;
   if (push) {
     registerOutbound((event, properties) => {
       const entry = resolveOutbound(event, properties, push);
@@ -177,8 +180,18 @@ export function startDataLayerBridge(
       // Never re-ingest what the bridge itself emitted (robust vs a transform
       // that renames the outbound event to a watched name).
       if (isOutbound(entry)) return;
-      const resolved = resolveInbound(entry as DataLayerEntry, allowlist, map);
-      if (resolved) capture(resolved.event, resolved.properties);
+      // Error-isolated: a throwing `map`/`capture` must never propagate out of
+      // the host's own `dataLayer.push` (or abort the init replay below).
+      try {
+        const resolved = resolveInbound(
+          entry as DataLayerEntry,
+          allowlist,
+          map,
+        );
+        if (resolved) capture(resolved.event, resolved.properties);
+      } catch {
+        // Swallow — bridging a dataLayer entry can't break the host page.
+      }
     };
 
     // Snapshot BEFORE wrapping; `slice()` + the reassignment run back-to-back

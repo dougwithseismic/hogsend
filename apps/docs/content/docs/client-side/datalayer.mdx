@@ -74,12 +74,11 @@ Inbound events inherit the session's identity exactly like `capture()` (anon id,
 
 ### Reshaping with `map`
 
-To rename an event or pluck nested fields, pass a `map`. It fully owns the decision per entry — return the `(event, properties)` to capture, or `null` to drop. When `map` is set, `watch.events` is not consulted:
+To rename an event or pluck nested fields, pass a `map`. It fully owns the decision per entry — return the `(event, properties)` to capture, or `null` to drop. When `map` is set, `watch.events` is optional and not consulted:
 
 ```ts
 dataLayer: {
   watch: {
-    events: ["purchase"], // documentation only when a map is present
     map: (entry) =>
       entry.event === "purchase"
         ? { event: "purchase", properties: { value: entry.ecommerce?.value } }

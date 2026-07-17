@@ -290,6 +290,29 @@ describe("startDataLayerBridge (window wiring)", () => {
     teardown();
   });
 
+  it("a throwing inbound map never breaks the host's dataLayer.push", () => {
+    const dataLayer: Record<string, unknown>[] = [];
+    vi.stubGlobal("window", { dataLayer });
+
+    const teardown = startDataLayerBridge({
+      config: {
+        watch: {
+          map: () => {
+            throw new Error("boom");
+          },
+        },
+      },
+      capture: () => {},
+      registerOutbound: () => {},
+    });
+
+    // The host push must still succeed and store its entry despite the throw.
+    expect(() => dataLayer.push({ event: "anything" })).not.toThrow();
+    expect(dataLayer.at(-1)).toEqual({ event: "anything" });
+
+    teardown();
+  });
+
   it("a transform that renames to a watched event still cannot loop back in", () => {
     const captured: string[] = [];
     const dataLayer: Record<string, unknown>[] = [];

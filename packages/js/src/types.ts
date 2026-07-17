@@ -147,9 +147,10 @@ export interface DataLayerConfig {
     /**
      * Explicit allowlist of dataLayer `event` names to ingest — never a
      * firehose. Consulted only when `map` is omitted; a `map` owns the decision
-     * per entry. `hogsend.*` / `gtm.*` are always ignored regardless.
+     * per entry (so `events` may be omitted when you pass a `map`). `hogsend.*`
+     * / `gtm.*` are always ignored regardless.
      */
-    events: string[];
+    events?: string[];
     /**
      * Optional rename/reshape. Return the (event, properties) to capture, or
      * null to drop. When omitted, the event name passes through and only
