@@ -86,7 +86,7 @@ const jGoal = defineJourney({
   run: async () => {},
 });
 
-const _jExcluded = defineJourney({
+const jExcluded = defineJourney({
   meta: {
     id: J_EXCL,
     name: "Lift pin (goal, ENABLED_JOURNEYS-excluded)",
@@ -529,5 +529,137 @@ describe("computeJourneyLift / computeLiftValues (D4.1 contract)", () => {
       { currency: "GBP", value: 24 },
       { currency: "USD", value: 4 },
     ]);
+  });
+});
+
+describe("goal-resolution ladder + definitionSource (D4.3)", () => {
+  it("no goal, no query → source 'none', null definitionId, any-definition scope", async () => {
+    const res = await app.request(`/v1/admin/journeys/${J_NONE}/lift?days=30`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.definitionSource).toBe("none");
+    expect(body.definitionId).toBeNull();
+  });
+
+  it("explicit query param → source 'query', echoing the effective id", async () => {
+    const res = await app.request(
+      `/v1/admin/journeys/${J_NONE}/lift?days=30&definitionId=revenue`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.definitionSource).toBe("query");
+    expect(body.definitionId).toBe("revenue");
+  });
+
+  it("meta.goal defaults the definition → source 'goal', converters narrowed to the goal", async () => {
+    const res = await app.request(`/v1/admin/journeys/${J_GOAL}/lift?days=30`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      definitionId: string | null;
+      definitionSource: string;
+      treatment: {
+        contacts: number;
+        converters: number;
+        rate: number;
+        value: Array<{ currency: string | null; value: number }>;
+      };
+      control: { contacts: number; converters: number; rate: number };
+      liftPercent: number | null;
+      winProbability: number | null;
+      suppressed: boolean;
+      smallSample: boolean;
+    };
+    expect(body).toMatchObject({
+      definitionId: "revenue",
+      definitionSource: "goal",
+      // g1 only — g2's other-definition conversion is outside the goal.
+      treatment: { contacts: 3, converters: 1 },
+      control: { contacts: 1, converters: 0, rate: 0 },
+      // Control converts at 0% → liftPercent null; 1 combined conversion
+      // < 10 → suppressed, winProbability null.
+      liftPercent: null,
+      winProbability: null,
+      suppressed: true,
+      smallSample: true,
+    });
+    expect(body.treatment.rate).toBeCloseTo(1 / 3, 10);
+    expect(body.treatment.value).toEqual([{ currency: "GBP", value: 10 }]);
+  });
+
+  it("query param beats meta.goal", async () => {
+    const res = await app.request(
+      `/v1/admin/journeys/${J_GOAL}/lift?days=30&definitionId=${DEF_OTHER}`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as {
+      definitionId: string | null;
+      definitionSource: string;
+      treatment: {
+        converters: number;
+        value: Array<{ currency: string | null; value: number }>;
+      };
+    };
+    expect(body).toMatchObject({
+      definitionId: DEF_OTHER,
+      definitionSource: "query",
+      treatment: { converters: 1 },
+    });
+    expect(body.treatment.value).toEqual([{ currency: "USD", value: 99 }]);
+  });
+
+  it("never 404s: unknown journey id → zero cohorts, source 'none'", async () => {
+    const res = await app.request(
+      `/v1/admin/journeys/${RUN}-ghost/lift?days=30`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      definitionId: null,
+      definitionSource: "none",
+      treatment: { contacts: 0, converters: 0 },
+      control: { contacts: 0, converters: 0 },
+    });
+  });
+});
+
+describe("ENABLED_JOURNEYS-excluded journey falls to source 'none' (D3 asymmetry)", () => {
+  // Real exclusion path: J_EXCL is DEFINED (and 1c boot-validates its goal)
+  // but the csv only enables J_GOAL, so J_EXCL never registers and its
+  // declared goal must NOT scope the readout.
+  const containerExcl = createHogsendClient({
+    journeys: [jGoal, jExcluded],
+    enabledJourneys: J_GOAL,
+  });
+  const appExcl = createApp(containerExcl);
+
+  it("excluded journey: declared goal NOT applied — any-definition scope, source 'none'", async () => {
+    const res = await appExcl.request(
+      `/v1/admin/journeys/${J_EXCL}/lift?days=30`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      definitionId: null,
+      definitionSource: "none",
+      // e1's ONLY conversion is on the other definition: counting it
+      // proves the excluded journey's goal ("revenue") was not applied.
+      treatment: { contacts: 1, converters: 1 },
+    });
+  });
+
+  it("the registered journey on the same app still resolves source 'goal'", async () => {
+    const res = await appExcl.request(
+      `/v1/admin/journeys/${J_GOAL}/lift?days=30`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.definitionSource).toBe("goal");
+    expect(body.definitionId).toBe("revenue");
   });
 });
