@@ -905,13 +905,17 @@ export function createHogsendClient(
   const seedDefaultRevenue =
     process.env.HOGSEND_DEFAULT_REVENUE_CONVERSION !== "false" &&
     !authoredConversions.some((def) => def.meta.id === "revenue");
-  setConversionRegistry(
-    new ConversionRegistry(
-      seedDefaultRevenue
-        ? [...authoredConversions, defaultRevenueConversion]
-        : authoredConversions,
-    ),
+  // Hoisted local (impact experiments D3): the meta.goal boot validation
+  // below must check THIS registry — the construction is env-sensitive
+  // (HOGSEND_DEFAULT_REVENUE_CONVERSION=false or an authored id:"revenue"
+  // suppresses the seed), so goal:"revenue" is valid exactly when a
+  // "revenue" definition actually exists. That asymmetry is intended.
+  const conversionRegistry = new ConversionRegistry(
+    seedDefaultRevenue
+      ? [...authoredConversions, defaultRevenueConversion]
+      : authoredConversions,
   );
+  setConversionRegistry(conversionRegistry);
   setConversionDestinations(
     new ConversionDestinationRegistry(opts.conversionDestinations ?? []),
   );
@@ -1072,6 +1076,35 @@ export function createHogsendClient(
       definedLists,
       logger,
     });
+  }
+
+  // Boot-validate every journey's meta.goal against the conversion
+  // registry — fail CLOSED. A typo'd id matches zero conversion rows, so
+  // every default readout would quietly report 0% for both cohorts — a
+  // wrong-but-plausible number, worse than a crash. Validated over DEFINED
+  // journeys (not just ENABLED — the ENABLED_JOURNEYS lesson) against the
+  // ACTUAL registry (the seeded "revenue" conversion counts, and counts
+  // ONLY when actually seeded). Runs identically in the API and worker
+  // processes (both call createHogsendClient). Same posture as the
+  // EMAIL_PROVIDER throw above and validateListCategory: the registry
+  // universe is fully known at boot, so throw — a warn's failure mode is a
+  // permanently-wrong default readout.
+  for (const journey of opts.journeys ?? []) {
+    const goal = journey.meta.goal;
+    if (!goal) continue;
+    if (!conversionRegistry.has(goal)) {
+      const known = conversionRegistry
+        .getAll()
+        .map((def) => def.meta.id)
+        .join(", ");
+      throw new Error(
+        `Journey "${journey.meta.id}" has goal "${goal}", which matches no registered conversion definition (known: ${known || "none"}). ` +
+          `A goal must be a defineConversion id passed to createHogsendClient({ conversions }) — or the built-in "revenue" conversion when it is seeded.` +
+          (goal === "revenue"
+            ? ` Remove HOGSEND_DEFAULT_REVENUE_CONVERSION=false or author an id: "revenue" definition if you meant the built-in.`
+            : ""),
+      );
+    }
   }
 
   const emailService =
