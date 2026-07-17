@@ -19,6 +19,7 @@ const {
 const { journeyLogs, journeyStates } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
+const { conversions } = await import("../conversions/index.js");
 
 const mockHatchet = {
   durableTask: vi.fn(() => ({
@@ -34,6 +35,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  conversions,
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);

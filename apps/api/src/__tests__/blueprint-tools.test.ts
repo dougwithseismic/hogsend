@@ -31,6 +31,7 @@ const { journeyBlueprints, journeyStates, userEvents } = await import(
 );
 const { eq, like } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
+const { conversions } = await import("../conversions/index.js");
 const { templates } = await import("../emails/index.js");
 const { lists } = await import("../lists/index.js");
 
@@ -54,6 +55,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  conversions,
   lists,
   email: { templates },
   overrides: { hatchet: mockHatchet },
