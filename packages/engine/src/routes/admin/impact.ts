@@ -3,6 +3,7 @@ import { campaigns } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { inArray, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { computeGlobalControlReadout } from "../../lib/global-control-readout.js";
 import { computeLift } from "../../lib/lift-stats.js";
 import { countsSchema, liftVerdictSchema } from "./impact-schemas.js";
 
@@ -466,9 +467,9 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
         },
       ];
     });
-    const globalControl: z.infer<typeof globalControlSchema> = {
-      state: "off",
-    };
+    // (e) Global control — JS re-hash, batched keyset pagination; the
+    // three-state result is the wire block verbatim.
+    const globalControl = await computeGlobalControlReadout({ db, since });
 
     return c.json(
       {

@@ -22,6 +22,11 @@ const WEBHOOK_FANOUT = [
   "src/__tests__/posthog-person-sync.test.ts",
   "src/__tests__/sms-consent.test.ts",
   "src/__tests__/sms-link-click.test.ts",
+  // Not a webhook file — the global-control readout scans the WHOLE
+  // contacts table and its parity oracle recomputes the same scan, a
+  // comparison RUN-namespacing cannot scope. It needs the same serial
+  // barrier (no other file mutating contacts mid-comparison).
+  "src/__tests__/admin-impact-global-control.test.ts",
 ];
 
 export default defineConfig({

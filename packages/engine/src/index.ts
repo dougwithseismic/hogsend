@@ -491,6 +491,11 @@ export {
   fxProviderFromEnv,
   parseFxRatesEnv,
 } from "./lib/fx.js";
+export {
+  computeGlobalControlReadout,
+  GLOBAL_CONTROL_SCAN_CEILING,
+  type GlobalControlReadout,
+} from "./lib/global-control-readout.js";
 export { hatchet } from "./lib/hatchet.js";
 export {
   globalControlPercent,
