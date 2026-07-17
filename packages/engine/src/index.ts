@@ -867,7 +867,10 @@ export {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
-export { detectShippedVersions } from "./workflows/impact-digest.js";
+export {
+  detectLiftCrossings,
+  detectShippedVersions,
+} from "./workflows/impact-digest.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
 export {
   importSuppressionsTask,

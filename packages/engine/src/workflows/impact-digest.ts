@@ -1,5 +1,6 @@
 import type { Database } from "@hogsend/db";
 import { sql } from "drizzle-orm";
+import { computeJourneyLift } from "../lib/journey-lift.js";
 import type { Logger } from "../lib/logger.js";
 import type {
   ImpactDigestEntry,
@@ -114,13 +115,9 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-// Referenced by Tasks 4-5; keeps the skeleton compiling standalone.
+// Referenced by Task 5; keeps the skeleton compiling standalone.
 void message;
-void mapWithConcurrency;
-void LIFT_WINDOW_DAYS;
 void ENTRY_CAP;
-void CANDIDATE_CAP;
-void LIFT_CONCURRENCY;
 void DEFAULT_WIN_PROB_THRESHOLD;
 
 type HashFirstSeenRow = {
@@ -387,5 +384,126 @@ export async function detectShippedVersions(opts: {
       a.journeyId.localeCompare(b.journeyId) ||
       a.versionHash.localeCompare(b.versionHash),
   );
+  return { entries };
+}
+
+/**
+ * Detection B — "working / hurting" (causal: true). Candidates = journeys
+ * with held-out rows inside the 90-day lift window, capped at
+ * CANDIDATE_CAP (warned when hit). Per candidate the unified helper runs
+ * two snapshots through a LIFT_CONCURRENCY pool: `now` (asOf = until) and
+ * — only when the frozen payload has no answer — `prev` (asOf = since).
+ *
+ * FROZEN-PAYLOAD OVERRIDE (the drift hole): `prev` is the LAST digest's
+ * as-REPORTED winProbability when available. Late-arriving/backfilled
+ * conversions can otherwise retroactively flip last week's probability
+ * across T, silently swallowing a real crossing or re-reporting one
+ * already sent. The recompute remains the fallback for journeys absent
+ * from the last payload.
+ *
+ * Crossing (not level) semantics — no weekly re-nag; the down side is
+ * included deliberately. Suppression is absolute; smallSample rides.
+ */
+export async function detectLiftCrossings(opts: {
+  db: Database;
+  since: Date;
+  until: Date;
+  threshold: number;
+  registry?: DigestRegistryLike;
+  previousWinProbabilities?: Map<string, number>;
+  logger?: Logger;
+}): Promise<{ entries: ImpactDigestLiftEntry[] }> {
+  const {
+    db,
+    since,
+    until,
+    threshold,
+    registry,
+    previousWinProbabilities,
+    logger,
+  } = opts;
+
+  const candidateRows = [
+    ...(await db.execute<{ journey_id: string }>(sql`
+      select distinct journey_id
+      from journey_states
+      where status = 'held_out' and deleted_at is null
+        and created_at >= ${subDays(until, LIFT_WINDOW_DAYS).toISOString()}::timestamptz
+      order by journey_id asc
+      limit ${CANDIDATE_CAP + 1}
+    `)),
+  ];
+  let candidates = candidateRows.map((r) => r.journey_id);
+  if (candidates.length > CANDIDATE_CAP) {
+    logger?.warn(
+      "impact-digest: lift candidate cap hit — ids beyond the cap are skipped this run",
+      { cap: CANDIDATE_CAP },
+    );
+    candidates = candidates.slice(0, CANDIDATE_CAP);
+  }
+
+  const entries: ImpactDigestLiftEntry[] = [];
+  await mapWithConcurrency(candidates, LIFT_CONCURRENCY, async (journeyId) => {
+    const meta = registry?.get(journeyId);
+    const goal = meta?.goal;
+    const now = await computeJourneyLift({
+      db,
+      journeyId,
+      definitionId: goal,
+      since: subDays(until, LIFT_WINDOW_DAYS),
+      asOf: until,
+    });
+    const winProbability = now.verdict.winProbability;
+    // Suppression is absolute; and a probability strictly inside
+    // (1−T, T) cannot be a crossing — skip before paying for `prev`.
+    if (now.verdict.suppressed || winProbability === null) return;
+    if (winProbability < threshold && winProbability > 1 - threshold) {
+      return;
+    }
+
+    let prev: number | null;
+    if (previousWinProbabilities?.has(journeyId)) {
+      prev = previousWinProbabilities.get(journeyId) ?? null;
+    } else {
+      const prevResult = await computeJourneyLift({
+        db,
+        journeyId,
+        definitionId: goal,
+        since: subDays(since, LIFT_WINDOW_DAYS),
+        asOf: since,
+      });
+      prev = prevResult.verdict.winProbability;
+    }
+
+    let direction: "up" | "down" | null = null;
+    if (winProbability >= threshold && (prev === null || prev < threshold)) {
+      direction = "up";
+    } else if (
+      winProbability <= 1 - threshold &&
+      (prev === null || prev > 1 - threshold)
+    ) {
+      direction = "down";
+    }
+    if (direction === null) return;
+
+    entries.push({
+      kind: "lift",
+      causal: true,
+      journeyId,
+      journeyName: meta?.name ?? null,
+      goalDefinitionId: goal ?? null,
+      windowDays: LIFT_WINDOW_DAYS,
+      direction,
+      treatment: now.treatment,
+      control: now.control,
+      liftPercent: now.verdict.liftPercent,
+      winProbability,
+      previousWinProbability: prev,
+      smallSample: now.verdict.smallSample,
+    });
+  });
+
+  // Pool completion order is nondeterministic — stabilize.
+  entries.sort((a, b) => a.journeyId.localeCompare(b.journeyId));
   return { entries };
 }

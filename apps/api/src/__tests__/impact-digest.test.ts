@@ -51,7 +51,9 @@ const {
   webhookEndpoints,
 } = await import("@hogsend/db");
 const { and, eq, like, sql } = await import("drizzle-orm");
-const { detectShippedVersions } = await import("@hogsend/engine");
+const { detectLiftCrossings, detectShippedVersions } = await import(
+  "@hogsend/engine"
+);
 
 const { db } = createDatabase({ url: process.env.DATABASE_URL as string });
 
@@ -534,5 +536,186 @@ describe("detectShippedVersions (Detection A + label pass)", () => {
       registry,
     });
     expect(entries.find((e) => e.journeyId === J_PRE)).toBeUndefined();
+  });
+});
+
+describe("detectLiftCrossings (Detection B)", () => {
+  // Disjoint future anchor: +500d keeps the 90-day candidate scan clear of
+  // both the Detection A fixtures (+400d) and every real (past) row.
+  const B0 = new Date(Date.now() + 500 * DAY);
+  const since = B0;
+  const until = new Date(B0.getTime() + 7 * DAY);
+  // Inside BOTH 90-day lift windows ([until−90d, until) and
+  // [since−90d, since)).
+  const enrolledAt = new Date(until.getTime() - 60 * DAY);
+  const convertedInWindow = new Date(until.getTime() - 1 * DAY);
+  const convertedBeforeSince = new Date(enrolledAt.getTime() + 60 * 60 * 1000);
+  const T = 0.95;
+
+  const J_UP = `${RUN}-lift-up`;
+  const J_DOWN = `${RUN}-lift-down`;
+  const J_SUP = `${RUN}-lift-sup`;
+  const J_OVR = `${RUN}-lift-ovr`;
+
+  beforeAll(async () => {
+    // UP: 40 treated (30 convert in-window) vs 40 held out (2 convert).
+    const upT = await seedStates({
+      journeyId: J_UP,
+      prefix: "upt",
+      count: 40,
+      createdAt: enrolledAt,
+    });
+    const upC = await seedStates({
+      journeyId: J_UP,
+      prefix: "upc",
+      count: 40,
+      createdAt: enrolledAt,
+      status: "held_out",
+    });
+    await seedConversions(upT.slice(0, 30), `${RUN}-rev`, convertedInWindow);
+    await seedConversions(upC.slice(0, 2), `${RUN}-rev`, convertedInWindow);
+    // DOWN: 40 treated (2 convert) vs 40 held out (30 convert).
+    const downT = await seedStates({
+      journeyId: J_DOWN,
+      prefix: "dnt",
+      count: 40,
+      createdAt: enrolledAt,
+    });
+    const downC = await seedStates({
+      journeyId: J_DOWN,
+      prefix: "dnc",
+      count: 40,
+      createdAt: enrolledAt,
+      status: "held_out",
+    });
+    await seedConversions(downT.slice(0, 2), `${RUN}-rev`, convertedInWindow);
+    await seedConversions(downC.slice(0, 30), `${RUN}-rev`, convertedInWindow);
+    // SUPPRESSED: combined conversions under the 10 floor.
+    const supT = await seedStates({
+      journeyId: J_SUP,
+      prefix: "spt",
+      count: 10,
+      createdAt: enrolledAt,
+    });
+    await seedStates({
+      journeyId: J_SUP,
+      prefix: "spc",
+      count: 10,
+      createdAt: enrolledAt,
+      status: "held_out",
+    });
+    await seedConversions(supT.slice(0, 3), `${RUN}-rev`, convertedInWindow);
+    // OVERRIDE: crossing established long BEFORE `since` (all conversions
+    // predate it), so the live recompute at asOf=since is ALSO above T.
+    const ovrT = await seedStates({
+      journeyId: J_OVR,
+      prefix: "ovt",
+      count: 40,
+      createdAt: enrolledAt,
+    });
+    const ovrC = await seedStates({
+      journeyId: J_OVR,
+      prefix: "ovc",
+      count: 40,
+      createdAt: enrolledAt,
+      status: "held_out",
+    });
+    await seedConversions(
+      ovrT.slice(0, 30),
+      `${RUN}-rev`,
+      convertedBeforeSince,
+    );
+    await seedConversions(ovrC.slice(0, 2), `${RUN}-rev`, convertedBeforeSince);
+  });
+
+  it("reports an up-crossing (suppressed prev → null counts as below T)", async () => {
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+    });
+    const entry = entries.find((e) => e.journeyId === J_UP);
+    expect(entry).toMatchObject({
+      kind: "lift",
+      causal: true,
+      direction: "up",
+      windowDays: 90,
+      previousWinProbability: null,
+      goalDefinitionId: null,
+      journeyName: null,
+    });
+    expect(entry?.winProbability).toBeGreaterThanOrEqual(T);
+    expect(entry?.treatment).toMatchObject({ contacts: 40, converters: 30 });
+    expect(entry?.control).toMatchObject({ contacts: 40, converters: 2 });
+  });
+
+  it("reports a down-crossing", async () => {
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+    });
+    const entry = entries.find((e) => e.journeyId === J_DOWN);
+    expect(entry?.direction).toBe("down");
+    expect(entry?.winProbability).toBeLessThanOrEqual(1 - T);
+  });
+
+  it("smallSample rides the entry without blocking it", async () => {
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+    });
+    // 40-contact cohorts are under the 100 floor — flagged, not hidden.
+    expect(entries.find((e) => e.journeyId === J_UP)?.smallSample).toBe(true);
+  });
+
+  it("suppression is absolute — under 10 combined conversions, no entry", async () => {
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+    });
+    expect(entries.find((e) => e.journeyId === J_SUP)).toBeUndefined();
+  });
+
+  it("already-above-threshold journeys are silent (crossing, not level)", async () => {
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+      previousWinProbabilities: new Map([[J_UP, 0.99]]),
+    });
+    expect(entries.find((e) => e.journeyId === J_UP)).toBeUndefined();
+  });
+
+  it("frozen-payload override beats the live recompute for prev winProbability", async () => {
+    // Live recompute at asOf=since is already above T → silent…
+    const { entries: recomputed } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+    });
+    expect(recomputed.find((e) => e.journeyId === J_OVR)).toBeUndefined();
+    // …but last week's digest REPORTED 0.6 (< T): the frozen value wins
+    // and the crossing is reported.
+    const { entries } = await detectLiftCrossings({
+      db,
+      since,
+      until,
+      threshold: T,
+      previousWinProbabilities: new Map([[J_OVR, 0.6]]),
+    });
+    const entry = entries.find((e) => e.journeyId === J_OVR);
+    expect(entry).toMatchObject({
+      direction: "up",
+      previousWinProbability: 0.6,
+    });
   });
 });
