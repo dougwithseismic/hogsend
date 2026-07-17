@@ -28,3 +28,11 @@ export const cohortSchema = countsSchema.extend({
     z.object({ currency: z.string().nullable(), value: z.number() }),
   ),
 });
+
+/**
+ * Where an effective definitionId came from: explicit query param, the
+ * journey's meta.goal, or neither (any-conversion scope). Hoisted so /lift
+ * (2a) and /impact + the Studio mirror (2b/3a) share one source enum.
+ */
+export const definitionSourceSchema = z.enum(["query", "goal", "none"]);
+export type DefinitionSource = z.infer<typeof definitionSourceSchema>;

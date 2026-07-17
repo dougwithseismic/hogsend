@@ -29,7 +29,12 @@ import {
   computeJourneyLift,
   computeLiftValues,
 } from "../../lib/journey-lift.js";
-import { cohortSchema, liftVerdictSchema } from "./impact-schemas.js";
+import {
+  cohortSchema,
+  type DefinitionSource,
+  definitionSourceSchema,
+  liftVerdictSchema,
+} from "./impact-schemas.js";
 
 /**
  * Per-process cache of the built {@link JourneyGraph}. A journey's `runSource`
@@ -533,7 +538,7 @@ const liftRoute = createRoute({
             /** Where the effective definitionId came from — the single
              * source enum shared with /impact (phase 2b) and the Studio
              * mirror (phase 3a). */
-            definitionSource: z.enum(["query", "goal", "none"]),
+            definitionSource: definitionSourceSchema,
             treatment: cohortSchema,
             control: cohortSchema,
             ...liftVerdictSchema.shape,
@@ -1139,7 +1144,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // report source "none". The route still never 404s.
     const goal = registry.get(id)?.goal;
     const definitionId = queryDefinitionId ?? goal;
-    const definitionSource: "query" | "goal" | "none" = queryDefinitionId
+    const definitionSource: DefinitionSource = queryDefinitionId
       ? "query"
       : goal
         ? "goal"
