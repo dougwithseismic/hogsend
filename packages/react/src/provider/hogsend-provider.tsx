@@ -11,6 +11,7 @@
 import {
   type ColorMode,
   createHogsend,
+  type DataLayerConfig,
   type Hogsend,
   type StorageAdapter,
 } from "@hogsend/js";
@@ -53,6 +54,12 @@ export interface HogsendProviderProps {
    * later requires a remount (key the provider).
    */
   storage?: StorageAdapter;
+  /**
+   * GTM/GA4 `dataLayer` bridge (outbound push + inbound watch). Forwarded
+   * verbatim to `createHogsend`; both directions default off. Construction-time
+   * only — changing it later requires a remount (key the provider).
+   */
+  dataLayer?: DataLayerConfig;
   children: ReactNode;
 }
 
@@ -72,6 +79,7 @@ export function HogsendProvider(props: HogsendProviderProps): ReactNode {
         : {}),
       ...(props.fetch ? { fetch: props.fetch } : {}),
       ...(props.storage ? { storage: props.storage } : {}),
+      ...(props.dataLayer ? { dataLayer: props.dataLayer } : {}),
     }),
   );
 
