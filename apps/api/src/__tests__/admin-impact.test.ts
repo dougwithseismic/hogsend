@@ -1021,3 +1021,16 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
     ).toBeUndefined();
   });
 });
+
+// ---------- Task 7: OpenAPI presence (frozen contract) ----------
+
+describe("OpenAPI registration — impact routes (frozen phase-2b contract)", () => {
+  it("exposes both impact routes in /openapi.json", async () => {
+    const res = await app.request("/openapi.json");
+    expect(res.status).toBe(200);
+    const doc = await res.json();
+    const paths = Object.keys(doc.paths ?? {});
+    expect(paths).toContain("/v1/admin/journeys/{id}/impact");
+    expect(paths).toContain("/v1/admin/impact/overview");
+  });
+});

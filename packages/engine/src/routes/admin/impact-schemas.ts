@@ -6,6 +6,12 @@ import { z } from "@hono/zod-openapi";
  * 2a) and the /impact + /overview routers (phase 2b) import the SAME
  * shapes, never ad-hoc duplicates. Frozen as the Studio contract at the
  * end of phase 2b.
+ *
+ * FROZEN CONTRACT (phase 2b, impact-experiments): liftVerdictSchema,
+ * countsSchema, and cohortSchema are embedded in the /impact and
+ * /impact/overview wire shapes that Studio mirrors mechanically.
+ * Additive-only from here; renames/retypes need a coordinated
+ * Studio + docs change.
  */
 
 /** LiftVerdict on the wire — matches lib/lift-stats.ts:86-95 exactly. */
