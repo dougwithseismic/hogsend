@@ -120,6 +120,14 @@ export interface JourneyTestOptions {
    */
   subscribed?: boolean;
   once?: Record<string, unknown>;
+  /**
+   * Seed recorded `ctx.variant` assignments (the `__variants__` bag), keyed
+   * by variant key. A seeded arm wins VERBATIM — even when it is not in the
+   * journey's current `arms` array it is returned silently (mirroring the
+   * engine's recorded-wins-across-deploys semantics; the engine's warn-once
+   * advisory is a production log, not a harness effect).
+   */
+  variants?: Record<string, string>;
   /** Registered connector actions available to this isolated harness. */
   connectorActions?: readonly TestConnectorAction[];
   onTrigger?: (trigger: CapturedTrigger) => void | Promise<void>;

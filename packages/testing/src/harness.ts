@@ -25,9 +25,12 @@ import {
   isHeldOut,
   isListSubscribed,
   JourneyExitedError,
+  pickVariant,
   registerKey,
   registerRecordLabel,
   runWithJourneyBoundary,
+  validateVariantArms,
+  validateVariantKey,
 } from "@hogsend/engine/testing";
 import { getSmsTemplateDefinition } from "@hogsend/sms";
 import { JourneyMailbox } from "./mailbox.js";
@@ -55,7 +58,11 @@ const STATE_ID = "journey-test-state";
 const RUN_ID = "journey-test-run";
 const MAX_WAIT_MS = durationToMs({ hours: 720 });
 
-type RecordNamespace = "__once__" | "__digest__" | "__throttle__";
+type RecordNamespace =
+  | "__once__"
+  | "__digest__"
+  | "__throttle__"
+  | "__variants__";
 type WaitType = "sleep" | "sleepUntil" | "waitForEvent" | "digest";
 type WaitOutcome = "resumed" | "matched" | "timedOut" | "exited";
 
@@ -114,6 +121,7 @@ export class JourneyTest {
       __once__: new Map(),
       __digest__: new Map(),
       __throttle__: new Map(),
+      __variants__: new Map(),
     };
   private readonly pendingRecords: Record<
     RecordNamespace,
@@ -122,6 +130,7 @@ export class JourneyTest {
     __once__: new Map(),
     __digest__: new Map(),
     __throttle__: new Map(),
+    __variants__: new Map(),
   };
   private readonly emailHistory: TestEmailHistory[] = [];
   private readonly smsHistory: TestSmsHistory[] = [];
@@ -185,6 +194,9 @@ export class JourneyTest {
       ...(options.once
         ? { once: this.jsonSnapshot(options.once, "once fixtures") }
         : {}),
+      ...(options.variants
+        ? { variants: this.jsonSnapshot(options.variants, "variant fixtures") }
+        : {}),
       ...(options.connectorActions
         ? {
             connectorActions: options.connectorActions.map((action) => ({
@@ -234,6 +246,8 @@ export class JourneyTest {
     });
     for (const [key, value] of Object.entries(this.options.once ?? {}))
       this.setRecord("__once__", key, value);
+    for (const [key, value] of Object.entries(this.options.variants ?? {}))
+      this.setRecord("__variants__", key, value);
     this.loadHistory();
 
     this.events = {
@@ -1280,6 +1294,27 @@ export class JourneyTest {
       now: async () => this.now,
       once: async <T>(key: string, compute: () => Promise<T> | T): Promise<T> =>
         this.recordOnce("__once__", key, compute),
+      variant: async <const A extends readonly [string, ...string[]]>(
+        key: string,
+        arms: A,
+      ): Promise<A[number]> => {
+        // Mirrors the engine's validate-vs-never-throw split: key syntax
+        // gates the record path; arms validation runs only in compute, so a
+        // seeded (recorded) assignment is returned verbatim — including an
+        // arm outside the current array (silently; see JourneyTestOptions
+        // .variants).
+        validateVariantKey(key);
+        const assigned = await this.recordOnce("__variants__", key, () => {
+          validateVariantArms(arms);
+          return pickVariant({
+            journeyId: this.journey.meta.id,
+            key,
+            userId: this.options.user.id,
+            arms,
+          });
+        });
+        return assigned as A[number];
+      },
       digest: async (opts: DigestOptions) => {
         const event = opts.event ?? this.journey.meta.trigger.event;
         const windowMs = durationToMs(opts.window);
