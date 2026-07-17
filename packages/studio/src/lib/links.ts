@@ -13,4 +13,5 @@ export const links = {
   buckets: `${DOCS}/docs/guides/buckets`,
   events: `${DOCS}/docs/guides/events`,
   templates: `${DOCS}/docs/guides/email`,
+  impact: `${DOCS}/docs/conversions/impact`,
 } as const;
