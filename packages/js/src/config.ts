@@ -4,7 +4,7 @@
  * SDK consumes a normalized {@link ResolvedConfig}.
  */
 
-import type { HogsendConfig } from "./types.js";
+import type { DataLayerConfig, HogsendConfig } from "./types.js";
 
 /** Global config object the host page may set before the SDK loads. */
 export interface HogsendGlobal {
@@ -32,6 +32,7 @@ export interface ResolvedConfig {
   captureAttribution: boolean;
   onUserTokenExpiring?: () => Promise<string>;
   storage?: HogsendConfig["storage"];
+  dataLayer?: DataLayerConfig;
 }
 
 function readGlobal(): HogsendGlobal {
@@ -85,5 +86,6 @@ export function resolveConfig(config: HogsendConfig): ResolvedConfig {
       ? { onUserTokenExpiring: config.onUserTokenExpiring }
       : {}),
     ...(config.storage ? { storage: config.storage } : {}),
+    ...(config.dataLayer ? { dataLayer: config.dataLayer } : {}),
   };
 }
