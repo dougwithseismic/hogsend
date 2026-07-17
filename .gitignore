@@ -56,6 +56,10 @@ marketing/renders/
 marketing/video/out/
 marketing/video/public/screenshots/
 marketing/video/public/logos/
+marketing/video/public/images/
+
+# Brand studio output — regenerable via the brand-studio skill / pnpm brand:render
+marketing/out/
 
 # Marketing screenshots — regenerable from the live site via marketing/shoot.mjs
 marketing/screenshots/
