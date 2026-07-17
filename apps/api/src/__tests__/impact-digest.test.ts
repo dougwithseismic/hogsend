@@ -732,6 +732,12 @@ describe("detectLiftCrossings (Detection B)", () => {
 });
 
 describe("impactDigestTask (cron end-to-end)", () => {
+  it("exports buildImpactDigest — the composition seam the task calls internally", () => {
+    // Exercised end-to-end through impactDigestTask (below); asserted
+    // directly here so a broken/dropped export fails loudly at the seam.
+    expect(typeof buildImpactDigest).toBe("function");
+  });
+
   const runDigest = (
     impactDigestTask as unknown as {
       fn: (input?: { now?: string }) => Promise<{
