@@ -59,11 +59,12 @@ export const metadata: Metadata = {
     absolute: "Hogsend — Lifecycle automation in TypeScript",
   },
   description:
-    "Lifecycle automation in TypeScript for product-led teams. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
+    "Lifecycle automation in TypeScript for growth engineering teams and their agents. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
   alternates: { canonical: "/" },
   keywords: [
     "lifecycle automation framework",
     "product-led growth",
+    "growth engineering",
     "customer lifecycle",
     "typescript",
     "code-first",
@@ -450,8 +451,9 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 
           <div className="flex flex-col items-center mt-4 md:mt-6">
             <p className="max-w-[680px] text-white/75 text-base leading-[24px] tracking-[-0.025em] md:text-lg md:leading-[27px]">
-              Hogsend is the lifecycle automation framework for product-led
-              teams. Written by you or your coding agent. Shipped like the rest
+              Hogsend is the lifecycle automation framework for growth
+              engineering teams — and their agents — that ship code-first.
+              Journeys live in your repo, reviewed and versioned like the rest
               of your product.
             </p>
           </div>
