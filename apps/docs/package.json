@@ -7,9 +7,11 @@
     "postbuild": "node scripts/assemble-standalone.mjs",
     "dev": "next dev --port 3005",
     "start": "node .next/standalone/apps/docs/server.js",
-    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
+    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)",
+    "brand:render": "pnpm --workspace-root turbo run build --filter=@hogsend/docs^... && node scripts/render-brand-templates.mjs"
   },
   "dependencies": {
+    "@hogsend/brand-media": "workspace:*",
     "@hogsend/inspector": "workspace:^",
     "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
@@ -39,8 +41,10 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "playwright": "^1.61.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
   }
 }

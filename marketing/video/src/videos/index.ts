@@ -5,6 +5,7 @@
 import type { VideoConfig } from "../lib/define-video";
 import { video as aarrrLifecycleMap } from "./aarrr-lifecycle-map";
 import { video as byoProvider } from "./byo-provider";
+import { video as codexCampaign } from "./codex-campaign";
 import { DISCORD_CLIPS } from "./discord-clips";
 import { DISCORD_PRESENCE_CLIPS } from "./discord-presence";
 import { video as firstPartyTracking } from "./first-party-tracking";
@@ -21,6 +22,7 @@ export const VIDEOS: VideoConfig[] = [
   byoProvider,
   waitForEvent,
   scaffoldDemo,
+  codexCampaign,
   aarrrLifecycleMap,
   ...JOURNEY_CLIPS,
   ...DISCORD_CLIPS,
