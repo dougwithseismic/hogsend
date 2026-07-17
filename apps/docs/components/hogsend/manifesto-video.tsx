@@ -33,7 +33,7 @@ const SIM_LOOP: Array<[string, string]> = [
   ["video.replay", "milestones reset"],
 ];
 const SIM_TICK_MS = 1700;
-const MAX_LINES = 14;
+const MAX_LINES = 80;
 
 /** Badge label from the player's live status; "standby" until playback. */
 const STATUS_LABEL: Record<PlayerState["status"], string> = {
@@ -77,6 +77,17 @@ export function ManifestoVideo() {
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState<PlayerState["status"]>("idle");
   const [lines, setLines] = useState<FeedLine[]>([]);
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  // Keep the feed pinned to the newest line unless the visitor has scrolled
+  // up to read history (~a line and a half of slack).
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    const nearBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight / 2;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [lines]);
   const keyRef = useRef(0);
   const simIndexRef = useRef(0);
   const hasRealRef = useRef(false);
@@ -126,8 +137,11 @@ export function ManifestoVideo() {
   const live = playing && status === "playing";
 
   return (
-    <div className="mx-auto mt-14 grid w-full max-w-[920px] items-stretch gap-4 text-left md:grid-cols-[1fr_300px]">
-      <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
+    // items-start + fixed heights on BOTH boxes: neither container's height
+    // may ever depend on the other's content (a growing feed once stretched
+    // the grid row and the player with it).
+    <div className="mx-auto mt-14 grid w-full max-w-[920px] items-start gap-4 text-left md:grid-cols-[1fr_300px]">
+      <div className="relative aspect-video max-h-[340px] overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
           isHogsendConfigured ? (
             <CapturingPlayer onEvent={onEvent} onStateChange={onStateChange} />
@@ -163,10 +177,7 @@ export function ManifestoVideo() {
         )}
       </div>
 
-      {/* Same height as the embed: the grid row is sized by the player's
-          aspect-video box and this panel stretches to it (fixed height on
-          mobile where the columns stack). */}
-      <div className="flex h-[260px] flex-col overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0606] md:h-full">
+      <div className="flex h-[260px] flex-col overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0606] md:h-[340px]">
         {/* Terminal chrome, matching the hero window. */}
         <div className="flex shrink-0 items-center justify-between border-white/10 border-b px-3 py-2">
           <span className="font-mono text-[11px] text-white/40 tracking-wide">
@@ -187,9 +198,14 @@ export function ManifestoVideo() {
             {statusLabel}
           </span>
         </div>
-        {/* Auto-scrolling feed: new lines enter at the bottom, older ones
-            drift up and fade out under the top mask. */}
-        <div className="flex min-h-0 flex-1 flex-col justify-end gap-1 overflow-hidden px-3 py-2.5 font-mono text-[11px] [mask-image:linear-gradient(to_bottom,transparent_0%,black_32%)]">
+        {/* Auto-scrolling feed: pinned to the bottom as lines arrive, but a
+            real scroll container — the visitor can scroll back through the
+            history. Top mask fades older lines out. */}
+        <div
+          ref={feedRef}
+          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-2.5 font-mono text-[11px] [mask-image:linear-gradient(to_bottom,transparent_0%,black_32%)] [scrollbar-width:none]"
+        >
+          <div className="mt-auto" aria-hidden="true" />
           {lines.map((l, i) => (
             <p
               key={l.key}
