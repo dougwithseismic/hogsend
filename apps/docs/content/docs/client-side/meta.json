@@ -12,6 +12,7 @@
     "preferences",
     "theming",
     "events",
-    "video"
+    "video",
+    "datalayer"
   ]
 }

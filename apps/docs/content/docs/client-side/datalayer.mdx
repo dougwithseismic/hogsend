@@ -1,0 +1,106 @@
+---
+title: GTM dataLayer bridge
+description: "Two-way interop between @hogsend/js and window.dataLayer — mirror captured events out to GTM, and pipe an allowlist of existing dataLayer events into the capture spine to trigger journeys."
+---
+
+import { DataLayerDemo } from "../../../components/hogsend/datalayer-demo";
+
+Most sites already run Google Tag Manager with a populated `window.dataLayer` (`add_to_cart`, `sign_up`, `purchase`). The `dataLayer` bridge wires Hogsend to it in both directions, so you can trigger journeys off instrumentation you already have and let any GTM tag react to Hogsend events. Both directions are **off by default** — opt in per direction.
+
+```ts
+createHogsend({
+  apiUrl: "https://api.acme.com",
+  publishableKey: "pk_live_…",
+  dataLayer: {
+    push: true,                                  // outbound
+    watch: { events: ["sign_up", "purchase"] },  // inbound
+  },
+});
+```
+
+In React, pass the same object as the `dataLayer` prop on `<HogsendProvider>`.
+
+## Try it
+
+This live demo mounts its own client with `push: true` and `watch: { events: ["sign_up", "purchase"] }`, then shows `window.dataLayer` in real time. Capture an event and watch its `hogsend.*` mirror appear; push a bare `sign_up` and watch Hogsend ingest it (its `hogsend.*` echo confirms the round-trip); push `page_view` and see the allowlist drop it.
+
+<DataLayerDemo />
+
+## Outbound — mirror captured events to GTM
+
+With `push: true`, every event the SDK captures is pushed onto `window.dataLayer` so any GTM tag (Meta pixel, GA4, LinkedIn, …) can trigger off it — client-side destination fan-out with no integration to build. The entry is **namespaced** under a `hogsend` key so it can't collide with GA4-reserved fields:
+
+```js
+dataLayer.push({
+  event: "hogsend.purchase",
+  hogsend: { event: "purchase", properties: { plan: "pro", value: 49 } },
+});
+```
+
+- The `event` field is what a GTM trigger matches on — a Custom Event trigger of `hogsend.purchase` (or the regex `hogsend\..*` for all of them).
+- Read properties with a Data Layer Variable at `hogsend.properties.plan`.
+- By default **every** spine event flows, including internal ones (`campaign.arrived`, `inapp.*`, `banner.*`).
+
+### Pick which events, and reshape them
+
+`push: true` mirrors everything. Pass an object to narrow it down or change the shape — so you don't have to push the whole firehose:
+
+```ts
+dataLayer: {
+  push: {
+    // Only mirror these captured events (omit `events` to mirror all).
+    events: ["purchase", "signup_completed"],
+    // Optional: reshape/rename the entry, or return null to drop it. Omit for
+    // the default `{ event: "hogsend.<name>", hogsend: { … } }` shape.
+    transform: (event, properties) => ({
+      event: `hs_${event}`,
+      value: properties.value,
+    }),
+  },
+}
+```
+
+- `events` — an outbound allowlist. Only these captured events mirror out; everything else (including the noisy internal `inapp.*`) is skipped. Applied **before** `transform`.
+- `transform` — fully owns the emitted entry. Return the dataLayer object to push, or `null` to drop the event.
+
+A `transform` can rename the outbound `event` to anything (even a name your `watch` allowlist matches) — the bridge tags every entry it emits with a non-enumerable marker, so its own emissions are **never** re-ingested, regardless of the name. The tag is invisible to GTM. The default (untransformed) shape keeps the fixed `hogsend.` prefix, which also doubles as a name-level loop guard.
+
+## Inbound — pipe dataLayer events into journeys
+
+With `watch`, the bridge wraps `dataLayer.push` (preserving the original) and pipes matching entries into the capture spine, so an existing GTM `dataLayer.push({ event: "sign_up", … })` becomes a first-party Hogsend event through `POST /v1/events` — no new page code, and it can trigger a journey immediately. Entries already on the array **before** the SDK loads are replayed on init, so events fired by the GTM snippet in `<head>` aren't lost.
+
+Inbound events inherit the session's identity exactly like `capture()` (anon id, or the claimed `userId` + `userToken` when held).
+
+### The allowlist
+
+`watch.events` is an **explicit allowlist** — the dataLayer is noisy, so nothing is ingested unless you name it. Without a `map`, only top-level **scalar** properties are copied; nested objects (GA4's `ecommerce`) are dropped:
+
+```ts
+// dataLayer.push({ event: "sign_up", plan: "pro", ecommerce: { … } })
+// → capture("sign_up", { plan: "pro" })   // ecommerce skipped
+```
+
+### Reshaping with `map`
+
+To rename an event or pluck nested fields, pass a `map`. It fully owns the decision per entry — return the `(event, properties)` to capture, or `null` to drop. When `map` is set, `watch.events` is optional and not consulted:
+
+```ts
+dataLayer: {
+  watch: {
+    map: (entry) =>
+      entry.event === "purchase"
+        ? { event: "purchase", properties: { value: entry.ecommerce?.value } }
+        : null,
+  },
+}
+```
+
+## Loop guard
+
+`hogsend.*` and `gtm.*` events are **never** ingested, regardless of the allowlist or a `map`. So with both directions enabled, an inbound `sign_up` → `capture("sign_up")` → outbound `hogsend.sign_up` push is seen by the watcher and dropped — no infinite loop.
+
+## Caveats
+
+- **Load order.** Initialize Hogsend *after* the GTM `<head>` snippet has declared `dataLayer` (true for any app-bundle init). If GTM reinstalls `dataLayer.push` after the bridge wraps it, later live events stop reaching the watcher — the pre-load replay and already-wrapped pushes are unaffected.
+- **`gtag()` calls aren't bridged.** `gtag('event', …)` pushes an `arguments` object with no string `event` field; the bridge ingests GTM-style `dataLayer.push({ event, … })` objects only.
+- **Custom variable name.** If your container renames the dataLayer, set `dataLayer.name` to match.

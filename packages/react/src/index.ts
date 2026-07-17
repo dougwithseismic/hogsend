@@ -8,6 +8,10 @@
 export type {
   Banner,
   ColorMode,
+  DataLayerConfig,
+  DataLayerEntry,
+  DataLayerInbound,
+  DataLayerMapFn,
   FeedItem,
   FeedMetadata,
   Hogsend,

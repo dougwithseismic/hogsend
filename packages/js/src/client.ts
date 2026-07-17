@@ -21,6 +21,7 @@ import {
   toBanner,
 } from "./banner/index.js";
 import { resolveConfig } from "./config.js";
+import { startDataLayerBridge } from "./datalayer/index.js";
 import type {
   FeedClient,
   FeedFetchOptions,
@@ -94,11 +95,22 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     ...(resolved.fetch ? { fetch: resolved.fetch } : {}),
   });
 
+  // The dataLayer bridge (built after the spine) installs this outbound tap so
+  // every captured event can be mirrored onto window.dataLayer. The onCapture
+  // hook is wired only when OUTBOUND mirroring is configured (`dataLayer.push`),
+  // so every other capture path — including inbound-only `watch` — carries zero
+  // bridge overhead.
+  let outboundTap:
+    | ((event: string, properties: Properties) => void)
+    | undefined;
   const spine: EventSpine = createEventSpine({
     transport,
     identity,
     flushOnUnload: resolved.flushOnUnload,
     getGroups: () => store.getSnapshot().groups,
+    ...(resolved.dataLayer?.push
+      ? { onCapture: (event, properties) => outboundTap?.(event, properties) }
+      : {}),
   });
 
   const preferencesClient: PreferencesClient = createPreferencesClient({
@@ -290,6 +302,23 @@ export function createHogsend(config: HogsendConfig): Hogsend {
         void sendRef(ref);
       }
     }, 100);
+  }
+
+  // ── GTM/GA4 dataLayer bridge (opt-in; both directions default off) ──
+  // Armed before the init auto-captures so an outbound `campaign.arrived`
+  // mirror is not missed, and any pre-existing dataLayer entries replay in.
+  if (resolved.dataLayer) {
+    unsubs.push(
+      startDataLayerBridge({
+        config: resolved.dataLayer,
+        capture: (event, properties) => {
+          void spine.capture(event, properties);
+        },
+        registerOutbound: (tap) => {
+          outboundTap = tap;
+        },
+      }),
+    );
   }
 
   // Auto-capture on init (default on; inert when the URL carries no hs_ref).

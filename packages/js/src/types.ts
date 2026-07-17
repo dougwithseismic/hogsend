@@ -89,6 +89,78 @@ export interface HogsendConfig {
    * non-campaign pageloads.
    */
   captureAttribution?: boolean;
+  /**
+   * GTM/GA4 `dataLayer` bridge. Outbound pushes every captured event to
+   * `window.dataLayer` as `hogsend.<name>`; inbound pipes an allowlist of
+   * dataLayer events into the capture spine. Both default off. See
+   * {@link DataLayerConfig}.
+   */
+  dataLayer?: DataLayerConfig;
+}
+
+/** A raw entry observed on `window.dataLayer` (best-effort typing). */
+export type DataLayerEntry = Record<string, unknown>;
+
+/** The (event, properties) an inbound dataLayer entry resolves to. */
+export interface DataLayerInbound {
+  event: string;
+  properties?: Properties;
+}
+
+/** Reshape/rename hook for inbound dataLayer entries. Return null to drop. */
+export type DataLayerMapFn = (entry: DataLayerEntry) => DataLayerInbound | null;
+
+/** Reshape an outbound entry, or return null to skip mirroring it. */
+export type DataLayerTransformFn = (
+  event: string,
+  properties: Properties,
+) => DataLayerEntry | null;
+
+/** Outbound (push) config — filter which events mirror out, and/or reshape them. */
+export interface DataLayerPushConfig {
+  /**
+   * Only mirror these event names to the dataLayer. Omit to mirror every
+   * captured event (the `push: true` behavior).
+   */
+  events?: string[];
+  /**
+   * Reshape the outbound entry (rename, flatten, add fields), or return null to
+   * skip it. Default is the namespaced `{ event: "hogsend.<name>", hogsend: … }`
+   * shape. A custom entry is still tagged internally so it can never loop back
+   * into an inbound `watch`, whatever `event` name you give it.
+   */
+  transform?: DataLayerTransformFn;
+}
+
+/** GTM/GA4 `dataLayer` bridge config. Both directions default off. */
+export interface DataLayerConfig {
+  /**
+   * Outbound: mirror SDK-captured events to `window.dataLayer`. `true` mirrors
+   * every event as `{ event: "hogsend.<name>", hogsend: { event, properties } }`;
+   * a {@link DataLayerPushConfig} object filters (`events`) and/or reshapes
+   * (`transform`). Default off. The `hogsend.` prefix on the default shape is
+   * fixed (it is also the loop guard).
+   */
+  push?: boolean | DataLayerPushConfig;
+  /** Inbound: pipe an allowlist of dataLayer events into the capture spine. */
+  watch?: {
+    /**
+     * Explicit allowlist of dataLayer `event` names to ingest — never a
+     * firehose. Consulted only when `map` is omitted; a `map` owns the decision
+     * per entry (so `events` may be omitted when you pass a `map`). `hogsend.*`
+     * / `gtm.*` are always ignored regardless.
+     */
+    events?: string[];
+    /**
+     * Optional rename/reshape. Return the (event, properties) to capture, or
+     * null to drop. When omitted, the event name passes through and only
+     * top-level SCALAR properties are copied (nested objects like GA4
+     * `ecommerce` are skipped — use `map` to pluck them).
+     */
+    map?: DataLayerMapFn;
+  };
+  /** dataLayer variable name (GTM lets you rename it). Default "dataLayer". */
+  name?: string;
 }
 
 /** Result of a single {@link Hogsend.capture}. */
