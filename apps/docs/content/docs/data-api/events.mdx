@@ -54,9 +54,13 @@ This is the most important thing to internalize about events:
 
 This is a deliberate split — and a behavior change from the old single-`properties` `/v1/ingest`. A journey that used to read a contact attribute off the event payload must now key its `trigger.where` on an `eventProperty`, and a bucket must read contact state. See [Identity](/docs/data-api/identity) for the merge semantics.
 
-### Idempotency-Key header precedence
+## Idempotent ingest
 
-You can supply the idempotency key either in the body (`idempotencyKey`) or as an `Idempotency-Key` HTTP header. **The header wins** when both are present.
+Ingest is **exactly-once per key**. Supply an idempotency key and a redelivery of the same event is a safe no-op — it never re-enrols journeys, never re-pushes to Hatchet, and never doubles a revenue value.
+
+### Supplying the key
+
+You can supply the key either in the body (`idempotencyKey`) or as an `Idempotency-Key` HTTP header. **The header wins** when both are present.
 
 ```bash
 curl -X POST http://localhost:3002/v1/events \
@@ -65,6 +69,30 @@ curl -X POST http://localhost:3002/v1/events \
   -H "Idempotency-Key: evt_signup_user_123" \
   -d '{ "name": "signup", "userId": "user_123" }'
 ```
+
+### The contract
+
+- **First write wins.** The first request for a given key is stored, routed to Hatchet, and exit-checked as normal — the response is `202` with `stored: true`.
+- **A duplicate is a no-op.** Any later request carrying a key already seen returns `202` with `stored: false`. The event is **not** re-stored, journeys are **not** re-triggered or re-enrolled, exit conditions are **not** re-evaluated, and the contact is **not** re-touched. Nothing downstream fires a second time.
+- **The key is the whole identity of the event.** Two genuinely distinct events must carry distinct keys; the same key always collapses to one ingest.
+
+```json
+{ "stored": false, "exits": [] }
+```
+
+<Callout type="info">
+  The dedup is enforced by a unique index on `user_events.idempotency_key`, so it holds even under a concurrent retry storm — exactly one request wins the insert and the rest observe `stored: false`. If the durable Hatchet push fails after the row is written, the row is rolled back so the key stays **reclaimable** on a genuine retry (a transient failure never permanently swallows the key).
+</Callout>
+
+### Deriving a good key
+
+Derive the key from a **stable id that the upstream system already assigns to this exact event** — a provider event id is ideal, because the provider reuses it verbatim on every at-least-once redelivery:
+
+- A Stripe webhook → the Stripe **event id** (`evt_…`).
+- An Intercom/Fin webhook → the **notification id** (`intercom:<id>`).
+- Your own producer → a deterministic composite like `signup:user_123` that you can regenerate on a retry.
+
+Avoid keys that change on retry (a fresh UUID per attempt, `Date.now()`) — they defeat dedup, because the retried request looks brand new. All [built-in webhook presets](/docs/integrations) already set a redelivery-safe key for you, so pointing Stripe/Intercom/Segment at Hogsend gets exactly-once ingest with no configuration.
 
 ## Response `202`
 

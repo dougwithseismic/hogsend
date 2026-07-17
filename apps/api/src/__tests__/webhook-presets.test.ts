@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   clerkSource,
   generateWebhookSecret,
+  intercomSource,
   PRESET_SOURCES,
   presetsFromEnv,
   segmentSource,
@@ -373,6 +374,304 @@ describe("Segment preset transform", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Intercom / Fin (X-Hub SHA1 signed, support.* lifecycle events)
+// ---------------------------------------------------------------------------
+
+describe("Intercom preset transform", () => {
+  // A conversation started by a user who carries their own app user id
+  // (external_id) — the load-bearing identity case.
+  const startedPayload = {
+    type: "notification_event",
+    id: "notif_started_1",
+    topic: "conversation.user.created",
+    data: {
+      item: {
+        type: "conversation",
+        id: "conv_1",
+        source: {
+          author: {
+            type: "user",
+            id: "intercom_contact_1",
+            external_id: "app_user_1",
+            email: "ada@example.com",
+            name: "Ada Lovelace",
+          },
+        },
+      },
+    },
+  };
+
+  it("maps conversation.user.created → support.conversation_started with the D2 split", async () => {
+    const result = await intercomSource.transform(startedPayload, ctx);
+
+    expect(result?.event).toBe("support.conversation_started");
+    // userId is the customer's OWN app user id (Intercom external_id), never
+    // Intercom's internal contact id.
+    expect(result?.userId).toBe("app_user_1");
+    expect(result?.userEmail).toBe("ada@example.com");
+    // Dedupe on the notification envelope id.
+    expect(result?.idempotencyKey).toBe("intercom:notif_started_1");
+
+    // Conversation metadata → eventProperties ONLY.
+    expect(result?.eventProperties).toEqual({
+      source: "intercom",
+      _intercomTopic: "conversation.user.created",
+      conversationId: "conv_1",
+    });
+    // Profile → contactProperties ONLY. The Intercom internal id is a reference,
+    // never the identity key.
+    expect(result?.contactProperties).toEqual({
+      name: "Ada Lovelace",
+      intercomContactId: "intercom_contact_1",
+    });
+    // The internal contact id NEVER becomes userId.
+    expect(result?.userId).not.toBe("intercom_contact_1");
+  });
+
+  it("maps conversation.admin.closed → support.resolved carrying the Fin flag", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_closed_1",
+        topic: "conversation.admin.closed",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_2",
+            ai_agent_participated: true,
+            contacts: {
+              contacts: [
+                {
+                  type: "contact",
+                  id: "intercom_contact_2",
+                  external_id: "app_user_2",
+                  email: "grace@example.com",
+                },
+              ],
+            },
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(result?.event).toBe("support.resolved");
+    expect(result?.userId).toBe("app_user_2");
+    expect(result?.userEmail).toBe("grace@example.com");
+    expect(result?.eventProperties).toMatchObject({
+      source: "intercom",
+      _intercomTopic: "conversation.admin.closed",
+      conversationId: "conv_2",
+      isAiResolved: true,
+    });
+  });
+
+  it("maps conversation.admin.assigned → support.escalated with assignee/team", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_assigned_1",
+        topic: "conversation.admin.assigned",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_3",
+            admin_assignee_id: 4567,
+            team_assignee_id: 99,
+            contacts: {
+              contacts: [
+                {
+                  type: "contact",
+                  external_id: "app_user_3",
+                  email: "x@e.com",
+                },
+              ],
+            },
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(result?.event).toBe("support.escalated");
+    expect(result?.userId).toBe("app_user_3");
+    expect(result?.eventProperties).toMatchObject({
+      assigneeId: 4567,
+      teamId: 99,
+    });
+  });
+
+  it("maps conversation.rating.added → support.rated carrying the numeric rating", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_rated_1",
+        topic: "conversation.rating.added",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_4",
+            conversation_rating: { rating: 2, remark: "not great" },
+            contacts: {
+              contacts: [
+                {
+                  type: "contact",
+                  external_id: "app_user_4",
+                  email: "r@e.com",
+                },
+              ],
+            },
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(result?.event).toBe("support.rated");
+    expect(result?.userId).toBe("app_user_4");
+    expect(result?.eventProperties.rating).toBe(2);
+  });
+
+  it("uses email as the sole identity key when Intercom has no external_id", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_emailonly_1",
+        topic: "conversation.user.created",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_5",
+            source: {
+              author: {
+                type: "contact",
+                id: "intercom_contact_5",
+                email: "lead@example.com",
+              },
+            },
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(result?.event).toBe("support.conversation_started");
+    // No external_id → userId is unset; the email carries identity alone.
+    expect(result?.userId).toBeUndefined();
+    expect(result?.userEmail).toBe("lead@example.com");
+    // The Intercom internal id is still recorded for reference only.
+    expect(result?.contactProperties).toEqual({
+      intercomContactId: "intercom_contact_5",
+    });
+  });
+
+  it("skips an admin/bot-authored conversation with no participating contact", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_noident_1",
+        topic: "conversation.admin.closed",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_6",
+            source: {
+              author: {
+                type: "admin",
+                id: "admin_1",
+                email: "team@vendor.com",
+              },
+            },
+          },
+        },
+      },
+      ctx,
+    );
+    // No external_id AND no contact email → can't place the event on a person.
+    expect(result).toBeNull();
+  });
+
+  it("skips an unrecognized topic", async () => {
+    const result = await intercomSource.transform(
+      {
+        type: "notification_event",
+        id: "notif_x",
+        topic: "conversation.admin.snoozed",
+        data: {
+          item: {
+            type: "conversation",
+            id: "conv_7",
+            contacts: {
+              contacts: [{ type: "contact", external_id: "app_user_7" }],
+            },
+          },
+        },
+      },
+      ctx,
+    );
+    expect(result).toBeNull();
+  });
+});
+
+describe("Intercom preset signature verify (X-Hub SHA1)", () => {
+  const secret = "intercom_client_secret_test";
+  const rawBody = JSON.stringify({
+    type: "notification_event",
+    id: "notif_1",
+    topic: "conversation.rating.added",
+  });
+
+  function xHubHeader(body: string, withSecret = secret): string {
+    return `sha1=${createHmac("sha1", withSecret).update(body).digest("hex")}`;
+  }
+
+  // The preset uses a custom `verify` callback (SHA1 is not a built-in scheme).
+  const verify =
+    intercomSource.auth.type === "signature"
+      ? intercomSource.auth.verify
+      : undefined;
+
+  it("uses a custom verify callback (not a built-in scheme)", () => {
+    expect(intercomSource.auth.type).toBe("signature");
+    expect(typeof verify).toBe("function");
+  });
+
+  it("accepts a correctly X-Hub SHA1-signed body", async () => {
+    expect(
+      await verify?.({
+        rawBody,
+        headers: { "x-hub-signature": xHubHeader(rawBody) },
+        secret,
+      }),
+    ).toBe(true);
+  });
+
+  it("FAILS CLOSED when the x-hub-signature header is absent", async () => {
+    expect(await verify?.({ rawBody, headers: {}, secret })).toBe(false);
+  });
+
+  it("rejects a tampered body", async () => {
+    expect(
+      await verify?.({
+        rawBody: `${rawBody}x`,
+        headers: { "x-hub-signature": xHubHeader(rawBody) },
+        secret,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a signature computed with the wrong secret", async () => {
+    expect(
+      await verify?.({
+        rawBody,
+        headers: { "x-hub-signature": xHubHeader(rawBody, "wrong_secret") },
+        secret,
+      }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Signature verification — accept valid, FAIL CLOSED on missing/bad signature
 // ---------------------------------------------------------------------------
 
@@ -577,9 +876,10 @@ describe("presetsFromEnv enablement", () => {
 });
 
 describe("PRESET_SOURCES registry", () => {
-  it("indexes all 4 presets by their route id with the right auth scheme", () => {
+  it("indexes all 5 presets by their route id with the right auth scheme", () => {
     expect(Object.keys(PRESET_SOURCES).sort()).toEqual([
       "clerk",
+      "intercom",
       "segment",
       "stripe",
       "supabase",

@@ -1,0 +1,139 @@
+---
+title: Intercom & Fin
+description: Turn Intercom conversations — including Fin AI resolutions, escalations, and CSAT ratings — into support.* lifecycle events that trigger Hogsend journeys.
+---
+
+Intercom is a built-in **inbound webhook source** that ships inside `@hogsend/engine`. Point an Intercom webhook at `/v1/webhooks/intercom`, set one environment variable, and support moments — a conversation opened, Fin resolving a ticket, an escalation to a human, a bad CSAT rating — flow straight into the ingestion pipeline as `support.*` events, ready to trigger journeys.
+
+<Callout type="info">
+  This is engine-owned content. You do **not** write a `defineWebhookSource()` for Intercom — mounting the preset replaces hand-rolling your own. The whole idea: Intercom becomes a *data source*, not a tool you replace. A support event lands on the **same** Hogsend contact as the person's product and email activity, so a journey sees one unified person.
+</Callout>
+
+## What it does
+
+Almost every lifecycle tool triggers on email or product events. Intercom makes **AI-support resolution** a first-class trigger:
+
+- A customer opens a conversation → `support.conversation_started`, so a "we're on it" nudge or a proactive follow-up can fire.
+- Fin (or a teammate) closes/resolves a conversation → `support.resolved`, carrying an `isAiResolved` flag so you can branch on whether the AI or a human closed it — e.g. a Fin-resolved ticket → a soft upsell or a satisfaction check.
+- A conversation is assigned/escalated to a human → `support.escalated`, so a high-touch account can get white-glove attention.
+- A CSAT rating is added → `support.rated`, carrying the numeric `rating`, so a **bad rating triggers a churn-save journey** in your repo.
+
+Every transformed event runs through the same [ingestion pipeline](/docs/guides/events) as PostHog and the REST API — store, route to journeys, exit-check, contact upsert.
+
+## Setup
+
+### 1. Create the Intercom webhook
+
+In the Intercom Developer Hub, open your app → **Webhooks**, set the endpoint URL to your Hogsend API, and subscribe to the topics you want:
+
+```
+https://api.hogsend.com/v1/webhooks/intercom
+```
+
+| Subscribe to this Intercom topic | To get this Hogsend event |
+|---|---|
+| `conversation.user.created` | `support.conversation_started` |
+| `conversation.admin.closed` | `support.resolved` (incl. Fin closes) |
+| `conversation.admin.assigned` | `support.escalated` |
+| `conversation.rating.added` | `support.rated` |
+
+Any other topic is ignored (the transform returns `null` and the event is skipped), so subscribing to extras is harmless.
+
+### 2. Set the client secret
+
+Copy your Intercom app's **Client Secret** (Developer Hub → **Basic information**) and set it in your Hogsend environment:
+
+```bash title=".env"
+INTERCOM_CLIENT_SECRET=your_intercom_client_secret
+```
+
+That's it — no Intercom SDK, no extra dependencies. Intercom signs each delivery with an `X-Hub-Signature: sha1=<hex>` header (an HMAC-SHA1 of the raw request body keyed with your client secret). Hogsend recomputes that SHA1 over the exact received bytes and constant-time compares it before the transform ever runs.
+
+<Callout type="warn">
+  The Intercom scheme is **fail-closed**. If a request reaches `/v1/webhooks/intercom` but `INTERCOM_CLIENT_SECRET` is unset, it returns `401` and the transform never runs — there is no "open when unconfigured" mode for signature-verified sources. Set the secret before pointing Intercom at the endpoint.
+</Callout>
+
+## Event mapping
+
+The preset normalizes Intercom's notification `topic` into Hogsend's `support.*` vocabulary:
+
+| Intercom topic | Hogsend event | Notable props |
+|---|---|---|
+| `conversation.user.created` | `support.conversation_started` | `conversationId` |
+| `conversation.admin.closed` | `support.resolved` | `conversationId`, `isAiResolved` |
+| `conversation.admin.assigned` | `support.escalated` | `assigneeId`, `teamId` |
+| `conversation.rating.added` | `support.rated` | `rating` (numeric) |
+
+### Identity
+
+This is the load-bearing part. Hogsend keys every Intercom event to the **customer's own app user id**, not to Intercom's internal id, so support activity folds onto the existing contact:
+
+- **`userId`** is the Intercom contact's **`external_id`** when present — the same key your browser SDK / server `sendEmail` / product events use. That's what makes the support event land on the person's existing Hogsend contact instead of minting a duplicate.
+- **`userEmail`** is the Intercom email, always passed when available. It's a co-resolution key that links to the `external_id`, and the **sole** identity key when Intercom has no `external_id`.
+- Intercom's **internal contact id** is recorded as `contactProperties.intercomContactId` for reference only — **never** as an identity key. (An Intercom-internal id used as `external_id` would mint a phantom twin and fragment identity.)
+- With **neither** an `external_id` **nor** an email — e.g. an admin-only note — the event can't be placed on a person and is skipped.
+
+<Callout type="info">
+  For `external_id` to be set, your app must pass a stable user id to Intercom when you identify people there (the same id you use in Hogsend). Without it, Hogsend still resolves the contact by email — so make sure Intercom has the visitor's email.
+</Callout>
+
+### Property split
+
+The preset follows Hogsend's [`contactProperties` vs `eventProperties` split](/docs/data-api/identity).
+
+**`eventProperties`** (lands on the `user_events` row — what a journey `trigger.where` / `exitOn` sees):
+
+| Key | Value |
+|---|---|
+| `source` | `"intercom"` |
+| `_intercomTopic` | the original Intercom topic, e.g. `conversation.rating.added` |
+| `conversationId` | the Intercom conversation id |
+| `isAiResolved` | `true` when Fin participated (present when Intercom reports it) |
+| `assigneeId` / `teamId` | the admin / team the conversation was assigned to |
+| `rating` | the numeric CSAT rating (on `support.rated`) |
+
+**`contactProperties`** (merged onto the durable contact record):
+
+| Key | Value |
+|---|---|
+| `name` | the contact's name, when present |
+| `intercomContactId` | Intercom's internal contact id — reference only |
+
+The Intercom notification `id` becomes the `idempotencyKey` as `intercom:<id>`, so Intercom's at-least-once [redelivery dedupes](/docs/data-api/events#idempotent-ingest) on `user_events.idempotencyKey` rather than re-firing your journeys.
+
+## Enablement
+
+A preset mounts only when **both** conditions hold: its secret env var is set **and** `ENABLED_WEBHOOK_PRESETS` allows it.
+
+| `ENABLED_WEBHOOK_PRESETS` | Behavior |
+|---|---|
+| unset or `*` | Auto — every preset whose secret is set mounts |
+| comma-separated ids (e.g. `intercom,stripe`) | Exactly those ids mount (still requires the secret) |
+| `none` | All presets off |
+
+So with `INTERCOM_CLIENT_SECRET` set and `ENABLED_WEBHOOK_PRESETS` unset, `/v1/webhooks/intercom` is live automatically.
+
+## Using support events in a journey
+
+Trigger a journey on any mapped event. A classic: a **bad CSAT rating → churn-save** flow, gated with `trigger.where` so only low scores enrol.
+
+```ts title="src/journeys/csat-rescue.ts"
+import { defineJourney, hours } from "@hogsend/engine";
+
+export const csatRescue = defineJourney({
+  meta: {
+    id: "csat-rescue",
+    // Only a rating of 2 or below (out of 5) enrols.
+    trigger: { event: "support.rated", where: (b) => b.prop("rating").lte(2) },
+    // If they open a fresh conversation, they're already re-engaged — bail.
+    exitOn: [{ event: "support.conversation_started" }],
+  },
+  async run(user, ctx) {
+    // Give the human queue a beat, then reach out personally.
+    await ctx.sleep({ duration: hours(1) });
+    // ...send a "let's make this right" email, offer a call, escalate to CS
+  },
+});
+```
+
+The `eventProperties` above (`rating`, `conversationId`, `isAiResolved`, …) are exactly what a `trigger.where` or `exitOn.where` evaluates — see [Events & Ingestion](/docs/guides/events) and [Conditions](/docs/guides/conditions) for the matching rules. Swap the trigger to `support.resolved` with `where: (b) => b.prop("isAiResolved").eq(true)` for a **Fin-resolved → follow-up/upsell** flow instead.
