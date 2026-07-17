@@ -47,6 +47,20 @@ export function isOutbound(entry: object): boolean {
   return (entry as Record<symbol, unknown>)[OUTBOUND_MARK] === true;
 }
 
+type ArrayPush = (...items: DataLayerEntry[]) => number;
+
+/**
+ * Tags the wrapped `dataLayer.push`, storing the underlying push to restore to.
+ * Guarantees at most ONE Hogsend inbound wrapper per dataLayer: a second bridge
+ * on the same array (React StrictMode double-construct, a leaked provider
+ * remount) unwraps the prior wrapper before installing its own, so an inbound
+ * event is never double-ingested. (Two intentionally-separate clients watching
+ * one dataLayer collapse to the last — double-ingesting one page's event is
+ * never wanted.)
+ */
+const WRAPPER_TAG = Symbol("hogsend.dataLayer.wrapper");
+type WrappedPush = ArrayPush & { [WRAPPER_TAG]?: ArrayPush };
+
 /** Build the outbound dataLayer entry for a captured event. */
 export function outboundEntry(
   name: string,
@@ -194,15 +208,22 @@ export function startDataLayerBridge(
       }
     };
 
+    // At most one Hogsend wrapper per dataLayer — unwrap a prior one first so we
+    // never stack (StrictMode double-construct / a leaked provider remount).
+    const current = arr.push as WrappedPush;
+    if (current[WRAPPER_TAG])
+      arr.push = current[WRAPPER_TAG] as typeof arr.push;
+
     // Snapshot BEFORE wrapping; `slice()` + the reassignment run back-to-back
     // with no await, so on single-threaded JS nothing can push between them —
     // the snapshot holds only pre-wrap entries and live pushes hit the wrapper.
     const snapshot = arr.slice();
     const origPush = arr.push;
-    const wrapped = (...items: DataLayerEntry[]): number => {
+    const wrapped: WrappedPush = (...items: DataLayerEntry[]): number => {
       for (const it of items) handle(it);
       return origPush.apply(arr, items);
     };
+    wrapped[WRAPPER_TAG] = origPush;
     arr.push = wrapped as typeof arr.push;
     teardowns.push(() => {
       if (arr.push === (wrapped as typeof arr.push)) arr.push = origPush;

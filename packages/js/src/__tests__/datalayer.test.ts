@@ -237,6 +237,34 @@ describe("startDataLayerBridge (window wiring)", () => {
     teardown();
   });
 
+  it("a second bridge on the same dataLayer does not double-ingest", () => {
+    const dataLayer: Record<string, unknown>[] = [];
+    const nativePush = dataLayer.push;
+    vi.stubGlobal("window", { dataLayer });
+    const captured: string[] = [];
+
+    // Two bridges on the same array (mimics a StrictMode double-construct).
+    const t1 = startDataLayerBridge({
+      config: { watch: { events: ["sign_up"] } },
+      capture: (e) => captured.push(`a:${e}`),
+      registerOutbound: () => {},
+    });
+    const t2 = startDataLayerBridge({
+      config: { watch: { events: ["sign_up"] } },
+      capture: (e) => captured.push(`b:${e}`),
+      registerOutbound: () => {},
+    });
+
+    dataLayer.push({ event: "sign_up" });
+    // Exactly one wrapper is active → ingested once (by the last bridge).
+    expect(captured).toEqual(["b:sign_up"]);
+
+    // Tearing down both fully restores the native push.
+    t2();
+    t1();
+    expect(dataLayer.push).toBe(nativePush);
+  });
+
   it("restores the original push on teardown", () => {
     const dataLayer: Record<string, unknown>[] = [];
     const origPush = dataLayer.push;
