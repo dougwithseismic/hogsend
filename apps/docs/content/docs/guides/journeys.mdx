@@ -495,7 +495,65 @@ await ctx.trigger({ event: "nudge.sent", userId: user.id });
 
 ### Reserved context state
 
-`ctx.digest()`, `ctx.throttle()`, and `ctx.once()` persist their recorded results under reserved keys in the journey's context bag — `__digest__`, `__throttle__`, and `__once__`. Don't write those keys yourself. Digest and throttle also reserve **label prefixes** on the per-run node-id set: `digest:` (the default `digest:<event>` node id) and `throttle:`. If you set your own `label`, keep it clear of those prefixes, and give each `ctx.digest()` / `ctx.throttle()` call a distinct label when a run has more than one — reusing a label throws a loud collision error rather than silently over-collapsing two records.
+`ctx.digest()`, `ctx.throttle()`, `ctx.once()`, and `ctx.variant()` persist their recorded results under reserved keys in the journey's context bag — `__digest__`, `__throttle__`, `__once__`, and `__variants__`. Don't write those keys yourself — the engine also strips all four from incoming trigger-event properties before seeding a journey's context, so an event can never pre-fill them. Digest and throttle also reserve **label prefixes** on the per-run node-id set: `digest:` (the default `digest:<event>` node id) and `throttle:`. If you set your own `label`, keep it clear of those prefixes, and give each `ctx.digest()` / `ctx.throttle()` call a distinct label when a run has more than one — reusing a label throws a loud collision error rather than silently over-collapsing two records.
+
+## `ctx.variant()`
+
+Deterministic experiment arm for THIS user — the replay-law-safe A/B primitive.
+
+```ts
+variant<const A extends readonly [string, ...string[]]>(
+  key: string,
+  arms: A,
+): Promise<A[number]>;
+```
+
+```ts
+const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+
+await sendEmail({
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.ACTIVATION_WELCOME,
+  subject:
+    arm === "outcome"
+      ? "Welcome — your first journey live in 15 minutes"
+      : "Welcome — let's get you set up",
+});
+```
+
+Assignment is a pure sha256 bucket over `(journeyId, key, userId)` — no RNG, no
+clock. The same user gets the same arm on every evaluation. Equal split only
+(weights are not supported).
+
+Two guarantees, stated separately:
+
+1. **Within one enrollment**, the assignment is RECORDED once (in the journey's
+   state row, under the reserved `__variants__` key) and the recorded value wins
+   VERBATIM on any later call — including a replay after a deploy that changed
+   `arms`. An arm no longer in the current array is returned as recorded (and
+   warned once in the logs).
+2. **A re-entry** mints a new enrollment and re-derives the arm from the same
+   deterministic hash — the same arm as long as the `arms` array is unchanged.
+   Editing arms between entries may reassign re-entrants.
+
+Keys are validated against `/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/` — 1–64 chars,
+no `:` and no spaces.
+
+`ctx.variant` issues ZERO durable Hatchet calls (positionally invisible in the
+journal, like `ctx.throttle`). A per-journey holdout diverts BEFORE `run()`
+executes, so variants split the treatment cohort only.
+
+A variant-selected template needs NO `ctx.once` wrap and no `idempotencyLabel`
+of its own: the arm is deterministic + recorded, so a replay re-derives the
+identical send key. The pre-existing rule stands: if a LATER unconditional send
+can hit the SAME template as one of the arms under the same nearest wait label,
+give one of them a distinct `idempotencyLabel` — the engine throws the loud
+key-collision error otherwise.
+
+In tests, seed an assignment with the harness option:
+`createJourneyTest(journey, { user, variants: { "welcome-subject": "outcome" } })`.
 
 ## `ctx.checkpoint()`
 
