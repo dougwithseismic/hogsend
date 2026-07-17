@@ -137,11 +137,16 @@ export function ManifestoVideo() {
   const live = playing && status === "playing";
 
   return (
-    // items-start + fixed heights on BOTH boxes: neither container's height
-    // may ever depend on the other's content (a growing feed once stretched
-    // the grid row and the player with it).
+    // items-start + a PLAIN fixed height on both boxes at the desktop
+    // breakpoint (md:h-[340px]) — neither container's height may derive from
+    // the other's content. (Previously the video used aspect-ratio while the
+    // feed stretched to the same grid row; every new event grew the feed →
+    // grew the row → grew the video → grew the row again. Fixed heights break
+    // that loop entirely.) On mobile the columns stack, so the video keeps a
+    // natural 16:9 and the feed its own fixed height — no side-by-side match
+    // needed.
     <div className="mx-auto mt-14 grid w-full max-w-[920px] items-start gap-4 text-left md:grid-cols-[1fr_300px]">
-      <div className="relative aspect-video max-h-[340px] overflow-hidden rounded-md border border-white/[0.08] bg-black">
+      <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black md:aspect-auto md:h-[340px]">
         {playing ? (
           isHogsendConfigured ? (
             <CapturingPlayer onEvent={onEvent} onStateChange={onStateChange} />
