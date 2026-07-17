@@ -11,17 +11,22 @@
  *     no echo (the allowlist at work).
  */
 
-import { HogsendProvider, useHogsend } from "@hogsend/react";
+import {
+  type DataLayerEntry,
+  HogsendProvider,
+  useHogsend,
+} from "@hogsend/react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
-// 202 the queue so no real network call leaves the page.
+// Return a fake 202 so no real telemetry leaves the page — the bridge is pure
+// client-side logic, so the demo exercises it fully without a network.
 const stubFetch: typeof fetch = async () =>
   new Response(JSON.stringify({ stored: true, contactKey: "demo" }), {
     status: 202,
     headers: { "content-type": "application/json" },
   });
 
-type Entry = Record<string, unknown>;
+type Entry = DataLayerEntry;
 
 // Stable React key per dataLayer entry object (append-only log; no array index).
 const entryIds = new WeakMap<object, number>();
@@ -46,11 +51,10 @@ function DemoInner() {
 
   const sync = useCallback(() => setEntries([...getDataLayer()]), []);
 
-  // Refresh on mount + a light interval (defensive; all writes are synchronous).
+  // Every mutation path calls sync() synchronously (the outbound mirror runs
+  // inside capture() before its first await), so a mount refresh is enough.
   useEffect(() => {
     sync();
-    const id = setInterval(sync, 400);
-    return () => clearInterval(id);
   }, [sync]);
 
   const act = (fn: () => void) => () => {

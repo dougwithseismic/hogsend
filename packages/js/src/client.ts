@@ -97,8 +97,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
   // The dataLayer bridge (built after the spine) installs this outbound tap so
   // every captured event can be mirrored onto window.dataLayer. The onCapture
-  // hook is wired only when the bridge is configured, so the default capture
-  // path carries zero bridge overhead.
+  // hook is wired only when OUTBOUND mirroring is configured (`dataLayer.push`),
+  // so every other capture path — including inbound-only `watch` — carries zero
+  // bridge overhead.
   let outboundTap:
     | ((event: string, properties: Properties) => void)
     | undefined;
@@ -107,7 +108,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     identity,
     flushOnUnload: resolved.flushOnUnload,
     getGroups: () => store.getSnapshot().groups,
-    ...(resolved.dataLayer
+    ...(resolved.dataLayer?.push
       ? { onCapture: (event, properties) => outboundTap?.(event, properties) }
       : {}),
   });
