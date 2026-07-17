@@ -578,6 +578,8 @@ export {
 // --- Outbound webhooks: emit spine (Section 1.4) ---
 export {
   emitOutbound,
+  type ImpactDigestLiftEntry,
+  type ImpactDigestShippedEntry,
   OUTBOUND_EVENTS,
   type OutboundEventName,
   type OutboundPayloads,
