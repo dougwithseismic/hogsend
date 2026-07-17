@@ -18,6 +18,7 @@ import {
   ThermalLayer,
 } from "@/components/ds/thermal";
 import { isHogsendConfigured } from "@/components/hogsend/config";
+import { ManifestoVideo } from "@/components/hogsend/manifesto-video";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
 import { getEngineVersion } from "@/lib/engine-version";
@@ -783,6 +784,7 @@ function PsManifesto() {
               teams who build it in code.
             </span>
           </p>
+          <ManifestoVideo />
         </Reveal>
       </Container>
     </section>
