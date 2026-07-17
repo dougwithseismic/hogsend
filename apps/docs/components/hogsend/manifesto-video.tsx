@@ -80,10 +80,11 @@ export function ManifestoVideo() {
   const feedRef = useRef<HTMLDivElement>(null);
 
   // Keep the feed pinned to the newest line unless the visitor has scrolled
-  // up to read history (~a line and a half of slack).
+  // up to read history. Re-runs on every push (the array identity changes,
+  // which the `lines.length` read below makes an explicit dependency).
   useEffect(() => {
     const el = feedRef.current;
-    if (!el) return;
+    if (!el || lines.length === 0) return;
     const nearBottom =
       el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight / 2;
     if (nearBottom) el.scrollTop = el.scrollHeight;
