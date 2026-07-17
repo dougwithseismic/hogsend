@@ -16,10 +16,12 @@ const ogFont = (file: string) =>
   readFile(join(process.cwd(), "lib/fonts/og", file));
 
 export default async function OpengraphImage() {
-  const [interMedium, interRegular] = await Promise.all([
+  const [interMedium, interRegular, boarSvg] = await Promise.all([
     ogFont("Inter-Medium.ttf"),
     ogFont("Inter-Regular.ttf"),
+    readFile(join(process.cwd(), "public/images/logos/hogsend-boar.svg")),
   ]);
+  const boarSrc = `data:image/svg+xml;base64,${boarSvg.toString("base64")}`;
 
   return new ImageResponse(
     <div
@@ -86,16 +88,9 @@ export default async function OpengraphImage() {
             backgroundColor: "#F64838",
           }}
         >
-          {/* Minimal "send" glyph */}
-          <svg
-            width="30"
-            height="30"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path d="M3.5 12 20 4.5 14 20l-3.2-6.4L3.5 12Z" fill="#050101" />
-          </svg>
+          {/* Boar mark (black on the accent tile, as in the v1 logo) */}
+          {/* biome-ignore lint/performance/noImgElement: satori renders raw img */}
+          <img src={boarSrc} width={36} height={20} alt="" />
         </div>
         <div
           style={{

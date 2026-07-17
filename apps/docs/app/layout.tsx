@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     url: SITE_URL,
   },
   twitter: { card: "summary_large_image" },
-  icons: { icon: "/icon.svg", apple: "/apple-icon.png" },
+  icons: { icon: "/icon.png", apple: "/apple-icon.png" },
   formatDetection: { telephone: false },
 };
 
