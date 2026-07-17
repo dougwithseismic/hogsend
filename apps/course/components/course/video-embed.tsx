@@ -6,7 +6,10 @@ import { VideoPlayer } from "@hogsend/video/react";
 import { useMemo, useState } from "react";
 import { MediaDoneToggle } from "@/components/course/media-toggle";
 import { CopyLinkButton } from "@/components/course/share-link";
-import { isHogsendConfigured } from "@/components/hogsend/provider";
+import {
+  CourseHogsendProvider,
+  isHogsendConfigured,
+} from "@/components/hogsend/provider";
 
 /**
  * Privacy-light YouTube embed: renders the static thumbnail with a play
@@ -38,7 +41,12 @@ export function VideoEmbed({
       <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
           isHogsendConfigured ? (
-            <TrackedYouTube id={id} title={title} channel={channel} />
+            // The course's Hogsend provider wraps only the nav (its identity
+            // remount would blow away page animations at the root), so the
+            // tracked player brings its own — mounted per played video.
+            <CourseHogsendProvider>
+              <TrackedYouTube id={id} title={title} channel={channel} />
+            </CourseHogsendProvider>
           ) : (
             <iframe
               src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1`}
