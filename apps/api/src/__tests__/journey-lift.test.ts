@@ -41,9 +41,14 @@ const { contacts, conversions, journeyStates, userEvents } = await import(
   "@hogsend/db"
 );
 const { like } = await import("drizzle-orm");
-const { createApp, createHogsendClient, defineJourney } = await import(
-  "@hogsend/engine"
-);
+const {
+  computeJourneyLift,
+  computeLift,
+  computeLiftValues,
+  createApp,
+  createHogsendClient,
+  defineJourney,
+} = await import("@hogsend/engine");
 
 const RUN = `lift2a-${Date.now()}`;
 const J_NONE = `${RUN}-none`;
@@ -357,5 +362,172 @@ describe("/lift regression pin (wire shape frozen across the 2a refactor)", () =
       { currency: "USD", value: 50 },
     ]);
     expect(body.control.value).toEqual([{ currency: "GBP", value: 20 }]);
+  });
+});
+
+describe("computeJourneyLift / computeLiftValues (D4.1 contract)", () => {
+  const J_ASOF = `${RUN}-asof`;
+  const SINCE = new Date(Date.now() - 20 * DAY);
+  const ASOF = new Date(Date.now() - 5 * DAY);
+  const at = (n: number) => new Date(ASOF.getTime() + n * DAY);
+
+  beforeAll(async () => {
+    // Treatment rows created 2 days before the asOf snapshot...
+    for (const u of ["a", "b", "f", "g"]) {
+      await seedState({
+        journeyId: J_ASOF,
+        userId: `${RUN}-${u}`,
+        status: "completed",
+        createdAt: at(-2),
+      });
+    }
+    // ...one created EXACTLY at asOf (strict `<` must exclude it)...
+    await seedState({
+      journeyId: J_ASOF,
+      userId: `${RUN}-c`,
+      status: "completed",
+      createdAt: ASOF,
+    });
+    // ...one created before `since` (always excluded)...
+    await seedState({
+      journeyId: J_ASOF,
+      userId: `${RUN}-d`,
+      status: "completed",
+      createdAt: new Date(SINCE.getTime() - DAY),
+    });
+    // ...and one held_out control.
+    await seedState({
+      journeyId: J_ASOF,
+      userId: `${RUN}-h`,
+      status: "held_out",
+      createdAt: at(-2),
+    });
+
+    // a: converts before asOf (counts). b: converts AFTER asOf (counts only
+    // under the default asOf=now). f: other-definition converter (drops
+    // under definitionId="revenue"). g: converts EXACTLY at asOf
+    // (inclusive `<=` must count it). d: in-window conversion but the state
+    // row predates `since` (never counts). h: control converter.
+    await seedConversion({
+      userKey: `${RUN}-a`,
+      definitionId: "revenue",
+      value: 10,
+      currency: "GBP",
+      occurredAt: at(-1),
+    });
+    await seedConversion({
+      userKey: `${RUN}-b`,
+      definitionId: "revenue",
+      value: 6,
+      currency: "GBP",
+      occurredAt: at(1),
+    });
+    await seedConversion({
+      userKey: `${RUN}-f`,
+      definitionId: `${RUN}-nolift`,
+      value: 4,
+      currency: "USD",
+      occurredAt: at(-1),
+    });
+    await seedConversion({
+      userKey: `${RUN}-g`,
+      definitionId: "revenue",
+      value: 8,
+      currency: "GBP",
+      occurredAt: ASOF,
+    });
+    await seedConversion({
+      userKey: `${RUN}-d`,
+      definitionId: "revenue",
+      value: 99,
+      currency: "GBP",
+      occurredAt: at(-1),
+    });
+    await seedConversion({
+      userKey: `${RUN}-h`,
+      definitionId: "revenue",
+      value: 7,
+      currency: "GBP",
+      occurredAt: at(-1),
+    });
+  });
+
+  it("snapshots at asOf: created_at < asOf (strict), occurred_at <= asOf (inclusive)", async () => {
+    const res = await computeJourneyLift({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+      asOf: ASOF,
+    });
+    // a, b, f, g in the cohort (c excluded by strict <, d by since);
+    // converters a, f, g (b's conversion is after asOf; g's is AT asOf).
+    expect(res.treatment).toEqual({ contacts: 4, converters: 3, rate: 0.75 });
+    expect(res.control).toEqual({ contacts: 1, converters: 1, rate: 1 });
+    // The nested verdict IS computeLift of the counts — no drift allowed.
+    expect(res.verdict).toEqual(
+      computeLift({
+        treatment: { contacts: 4, converters: 3 },
+        control: { contacts: 1, converters: 1 },
+      }),
+    );
+  });
+
+  it("defaults asOf to now — both bounds are no-ops over historical rows", async () => {
+    const res = await computeJourneyLift({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+    });
+    // c joins the cohort; b becomes a converter.
+    expect(res.treatment).toEqual({ contacts: 5, converters: 4, rate: 0.8 });
+    expect(res.control).toEqual({ contacts: 1, converters: 1, rate: 1 });
+  });
+
+  it("narrows converters by definitionId (counts cohort unchanged)", async () => {
+    const res = await computeJourneyLift({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+      asOf: ASOF,
+      definitionId: "revenue",
+    });
+    expect(res.treatment).toEqual({ contacts: 4, converters: 2, rate: 0.5 });
+    expect(res.control).toEqual({ contacts: 1, converters: 1, rate: 1 });
+  });
+
+  it("computeLiftValues honors since/asOf/definitionId and the ITT clock per currency", async () => {
+    const atAsOf = await computeLiftValues({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+      asOf: ASOF,
+    });
+    // GBP: a £10 + g £8 (b's £6 is after asOf; d's £99 fails the since
+    // bound on the state row). USD: f's other-definition $4.
+    expect(byCurrency(atAsOf.treatment)).toEqual([
+      { currency: "GBP", value: 18 },
+      { currency: "USD", value: 4 },
+    ]);
+    expect(atAsOf.control).toEqual([{ currency: "GBP", value: 7 }]);
+
+    const revenueOnly = await computeLiftValues({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+      asOf: ASOF,
+      definitionId: "revenue",
+    });
+    expect(revenueOnly.treatment).toEqual([{ currency: "GBP", value: 18 }]);
+    expect(revenueOnly.control).toEqual([{ currency: "GBP", value: 7 }]);
+
+    const nowScoped = await computeLiftValues({
+      db,
+      journeyId: J_ASOF,
+      since: SINCE,
+    });
+    expect(byCurrency(nowScoped.treatment)).toEqual([
+      { currency: "GBP", value: 24 },
+      { currency: "USD", value: 4 },
+    ]);
   });
 });

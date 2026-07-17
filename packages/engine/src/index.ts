@@ -518,6 +518,15 @@ export {
   type IngestResult,
   ingestEvent,
 } from "./lib/ingestion.js";
+// --- Reconciled journey-lift helper (impact experiments D4.1) — the ONE
+// implementation of the causal cohort math, shared by /lift (2a), /impact
+// (2b), and the impact digest (3b) ---
+export {
+  computeJourneyLift,
+  computeLiftValues,
+  type JourneyLiftResult,
+  type LiftCohort,
+} from "./lib/journey-lift.js";
 // --- Leader lease (connector-runtime singleton election) ---
 export {
   acquireLeaderLease,
