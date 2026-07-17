@@ -261,6 +261,7 @@ export {
 export {
   type RecordNamespace,
   recordOnce,
+  stripRecordNamespaces,
 } from "./journeys/record-once.js";
 export {
   buildJourneyRegistry,

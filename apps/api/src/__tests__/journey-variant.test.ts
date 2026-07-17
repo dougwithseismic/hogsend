@@ -11,7 +11,7 @@
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 const {
   isHeldOut,
@@ -20,6 +20,50 @@ const {
   validateVariantKey,
   variantBucket,
 } = await import("@hogsend/engine/testing");
+
+const { journeyStates } = await import("@hogsend/db");
+const { eq } = await import("drizzle-orm");
+const { createHogsendClient, recordOnce, stripRecordNamespaces } = await import(
+  "@hogsend/engine"
+);
+type RecordDb = Parameters<typeof recordOnce>[0]["db"];
+
+// Mock-free container: these blocks only touch Postgres via recordOnce.
+const mockHatchet = {
+  durableTask: vi.fn(() => ({ run: vi.fn(), runNoWait: vi.fn() })),
+  task: vi.fn(() => ({ run: vi.fn(), runNoWait: vi.fn() })),
+  events: { push: vi.fn().mockResolvedValue(undefined) },
+  runs: { cancel: vi.fn(), get: vi.fn() },
+  worker: vi.fn(),
+} as unknown as ReturnType<typeof createHogsendClient>["hatchet"];
+const container = createHogsendClient({ overrides: { hatchet: mockHatchet } });
+const { db } = container;
+
+const RUN = `var-${Date.now()}`;
+let seeded = 0;
+async function freshState(context?: Record<string, unknown>): Promise<string> {
+  seeded += 1;
+  const [row] = await db
+    .insert(journeyStates)
+    .values({
+      userId: `${RUN}-${seeded}`,
+      userEmail: `${RUN}-${seeded}@example.com`,
+      journeyId: `${RUN}-journey`,
+      currentNodeId: "start",
+      status: "active",
+      ...(context ? { context } : {}),
+    })
+    .returning({ id: journeyStates.id });
+  return row?.id ?? "";
+}
+
+async function readContext(stateId: string): Promise<Record<string, unknown>> {
+  const [row] = await db
+    .select({ context: journeyStates.context })
+    .from(journeyStates)
+    .where(eq(journeyStates.id, stateId));
+  return (row?.context ?? {}) as Record<string, unknown>;
+}
 
 describe("variantBucket — frozen hash contract (golden values)", () => {
   it("matches the frozen golden buckets for 3 fixed inputs", () => {
@@ -184,5 +228,78 @@ describe("validateVariantArms — compute-path gate (RangeError)", () => {
 
   it("accepts distinct non-empty arms", () => {
     expect(() => validateVariantArms(["a", "b", "c"])).not.toThrow();
+  });
+});
+
+afterAll(async () => {
+  for (let i = 1; i <= seeded; i += 1) {
+    await db
+      .delete(journeyStates)
+      .where(eq(journeyStates.userId, `${RUN}-${i}`));
+  }
+});
+
+describe("__variants__ — reserved record-once namespace", () => {
+  it("isolates namespaces — same key in __once__ and __variants__ never clobber", async () => {
+    const stateId = await freshState();
+
+    const onceVal = await recordOnce({
+      db: db as RecordDb,
+      stateId,
+      namespace: "__once__",
+      key: "shared",
+      compute: async () => "once-value",
+    });
+    const variantVal = await recordOnce({
+      db: db as RecordDb,
+      stateId,
+      namespace: "__variants__",
+      key: "shared",
+      compute: async () => "outcome",
+    });
+
+    expect(onceVal).toBe("once-value");
+    expect(variantVal).toBe("outcome");
+
+    const bag = await readContext(stateId);
+    expect((bag.__once__ as Record<string, unknown>).shared).toBe("once-value");
+    expect((bag.__variants__ as Record<string, unknown>).shared).toBe(
+      "outcome",
+    );
+  });
+
+  it("stores the bare arm string under context.__variants__.<key>", async () => {
+    const stateId = await freshState();
+    await recordOnce({
+      db: db as RecordDb,
+      stateId,
+      namespace: "__variants__",
+      key: "welcome-subject",
+      compute: () => "setup",
+    });
+    const bag = await readContext(stateId);
+    expect(bag.__variants__).toEqual({ "welcome-subject": "setup" });
+  });
+});
+
+describe("stripRecordNamespaces — the seeding injection filter", () => {
+  it("removes all four reserved namespace keys and keeps everything else", () => {
+    expect(
+      stripRecordNamespaces({
+        plan: "pro",
+        score: 7,
+        __once__: "evil",
+        __digest__: "evil",
+        __throttle__: "evil",
+        __variants__: "evil",
+      }),
+    ).toEqual({ plan: "pro", score: 7 });
+  });
+
+  it("is an identity on clean bags and never mutates its input", () => {
+    const input = { plan: "pro" };
+    const out = stripRecordNamespaces(input);
+    expect(out).toEqual({ plan: "pro" });
+    expect(input).toEqual({ plan: "pro" });
   });
 });

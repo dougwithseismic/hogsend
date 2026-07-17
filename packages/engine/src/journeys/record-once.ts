@@ -5,15 +5,20 @@ import { eq, sql } from "drizzle-orm";
  * under. A closed union — the ONLY values reachable at the SQL path, so the
  * token can be interpolated into the jsonb path (see {@link recordOnce}) while
  * `key`/value stay bound parameters. */
-export type RecordNamespace = "__once__" | "__digest__" | "__throttle__";
+export type RecordNamespace =
+  | "__once__"
+  | "__digest__"
+  | "__throttle__"
+  | "__variants__";
 
-// Closed-union → validated path token. NOT user input: only these three literals
+// Closed-union → validated path token. NOT user input: only these four literals
 // reach the interpolated jsonb path below, so it is injection-safe. `key` and the
 // JSON-stringified value are ALWAYS bound parameters regardless.
 const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
   __once__: "__once__",
   __digest__: "__digest__",
   __throttle__: "__throttle__",
+  __variants__: "__variants__",
 };
 
 /** Extract the `(namespace)` sub-bag from an already-fetched context, `{}` when
@@ -107,4 +112,25 @@ export async function recordOnce<T>(opts: {
     return after[key] as T;
   }
   return value;
+}
+
+/**
+ * Drop ALL reserved record-once namespace keys from an event-properties bag.
+ * Enrollment seeds `journey_states.context` from trigger-event properties
+ * (execute-journey-run.ts — BOTH the fresh-entry and held_out inserts);
+ * without this strip a publishable-key browser event carrying e.g.
+ * `__variants__` could pre-fill a reserved bag — choosing its own ctx.variant
+ * arm AND injecting arbitrary strings into the impact readout's GROUP BY
+ * dimension. One filter protects every bag at once. Engine-supplied
+ * `extraContext` (e.g. `__blueprintVersion`) is deliberately NOT passed
+ * through this filter.
+ */
+export function stripRecordNamespaces<T>(
+  properties: Record<string, T>,
+): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(properties).filter(
+      ([key]) => !Object.hasOwn(NAMESPACE_TOKEN, key),
+    ),
+  ) as Record<string, T>;
 }
