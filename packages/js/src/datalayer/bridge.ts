@@ -139,10 +139,10 @@ export function startDataLayerBridge(
     // with no await, so on single-threaded JS nothing can push between them —
     // the snapshot holds only pre-wrap entries and live pushes hit the wrapper.
     const snapshot = arr.slice();
-    const origPush = arr.push.bind(arr);
+    const origPush = arr.push;
     const wrapped = (...items: DataLayerEntry[]): number => {
       for (const it of items) handle(it);
-      return origPush(...items);
+      return origPush.apply(arr, items);
     };
     arr.push = wrapped as typeof arr.push;
     teardowns.push(() => {

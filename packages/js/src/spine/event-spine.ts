@@ -23,6 +23,12 @@ export interface EventSpineOptions {
    * Omitted (or an empty map) means no `groups` field on the payload.
    */
   getGroups?: () => Record<string, string>;
+  /**
+   * Observe every captured event (an outbound tap, e.g. the dataLayer bridge).
+   * Fired after enqueue; a throw is swallowed so a tap can never break the
+   * telemetry path.
+   */
+  onCapture?: (event: string, properties: Properties) => void;
 }
 
 /** The EventSpine — the stable core contract every surface depends on. */
@@ -74,6 +80,13 @@ export function createEventSpine(opts: EventSpineOptions): EventSpine {
           : {}),
         ...(captureOpts?.currency ? { currency: captureOpts.currency } : {}),
       });
+      if (opts.onCapture) {
+        try {
+          opts.onCapture(event, properties ?? {});
+        } catch {
+          // A tap must never break the telemetry path.
+        }
+      }
       return {
         stored: true,
         contactKey:

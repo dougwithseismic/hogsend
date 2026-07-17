@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isSelfOrGtm,
   outboundEntry,
   pluckScalars,
   resolveInbound,
+  startDataLayerBridge,
 } from "../datalayer/index.js";
 
 describe("outboundEntry", () => {
@@ -109,5 +110,107 @@ describe("resolveInbound", () => {
 
   it("lets a map drop an entry by returning null", () => {
     expect(resolveInbound({ event: "sign_up" }, allow, () => null)).toBeNull();
+  });
+});
+
+describe("startDataLayerBridge (window wiring)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is a no-op under SSR (no window)", () => {
+    // No window stubbed → returns a no-op teardown, never throws.
+    expect(() =>
+      startDataLayerBridge({
+        config: { watch: { events: ["x"] } },
+        capture: () => {},
+        registerOutbound: () => {},
+      })(),
+    ).not.toThrow();
+  });
+
+  it("replays pre-existing allowlisted entries and pipes live pushes", () => {
+    const captured: Array<{ event: string; props?: Record<string, unknown> }> =
+      [];
+    const dataLayer: Record<string, unknown>[] = [
+      { event: "sign_up", plan: "pro", ecommerce: { x: 1 } }, // pre-existing
+      { event: "page_view" }, // not allowlisted
+    ];
+    vi.stubGlobal("window", { dataLayer });
+
+    const teardown = startDataLayerBridge({
+      config: { watch: { events: ["sign_up", "purchase"] } },
+      capture: (event, props) => captured.push({ event, props }),
+      registerOutbound: () => {},
+    });
+
+    // Replay ingested only the allowlisted sign_up, flat scalars (no ecommerce).
+    expect(captured).toEqual([{ event: "sign_up", props: { plan: "pro" } }]);
+
+    // A live push of an allowlisted event flows through the wrapped push.
+    dataLayer.push({ event: "purchase", total: 49 });
+    expect(captured).toContainEqual({
+      event: "purchase",
+      props: { total: 49 },
+    });
+
+    teardown();
+  });
+
+  it("mirrors captured events outbound and never loops them back in", () => {
+    const captured: string[] = [];
+    const dataLayer: Record<string, unknown>[] = [];
+    vi.stubGlobal("window", { dataLayer });
+
+    let tap: ((e: string, p: Record<string, unknown>) => void) | undefined;
+    const teardown = startDataLayerBridge({
+      config: { push: true, watch: { events: ["sign_up"] } },
+      capture: (event) => captured.push(event),
+      registerOutbound: (fn) => {
+        tap = fn;
+      },
+    });
+
+    // Simulate the spine capturing an event → the outbound tap.
+    tap?.("checkout", { plan: "pro" });
+    expect(dataLayer.at(-1)).toEqual({
+      event: "hogsend.checkout",
+      hogsend: { event: "checkout", properties: { plan: "pro" } },
+    });
+    // The loop guard drops the echo — no re-ingestion.
+    expect(captured).not.toContain("checkout");
+    expect(captured).not.toContain("hogsend.checkout");
+
+    teardown();
+  });
+
+  it("restores the original push on teardown", () => {
+    const dataLayer: Record<string, unknown>[] = [];
+    const origPush = dataLayer.push;
+    vi.stubGlobal("window", { dataLayer });
+
+    const teardown = startDataLayerBridge({
+      config: { watch: { events: ["x"] } },
+      capture: () => {},
+      registerOutbound: () => {},
+    });
+    expect(dataLayer.push).not.toBe(origPush);
+    teardown();
+    expect(dataLayer.push).toBe(origPush);
+  });
+
+  it("creates the dataLayer array when the page has not defined one", () => {
+    const win: Record<string, unknown> = {};
+    vi.stubGlobal("window", win);
+
+    const teardown = startDataLayerBridge({
+      config: { push: true },
+      capture: () => {},
+      registerOutbound: (fn) => fn?.("hello", { a: 1 }),
+    });
+    expect(Array.isArray(win.dataLayer)).toBe(true);
+    expect((win.dataLayer as unknown[])[0]).toEqual({
+      event: "hogsend.hello",
+      hogsend: { event: "hello", properties: { a: 1 } },
+    });
+    teardown();
   });
 });
