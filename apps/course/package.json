@@ -22,6 +22,7 @@
   "dependencies": {
     "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
+    "@hogsend/video": "workspace:^",
     "better-auth": "^1.6.11",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",

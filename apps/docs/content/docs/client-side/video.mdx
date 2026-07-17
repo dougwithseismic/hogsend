@@ -1,0 +1,117 @@
+---
+title: Video watch-depth tracking
+description: "@hogsend/video — a standalone analytics-first player for YouTube, Vimeo, and native HTML5 that emits normalized video.* watch-depth events to Hogsend, PostHog, GA4, or any custom sink."
+---
+
+`@hogsend/video` is a standalone, zero-dependency player library whose whole
+job is emitting a normalized watch-depth event contract — the same
+`video.progress` / `video.completed` events the
+[video watch-depth play](/playbook/video-watch-depth-retargeting) builds
+journeys on. It wraps YouTube, Vimeo, and native HTML5 behind one contract,
+and the emitter is pluggable: it does not import `@hogsend/js` — any
+`capture(event, properties)`-shaped function works, so the same component
+feeds Hogsend, PostHog, GA4, Segment, or your own sink.
+
+```bash
+pnpm add @hogsend/video
+```
+
+## Quickstart (React)
+
+```tsx
+import { VideoPlayer } from "@hogsend/video/react";
+import { createHogsendEmitter } from "@hogsend/video/hogsend";
+import { useHogsend } from "@hogsend/react";
+
+function Demo() {
+  const { capture } = useHogsend();
+  return (
+    <VideoPlayer
+      src={{ youtube: "dQw4w9WgXcQ" }} // or { vimeo: 76979871 } or { url: "/demo.mp4" }
+      title="Product demo"
+      emitter={createHogsendEmitter({ capture })}
+      context={{ page: "pricing" }}
+    />
+  );
+}
+```
+
+YouTube plays through the privacy-enhanced `youtube-nocookie.com` host by
+default; the provider SDKs lazy-load from their own CDNs only when a player
+mounts, never at import time.
+
+## Events
+
+Every event carries the full player state plus flattened `properties`:
+`percentWatched`, `currentTime`, `duration`, source metadata
+(`provider`, `videoId`, `url`, `title`), and your `context` bag.
+
+| Event | Fires | Extra props |
+|---|---|---|
+| `video.started` | first play of a load | |
+| `video.play` / `video.pause` | every transition | |
+| `video.progress` | at each milestone, once (default 25/50/75/90%) | `milestone` |
+| `video.seek` | scrubs | `from`, `to` |
+| `video.completed` | playback ends | `percentWatched` |
+| `video.replay` | play after ended (milestones reset) | |
+| `video.ratechange` / `video.volumechange` / `video.buffering` | state changes | `playbackRate` / `volume`, `muted` | |
+
+`percentWatched` is the **max depth reached** — monotonic, so seeking back
+never regresses it, and a seek-jump forward emits every crossed milestone in
+order. `video.progress` fires only at milestones, not on every tick, so a
+one-hour video produces four progress events, not thousands.
+
+The playbook's `deepWatcherHandRaise` journey triggers on exactly this
+contract: `video.completed` where `percentWatched >= 90`.
+
+## Any backend
+
+The `./hogsend` adapter is a naming convenience — it works with anything
+capture-shaped:
+
+```ts
+// PostHog
+createHogsendEmitter({ capture: (e, p) => posthog.capture(e, p) });
+// GA4
+const ga4: VideoEmitter = (e) => gtag("event", e.name, e.properties);
+// Several at once
+<VideoPlayer emitter={[hogsendEmitter, ga4]} ... />
+```
+
+## Full state, custom control
+
+The framework-agnostic core exposes the whole player state at any moment,
+plus a wildcard hook for custom JS:
+
+```ts
+import { createVideoTracker } from "@hogsend/video";
+import { createHtml5Adapter } from "@hogsend/video/html5";
+
+const tracker = createVideoTracker({ emitter, milestones: [10, 50, 95] });
+tracker.attach(createHtml5Adapter(videoEl, { title: "Demo" }));
+
+tracker.getState();   // status, currentTime, duration, percentWatched, rate, volume…
+tracker.on("*", (e) => myOverlay.update(e.state));
+tracker.setContext({ experiment: "hero-video", variant: "b" }); // tags every later event
+```
+
+In React, `useVideoTracker` / `useVideoState` subscribe to every state
+change (via `useSyncExternalStore`), and `<VideoPlayer trackerRef={...}>`
+hands you the tracker for imperative access.
+
+## Bring your own source
+
+`ProviderAdapter` is public: implement `attach(sink)` pushing raw signals
+(`onPlay`, `onTime`, `onSeek`, …) and the tracker owns milestones, dedupe,
+and replay detection. That's the whole contract the built-in YouTube, Vimeo,
+and HTML5 adapters implement. For HLS, attach `hls.js` to a native `<video>`
+element and use the HTML5 adapter.
+
+## Journeys off the back of it
+
+Watch-depth events flow through the same ingest pipeline as everything else:
+anonymous watches accumulate on the anonymous profile and fold into the
+contact on identify, buckets can segment on them
+(`b.prop("percentWatched").gte(90)`), and journeys trigger on them — see the
+[video watch-depth play](/playbook/video-watch-depth-retargeting) for the
+full retargeting + hand-raise pattern.
