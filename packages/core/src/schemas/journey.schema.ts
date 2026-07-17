@@ -117,6 +117,22 @@ export const journeyMetaSchema = z.object({
     seconds: z.number().optional(),
   }),
 
+  /** Display-only version label; never part of the content hash. */
+  version: z.string().min(1).max(64).optional(),
+  /** Engine-computed content fingerprint (12 lowercase hex). */
+  versionHash: z
+    .string()
+    .regex(/^[0-9a-f]{12}$/)
+    .optional(),
+  /** Conversion definition id the lift/impact readouts default to. */
+  goal: z.string().min(1).optional(),
+  category: z.string().optional(),
+  /** Loose percent validation — lib/holdout.ts clamps 0-50 at evaluation;
+   * a boot throw on a clamped-but-legal value would be a regression. */
+  holdout: z
+    .object({ percent: z.number(), salt: z.string().optional() })
+    .optional(),
+
   // Bucket-reaction tagging. journeyMetaSchema.parse runs inside
   // JourneyRegistry.register and STRIPS unknown keys, so these MUST be declared
   // here or the dwell-cron lookup + Studio grouping silently break.

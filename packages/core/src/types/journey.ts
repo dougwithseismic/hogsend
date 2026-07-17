@@ -28,7 +28,7 @@ export type JourneyWhere =
  * surface widens.
  */
 export interface JourneyMetaInput
-  extends Omit<JourneyMeta, "trigger" | "exitOn"> {
+  extends Omit<JourneyMeta, "trigger" | "exitOn" | "versionHash"> {
   trigger: {
     event: string;
     where?: JourneyWhere;
@@ -67,6 +67,19 @@ export interface JourneyMeta {
   category?: string;
 
   /**
+   * The conversion this journey exists to move — a defineConversion id
+   * (including the built-in zero-config "revenue" conversion when seeded).
+   * Boot-validated fail-closed in createHogsendClient: an id that matches
+   * no registered conversion definition throws with the known-id list.
+   * The lift/impact routes use it as the default definitionId when the
+   * caller passes none; an explicit query param always wins. Purely a
+   * readout default — it never gates enrollment, sends, or conversion
+   * firing. (The inverse, descriptive pointer is ConversionMeta.scope
+   * .journeyId — the two are independent.)
+   */
+  goal?: string;
+
+  /**
    * Minimum gap between sends WITHIN this journey, per recipient email —
    * enforced at send time in the engine-owned tracked mailer. If a non-failed
    * `email_sends` row for this journey (across ALL of the journey's
@@ -95,6 +108,26 @@ export interface JourneyMeta {
     /** Rotating this re-buckets the population. Default: the journey id. */
     salt?: string;
   };
+
+  /**
+   * Optional human-readable version label (e.g. "v2-shorter-copy"). Stamped
+   * verbatim onto every enrollment AND holdout row this definition creates
+   * (journey_states.journey_version_label). DISPLAY-ONLY: readouts group
+   * cohorts by versionHash (content truth); changing only this label never
+   * forks a cohort. Free text, 1–64 chars. An out-of-bounds label first
+   * fails inside JourneyRegistry.register's schema parse at container boot
+   * (deploy fails loudly) — intended typo-catcher behavior.
+   */
+  version?: string;
+
+  /**
+   * Engine-computed content fingerprint: first 12 hex chars of sha256 over
+   * the normalized run source + the behavior-bearing meta fields (see
+   * computeJourneyVersionHash). Set by defineJourney for code journeys and
+   * blueprintMetaFromRow for blueprints — NEVER authored; any input value
+   * is overwritten. Optional only so hand-built test metas stay valid.
+   */
+  versionHash?: string;
 
   // Bucket-reaction tagging (set by buildBucketReaction). Generated reactions
   // carry these so the worker's dwell-cron lookup and Studio bucket-detail
