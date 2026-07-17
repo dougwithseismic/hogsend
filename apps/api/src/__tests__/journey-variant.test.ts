@@ -400,7 +400,6 @@ describe("ctx.variant — engine context implementation", () => {
     });
 
     const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
-    const { pickVariant } = await import("@hogsend/engine/testing");
     expect(arm).toBe(
       pickVariant({
         journeyId,
@@ -492,7 +491,6 @@ describe("ctx.variant — engine context implementation", () => {
     const { ctx, warn } = makeVariantCtx({ stateId, userId, journeyId });
 
     const arm = await ctx.variant("poisoned", ["a", "b"]);
-    const { pickVariant } = await import("@hogsend/engine/testing");
     const expected = pickVariant({
       journeyId,
       key: "poisoned",
