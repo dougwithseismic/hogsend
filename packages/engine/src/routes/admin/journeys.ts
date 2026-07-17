@@ -59,6 +59,9 @@ const journeySchema = z.object({
    * definition — what a fresh enrollment would stamp. Treat a NEW hash as
    * "possible new version": toolchain bumps can fork it (D1). */
   versionHash: z.string().optional(),
+  /** Conversion definition id (JourneyMeta.goal) — boot-validated; the
+   * /lift + /impact readouts default to it. */
+  goal: z.string().optional(),
   counts: z.object({
     active: z.number(),
     waiting: z.number(),
@@ -605,6 +608,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         entryLimit: j.entryLimit,
         version: j.version,
         versionHash: j.versionHash,
+        goal: j.goal,
         counts: countsMap.get(j.id) ?? { ...emptyCounts },
       };
     });
@@ -676,6 +680,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
           entryLimit: meta.entryLimit,
           version: meta.version,
           versionHash: meta.versionHash,
+          goal: meta.goal,
           exitOn: meta.exitOn?.map((e) => ({
             event: e.event,
             where: e.where as Record<string, unknown>[] | undefined,

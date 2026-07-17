@@ -3,6 +3,11 @@
  * CURRENT definition's version/versionHash (registry meta — depends on the
  * 1a schema fix retaining the fields through JourneyRegistry.register), and
  * recentStates carry the per-row stamps via serializeState's spread.
+ *
+ * Also covers the 1c "Admin exposure" deferral: journeys list + detail carry
+ * meta.goal (the conversion definition id the /lift + /impact readouts
+ * default to) for a journey that declares one, and omit it (undefined) for
+ * one that doesn't.
  */
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
@@ -38,12 +43,13 @@ vi.mock("../../../../packages/engine/src/lib/hatchet.js", hatchetMock);
 
 const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
 const { like } = await import("drizzle-orm");
-const { createApp, createHogsendClient, defineJourney } = await import(
-  "@hogsend/engine"
-);
+const { createApp, createHogsendClient, defineConversion, defineJourney } =
+  await import("@hogsend/engine");
 
 const RUN = `jvadmin-${Date.now()}`;
 const JOURNEY_ID = `${RUN}-journey`;
+const GOAL_JOURNEY_ID = `${RUN}-goal-journey`;
+const GOAL_ID = `${RUN}-sale`;
 
 const journey = defineJourney({
   meta: {
@@ -58,7 +64,31 @@ const journey = defineJourney({
   run: async () => {},
 });
 
-const container = createHogsendClient({ journeys: [journey] });
+// `journey` above declares no `goal` — used to assert the field is absent
+// (not just falsy) on a journey that doesn't declare one.
+const goalConversion = defineConversion({
+  id: GOAL_ID,
+  name: "Admin goal conversion",
+  trigger: { event: `${RUN}.sold` },
+});
+
+const goalJourney = defineJourney({
+  meta: {
+    id: GOAL_JOURNEY_ID,
+    name: "Admin goal journey",
+    enabled: true,
+    trigger: { event: `${RUN}.goal-enroll` },
+    entryLimit: "unlimited",
+    suppress: { hours: 0 },
+    goal: GOAL_ID,
+  },
+  run: async () => {},
+});
+
+const container = createHogsendClient({
+  journeys: [journey, goalJourney],
+  conversions: [goalConversion],
+});
 const app = createApp(container);
 const { db } = container;
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };
@@ -96,11 +126,20 @@ describe("admin exposure of version identity (D1)", () => {
     });
     expect(list.status).toBe(200);
     const listBody = (await list.json()) as {
-      journeys: Array<{ id: string; version?: string; versionHash?: string }>;
+      journeys: Array<{
+        id: string;
+        version?: string;
+        versionHash?: string;
+        goal?: string;
+      }>;
     };
     const entry = listBody.journeys.find((j) => j.id === JOURNEY_ID);
     expect(entry?.version).toBe("2026-07-admin-v1");
     expect(entry?.versionHash).toBe(journey.meta.versionHash);
+    expect(entry?.goal).toBeUndefined();
+
+    const goalEntry = listBody.journeys.find((j) => j.id === GOAL_JOURNEY_ID);
+    expect(goalEntry?.goal).toBe(GOAL_ID);
 
     const detail = await app.request(`/v1/admin/journeys/${JOURNEY_ID}`, {
       headers: AUTH_HEADER,
@@ -110,6 +149,7 @@ describe("admin exposure of version identity (D1)", () => {
       journey: {
         version?: string;
         versionHash?: string;
+        goal?: string;
         recentStates: Array<{
           journeyVersionHash: string | null;
           journeyVersionLabel: string | null;
@@ -118,6 +158,7 @@ describe("admin exposure of version identity (D1)", () => {
     };
     expect(detailBody.journey.version).toBe("2026-07-admin-v1");
     expect(detailBody.journey.versionHash).toBe(journey.meta.versionHash);
+    expect(detailBody.journey.goal).toBeUndefined();
     expect(detailBody.journey.recentStates.length).toBeGreaterThan(0);
     expect(detailBody.journey.recentStates[0]?.journeyVersionHash).toBe(
       journey.meta.versionHash,
@@ -125,5 +166,15 @@ describe("admin exposure of version identity (D1)", () => {
     expect(detailBody.journey.recentStates[0]?.journeyVersionLabel).toBe(
       "2026-07-admin-v1",
     );
+
+    const goalDetail = await app.request(
+      `/v1/admin/journeys/${GOAL_JOURNEY_ID}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(goalDetail.status).toBe(200);
+    const goalDetailBody = (await goalDetail.json()) as {
+      journey: { goal?: string };
+    };
+    expect(goalDetailBody.journey.goal).toBe(GOAL_ID);
   });
 });
