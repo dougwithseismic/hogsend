@@ -2072,7 +2072,7 @@ function HatchetRunTimeline() {
   const DEPLOY_X = 620;
   return (
     <div
-      className="relative mt-14 overflow-hidden rounded-lg border border-white/10 bg-[#0a0606]"
+      className="relative mt-10 overflow-hidden rounded-lg border border-white/10 bg-[#0a0606] md:mt-14"
       aria-hidden="true"
     >
       <style>{`
@@ -2080,21 +2080,80 @@ function HatchetRunTimeline() {
           .hs-run-pulse { display: none; }
         }
       `}</style>
-      <div className="flex items-center justify-between gap-3 border-white/10 border-b px-5 py-3">
-        <span className="min-w-0 truncate font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+      <div className="flex items-center justify-between gap-3 border-white/10 border-b px-4 py-3 md:px-5">
+        <span className="min-w-0 truncate font-mono text-[10px] text-white/40 uppercase tracking-[0.08em] md:text-[11px]">
           run · src/journeys/onboarding.ts
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[#23c489] text-[10px] md:text-[11px]">
           <span className="relative flex size-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#23c489] opacity-60" />
             <span className="relative inline-flex size-2 rounded-full bg-[#23c489]" />
           </span>
-          running · resumed after deploy
+          running
+          <span className="hidden sm:inline"> · resumed after deploy</span>
         </span>
       </div>
+
+      {/* mobile: vertical run — real text, nothing scales down */}
+      <div className="px-4 py-5 md:hidden">
+        {STEPS.map((s, i) => {
+          const sleepLeg = i === 2; // segment after ctx.sleep crosses the deploy
+          return (
+            <div key={s.label} className="flex gap-3.5">
+              <div className="flex w-3.5 shrink-0 flex-col items-center">
+                <span
+                  className="mt-[3px] size-3 shrink-0 rounded-full border-[1.5px]"
+                  style={{
+                    borderColor: s.sleep ? "#f64838" : "rgba(255,255,255,0.5)",
+                    background: s.filled ? "#f64838" : "#0a0606",
+                  }}
+                />
+                {i < STEPS.length - 1 && (
+                  <span
+                    className="my-1 w-0 flex-1 border-l"
+                    style={
+                      sleepLeg
+                        ? {
+                            borderLeftStyle: "dashed",
+                            borderLeftColor: "#f64838",
+                            opacity: 0.9,
+                          }
+                        : { borderLeftColor: "rgba(255,255,255,0.28)" }
+                    }
+                  />
+                )}
+              </div>
+              <div className={i < STEPS.length - 1 ? "pb-5" : ""}>
+                <p
+                  className="font-mono text-[12px] leading-[16px]"
+                  style={{
+                    color: s.sleep ? "#f64838" : "rgba(255,255,255,0.75)",
+                  }}
+                >
+                  {s.label}
+                </p>
+                <p className="mt-0.5 font-mono text-[10px] text-white/35">
+                  {s.sub}
+                </p>
+                {sleepLeg && (
+                  <div className="mt-3.5 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <p className="font-mono text-[10px] text-white/50">
+                      deploy · worker restarts
+                    </p>
+                    <p className="mt-0.5 font-mono text-[10px] text-[#f64838]">
+                      the wait keeps running
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       <svg
         viewBox="0 0 1000 190"
-        className="w-full select-none px-2 pt-2 pb-1"
+        className="hidden w-full select-none px-2 pt-2 pb-1 md:block"
         role="presentation"
       >
         <defs>
@@ -2220,7 +2279,7 @@ function HatchetRunTimeline() {
               y={i % 2 === 0 ? CY - 34 : CY - 58}
               textAnchor={i === 0 ? "start" : "middle"}
               className="font-mono"
-              fontSize="13"
+              fontSize="12"
               fill={s.sleep ? "#f64838" : "rgba(255,255,255,0.75)"}
             >
               {s.label}
@@ -2238,7 +2297,7 @@ function HatchetRunTimeline() {
               y={CY + 30}
               textAnchor={i === 0 ? "start" : "middle"}
               className="font-mono"
-              fontSize="11"
+              fontSize="10.5"
               fill="rgba(255,255,255,0.35)"
             >
               {s.sub}
@@ -2255,7 +2314,7 @@ function HatchetRunTimeline() {
           y="42"
           textAnchor="middle"
           className="font-mono"
-          fontSize="11"
+          fontSize="10.5"
           fill="rgba(255,255,255,0.5)"
         >
           deploy · worker restarts
@@ -2265,7 +2324,7 @@ function HatchetRunTimeline() {
           y={CY + 62}
           textAnchor="middle"
           className="font-mono"
-          fontSize="11"
+          fontSize="10.5"
           fill="#f64838"
         >
           the wait keeps running
