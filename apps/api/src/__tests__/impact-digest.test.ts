@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // DB-touching suite (later blocks): point at the real docker TimescaleDB,
 // overriding the vitest.config placeholder DATABASE_URL. Must run before
@@ -51,9 +59,12 @@ const {
   webhookEndpoints,
 } = await import("@hogsend/db");
 const { and, eq, like, sql } = await import("drizzle-orm");
-const { detectLiftCrossings, detectShippedVersions } = await import(
-  "@hogsend/engine"
-);
+const {
+  buildImpactDigest,
+  detectLiftCrossings,
+  detectShippedVersions,
+  impactDigestTask,
+} = await import("@hogsend/engine");
 
 const { db } = createDatabase({ url: process.env.DATABASE_URL as string });
 
@@ -717,5 +728,222 @@ describe("detectLiftCrossings (Detection B)", () => {
       direction: "up",
       previousWinProbability: 0.6,
     });
+  });
+});
+
+describe("impactDigestTask (cron end-to-end)", () => {
+  const runDigest = (
+    impactDigestTask as unknown as {
+      fn: (input?: { now?: string }) => Promise<{
+        emitted: boolean;
+        reason?: string;
+        entries?: number;
+        since?: string;
+        until?: string;
+      }>;
+    }
+  ).fn;
+
+  let endpointId = "";
+
+  async function seedEndpoint(): Promise<void> {
+    const [row] = await db
+      .insert(webhookEndpoints)
+      .values({
+        url: `https://example.com/${RUN}/digest`,
+        secret: "whsec_dGVzdHNlY3JldGZvcmltcGFjdGRpZ2VzdHRlc3RzMDE=",
+        secretPrefix: "whsec_dGVzd",
+        eventTypes: ["impact.digest"],
+        disabled: false,
+      })
+      .returning({ id: webhookEndpoints.id });
+    endpointId = row?.id ?? "";
+  }
+
+  beforeEach(async () => {
+    // Digest deliveries ARE the watermark — start each test clean. Only
+    // this feature writes impact.digest rows and this file runs in the
+    // serial webhook-fanout project, so the global deletes are safe (they
+    // also clear stale junk from crashed prior runs).
+    await db
+      .delete(webhookDeliveries)
+      .where(eq(webhookDeliveries.eventType, "impact.digest"));
+    await db
+      .delete(webhookEndpoints)
+      .where(sql`${webhookEndpoints.eventTypes} @> '["impact.digest"]'::jsonb`);
+    endpointId = "";
+  });
+
+  async function digestDeliveries() {
+    return db
+      .select()
+      .from(webhookDeliveries)
+      .where(
+        and(
+          eq(webhookDeliveries.endpointId, endpointId),
+          eq(webhookDeliveries.eventType, "impact.digest"),
+        ),
+      );
+  }
+
+  it("short-circuits with no_subscribers before any detection work", async () => {
+    const result = await runDigest();
+    expect(result).toMatchObject({
+      emitted: false,
+      reason: "no_subscribers",
+    });
+  });
+
+  it("never emits an empty digest and leaves the watermark frozen", async () => {
+    await seedEndpoint();
+    const NE = new Date(Date.now() + 600 * DAY); // window covers no rows
+    const first = await runDigest({ now: NE.toISOString() });
+    expect(first).toMatchObject({ emitted: false, reason: "no_entries" });
+    expect(first.since).toBe(new Date(NE.getTime() - 7 * DAY).toISOString());
+    expect(await digestDeliveries()).toHaveLength(0);
+    // No delivery row was written, so the derived window is unchanged.
+    const second = await runDigest({ now: NE.toISOString() });
+    expect(second.since).toBe(first.since);
+  });
+
+  it("derives the watermark from the last delivery and clamps to 30 days", async () => {
+    await seedEndpoint();
+    const NW = new Date(Date.now() + 620 * DAY);
+    const insertDelivery = (createdAt: Date) =>
+      db.insert(webhookDeliveries).values({
+        endpointId,
+        webhookId: `msg_${RUN}-wm-${createdAt.getTime()}`,
+        eventType: "impact.digest",
+        payload: {
+          id: "msg_x",
+          type: "impact.digest",
+          timestamp: createdAt.toISOString(),
+          data: { entries: [] },
+        },
+        status: "delivered" as const,
+        attemptCount: 1,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    await insertDelivery(new Date(NW.getTime() - 3 * DAY));
+    const fresh = await runDigest({ now: NW.toISOString() });
+    expect(fresh.since).toBe(new Date(NW.getTime() - 3 * DAY).toISOString());
+    // Only a stale delivery left → the 30-day clamp kicks in.
+    await db
+      .delete(webhookDeliveries)
+      .where(eq(webhookDeliveries.eventType, "impact.digest"));
+    await insertDelivery(new Date(NW.getTime() - 45 * DAY));
+    const clamped = await runDigest({ now: NW.toISOString() });
+    expect(clamped.since).toBe(new Date(NW.getTime() - 30 * DAY).toISOString());
+  });
+
+  it("dedupes to one delivery row per endpoint per periodKey", async () => {
+    await seedEndpoint();
+    // 03:00 UTC anchor so a +1h re-run stays on the same UTC day.
+    const base = new Date(Date.now() + 640 * DAY);
+    base.setUTCHours(3, 0, 0, 0);
+    const J = `${RUN}-task-ship`;
+    await seedStates({
+      journeyId: J,
+      prefix: "tsk",
+      count: 3,
+      createdAt: new Date(base.getTime() - 1 * DAY),
+      hash: "fffffffffff1",
+      label: "task-v1",
+    });
+    const first = await runDigest({ now: base.toISOString() });
+    expect(first.emitted).toBe(true);
+    expect(await digestDeliveries()).toHaveLength(1);
+    // Second run, same UTC day: the watermark (run 1's REAL created_at,
+    // ~640 days in the past relative to the injected now) clamps to a
+    // 30-day window that still contains shipped rows → a second emit is
+    // ATTEMPTED with the same dedupeKey — onConflictDoNothing holds the
+    // line at one row.
+    await seedStates({
+      journeyId: `${J}2`,
+      prefix: "tsk2",
+      count: 3,
+      createdAt: new Date(base.getTime() + 30 * 60 * 1000),
+      hash: "fffffffffff2",
+      label: "task-v2",
+    });
+    const second = await runDigest({
+      now: new Date(base.getTime() + 60 * 60 * 1000).toISOString(),
+    });
+    expect(second.emitted).toBe(true);
+    expect(await digestDeliveries()).toHaveLength(1);
+  });
+
+  it("reads prev winProbability from the last delivery payload and orders lift first", async () => {
+    await seedEndpoint();
+    const ND = new Date(Date.now() + 660 * DAY);
+    ND.setUTCHours(3, 0, 0, 0);
+    const J = `${RUN}-task-ovr`;
+    const enrolled = new Date(ND.getTime() - 60 * DAY);
+    const converted = new Date(enrolled.getTime() + 60 * 60 * 1000);
+    const treated = await seedStates({
+      journeyId: J,
+      prefix: "tovt",
+      count: 40,
+      createdAt: enrolled,
+    });
+    const held = await seedStates({
+      journeyId: J,
+      prefix: "tovc",
+      count: 40,
+      createdAt: enrolled,
+      status: "held_out",
+    });
+    await seedConversions(treated.slice(0, 30), `${RUN}-rev`, converted);
+    await seedConversions(held.slice(0, 2), `${RUN}-rev`, converted);
+    // Last week's digest delivery REPORTED 0.6 for J. Its created_at
+    // becomes the watermark (ND − 2d): the recompute-at-since would say
+    // "already above T" — only the frozen payload reports the crossing.
+    const frozenAt = new Date(ND.getTime() - 2 * DAY);
+    await db.insert(webhookDeliveries).values({
+      endpointId,
+      webhookId: `msg_${RUN}-frozen`,
+      eventType: "impact.digest",
+      payload: {
+        id: `msg_${RUN}-frozen`,
+        type: "impact.digest",
+        timestamp: frozenAt.toISOString(),
+        data: {
+          periodKey: "frozen",
+          since: "",
+          until: "",
+          truncated: false,
+          entries: [{ kind: "lift", journeyId: J, winProbability: 0.6 }],
+        },
+      },
+      status: "delivered" as const,
+      attemptCount: 1,
+      createdAt: frozenAt,
+      updatedAt: frozenAt,
+    });
+    const result = await runDigest({ now: ND.toISOString() });
+    expect(result.emitted).toBe(true);
+    const rows = await digestDeliveries();
+    const written = rows.find((r) => r.webhookId !== `msg_${RUN}-frozen`);
+    const data = (
+      written?.payload as {
+        data?: { entries?: Array<Record<string, unknown>> };
+      }
+    ).data;
+    const entry = data?.entries?.find((e) => e.journeyId === J);
+    expect(entry).toMatchObject({
+      kind: "lift",
+      causal: true,
+      direction: "up",
+      previousWinProbability: 0.6,
+    });
+    // Payload ordering: lift entries rank before shipped entries, and a
+    // shipped entry structurally carries no lift fields.
+    expect(data?.entries?.[0]?.kind).toBe("lift");
+    const shipped = data?.entries?.find((e) => e.kind === "shipped");
+    if (shipped) {
+      expect(shipped).not.toHaveProperty("liftPercent");
+      expect(shipped).not.toHaveProperty("winProbability");
+    }
   });
 });

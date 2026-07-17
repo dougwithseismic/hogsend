@@ -578,8 +578,10 @@ export {
 // --- Outbound webhooks: emit spine (Section 1.4) ---
 export {
   emitOutbound,
+  type ImpactDigestEntry,
   type ImpactDigestLiftEntry,
   type ImpactDigestShippedEntry,
+  type ImpactVersionCohort,
   OUTBOUND_EVENTS,
   type OutboundEventName,
   type OutboundPayloads,
@@ -868,8 +870,11 @@ export {
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
 export {
+  buildImpactDigest,
   detectLiftCrossings,
   detectShippedVersions,
+  type ImpactDigestInput,
+  impactDigestTask,
 } from "./workflows/impact-digest.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
 export {

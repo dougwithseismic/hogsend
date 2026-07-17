@@ -254,6 +254,13 @@ export const env = createEnv({
     ENABLED_LISTS: z.string().default("*"),
     // Cadence for the engine-owned bucket reconcile cron (time-based leaves).
     BUCKET_RECONCILE_CRON: z.string().default("*/5 * * * *"),
+    // Cadence for the engine-owned impact digest cron. Read raw off
+    // process.env by onCrons at module load; declared here for the
+    // validated-env contract (the OUTBOUND_WEBHOOK_REAPER_CRON stance).
+    IMPACT_DIGEST_CRON: z.string().default("0 9 * * 1"),
+    // Win-probability crossing threshold for digest "lift" entries; the
+    // task clamps to [0.5, 0.999] and defaults to 0.95.
+    IMPACT_DIGEST_WIN_PROB: z.coerce.number().min(0.5).max(0.999).optional(),
     // --- Outbound webhooks (Section 1.5/1.8) ---
     // Cadence for the engine-owned outbound-delivery reaper cron (the retry
     // scheduler + orphan-`sending` recovery). Declared for parity with

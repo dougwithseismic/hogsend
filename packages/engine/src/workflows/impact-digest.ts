@@ -1,12 +1,21 @@
-import type { Database } from "@hogsend/db";
-import { sql } from "drizzle-orm";
+import { ConcurrencyLimitStrategy } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import {
+  createDatabase,
+  type Database,
+  webhookDeliveries,
+  webhookEndpoints,
+} from "@hogsend/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
+import { hatchet } from "../lib/hatchet.js";
 import { computeJourneyLift } from "../lib/journey-lift.js";
-import type { Logger } from "../lib/logger.js";
-import type {
-  ImpactDigestEntry,
-  ImpactDigestLiftEntry,
-  ImpactDigestShippedEntry,
-  ImpactVersionCohort,
+import { createLogger, type Logger } from "../lib/logger.js";
+import {
+  emitOutbound,
+  type ImpactDigestEntry,
+  type ImpactDigestLiftEntry,
+  type ImpactDigestShippedEntry,
+  type ImpactVersionCohort,
 } from "../lib/outbound.js";
 
 const DEFAULT_WIN_PROB_THRESHOLD = 0.95;
@@ -114,11 +123,6 @@ async function mapWithConcurrency<T>(
   );
   await Promise.all(workers);
 }
-
-// Referenced by Task 5; keeps the skeleton compiling standalone.
-void message;
-void ENTRY_CAP;
-void DEFAULT_WIN_PROB_THRESHOLD;
 
 type HashFirstSeenRow = {
   journey_id: string;
@@ -507,3 +511,248 @@ export async function detectLiftCrossings(opts: {
   entries.sort((a, b) => a.journeyId.localeCompare(b.journeyId));
   return { entries };
 }
+
+/**
+ * Compose Detection A (+ label pass) and Detection B, then order + cap.
+ * Each detection degrades independently (per-section try/catch — the
+ * check-alerts posture): a failed section logs and yields zero entries of
+ * its kind rather than killing the whole digest.
+ */
+export async function buildImpactDigest(opts: {
+  db: Database;
+  since: Date;
+  until: Date;
+  threshold: number;
+  registry?: DigestRegistryLike;
+  previousWinProbabilities?: Map<string, number>;
+  logger?: Logger;
+}): Promise<{ entries: ImpactDigestEntry[]; truncated: boolean }> {
+  let shipped: ImpactDigestShippedEntry[] = [];
+  try {
+    shipped = (await detectShippedVersions(opts)).entries;
+  } catch (err) {
+    opts.logger?.warn(
+      "impact-digest: shipped-version detection failed — degrading to lift entries only",
+      { error: message(err) },
+    );
+  }
+  let lift: ImpactDigestLiftEntry[] = [];
+  try {
+    lift = (await detectLiftCrossings(opts)).entries;
+  } catch (err) {
+    opts.logger?.warn(
+      "impact-digest: lift-crossing detection failed — degrading to shipped entries only",
+      { error: message(err) },
+    );
+  }
+  return assembleDigestEntries({ lift, shipped, cap: ENTRY_CAP });
+}
+
+/**
+ * The as-REPORTED winProbability set from the latest impact.digest
+ * delivery — webhook_deliveries.payload holds the frozen envelope
+ * (lib/outbound.ts:390-408), so this reads what subscribers were actually
+ * told last time. detectLiftCrossings falls back to a live recompute only
+ * for journeys absent from it.
+ */
+async function readPreviousWinProbabilities(
+  db: Database,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const rows = await db
+    .select({ payload: webhookDeliveries.payload })
+    .from(webhookDeliveries)
+    .where(eq(webhookDeliveries.eventType, "impact.digest"))
+    .orderBy(desc(webhookDeliveries.createdAt))
+    .limit(1);
+  const envelope = rows[0]?.payload as
+    | { data?: { entries?: unknown[] } }
+    | undefined;
+  for (const entry of envelope?.data?.entries ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as {
+      kind?: unknown;
+      journeyId?: unknown;
+      winProbability?: unknown;
+    };
+    if (candidate.kind !== "lift") continue;
+    if (
+      typeof candidate.journeyId === "string" &&
+      typeof candidate.winProbability === "number"
+    ) {
+      map.set(candidate.journeyId, candidate.winProbability);
+    }
+  }
+  return map;
+}
+
+/**
+ * The weekly impact digest cron (impact experiments D5). Read-only except
+ * the emit; no email/SMS (rendering the digest is a subscriber choice);
+ * inert without subscribers — the opt-in is an endpoint subscribing to
+ * impact.digest, NOT an env var. Registered in worker.ts baseWorkflows.
+ *
+ * REPLAY-LAW NOTE: this is a CRON task, not a journey — Date.now() is
+ * legal; determinism is delivered by the UTC-day dedupeKey plus
+ * emitOutbound's onConflictDoNothing fan-out on (endpointId, dedupeKey).
+ * That index is a plain uniqueIndex relying on NULL-distinctness, NOT a
+ * partial index — do not add a WHERE predicate to it.
+ *
+ * Documented consequence of the day-keyed dedupe: at most one digest per
+ * endpoint per UTC day, even on a sub-daily cron. The cross-midnight
+ * retry edge is self-healing (a retry re-reads the watermark; the window
+ * collapses to minutes and is almost surely empty → no emit).
+ */
+export const impactDigestTask = hatchet.task({
+  name: "impact-digest",
+  // Mondays 09:00 UTC by default. Read raw off process.env at module load
+  // (the bucket-reconcile pattern); declared in env.ts for the
+  // validated-env contract.
+  onCrons: [process.env.IMPACT_DIGEST_CRON ?? "0 9 * * 1"],
+  retries: 1,
+  // Budget: 200 candidates × 2 lift snapshots × 2 count queries ≈ 800
+  // queries at pool 5 — fits with room.
+  executionTimeout: "300s",
+  concurrency: {
+    expression: "'impact-digest'",
+    maxRuns: 1,
+    limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+  },
+  fn: async (
+    input: ImpactDigestInput = {},
+  ): Promise<{
+    emitted: boolean;
+    reason?: string;
+    entries?: number;
+    since?: string;
+    until?: string;
+  }> => {
+    // Cron runs have no request container — self-bootstrap (check-alerts).
+    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const logger = createLogger(process.env.LOG_LEVEL ?? "info");
+
+    // (1) Subscriber pre-check — THE opt-in gate, one indexed query with
+    // the EXACT predicate emitOutbound uses (lib/outbound.ts:376-385).
+    let subscribers: Array<{ id: string }>;
+    try {
+      subscribers = await db
+        .select({ id: webhookEndpoints.id })
+        .from(webhookEndpoints)
+        .where(
+          and(
+            eq(webhookEndpoints.disabled, false),
+            isNull(webhookEndpoints.organizationId),
+            sql`${webhookEndpoints.eventTypes} @> ${JSON.stringify([
+              "impact.digest",
+            ])}::jsonb`,
+          ),
+        )
+        .limit(1);
+    } catch (err) {
+      logger.warn("impact-digest: subscriber pre-check failed", {
+        error: message(err),
+      });
+      return { emitted: false, reason: "subscriber_check_failed" };
+    }
+    if (subscribers.length === 0) {
+      return { emitted: false, reason: "no_subscribers" };
+    }
+
+    // (2) Watermark off our own delivery rows (no new storage).
+    // `input.now` is a test seam; the cron always pushes {}.
+    const parsedNow = input.now ? new Date(input.now) : new Date();
+    const now = Number.isNaN(parsedNow.getTime()) ? new Date() : parsedNow;
+    let lastDeliveryAt: Date | null = null;
+    try {
+      const rows = await db
+        .select({
+          last: sql<Date | string | null>`max(${webhookDeliveries.createdAt})`,
+        })
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.eventType, "impact.digest"));
+      const raw = rows[0]?.last ?? null;
+      lastDeliveryAt = raw ? toDate(raw) : null;
+    } catch (err) {
+      logger.warn("impact-digest: watermark read failed", {
+        error: message(err),
+      });
+      return { emitted: false, reason: "watermark_failed" };
+    }
+    const { since, until } = deriveDigestWindow({ lastDeliveryAt, now });
+
+    // (3) Registry singleton (set by createHogsendClient in both API and
+    // worker); degrade to unregistered lookups, never crash.
+    let registry: DigestRegistryLike | undefined;
+    try {
+      registry = getJourneyRegistrySingleton();
+    } catch {
+      registry = undefined;
+    }
+
+    // (4) Frozen prev-winProbability set from the LAST digest delivery.
+    let previousWinProbabilities: Map<string, number> | undefined;
+    try {
+      previousWinProbabilities = await readPreviousWinProbabilities(db);
+    } catch (err) {
+      logger.warn("impact-digest: previous payload read failed", {
+        error: message(err),
+      });
+      previousWinProbabilities = undefined;
+    }
+
+    const threshold = Math.min(
+      0.999,
+      Math.max(
+        0.5,
+        Number(process.env.IMPACT_DIGEST_WIN_PROB) ||
+          DEFAULT_WIN_PROB_THRESHOLD,
+      ),
+    );
+
+    // (5) Detections (each degrades internally).
+    const { entries, truncated } = await buildImpactDigest({
+      db,
+      since,
+      until,
+      threshold,
+      registry,
+      previousWinProbabilities,
+      logger,
+    });
+
+    // (6) An empty digest is never emitted; the watermark intentionally
+    // does not advance (no delivery row is written).
+    if (entries.length === 0) {
+      return {
+        emitted: false,
+        reason: "no_entries",
+        since: since.toISOString(),
+        until: until.toISOString(),
+      };
+    }
+
+    // (7) Emit through the spine. emitOutbound never throws; per-endpoint
+    // fan-out dedupe is onConflictDoNothing on (endpointId, dedupeKey).
+    const periodKey = until.toISOString().slice(0, 10);
+    await emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "impact.digest",
+      payload: {
+        periodKey,
+        since: since.toISOString(),
+        until: until.toISOString(),
+        entries,
+        truncated,
+      },
+      dedupeKey: `impact.digest:${periodKey}`,
+    });
+    return {
+      emitted: true,
+      entries: entries.length,
+      since: since.toISOString(),
+      until: until.toISOString(),
+    };
+  },
+});
