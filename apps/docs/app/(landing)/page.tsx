@@ -3,6 +3,12 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import {
+  fieldInitialHour,
+  LANDSCAPE_FIELD,
+  MATCHDAY_FIELD,
+} from "@/app/spike-daylight/field-config";
+import { DayfieldHeroSection } from "@/app/spike-daylight/landing/landing-hero";
 import { TrackDemoClick } from "@/components/analytics/track";
 import { AnnouncementBanner } from "@/components/announcement-banner";
 import { CookieSettingsLink } from "@/components/consent/cookie-settings-link";
@@ -77,6 +83,9 @@ export const metadata: Metadata = {
 
 const DISPLAY = "[font-family:var(--ps-display)]";
 const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
+// The homepage hero swaps to the match-day stadium on this date (the World Cup
+// final), keyed to the event's New-York timezone. ISO YYYY-MM-DD.
+const WORLD_CUP_FINAL_DATE = "2026-07-19";
 const AGENT_CLOSING_PROMPT =
   "Visit hogsend.com/docs and implement lifecycle marketing for our product — start with the welcome series.";
 
@@ -3082,8 +3091,40 @@ function PsFrame() {
 
 /* ----------------------------------------------------------------- page -- */
 
-export default async function HomePage(): Promise<JSX.Element> {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ hero?: string }>;
+}): Promise<JSX.Element> {
   const engineVersion = await getEngineVersion();
+  // Hero selection. The day-field vista is the default; the match-day stadium
+  // takes over automatically on the World Cup final (by New-York date, the
+  // event's timezone); `?hero=classic` restores the original thermal hero.
+  // Query overrides win, for previewing any variant on any day. Reading
+  // searchParams/date opts this page into dynamic rendering — acceptable for a
+  // hero that changes by hour and day.
+  const { hero } = await searchParams;
+  const nyDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
+  const isFinalDay = nyDate === WORLD_CUP_FINAL_DATE;
+  const heroVariant =
+    hero === "classic"
+      ? "classic"
+      : hero === "matchday"
+        ? "matchday"
+        : hero === "field"
+          ? "field"
+          : isFinalDay
+            ? "matchday"
+            : "field";
+  const fieldConfig =
+    heroVariant === "matchday" ? MATCHDAY_FIELD : LANDSCAPE_FIELD;
+  // Fixed-time fields (the match day) paint the right frame at SSR — no flash.
+  const heroInitialHour = fieldInitialHour(fieldConfig);
+  // The clock + preview scrubber are a preview affordance: show them only when
+  // a `?hero=` query is present, never for a normal visitor.
+  const showFieldControls = hero !== undefined;
   return (
     <main className="overflow-x-clip tracking-normal">
       <script
@@ -3093,9 +3134,26 @@ export default async function HomePage(): Promise<JSX.Element> {
       />
       {/* Notification bar (the live "chat to Doug" ticker) — shared with the
           interior pages; sits above the sticky nav and scrolls away with it. */}
-      <AnnouncementBanner />
-      <PsNav />
-      <PsHero engineVersion={engineVersion} />
+      {heroVariant === "classic" ? (
+        <>
+          <AnnouncementBanner />
+          <PsNav />
+          <PsHero engineVersion={engineVersion} />
+        </>
+      ) : (
+        /* Day-field hero: fixed glass nav over the hour-lit backdrop (vista, or
+           the match-day stadium on the final); no banner so it sits at the very
+           top. The rest of the page is unchanged. */
+        <>
+          <PsNav fixed glass />
+          <DayfieldHeroSection
+            engineVersion={engineVersion}
+            configId={fieldConfig.id}
+            initialHour={heroInitialHour}
+            controls={showFieldControls}
+          />
+        </>
+      )}
       <PsProofStrip />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
