@@ -12,7 +12,8 @@ export type StackSource =
   | "segment"
   | "stripe"
   | "clerk"
-  | "supabase";
+  | "supabase"
+  | "intercom";
 
 export type StackItem = {
   id: StackSource;
