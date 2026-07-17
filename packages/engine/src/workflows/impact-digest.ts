@@ -138,6 +138,10 @@ type HashFirstSeenRow = {
  * goal-conditional `definition_id` append, snapshot-bounded at `until`.
  * Label pick is latest-by-created_at (the array_agg form — max() is
  * lexicographic and shows stale labels after a label-only rename).
+ * Soft-deleted journey_states rows are INCLUDED throughout this module —
+ * the /lift and /impact cohort SQL (journey-lift.ts, journey-impact.ts)
+ * never filters deleted_at, so the digest counting them too keeps every
+ * readout surface reporting the same enrollments for one cohort.
  */
 async function versionCohort(opts: {
   db: Database;
@@ -173,7 +177,6 @@ async function versionCohort(opts: {
       from journey_states js
       where js.journey_id = ${journeyId}
         and js.journey_version_hash = ${hash}
-        and js.deleted_at is null
     `)),
   ];
   const row = rows[0];
@@ -225,7 +228,7 @@ export async function detectShippedVersions(opts: {
                as version_label,
              min(created_at) as first_seen_at
       from journey_states
-      where journey_version_hash is not null and deleted_at is null
+      where journey_version_hash is not null
       group by journey_id, journey_version_hash
       having min(created_at) >= ${sinceTs} and min(created_at) < ${untilTs}
     `)),
@@ -247,7 +250,7 @@ export async function detectShippedVersions(opts: {
       from journey_states
       where journey_version_label is not null
         and journey_version_hash is not null
-        and deleted_at is null
+
       group by journey_id, journey_version_label
       having min(created_at) >= ${sinceTs} and min(created_at) < ${untilTs}
     `)),
@@ -277,7 +280,7 @@ export async function detectShippedVersions(opts: {
       from journey_states
       where journey_id in (${idList})
         and journey_version_hash is not null
-        and deleted_at is null
+
       group by journey_id, journey_version_hash
     `)),
   ];
@@ -358,7 +361,7 @@ export async function detectShippedVersions(opts: {
         from journey_states
         where journey_id = ${row.journey_id}
           and created_at < ${sinceTs}
-          and deleted_at is null
+
       `)),
     ];
     entries.push({
@@ -431,7 +434,7 @@ export async function detectLiftCrossings(opts: {
     ...(await db.execute<{ journey_id: string }>(sql`
       select distinct journey_id
       from journey_states
-      where status = 'held_out' and deleted_at is null
+      where status = 'held_out'
         and created_at >= ${subDays(until, LIFT_WINDOW_DAYS).toISOString()}::timestamptz
       order by journey_id asc
       limit ${CANDIDATE_CAP + 1}

@@ -73,7 +73,12 @@ export const versionSchema = z.object({
    * post-entry conversion exposure. A salt/percent change between versions
    * can place one user in treatment under one hash and control under
    * another in the UNVERSIONED overall lift (pre-existing in /lift; hash
-   * matching makes it visible, and per-version blocks are immune). */
+   * matching makes it visible, and per-version blocks are immune).
+   * COMPOSITION CAVEAT: held_out rows are inserted once-ever per (user,
+   * journey), so on re-entrant journeys a later version's treatment mixes
+   * novices with returning veterans while its same-hash control holds
+   * post-fork novices only — read multi-version re-entrant lift with that
+   * skew in mind. */
   liftVsControl: z
     .object({ causal: z.literal(true), control: countsSchema })
     .extend(liftVerdictSchema.shape)
