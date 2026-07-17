@@ -14,6 +14,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 const WEBHOOK_FANOUT = [
   "src/__tests__/destinations.test.ts",
   "src/__tests__/groups-outbound.test.ts",
+  "src/__tests__/impact-digest.test.ts",
   "src/__tests__/link-tracker-email-invariant.test.ts",
   "src/__tests__/outbound-webhooks-delivery.test.ts",
   "src/__tests__/outbound-webhooks-emit.test.ts",

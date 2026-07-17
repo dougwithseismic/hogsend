@@ -4,7 +4,7 @@ import { color } from "../lib/output.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
- * The 21-event outbound catalog, VENDORED from the engine's
+ * The 30-event outbound catalog, VENDORED from the engine's
  * `WEBHOOK_EVENT_TYPES` (lib/webhook-signing.ts). The CLI cannot import the
  * engine, so the tuple is re-declared here and MUST be kept in sync BY HAND when
  * the engine catalog changes. The `webhook.test` sentinel is NOT a member.
@@ -39,6 +39,7 @@ const WEBHOOK_EVENT_TYPES = [
   "group.identified",
   "group.member_added",
   "group.member_removed",
+  "impact.digest",
 ] as const;
 
 type OutboundEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
@@ -66,14 +67,14 @@ list options:
 create options (--url required, plus at least one event):
   --url <url>                Destination URL (required).
   --event <type>             Subscribe to an event; repeatable.
-  --all-events               Subscribe to all 13 event types.
+  --all-events               Subscribe to all 30 event types.
   --description <text>       Human label.
   --disabled                 Create the endpoint disabled.
 
 update options (only the provided fields change):
   --url <url>                New destination URL.
   --event <type>             Replace the subscribed events (repeatable).
-  --all-events               Subscribe to all 13 event types.
+  --all-events               Subscribe to all 30 event types.
   --description <text>       New description.
   --disabled / --enabled     Disable or enable the endpoint.
 

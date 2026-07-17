@@ -103,6 +103,13 @@ export const posthogDestination = defineDestination({
     }
     const host = config.host ?? "https://us.i.posthog.com";
 
+    // impact.digest carries NO person identity (no userId/anonymousId/to/
+    // userEmail on the payload) — the generic capture below would ship no
+    // distinct_id, PostHog would 400, and the delivery would dead-letter
+    // as non-retryable every week. A program-level digest has no person to
+    // land on: skipping is a successful no-op, not a delivery failure.
+    if (envelope.type === "impact.digest") return null;
+
     // Person-property propagation: `contact.*` events carry a contact payload
     // (id/externalId/email/properties), NOT the userId/to identity chain the
     // generic capture branch keys on — so they are handled here exclusively
