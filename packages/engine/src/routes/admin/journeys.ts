@@ -43,6 +43,13 @@ const journeySchema = z.object({
     event: z.string(),
   }),
   entryLimit: z.enum(["once", "once_per_period", "unlimited"]),
+  /** Display-only author label (JourneyMeta.version) of the CURRENT
+   * deployed definition. */
+  version: z.string().optional(),
+  /** Engine-computed content fingerprint (12 hex) of the CURRENT deployed
+   * definition — what a fresh enrollment would stamp. Treat a NEW hash as
+   * "possible new version": toolchain bumps can fork it (D1). */
+  versionHash: z.string().optional(),
   counts: z.object({
     active: z.number(),
     waiting: z.number(),
@@ -64,6 +71,10 @@ export const stateSchema = z.object({
   currentNodeId: z.string(),
   status: z.string(),
   hatchetRunId: z.string().nullable(),
+  /** Impact experiments (D1): definition fingerprint + label stamped at
+   * this row's INSERT. Null = pre-versioning ("unversioned") row. */
+  journeyVersionHash: z.string().nullable(),
+  journeyVersionLabel: z.string().nullable(),
   context: z.record(z.string(), z.unknown()),
   errorMessage: z.string().nullable(),
   entryCount: z.number(),
@@ -587,6 +598,8 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         enabled: effectiveEnabled,
         trigger: { event: j.trigger.event },
         entryLimit: j.entryLimit,
+        version: j.version,
+        versionHash: j.versionHash,
         counts: countsMap.get(j.id) ?? { ...emptyCounts },
       };
     });
@@ -656,6 +669,8 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
             where: meta.trigger.where as Record<string, unknown>[] | undefined,
           },
           entryLimit: meta.entryLimit,
+          version: meta.version,
+          versionHash: meta.versionHash,
           exitOn: meta.exitOn?.map((e) => ({
             event: e.event,
             where: e.where as Record<string, unknown>[] | undefined,
