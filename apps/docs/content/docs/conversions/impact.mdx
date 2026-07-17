@@ -55,7 +55,7 @@ Contacts who converted *with a touch path in the window* earn ledger credits. Th
 ### Day 7 — per-journey revenue, and the first lift read
 
 - "This journey attributed £X under time-decay" is a `groupBy=journey` query, drill-down per template.
-- If you set a holdout on a journey (`holdout: { percent: 10 }` on its meta), the lift endpoint compares entered vs held-out cohorts. The win probability is **suppressed under 10 combined conversions** and flagged under 100 contacts per cohort — at low volume you get honest "not enough data yet", never noise wearing a percentage sign.
+- If you set a holdout on a journey (`holdout: { percent: 10 }` on its meta), the lift endpoint compares entered vs held-out cohorts. With `goal` set on the journey's meta, the endpoint defaults to that conversion definition. The win probability is **suppressed under 10 combined conversions** and flagged under 100 contacts per cohort — at low volume you get honest "not enough data yet", never noise wearing a percentage sign.
 
 ### Already running Hogsend? Credit your whole history today
 
@@ -65,6 +65,87 @@ hogsend attribution backfill
 
 Replays your entire event history through conversion evaluation and the credit ledger — both idempotent, so re-running never double-counts, and ad-platform dispatches are never re-fired for historical conversions. A window/definition change gets a clean recompute: `hogsend attribution backfill --definition revenue --recompute`.
 
+## Bind a goal
+
+`meta.goal` names the conversion this journey exists to move — a `defineConversion` id, including the built-in zero-config `revenue` conversion when it is seeded:
+
+```ts
+export const activationWelcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation — Welcome Series",
+    enabled: true,
+    trigger: { event: "user.created" },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: "user.deleted" }],
+    holdout: { percent: 10 },
+    goal: "revenue",
+    version: "2026-07-welcome-subject-ab",
+  },
+  run: async (user, ctx) => {
+    /* ... */
+  },
+});
+```
+
+The binding is boot-validated, fail-closed: a `goal` that matches no registered conversion definition throws at `createHogsendClient` with the known-id list. A typo'd id would otherwise match zero conversion rows and every default readout would quietly report 0% for both cohorts — a wrong-but-plausible number, worse than a crash. The seeded `revenue` conversion counts, and counts only when actually seeded: `HOGSEND_DEFAULT_REVENUE_CONVERSION=false` without an authored replacement makes `goal: "revenue"` a boot error.
+
+The lift and impact endpoints use the goal as their default conversion definition; an explicit `?definitionId=` query param always wins. The goal never gates enrollment, sends, or conversion firing — it is purely a readout default.
+
+Holdout placement, from our own deployment: **10%** on steady lifecycle journeys, **15%** on winbacks — effects are small and the cost of withholding from dormant users is low, so a bigger control buys resolution cheaply — and **none** on dunning, where withholding a payment-failure notice is forfeited revenue, not learning. When several journeys share one trigger event and hold out independently, each measured lift is marginal on top of the others' sends; the numbers never add up to a combined program effect.
+
+### Ending a holdout
+
+Removing `holdout` from the meta is the graduation mechanism: subsequent triggers enroll previously-held-out users normally. Their aged `held_out` row keeps anchoring the old versions' lift readouts — by design, it is that era's control. The digest reads the resulting cohort shift as the new version's numbers.
+
+## Versions: which edit moved the number
+
+Every enrollment — and every held-out row — is stamped with a content fingerprint of the journey definition that created it, plus the optional `meta.version` display label. The impact readout groups cohorts by hash, so "conversion rate before vs after the rework" is a table, not archaeology.
+
+Edit the run body — a subject line, a sleep, a branch — or the meta: the hash changes. Toggling `enabled` does not. Template component edits (`src/emails/`) are NOT in the hash; bump the version label when you rework a template — the digest reports label changes as shipped changes.
+
+The label is display, the hash is truth: readouts group by hash, and changing only the label never forks a cohort. Rows created before this feature form the "unversioned" cohort. Treat a new hash as "possible new version", not proof of change — a toolchain bump can fork a hash with zero content edits.
+
+## Variants: split inside the treatment
+
+`ctx.variant` is the deterministic A/B primitive: a pure sha256 bucket over (journeyId, key, userId) — no RNG, no clock.
+
+```ts
+const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+
+await sendEmail({
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.ACTIVATION_WELCOME,
+  subject:
+    arm === "outcome"
+      ? "Welcome to Hogsend — your first journey live in 15 minutes"
+      : "Welcome to Hogsend — let's get you set up",
+});
+```
+
+Two separate guarantees:
+
+1. **Within one enrollment**, the assignment is recorded once and the recorded value wins verbatim on every later call — including a replay after a deploy that changed the arms array.
+2. **A re-entry** mints a new enrollment and re-derives the arm from the same deterministic hash, so it gets the same arm as long as the arms array is unchanged. Editing arms between entries may reassign re-entrants.
+
+Holdout diverts before `run()` executes, so variants split the treatment cohort only; per-variant lift compares each arm against the whole held-out cohort. Sending the same template in every arm needs no `idempotencyLabel` — the arm is deterministic and recorded, so a replay re-derives the identical send key. When arms select **different** templates, the template key is the send key's discriminant and the recorded arm keeps it pinned across replays; the pre-existing rule still stands — if a later unconditional send can hit the same template as one of the arms under the same nearest wait label, give one of them a distinct `idempotencyLabel`.
+
+## The impact readout, and the digest
+
+Two admin endpoints serve the readout:
+
+- `GET /v1/admin/journeys/{id}/impact` — one journey: overall treatment-vs-control lift, a per-version timeline where each version's control is the held-out rows carrying the **same hash**, and per-variant arms with an observational open/click funnel.
+- `GET /v1/admin/impact/overview` — every journey ranked by converters, attributed value under a chosen model, campaigns (correlational only, always), and the global-control readout.
+
+Every block carries an explicit `causal` flag. `causal: true` appears only where a held-out cohort backs the number; everything else is labeled observational — including cross-version rate comparisons, where older versions had longer post-entry conversion exposure.
+
+Suppression is absolute: under **10 combined conversions** the verdict is suppressed — counts and a "collecting" state, never a percentage. Under **100 contacts per cohort** the number is flagged `smallSample` — shown, with the warning, never hidden.
+
+The weekly digest is a webhook, not an email. Subscribe an outbound endpoint to the `impact.digest` event type and it delivers two kinds of entries: `shipped` (a new version hash, new journey, or new label observed — observational, structurally without lift fields) and `lift` (a journey's holdout win probability crossed the threshold, in either direction). No subscriber, no work; empty digests are never sent. Knobs: `IMPACT_DIGEST_CRON` (default `0 9 * * 1`, Mondays 09:00 UTC) and `IMPACT_DIGEST_WIN_PROB` (crossing threshold, default 0.95, clamped 0.5–0.999).
+
 ## Reading guide — what each surface claims
 
 | Surface | Number | May claim |
@@ -73,8 +154,12 @@ Replays your entire event history through conversion evaluation and the credit l
 | Influenced column | influenced | "touched" |
 | Funnel progression (`/v1/admin/funnels/:id/progression`) | correlational | "associated with" — exposure splits self-select engaged contacts |
 | Journey lift (`/v1/admin/journeys/:id/lift`) | incremental | "caused" — the only one |
+| Journey impact (`/v1/admin/journeys/:id/impact`) | mixed, per-number `causal` flag | "caused" only where `causal: true` |
+| Impact overview (`/v1/admin/impact/overview`) | mixed, per-number `causal` flag | "caused" only where `causal: true` |
 
 Attribution windows are configurable per channel (`windows: { email: days(5), sms: days(1) }` on `defineConversion`) and apply **forward only** — the ledger is written at conversion time; the backfill command is the deliberate recompute path.
+
+One asymmetry worth knowing: a journey excluded by the `ENABLED_JOURNEYS` filter is never registered, so its lift/impact readout falls back to "any conversion" (`source: "none"`) even though its code declares a goal — while a `meta.enabled: false` journey stays registered and keeps its goal default. Blueprint journeys are DB-authored and cannot declare a persisted `meta.goal`; their readout is `source: "none"` unless the request passes `?definitionId=`.
 
 ## Is it wired? Ask the engine
 
