@@ -438,7 +438,7 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
           <div className="flex flex-col items-center mt-6 md:mt-9">
             <h1
               className={cn(
-                "max-w-[920px] font-normal text-white text-[36px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+                "max-w-[800px] text-balance font-normal text-white text-[36px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
                 DISPLAY,
               )}
             >
@@ -452,12 +452,9 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
               teams. Written by you or your coding agent. Shipped like the rest
               of your product.
             </p>
-            <p className="mt-3 font-mono text-[13px] text-white/45 uppercase tracking-[0.08em]">
-              Think Next.js for growth engineering.
-            </p>
           </div>
 
-          {/* Primary path (scaffold in one command) + the hosted demo. */}
+          {/* Primary path: scaffold in one command. */}
           <div className="flex flex-col items-center mt-6 gap-3 md:mt-8">
             <ThermalHover>
               <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-white/[0.03] py-2 pr-2 pl-4">
@@ -471,22 +468,6 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
                 />
               </span>
             </ThermalHover>
-            <TrackDemoClick placement="home-hero">
-              <Link
-                href={DEMO_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="group inline-flex items-center gap-1.5 font-medium text-sm text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
-              >
-                See the live demo
-                <span
-                  aria-hidden="true"
-                  className="transition-transform group-hover:translate-x-0.5"
-                >
-                  →
-                </span>
-              </Link>
-            </TrackDemoClick>
           </div>
 
           {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
@@ -2075,69 +2056,296 @@ const HATCHET_PILLARS = [
   },
 ];
 
+/**
+ * The one demonstrable fact of durable execution, drawn as structure: a
+ * journey run as a horizontal track whose ctx.sleep segment crosses a
+ * deploy cut — and keeps going. A slow pulse travels the track.
+ */
+function HatchetRunTimeline() {
+  const CY = 96; // track y
+  const STEPS = [
+    { x: 30, label: "user.signed_up", sub: "day 0", filled: false },
+    { x: 250, label: "sendEmail(welcome)", sub: "day 0", filled: false },
+    { x: 410, label: "ctx.sleep(days(7))", sub: "sleep starts", sleep: true },
+    { x: 830, label: "sendEmail(check_in)", sub: "day 7", filled: true },
+  ];
+  const DEPLOY_X = 620;
+  return (
+    <div
+      className="relative mt-14 overflow-hidden rounded-lg border border-white/10 bg-[#0a0606]"
+      aria-hidden="true"
+    >
+      <style>{`
+        @media (prefers-reduced-motion: reduce) {
+          .hs-run-pulse { display: none; }
+        }
+      `}</style>
+      <div className="flex items-center justify-between gap-3 border-white/10 border-b px-5 py-3">
+        <span className="min-w-0 truncate font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+          run · src/journeys/onboarding.ts
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#23c489] opacity-60" />
+            <span className="relative inline-flex size-2 rounded-full bg-[#23c489]" />
+          </span>
+          running · resumed after deploy
+        </span>
+      </div>
+      <svg
+        viewBox="0 0 1000 190"
+        className="w-full select-none px-2 pt-2 pb-1"
+        role="presentation"
+      >
+        <defs>
+          <pattern
+            id="hs-deploy-hatch"
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="6" height="6" fill="rgba(255,255,255,0.03)" />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="6"
+              stroke="rgba(255,255,255,0.14)"
+              strokeWidth="1"
+            />
+          </pattern>
+          <linearGradient id="hs-deploy-fade" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="white" stopOpacity="0" />
+            <stop offset="0.25" stopColor="white" stopOpacity="1" />
+            <stop offset="0.75" stopColor="white" stopOpacity="1" />
+            <stop offset="1" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+          <mask id="hs-deploy-mask">
+            <rect
+              x={DEPLOY_X - 26}
+              y="18"
+              width="52"
+              height="156"
+              fill="url(#hs-deploy-fade)"
+            />
+          </mask>
+          <radialGradient id="hs-pulse-glow">
+            <stop offset="0" stopColor="#f64838" stopOpacity="0.55" />
+            <stop offset="1" stopColor="#f64838" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+
+        {/* deploy band — hatched seam the sleep passes straight through */}
+        <g mask="url(#hs-deploy-mask)">
+          <rect
+            x={DEPLOY_X - 26}
+            y="18"
+            width="52"
+            height="156"
+            fill="url(#hs-deploy-hatch)"
+          />
+          <line
+            x1={DEPLOY_X - 26}
+            y1="18"
+            x2={DEPLOY_X - 26}
+            y2="174"
+            stroke="rgba(255,255,255,0.18)"
+            strokeWidth="1"
+          />
+          <line
+            x1={DEPLOY_X + 26}
+            y1="18"
+            x2={DEPLOY_X + 26}
+            y2="174"
+            stroke="rgba(255,255,255,0.18)"
+            strokeWidth="1"
+          />
+        </g>
+
+        {/* executed track segments */}
+        <line
+          x1={STEPS[0].x}
+          y1={CY}
+          x2={STEPS[2].x}
+          y2={CY}
+          stroke="rgba(255,255,255,0.28)"
+          strokeWidth="1.5"
+        />
+        {/* the sleep — dashed crimzon, unbroken across the deploy */}
+        <line
+          x1={STEPS[2].x}
+          y1={CY}
+          x2={STEPS[3].x}
+          y2={CY}
+          stroke="#f64838"
+          strokeWidth="1.5"
+          strokeDasharray="7 8"
+          strokeLinecap="round"
+          opacity="0.9"
+        />
+        <line
+          x1={STEPS[3].x}
+          y1={CY}
+          x2="970"
+          y2={CY}
+          stroke="rgba(255,255,255,0.28)"
+          strokeWidth="1.5"
+        />
+
+        {/* step nodes + labels */}
+        {STEPS.map((s, i) => (
+          <g key={s.label}>
+            <circle
+              cx={s.x}
+              cy={CY}
+              r="6"
+              fill={s.filled ? "#f64838" : "#0a0606"}
+              stroke={s.sleep ? "#f64838" : "rgba(255,255,255,0.5)"}
+              strokeWidth="1.5"
+            />
+            {s.sleep && (
+              <circle
+                cx={s.x}
+                cy={CY}
+                r="11"
+                fill="none"
+                stroke="#f64838"
+                strokeWidth="1"
+                opacity="0.35"
+              />
+            )}
+            <text
+              x={s.x}
+              y={i % 2 === 0 ? CY - 34 : CY - 58}
+              textAnchor={i === 0 ? "start" : "middle"}
+              className="font-mono"
+              fontSize="13"
+              fill={s.sleep ? "#f64838" : "rgba(255,255,255,0.75)"}
+            >
+              {s.label}
+            </text>
+            <line
+              x1={s.x}
+              y1={i % 2 === 0 ? CY - 26 : CY - 50}
+              x2={s.x}
+              y2={CY - 12}
+              stroke="rgba(255,255,255,0.15)"
+              strokeWidth="1"
+            />
+            <text
+              x={s.x}
+              y={CY + 30}
+              textAnchor={i === 0 ? "start" : "middle"}
+              className="font-mono"
+              fontSize="11"
+              fill="rgba(255,255,255,0.35)"
+            >
+              {s.sub}
+            </text>
+          </g>
+        ))}
+
+        {/* run end arrowhead */}
+        <path d="M970 96 l-9 -4.5 v9 z" fill="rgba(255,255,255,0.4)" />
+
+        {/* deploy annotation */}
+        <text
+          x={DEPLOY_X}
+          y="42"
+          textAnchor="middle"
+          className="font-mono"
+          fontSize="11"
+          fill="rgba(255,255,255,0.5)"
+        >
+          deploy · worker restarts
+        </text>
+        <text
+          x={DEPLOY_X}
+          y={CY + 62}
+          textAnchor="middle"
+          className="font-mono"
+          fontSize="11"
+          fill="#f64838"
+        >
+          the wait keeps running
+        </text>
+
+        {/* travelling pulse riding the track */}
+        <g className="hs-run-pulse">
+          <circle r="14" fill="url(#hs-pulse-glow)">
+            <animateMotion
+              dur="8s"
+              repeatCount="indefinite"
+              path={`M${STEPS[0].x} ${CY} H970`}
+            />
+          </circle>
+          <circle r="3.5" fill="#f64838">
+            <animateMotion
+              dur="8s"
+              repeatCount="indefinite"
+              path={`M${STEPS[0].x} ${CY} H970`}
+            />
+          </circle>
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 function PsHatchet() {
   return (
-    <section className="relative">
-      <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0a0606] p-8 text-white md:p-12">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(60% 80% at 100% 10%, rgba(246,72,56,0.18), rgba(246,72,56,0.04) 45%, transparent 70%)",
-            }}
-          />
-          <WaveLines
-            className="absolute bottom-0 left-0 h-48 w-[55%] opacity-50"
-            stroke="rgba(246,72,56,0.4)"
-            count={6}
-          />
-          <div className="relative">
-            <BrandLogo brand="hatchet" height={32} className="text-white" />
-            <Eyebrow light className="mt-8">
-              Powered by Hatchet
-            </Eyebrow>
-            <h2
-              className={cn(
-                "mt-6 max-w-[640px] font-normal text-[34px] text-white leading-[1.15] tracking-[-0.01em] md:text-[44px] md:leading-[50px]",
-                DISPLAY,
-              )}
-            >
-              Durable execution, by Hatchet.
-            </h2>
-            <p className="mt-5 max-w-[640px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
-              Every journey runs on{" "}
-              <a
-                href="https://hatchet.run"
-                target="_blank"
-                rel="noreferrer"
-                className="text-white underline decoration-white/30 underline-offset-4"
-              >
-                Hatchet
-              </a>
-              , the durable execution engine underneath Hogsend. It's what lets
-              a long ctx.sleep survive a deploy and resume two days later
-              exactly where it left off. Hogsend builds on Hatchet rather than
-              rolling its own durability.
-            </p>
-            <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
-              {HATCHET_PILLARS.map((pillar) => (
-                <div
-                  key={pillar.title}
-                  className="rounded-lg border border-white/10 bg-white/[0.02] p-5"
-                >
-                  <h3 className="font-medium text-[15px] text-white tracking-[-0.02em]">
-                    {pillar.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                    {pillar.body}
-                  </p>
-                </div>
-              ))}
-            </div>
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-24">
+        <Reveal>
+          <div className="flex items-center justify-between gap-6">
+            <Eyebrow>Powered by Hatchet</Eyebrow>
+            <BrandLogo
+              brand="hatchet"
+              height={24}
+              className="shrink-0 text-white/70"
+            />
           </div>
-        </div>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">Durable execution,</span>{" "}
+            <span className="text-white/40">by Hatchet.</span>
+          </h2>
+          <p className="mt-5 max-w-[640px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
+            Every journey runs on{" "}
+            <a
+              href="https://hatchet.run"
+              target="_blank"
+              rel="noreferrer"
+              className="text-white underline decoration-white/30 underline-offset-4"
+            >
+              Hatchet
+            </a>
+            , the durable execution engine underneath Hogsend. It's what lets a
+            long ctx.sleep survive a deploy and resume two days later exactly
+            where it left off. Hogsend builds on Hatchet rather than rolling its
+            own durability.
+          </p>
+
+          <HatchetRunTimeline />
+
+          <div className="mt-14 grid grid-cols-1 gap-y-8 border-white/10 border-t pt-8 md:grid-cols-3 md:gap-x-10">
+            {HATCHET_PILLARS.map((pillar) => (
+              <div key={pillar.title}>
+                <h3 className="font-medium text-[15px] text-white tracking-[-0.02em]">
+                  {pillar.title}
+                </h3>
+                <p className="mt-2 max-w-[340px] text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                  {pillar.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Reveal>
       </Container>
     </section>
   );
