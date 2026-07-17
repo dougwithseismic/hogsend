@@ -5,6 +5,7 @@ import type {
   ImpactDigestEntry,
   ImpactDigestLiftEntry,
   ImpactDigestShippedEntry,
+  ImpactVersionCohort,
 } from "../lib/outbound.js";
 
 const DEFAULT_WIN_PROB_THRESHOLD = 0.95;
@@ -113,8 +114,7 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-// Referenced by Tasks 3-5; keeps the skeleton compiling standalone.
-void sql;
+// Referenced by Tasks 4-5; keeps the skeleton compiling standalone.
 void message;
 void mapWithConcurrency;
 void LIFT_WINDOW_DAYS;
@@ -123,4 +123,269 @@ void CANDIDATE_CAP;
 void LIFT_CONCURRENCY;
 void DEFAULT_WIN_PROB_THRESHOLD;
 
-export type { Database, Logger };
+type HashFirstSeenRow = {
+  journey_id: string;
+  journey_version_hash: string;
+  version_label: string | null;
+  first_seen_at: Date | string;
+};
+
+/**
+ * All-time cohort of one (journey, hash) version. Reuses the lift route's
+ * outcome semantics exactly: treatment-only (`status != 'held_out'`),
+ * EXISTS with the per-row ITT clock (`occurred_at >= created_at`),
+ * goal-conditional `definition_id` append, snapshot-bounded at `until`.
+ * Label pick is latest-by-created_at (the array_agg form — max() is
+ * lexicographic and shows stale labels after a label-only rename).
+ */
+async function versionCohort(opts: {
+  db: Database;
+  journeyId: string;
+  hash: string;
+  goal: string | null;
+  until: Date;
+}): Promise<ImpactVersionCohort> {
+  const { db, journeyId, hash, goal, until } = opts;
+  const untilTs = sql`${until.toISOString()}::timestamptz`;
+  const goalCond = goal === null ? sql`` : sql` and c.definition_id = ${goal}`;
+  const rows = [
+    ...(await db.execute<{
+      enrollments: number;
+      converters: number;
+      first_seen_at: Date | string | null;
+      version_label: string | null;
+    }>(sql`
+      select
+        count(distinct js.user_id)
+          filter (where js.status != 'held_out')::int as enrollments,
+        (count(distinct js.user_id)
+          filter (where js.status != 'held_out' and exists (
+            select 1 from conversions c
+            where c.user_key = js.user_id
+              and c.occurred_at >= js.created_at
+              and c.occurred_at <= ${untilTs}${goalCond}
+        )))::int as converters,
+        min(js.created_at) as first_seen_at,
+        (array_agg(js.journey_version_label order by js.created_at desc)
+           filter (where js.journey_version_label is not null))[1]
+          as version_label
+      from journey_states js
+      where js.journey_id = ${journeyId}
+        and js.journey_version_hash = ${hash}
+        and js.deleted_at is null
+    `)),
+  ];
+  const row = rows[0];
+  const enrollments = Number(row?.enrollments ?? 0);
+  const converters = Number(row?.converters ?? 0);
+  const firstSeen = row?.first_seen_at ? toDate(row.first_seen_at) : until;
+  return {
+    versionHash: hash,
+    versionLabel: row?.version_label ?? null,
+    enrollmentsAllTime: enrollments,
+    converters,
+    conversionRate: enrollments > 0 ? converters / enrollments : 0,
+    firstSeenAt: firstSeen.toISOString(),
+    exposureDays: Math.max(
+      0,
+      Math.floor((until.getTime() - firstSeen.getTime()) / DAY_MS),
+    ),
+  };
+}
+
+/**
+ * Detection A — "you shipped a change" (causal: false). Two queries, not
+ * one (a window-filtered GROUP BY cannot supply earlier hashes' first-seen),
+ * plus the label pass: a (journey, label) pair first observed in-window
+ * whose hash first-seen PREDATES the window is a label-only change — the
+ * first-class "shipped" signal for template reworks the hash cannot see.
+ * Inert until Decision A's columns fill (the IS NOT NULL filter); blueprint
+ * enrollments are covered automatically (this reads journey_states, not the
+ * code registry). Consumers MUST treat a new hash as "possible new
+ * version" — toolchain bumps can fork it with zero content change.
+ */
+export async function detectShippedVersions(opts: {
+  db: Database;
+  since: Date;
+  until: Date;
+  registry?: DigestRegistryLike;
+  logger?: Logger;
+}): Promise<{ entries: ImpactDigestShippedEntry[] }> {
+  const { db, since, until, registry } = opts;
+  const sinceTs = sql`${since.toISOString()}::timestamptz`;
+  const untilTs = sql`${until.toISOString()}::timestamptz`;
+
+  // 1. (journey, hash) pairs first observed inside the window.
+  const inWindow = [
+    ...(await db.execute<HashFirstSeenRow>(sql`
+      select journey_id, journey_version_hash,
+             (array_agg(journey_version_label order by created_at desc)
+                filter (where journey_version_label is not null))[1]
+               as version_label,
+             min(created_at) as first_seen_at
+      from journey_states
+      where journey_version_hash is not null and deleted_at is null
+      group by journey_id, journey_version_hash
+      having min(created_at) >= ${sinceTs} and min(created_at) < ${untilTs}
+    `)),
+  ];
+
+  // 1b. (journey, label) pairs first observed inside the window, with the
+  // hash carried by the EARLIEST row of the pair (label-only-change probe).
+  const labelRows = [
+    ...(await db.execute<{
+      journey_id: string;
+      version_label: string;
+      first_seen_at: Date | string;
+      hash: string | null;
+    }>(sql`
+      select journey_id, journey_version_label as version_label,
+             min(created_at) as first_seen_at,
+             (array_agg(journey_version_hash order by created_at asc))[1]
+               as hash
+      from journey_states
+      where journey_version_label is not null
+        and journey_version_hash is not null
+        and deleted_at is null
+      group by journey_id, journey_version_label
+      having min(created_at) >= ${sinceTs} and min(created_at) < ${untilTs}
+    `)),
+  ];
+
+  const affectedIds = [
+    ...new Set([
+      ...inWindow.map((r) => r.journey_id),
+      ...labelRows.map((r) => r.journey_id),
+    ]),
+  ];
+  if (affectedIds.length === 0) return { entries: [] };
+
+  // 2. All-time first-seen per (journey, hash) for the affected journeys —
+  // classifies new_journey vs new_version and picks `previous`.
+  const idList = sql.join(
+    affectedIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const allTime = [
+    ...(await db.execute<HashFirstSeenRow>(sql`
+      select journey_id, journey_version_hash,
+             (array_agg(journey_version_label order by created_at desc)
+                filter (where journey_version_label is not null))[1]
+               as version_label,
+             min(created_at) as first_seen_at
+      from journey_states
+      where journey_id in (${idList})
+        and journey_version_hash is not null
+        and deleted_at is null
+      group by journey_id, journey_version_hash
+    `)),
+  ];
+
+  const entries: ImpactDigestShippedEntry[] = [];
+
+  // Hash pass: new_journey / new_version.
+  for (const row of inWindow) {
+    const meta = registry?.get(row.journey_id);
+    const goal = meta?.goal ?? null;
+    const firstSeen = toDate(row.first_seen_at);
+    const earlier = allTime
+      .filter(
+        (a) =>
+          a.journey_id === row.journey_id &&
+          a.journey_version_hash !== row.journey_version_hash &&
+          toDate(a.first_seen_at).getTime() < firstSeen.getTime(),
+      )
+      .sort(
+        (a, b) =>
+          toDate(b.first_seen_at).getTime() - toDate(a.first_seen_at).getTime(),
+      );
+    const previousHash = earlier[0]?.journey_version_hash ?? null;
+    const current = await versionCohort({
+      db,
+      journeyId: row.journey_id,
+      hash: row.journey_version_hash,
+      goal,
+      until,
+    });
+    const previous =
+      previousHash === null
+        ? null
+        : await versionCohort({
+            db,
+            journeyId: row.journey_id,
+            hash: previousHash,
+            goal,
+            until,
+          });
+    entries.push({
+      kind: "shipped",
+      causal: false,
+      journeyId: row.journey_id,
+      journeyName: meta?.name ?? null,
+      versionHash: row.journey_version_hash,
+      versionLabel: row.version_label ?? null,
+      change: previousHash === null ? "new_journey" : "new_version",
+      previousVersionLabel: null,
+      firstSeenAt: firstSeen.toISOString(),
+      goalDefinitionId: goal,
+      current,
+      previous,
+    });
+  }
+
+  // Label pass: new_label (same content hash, fresh label).
+  for (const row of labelRows) {
+    if (row.hash === null) continue;
+    const hashFirst = allTime.find(
+      (a) =>
+        a.journey_id === row.journey_id && a.journey_version_hash === row.hash,
+    );
+    // Hash unseen, or itself new in-window → already reported above.
+    if (
+      !hashFirst ||
+      toDate(hashFirst.first_seen_at).getTime() >= since.getTime()
+    ) {
+      continue;
+    }
+    const meta = registry?.get(row.journey_id);
+    const goal = meta?.goal ?? null;
+    const prevLabelRows = [
+      ...(await db.execute<{ prev_label: string | null }>(sql`
+        select (array_agg(journey_version_label order by created_at desc)
+                  filter (where journey_version_label is not null))[1]
+                 as prev_label
+        from journey_states
+        where journey_id = ${row.journey_id}
+          and created_at < ${sinceTs}
+          and deleted_at is null
+      `)),
+    ];
+    entries.push({
+      kind: "shipped",
+      causal: false,
+      journeyId: row.journey_id,
+      journeyName: meta?.name ?? null,
+      versionHash: row.hash,
+      versionLabel: row.version_label,
+      change: "new_label",
+      previousVersionLabel: prevLabelRows[0]?.prev_label ?? null,
+      firstSeenAt: toDate(row.first_seen_at).toISOString(),
+      goalDefinitionId: goal,
+      current: await versionCohort({
+        db,
+        journeyId: row.journey_id,
+        hash: row.hash,
+        goal,
+        until,
+      }),
+      previous: null,
+    });
+  }
+
+  entries.sort(
+    (a, b) =>
+      a.journeyId.localeCompare(b.journeyId) ||
+      a.versionHash.localeCompare(b.versionHash),
+  );
+  return { entries };
+}

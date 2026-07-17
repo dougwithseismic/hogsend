@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // DB-touching suite (later blocks): point at the real docker TimescaleDB,
 // overriding the vitest.config placeholder DATABASE_URL. Must run before
@@ -40,6 +40,104 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 
 const { posthogDestination, segmentDestination, WEBHOOK_EVENT_TYPES } =
   await import("@hogsend/engine");
+
+const {
+  contacts,
+  conversions,
+  createDatabase,
+  journeyStates,
+  userEvents,
+  webhookDeliveries,
+  webhookEndpoints,
+} = await import("@hogsend/db");
+const { and, eq, like, sql } = await import("drizzle-orm");
+const { detectShippedVersions } = await import("@hogsend/engine");
+
+const { db } = createDatabase({ url: process.env.DATABASE_URL as string });
+
+const RUN = `impd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+let contactId = "";
+
+beforeAll(async () => {
+  const [contact] = await db
+    .insert(contacts)
+    .values({ email: `${RUN}@example.com`, externalId: `${RUN}-contact` })
+    .returning({ id: contacts.id });
+  contactId = contact?.id ?? "";
+});
+
+afterAll(async () => {
+  await db.delete(conversions).where(like(conversions.userKey, `${RUN}-%`));
+  await db.delete(userEvents).where(like(userEvents.userId, `${RUN}-%`));
+  await db
+    .delete(journeyStates)
+    .where(like(journeyStates.journeyId, `${RUN}-%`));
+  await db.delete(contacts).where(like(contacts.externalId, `${RUN}-%`));
+  await db
+    .delete(webhookDeliveries)
+    .where(eq(webhookDeliveries.eventType, "impact.digest"));
+  await db
+    .delete(webhookEndpoints)
+    .where(like(webhookEndpoints.url, `https://example.com/${RUN}/%`));
+});
+
+/** Bulk-insert journey_states rows; returns the seeded userIds. */
+async function seedStates(opts: {
+  journeyId: string;
+  prefix: string;
+  count: number;
+  createdAt: Date;
+  status?: "completed" | "held_out";
+  hash?: string | null;
+  label?: string | null;
+}): Promise<string[]> {
+  const userIds = Array.from(
+    { length: opts.count },
+    (_, i) => `${RUN}-${opts.prefix}-${i}`,
+  );
+  await db.insert(journeyStates).values(
+    userIds.map((userId) => ({
+      userId,
+      userEmail: `${userId}@example.com`,
+      journeyId: opts.journeyId,
+      currentNodeId: "entry",
+      status: opts.status ?? ("completed" as const),
+      journeyVersionHash: opts.hash ?? null,
+      journeyVersionLabel: opts.label ?? null,
+      createdAt: opts.createdAt,
+      updatedAt: opts.createdAt,
+    })),
+  );
+  return userIds;
+}
+
+/** One userEvents + conversions row per user (FK chain satisfied). */
+async function seedConversions(
+  userIds: string[],
+  definitionId: string,
+  occurredAt: Date,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const eventRows = await db
+    .insert(userEvents)
+    .values(
+      userIds.map((userId) => ({
+        userId,
+        event: "digest.converted",
+        properties: {},
+      })),
+    )
+    .returning({ id: userEvents.id, userId: userEvents.userId });
+  await db.insert(conversions).values(
+    eventRows.map((row) => ({
+      definitionId,
+      contactId,
+      userKey: row.userId,
+      eventId: row.id,
+      occurredAt,
+    })),
+  );
+}
 
 const DAY = 86_400_000;
 
@@ -238,5 +336,203 @@ describe("assembleDigestEntries (cap + ordering)", () => {
     expect(entries).toHaveLength(50);
     expect(truncated).toBe(true);
     expect(entries.slice(0, 30).every((e) => e.kind === "lift")).toBe(true);
+  });
+});
+
+describe("detectShippedVersions (Detection A + label pass)", () => {
+  // Far-future anchor isolates these fixtures from every other suite's
+  // rows: Detection A scans journey_states GLOBALLY, so the window must
+  // contain only rows this test seeded.
+  const A0 = new Date(Date.now() + 400 * DAY);
+  const since = A0;
+  const until = new Date(A0.getTime() + 7 * DAY);
+  const pre = new Date(A0.getTime() - 40 * DAY);
+  const inWin = new Date(A0.getTime() + 1 * DAY);
+
+  const J_NEW = `${RUN}-shipped-new`;
+  const J_VER = `${RUN}-shipped-ver`;
+  const J_LAB = `${RUN}-shipped-lab`;
+  const J_PRE = `${RUN}-shipped-pre`;
+  const GOAL = `${RUN}-goal`;
+  const H_NEW = "aaaaaaaaaaa1";
+  const H_V1 = "bbbbbbbbbbb1";
+  const H_V2 = "ccccccccccc1";
+  const H_LAB = "ddddddddddd1";
+  const H_PRE = "eeeeeeeeeee1";
+
+  const registry = {
+    get: (id: string) =>
+      id === J_VER ? { goal: GOAL, name: "Versioned journey" } : undefined,
+  };
+
+  beforeAll(async () => {
+    // J_NEW: first hash ever, first seen in-window → new_journey.
+    await seedStates({
+      journeyId: J_NEW,
+      prefix: "new",
+      count: 3,
+      createdAt: inWin,
+      hash: H_NEW,
+      label: "v1",
+    });
+    // J_VER: v1 pre-window, v2 in-window → new_version (previous = v1).
+    await seedStates({
+      journeyId: J_VER,
+      prefix: "ver1",
+      count: 4,
+      createdAt: pre,
+      hash: H_V1,
+      label: "v1",
+    });
+    const treated = await seedStates({
+      journeyId: J_VER,
+      prefix: "ver2",
+      count: 6,
+      createdAt: inWin,
+      hash: H_V2,
+      label: "v2",
+    });
+    await seedStates({
+      journeyId: J_VER,
+      prefix: "ver2h",
+      count: 2,
+      createdAt: inWin,
+      status: "held_out",
+      hash: H_V2,
+      label: "v2",
+    });
+    // Conversions AFTER entry: 2 on the goal definition, 1 on another —
+    // goal-scoped converters must count 2; any-definition counts 3.
+    const convertedAt = new Date(inWin.getTime() + 60 * 60 * 1000);
+    await seedConversions(treated.slice(0, 2), GOAL, convertedAt);
+    await seedConversions(treated.slice(2, 3), `${RUN}-other`, convertedAt);
+    // J_LAB: same hash pre-window ("L1") and in-window ("L2") → new_label.
+    await seedStates({
+      journeyId: J_LAB,
+      prefix: "lab1",
+      count: 3,
+      createdAt: pre,
+      hash: H_LAB,
+      label: "L1",
+    });
+    await seedStates({
+      journeyId: J_LAB,
+      prefix: "lab2",
+      count: 3,
+      createdAt: inWin,
+      hash: H_LAB,
+      label: "L2",
+    });
+    // J_PRE: hash first observed before the window → silent.
+    await seedStates({
+      journeyId: J_PRE,
+      prefix: "pre",
+      count: 3,
+      createdAt: pre,
+      hash: H_PRE,
+      label: "v1",
+    });
+  });
+
+  it("classifies a brand-new journey as new_journey with previous null", async () => {
+    const { entries } = await detectShippedVersions({
+      db,
+      since,
+      until,
+      registry,
+    });
+    expect(entries.filter((e) => e.journeyId === J_NEW)).toHaveLength(1);
+    const entry = entries.find((e) => e.journeyId === J_NEW);
+    expect(entry).toMatchObject({
+      kind: "shipped",
+      causal: false,
+      change: "new_journey",
+      versionHash: H_NEW,
+      versionLabel: "v1",
+      previous: null,
+      journeyName: null,
+      goalDefinitionId: null,
+    });
+  });
+
+  it("classifies a new hash on an existing journey as new_version with the previous cohort", async () => {
+    const { entries } = await detectShippedVersions({
+      db,
+      since,
+      until,
+      registry,
+    });
+    const forJourney = entries.filter((e) => e.journeyId === J_VER);
+    // The new label "v2" rides the hash entry — no duplicate new_label.
+    expect(forJourney).toHaveLength(1);
+    expect(forJourney[0]).toMatchObject({
+      change: "new_version",
+      versionHash: H_V2,
+      versionLabel: "v2",
+      journeyName: "Versioned journey",
+      goalDefinitionId: GOAL,
+    });
+    expect(forJourney[0]?.previous).toMatchObject({
+      versionHash: H_V1,
+      versionLabel: "v1",
+      enrollmentsAllTime: 4,
+    });
+  });
+
+  it("cohorts exclude held_out, honor the goal, and carry firstSeenAt/exposureDays", async () => {
+    const { entries } = await detectShippedVersions({
+      db,
+      since,
+      until,
+      registry,
+    });
+    const entry = entries.find((e) => e.journeyId === J_VER);
+    // 6 treated (2 held_out rows excluded); goal-scoped converters = 2.
+    expect(entry?.current).toMatchObject({
+      enrollmentsAllTime: 6,
+      converters: 2,
+      conversionRate: 2 / 6,
+    });
+    expect(entry?.current.firstSeenAt).toBe(inWin.toISOString());
+    expect(entry?.current.exposureDays).toBe(6);
+    // Without a registry (no goal) the converters fall back to any
+    // definition.
+    const { entries: unscoped } = await detectShippedVersions({
+      db,
+      since,
+      until,
+    });
+    expect(
+      unscoped.find((e) => e.journeyId === J_VER)?.current.converters,
+    ).toBe(3);
+  });
+
+  it("reports a label-only change as new_label with previousVersionLabel", async () => {
+    const { entries } = await detectShippedVersions({
+      db,
+      since,
+      until,
+      registry,
+    });
+    const entry = entries.find((e) => e.journeyId === J_LAB);
+    expect(entry).toMatchObject({
+      change: "new_label",
+      versionHash: H_LAB,
+      versionLabel: "L2",
+      previousVersionLabel: "L1",
+      previous: null,
+    });
+    // The cohort is the WHOLE hash cohort (both eras).
+    expect(entry?.current.enrollmentsAllTime).toBe(6);
+  });
+
+  it("stays silent for hashes first observed before the window", async () => {
+    const { entries } = await detectShippedVersions({
+      db,
+      since,
+      until,
+      registry,
+    });
+    expect(entries.find((e) => e.journeyId === J_PRE)).toBeUndefined();
   });
 });
