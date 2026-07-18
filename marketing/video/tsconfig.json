@@ -14,7 +14,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "types": []
+    "types": ["node"]
   },
-  "include": ["src", "remotion.config.ts"]
+  "include": ["src", "scripts", "remotion.config.ts"]
 }

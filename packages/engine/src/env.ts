@@ -283,6 +283,9 @@ export const env = createEnv({
     SUPABASE_WEBHOOK_SECRET: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
     SEGMENT_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Intercom app Client Secret — signs `X-Hub-Signature: sha1=<hex>` over the
+    // raw body. Auto-enables the Intercom preset at POST /v1/webhooks/intercom.
+    INTERCOM_CLIENT_SECRET: z.string().min(1).optional(),
     // Preset enablement override: csv of preset ids, `"*"` (all with a secret),
     // or `"none"`. Absent → auto-enable any preset whose secret is set.
     ENABLED_WEBHOOK_PRESETS: z.string().optional(),

@@ -27,6 +27,7 @@ entrypoint.
 | `hogsend-authoring-emails` | Adding or editing a transactional email in `src/emails/` — the four-file react-email contract, with link-click/open tracking and unsubscribe applied automatically on send. |
 | `hogsend-authoring-buckets` | Adding or editing a real-time audience bucket in `src/buckets/` — `defineBucket()` criteria trees, typed entered/left transition refs, enter/leave/dwell reactions, member access. |
 | `hogsend-authoring-lists` | Adding or editing a code-defined email list in `src/lists/` — `defineList()`, opt-in vs opt-out polarity, reserved ids. |
+| `hogsend-authoring-flags` | Adding or editing a code-first feature flag in `src/flags/` — `defineFlag()`, the contract-vs-state split (code owns key/type/variants; operator owns enabled/rollout/targeting), and `flags:generate` for typed reads. |
 | `hogsend-authoring-destinations` | Adding or editing an outbound destination in `src/destinations/` — `defineDestination()` transforms that fan the event stream to PostHog, Segment, Slack, a CRM, or a warehouse. |
 | `hogsend-webhooks-and-workflows` | Adding an inbound webhook source (`defineWebhookSource`), reaching for a Clerk/Supabase/Stripe/Segment preset, or registering a custom Hatchet task via `extraWorkflows`. |
 | `hogsend-conditions` | Writing any condition or duration — a journey's `trigger.where`, an `exitOn` rule, a bucket criteria tree, and `days()`/`hours()`/`minutes()`. |

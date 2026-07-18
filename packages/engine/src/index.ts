@@ -201,6 +201,11 @@ export {
 } from "./destinations/registry-singleton.js";
 // --- Env ---
 export { API_VERSION, env } from "./env.js";
+// --- Native feature flags (DB-backed, sticky evaluation) ---
+export {
+  type FlagReconcileResult,
+  reconcileDefinedFlags,
+} from "./flags/reconcile.js";
 // --- Journeys ---
 export { BLUEPRINT_RUN_EVENT } from "./journeys/constants.js";
 export {
@@ -478,6 +483,24 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
+export {
+  type EvaluableFlag,
+  emptySnapshot,
+  evaluateFlag,
+  evaluateFlagsForContact,
+  evaluateTargeting,
+  flagBucket,
+  flagUnit,
+  loadTargetingSnapshot,
+  type TargetingEvalContext,
+  type TargetingSnapshot,
+} from "./lib/flags.js";
+export {
+  FlagRegistry,
+  getFlagRegistry,
+  resetFlagRegistry,
+  setFlagRegistry,
+} from "./lib/flags-registry.js";
 export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";
@@ -833,6 +856,7 @@ export {
 // --- Integration presets (Section 2.3/2.4) ---
 export {
   clerkSource,
+  intercomSource,
   PRESET_SOURCES,
   type PresetId,
   presetsFromEnv,

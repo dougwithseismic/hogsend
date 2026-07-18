@@ -4,6 +4,8 @@ import type React from "react";
 export type VideoProps = {
   /** Persona variant (only meaningful for videos that declare personas). */
   persona?: string;
+  /** Enables cached local narration for compositions that provide it. */
+  voice?: boolean;
 };
 
 export type VideoConfig = {

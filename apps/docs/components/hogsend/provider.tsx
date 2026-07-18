@@ -84,11 +84,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
 
   return (
     <HogsendProvider
-      // HogsendProvider constructs its client ONCE (useState initializer), so the
-      // identity that arrives later never reaches it. Keying on the resolved
-      // recipient key remounts the provider once it lands (and flips back to a
-      // fresh anon client on sign-out).
-      key={identity ? `user:${identity.userId}` : "anon"}
+      // HogsendProvider now reacts to `userId`/`userToken` prop changes in place
+      // (identify + setUserToken effects), so a late-resolving identity no longer
+      // needs a `key` remount — which used to blow away the ENTIRE app subtree
+      // (re-flashing the home hero) every time the feed token landed.
       apiUrl={HOGSEND_API_URL}
       publishableKey={HOGSEND_PUBLISHABLE_KEY}
       colorMode="dark"

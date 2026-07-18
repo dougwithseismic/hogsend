@@ -6,6 +6,7 @@ import type {
   CrmProvider,
   CrmStageMap,
   DefinedConversion,
+  DefinedFlag,
   DefinedFunnel,
   EmailProvider,
   FunnelStageEntry,
@@ -56,6 +57,7 @@ import {
   setDestinationRegistry,
 } from "./destinations/registry-singleton.js";
 import { env } from "./env.js";
+import { reconcileDefinedFlags } from "./flags/reconcile.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { getJourneySourceLocations } from "./journeys/journey-source-locations-singleton.js";
@@ -98,6 +100,7 @@ import type {
   EmailService,
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
+import { FlagRegistry, setFlagRegistry } from "./lib/flags-registry.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
 import { createFxLens, type FxLens, fxProviderFromEnv } from "./lib/fx.js";
 import { hatchet } from "./lib/hatchet.js";
@@ -217,6 +220,12 @@ export interface HogsendClient {
    * (provider, pipeline) claim; admin stats/Studio render per funnel.
    */
   funnels: FunnelRegistry;
+  /**
+   * The registry of code-defined feature flags (`defineFlag`), keyed by
+   * `meta.key`. Built from `opts.flags`; the boot reconciler + Studio read it.
+   * Empty when no flags are defined in code (DB/Studio flags still evaluate).
+   */
+  flagRegistry: FlagRegistry;
   /**
    * The container-held registry of analytics providers, keyed by `meta.id` —
    * the analytics sibling of {@link emailProviders}. Built from env presets
@@ -465,6 +474,15 @@ export interface HogsendClientOptions {
    * "revenue" definition when active) — an unknown goal throws here.
    */
   conversions?: DefinedConversion[];
+  /**
+   * Code-first feature-flag definitions (`defineFlag()` results). Reconciled
+   * into `flags` rows at boot (create-if-absent, disabled + rollout 0; contract
+   * drift synced on code-origin rows; operator state never clobbered — see
+   * `reconcileDefinedFlags`). Only the CONTRACT is expressed here; targeting /
+   * rollout / enabling are DB/operator-owned. Wire in BOTH `index.ts` and
+   * `worker.ts` so both processes reconcile. Defaults to none.
+   */
+  flags?: DefinedFlag[];
   /**
    * Conversion DESTINATIONS (plan §5.2) — ad-platform feedback providers
    * (`defineConversionDestination`; Meta CAPI is the reference). Referenced
@@ -921,6 +939,12 @@ export function createHogsendClient(
   setConversionDestinations(
     new ConversionDestinationRegistry(opts.conversionDestinations ?? []),
   );
+
+  // Code-defined feature-flag registry (`defineFlag`) — installed on the
+  // process singleton for the boot reconciler + Studio. The reconcile itself
+  // fires below, near the other fire-and-forget boot effects.
+  const flagRegistry = new FlagRegistry(opts.flags ?? [], logger);
+  setFlagRegistry(flagRegistry);
   // The durable dispatch task reference (composition root — the lib module
   // cannot import the workflow without a cycle). Left UNSET under a hatchet
   // override so tests never touch real gRPC; dispatch rows stay pending.
@@ -1545,6 +1569,7 @@ export function createHogsendClient(
     smsProvider,
     crmProviders,
     funnels,
+    flagRegistry,
     analyticsProviders,
     analytics,
     identity,
@@ -1594,6 +1619,22 @@ export function createHogsendClient(
         );
       })
       .catch(() => {});
+  }
+
+  // Reconcile code-defined feature flags into `flags` rows (create-if-absent,
+  // sync contract drift on code-origin rows, never clobber operator state — see
+  // `reconcileDefinedFlags`). Container-level so BOTH the API and worker
+  // reconcile; the idempotent onConflict makes concurrent runs safe. Twin of
+  // the buildStoredPosthogProvider block above: fire-and-forget, best-effort,
+  // never blocks or fails boot. Skipped under NODE_ENV=test so suites stay
+  // hermetic (tests drive the reconciler directly).
+  const definedFlags = opts.flags ?? [];
+  if (definedFlags.length > 0 && env.NODE_ENV !== "test") {
+    void reconcileDefinedFlags({ client, flags: definedFlags }).catch((err) => {
+      logger.warn("flags: reconcile (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return client;

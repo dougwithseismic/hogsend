@@ -103,6 +103,64 @@ const statsRoute = createRoute({
   },
 });
 
+const timingSchema = z.object({
+  definitionId: z.string(),
+  /** What each subject is anchored on: a journey enrollment or an event. */
+  anchor: z.object({
+    type: z.enum(["journey", "event"]),
+    id: z.string(),
+  }),
+  days: z.number(),
+  /** Subjects anchored in the window (denominator). */
+  anchored: z.number(),
+  /** Subjects that fired the conversion at/after their anchor (numerator). */
+  converted: z.number(),
+  /** converted / anchored (0 when nobody was anchored). */
+  rate: z.number(),
+  /** How many converted within N days of the anchor (cumulative buckets). */
+  convertedWithin: z.object({
+    d1: z.number(),
+    d7: z.number(),
+    d14: z.number(),
+    d30: z.number(),
+  }),
+  /** Median days from anchor to first conversion among converters. */
+  medianDays: z.number().nullable(),
+  /** 90th-percentile days from anchor to first conversion among converters. */
+  p90Days: z.number().nullable(),
+  /**
+   * Always true — anchoring on an enrollment/event self-selects engaged
+   * contacts, so "how long after" is association, not causation. Holdouts
+   * are the causal instrument (mirrors the funnels report).
+   */
+  correlational: z.literal(true),
+});
+
+const timingRoute = createRoute({
+  method: "get",
+  path: "/timing",
+  tags: ["Admin"],
+  summary: "Time-to-conversion distribution after an anchor (correlational)",
+  request: {
+    query: z.object({
+      /** The conversion definition to measure the latency of. */
+      definitionId: z.string(),
+      /** Anchor each subject on a journey enrollment or an event. */
+      anchorType: z.enum(["journey", "event"]),
+      /** The journey id (anchorType=journey) or event name (anchorType=event). */
+      anchorId: z.string(),
+      days: z.coerce.number().min(1).max(365).default(90),
+    }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: timingSchema } },
+      description:
+        "Conversion rate + latency percentiles + within-N-day buckets, anchored on an enrollment or event",
+    },
+  },
+});
+
 export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
@@ -241,6 +299,85 @@ export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
           }))
           .sort((a, b) => b.count30d - a.count30d),
         destinations: destinationRows,
+      },
+      200,
+    );
+  })
+  .openapi(timingRoute, async (c) => {
+    const { db } = c.get("container");
+    const { definitionId, anchorType, anchorId, days } = c.req.valid("query");
+    const since = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    // Per subject: the anchor instant + its subject key. A journey subject is
+    // one enrollment row (created_at); an event subject is a contact's FIRST
+    // occurrence of the named event in the window.
+    const subjects =
+      anchorType === "journey"
+        ? sql`
+            select js.created_at as anchor_at, js.user_id as subject_key
+            from journey_states js
+            where js.journey_id = ${anchorId}
+              and js.created_at >= ${since}::timestamptz`
+        : sql`
+            select min(ue.occurred_at) as anchor_at, ue.user_id as subject_key
+            from user_events ue
+            where ue.event = ${anchorId}
+              and ue.occurred_at >= ${since}::timestamptz
+            group by ue.user_id`;
+
+    // For each subject, the first conversion of this definition at/after the
+    // anchor (correlated scalar). Latency = first_conv - anchor_at.
+    const latencyDays = sql`extract(epoch from (s.first_conv - s.anchor_at)) / 86400`;
+    const rows = await db.execute(sql`
+      select
+        (count(*))::int as anchored,
+        (count(s.first_conv))::int as converted,
+        (count(*) filter (where s.first_conv <= s.anchor_at + interval '1 day'))::int as w1,
+        (count(*) filter (where s.first_conv <= s.anchor_at + interval '7 days'))::int as w7,
+        (count(*) filter (where s.first_conv <= s.anchor_at + interval '14 days'))::int as w14,
+        (count(*) filter (where s.first_conv <= s.anchor_at + interval '30 days'))::int as w30,
+        percentile_cont(0.5) within group (order by ${latencyDays})
+          filter (where s.first_conv is not null) as median_days,
+        percentile_cont(0.9) within group (order by ${latencyDays})
+          filter (where s.first_conv is not null) as p90_days
+      from (
+        select
+          subj.anchor_at,
+          (
+            select min(c.occurred_at)
+            from conversions c
+            where c.user_key = subj.subject_key
+              and c.definition_id = ${definitionId}
+              and c.occurred_at >= subj.anchor_at
+          ) as first_conv
+        from (${subjects}) subj
+      ) s`);
+
+    const [row = {}] = rows as unknown as Record<string, unknown>[];
+    const num = (v: unknown) => Number(v ?? 0);
+    const nullableNum = (v: unknown) => (v == null ? null : Number(v));
+    const anchored = num(row.anchored);
+    const converted = num(row.converted);
+
+    return c.json(
+      {
+        definitionId,
+        anchor: { type: anchorType, id: anchorId },
+        days,
+        anchored,
+        converted,
+        rate: anchored > 0 ? converted / anchored : 0,
+        convertedWithin: {
+          d1: num(row.w1),
+          d7: num(row.w7),
+          d14: num(row.w14),
+          d30: num(row.w30),
+        },
+        medianDays: nullableNum(row.median_days),
+        p90Days: nullableNum(row.p90_days),
+        correlational: true as const,
       },
       200,
     );

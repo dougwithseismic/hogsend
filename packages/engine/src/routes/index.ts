@@ -12,6 +12,7 @@ import { emailRouter } from "./email/index.js";
 import { emailsRouter } from "./emails/index.js";
 import { eventsRouter } from "./events/index.js";
 import { feedRouter } from "./feed/index.js";
+import { flagsRouter } from "./flags/index.js";
 import { groupsRouter } from "./groups/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
@@ -78,6 +79,13 @@ export function registerRoutes(
   // from the request.
   v1.use("/feed", requirePublishableOrIngest);
   v1.use("/feed/*", requirePublishableOrIngest);
+  // Flags: `GET /v1/flags` is the BROWSER read (publishable OR secret-ingest).
+  // Only the bare `/flags` pattern is browser-reachable; the `/flags/evaluate`
+  // subtree is secret-only (guarded in the secret section below). Because a
+  // bare `use("/flags")` matches ONLY the exact path (not the subtree), the two
+  // tiers never overlap. Recipient scoping is server-side in
+  // `resolveFeedRecipient`, never from the request.
+  v1.use("/flags", requirePublishableOrIngest);
   // Bare `/contacts` is dual-purpose: PUT/POST = the publishable upsert;
   // DELETE = secret-only. Hono runs ALL matching `use`s, so a single guard must
   // branch by method rather than stacking two guards (which would 403 a valid
@@ -128,6 +136,11 @@ export function registerRoutes(
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
   v1.use("/contacts/find", requireApiKey, requireScope("ingest"));
+  // `POST /v1/flags/evaluate` is the SERVER SDK read — secret-only, exactly like
+  // the other secret data-plane routes. The bare `/flags` (browser GET) is
+  // guarded separately above; guard ONLY the `/evaluate` path here so the two
+  // tiers stay disjoint. A pk_ key hitting this fails `requireScope("ingest")`.
+  v1.use("/flags/evaluate", requireApiKey, requireScope("ingest"));
   // Register the email rate-limit ONCE. The wildcard pattern `/emails/*` matches
   // BOTH the bare `POST /v1/emails` and any subtree, so a single registration
   // covers the whole emails surface. Registering both bare AND wildcard with the
@@ -138,6 +151,7 @@ export function registerRoutes(
   v1.route("/contacts", contactsRouter);
   v1.route("/events", eventsRouter);
   v1.route("/feed", feedRouter);
+  v1.route("/flags", flagsRouter);
   v1.route("/emails", emailsRouter);
   v1.route("/lists", listsRouter);
   v1.route("/campaigns", campaignsRouter);

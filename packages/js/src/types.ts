@@ -4,6 +4,21 @@
  * `RealtimeTransport` interface, and the `inapp.*` event union.
  */
 
+// `@hogsend/core` is a TYPE-ONLY optional peer — we reference its augmentable
+// `FlagRegistryMap` purely to type `hogsend.flags()`/`getFlag()`; nothing here
+// is emitted at runtime. When the consumer runs `hogsend flags generate` these
+// narrow to known keys/values; UNaugmented they degrade to today's
+// `Record<string, unknown>` / `unknown` via `IsEmptyFlagRegistry`. Same
+// TS2307-under-`skipLibCheck:false` caveat as `@hogsend/client`'s email import.
+// Imported from the zero-dependency `@hogsend/core/flags-registry` subpath (NOT
+// the main entry) so a browser bundle never drags the engine/db type graph; the
+// consumer's `declare module "@hogsend/core"` augmentation still merges into
+// this same `FlagRegistryMap` interface symbol.
+import type {
+  FlagKey,
+  FlagRegistryMap,
+  IsEmptyFlagRegistry,
+} from "@hogsend/core/flags-registry";
 import type { Banner, BannerClient } from "./banner/index.js";
 import type {
   FeedClient,
@@ -89,6 +104,78 @@ export interface HogsendConfig {
    * non-campaign pageloads.
    */
   captureAttribution?: boolean;
+  /**
+   * GTM/GA4 `dataLayer` bridge. Outbound pushes every captured event to
+   * `window.dataLayer` as `hogsend.<name>`; inbound pipes an allowlist of
+   * dataLayer events into the capture spine. Both default off. See
+   * {@link DataLayerConfig}.
+   */
+  dataLayer?: DataLayerConfig;
+}
+
+/** A raw entry observed on `window.dataLayer` (best-effort typing). */
+export type DataLayerEntry = Record<string, unknown>;
+
+/** The (event, properties) an inbound dataLayer entry resolves to. */
+export interface DataLayerInbound {
+  event: string;
+  properties?: Properties;
+}
+
+/** Reshape/rename hook for inbound dataLayer entries. Return null to drop. */
+export type DataLayerMapFn = (entry: DataLayerEntry) => DataLayerInbound | null;
+
+/** Reshape an outbound entry, or return null to skip mirroring it. */
+export type DataLayerTransformFn = (
+  event: string,
+  properties: Properties,
+) => DataLayerEntry | null;
+
+/** Outbound (push) config — filter which events mirror out, and/or reshape them. */
+export interface DataLayerPushConfig {
+  /**
+   * Only mirror these event names to the dataLayer. Omit to mirror every
+   * captured event (the `push: true` behavior).
+   */
+  events?: string[];
+  /**
+   * Reshape the outbound entry (rename, flatten, add fields), or return null to
+   * skip it. Default is the namespaced `{ event: "hogsend.<name>", hogsend: … }`
+   * shape. A custom entry is still tagged internally so it can never loop back
+   * into an inbound `watch`, whatever `event` name you give it.
+   */
+  transform?: DataLayerTransformFn;
+}
+
+/** GTM/GA4 `dataLayer` bridge config. Both directions default off. */
+export interface DataLayerConfig {
+  /**
+   * Outbound: mirror SDK-captured events to `window.dataLayer`. `true` mirrors
+   * every event as `{ event: "hogsend.<name>", hogsend: { event, properties } }`;
+   * a {@link DataLayerPushConfig} object filters (`events`) and/or reshapes
+   * (`transform`). Default off. The `hogsend.` prefix on the default shape is
+   * fixed (it is also the loop guard).
+   */
+  push?: boolean | DataLayerPushConfig;
+  /** Inbound: pipe an allowlist of dataLayer events into the capture spine. */
+  watch?: {
+    /**
+     * Explicit allowlist of dataLayer `event` names to ingest — never a
+     * firehose. Consulted only when `map` is omitted; a `map` owns the decision
+     * per entry (so `events` may be omitted when you pass a `map`). `hogsend.*`
+     * / `gtm.*` are always ignored regardless.
+     */
+    events?: string[];
+    /**
+     * Optional rename/reshape. Return the (event, properties) to capture, or
+     * null to drop. When omitted, the event name passes through and only
+     * top-level SCALAR properties are copied (nested objects like GA4
+     * `ecommerce` are skipped — use `map` to pluck them).
+     */
+    map?: DataLayerMapFn;
+  };
+  /** dataLayer variable name (GTM lets you rename it). Default "dataLayer". */
+  name?: string;
 }
 
 /** Result of a single {@link Hogsend.capture}. */
@@ -195,6 +282,14 @@ export interface HogsendState {
    * drops group associations, matching PostHog).
    */
   groups: Record<string, string>;
+  /**
+   * Native feature flags: the evaluated flag map for the current identity
+   * (`GET /v1/flags`). Boolean flags → `true`; multivariate → the matched
+   * arm's value; not-matched/not-in-rollout → the flag's `defaultValue`.
+   * Seeded `{}` and refreshed on init + on identity change. Named `flags`
+   * (never `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
+   */
+  flags?: Record<string, unknown>;
   /** Keyed by feedId (v2). */
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
@@ -235,6 +330,12 @@ export interface BannerSliceState {
 export interface Hogsend {
   // ── identity ──
   identify(userId: string, traits?: Properties): Promise<void>;
+  /**
+   * Apply a late-arriving signed `userToken` (host session minted it after this
+   * client was constructed) without a remount. Sets the token and re-fetches
+   * connected feeds so the bell re-authenticates as the bound recipient.
+   */
+  setUserToken(userToken: string): void;
   /** Known userId, else the persisted anon id. */
   getDistinctId(): string;
   /** Canonical key from the last 202 (for `posthog.identify`, zero PII). */
@@ -256,6 +357,25 @@ export interface Hogsend {
   resetGroups(): void;
   /** Read the current group associations (`groupType → groupKey`). */
   getGroups(): Record<string, string>;
+
+  // ── native feature flags ──
+  /**
+   * The evaluated feature-flag map for the current identity, read from the
+   * reactive `flags` slice (`GET /v1/flags`, refreshed on init + on identity
+   * change). `{}` until the first fetch resolves. Named `flags` (not
+   * `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
+   */
+  flags: IsEmptyFlagRegistry extends true
+    ? () => Record<string, unknown>
+    : () => { [K in FlagKey]: FlagRegistryMap[K] | undefined };
+  /**
+   * A single flag's evaluated value, or `undefined` until the first fetch
+   * resolves (or when the flag does not exist). A boolean flag reads `true`
+   * when on; a multivariate flag reads its matched arm's value.
+   */
+  getFlag: IsEmptyFlagRegistry extends true
+    ? (key: string) => unknown
+    : <K extends FlagKey>(key: K) => FlagRegistryMap[K] | undefined;
 
   // ── the spine (single telemetry path) ──
   capture(

@@ -97,6 +97,10 @@ await sendBanner({
 
 `sendBanner` is a thin wrapper over `sendFeedItem` that pins `type: "banner"` and `category: "banner:<slot>"`. Same result shape (`SendFeedItemResult`). Banner priority is read from `metadata.priority`.
 
+## Bridging existing GTM events
+
+If the site already runs Google Tag Manager, the [dataLayer bridge](./datalayer) pipes an allowlist of existing `window.dataLayer` events (`sign_up`, `purchase`, …) into this same `POST /v1/events` pipeline — so instrumentation you already have can trigger journeys with no new page code — and can mirror every captured event back out to GTM as `hogsend.<name>`.
+
 ## Closing the loop
 
 A client interaction emits an event; a journey triggers on it; the journey sends the next in-app message. This journey reacts to a feed click:

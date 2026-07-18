@@ -11,6 +11,7 @@
     "worker:dev": "tsx watch --env-file=.env src/worker.ts",
     "discord:worker": "node dist/discord-worker.js",
     "discord:dev": "tsx watch --env-file=.env src/discord-worker.ts",
+    "flags:generate": "tsx ../../packages/cli/src/bin.ts flags generate",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

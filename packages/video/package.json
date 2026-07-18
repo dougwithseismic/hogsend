@@ -1,0 +1,83 @@
+{
+  "name": "@hogsend/video",
+  "version": "0.46.1",
+  "type": "module",
+  "license": "MIT",
+  "description": "Standalone analytics-first video player: normalized watch-depth events (YouTube, Vimeo, HTML5) with a pluggable emitter for any analytics backend.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/video"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./youtube": {
+      "types": "./dist/youtube.d.ts",
+      "import": "./dist/youtube.js",
+      "require": "./dist/youtube.cjs"
+    },
+    "./vimeo": {
+      "types": "./dist/vimeo.d.ts",
+      "import": "./dist/vimeo.js",
+      "require": "./dist/vimeo.cjs"
+    },
+    "./html5": {
+      "types": "./dist/html5.d.ts",
+      "import": "./dist/html5.js",
+      "require": "./dist/html5.cjs"
+    },
+    "./hogsend": {
+      "types": "./dist/hogsend.d.ts",
+      "import": "./dist/hogsend.js",
+      "require": "./dist/hogsend.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsup",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "clean": "rm -rf node_modules dist .turbo",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/react": "^19.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

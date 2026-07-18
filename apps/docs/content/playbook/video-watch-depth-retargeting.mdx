@@ -52,9 +52,26 @@ hand raised.
 
 ## Ship it with Hogsend
 
-Wire the player's progress into events (`video.progress` with a percentage,
-`video.completed` at the end), send them through the same endpoint as the
-rest of your tracking, and let the journey watch for the second deep watch:
+The player side is one component:
+[`@hogsend/video`](/docs/client-side/video) wraps YouTube, Vimeo, or a
+native `<video>` and emits `video.progress` (at 25/50/75/90%, with
+`percentWatched`) and `video.completed` through the same endpoint as the
+rest of your tracking — the emitter takes any capture-shaped function, so
+it also feeds PostHog or GA4 directly if that's where your ad audiences
+live:
+
+```tsx
+import { VideoPlayer } from "@hogsend/video/react";
+import { createHogsendEmitter } from "@hogsend/video/hogsend";
+
+<VideoPlayer
+  src={{ youtube: "your-demo-id" }}
+  title="Product demo"
+  emitter={createHogsendEmitter({ capture: hogsend.capture })}
+/>;
+```
+
+Then let the journey watch for the second deep watch:
 
 ```ts
 import { days, defineJourney, sendEmail } from "@hogsend/engine";

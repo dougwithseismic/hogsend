@@ -21,6 +21,7 @@ import {
   toBanner,
 } from "./banner/index.js";
 import { resolveConfig } from "./config.js";
+import { startDataLayerBridge } from "./datalayer/index.js";
 import type {
   FeedClient,
   FeedFetchOptions,
@@ -29,6 +30,7 @@ import type {
   FeedStore,
 } from "./feed/index.js";
 import { createFeedClient, createFeedStore } from "./feed/index.js";
+import { createFlagsClient } from "./flags/index.js";
 import { createIdentityStore } from "./identity/identity-store.js";
 import { resolveStorage } from "./identity/storage.js";
 import { createPreferencesClient } from "./preferences/index.js";
@@ -64,6 +66,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const store = createStore<HogsendState>({
     identity: EMPTY_IDENTITY,
     groups: {},
+    flags: {},
   });
 
   const identity = createIdentityStore({
@@ -94,11 +97,22 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     ...(resolved.fetch ? { fetch: resolved.fetch } : {}),
   });
 
+  // The dataLayer bridge (built after the spine) installs this outbound tap so
+  // every captured event can be mirrored onto window.dataLayer. The onCapture
+  // hook is wired only when OUTBOUND mirroring is configured (`dataLayer.push`),
+  // so every other capture path — including inbound-only `watch` — carries zero
+  // bridge overhead.
+  let outboundTap:
+    | ((event: string, properties: Properties) => void)
+    | undefined;
   const spine: EventSpine = createEventSpine({
     transport,
     identity,
     flushOnUnload: resolved.flushOnUnload,
     getGroups: () => store.getSnapshot().groups,
+    ...(resolved.dataLayer?.push
+      ? { onCapture: (event, properties) => outboundTap?.(event, properties) }
+      : {}),
   });
 
   const preferencesClient: PreferencesClient = createPreferencesClient({
@@ -107,6 +121,14 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     identity,
     store,
   });
+
+  // Native feature flags — evaluated server-side for the resolved identity and
+  // written into the reactive `flags` slice. Fetch on init and re-fetch on
+  // identity change (the resolved `distinctId` flips on identify()/reset()),
+  // mirroring how the feed slice refreshes for the current recipient.
+  const flagsClient = createFlagsClient({ transport, identity, store });
+  void flagsClient.refresh();
+  let lastFlagsDistinctId = store.getSnapshot().identity.distinctId;
 
   // One feed-store + feed-client per feedId (so React's useMemo over feed() is
   // stable and realtime pipes into the SAME slice the client reads).
@@ -205,6 +227,24 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const channels = new Map<string, RealtimeChannel>();
   const unsubs: Array<() => void> = [];
 
+  // Re-evaluate flags when the resolved identity changes (guarded on
+  // `distinctId` so unrelated store mutations — feed/group/preference writes —
+  // never trigger a refetch). Torn down with the other subscriptions.
+  unsubs.push(
+    store.subscribe(() => {
+      const id = store.getSnapshot().identity.distinctId;
+      if (id !== lastFlagsDistinctId) {
+        lastFlagsDistinctId = id;
+        // Clear synchronously the instant identity flips so the previous
+        // user's flags are never readable during the in-flight refetch (or
+        // after it, should the refetch fail), then re-evaluate for the new
+        // identity.
+        flagsClient.clear();
+        void flagsClient.refresh();
+      }
+    }),
+  );
+
   const HS_REF_PARAM = "hs_ref";
   // Grace window for a late-arriving userToken before an auto-captured ref is
   // sent at the anon tier. The engine's stamp is first-write-wins, so sending
@@ -290,6 +330,23 @@ export function createHogsend(config: HogsendConfig): Hogsend {
         void sendRef(ref);
       }
     }, 100);
+  }
+
+  // ── GTM/GA4 dataLayer bridge (opt-in; both directions default off) ──
+  // Armed before the init auto-captures so an outbound `campaign.arrived`
+  // mirror is not missed, and any pre-existing dataLayer entries replay in.
+  if (resolved.dataLayer) {
+    unsubs.push(
+      startDataLayerBridge({
+        config: resolved.dataLayer,
+        capture: (event, properties) => {
+          void spine.capture(event, properties);
+        },
+        registerOutbound: (tap) => {
+          outboundTap = tap;
+        },
+      }),
+    );
   }
 
   // Auto-capture on init (default on; inert when the URL carries no hs_ref).
@@ -384,8 +441,24 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     });
   }
 
+  /**
+   * Apply a late-arriving signed `userToken` WITHOUT rebuilding the client —
+   * for a host whose session mints the token after the anonymous client is
+   * already constructed. Re-fetches every already-connected feed so the bell
+   * re-authenticates as the now-identified recipient (banners + captures pick
+   * the new token up on their next request, which reads it at call time). This
+   * is what lets `<HogsendProvider>` react to a `userToken` prop change instead
+   * of remounting its whole subtree.
+   */
+  function setUserToken(userToken: string): void {
+    identity.setUserToken(userToken);
+    for (const fc of feedClients.values()) void fc.refetch();
+    for (const bc of bannerClients.values()) void bc.list();
+  }
+
   return {
     identify,
+    setUserToken,
     getDistinctId: () => identity.getDistinctId(),
     getContactKey: () => identity.getContactKey(),
     isIdentified: () => identity.isIdentified(),
@@ -393,11 +466,21 @@ export function createHogsend(config: HogsendConfig): Hogsend {
       identity.reset();
       // PostHog parity: an identity reset drops group associations too.
       resetGroups();
+      // Logout WITHOUT a client rebuild (the provider no longer remounts): the
+      // previous recipient's feed/banner items must not linger in the now-anon
+      // session. Clear every slice (emits immediately → the bell empties), then
+      // re-fetch connected feeds as anon so the badge reflects the new identity.
+      for (const fs of feedStores.values()) fs.clear();
+      for (const bs of bannerStores.values()) bs.clear();
+      for (const fc of feedClients.values()) void fc.refetch();
     },
 
     group,
     resetGroups,
     getGroups,
+
+    flags: () => flagsClient.getAll(),
+    getFlag: (key) => flagsClient.getFlag(key),
 
     capture: (event, properties, opts) =>
       spine.capture(event, properties, opts),

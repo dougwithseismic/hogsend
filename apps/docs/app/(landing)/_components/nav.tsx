@@ -36,7 +36,14 @@ const FLAT_LINKS = [
 const TRIGGER_CLASS =
   "font-medium text-white text-sm tracking-[-0.025em] transition-opacity hover:opacity-70";
 
-export function PsNav({ fixed = false }: { fixed?: boolean }) {
+export function PsNav({
+  fixed = false,
+  glass = false,
+}: {
+  fixed?: boolean;
+  /** Deep-translucent bar for the day-field hero, so the vista reads through. */
+  glass?: boolean;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Close the mobile panel on Escape for keyboard accessibility.
@@ -52,7 +59,10 @@ export function PsNav({ fixed = false }: { fixed?: boolean }) {
   return (
     <header
       className={cn(
-        "z-50 border-[#f6483833] border-b bg-[#050101]/85 backdrop-blur",
+        "z-50 border-b backdrop-blur",
+        glass
+          ? "border-white/10 bg-[#050101]/35 backdrop-blur-xl"
+          : "border-[#f6483833] bg-[#050101]/85",
         // Homepage: sticky in flow. Interior marketing pages: fixed below the
         // announcement banner (its height drives --fd-banner-height).
         fixed

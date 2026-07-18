@@ -151,7 +151,9 @@ type PartialFeedItem = Partial<FeedItem> &
  * `Record<string, string>` is assignable to {@link Query}, so one helper
  * serves both the listQuery spread and the mark/mark-all body spread.
  */
-function identityParams(identity: IdentityStore): Record<string, string> {
+export function identityParams(
+  identity: IdentityStore,
+): Record<string, string> {
   const userToken = identity.getUserToken();
   const userId = identity.getUserId();
   if (userId && userToken) return { userToken };
@@ -275,6 +277,14 @@ export function createFeedStore(store: Store<HogsendState>, feedId: string) {
       const byId: Record<string, FeedItem> = {};
       for (const item of items) byId[item.id] = item;
       write({ byId, order: items.map((i) => i.id), pageInfo, metadata });
+      emitItems();
+      emitMeta();
+    },
+
+    /** Logout: drop the whole slice so a signed-out viewer can't keep reading
+     *  the previous recipient's items, and notify subscribers immediately. */
+    clear(): void {
+      write(emptySlice());
       emitItems();
       emitMeta();
     },

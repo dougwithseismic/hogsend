@@ -10,6 +10,20 @@
 // WITHOUT the optional @hogsend/email peer AND type-checks with
 // `skipLibCheck: false` gets TS2307 from this line. Install the peer (even just
 // for types) or keep `skipLibCheck: true` (the common default). See README.
+
+// `@hogsend/core` is likewise a TYPE-ONLY optional peer — we reference its
+// augmentable `FlagRegistryMap` purely to type `flags.evaluate`'s returned map;
+// nothing here is emitted at runtime. Imported from the zero-dependency
+// `@hogsend/core/flags-registry` subpath (NOT the main entry) so the client's
+// type graph never drags the engine/db; the consumer's
+// `declare module "@hogsend/core"` augmentation still merges into this same
+// `FlagRegistryMap` interface symbol. Same TS2307-under-`skipLibCheck:false`
+// caveat as `@hogsend/email` above: install the peer (even just for types) or
+// keep `skipLibCheck: true`.
+import type {
+  FlagRegistryMap,
+  IsEmptyFlagRegistry,
+} from "@hogsend/core/flags-registry";
 import type { TemplateRegistryMap } from "@hogsend/email";
 
 // ---------------------------------------------------------------------------
@@ -276,6 +290,137 @@ export interface ListGroupMembersInput {
   /** Page size, 1–200 (server default 50). */
   limit?: number;
   offset?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Flags — native, DB-backed feature flags (the sovereign flag data plane).
+// `flags.evaluate` is the SECRET-KEY server read (POST /v1/flags/evaluate);
+// `list`/`create`/`update`/`archive` hit the admin plane (`/v1/admin/flags`)
+// and REQUIRE a full-admin `apiKey`. Evaluation is STICKY by construction (a
+// deterministic hash of contactKey+flagKey) — there is no per-user assignment.
+// Wire types mirror `@hogsend/core`'s `FlagDefinition`/`FlagVariant` but keep
+// date columns as ISO strings (the server serializes `Date` via `.toISOString`)
+// so the SDK stays dependency-light, exactly like the groups resource above.
+// ---------------------------------------------------------------------------
+
+/** The two shapes a flag can serve. */
+export type FlagType = "boolean" | "multivariate";
+
+/**
+ * One multivariate arm: a keyed value served to a `weight`-sized slice of the
+ * rollout (weights are relative — the engine normalizes by their cumulative
+ * sum). Empty for a boolean flag.
+ */
+export interface FlagVariant {
+  key: string;
+  value: unknown;
+  weight: number;
+}
+
+/**
+ * A single targeting predicate — the shared `PropertyCondition` vocabulary
+ * (`@hogsend/core`). Empty targeting means everyone matches.
+ */
+export interface FlagTargetingCondition {
+  type: "property";
+  operator:
+    | "eq"
+    | "neq"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "exists"
+    | "not_exists"
+    | "contains";
+  property: string;
+  value?: string | number | boolean;
+}
+
+/** A flag as returned by the admin plane (`/v1/admin/flags`). */
+export interface Flag {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  /** Master switch: a disabled flag always serves `defaultValue`. */
+  enabled: boolean;
+  type: FlagType;
+  variants: FlagVariant[];
+  /** Served when disabled, targeting fails, or outside the rollout slice. */
+  defaultValue: unknown;
+  targeting: FlagTargetingCondition[];
+  /** Percent (0-100) of the targeted audience eligible for a non-default value. */
+  rollout: number;
+  /** Provenance seam for deferred provider sync — "native" today. */
+  origin: string;
+  // ISO strings (the server serializes `Date` columns via `.toISOString()`).
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The evaluated flag map: flag key → served value (a boolean flag "on" → `true`;
+ * multivariate → the arm's `value`; not-matched / not-in-rollout → the flag's
+ * `defaultValue`).
+ *
+ * When the consumer runs `hogsend flags generate` (augmenting `FlagRegistryMap`
+ * in `@hogsend/core`), this narrows to the fully-keyed served-value map. Each
+ * value is `| undefined`: the server evaluates only ENABLED flags, and every
+ * code-defined flag is BORN DISABLED (rollout 0) until an operator turns it on,
+ * so a freshly-shipped flag's key is ABSENT from the map and reads `undefined`
+ * — matching the `js`/`react` surfaces (`getFlag`/`useFlag` are `| undefined`).
+ * UNaugmented it degrades to today's `Record<string, unknown>` via
+ * {@link IsEmptyFlagRegistry}, the SAME probe {@link SendEmailInput} uses against
+ * the email registry. `@hogsend/core` is a TYPE-ONLY dependency (mirrors the
+ * `@hogsend/email` import) — fully erased at runtime.
+ */
+export type FlagMap = IsEmptyFlagRegistry extends true
+  ? Record<string, unknown>
+  : { [K in keyof FlagRegistryMap]: FlagRegistryMap[K] | undefined };
+
+/**
+ * Input to `flags.evaluate`. The canonical contact key is resolved
+ * server-trusted from `userId` (external id) OR `email`.
+ */
+export type EvaluateFlagsInput = { userId: string } | { email: string };
+
+/**
+ * Input to `flags.create` (POST /v1/admin/flags). `key`/`name`/`type` are
+ * required; everything else has a server-side default and may be omitted.
+ */
+export interface CreateFlagInput {
+  key: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  type: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  /** Integer percent 0-100. */
+  rollout?: number;
+}
+
+/**
+ * Input to `flags.update` (PATCH /v1/admin/flags/{id}). Every field is optional
+ * — `key` is immutable (omitted) and archive is a distinct route.
+ */
+export interface UpdateFlagInput {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  type?: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  rollout?: number;
+}
+
+/** Result of `flags.archive` (soft-delete; `archived` is false for an unknown flag). */
+export interface ArchiveFlagResult {
+  archived: boolean;
 }
 
 // ---------------------------------------------------------------------------

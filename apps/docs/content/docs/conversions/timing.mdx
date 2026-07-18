@@ -1,0 +1,82 @@
+---
+title: Conversion timing
+description: How long after a journey enrollment or an event your conversions actually fire — median and 90th-percentile time-to-convert, and the share that convert within 1, 7, 14, and 30 days.
+---
+
+Every conversion Hogsend records already carries the instant it fired. Conversion timing reads that back: pick a conversion point, anchor each contact on a journey enrollment or an event, and see how long after the anchor the conversion lands. It answers the two questions a lifecycle owner asks before trusting any funnel number — *how many convert, and how long do I wait before I know?*
+
+Open it in **Studio → Deals → Timing**. Nothing to wire: it reads the conversions you already fire.
+
+## What it measures
+
+Each contact is a **subject**, anchored at one instant:
+
+- **Journey** — the subject is one enrollment; the anchor is the moment they entered the journey.
+- **Event** — the subject is a contact; the anchor is the first time they emitted the event in the window.
+
+For every subject, timing finds the **first** firing of the chosen conversion at or after the anchor, and reports the spread:
+
+- **Conversion rate** — subjects that converted ÷ subjects anchored.
+- **Median time** — days from anchor to first conversion, among converters.
+- **90th percentile** — the day by which 9 in 10 converters have landed. This is the honest "how long to wait" number.
+- **Converted within** — the cumulative share that had converted by day 1, 7, 14, and 30.
+
+The window is the last 90 days of anchors.
+
+<Callout type="info">
+  **Correlational, not causal.** Anchoring on an enrollment or an event self-selects engaged contacts — people already moving through your funnel — so a fast, high rate here is association, not proof the journey caused it. For the causal read, use a holdout: see [Impact](/docs/conversions/impact).
+</Callout>
+
+## Why the 90th percentile matters
+
+It sets your patience. If P90 is 18 days, a journey judged at day 7 is judged on a third of its eventual conversions — the arms of an experiment, the lift of a nudge, the "did it work" of a send all look worse than they are until the tail lands. Read P90 first, then set your evaluation window past it.
+
+It is also the number a future automatic optimizer would consume: to decide a winner you need to know when the votes are in, and that is exactly the conversion tail this surfaces.
+
+## Reference
+
+### `GET /v1/admin/conversions/timing`
+
+Requires an admin session (the same auth as the rest of Studio). Returns the distribution for one conversion definition against one anchor.
+
+| Query param | Type | Required | Description |
+|---|---|---|---|
+| `definitionId` | string | yes | The `defineConversion` id to measure (e.g. `deal-sold`). |
+| `anchorType` | `journey` \| `event` | yes | Anchor each subject on a journey enrollment or an event. |
+| `anchorId` | string | yes | The journey id (when `journey`) or the event name (when `event`). |
+| `days` | number | no | Anchor window, 1–365. Defaults to `90`. |
+
+```json title="200 response"
+{
+  "definitionId": "deal-sold",
+  "anchor": { "type": "journey", "id": "trial-upgrade" },
+  "days": 90,
+  "anchored": 1240,
+  "converted": 310,
+  "rate": 0.25,
+  "convertedWithin": { "d1": 41, "d7": 168, "d14": 245, "d30": 300 },
+  "medianDays": 6.2,
+  "p90Days": 21.4,
+  "correlational": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `anchored` | number | Subjects anchored in the window (the denominator). |
+| `converted` | number | Subjects that fired the conversion at or after their anchor. |
+| `rate` | number | `converted / anchored` — `0` when nobody anchored. |
+| `convertedWithin` | object | Cumulative counts converted by day 1 / 7 / 14 / 30. |
+| `medianDays` | number \| null | Median days anchor → first conversion; `null` when no converters. |
+| `p90Days` | number \| null | 90th-percentile days; `null` when no converters. |
+| `correlational` | `true` | Always true — a standing reminder these are association, not lift. |
+
+```bash
+curl "http://localhost:3002/v1/admin/conversions/timing?definitionId=deal-sold&anchorType=event&anchorId=signed_up&days=90" \
+  -H "Cookie: $HOGSEND_ADMIN_SESSION"
+```
+
+<Cards>
+  <Card title="Impact: attribution in your first week" href="/docs/conversions/impact" />
+  <Card title="Conversions & ad platforms" href="/docs/conversions" />
+</Cards>

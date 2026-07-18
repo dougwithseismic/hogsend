@@ -1,5 +1,8 @@
 import type { env as engineEnv } from "../../env.js";
-import { webhookSourceToConnector } from "../../webhook-sources/define-webhook-source.js";
+import {
+  type DefinedWebhookSource,
+  webhookSourceToConnector,
+} from "../../webhook-sources/define-webhook-source.js";
 import {
   PRESET_SOURCES,
   presetsFromEnv,
@@ -14,7 +17,10 @@ import type { DefinedConnector } from "../define-connector.js";
  */
 export const PRESET_CONNECTORS: Record<string, DefinedConnector> =
   Object.fromEntries(
-    Object.values(PRESET_SOURCES).map((s) => [
+    // The registry is heterogeneous (`satisfies Record<string,
+    // DefinedWebhookSource>`); consume it at that declared type so a new preset
+    // whose payload shape diverges can't break union-inference on the lift.
+    (Object.values(PRESET_SOURCES) as DefinedWebhookSource[]).map((s) => [
       s.meta.id,
       webhookSourceToConnector(s),
     ]),

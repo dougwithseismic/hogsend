@@ -39,6 +39,12 @@ export type {
   FeedPageInfo,
   MarkState,
 } from "./feed/index.js";
+export type {
+  FlagsClient,
+  FlagsClientOptions,
+  FlagsMap,
+} from "./flags/index.js";
+export { createFlagsClient } from "./flags/index.js";
 export {
   createLocalStorage,
   createMemoryStorage,
@@ -72,6 +78,12 @@ export type {
   CaptureOptions,
   CaptureResult,
   ColorMode,
+  DataLayerConfig,
+  DataLayerEntry,
+  DataLayerInbound,
+  DataLayerMapFn,
+  DataLayerPushConfig,
+  DataLayerTransformFn,
   FeedSliceState,
   Hogsend,
   HogsendConfig,
