@@ -5,7 +5,7 @@ import { PsNav } from "@/app/(landing)/_components/nav";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { CopyButton } from "@/components/ds/copy-button";
 import { LogoMarquee } from "@/components/ds/marquee";
-import { HalftoneOverlay, ThermalHover } from "@/components/ds/thermal";
+import { ThermalHover } from "@/components/ds/thermal";
 import { cn } from "@/lib/cn";
 import { FieldStage } from "../dayfield-shared";
 import { getFieldConfig } from "../field-config";
@@ -59,17 +59,6 @@ export function DayfieldHeroSection({
         initialHour={initialHour}
         controls={controls}
       >
-        {/* Halftone dot-screen riding the vista's sky-light — the print
-            texture from the thermal hero, remasked to a soft radial anchored
-            near the top of the frame (where the sun lives) and blended
-            soft-light so it grains the lit sky and dissolves into the dark
-            foreground rather than washing the whole scene. */}
-        <HalftoneOverlay
-          className="z-10 opacity-[0.3]"
-          blend="soft-light"
-          size={6}
-          mask="radial-gradient(125% 85% at 50% 10%, black 0%, rgba(0,0,0,0.6) 40%, transparent 66%)"
-        />
         {/* centered hero column — reserve room for the day-arc bar only when
             the preview scrubber is actually shown; for a normal visitor that
             row is hidden, so we drop the gap and let the works-with strip sit
