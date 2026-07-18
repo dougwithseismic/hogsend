@@ -20,6 +20,7 @@ export * from "./email-preferences.js";
 export * from "./email-sends.js";
 export * from "./enums.js";
 export * from "./feed-items.js";
+export * from "./flags.js";
 export * from "./funnel-progress.js";
 export * from "./fx-rates.js";
 export * from "./group-memberships.js";

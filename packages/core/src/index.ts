@@ -47,6 +47,7 @@ export {
   RESERVED_EVENT_NAME_RE,
   RESERVED_EVENT_NAMESPACES,
 } from "./events.js";
+export * from "./flags/index.js";
 export * from "./journey-graph/index.js";
 export {
   buildLeadSubmission,

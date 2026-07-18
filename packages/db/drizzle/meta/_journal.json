@@ -421,6 +421,13 @@
       "when": 1784056337769,
       "tag": "0059_smooth_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1784362870655,
+      "tag": "0060_puzzling_lake",
+      "breakpoints": true
     }
   ]
 }
