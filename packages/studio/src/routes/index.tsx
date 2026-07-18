@@ -11,6 +11,7 @@ import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
 import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
+import { FlagsView } from "@/views/flags-view";
 import { GroupDetailView } from "@/views/group-detail-view";
 import { GroupsView } from "@/views/groups-view";
 import { IntegrationsView } from "@/views/integrations-view";
@@ -115,6 +116,12 @@ const blueprintDetailRoute = createRoute({
   },
 });
 
+const flagsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/flags",
+  component: FlagsView,
+});
+
 const bucketsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/buckets",
@@ -181,6 +188,7 @@ const routeTree = rootRoute.addChildren([
   journeysRoute,
   journeyDetailRoute,
   blueprintDetailRoute,
+  flagsRoute,
   bucketsRoute,
   groupsRoute,
   groupDetailRoute,

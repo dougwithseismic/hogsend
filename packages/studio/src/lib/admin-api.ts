@@ -1803,6 +1803,108 @@ export function cancelCampaign(id: string) {
   );
 }
 
+// --- Flags (native feature flags — OPERATOR-editable) --------------------
+
+/**
+ * One multivariate arm of a flag. `value` is any JSON (the served value);
+ * `weight` is a non-negative relative number (the engine normalizes by the
+ * cumulative sum). Empty for a boolean flag.
+ */
+export type FlagVariant = {
+  key: string;
+  value: unknown;
+  weight: number;
+};
+
+/**
+ * One targeting predicate — the shared PropertyCondition vocabulary (a flag
+ * reuses it rather than inventing a condition type). Loosely typed here (like
+ * `JourneyCondition`): the view renders it as a chip and round-trips it as JSON.
+ */
+export type FlagTargetingCondition = {
+  type: "property";
+  property: string;
+  operator: string;
+  value?: string | number | boolean;
+};
+
+export type FlagType = "boolean" | "multivariate";
+
+/**
+ * One row of `GET /v1/admin/flags` — a native, DB-backed feature flag. Mirrors
+ * the engine flag schema (routes/admin/flags.ts). Unlike observe-only groups
+ * and buckets, flags are OPERATOR-editable from Studio: toggling `enabled` or
+ * editing the `rollout`/targeting takes effect without a redeploy — that live
+ * switch is the whole point. `defaultValue` is served when the flag is disabled,
+ * targeting fails, or the contact is outside the rollout slice.
+ */
+export type Flag = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  type: FlagType;
+  variants: FlagVariant[];
+  defaultValue: unknown;
+  targeting: FlagTargetingCondition[];
+  rollout: number;
+  /** Provenance seam ("native" today). */
+  origin: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function listFlags(includeArchived = false) {
+  return api.get<{ flags: Flag[] }>("/v1/admin/flags", {
+    query: { includeArchived: includeArchived ? "true" : undefined },
+  });
+}
+
+/** `key`/`name`/`type` are required; everything else has a table-level default. */
+export type FlagCreateBody = {
+  key: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  type: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  rollout?: number;
+};
+
+export function createFlag(body: FlagCreateBody) {
+  return api.post<{ flag: Flag }>("/v1/admin/flags", { json: body });
+}
+
+/** Every field optional — `key` is immutable and deliberately omitted. */
+export type FlagUpdateBody = {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  type?: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  rollout?: number;
+};
+
+export function updateFlag(id: string, body: FlagUpdateBody) {
+  return api.patch<{ flag: Flag }>(
+    `/v1/admin/flags/${encodeURIComponent(id)}`,
+    { json: body },
+  );
+}
+
+/** Archive (soft-delete) a flag — frees its key for reuse. */
+export function archiveFlag(id: string) {
+  return api.delete<{ archived: boolean }>(
+    `/v1/admin/flags/${encodeURIComponent(id)}`,
+  );
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -1857,6 +1959,7 @@ export const qk = {
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,
+  flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
   dealsStats: (funnel?: string) => ["deals-stats", funnel ?? null] as const,
   dealsTimeseries: (days: number, funnel?: string) =>

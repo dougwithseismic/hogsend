@@ -279,6 +279,124 @@ export interface ListGroupMembersInput {
 }
 
 // ---------------------------------------------------------------------------
+// Flags — native, DB-backed feature flags (the sovereign flag data plane).
+// `flags.evaluate` is the SECRET-KEY server read (POST /v1/flags/evaluate);
+// `list`/`create`/`update`/`archive` hit the admin plane (`/v1/admin/flags`)
+// and REQUIRE a full-admin `apiKey`. Evaluation is STICKY by construction (a
+// deterministic hash of contactKey+flagKey) — there is no per-user assignment.
+// Wire types mirror `@hogsend/core`'s `FlagDefinition`/`FlagVariant` but keep
+// date columns as ISO strings (the server serializes `Date` via `.toISOString`)
+// so the SDK stays dependency-light, exactly like the groups resource above.
+// ---------------------------------------------------------------------------
+
+/** The two shapes a flag can serve. */
+export type FlagType = "boolean" | "multivariate";
+
+/**
+ * One multivariate arm: a keyed value served to a `weight`-sized slice of the
+ * rollout (weights are relative — the engine normalizes by their cumulative
+ * sum). Empty for a boolean flag.
+ */
+export interface FlagVariant {
+  key: string;
+  value: unknown;
+  weight: number;
+}
+
+/**
+ * A single targeting predicate — the shared `PropertyCondition` vocabulary
+ * (`@hogsend/core`). Empty targeting means everyone matches.
+ */
+export interface FlagTargetingCondition {
+  type: "property";
+  operator:
+    | "eq"
+    | "neq"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "exists"
+    | "not_exists"
+    | "contains";
+  property: string;
+  value?: string | number | boolean;
+}
+
+/** A flag as returned by the admin plane (`/v1/admin/flags`). */
+export interface Flag {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  /** Master switch: a disabled flag always serves `defaultValue`. */
+  enabled: boolean;
+  type: FlagType;
+  variants: FlagVariant[];
+  /** Served when disabled, targeting fails, or outside the rollout slice. */
+  defaultValue: unknown;
+  targeting: FlagTargetingCondition[];
+  /** Percent (0-100) of the targeted audience eligible for a non-default value. */
+  rollout: number;
+  /** Provenance seam for deferred provider sync — "native" today. */
+  origin: string;
+  // ISO strings (the server serializes `Date` columns via `.toISOString()`).
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The evaluated flag map: flag key → served value (a boolean flag "on" → `true`;
+ * multivariate → the arm's `value`; not-matched / not-in-rollout → the flag's
+ * `defaultValue`).
+ */
+export type FlagMap = Record<string, unknown>;
+
+/**
+ * Input to `flags.evaluate`. The canonical contact key is resolved
+ * server-trusted from `userId` (external id) OR `email`.
+ */
+export type EvaluateFlagsInput = { userId: string } | { email: string };
+
+/**
+ * Input to `flags.create` (POST /v1/admin/flags). `key`/`name`/`type` are
+ * required; everything else has a server-side default and may be omitted.
+ */
+export interface CreateFlagInput {
+  key: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  type: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  /** Integer percent 0-100. */
+  rollout?: number;
+}
+
+/**
+ * Input to `flags.update` (PATCH /v1/admin/flags/{id}). Every field is optional
+ * — `key` is immutable (omitted) and archive is a distinct route.
+ */
+export interface UpdateFlagInput {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  type?: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargetingCondition[];
+  rollout?: number;
+}
+
+/** Result of `flags.archive` (soft-delete; `archived` is false for an unknown flag). */
+export interface ArchiveFlagResult {
+  archived: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Resource inputs
 // ---------------------------------------------------------------------------
 

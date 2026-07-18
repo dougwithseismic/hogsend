@@ -30,6 +30,7 @@ import type {
   FeedStore,
 } from "./feed/index.js";
 import { createFeedClient, createFeedStore } from "./feed/index.js";
+import { createFlagsClient } from "./flags/index.js";
 import { createIdentityStore } from "./identity/identity-store.js";
 import { resolveStorage } from "./identity/storage.js";
 import { createPreferencesClient } from "./preferences/index.js";
@@ -65,6 +66,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const store = createStore<HogsendState>({
     identity: EMPTY_IDENTITY,
     groups: {},
+    flags: {},
   });
 
   const identity = createIdentityStore({
@@ -119,6 +121,14 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     identity,
     store,
   });
+
+  // Native feature flags — evaluated server-side for the resolved identity and
+  // written into the reactive `flags` slice. Fetch on init and re-fetch on
+  // identity change (the resolved `distinctId` flips on identify()/reset()),
+  // mirroring how the feed slice refreshes for the current recipient.
+  const flagsClient = createFlagsClient({ transport, identity, store });
+  void flagsClient.refresh();
+  let lastFlagsDistinctId = store.getSnapshot().identity.distinctId;
 
   // One feed-store + feed-client per feedId (so React's useMemo over feed() is
   // stable and realtime pipes into the SAME slice the client reads).
@@ -216,6 +226,24 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
   const channels = new Map<string, RealtimeChannel>();
   const unsubs: Array<() => void> = [];
+
+  // Re-evaluate flags when the resolved identity changes (guarded on
+  // `distinctId` so unrelated store mutations — feed/group/preference writes —
+  // never trigger a refetch). Torn down with the other subscriptions.
+  unsubs.push(
+    store.subscribe(() => {
+      const id = store.getSnapshot().identity.distinctId;
+      if (id !== lastFlagsDistinctId) {
+        lastFlagsDistinctId = id;
+        // Clear synchronously the instant identity flips so the previous
+        // user's flags are never readable during the in-flight refetch (or
+        // after it, should the refetch fail), then re-evaluate for the new
+        // identity.
+        flagsClient.clear();
+        void flagsClient.refresh();
+      }
+    }),
+  );
 
   const HS_REF_PARAM = "hs_ref";
   // Grace window for a late-arriving userToken before an auto-captured ref is
@@ -427,6 +455,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     group,
     resetGroups,
     getGroups,
+
+    flags: () => flagsClient.getAll(),
+    getFlag: (key) => flagsClient.getFlag(key),
 
     capture: (event, properties, opts) =>
       spine.capture(event, properties, opts),
