@@ -8,6 +8,15 @@ import { evaluatePropertyCondition } from "./property.js";
 export interface ConditionContext {
   db: Database;
   userId: string;
+  /**
+   * The contact's email, for `email_engagement` leaves (they look up
+   * `email_sends.to_email`, which is an address — NOT `userId`, which is the
+   * contactKey external_id/anonymous_id/id). When omitted the evaluator falls
+   * back to `userId` for backward-compat with callers that pre-date this field;
+   * pass it explicitly (even `null`) on any path that evaluates
+   * `email_engagement` for a non-email `userId` (e.g. flag targeting).
+   */
+  email?: string | null;
   journeyContext: Record<string, unknown>;
 }
 

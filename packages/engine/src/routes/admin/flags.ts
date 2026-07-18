@@ -1,6 +1,10 @@
 import {
+  type ConditionSet,
+  type FlagCreateInput,
   type FlagTargeting,
+  type FlagUpdateInput,
   type FlagVariant,
+  flagConditionSetSchema,
   flagCreateSchema,
   flagTargetingSchema,
   flagUpdateSchema,
@@ -35,13 +39,46 @@ const flagSchema = z.object({
   defaultValue: z.unknown(),
   targeting: flagTargetingSchema,
   rollout: z.number(),
+  conditionSets: z.array(flagConditionSetSchema),
   origin: z.string(),
   archivedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
+/**
+ * Normalize a write body's targeting to the coherent pair the columns store:
+ * the ordered `conditionSets` (authoritative) AND the legacy `targeting`+
+ * `rollout` (synthesized from `conditionSets[0]` for readers that still read
+ * them). `conditionSets` wins when present; otherwise a single set is built
+ * from the legacy fields (an omitted `rollout` defaults to 100).
+ */
+function normalizeWrite(body: FlagCreateInput | FlagUpdateInput): {
+  conditionSets: ConditionSet[];
+  targeting: FlagTargeting;
+  rollout: number;
+} {
+  const first = body.conditionSets?.[0];
+  if (body.conditionSets && first) {
+    return {
+      conditionSets: body.conditionSets,
+      targeting: first.targeting as FlagTargeting,
+      rollout: first.rollout,
+    };
+  }
+  const targeting = (body.targeting ?? []) as FlagTargeting;
+  const rollout = body.rollout ?? 100;
+  return { conditionSets: [{ targeting, rollout }], targeting, rollout };
+}
+
 function serializeFlag(row: typeof flags.$inferSelect) {
+  // Back-compat synthesis: a flag that predates condition sets (NULL column)
+  // reads as a single set built from the legacy targeting+rollout columns.
+  const conditionSets: ConditionSet[] = (row.conditionSets as
+    | ConditionSet[]
+    | null) ?? [
+    { targeting: row.targeting as FlagTargeting, rollout: row.rollout },
+  ];
   return {
     id: row.id,
     key: row.key,
@@ -53,6 +90,7 @@ function serializeFlag(row: typeof flags.$inferSelect) {
     defaultValue: row.defaultValue,
     targeting: row.targeting as FlagTargeting,
     rollout: row.rollout,
+    conditionSets,
     origin: row.origin,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -190,6 +228,7 @@ export const adminFlagsRouter = new OpenAPIHono<AppEnv>()
           ? false
           : null;
 
+    const write = normalizeWrite(body);
     const [created] = await db
       .insert(flags)
       .values({
@@ -200,8 +239,9 @@ export const adminFlagsRouter = new OpenAPIHono<AppEnv>()
         type: body.type,
         variants: body.variants ?? [],
         defaultValue,
-        targeting: body.targeting ?? [],
-        rollout: body.rollout,
+        targeting: write.targeting,
+        rollout: write.rollout,
+        conditionSets: write.conditionSets,
       })
       .returning();
     if (!created) throw new Error("Failed to create flag");
@@ -232,6 +272,56 @@ export const adminFlagsRouter = new OpenAPIHono<AppEnv>()
       }
     }
 
+    // Targeting write: recompute the coherent (conditionSets + legacy) triple
+    // when the caller touches ANY of conditionSets/targeting/rollout. An
+    // explicit `conditionSets` is authoritative. A legacy-field-only edit (bare
+    // targeting/rollout) merges into the EXISTING first set and PRESERVES
+    // sets[1..], so a rollout bump on a multi-set flag never silently destroys
+    // its other sets. The legacy `targeting`/`rollout` columns mirror set[0].
+    const touchesTargeting =
+      body.conditionSets !== undefined ||
+      body.targeting !== undefined ||
+      body.rollout !== undefined;
+    let targetingWrite:
+      | {
+          conditionSets: ConditionSet[];
+          targeting: FlagTargeting;
+          rollout: number;
+        }
+      | undefined;
+    if (touchesTargeting) {
+      const first = body.conditionSets?.[0];
+      if (body.conditionSets && first) {
+        targetingWrite = {
+          conditionSets: body.conditionSets,
+          targeting: first.targeting as FlagTargeting,
+          rollout: first.rollout,
+        };
+      } else {
+        // Existing sets to merge into (back-compat: a NULL column synthesizes a
+        // single set from the legacy targeting+rollout columns).
+        const existing = rows[0].conditionSets as ConditionSet[] | null;
+        const base =
+          existing && existing.length > 0
+            ? existing
+            : [
+                {
+                  targeting: rows[0].targeting as FlagTargeting,
+                  rollout: rows[0].rollout,
+                },
+              ];
+        const targeting = (body.targeting ??
+          base[0]?.targeting ??
+          rows[0].targeting) as FlagTargeting;
+        const rollout = body.rollout ?? base[0]?.rollout ?? rows[0].rollout;
+        targetingWrite = {
+          conditionSets: [{ targeting, rollout }, ...base.slice(1)],
+          targeting,
+          rollout,
+        };
+      }
+    }
+
     const [updated] = await db
       .update(flags)
       .set({
@@ -246,8 +336,13 @@ export const adminFlagsRouter = new OpenAPIHono<AppEnv>()
         ...(body.defaultValue !== undefined
           ? { defaultValue: body.defaultValue }
           : {}),
-        ...(body.targeting !== undefined ? { targeting: body.targeting } : {}),
-        ...(body.rollout !== undefined ? { rollout: body.rollout } : {}),
+        ...(targetingWrite
+          ? {
+              targeting: targetingWrite.targeting,
+              rollout: targetingWrite.rollout,
+              conditionSets: targetingWrite.conditionSets,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(flags.id, id))

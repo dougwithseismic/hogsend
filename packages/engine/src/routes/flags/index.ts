@@ -98,6 +98,9 @@ export const flagsRouter = new OpenAPIHono<AppEnv>()
       db,
       contactKey: rec.recipientKey,
       contactId: rec.contactId,
+      // BROWSER path: server-only scan leaves (event/email_engagement)
+      // short-circuit to false — NO per-flag DB query (the O(1) invariant).
+      mode: "browser",
     });
     return c.json({ flags }, 200);
   })
@@ -109,6 +112,9 @@ export const flagsRouter = new OpenAPIHono<AppEnv>()
       db,
       contactKey: rec.recipientKey,
       contactId: rec.contactId,
+      // SERVER path (secret-key only): event/email_engagement leaves resolve
+      // server-side via evaluateCondition.
+      mode: "server",
     });
     return c.json({ flags }, 200);
   });

@@ -38,7 +38,7 @@ function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-const flagKeys = [`${RUN}-onboarding`, `${RUN}-pro-only`];
+const flagKeys = [`${RUN}-onboarding`, `${RUN}-pro-only`, `${RUN}-multi`];
 let pkId = "";
 let secretId = "";
 let identifiedContactId = "";
@@ -245,5 +245,58 @@ describe("flags admin CRUD + browser/server evaluation", () => {
       type: "boolean",
     });
     expect(recreate.status).toBe(201);
+  });
+
+  it("a bare `rollout` PATCH on a multi-set flag preserves sets[1..]", async () => {
+    // Create a flag with THREE ordered condition sets.
+    const created = await adminPost("/v1/admin/flags", {
+      key: `${RUN}-multi`,
+      name: "Multi set",
+      type: "boolean",
+      conditionSets: [
+        {
+          targeting: {
+            type: "property",
+            property: "plan",
+            operator: "eq",
+            value: "pro",
+          },
+          rollout: 100,
+        },
+        {
+          targeting: {
+            type: "property",
+            property: "plan",
+            operator: "eq",
+            value: "team",
+          },
+          rollout: 50,
+        },
+        { targeting: [], rollout: 10 },
+      ],
+    });
+    expect(created.status).toBe(201);
+    const { flag } = (await created.json()) as {
+      flag: { id: string; conditionSets: Array<{ rollout: number }> };
+    };
+    expect(flag.conditionSets).toHaveLength(3);
+
+    // A legacy-field-only PATCH (bare `rollout`, no conditionSets) must merge
+    // into set[0] and NOT collapse away sets[1..] (the data-loss finding).
+    const patch = await app.request(`/v1/admin/flags/${flag.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...AUTH_ADMIN },
+      body: JSON.stringify({ rollout: 60 }),
+    });
+    expect(patch.status).toBe(200);
+    const { flag: updated } = (await patch.json()) as {
+      flag: { rollout: number; conditionSets: Array<{ rollout: number }> };
+    };
+    // All three sets survive; only set[0]'s rollout (the legacy mirror) moved.
+    expect(updated.conditionSets).toHaveLength(3);
+    expect(updated.conditionSets[0]?.rollout).toBe(60);
+    expect(updated.conditionSets[1]?.rollout).toBe(50);
+    expect(updated.conditionSets[2]?.rollout).toBe(10);
+    expect(updated.rollout).toBe(60);
   });
 });

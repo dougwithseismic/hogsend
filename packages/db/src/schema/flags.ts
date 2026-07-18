@@ -45,7 +45,45 @@ interface FlagPropertyCondition {
 }
 
 /**
- * A composite (AND/OR) node of the Phase-1 targeting tree. Structural mirror of
+ * The richer flag-targeting leaves (bucket/journey/deal/event/email_engagement).
+ * Structural mirrors of @hogsend/core (db can't import core) — the non-`type`
+ * fields are typed `unknown` so the canonical core leaves (which carry concrete
+ * field types) remain assignable when the engine writes them. @hogsend/core owns
+ * the canonical types + Zod validation; the db layer only stores the jsonb.
+ */
+interface FlagBucketCondition {
+  type: "bucket";
+  bucketId?: unknown;
+  negate?: unknown;
+}
+interface FlagJourneyCondition {
+  type: "journey";
+  journeyId?: unknown;
+  state?: unknown;
+  negate?: unknown;
+}
+interface FlagDealCondition {
+  type: "deal";
+  predicate?: unknown;
+  stage?: unknown;
+  negate?: unknown;
+}
+interface FlagEventCondition {
+  type: "event";
+  eventName?: unknown;
+  check?: unknown;
+  operator?: unknown;
+  value?: unknown;
+  within?: unknown;
+}
+interface FlagEmailEngagementCondition {
+  type: "email_engagement";
+  templateKey?: unknown;
+  check?: unknown;
+}
+
+/**
+ * A composite (AND/OR) node of the targeting tree. Structural mirror of
  * @hogsend/core's `FlagTargetingComposite` (db can't import core). Children are
  * themselves targeting nodes, so groups nest arbitrarily.
  */
@@ -56,11 +94,29 @@ interface FlagTargetingComposite {
 }
 
 /**
- * One node of a flag's targeting tree: a property leaf or an AND/OR composite.
- * The stored column also accepts the legacy bare `FlagPropertyCondition[]`
- * (implicit AND) — see the column `$type` below.
+ * One node of a flag's targeting tree: a property/bucket/journey/deal/event/
+ * email_engagement leaf or an AND/OR composite. The stored `targeting` column
+ * also accepts the legacy bare `FlagPropertyCondition[]` (implicit AND) — see
+ * the column `$type` below.
  */
-type FlagTargetingNode = FlagPropertyCondition | FlagTargetingComposite;
+type FlagTargetingNode =
+  | FlagPropertyCondition
+  | FlagBucketCondition
+  | FlagJourneyCondition
+  | FlagDealCondition
+  | FlagEventCondition
+  | FlagEmailEngagementCondition
+  | FlagTargetingComposite;
+
+/**
+ * One ordered targeting rule: a targeting tree plus its own rollout percent.
+ * Structural mirror of @hogsend/core's `ConditionSet`.
+ */
+interface FlagConditionSet {
+  description?: string;
+  targeting: FlagTargetingNode | FlagPropertyCondition[];
+  rollout: number;
+}
 
 /**
  * Native, DB-backed feature flag — Hogsend's sovereign answer to a flag
@@ -96,6 +152,11 @@ export const flags = pgTable(
       .default([]),
     // Percent (0-100) of the targeted audience eligible for a non-default value.
     rollout: integer("rollout").notNull().default(100),
+    // Ordered targeting rules (first matching set wins). NULL for flags that
+    // predate condition sets — readers synthesize a single set from the legacy
+    // `targeting`+`rollout` columns above (which the write layer keeps coherent
+    // from `conditionSets[0]`).
+    conditionSets: jsonb("condition_sets").$type<FlagConditionSet[]>(),
     // Provenance seam for deferred provider sync — "native" today.
     origin: text("origin").notNull().default("native"),
     // Soft-delete: an archived flag stops evaluating and frees its key.

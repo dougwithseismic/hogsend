@@ -16,9 +16,15 @@ export async function evaluateEmailEngagementCondition(opts: {
       "email_engagement condition without templateKey is scoped by caller context (campaign waves) — the per-user evaluator requires an explicit templateKey.",
     );
   }
+  // `email_sends.to_email` is an address. Prefer the explicitly-resolved
+  // `ctx.email` (the flag path passes the contact's real email); fall back to
+  // `ctx.userId` only for legacy callers that never set `email`. A contact with
+  // no email cannot have engagement — resolve to false rather than mis-query.
+  const recipient = ctx.email !== undefined ? ctx.email : ctx.userId;
+  if (recipient == null) return false;
   const send = await ctx.db.query.emailSends.findFirst({
     where: and(
-      eq(emailSends.toEmail, ctx.userId),
+      eq(emailSends.toEmail, recipient),
       eq(emailSends.templateKey, condition.templateKey),
     ),
     orderBy: (sends, { desc }) => [desc(sends.createdAt)],

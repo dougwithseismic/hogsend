@@ -1,22 +1,54 @@
 import { z } from "zod";
-import { propertyConditionSchema } from "../schemas/journey.schema.js";
-import type { FlagTargeting } from "./types.js";
+import {
+  emailEngagementConditionSchema,
+  eventConditionSchema,
+  propertyConditionSchema,
+} from "../schemas/journey.schema.js";
+import type { ConditionSet, FlagTargeting } from "./types.js";
 
 /** The two shapes a flag can serve. */
 export const flagTypeSchema = z.enum(["boolean", "multivariate"]);
 
+/** Snapshot-backed membership leaf (`bucket_memberships`). */
+export const bucketConditionSchema = z.object({
+  type: z.literal("bucket"),
+  bucketId: z.string().min(1),
+  negate: z.boolean().optional(),
+});
+
+/** Snapshot-backed journey-state leaf (`journey_states`). */
+export const journeyConditionSchema = z.object({
+  type: z.literal("journey"),
+  journeyId: z.string().min(1),
+  state: z.enum(["active", "completed"]),
+  negate: z.boolean().optional(),
+});
+
+/** Snapshot-backed CRM deal leaf (`deals` projection). */
+export const dealConditionSchema = z.object({
+  type: z.literal("deal"),
+  predicate: z.enum(["won", "open", "stage"]),
+  stage: z.string().min(1).optional(),
+  negate: z.boolean().optional(),
+});
+
 /**
- * One node of a flag's targeting tree: a PROPERTY leaf or an AND/OR COMPOSITE of
- * further nodes. Phase-1 flags target on PROPERTY leaves only — any other leaf
- * `type` (event/email_engagement/…) fails the discriminated union with a clear
- * "Expected 'property' | 'composite'" message. `.meta({ id })` gives the
- * recursive schema a stable ref so OpenAPI/JSON-Schema generators emit a `$ref`
- * instead of unrolling the composite→conditions cycle forever.
+ * One node of a flag's targeting tree. Leaves are the PURE snapshot-backed set
+ * (`property`/`bucket`/`journey`/`deal`) plus the SERVER-ONLY scan set
+ * (`event`/`email_engagement`, resolved only on the secret-key evaluate path),
+ * or an AND/OR COMPOSITE of further nodes. `.meta({ id })` gives the recursive
+ * schema a stable ref so OpenAPI/JSON-Schema generators emit a `$ref` instead of
+ * unrolling the composite→conditions cycle forever.
  */
 export const flagTargetingNodeSchema: z.ZodType<FlagTargeting> = z
   .lazy(() =>
     z.discriminatedUnion("type", [
       propertyConditionSchema,
+      bucketConditionSchema,
+      journeyConditionSchema,
+      dealConditionSchema,
+      eventConditionSchema,
+      emailEngagementConditionSchema,
       z.object({
         type: z.literal("composite"),
         operator: z.enum(["and", "or"]),
@@ -37,6 +69,18 @@ export const flagTargetingSchema = z.union([
   z.array(propertyConditionSchema),
   flagTargetingNodeSchema,
 ]);
+
+/**
+ * One ordered targeting rule of a flag: a `targeting` tree plus its own
+ * `rollout` percent (0-100). The evaluator walks a flag's condition sets IN
+ * ORDER and the FIRST match (targeting true AND per-set rollout admits the
+ * contact) wins.
+ */
+export const flagConditionSetSchema: z.ZodType<ConditionSet> = z.object({
+  description: z.string().optional(),
+  targeting: flagTargetingSchema,
+  rollout: z.number().int().min(0).max(100),
+});
 
 /**
  * One multivariate arm. `value` is `z.unknown()` (any JSON is a valid served
@@ -66,6 +110,12 @@ export const flagCreateSchema = z.object({
   defaultValue: z.unknown().optional(),
   targeting: flagTargetingSchema.optional(),
   rollout: z.number().int().min(0).max(100).optional(),
+  /**
+   * Ordered targeting rules (first matching set wins). When present it takes
+   * precedence over the legacy `targeting`+`rollout` pair; the write layer keeps
+   * the legacy columns coherent from `conditionSets[0]`.
+   */
+  conditionSets: z.array(flagConditionSetSchema).optional(),
 });
 
 /**
@@ -85,6 +135,7 @@ export const flagUpdateSchema = z.object({
   defaultValue: z.unknown().optional(),
   targeting: flagTargetingSchema.optional(),
   rollout: z.number().int().min(0).max(100).optional(),
+  conditionSets: z.array(flagConditionSetSchema).optional(),
 });
 
 export type FlagCreateInput = z.infer<typeof flagCreateSchema>;

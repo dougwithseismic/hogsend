@@ -1,16 +1,25 @@
 export {
+  bucketConditionSchema,
+  dealConditionSchema,
   type FlagCreateInput,
   type FlagUpdateInput,
+  flagConditionSetSchema,
   flagCreateSchema,
+  flagTargetingNodeSchema,
   flagTargetingSchema,
   flagTypeSchema,
   flagUpdateSchema,
   flagVariantSchema,
+  journeyConditionSchema,
 } from "./schema.js";
 export type {
+  BucketCondition,
+  ConditionSet,
+  DealCondition,
   FlagDefinition,
   FlagTargeting,
   FlagTargetingComposite,
   FlagType,
   FlagVariant,
+  JourneyCondition,
 } from "./types.js";
