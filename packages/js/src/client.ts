@@ -413,8 +413,24 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     });
   }
 
+  /**
+   * Apply a late-arriving signed `userToken` WITHOUT rebuilding the client —
+   * for a host whose session mints the token after the anonymous client is
+   * already constructed. Re-fetches every already-connected feed so the bell
+   * re-authenticates as the now-identified recipient (banners + captures pick
+   * the new token up on their next request, which reads it at call time). This
+   * is what lets `<HogsendProvider>` react to a `userToken` prop change instead
+   * of remounting its whole subtree.
+   */
+  function setUserToken(userToken: string): void {
+    identity.setUserToken(userToken);
+    for (const fc of feedClients.values()) void fc.refetch();
+    for (const bc of bannerClients.values()) void bc.list();
+  }
+
   return {
     identify,
+    setUserToken,
     getDistinctId: () => identity.getDistinctId(),
     getContactKey: () => identity.getContactKey(),
     isIdentified: () => identity.isIdentified(),
@@ -422,6 +438,13 @@ export function createHogsend(config: HogsendConfig): Hogsend {
       identity.reset();
       // PostHog parity: an identity reset drops group associations too.
       resetGroups();
+      // Logout WITHOUT a client rebuild (the provider no longer remounts): the
+      // previous recipient's feed/banner items must not linger in the now-anon
+      // session. Clear every slice (emits immediately → the bell empties), then
+      // re-fetch connected feeds as anon so the badge reflects the new identity.
+      for (const fs of feedStores.values()) fs.clear();
+      for (const bs of bannerStores.values()) bs.clear();
+      for (const fc of feedClients.values()) void fc.refetch();
     },
 
     group,

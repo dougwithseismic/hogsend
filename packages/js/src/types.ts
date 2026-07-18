@@ -307,6 +307,12 @@ export interface BannerSliceState {
 export interface Hogsend {
   // ── identity ──
   identify(userId: string, traits?: Properties): Promise<void>;
+  /**
+   * Apply a late-arriving signed `userToken` (host session minted it after this
+   * client was constructed) without a remount. Sets the token and re-fetches
+   * connected feeds so the bell re-authenticates as the bound recipient.
+   */
+  setUserToken(userToken: string): void;
   /** Known userId, else the persisted anon id. */
   getDistinctId(): string;
   /** Canonical key from the last 202 (for `posthog.identify`, zero PII). */

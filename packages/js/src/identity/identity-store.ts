@@ -42,10 +42,11 @@ export interface IdentityStore {
   getUserToken(): string | null;
   /**
    * Replace the signed `userToken` (e.g. after `onUserTokenExpiring` refreshes
-   * an expired token on a 403). Additive: every existing `getUserToken()`
-   * reader is unchanged — the field is simply now reassignable.
+   * an expired token on a 403, or when a late-resolving host session mints one).
+   * Pass `null` to drop it (a `reset()` does this too). Additive: every existing
+   * `getUserToken()` reader is unchanged — the field is simply now reassignable.
    */
-  setUserToken(userToken: string): void;
+  setUserToken(userToken: string | null): void;
   /** Canonical contact key from the last 202, else null. */
   getContactKey(): string | null;
   isIdentified(): boolean;
@@ -119,6 +120,7 @@ export function createIdentityStore(opts: IdentityStoreOptions): IdentityStore {
     },
     reset: () => {
       storage.remove(ANON_ID_KEY);
+      userToken = null;
       const fresh = anonId();
       patch({
         userId: null,
