@@ -11,38 +11,43 @@ import { isHogsendConfigured } from "@/components/hogsend/config";
 import { cn } from "@/lib/cn";
 
 /**
- * The "Who's reading this?" switcher — the section dogfoods Hogsend's own
- * feature flags on the marketing page.
+ * The "What's your team?" switcher — the section dogfoods Hogsend's own feature
+ * flags on the marketing page.
  *
- * Left column is the RESULT: a persona-matched video plus its headline/pitch.
- * Right column is the FLAG: a `visitor-persona` multivariate flag rendered as a
- * row of real toggle switches (flip one on, the rest flip off — exactly one arm
- * is ever served), the real shipping code (`defineFlag` → `useFlag` →
+ * Left column is the RESULT: a team-matched video plus its headline/pitch.
+ * Right column is the FLAG: a `visitor-team` multivariate flag rendered as a
+ * column of real toggle switches (flip one on, the rest flip off — exactly one
+ * arm is ever served), the real shipping code (`defineFlag` → `useFlag` →
  * `flags.evaluate`), and a live evaluation readout. It's simulated client-side
- * (a visitor self-selects), but the code is the genuine API.
+ * (a visitor self-selects), but the code is the genuine API. Every video runs
+ * through our own @hogsend/video player.
  *
  * `CodeHighlight` is an async RSC, so the three highlighted snippets are
  * rendered in the page and handed in as `code` nodes.
  */
 
-type PersonaKey =
+type TeamKey =
   | "founder"
-  | "growth_engineer"
+  | "growth"
+  | "product"
+  | "engineering"
   | "sales"
-  | "recruiter"
+  | "recruiting"
   | "browsing";
 
-const PERSONA_ORDER: readonly PersonaKey[] = [
+const TEAM_ORDER: readonly TeamKey[] = [
   "founder",
-  "growth_engineer",
+  "growth",
+  "product",
+  "engineering",
   "sales",
-  "recruiter",
+  "recruiting",
   "browsing",
 ];
 
-interface Persona {
+interface Team {
   /** Toggle label. */
-  chip: string;
+  label: string;
   /** The value the multivariate flag serves for this arm. */
   value: string;
   headline: string;
@@ -50,11 +55,11 @@ interface Persona {
   video: { id: string; title: string };
 }
 
-// Per-persona videos are plain config — swap an id and the arm changes. All
-// ids are verified to resolve a YouTube thumbnail.
-const PERSONAS: Record<PersonaKey, Persona> = {
+// Per-team videos are plain config — swap an id and the arm changes. All ids
+// are verified to resolve a YouTube thumbnail.
+const TEAMS: Record<TeamKey, Team> = {
   founder: {
-    chip: "Founder",
+    label: "Founder",
     value: "founder",
     headline: "Being a founder is hard enough.",
     sub: "Your lifecycle shouldn't need a full-time operator. Ship onboarding, trials, and win-back as code your agents can extend.",
@@ -63,18 +68,38 @@ const PERSONAS: Record<PersonaKey, Persona> = {
       title: "Before the Startup, with Paul Graham",
     },
   },
-  growth_engineer: {
-    chip: "Growth engineer",
-    value: "growth_engineer",
-    headline: "Your journeys belong in the repo.",
-    sub: "TypeScript, versioned, reviewed in a PR. Read the same flag in the browser, on the server, and inside a journey.",
+  growth: {
+    label: "Growth",
+    value: "growth",
+    headline: "Your growth loops belong in the repo.",
+    sub: "Every loop is a journey you can read. Trigger on real events, and read the same flag in the browser, on the server, and inside a journey.",
+    video: {
+      id: "6qAB6aUMIeA",
+      title: "Lenny interviews Elena Verna on the new AI growth playbook",
+    },
+  },
+  product: {
+    label: "Product",
+    value: "product",
+    headline: "Ship the journey with the feature.",
+    sub: "Lifecycle isn't another team's job. Wire activation and onboarding into the product you're already shipping.",
+    video: {
+      id: "h-KVGHoQ_98",
+      title: "The Nature of Product, with Marty Cagan (Lenny's Podcast)",
+    },
+  },
+  engineering: {
+    label: "Engineering",
+    value: "engineering",
+    headline: "Lifecycle is just code.",
+    sub: "Journeys are TypeScript in your repo. Type-checked, reviewed in a PR, and versioned like everything else you ship.",
     video: {
       id: "tBh5MHb5KJM",
       title: "Growth Engineering with Alexey Komissarouk",
     },
   },
   sales: {
-    chip: "Sales",
+    label: "Sales",
     value: "sales",
     headline: "More offers out. More replies back.",
     sub: "Fire the follow-up the moment the signal lands. No batch, no waiting on marketing to build the flow.",
@@ -83,10 +108,10 @@ const PERSONAS: Record<PersonaKey, Persona> = {
       title: "22 Minutes of the Best Alex Hormozi Sales Tips",
     },
   },
-  recruiter: {
-    chip: "Recruiter",
-    value: "recruiter",
-    headline: "Hiring growth engineers?",
+  recruiting: {
+    label: "Recruiting",
+    value: "recruiting",
+    headline: "Hiring for growth?",
     sub: "This is the stack they want to work in: code-first lifecycle, agent-native, versioned in git. No drag-and-drop canvas.",
     video: {
       id: "i_PjjXKNpA4",
@@ -94,13 +119,13 @@ const PERSONAS: Record<PersonaKey, Persona> = {
     },
   },
   browsing: {
-    chip: "Just browsing",
+    label: "Just browsing",
     value: "browsing",
     headline: "Take a look around.",
     sub: "Every toggle here is one arm of the same flag. It's the whole product running on itself, right on this page.",
     video: {
-      id: "6qAB6aUMIeA",
-      title: "Lenny interviews Elena Verna on the new AI growth playbook",
+      id: "GXVB8yVIm7I",
+      title: "What Is Growth Engineering? Here's How It Really Works",
     },
   },
 };
@@ -109,7 +134,7 @@ type CodeTab = "define" | "react" | "server";
 const CODE_TABS: Array<{ key: CodeTab; filename: string; lang: string }> = [
   { key: "define", filename: "src/flags/index.ts", lang: "ts" },
   { key: "react", filename: "src/app/hero.tsx", lang: "tsx" },
-  { key: "server", filename: "src/server/persona.ts", lang: "ts" },
+  { key: "server", filename: "src/server/team.ts", lang: "ts" },
 ];
 
 type FlagPersonaSwitcherProps = {
@@ -120,15 +145,15 @@ type FlagPersonaSwitcherProps = {
 };
 
 export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
-  const [persona, setPersona] = useState<PersonaKey>("founder");
+  const [team, setTeam] = useState<TeamKey>("founder");
   const [tab, setTab] = useState<CodeTab>("react");
   const [playing, setPlaying] = useState(false);
 
-  const active = PERSONAS[persona];
+  const active = TEAMS[team];
 
-  function choose(next: PersonaKey) {
-    if (next === persona) return; // one arm always stays on
-    setPersona(next);
+  function choose(next: TeamKey) {
+    if (next === team) return; // one arm always stays on
+    setTeam(next);
     setPlaying(false); // new arm → new video, back to its poster
   }
 
@@ -139,16 +164,16 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
         <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
           {playing ? (
             isHogsendConfigured ? (
-              <CapturingPersonaPlayer
+              <CapturingTeamPlayer
                 videoId={active.video.id}
                 title={active.video.title}
-                persona={active.value}
+                team={active.value}
               />
             ) : (
-              <PersonaPlayer
+              <TeamPlayer
                 videoId={active.video.id}
                 title={active.video.title}
-                persona={active.value}
+                team={active.value}
               />
             )
           ) : (
@@ -208,7 +233,7 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
         <div className="border-white/[0.08] border-b px-4 py-3">
           <div className="flex items-center justify-between">
             <code className="font-mono text-[13px] text-white/85">
-              visitor-persona
+              visitor-team
             </code>
             <span className="rounded-[4px] border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em]">
               multivariate
@@ -222,8 +247,8 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
 
         {/* Toggle arms — flip one on, the rest flip off. */}
         <fieldset className="flex flex-col gap-0.5 px-2 py-2">
-          {PERSONA_ORDER.map((key) => {
-            const isActive = key === persona;
+          {TEAM_ORDER.map((key) => {
+            const isActive = key === team;
             return (
               <button
                 key={key}
@@ -242,7 +267,7 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
                     isActive ? "text-white" : "text-white/55",
                   )}
                 >
-                  {PERSONAS[key].chip}
+                  {TEAMS[key].label}
                 </span>
                 <span
                   aria-hidden="true"
@@ -302,21 +327,22 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
           {code[tab]}
         </div>
 
-        {/* Live evaluation — the flag this page is reading, right now. */}
-        <div className="flex items-center justify-between border-white/[0.08] border-t bg-white/[0.03] px-4 py-3 font-mono text-[12px]">
-          <span className="text-white/45 uppercase tracking-[0.08em] text-[10px]">
+        {/* Live evaluation — the flag this page is reading, right now. Label on
+            its own line so the key → value pair never wraps into columns. */}
+        <div className="border-white/[0.08] border-t bg-white/[0.03] px-4 py-3">
+          <p className="mb-1.5 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
             evaluated for you
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="text-white/50">visitor-persona</span>
+          </p>
+          <div className="flex items-center gap-2 font-mono text-[12.5px]">
+            <span className="text-white/55">visitor-team</span>
             <span className="text-white/30">→</span>
             <span className="text-[#f8a08f]">"{active.value}"</span>
-          </span>
+          </div>
         </div>
       </div>
 
       {/* Footer row — honest note + deep link, spanning both columns. */}
-      <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
         <p className="max-w-[640px] text-white/55 text-sm tracking-[-0.02em]">
           One definition, read everywhere. The same evaluation runs in the
           browser, on the server, and inside a journey. Already run PostHog
@@ -333,27 +359,22 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
   );
 }
 
-interface PersonaPlayerProps {
+interface TeamPlayerProps {
   videoId: string;
   title: string;
-  persona: string;
+  team: string;
   emitter?: VideoEmitter;
 }
 
-/** Every persona video runs through our own @hogsend/video player. */
-function PersonaPlayer({
-  videoId,
-  title,
-  persona,
-  emitter,
-}: PersonaPlayerProps) {
+/** Every team video runs through our own @hogsend/video player. */
+function TeamPlayer({ videoId, title, team, emitter }: TeamPlayerProps) {
   return (
     <VideoPlayer
       key={videoId}
       src={{ youtube: videoId }}
       title={title}
       emitter={emitter}
-      context={{ section: "feature-flags", persona }}
+      context={{ section: "feature-flags", team }}
       autoplay
       className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full"
     />
@@ -362,10 +383,10 @@ function PersonaPlayer({
 
 /** Dogfood capture: real watch-depth events flow to the docs Hogsend client
  * (the provider wraps the app root), same as the "why now" player. */
-function CapturingPersonaPlayer(props: Omit<PersonaPlayerProps, "emitter">) {
+function CapturingTeamPlayer(props: Omit<TeamPlayerProps, "emitter">) {
   const { capture } = useHogsend();
   const [emitter] = useState<VideoEmitter>(() =>
     createHogsendEmitter({ capture }),
   );
-  return <PersonaPlayer emitter={emitter} {...props} />;
+  return <TeamPlayer emitter={emitter} {...props} />;
 }

@@ -1297,29 +1297,31 @@ POSTMARK_SERVER_TOKEN=…`,
 const FLAG_SAMPLES = {
   define: `import { defineFlag } from "@hogsend/engine";
 
-// Who's reading the page? One multivariate flag, five arms.
-export const visitorPersona = defineFlag({
-  key: "visitor-persona",
-  name: "Visitor persona",
+// Which team is reading the page? One multivariate flag, one arm each.
+export const visitorTeam = defineFlag({
+  key: "visitor-team",
+  name: "Visitor team",
   type: "multivariate",
   variants: [
     { key: "founder", value: "founder", weight: 1 },
-    { key: "growth_engineer", value: "growth_engineer", weight: 1 },
+    { key: "growth", value: "growth", weight: 1 },
+    { key: "product", value: "product", weight: 1 },
+    { key: "engineering", value: "engineering", weight: 1 },
     { key: "sales", value: "sales", weight: 1 },
-    { key: "recruiter", value: "recruiter", weight: 1 },
+    { key: "recruiting", value: "recruiting", weight: 1 },
     { key: "browsing", value: "browsing", weight: 1 },
   ],
   defaultValue: "browsing",
 });
 
-export const flags = [visitorPersona];`,
+export const flags = [visitorTeam];`,
   react: `import { useFlag } from "@hogsend/react";
 
 export function Hero() {
   // One flag decides who's reading. Sticky per visitor, no redeploy.
-  const persona = useFlag("visitor-persona");
+  const team = useFlag("visitor-team");
 
-  return <PersonaHero persona={persona} />; // swaps the video + the pitch
+  return <TeamHero team={team} />; // swaps the video + the pitch
 }`,
   server: `import { Hogsend } from "@hogsend/client";
 
@@ -1328,7 +1330,7 @@ const hogsend = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
 // The same flag, resolved for one contact on the server.
 const { flags } = await hogsend.flags.evaluate({ userId });
 
-if (flags["visitor-persona"] === "founder") {
+if (flags["visitor-team"] === "founder") {
   // Render the founder page, or branch a journey on the
   // same value, evaluated by the same condition engine.
 }`,
