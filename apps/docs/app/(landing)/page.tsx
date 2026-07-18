@@ -41,6 +41,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { WordReveal } from "./_components/word-reveal";
@@ -648,15 +649,15 @@ function PsProofStrip() {
 const PILLARS = [
   {
     title: "Journeys as code",
-    body: "Lifecycle logic is TypeScript in your repo — reviewed, type-checked, and versioned like the rest of your product.",
+    body: "Lifecycle logic is TypeScript in your repo, reviewed, type-checked, and versioned like the rest of your product.",
   },
   {
     title: "Your provider, your reputation",
-    body: "Sends go through your own Resend or Postmark account — or any provider behind the EmailProvider contract.",
+    body: "Sends go through your own Resend or Postmark account, or any provider behind the EmailProvider contract.",
   },
   {
     title: "Durable execution",
-    body: "Journeys run as Hatchet durable tasks — a seven-day wait survives deploys, restarts, and crashes.",
+    body: "Journeys run as Hatchet durable tasks. A seven-day wait survives deploys, restarts, and crashes.",
   },
 ];
 
@@ -746,7 +747,7 @@ function PsProblem() {
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
         <p className="mt-20 max-w-[420px] text-white text-lg leading-[26px] tracking-[-0.025em]">
-          The lifecycle becomes part of the product—not a campaign bolted on
+          The lifecycle becomes part of the product, not a campaign bolted on
           beside it.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-3">
@@ -786,8 +787,8 @@ function PsManifesto() {
           >
             <span className="text-white">
               Go-to-market is an engineering discipline now. The
-              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word &mdash;
-              it&rsquo;s the job.
+              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word.
+              It&rsquo;s the job.
             </span>{" "}
             <span className="text-white/40">
               Hogsend is ten years of product-led growth, handed to the scrappy
@@ -1290,6 +1291,99 @@ POSTMARK_SERVER_TOKEN=…`,
 
 /** Async RSC wrapper: Shiki-highlights the samples server-side and hands the
  * rendered nodes to the client picker (the homepage composition pattern). */
+/* --------------------------------------------------------- feature flags -- */
+
+/** The real flag API, three surfaces — shown verbatim beside the live demo. */
+const FLAG_SAMPLES = {
+  define: `import { defineFlag } from "@hogsend/engine";
+
+// Which team is reading the page? One multivariate flag, one arm each.
+export const visitorTeam = defineFlag({
+  key: "visitor-team",
+  name: "Visitor team",
+  type: "multivariate",
+  variants: [
+    { key: "founder", value: "founder", weight: 1 },
+    { key: "growth", value: "growth", weight: 1 },
+    { key: "product", value: "product", weight: 1 },
+    { key: "sales", value: "sales", weight: 1 },
+    { key: "hr", value: "hr", weight: 1 },
+  ],
+  defaultValue: "founder",
+});
+
+export const flags = [visitorTeam];`,
+  react: `import { useFlag } from "@hogsend/react";
+
+export function Hero() {
+  // One flag decides who's reading. Sticky per visitor, no redeploy.
+  const team = useFlag("visitor-team");
+
+  return <TeamHero team={team} />; // swaps the video + the pitch
+}`,
+  server: `import { Hogsend } from "@hogsend/client";
+
+const hogsend = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
+
+// The same flag, resolved for one contact on the server.
+const { flags } = await hogsend.flags.evaluate({ userId });
+
+if (flags["visitor-team"] === "founder") {
+  // Render the founder page, or branch a journey on the
+  // same value, evaluated by the same condition engine.
+}`,
+} as const;
+
+async function PsFlags() {
+  const [defineNode, reactNode, serverNode] = await Promise.all([
+    CodeHighlight({ code: FLAG_SAMPLES.define, lang: "ts" }),
+    CodeHighlight({ code: FLAG_SAMPLES.react, lang: "tsx" }),
+    CodeHighlight({ code: FLAG_SAMPLES.server, lang: "ts" }),
+  ]);
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Feature flags</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Customize the whole journey with feature flags.
+            </span>{" "}
+            <span className="text-white/40">
+              Flip any part of your marketing on or off, anytime. No deploy.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Native, DB-backed flags, evaluated against your Hogsend contacts by
+            the same targeting engine that runs your journeys. One flag can swap
+            a headline, a video, an email, or a whole branch of a journey. Flip
+            the arms below and the page reacts, running on the real API on the
+            right.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <FlagPersonaSwitcher
+            code={{
+              define: defineNode,
+              react: reactNode,
+              server: serverNode,
+            }}
+            raw={FLAG_SAMPLES}
+          />
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
 async function PsCode() {
   const [
     onboarding,
@@ -3150,6 +3244,7 @@ export default async function HomePage({
       <PsManifesto />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
+      <PsFlags />
       <PsCode />
       <PsAgents />
       <PsUseCases />

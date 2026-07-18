@@ -10,7 +10,8 @@ import { cn } from "@/lib/cn";
 import { isHogsendConfigured } from "./config";
 
 const VIDEO_ID = "6qAB6aUMIeA";
-const VIDEO_TITLE = "Lenny interviews Elena Verna — the new AI growth playbook";
+const VIDEO_TITLE =
+  "Lenny interviews Elena Verna on the new AI growth playbook";
 
 interface FeedLine {
   key: number;
@@ -147,62 +148,88 @@ export function ManifestoVideo() {
     // natural 16:9 and the feed its own fixed height — no side-by-side match
     // needed.
     <div className="mx-auto mt-14 grid w-full max-w-[920px] items-start gap-4 text-left md:grid-cols-[1fr_300px]">
-      <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black md:aspect-auto md:h-[340px]">
-        {playing ? (
-          isHogsendConfigured ? (
-            <CapturingPlayer onEvent={onEvent} onStateChange={onStateChange} />
+      <div>
+        <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black md:aspect-auto md:h-[340px]">
+          {playing ? (
+            isHogsendConfigured ? (
+              <CapturingPlayer
+                onEvent={onEvent}
+                onStateChange={onStateChange}
+              />
+            ) : (
+              <Player onEvent={onEvent} onStateChange={onStateChange} />
+            )
           ) : (
-            <Player onEvent={onEvent} onStateChange={onStateChange} />
-          )
-        ) : (
-          <button
-            type="button"
-            onClick={() => setPlaying(true)}
-            aria-label={`Play video: ${VIDEO_TITLE}`}
-            className="group absolute inset-0 h-full w-full"
-          >
-            {/* biome-ignore lint/performance/noImgElement: remote YouTube thumbnail */}
-            <img
-              src={`https://i.ytimg.com/vi/${VIDEO_ID}/hqdefault.jpg`}
-              alt=""
-              loading="lazy"
-              className="absolute inset-0 h-full w-full object-cover opacity-80 transition-opacity group-hover:opacity-100"
-            />
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span className="flex h-14 w-20 items-center justify-center rounded-xl bg-black/70 transition-colors group-hover:bg-[#f64838]">
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  className="h-7 w-7 fill-white"
-                >
-                  <path d="M8 5.5v13l11-6.5-11-6.5z" />
-                </svg>
+            <button
+              type="button"
+              onClick={() => setPlaying(true)}
+              aria-label={`Play video: ${VIDEO_TITLE}`}
+              className="group absolute inset-0 h-full w-full"
+            >
+              {/* biome-ignore lint/performance/noImgElement: remote YouTube thumbnail */}
+              <img
+                src={`https://i.ytimg.com/vi/${VIDEO_ID}/hqdefault.jpg`}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover opacity-80 transition-opacity group-hover:opacity-100"
+              />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex h-14 w-20 items-center justify-center rounded-xl bg-black/70 transition-colors group-hover:bg-[#f64838]">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-7 w-7 fill-white"
+                  >
+                    <path d="M8 5.5v13l11-6.5-11-6.5z" />
+                  </svg>
+                </span>
               </span>
-            </span>
-          </button>
-        )}
+            </button>
+          )}
+        </div>
+        {/* Ad-lib attribution — sits under the video it credits. */}
+        <p className="mt-3 text-[13px] text-white/45 leading-relaxed tracking-[-0.01em]">
+          <span className="text-white/75">Elena Verna</span>, Head of Growth at{" "}
+          <span className="inline-flex items-baseline gap-1 text-white/75">
+            <LovableMark className="h-2.5 w-2.5 self-center" />
+            Lovable
+          </span>
+          , on Lenny's Podcast. Played through our own{" "}
+          <code className="text-white/60">@hogsend/video</code>; press play and
+          the real watch-depth events replace the loop.{" "}
+          <Link href="/components" className="font-medium text-white/75">
+            All our React components →
+          </Link>
+        </p>
       </div>
 
-      <div className="flex h-[260px] flex-col overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0606] md:h-[340px]">
-        {/* Terminal chrome, matching the hero window. */}
-        <div className="flex shrink-0 items-center justify-between border-white/10 border-b px-3 py-2">
-          <span className="font-mono text-[11px] text-white/40 tracking-wide">
-            @hogsend/video — event feed
-          </span>
-          <span
-            className={cn(
-              "flex items-center gap-1.5 font-mono text-[11px]",
-              live ? "text-[#23c489]" : "text-white/40",
-            )}
-          >
+      <div className="flex h-[260px] flex-col overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl md:h-[340px]">
+        {/* Card chrome — matches the feature-flags panel. */}
+        <div className="shrink-0 border-white/[0.08] border-b px-4 py-3">
+          <div className="flex items-center justify-between">
+            <code className="font-mono text-[13px] text-white/85">
+              @hogsend/video
+            </code>
             <span
               className={cn(
-                "size-1.5 rounded-full",
-                live ? "ps-pulse bg-[#23c489]" : "bg-white/30",
+                "inline-flex items-center gap-1.5 rounded-[4px] border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em]",
+                live
+                  ? "border-[#23c489]/30 bg-[#23c489]/10 text-[#23c489]"
+                  : "border-white/10 bg-white/[0.04] text-white/45",
               )}
-            />
-            {statusLabel}
-          </span>
+            >
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  live ? "ps-pulse bg-[#23c489]" : "bg-white/30",
+                )}
+              />
+              {statusLabel}
+            </span>
+          </div>
+          <p className="mt-1.5 text-[12px] text-white/40 leading-snug tracking-[-0.01em]">
+            Watch-depth events from the player, streaming live.
+          </p>
         </div>
         {/* Auto-scrolling feed: pinned to the bottom as lines arrive, but a
             real scroll container — the visitor can scroll back through the
@@ -232,20 +259,6 @@ export function ManifestoVideo() {
               <span className="ml-auto shrink-0 text-white/30">{l.detail}</span>
             </p>
           ))}
-        </div>
-        <div className="shrink-0 border-white/10 border-t px-3 py-2.5 text-[11px] text-white/40 leading-relaxed tracking-[-0.01em]">
-          Lenny interviews <span className="text-white/70">Elena Verna</span> —
-          Head of Growth at{" "}
-          <span className="inline-flex items-baseline gap-1 text-white/70">
-            <LovableMark className="h-2.5 w-2.5 self-center" />
-            Lovable
-          </span>
-          . Played through our own{" "}
-          <code className="text-white/60">@hogsend/video</code>; press play and
-          the real watch-depth events replace the loop.{" "}
-          <Link href="/components" className="font-medium text-white/70">
-            All our React components →
-          </Link>
         </div>
       </div>
       <style>{`
