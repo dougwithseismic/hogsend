@@ -30,12 +30,17 @@ jobs:
       - name: Turborepo cache
         uses: rharkor/caching-for-turbo@v2.5.0
       - run: pnpm lint
-      - run: pnpm check-types
+      # Cap Turbo concurrency: the two Next apps (docs, course) each run a heavy
+      # `next typegen && tsc`, and at Turbo's default fan-out several of those +
+      # the big package tsc runs land together and OOM-kill the 16GB runner
+      # (exit 137). Two at a time keeps peak memory well under the limit.
+      - run: pnpm exec turbo run check-types --concurrency=2
       # Full build (incl. the Next docs site). check-types runs fumadocs-mdx +
       # tsc but does NOT compile MDX, so a bad MDX expression (bare `{}` outside
       # code) only fails `next build`. Build here so it's caught on every push,
-      # not just in the release workflow's publish guard.
-      - run: pnpm build
+      # not just in the release workflow's publish guard. Same concurrency cap —
+      # `next build` for both apps in parallel is the other memory spike.
+      - run: pnpm exec turbo run build --concurrency=2
 
   test:
     name: Tests
