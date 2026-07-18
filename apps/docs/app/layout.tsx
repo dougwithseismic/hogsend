@@ -8,6 +8,8 @@ import { NamePrompt } from "@/components/auth/name-prompt";
 import { CookieBanner } from "@/components/consent/cookie-banner";
 import { ConsoleEgg } from "@/components/console-egg";
 import { DevTools } from "@/components/devtools";
+import { isHogsendConfigured } from "@/components/hogsend/config";
+import { FlagPreviewBanner } from "@/components/hogsend/flag-preview-banner";
 import { HogsendDocsProvider } from "@/components/hogsend/provider";
 import {
   OrganizationJsonLd,
@@ -64,6 +66,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Dark-only site (matches the brand). The theme toggle is disabled. */}
         <RootProvider theme={{ enabled: false }}>
           <HogsendDocsProvider>
+            {isHogsendConfigured ? <FlagPreviewBanner /> : null}
             {children}
             <NamePrompt />
           </HogsendDocsProvider>
