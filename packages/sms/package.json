@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/sms",
-  "version": "0.46.1",
+  "version": "0.50.0",
   "type": "module",
   "license": "MIT",
   "repository": {
