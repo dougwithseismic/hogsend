@@ -1,9 +1,13 @@
 "use client";
 
+import { useHogsend } from "@hogsend/react";
+import type { VideoEmitter } from "@hogsend/video";
+import { createHogsendEmitter } from "@hogsend/video/hogsend";
 import { VideoPlayer } from "@hogsend/video/react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { CopyButton } from "@/components/ds/copy-button";
+import { isHogsendConfigured } from "@/components/hogsend/config";
 import { cn } from "@/lib/cn";
 
 /**
@@ -134,14 +138,19 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
       <div>
         <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
           {playing ? (
-            <VideoPlayer
-              key={active.video.id}
-              src={{ youtube: active.video.id }}
-              title={active.video.title}
-              context={{ section: "feature-flags", persona: active.value }}
-              autoplay
-              className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full"
-            />
+            isHogsendConfigured ? (
+              <CapturingPersonaPlayer
+                videoId={active.video.id}
+                title={active.video.title}
+                persona={active.value}
+              />
+            ) : (
+              <PersonaPlayer
+                videoId={active.video.id}
+                title={active.video.title}
+                persona={active.value}
+              />
+            )
           ) : (
             <button
               type="button"
@@ -322,4 +331,41 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
       </div>
     </div>
   );
+}
+
+interface PersonaPlayerProps {
+  videoId: string;
+  title: string;
+  persona: string;
+  emitter?: VideoEmitter;
+}
+
+/** Every persona video runs through our own @hogsend/video player. */
+function PersonaPlayer({
+  videoId,
+  title,
+  persona,
+  emitter,
+}: PersonaPlayerProps) {
+  return (
+    <VideoPlayer
+      key={videoId}
+      src={{ youtube: videoId }}
+      title={title}
+      emitter={emitter}
+      context={{ section: "feature-flags", persona }}
+      autoplay
+      className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full"
+    />
+  );
+}
+
+/** Dogfood capture: real watch-depth events flow to the docs Hogsend client
+ * (the provider wraps the app root), same as the "why now" player. */
+function CapturingPersonaPlayer(props: Omit<PersonaPlayerProps, "emitter">) {
+  const { capture } = useHogsend();
+  const [emitter] = useState<VideoEmitter>(() =>
+    createHogsendEmitter({ capture }),
+  );
+  return <PersonaPlayer emitter={emitter} {...props} />;
 }
