@@ -1,6 +1,6 @@
 ---
 title: "What's in Hogsend 0.50, and why"
-description: A bigger-than-usual release, walked through one feature at a time. Everything here exists because running our own growth on Hogsend surfaced a gap worth closing — video engagement, dataLayer interop, unit-tested Journeys, incrementality, event plugins, contact groupings, and a one-command install. Plus a note on who "we" actually is.
+description: A bigger-than-usual release, walked through one feature at a time. Everything here exists because running our own growth on Hogsend surfaced a gap worth closing — video engagement, dataLayer interop, unit-tested Journeys, incrementality and in-Journey A/B experiments, event plugins, contact groupings, and a one-command install. Plus a note on who "we" actually is.
 date: 2026-07-18
 author: doug
 tags: [engineering, growth]
@@ -31,11 +31,15 @@ This one came straight out of a nervous habit. Our welcome series had grown to a
 
 That's the same fear you get editing untested code, so the fix is the same idea. `@hogsend/testing` runs your Journeys against a fake clock and a fake mailbox, in-process, at unit-test speed. You can assert that the welcome series sends the right template on day 3, that an unsubscribe mid-flow stops the next send, that a divergent branch never double-sends. Your lifecycle logic is code, so it can have the same test coverage as the rest of your code — and CI catches the broken flow before anyone else does. It's a small thing that removes a specific, recurring anxiety.
 
-## Incrementality & bandits — proving a Journey earns its place
+## Incrementality & experiments — proving a Journey earns its place
 
 Every lifecycle program eventually runs into an honest question: did this actually move the number, or would those people have converted anyway? Open rates don't answer it.
 
-Per-Journey holdouts do. Set a holdout percentage on a Journey, and Hogsend withholds it from a deterministic slice, tracks that held-out cohort, and reports lift with a real win-probability you can read from `/studio`. That lets you keep or retire a series based on evidence rather than attachment. Multi-armed bandits are the next step along the same line: let a winning variant earn more traffic on its own, instead of waiting for you to read an A/B test by hand. The point is modest and useful — you get to know which of your automations are actually pulling their weight.
+Per-Journey holdouts do. Set a holdout percentage on a Journey and Hogsend withholds it from a deterministic slice, tracks that held-out cohort, and reports lift with a real win-probability you can read from `/studio`. That lets you keep or retire a series on evidence rather than attachment.
+
+Alongside that, `ctx.variant(key, arms)` gives you A/B tests *inside* a Journey. Ask for an arm — `const subject = await ctx.variant("welcome-subject", ["direct", "curious"])` — and each contact gets a stable, deterministic assignment that survives replays, with per-arm enrollment, conversion, engagement, and lift broken out in the readout. It's an equal split by design: every arm is held to the same holdout math, so you read the winner instead of guessing it. Letting a winning arm earn more traffic on its own is something I want to build into a later release.
+
+The point of both is modest and useful: you get to know which of your automations — and which of your variants — are actually pulling their weight.
 
 ## Event plugins — reacting to more of what customers do
 
