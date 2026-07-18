@@ -1864,6 +1864,12 @@ export const qk = {
   conversions: (filters: ConversionListFilters) =>
     ["conversions", filters] as const,
   conversionsStats: ["conversions-stats"] as const,
+  conversionTiming: (
+    definitionId: string,
+    anchorType: TimingAnchorType,
+    anchorId: string,
+    days: number,
+  ) => ["conversion-timing", definitionId, anchorType, anchorId, days] as const,
   attribution: (
     days: number,
     definitionId?: string,
@@ -2135,4 +2141,48 @@ export type ConversionsStats = {
 
 export function getConversionsStats() {
   return api.get<ConversionsStats>("/v1/admin/conversions/stats");
+}
+
+/** What each timing subject is anchored on: a journey enrollment or an event. */
+export type TimingAnchorType = "journey" | "event";
+
+/**
+ * `GET /v1/admin/conversions/timing` — the time-to-conversion distribution for
+ * one conversion definition, anchored on either a journey enrollment or an
+ * event. `anchored` is the denominator (subjects anchored in the window),
+ * `converted` the numerator (those that fired the conversion at/after their
+ * anchor). `convertedWithin` are cumulative day buckets; `medianDays`/`p90Days`
+ * are latency percentiles among converters (null when nobody converted).
+ * `correlational` is always true — anchoring self-selects engaged contacts, so
+ * "how long after" is association, not causation (holdouts are the causal lens).
+ */
+export type ConversionTiming = {
+  definitionId: string;
+  anchor: { type: TimingAnchorType; id: string };
+  days: number;
+  anchored: number;
+  converted: number;
+  rate: number;
+  convertedWithin: { d1: number; d7: number; d14: number; d30: number };
+  medianDays: number | null;
+  p90Days: number | null;
+  correlational: true;
+};
+
+export type ConversionTimingParams = {
+  definitionId: string;
+  anchorType: TimingAnchorType;
+  anchorId: string;
+  days?: number;
+};
+
+export function getConversionTiming(params: ConversionTimingParams) {
+  return api.get<ConversionTiming>("/v1/admin/conversions/timing", {
+    query: {
+      definitionId: params.definitionId,
+      anchorType: params.anchorType,
+      anchorId: params.anchorId,
+      days: params.days,
+    },
+  });
 }
