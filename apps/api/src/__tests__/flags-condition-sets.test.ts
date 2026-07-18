@@ -143,6 +143,7 @@ describe("evaluateFlag — condition sets (pure)", () => {
   it("bucket / journey / deal leaves resolve from the snapshot (± negate)", () => {
     const snapshot: TargetingSnapshot = {
       properties: {},
+      email: null,
       buckets: new Set(["beta"]),
       journeys: new Map([
         ["onboarding", { active: false, completed: true }],
