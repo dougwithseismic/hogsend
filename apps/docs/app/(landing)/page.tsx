@@ -1308,7 +1308,6 @@ export const visitorPersona = defineFlag({
     { key: "sales", value: "sales", weight: 1 },
     { key: "recruiter", value: "recruiter", weight: 1 },
     { key: "browsing", value: "browsing", weight: 1 },
-    { key: "curious", value: "curious", weight: 1 },
   ],
   defaultValue: "browsing",
 });
