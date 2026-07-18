@@ -246,7 +246,7 @@ export function NavDropdown({
       </Link>
 
       <div className="invisible absolute top-full left-1/2 -translate-x-1/2 pt-4 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
-        <div className="w-[540px] rounded-lg border border-white/10 bg-ink/95 p-2 shadow-black/50 shadow-xl backdrop-blur-md">
+        <div className="w-[540px] rounded-lg border border-white/10 bg-ink/60 p-2 shadow-black/50 shadow-xl backdrop-blur-2xl">
           <div className="grid grid-cols-2 gap-1">
             {items.map((item) => (
               <Link

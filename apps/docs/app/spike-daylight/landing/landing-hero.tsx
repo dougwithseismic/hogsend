@@ -5,6 +5,7 @@ import { PsNav } from "@/app/(landing)/_components/nav";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { CopyButton } from "@/components/ds/copy-button";
 import { LogoMarquee } from "@/components/ds/marquee";
+import { HalftoneOverlay, ThermalHover } from "@/components/ds/thermal";
 import { cn } from "@/lib/cn";
 import { FieldStage } from "../dayfield-shared";
 import { getFieldConfig } from "../field-config";
@@ -58,6 +59,17 @@ export function DayfieldHeroSection({
         initialHour={initialHour}
         controls={controls}
       >
+        {/* Halftone dot-screen riding the vista's sky-light — the print
+            texture from the thermal hero, remasked to a soft radial anchored
+            near the top of the frame (where the sun lives) and blended
+            soft-light so it grains the lit sky and dissolves into the dark
+            foreground rather than washing the whole scene. */}
+        <HalftoneOverlay
+          className="z-10 opacity-[0.3]"
+          blend="soft-light"
+          size={6}
+          mask="radial-gradient(125% 85% at 50% 10%, black 0%, rgba(0,0,0,0.6) 40%, transparent 66%)"
+        />
         {/* centered hero column — reserve room for the day-arc bar only when
             the preview scrubber is actually shown; for a normal visitor that
             row is hidden, so we drop the gap and let the works-with strip sit
@@ -97,18 +109,21 @@ export function DayfieldHeroSection({
               repo, reviewed and versioned like the rest of your product.
             </p>
 
-            {/* install command */}
+            {/* install command — wrapped in the sun-kiss cursor glow so the
+                hairline border warms where the pointer rides it. */}
             <div className="mt-7 md:mt-8">
-              <span className="inline-flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-black/35 py-2 pr-2 pl-4 backdrop-blur-md">
-                <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
-                  <span className="text-white/40">$ </span>
-                  {INSTALL_COMMAND}
-                </code>
-                <CopyButton
-                  value={INSTALL_COMMAND}
-                  className="shrink-0 text-white/50 hover:text-white"
-                />
-              </span>
+              <ThermalHover intensity="bold">
+                <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-black/35 py-2 pr-2 pl-4 backdrop-blur-md">
+                  <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
+                    <span className="text-white/40">$ </span>
+                    {INSTALL_COMMAND}
+                  </code>
+                  <CopyButton
+                    value={INSTALL_COMMAND}
+                    className="shrink-0 text-white/50 hover:text-white"
+                  />
+                </span>
+              </ThermalHover>
             </div>
 
             {/* the agent-session terminal — frosted glass over the vista. The
@@ -117,14 +132,15 @@ export function DayfieldHeroSection({
                 reset text-left, since the hero column is centered. */}
             <div className="dayfield-terminal relative mt-9 w-full max-w-[620px] text-left md:mt-11">
               <style>{`
-                /* Frosted glass that drinks the scene's colour instead of
-                   sitting as a hard black box: a heavy blur (diffuses the busy
-                   painting so mono text still reads) + saturate, a translucent
-                   ink tint, and a soft ambient shadow to seat it. */
+                /* A near-solid dark terminal that still drinks a hint of the
+                   scene: a mostly-opaque ink tint (so the mono feed reads and
+                   the empty scrollport isn't a see-through hollow) over a blur
+                   that lets only the edges whisper the vista through — a window
+                   framing the scene, not a muddy glass box floating on it. */
                 .dayfield-terminal [data-prompt-surface] {
-                  background-color: rgba(10,6,6,0.55) !important;
-                  backdrop-filter: blur(32px) saturate(1.5) brightness(0.9);
-                  -webkit-backdrop-filter: blur(32px) saturate(1.5) brightness(0.9);
+                  background-color: rgba(20,16,17,0.88) !important;
+                  backdrop-filter: blur(26px) saturate(1.15) brightness(1);
+                  -webkit-backdrop-filter: blur(26px) saturate(1.15) brightness(1);
                   border-color: rgba(255,255,255,0.14) !important;
                   box-shadow: 0 24px 70px -28px rgba(0,0,0,0.75);
                 }
@@ -146,9 +162,9 @@ export function DayfieldHeroSection({
                   filter: "blur(26px)",
                 }}
               />
-              <div className="relative">
+              <ThermalHover rounded="rounded-xl" intensity="bold">
                 <AgentPromptLoop engineVersion={engineVersion} />
-              </div>
+              </ThermalHover>
             </div>
 
             <p className="mt-5 max-w-[760px] font-mono text-[11px] uppercase leading-5 tracking-[0.06em] text-white/55 md:text-[12px]">
