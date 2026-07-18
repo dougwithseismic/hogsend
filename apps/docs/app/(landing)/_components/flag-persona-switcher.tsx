@@ -53,10 +53,10 @@ const PERSONAS: Record<PersonaKey, Persona> = {
     chip: "Founder",
     value: "founder",
     headline: "Being a founder is hard enough.",
-    sub: "Your lifecycle shouldn't need a full-time operator. Ship onboarding, trials, and win-back as code — and let your agents extend it.",
+    sub: "Your lifecycle shouldn't need a full-time operator. Ship onboarding, trials, and win-back as code your agents can extend.",
     video: {
       id: "f4_14pZlJBs",
-      title: "Before the Startup — Paul Graham (How to Start a Startup)",
+      title: "Before the Startup, with Paul Graham",
     },
   },
   growth_engineer: {
@@ -73,7 +73,7 @@ const PERSONAS: Record<PersonaKey, Persona> = {
     chip: "Sales",
     value: "sales",
     headline: "More offers out. More replies back.",
-    sub: "Fire the follow-up the moment the signal lands — no batch, no waiting on marketing to build the flow.",
+    sub: "Fire the follow-up the moment the signal lands. No batch, no waiting on marketing to build the flow.",
     video: {
       id: "-Awbn72F4hY",
       title: "22 Minutes of the Best Alex Hormozi Sales Tips",
@@ -83,7 +83,7 @@ const PERSONAS: Record<PersonaKey, Persona> = {
     chip: "Recruiter",
     value: "recruiter",
     headline: "Hiring growth engineers?",
-    sub: "This is the stack they want to work in — code-first lifecycle, agent-native, versioned in git. No drag-and-drop canvas.",
+    sub: "This is the stack they want to work in: code-first lifecycle, agent-native, versioned in git. No drag-and-drop canvas.",
     video: {
       id: "i_PjjXKNpA4",
       title: "The Startup Playbook for Hiring Your First Engineers",
@@ -93,10 +93,10 @@ const PERSONAS: Record<PersonaKey, Persona> = {
     chip: "Just browsing",
     value: "browsing",
     headline: "Take a look around.",
-    sub: "Every toggle here is one arm of the same flag. That's the whole product — running on itself, right on this page.",
+    sub: "Every toggle here is one arm of the same flag. It's the whole product running on itself, right on this page.",
     video: {
       id: "6qAB6aUMIeA",
-      title: "Lenny interviews Elena Verna — the new AI growth playbook",
+      title: "Lenny interviews Elena Verna on the new AI growth playbook",
     },
   },
 };
@@ -206,8 +206,8 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
             </span>
           </div>
           <p className="mt-1.5 text-[12px] text-white/40 leading-snug tracking-[-0.01em]">
-            One arm served per visitor. In production your targeting rules pick
-            it — here, you're the targeting engine.
+            One arm per visitor. Your targeting rules choose it in production;
+            flip the arms here to preview.
           </p>
         </div>
 
@@ -254,33 +254,36 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
           })}
         </fieldset>
 
-        {/* Code — the real API. Tabs across the three read surfaces. */}
-        <div
-          role="tablist"
-          aria-label="Where the flag is read"
-          className="flex items-center gap-1 border-white/[0.08] border-t border-b px-2"
-        >
-          {CODE_TABS.map((t) => {
-            const isActive = t.key === tab;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  "border-b-2 px-2.5 py-2.5 font-mono text-[11px] tracking-wide outline-none transition-colors",
-                  isActive
-                    ? "border-[#f64838] text-white/80"
-                    : "border-transparent text-white/40 hover:text-white/70",
-                )}
-              >
-                {t.filename}
-              </button>
-            );
-          })}
-          <span className="ml-auto pr-1.5">
+        {/* Code — the real API. The file-name tabs scroll horizontally so
+            long paths stay reachable; the copy button stays pinned. */}
+        <div className="flex items-center border-white/[0.08] border-t border-b">
+          <div
+            role="tablist"
+            aria-label="Where the flag is read"
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {CODE_TABS.map((t) => {
+              const isActive = t.key === tab;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2.5 font-mono text-[11px] tracking-wide outline-none transition-colors",
+                    isActive
+                      ? "border-[#f64838] text-white/80"
+                      : "border-transparent text-white/40 hover:text-white/70",
+                  )}
+                >
+                  {t.filename}
+                </button>
+              );
+            })}
+          </div>
+          <span className="shrink-0 border-white/[0.06] border-l px-2">
             <CopyButton value={raw[tab]} />
           </span>
         </div>
@@ -306,9 +309,9 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
       {/* Footer row — honest note + deep link, spanning both columns. */}
       <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-[640px] text-white/55 text-sm tracking-[-0.02em]">
-          One definition, read everywhere — same evaluation in the browser, on
-          the server, and in a journey. Already run PostHog flags? Keep them;
-          read them right beside these.
+          One definition, read everywhere. The same evaluation runs in the
+          browser, on the server, and inside a journey. Already run PostHog
+          flags? Keep them and read them right beside these.
         </p>
         <Link
           href="/docs/flags"

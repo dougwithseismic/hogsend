@@ -1297,7 +1297,7 @@ POSTMARK_SERVER_TOKEN=…`,
 const FLAG_SAMPLES = {
   define: `import { defineFlag } from "@hogsend/engine";
 
-// Who's reading the page? One multivariate flag, six arms.
+// Who's reading the page? One multivariate flag, five arms.
 export const visitorPersona = defineFlag({
   key: "visitor-persona",
   name: "Visitor persona",
@@ -1329,7 +1329,7 @@ const hogsend = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
 const { flags } = await hogsend.flags.evaluate({ userId });
 
 if (flags["visitor-persona"] === "founder") {
-  // …render the founder page — or branch a journey on the
+  // Render the founder page, or branch a journey on the
   // same value, evaluated by the same condition engine.
 }`,
 } as const;
@@ -1353,17 +1353,19 @@ async function PsFlags() {
               DISPLAY,
             )}
           >
-            <span className="text-white">Who's reading this?</span>{" "}
+            <span className="text-white">
+              Customize the whole journey with feature flags.
+            </span>{" "}
             <span className="text-white/40">
-              One flag picks a persona — the video and the pitch follow.
+              Flip any part of your marketing on or off, anytime. No deploy.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
-            Native, DB-backed flags evaluated against your Hogsend contacts —
-            the same targeting engine that powers journeys. Pick a persona below
-            and watch a multivariate flag flip the arms: the video, the
-            headline, and the pitch all follow. This section runs on the exact
-            API on the right.
+            Native, DB-backed flags, evaluated against your Hogsend contacts by
+            the same targeting engine that runs your journeys. One flag can swap
+            a headline, a video, an email, or a whole branch of a journey. Flip
+            the arms below and the page reacts, running on the real API on the
+            right.
           </p>
         </Reveal>
 
