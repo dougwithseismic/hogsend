@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/plugin-meta-capi",
-  "version": "0.46.1",
+  "version": "0.50.0",
   "type": "module",
   "license": "MIT",
   "description": "Meta Conversions API destination for Hogsend: valued conversion events with deterministic event_id dedup, fbc reconstruction from stored click timestamps, and hashed identifiers.",
