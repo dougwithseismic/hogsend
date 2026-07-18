@@ -41,6 +41,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { WordReveal } from "./_components/word-reveal";
@@ -1290,6 +1291,98 @@ POSTMARK_SERVER_TOKEN=…`,
 
 /** Async RSC wrapper: Shiki-highlights the samples server-side and hands the
  * rendered nodes to the client picker (the homepage composition pattern). */
+/* --------------------------------------------------------- feature flags -- */
+
+/** The real flag API, three surfaces — shown verbatim beside the live demo. */
+const FLAG_SAMPLES = {
+  define: `import { defineFlag } from "@hogsend/engine";
+
+// Who's reading the page? One multivariate flag, six arms.
+export const visitorPersona = defineFlag({
+  key: "visitor-persona",
+  name: "Visitor persona",
+  type: "multivariate",
+  variants: [
+    { key: "founder", value: "founder", weight: 1 },
+    { key: "growth_engineer", value: "growth_engineer", weight: 1 },
+    { key: "sales", value: "sales", weight: 1 },
+    { key: "recruiter", value: "recruiter", weight: 1 },
+    { key: "browsing", value: "browsing", weight: 1 },
+    { key: "curious", value: "curious", weight: 1 },
+  ],
+  defaultValue: "browsing",
+});
+
+export const flags = [visitorPersona];`,
+  react: `import { useFlag } from "@hogsend/react";
+
+export function Hero() {
+  // One flag decides who's reading. Sticky per visitor, no redeploy.
+  const persona = useFlag("visitor-persona");
+
+  return <PersonaHero persona={persona} />; // swaps the video + the pitch
+}`,
+  server: `import { Hogsend } from "@hogsend/client";
+
+const hogsend = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
+
+// The same flag, resolved for one contact on the server.
+const { flags } = await hogsend.flags.evaluate({ userId });
+
+if (flags["visitor-persona"] === "founder") {
+  // …render the founder page — or branch a journey on the
+  // same value, evaluated by the same condition engine.
+}`,
+} as const;
+
+async function PsFlags() {
+  const [defineNode, reactNode, serverNode] = await Promise.all([
+    CodeHighlight({ code: FLAG_SAMPLES.define, lang: "ts" }),
+    CodeHighlight({ code: FLAG_SAMPLES.react, lang: "tsx" }),
+    CodeHighlight({ code: FLAG_SAMPLES.server, lang: "ts" }),
+  ]);
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Feature flags</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">Who's reading this?</span>{" "}
+            <span className="text-white/40">
+              One flag picks a persona — the video and the pitch follow.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Native, DB-backed flags evaluated against your Hogsend contacts —
+            the same targeting engine that powers journeys. Pick a persona below
+            and watch a multivariate flag flip the arms: the video, the
+            headline, and the pitch all follow. This section runs on the exact
+            API on the right.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <FlagPersonaSwitcher
+            code={{
+              define: defineNode,
+              react: reactNode,
+              server: serverNode,
+            }}
+            raw={FLAG_SAMPLES}
+          />
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
 async function PsCode() {
   const [
     onboarding,
@@ -3150,6 +3243,7 @@ export default async function HomePage({
       <PsManifesto />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
+      <PsFlags />
       <PsCode />
       <PsAgents />
       <PsUseCases />
