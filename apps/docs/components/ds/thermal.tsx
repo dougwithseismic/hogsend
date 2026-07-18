@@ -68,22 +68,40 @@ export function ThermalLayer({
 /**
  * Code-drawn halftone dot screen, masked so it only shows where the texture
  * glows (crisp print texture riding on the soft blobs).
+ *
+ * Defaults reproduce the thermal-hero look (masked by the smoke texture,
+ * `overlay` blend). Pass a custom `mask` — e.g. a radial concentrated on a
+ * scene's light source — plus a gentler `blend` to ride a photographic backdrop
+ * like the day-field vista instead of the generated smoke.
  */
-export function HalftoneOverlay({ className }: { className?: string }) {
+export function HalftoneOverlay({
+  className,
+  mask,
+  blend = "overlay",
+  size = 7,
+}: {
+  className?: string;
+  /** Override the mask (defaults to the thermal smoke texture). */
+  mask?: string;
+  /** Blend mode against the surface underneath. */
+  blend?: CSSProperties["mixBlendMode"];
+  /** Dot pitch in px. */
+  size?: number;
+}) {
+  const textureMask = `url(${TEXTURES[0]})`;
   return (
     <div
       aria-hidden="true"
-      className={cn(
-        "pointer-events-none absolute inset-0 mix-blend-overlay",
-        className,
-      )}
+      className={cn("pointer-events-none absolute inset-0", className)}
       style={{
+        mixBlendMode: blend,
         backgroundImage:
           "radial-gradient(circle at center, rgba(255,255,255,0.5) 1px, transparent 1px)",
-        backgroundSize: "7px 7px",
-        maskImage: `url(${TEXTURES[0]})`,
-        maskSize: "cover",
-        maskPosition: "center",
+        backgroundSize: `${size}px ${size}px`,
+        maskImage: mask ?? textureMask,
+        WebkitMaskImage: mask ?? textureMask,
+        maskSize: mask ? undefined : "cover",
+        maskPosition: mask ? undefined : "center",
         opacity: 0.5,
       }}
     />
@@ -95,6 +113,12 @@ type ThermalHoverProps = {
   className?: string;
   /** Rounding of the kiss ring — match the wrapped element. */
   rounded?: string;
+  /**
+   * Kiss intensity. `soft` (default) is the featherweight ring tuned for the
+   * near-black classic hero. `bold` is a warmer, brighter, wider sun-kiss that
+   * survives a bright photographic backdrop like the day-field vista.
+   */
+  intensity?: "soft" | "bold";
 };
 
 /**
@@ -106,6 +130,7 @@ export function ThermalHover({
   children,
   className,
   rounded = "rounded-[6px]",
+  intensity = "soft",
 }: ThermalHoverProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -138,16 +163,29 @@ export function ThermalHover({
           "pointer-events-none absolute inset-0 transition-opacity duration-300",
           rounded,
         )}
-        style={{
-          opacity: "calc(var(--ho) * 0.6)",
-          border: "1px solid rgba(255, 210, 160, 0.7)",
-          boxShadow: [
-            "inset 0 0 10px -6px rgba(255, 176, 92, 0.7)",
-            "0 0 12px -5px rgba(246, 72, 56, 0.7)",
-          ].join(","),
-          maskImage:
-            "radial-gradient(110px circle at var(--hx) var(--hy), black, transparent 70%)",
-        }}
+        style={
+          intensity === "bold"
+            ? {
+                opacity: "calc(var(--ho) * 0.7)",
+                border: "1px solid rgba(255, 224, 178, 0.78)",
+                boxShadow: [
+                  "inset 0 0 12px -5px rgba(255, 190, 120, 0.72)",
+                  "0 0 18px -5px rgba(246, 120, 56, 0.65)",
+                ].join(","),
+                maskImage:
+                  "radial-gradient(150px circle at var(--hx) var(--hy), black, transparent 72%)",
+              }
+            : {
+                opacity: "calc(var(--ho) * 0.6)",
+                border: "1px solid rgba(255, 210, 160, 0.7)",
+                boxShadow: [
+                  "inset 0 0 10px -6px rgba(255, 176, 92, 0.7)",
+                  "0 0 12px -5px rgba(246, 72, 56, 0.7)",
+                ].join(","),
+                maskImage:
+                  "radial-gradient(110px circle at var(--hx) var(--hy), black, transparent 70%)",
+              }
+        }
       />
     </div>
   );
