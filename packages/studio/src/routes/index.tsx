@@ -11,6 +11,7 @@ import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
 import { DealsView } from "@/views/deals-view";
 import { EventsView } from "@/views/events-view";
+import { FlagEditorView } from "@/views/flags/flag-editor-view";
 import { FlagsView } from "@/views/flags-view";
 import { GroupDetailView } from "@/views/group-detail-view";
 import { GroupsView } from "@/views/groups-view";
@@ -122,6 +123,27 @@ const flagsRoute = createRoute({
   component: FlagsView,
 });
 
+// `/flags/new` must be registered BEFORE `/flags/$flagId` so the literal path
+// wins over the param route (otherwise "new" would match as a flag id).
+const flagNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/flags/new",
+  component: function FlagNewRoute() {
+    return <FlagEditorView mode="create" />;
+  },
+});
+
+const flagEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/flags/$flagId",
+  // Same prop-threading pattern as the campaign/journey detail routes: read the
+  // param here so the view stays router-agnostic.
+  component: function FlagEditRoute() {
+    const { flagId } = flagEditRoute.useParams();
+    return <FlagEditorView mode="edit" flagId={flagId} />;
+  },
+});
+
 const bucketsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/buckets",
@@ -189,6 +211,8 @@ const routeTree = rootRoute.addChildren([
   journeyDetailRoute,
   blueprintDetailRoute,
   flagsRoute,
+  flagNewRoute,
+  flagEditRoute,
   bucketsRoute,
   groupsRoute,
   groupDetailRoute,

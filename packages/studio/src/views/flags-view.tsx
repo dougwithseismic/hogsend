@@ -1,11 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Flag as FlagIcon, Plus } from "lucide-react";
 import { useState } from "react";
-import {
-  ConditionBuilder,
-  emptyTargetingGroup,
-  toTargetingGroup,
-} from "@/components/condition-builder";
+import { toTargetingGroup } from "@/components/condition-builder";
 import {
   EmptyState,
   ErrorState,
@@ -14,10 +11,7 @@ import {
 } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -30,40 +24,33 @@ import {
 import { useToast } from "@/components/ui/toast";
 import {
   archiveFlag,
-  createFlag,
   type Flag,
-  type FlagCreateBody,
   type FlagTargeting,
   type FlagTargetingCondition,
-  type FlagType,
+  type FlagTargetingLeaf,
   type FlagUpdateBody,
-  type FlagVariant,
-  getTargetingCatalog,
   listFlags,
   qk,
   updateFlag,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { renderValue } from "./flags/flag-form";
 
 /**
- * Native feature-flags view. Unlike observe-only Groups/Buckets, flags are
- * OPERATOR-editable here: the row's `enabled` Switch and the rollout/targeting
- * editors PATCH the flag and take effect live (no redeploy) — that instant
- * switch is the whole reason flags exist. Create mints a DB-backed flag; archive
- * is a soft-delete that frees the key.
- *
- * Targeting is edited with the reusable <ConditionBuilder> (an AND/OR tree of
- * PROPERTY leaves); multivariate variants + a non-scalar default value are still
- * edited as JSON textareas. All shapes are validated server-side.
+ * Native feature-flags list. Unlike observe-only Groups/Buckets, flags are
+ * OPERATOR-editable: the row's `enabled` Switch PATCHes the flag and takes effect
+ * live (no redeploy) — that instant switch is the whole reason flags exist.
+ * Creating and editing a flag now happen on the dedicated full-page editor
+ * (`/flags/new`, `/flags/$flagId`); the list keeps only the inline enabled toggle
+ * and archive (a soft-delete that frees the key). A row click opens the editor.
  */
 export function FlagsView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [includeArchived, setIncludeArchived] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Flag | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Flag | null>(null);
 
   const query = useQuery({
@@ -85,25 +72,12 @@ export function FlagsView() {
       });
   }
 
-  const create = useMutation({
-    mutationFn: (body: FlagCreateBody) => createFlag(body),
-    onSuccess: () => {
-      toast({ title: "Flag created" });
-      setCreateOpen(false);
-      invalidate();
-    },
-    onError: onMutationError("Could not create flag"),
-  });
-
-  // Shared by the inline enabled Switch AND the edit dialog — the id in the
-  // mutation variables lets a single per-row Switch show its own pending state.
+  // The id in the mutation variables lets a single per-row Switch show its own
+  // pending state.
   const update = useMutation({
     mutationFn: (vars: { id: string; body: FlagUpdateBody }) =>
       updateFlag(vars.id, vars.body),
-    onSuccess: () => {
-      setEditTarget(null);
-      invalidate();
-    },
+    onSuccess: () => invalidate(),
     onError: onMutationError("Could not update flag"),
   });
 
@@ -125,7 +99,7 @@ export function FlagsView() {
         title="Flags"
         description="Native, DB-backed feature flags — toggle, roll out, and target live without a redeploy."
         action={
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => void navigate({ to: "/flags/new" })}>
             <Plus className="h-4 w-4" />
             New flag
           </Button>
@@ -156,7 +130,7 @@ export function FlagsView() {
           title="No flags yet"
           description="Create a feature flag to gate rollouts, run experiments, or ship dark launches — evaluated live by the SDKs and journeys."
           action={
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button onClick={() => void navigate({ to: "/flags/new" })}>
               <Plus className="h-4 w-4" />
               New flag
             </Button>
@@ -184,7 +158,19 @@ export function FlagsView() {
                 return (
                   <TableRow
                     key={flag.id}
-                    className={cn(archived && "opacity-50")}
+                    className={cn(
+                      !archived && "cursor-pointer",
+                      archived && "opacity-50",
+                    )}
+                    onClick={
+                      archived
+                        ? undefined
+                        : () =>
+                            navigate({
+                              to: "/flags/$flagId",
+                              params: { flagId: flag.id },
+                            })
+                    }
                   >
                     <TableCell>
                       <span className="font-medium text-white">
@@ -210,17 +196,25 @@ export function FlagsView() {
                       {archived ? (
                         <Badge variant="destructive">Archived</Badge>
                       ) : (
-                        <Switch
-                          aria-label={`Toggle ${flag.name}`}
-                          checked={flag.enabled}
-                          disabled={toggling}
-                          onCheckedChange={(next) =>
-                            update.mutate({
-                              id: flag.id,
-                              body: { enabled: next },
-                            })
-                          }
-                        />
+                        // Stop the toggle click bubbling to the row navigation.
+                        // biome-ignore lint/a11y/noStaticElementInteractions: click-guard wrapper, not a control
+                        // biome-ignore lint/a11y/useKeyWithClickEvents: the Switch inside handles keyboard
+                        <span
+                          className="inline-flex"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Switch
+                            aria-label={`Toggle ${flag.name}`}
+                            checked={flag.enabled}
+                            disabled={toggling}
+                            onCheckedChange={(next) =>
+                              update.mutate({
+                                id: flag.id,
+                                body: { enabled: next },
+                              })
+                            }
+                          />
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
@@ -229,14 +223,23 @@ export function FlagsView() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setEditTarget(flag)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate({
+                                to: "/flags/$flagId",
+                                params: { flagId: flag.id },
+                              });
+                            }}
                           >
                             Edit
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setArchiveTarget(flag)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setArchiveTarget(flag);
+                            }}
                           >
                             Archive
                           </Button>
@@ -250,27 +253,6 @@ export function FlagsView() {
           </Table>
         </div>
       )}
-
-      {createOpen ? (
-        <FlagFormDialog
-          mode="create"
-          submitting={create.isPending}
-          onClose={() => setCreateOpen(false)}
-          onSubmit={(body) => create.mutate(body as FlagCreateBody)}
-        />
-      ) : null}
-
-      {editTarget ? (
-        <FlagFormDialog
-          mode="edit"
-          flag={editTarget}
-          submitting={update.isPending}
-          onClose={() => setEditTarget(null)}
-          onSubmit={(body) =>
-            update.mutate({ id: editTarget.id, body: body as FlagUpdateBody })
-          }
-        />
-      ) : null}
 
       <ConfirmDialog
         open={archiveTarget !== null}
@@ -290,20 +272,40 @@ export function FlagsView() {
   );
 }
 
-// --- Rendering helpers -----------------------------------------------------
+// --- Targeting summary (list cell) -----------------------------------------
 
-/** A default/variant value in a table cell — scalars render, containers JSON. */
-function renderValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "string") return value === "" ? '""' : value;
-  return JSON.stringify(value);
-}
-
-/** Render one PROPERTY leaf as "prop operator value". */
-function leafSummary(c: FlagTargetingCondition): string {
-  return [c.property, c.operator, c.value === undefined ? "" : String(c.value)]
-    .filter(Boolean)
-    .join(" ");
+/** Render one leaf as a short, human phrase (ids used bare — no catalog here). */
+function leafSummary(c: FlagTargetingLeaf): string {
+  switch (c.type) {
+    case "property":
+      return [
+        c.property,
+        c.operator,
+        c.value === undefined ? "" : String(c.value),
+      ]
+        .filter(Boolean)
+        .join(" ");
+    case "bucket":
+      return `${c.negate ? "not in" : "in"} bucket ${c.bucketId}`;
+    case "journey":
+      return `${c.negate ? "not " : ""}${
+        c.state === "completed" ? "completed" : "enrolled in"
+      } ${c.journeyId}`;
+    case "deal":
+      return `${c.negate ? "no " : ""}${
+        c.predicate === "stage"
+          ? `deal at ${c.stage ?? "stage"}`
+          : `${c.predicate} deal`
+      }`;
+    case "event":
+      return `event ${c.eventName} ${
+        c.check === "count"
+          ? `count ${c.operator ?? ""} ${c.value ?? ""}`
+          : c.check
+      }`.trim();
+    case "email_engagement":
+      return `email ${c.templateKey} ${c.check}`;
+  }
 }
 
 /**
@@ -319,7 +321,7 @@ function targetingSummary(
 }
 
 function summarizeGroup(node: FlagTargeting, top: boolean): string {
-  if (node.type === "property") return leafSummary(node);
+  if (node.type !== "composite") return leafSummary(node);
   const joiner = node.operator === "or" ? " OR " : " AND ";
   const parts = node.conditions
     .map((child) => summarizeGroup(child, false))
@@ -327,353 +329,4 @@ function summarizeGroup(node: FlagTargeting, top: boolean): string {
   if (parts.length === 0) return "";
   const joined = parts.join(joiner);
   return top || parts.length === 1 ? joined : `(${joined})`;
-}
-
-// --- Create / edit form ----------------------------------------------------
-
-type FormState = {
-  key: string;
-  name: string;
-  description: string;
-  type: FlagType;
-  rollout: string;
-  /** Boolean flags: the served-off value. */
-  defaultBool: boolean;
-  /** Multivariate flags: the served-off value, as JSON. */
-  defaultJson: string;
-  /** Multivariate flags: the arms, as JSON (FlagVariant[]). */
-  variantsJson: string;
-  /** Targeting predicate, as a condition tree (composite root). */
-  targeting: FlagTargeting;
-};
-
-function initialForm(flag?: Flag): FormState {
-  if (!flag) {
-    return {
-      key: "",
-      name: "",
-      description: "",
-      type: "boolean",
-      rollout: "100",
-      defaultBool: false,
-      defaultJson: "null",
-      variantsJson: "[]",
-      targeting: emptyTargetingGroup(),
-    };
-  }
-  return {
-    key: flag.key,
-    name: flag.name,
-    description: flag.description ?? "",
-    type: flag.type,
-    rollout: String(flag.rollout),
-    defaultBool: flag.defaultValue === true,
-    defaultJson: JSON.stringify(flag.defaultValue ?? null, null, 2),
-    variantsJson: JSON.stringify(flag.variants ?? [], null, 2),
-    // Normalize a legacy bare array / lone leaf into an editable group.
-    targeting: toTargetingGroup(flag.targeting),
-  };
-}
-
-/**
- * Build the request body from the form, or an error string when a JSON field
- * is malformed / the rollout is out of range. Create needs key+name; edit omits
- * the immutable key. The engine does the authoritative validation — this just
- * catches the obvious mistakes before the round-trip.
- */
-function buildBody(
-  state: FormState,
-  mode: "create" | "edit",
-): { body?: FlagCreateBody | FlagUpdateBody; error?: string } {
-  const name = state.name.trim();
-  if (!name) return { error: "Name is required." };
-
-  const rollout = Number(state.rollout);
-  if (
-    !Number.isInteger(rollout) ||
-    rollout < 0 ||
-    rollout > 100 ||
-    state.rollout.trim() === ""
-  ) {
-    return { error: "Rollout must be a whole number between 0 and 100." };
-  }
-
-  let defaultValue: unknown;
-  let variants: FlagVariant[] = [];
-  if (state.type === "boolean") {
-    defaultValue = state.defaultBool;
-  } else {
-    const dv = parseJson<unknown>(state.defaultJson, null);
-    if (dv.error) return { error: `Default value: ${dv.error}` };
-    defaultValue = dv.value;
-    const vs = parseJson<FlagVariant[]>(state.variantsJson, []);
-    if (vs.error) return { error: `Variants: ${vs.error}` };
-    if (!Array.isArray(vs.value)) {
-      return { error: "Variants must be a JSON array." };
-    }
-    variants = vs.value;
-  }
-
-  const key = state.key.trim();
-  if (!key) return { error: "Key is required." };
-
-  const common: FlagUpdateBody = {
-    key,
-    name,
-    description: state.description.trim() || undefined,
-    type: state.type,
-    rollout,
-    targeting: state.targeting,
-    defaultValue,
-    variants,
-  };
-
-  if (mode === "edit") return { body: common };
-  return { body: { ...common, type: state.type } as FlagCreateBody };
-}
-
-/** Slugify a name into a stable key: lowercase, non-alphanumerics → hyphens. */
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function parseJson<T>(raw: string, empty: T): { value?: T; error?: string } {
-  const trimmed = raw.trim();
-  if (trimmed === "") return { value: empty };
-  try {
-    return { value: JSON.parse(trimmed) as T };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "invalid JSON" };
-  }
-}
-
-function FlagFormDialog({
-  mode,
-  flag,
-  submitting,
-  onClose,
-  onSubmit,
-}: {
-  mode: "create" | "edit";
-  flag?: Flag;
-  submitting: boolean;
-  onClose: () => void;
-  onSubmit: (body: FlagCreateBody | FlagUpdateBody) => void;
-}) {
-  const [state, setState] = useState<FormState>(() => initialForm(flag));
-  const [error, setError] = useState<string | null>(null);
-  // While creating, the key auto-follows the name until the user edits it by
-  // hand; editing an existing flag starts "dirty" so we never rewrite its key.
-  const [keyDirty, setKeyDirty] = useState(mode === "edit");
-
-  // Seeds the ConditionBuilder's property combobox + operator vocabulary. The
-  // builder degrades to free-text + a built-in operator set while this loads.
-  const catalogQuery = useQuery({
-    queryKey: qk.targetingCatalog,
-    queryFn: getTargetingCatalog,
-    staleTime: 60_000,
-  });
-
-  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setState((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function setName(value: string) {
-    setState((prev) => ({
-      ...prev,
-      name: value,
-      key: keyDirty ? prev.key : slugify(value),
-    }));
-  }
-
-  function setKey(value: string) {
-    setKeyDirty(true);
-    set("key", value);
-  }
-
-  function submit() {
-    const result = buildBody(state, mode);
-    if (result.error || !result.body) {
-      setError(result.error ?? "Invalid form.");
-      return;
-    }
-    setError(null);
-    onSubmit(result.body);
-  }
-
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={mode === "create" ? "Create flag" : `Edit ${flag?.name ?? "flag"}`}
-      description={
-        mode === "create"
-          ? "A native, DB-backed feature flag — evaluated live by your SDKs and journeys."
-          : "Changes take effect live — no redeploy."
-      }
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={submitting}>
-            {submitting
-              ? "Saving…"
-              : mode === "create"
-                ? "Create flag"
-                : "Save changes"}
-          </Button>
-        </>
-      }
-    >
-      <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-        <div className="space-y-1.5">
-          <Label htmlFor="flag-name">Name</Label>
-          <Input
-            id="flag-name"
-            placeholder="New checkout flow"
-            value={state.name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="flag-key">Key</Label>
-          <Input
-            id="flag-key"
-            placeholder="new-checkout-flow"
-            value={state.key}
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <p className="text-white/40 text-xs">
-            The identifier your SDK reads. Auto-filled from the name — edit it
-            any time; it must stay unique.
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="flag-description">Description</Label>
-          <Input
-            id="flag-description"
-            placeholder="Optional"
-            value={state.description}
-            onChange={(e) => set("description", e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-4">
-          <div className="w-40 space-y-1.5">
-            <Label htmlFor="flag-type">Type</Label>
-            <Select
-              id="flag-type"
-              value={state.type}
-              onChange={(e) => set("type", e.target.value as FlagType)}
-            >
-              <option value="boolean">boolean</option>
-              <option value="multivariate">multivariate</option>
-            </Select>
-          </div>
-          <div className="w-40 space-y-1.5">
-            <Label htmlFor="flag-rollout">Rollout %</Label>
-            <Input
-              id="flag-rollout"
-              type="number"
-              min={0}
-              max={100}
-              value={state.rollout}
-              onChange={(e) => set("rollout", e.target.value)}
-            />
-          </div>
-        </div>
-
-        {state.type === "boolean" ? (
-          <div className="w-40 space-y-1.5">
-            <Label htmlFor="flag-default-bool">Default value</Label>
-            <Select
-              id="flag-default-bool"
-              value={state.defaultBool ? "true" : "false"}
-              onChange={(e) => set("defaultBool", e.target.value === "true")}
-            >
-              <option value="false">false</option>
-              <option value="true">true</option>
-            </Select>
-            <p className="text-white/40 text-xs">
-              Served when disabled, targeting fails, or outside the rollout.
-            </p>
-          </div>
-        ) : (
-          <>
-            <JsonField
-              id="flag-variants"
-              label="Variants"
-              hint="A JSON array of arms: { key, value, weight }."
-              value={state.variantsJson}
-              onChange={(v) => set("variantsJson", v)}
-              rows={5}
-            />
-            <JsonField
-              id="flag-default-json"
-              label="Default value"
-              hint="Any JSON — served when the flag doesn't match."
-              value={state.defaultJson}
-              onChange={(v) => set("defaultJson", v)}
-              rows={2}
-            />
-          </>
-        )}
-
-        <div className="space-y-1.5">
-          <Label htmlFor="flag-targeting">Targeting</Label>
-          <div id="flag-targeting">
-            <ConditionBuilder
-              value={state.targeting}
-              onChange={(next) => set("targeting", next)}
-              catalog={catalogQuery.data}
-            />
-          </div>
-          <p className="text-white/40 text-xs">
-            Only contacts matching these conditions are eligible. Empty =
-            everyone matches.
-          </p>
-        </div>
-
-        {error ? <p className="text-red-400 text-sm">{error}</p> : null}
-      </div>
-    </Dialog>
-  );
-}
-
-function JsonField({
-  id,
-  label,
-  hint,
-  value,
-  onChange,
-  rows,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  value: string;
-  onChange: (next: string) => void;
-  rows: number;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <textarea
-        id={id}
-        rows={rows}
-        spellCheck={false}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="flex w-full rounded-md border border-hairline-faint bg-white/[0.04] px-3 py-2 font-mono text-white text-xs transition-colors duration-200 hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      />
-      <p className="text-white/40 text-xs">{hint}</p>
-    </div>
-  );
 }
