@@ -151,7 +151,9 @@ type PartialFeedItem = Partial<FeedItem> &
  * `Record<string, string>` is assignable to {@link Query}, so one helper
  * serves both the listQuery spread and the mark/mark-all body spread.
  */
-function identityParams(identity: IdentityStore): Record<string, string> {
+export function identityParams(
+  identity: IdentityStore,
+): Record<string, string> {
   const userToken = identity.getUserToken();
   const userId = identity.getUserId();
   if (userId && userToken) return { userToken };

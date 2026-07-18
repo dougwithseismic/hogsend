@@ -473,6 +473,19 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
+// --- Native feature flags (DB-backed, sticky evaluation) ---
+export {
+  type EvaluableFlag,
+  emptySnapshot,
+  evaluateFlag,
+  evaluateFlagsForContact,
+  evaluateTargeting,
+  flagBucket,
+  flagUnit,
+  loadTargetingSnapshot,
+  type TargetingEvalContext,
+  type TargetingSnapshot,
+} from "./lib/flags.js";
 export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { FunnelRegistry } from "./lib/funnel-registry.js";

@@ -267,6 +267,14 @@ export interface HogsendState {
    * drops group associations, matching PostHog).
    */
   groups: Record<string, string>;
+  /**
+   * Native feature flags: the evaluated flag map for the current identity
+   * (`GET /v1/flags`). Boolean flags → `true`; multivariate → the matched
+   * arm's value; not-matched/not-in-rollout → the flag's `defaultValue`.
+   * Seeded `{}` and refreshed on init + on identity change. Named `flags`
+   * (never `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
+   */
+  flags?: Record<string, unknown>;
   /** Keyed by feedId (v2). */
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
@@ -334,6 +342,21 @@ export interface Hogsend {
   resetGroups(): void;
   /** Read the current group associations (`groupType → groupKey`). */
   getGroups(): Record<string, string>;
+
+  // ── native feature flags ──
+  /**
+   * The evaluated feature-flag map for the current identity, read from the
+   * reactive `flags` slice (`GET /v1/flags`, refreshed on init + on identity
+   * change). `{}` until the first fetch resolves. Named `flags` (not
+   * `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
+   */
+  flags(): Record<string, unknown>;
+  /**
+   * A single flag's evaluated value, or `undefined` until the first fetch
+   * resolves (or when the flag does not exist). A boolean flag reads `true`
+   * when on; a multivariate flag reads its matched arm's value.
+   */
+  getFlag(key: string): unknown;
 
   // ── the spine (single telemetry path) ──
   capture(

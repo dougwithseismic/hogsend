@@ -1803,6 +1803,294 @@ export function cancelCampaign(id: string) {
   );
 }
 
+// --- Flags (native feature flags — OPERATOR-editable) --------------------
+
+/**
+ * One multivariate arm of a flag. `value` is any JSON (the served value);
+ * `weight` is a non-negative relative number (the engine normalizes by the
+ * cumulative sum). Empty for a boolean flag.
+ */
+export type FlagVariant = {
+  key: string;
+  value: unknown;
+  weight: number;
+};
+
+/**
+ * One PROPERTY-leaf targeting predicate — the shared PropertyCondition
+ * vocabulary (a flag reuses it rather than inventing a condition type). `unary`
+ * operators (`exists`/`not_exists`) carry no `value`.
+ */
+export type FlagTargetingCondition = {
+  type: "property";
+  property: string;
+  operator: string;
+  value?: string | number | boolean;
+};
+
+/**
+ * PURE snapshot-backed membership leaf — the contact is (or, with `negate`, is
+ * NOT) an active member of a bucket. Mirrors the engine `BucketCondition`.
+ */
+export type FlagBucketCondition = {
+  type: "bucket";
+  bucketId: string;
+  negate?: boolean;
+};
+
+/**
+ * PURE snapshot-backed journey-state leaf — the contact is enrolled (`active`)
+ * in, or has completed, a journey. Mirrors the engine `JourneyCondition`.
+ */
+export type FlagJourneyCondition = {
+  type: "journey";
+  journeyId: string;
+  state: "active" | "completed";
+  negate?: boolean;
+};
+
+/**
+ * PURE snapshot-backed CRM deal leaf — `won`/`open`, or a deal at a canonical
+ * `stage`. Mirrors the engine `DealCondition`.
+ */
+export type FlagDealCondition = {
+  type: "deal";
+  predicate: "won" | "open" | "stage";
+  stage?: string;
+  negate?: boolean;
+};
+
+/**
+ * SERVER-ONLY scan leaf — an event existence / count check over `user_events`.
+ * Resolves only on the secret-key evaluate path; short-circuits to `false` on
+ * the browser read. Mirrors the engine `EventCondition`.
+ */
+export type FlagEventCondition = {
+  type: "event";
+  eventName: string;
+  check: "exists" | "not_exists" | "count";
+  operator?: "gt" | "gte" | "lt" | "lte" | "eq";
+  value?: number;
+  within?: { hours?: number; minutes?: number; seconds?: number };
+};
+
+/**
+ * SERVER-ONLY scan leaf — an email open/click engagement check. Resolves only
+ * on the secret-key evaluate path (false on the browser read). Mirrors the
+ * engine `EmailEngagementCondition`.
+ */
+export type FlagEmailEngagementCondition = {
+  type: "email_engagement";
+  templateKey: string;
+  check: "opened" | "clicked" | "not_opened" | "not_clicked";
+};
+
+/**
+ * Every non-composite targeting leaf a flag can carry: the PURE snapshot-backed
+ * set (`property`/`bucket`/`journey`/`deal`) plus the SERVER-ONLY scan set
+ * (`event`/`email_engagement`).
+ */
+export type FlagTargetingLeaf =
+  | FlagTargetingCondition
+  | FlagBucketCondition
+  | FlagJourneyCondition
+  | FlagDealCondition
+  | FlagEventCondition
+  | FlagEmailEngagementCondition;
+
+/**
+ * An AND/OR group of targeting nodes. Children are themselves {@link
+ * FlagTargeting} nodes, so groups nest arbitrarily. Mirrors the engine's
+ * `FlagTargetingComposite` (@hogsend/core) — kept as a local type because the
+ * Studio ships as a standalone SPA `dist` and does not bundle engine source.
+ */
+export type FlagTargetingComposite = {
+  type: "composite";
+  operator: "and" | "or";
+  conditions: FlagTargeting[];
+};
+
+/**
+ * A flag's targeting condition TREE: any {@link FlagTargetingLeaf} or an AND/OR
+ * COMPOSITE of further nodes. Empty targeting matches everyone. Mirrors the
+ * engine's `FlagTargeting`. NOTE: the stored/serialized shape may still be a
+ * legacy bare `FlagTargetingCondition[]` (implicit AND) — readers accept BOTH
+ * (see `Flag`).
+ */
+export type FlagTargeting = FlagTargetingLeaf | FlagTargetingComposite;
+
+export type FlagType = "boolean" | "multivariate";
+
+/**
+ * One ordered targeting rule of a flag — a `targeting` tree plus its own
+ * `rollout` percent. The engine evaluates a flag's condition sets IN ORDER and
+ * the FIRST set whose targeting matches AND whose per-set rollout admits the
+ * contact turns the flag on. Mirrors the engine's `ConditionSet` (@hogsend/core).
+ * `targeting` accepts the tree form OR a legacy bare `FlagTargetingCondition[]`.
+ */
+export type FlagConditionSet = {
+  description?: string;
+  targeting: FlagTargeting | FlagTargetingCondition[];
+  rollout: number;
+};
+
+/**
+ * One row of `GET /v1/admin/flags` — a native, DB-backed feature flag. Mirrors
+ * the engine flag schema (routes/admin/flags.ts). Unlike observe-only groups
+ * and buckets, flags are OPERATOR-editable from Studio: toggling `enabled` or
+ * editing the `rollout`/targeting takes effect without a redeploy — that live
+ * switch is the whole point. `defaultValue` is served when the flag is disabled,
+ * targeting fails, or the contact is outside the rollout slice.
+ */
+export type Flag = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  type: FlagType;
+  variants: FlagVariant[];
+  defaultValue: unknown;
+  /**
+   * The targeting predicate. Serialized as the Phase-1 tree, but a legacy flag
+   * may still carry a bare `FlagTargetingCondition[]` (implicit AND) — the
+   * editor normalizes both on load.
+   */
+  targeting: FlagTargeting | FlagTargetingCondition[];
+  rollout: number;
+  /**
+   * The ordered targeting rules (first matching set wins). Always ≥1 — a flag
+   * that predates condition sets is synthesized as a single set from the legacy
+   * `targeting`+`rollout` columns server-side.
+   */
+  conditionSets: FlagConditionSet[];
+  /** Provenance seam ("native" today). */
+  origin: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function listFlags(includeArchived = false) {
+  return api.get<{ flags: Flag[] }>("/v1/admin/flags", {
+    query: { includeArchived: includeArchived ? "true" : undefined },
+  });
+}
+
+/** `key`/`name`/`type` are required; everything else has a table-level default. */
+export type FlagCreateBody = {
+  key: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  type: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargeting | FlagTargetingCondition[];
+  rollout?: number;
+  /** Ordered targeting rules — wins over the legacy `targeting`+`rollout` pair. */
+  conditionSets?: FlagConditionSet[];
+};
+
+export function createFlag(body: FlagCreateBody) {
+  return api.post<{ flag: Flag }>("/v1/admin/flags", { json: body });
+}
+
+/** Every field optional — `key` is immutable and deliberately omitted. */
+export type FlagUpdateBody = {
+  key?: string;
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  type?: FlagType;
+  variants?: FlagVariant[];
+  defaultValue?: unknown;
+  targeting?: FlagTargeting | FlagTargetingCondition[];
+  rollout?: number;
+  /** Ordered targeting rules — wins over the legacy `targeting`+`rollout` pair. */
+  conditionSets?: FlagConditionSet[];
+};
+
+export function updateFlag(id: string, body: FlagUpdateBody) {
+  return api.patch<{ flag: Flag }>(
+    `/v1/admin/flags/${encodeURIComponent(id)}`,
+    { json: body },
+  );
+}
+
+/** Archive (soft-delete) a flag — frees its key for reuse. */
+export function archiveFlag(id: string) {
+  return api.delete<{ archived: boolean }>(
+    `/v1/admin/flags/${encodeURIComponent(id)}`,
+  );
+}
+
+// --- Targeting catalog (reusable condition-builder raw material) ----------
+
+/** One property operator with a human label; `unary` ops take no value. */
+export type TargetingOperator = {
+  value: string;
+  label: string;
+  unary: boolean;
+};
+
+/** An `{ id, name }` pick-list entry (a bucket / journey / campaign). */
+export type TargetingIdName = { id: string; name: string };
+
+/**
+ * One event-name entry in the catalog — the merged observed + declared usage
+ * (mirrors the engine's `eventNameEntrySchema`). `usedBy` lists where the name
+ * is declared as a trigger.
+ */
+export type TargetingEventName = {
+  name: string;
+  occurrences: number;
+  lastSeenAt: string | null;
+  usedBy: string[];
+};
+
+/**
+ * `GET /v1/admin/targeting/catalog` — the raw material a condition builder needs
+ * to compose EVERY targeting leaf: the distinct contact-property keys (capped,
+ * sorted) + operator vocabulary (property leaves), plus the id/name pick-lists
+ * for the snapshot leaves (buckets, journeys, deal stages) and the scan leaves
+ * (event names, campaigns). Named generically because the same vocabulary feeds
+ * any targeting UI.
+ */
+export type TargetingCatalog = {
+  properties: string[];
+  operators: TargetingOperator[];
+  buckets: TargetingIdName[];
+  journeys: TargetingIdName[];
+  dealStages: string[];
+  events: TargetingEventName[];
+  campaigns: TargetingIdName[];
+};
+
+export function getTargetingCatalog() {
+  return api.get<TargetingCatalog>("/v1/admin/targeting/catalog");
+}
+
+/**
+ * `POST /v1/admin/targeting/count` — estimate how many live contacts a targeting
+ * tree matches, over a bounded most-recently-updated sample. `matched`/`sampled`
+ * are the exact sample counts; `estimatedTotal` scales them by the live-contact
+ * total (exact when the sample covers every contact).
+ */
+export type TargetingCount = {
+  matched: number;
+  sampled: number;
+  estimatedTotal: number;
+};
+
+export function getTargetingCount(
+  targeting: FlagTargeting | FlagTargetingCondition[],
+) {
+  return api.post<TargetingCount>("/v1/admin/targeting/count", {
+    json: { targeting },
+  });
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -1857,6 +2145,10 @@ export const qk = {
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,
+  flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
+  targetingCatalog: ["targeting-catalog"] as const,
+  targetingCount: (targeting: FlagTargeting | FlagTargetingCondition[]) =>
+    ["targeting-count", targeting] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
   dealsStats: (funnel?: string) => ["deals-stats", funnel ?? null] as const,
   dealsTimeseries: (days: number, funnel?: string) =>
