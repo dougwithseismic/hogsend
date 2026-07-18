@@ -649,15 +649,15 @@ function PsProofStrip() {
 const PILLARS = [
   {
     title: "Journeys as code",
-    body: "Lifecycle logic is TypeScript in your repo — reviewed, type-checked, and versioned like the rest of your product.",
+    body: "Lifecycle logic is TypeScript in your repo, reviewed, type-checked, and versioned like the rest of your product.",
   },
   {
     title: "Your provider, your reputation",
-    body: "Sends go through your own Resend or Postmark account — or any provider behind the EmailProvider contract.",
+    body: "Sends go through your own Resend or Postmark account, or any provider behind the EmailProvider contract.",
   },
   {
     title: "Durable execution",
-    body: "Journeys run as Hatchet durable tasks — a seven-day wait survives deploys, restarts, and crashes.",
+    body: "Journeys run as Hatchet durable tasks. A seven-day wait survives deploys, restarts, and crashes.",
   },
 ];
 
@@ -747,7 +747,7 @@ function PsProblem() {
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
         <p className="mt-20 max-w-[420px] text-white text-lg leading-[26px] tracking-[-0.025em]">
-          The lifecycle becomes part of the product—not a campaign bolted on
+          The lifecycle becomes part of the product, not a campaign bolted on
           beside it.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-3">
@@ -787,8 +787,8 @@ function PsManifesto() {
           >
             <span className="text-white">
               Go-to-market is an engineering discipline now. The
-              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word &mdash;
-              it&rsquo;s the job.
+              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word.
+              It&rsquo;s the job.
             </span>{" "}
             <span className="text-white/40">
               Hogsend is ten years of product-led growth, handed to the scrappy
