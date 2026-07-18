@@ -33,16 +33,19 @@ import {
   type DealSort,
   getAttribution,
   getConversionsStats,
+  getConversionTiming,
   getDealsStats,
   getDealsTimeseries,
   listConversions,
   listDeals,
   qk,
+  type TimingAnchorType,
 } from "@/lib/admin-api";
 import {
   formatCurrency,
   formatDateTime,
   formatNumber,
+  formatPercent,
   formatRelative,
 } from "@/lib/format";
 import { DEFAULT_STAGES, stageLabel } from "@/lib/stages";
@@ -1137,6 +1140,208 @@ function AttributionPanel() {
 }
 
 // ---------------------------------------------------------------------------
+// Timing tab — time-to-conversion after an anchor (correlational)
+// ---------------------------------------------------------------------------
+
+const TIMING_DAYS = 90;
+
+/** Cumulative within-N-day buckets, rendered as bars against `anchored`. */
+const TIMING_BUCKETS: Array<{
+  key: "d1" | "d7" | "d14" | "d30";
+  label: string;
+}> = [
+  { key: "d1", label: "Within 1 day" },
+  { key: "d7", label: "Within 7 days" },
+  { key: "d14", label: "Within 14 days" },
+  { key: "d30", label: "Within 30 days" },
+];
+
+function TimingPanel() {
+  const [definitionId, setDefinitionId] = useState("");
+  const [anchorType, setAnchorType] = useState<TimingAnchorType>("journey");
+  const [anchorInput, setAnchorInput] = useState("");
+  const [anchorId, setAnchorId] = useState("");
+
+  const statsQuery = useQuery({
+    queryKey: qk.conversionsStats,
+    queryFn: getConversionsStats,
+  });
+  const definitions = statsQuery.data?.definitions ?? [];
+
+  // Default to the first conversion point once the catalog loads, so the
+  // controls arrive pre-filled and only the anchor is left to type.
+  useEffect(() => {
+    const first = definitions[0];
+    if (!definitionId && first) {
+      setDefinitionId(first.definitionId);
+    }
+  }, [definitionId, definitions]);
+
+  // Debounce the free-typed anchor (journey id or event name) so we don't
+  // refire on every keystroke.
+  useEffect(() => {
+    const t = window.setTimeout(() => setAnchorId(anchorInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [anchorInput]);
+
+  const ready = definitionId !== "" && anchorId !== "";
+  const query = useQuery({
+    queryKey: qk.conversionTiming(
+      definitionId,
+      anchorType,
+      anchorId,
+      TIMING_DAYS,
+    ),
+    queryFn: () =>
+      getConversionTiming({
+        definitionId,
+        anchorType,
+        anchorId,
+        days: TIMING_DAYS,
+      }),
+    enabled: ready,
+    placeholderData: keepPreviousData,
+  });
+  const data = query.data;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-56">
+          <Select
+            value={definitionId}
+            onChange={(e) => setDefinitionId(e.target.value)}
+            aria-label="Conversion point"
+          >
+            {definitions.length === 0 ? (
+              <option value="">No conversion points</option>
+            ) : null}
+            {definitions.map((d) => (
+              <option key={d.definitionId} value={d.definitionId}>
+                {d.definitionId} ({formatNumber(d.count30d)} / 30d)
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-32">
+          <Select
+            value={anchorType}
+            onChange={(e) => setAnchorType(e.target.value as TimingAnchorType)}
+            aria-label="Anchor on"
+          >
+            <option value="journey">Journey</option>
+            <option value="event">Event</option>
+          </Select>
+        </div>
+        <Input
+          className="w-64"
+          placeholder={anchorType === "journey" ? "Journey id" : "Event name"}
+          value={anchorInput}
+          onChange={(e) => setAnchorInput(e.target.value)}
+        />
+        <span className="ml-auto text-xs text-white/40">
+          Last {TIMING_DAYS} days · correlational
+        </span>
+      </div>
+
+      {!ready ? (
+        <EmptyState
+          title="Pick a conversion point and an anchor"
+          description={`Choose a conversion definition, then anchor each subject on a ${anchorType === "journey" ? "journey enrollment" : "event"} to see how long after the anchor the conversion fires.`}
+        />
+      ) : query.isPending ? (
+        <CardsSkeleton count={3} />
+      ) : query.isError ? (
+        <ErrorState error={query.error} onRetry={() => query.refetch()} />
+      ) : data && data.anchored === 0 ? (
+        <EmptyState
+          title="Nobody anchored in the window"
+          description={`No ${anchorType === "journey" ? "enrollments" : "events"} matched "${anchorId}" in the last ${TIMING_DAYS} days. Check the ${anchorType === "journey" ? "journey id" : "event name"}.`}
+        />
+      ) : data ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Conversion rate"
+              value={formatPercent(data.rate)}
+              hint={`${formatNumber(data.converted)} of ${formatNumber(
+                data.anchored,
+              )} anchored converted`}
+              icon={TrendingUp}
+            />
+            <StatCard
+              label="Median time"
+              value={
+                data.medianDays !== null
+                  ? `${formatNumber(data.medianDays)}d`
+                  : "—"
+              }
+              hint="Anchor → first conversion, among converters"
+              icon={Clock}
+            />
+            <StatCard
+              label="90th percentile"
+              value={
+                data.p90Days !== null ? `${formatNumber(data.p90Days)}d` : "—"
+              }
+              hint="9 in 10 converters land by here"
+              icon={Clock}
+            />
+            <StatCard
+              label="Anchored subjects"
+              value={formatNumber(data.anchored)}
+              hint={`Last ${TIMING_DAYS} days`}
+              icon={HandCoins}
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Converted within</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
+              {TIMING_BUCKETS.map((bucket) => {
+                const count = data.convertedWithin[bucket.key];
+                const ratio = data.anchored > 0 ? count / data.anchored : 0;
+                return (
+                  <div key={bucket.key} className="space-y-1">
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <span className="text-white/70">{bucket.label}</span>
+                      <span className="flex items-baseline gap-3 tabular-nums">
+                        <span className="text-xs text-white/45">
+                          {formatPercent(ratio)}
+                        </span>
+                        <span className="font-medium text-white/90">
+                          {formatNumber(count)}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div
+                        className="h-full rounded-full bg-accent/70"
+                        style={{ width: `${Math.min(ratio, 1) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <p className="text-xs text-white/35">
+            Correlational, not causal: anchoring on an enrollment or event
+            self-selects already-engaged contacts, so "how long after" is
+            association. Holdouts (in the Attribution tab's lift) are the causal
+            instrument. Buckets are cumulative — everyone in "within 1 day" is
+            also in "within 7 days".
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The dashboard
 // ---------------------------------------------------------------------------
 
@@ -1150,9 +1355,9 @@ const CHART_METRICS: Array<{ key: ChartMetric; label: string }> = [
 ];
 
 export function DealsView() {
-  const [tab, setTab] = useState<"deals" | "conversions" | "attribution">(
-    "deals",
-  );
+  const [tab, setTab] = useState<
+    "deals" | "conversions" | "attribution" | "timing"
+  >("deals");
   const [metric, setMetric] = useState<ChartMetric>("soldRevenue");
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   // undefined = the engine's default funnel.
@@ -1363,6 +1568,7 @@ export function DealsView() {
             ["deals", "Deals"],
             ["conversions", "Conversions"],
             ["attribution", "Attribution"],
+            ["timing", "Timing"],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -1391,8 +1597,10 @@ export function DealsView() {
         />
       ) : tab === "conversions" ? (
         <ConversionsTable onOpenContact={setOpenContactId} />
-      ) : (
+      ) : tab === "attribution" ? (
         <AttributionPanel />
+      ) : (
+        <TimingPanel />
       )}
 
       <ContactDetailDrawer
