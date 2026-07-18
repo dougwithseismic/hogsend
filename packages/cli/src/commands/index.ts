@@ -9,6 +9,7 @@ import { domainCommand } from "./domain.js";
 import { ejectCommand } from "./eject.js";
 import { emailsCommand } from "./emails.js";
 import { eventsCommand } from "./events.js";
+import { flagsCommand } from "./flags.js";
 import { hatchetCommand } from "./hatchet.js";
 import { importCommand } from "./import.js";
 import { journeysCommand } from "./journeys.js";
@@ -46,6 +47,7 @@ export const commands: Command[] = [
   hatchetCommand,
   studioCommand,
   devCommand,
+  flagsCommand,
   setupCommand,
   skillsCommand,
   upgradeCommand,

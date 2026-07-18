@@ -5,6 +5,11 @@ export {
   type FlagDefineMeta,
   type FlagValueOf,
 } from "./define.js";
+export type {
+  FlagKey,
+  FlagRegistryMap,
+  IsEmptyFlagRegistry,
+} from "./registry.js";
 export {
   bucketConditionSchema,
   dealConditionSchema,

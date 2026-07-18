@@ -25,10 +25,11 @@ export class FlagsResource {
   constructor(private readonly http: HttpClient) {}
 
   /**
-   * Evaluate every flag for a contact and return the served-value map (a
+   * Evaluate every ENABLED flag for a contact and return the served-value map (a
    * boolean flag "on" → `true`; multivariate → the arm's `value`; not-matched
-   * or not-in-rollout → the flag's `defaultValue`). Resolve the contact by
-   * `userId` (external id) or `email`.
+   * or not-in-rollout → the flag's `defaultValue`). A DISABLED flag (every
+   * code-defined flag is born disabled) is OMITTED from the map — its key reads
+   * `undefined`. Resolve the contact by `userId` (external id) or `email`.
    */
   async evaluate(input: EvaluateFlagsInput): Promise<FlagMap> {
     const identity = input as { userId?: string; email?: string };
