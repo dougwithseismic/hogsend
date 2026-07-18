@@ -279,6 +279,14 @@ export function createFeedStore(store: Store<HogsendState>, feedId: string) {
       emitMeta();
     },
 
+    /** Logout: drop the whole slice so a signed-out viewer can't keep reading
+     *  the previous recipient's items, and notify subscribers immediately. */
+    clear(): void {
+      write(emptySlice());
+      emitItems();
+      emitMeta();
+    },
+
     /** Append a page (fetchNextPage): merge new items, keep server metadata. */
     appendPage(items: FeedItem[], pageInfo: FeedPageInfo): void {
       const cur = slice();

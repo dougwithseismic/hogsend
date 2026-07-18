@@ -83,12 +83,38 @@ export function HogsendProvider(props: HogsendProviderProps): ReactNode {
     }),
   );
 
-  // Re-identify whenever a (truthy) userId changes.
+  const lastUserToken = useRef<string | undefined>(undefined);
   const lastUserId = useRef<string | undefined>(undefined);
+
+  // Apply a late-arriving userToken without a remount — the host session may
+  // mint it after this provider (and its one client) already constructed
+  // anonymous. Declared BEFORE the userId effect so, when both land in the same
+  // commit, the token is set before `identify()`'s contact PUT reads it.
   useEffect(() => {
-    if (props.userId && props.userId !== lastUserId.current) {
-      lastUserId.current = props.userId;
-      void client.identify(props.userId);
+    if (props.userToken && props.userToken !== lastUserToken.current) {
+      lastUserToken.current = props.userToken;
+      client.setUserToken(props.userToken);
+      // If the userId already folded in an EARLIER commit (token arriving in a
+      // separate render), re-issue identify so the contact PUT now carries the
+      // token — otherwise that fold silently no-ops without the signed proof.
+      // When both land together, lastUserId is still unset here (this effect
+      // runs first), so the userId effect below does the single identify.
+      if (lastUserId.current) void client.identify(lastUserId.current);
+    }
+  }, [client, props.userToken]);
+
+  // Re-identify on a (truthy) userId change; reset on sign-out (truthy→falsy),
+  // restoring the fresh-anon client the provider `key` remount used to give.
+  useEffect(() => {
+    const next = props.userId;
+    if (next === lastUserId.current) return;
+    if (next) {
+      lastUserId.current = next;
+      void client.identify(next);
+    } else if (lastUserId.current) {
+      lastUserId.current = undefined;
+      lastUserToken.current = undefined;
+      client.reset();
     }
   }, [client, props.userId]);
 

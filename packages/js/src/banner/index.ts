@@ -142,6 +142,12 @@ export function createBannerStore(store: Store<HogsendState>, slot: string) {
       write({ byId, order: reorder(byId) });
       emit();
     },
+    /** Logout: drop this slot so a signed-out viewer stops seeing the previous
+     *  recipient's targeted banners, and notify subscribers immediately. */
+    clear(): void {
+      write(emptySlice());
+      emit();
+    },
     /** Upsert realtime/poll banners (merge). */
     upsert(banners: Banner[]): void {
       if (banners.length === 0) return;
