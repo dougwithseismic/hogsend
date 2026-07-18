@@ -9,6 +9,7 @@ import {
   setDiscordDb,
 } from "./discord.js";
 import { templates } from "./emails/index.js";
+import { flags } from "./flags/index.js";
 import { funnels } from "./funnels.js";
 import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
@@ -21,6 +22,9 @@ async function main() {
   const client = createHogsendClient({
     journeys,
     conversions,
+    // Mirror the API's flag registration (registry-mirror rule) so BOTH
+    // processes reconcile the code-defined flags into `flags` rows.
+    flags,
     buckets,
     lists,
     // Mirror the API's funnel registration (registry-mirror rule) so webhook

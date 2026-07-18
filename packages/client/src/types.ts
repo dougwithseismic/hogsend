@@ -10,6 +10,20 @@
 // WITHOUT the optional @hogsend/email peer AND type-checks with
 // `skipLibCheck: false` gets TS2307 from this line. Install the peer (even just
 // for types) or keep `skipLibCheck: true` (the common default). See README.
+
+// `@hogsend/core` is likewise a TYPE-ONLY optional peer — we reference its
+// augmentable `FlagRegistryMap` purely to type `flags.evaluate`'s returned map;
+// nothing here is emitted at runtime. Imported from the zero-dependency
+// `@hogsend/core/flags-registry` subpath (NOT the main entry) so the client's
+// type graph never drags the engine/db; the consumer's
+// `declare module "@hogsend/core"` augmentation still merges into this same
+// `FlagRegistryMap` interface symbol. Same TS2307-under-`skipLibCheck:false`
+// caveat as `@hogsend/email` above: install the peer (even just for types) or
+// keep `skipLibCheck: true`.
+import type {
+  FlagRegistryMap,
+  IsEmptyFlagRegistry,
+} from "@hogsend/core/flags-registry";
 import type { TemplateRegistryMap } from "@hogsend/email";
 
 // ---------------------------------------------------------------------------
@@ -350,8 +364,21 @@ export interface Flag {
  * The evaluated flag map: flag key → served value (a boolean flag "on" → `true`;
  * multivariate → the arm's `value`; not-matched / not-in-rollout → the flag's
  * `defaultValue`).
+ *
+ * When the consumer runs `hogsend flags generate` (augmenting `FlagRegistryMap`
+ * in `@hogsend/core`), this narrows to the fully-keyed served-value map. Each
+ * value is `| undefined`: the server evaluates only ENABLED flags, and every
+ * code-defined flag is BORN DISABLED (rollout 0) until an operator turns it on,
+ * so a freshly-shipped flag's key is ABSENT from the map and reads `undefined`
+ * — matching the `js`/`react` surfaces (`getFlag`/`useFlag` are `| undefined`).
+ * UNaugmented it degrades to today's `Record<string, unknown>` via
+ * {@link IsEmptyFlagRegistry}, the SAME probe {@link SendEmailInput} uses against
+ * the email registry. `@hogsend/core` is a TYPE-ONLY dependency (mirrors the
+ * `@hogsend/email` import) — fully erased at runtime.
  */
-export type FlagMap = Record<string, unknown>;
+export type FlagMap = IsEmptyFlagRegistry extends true
+  ? Record<string, unknown>
+  : { [K in keyof FlagRegistryMap]: FlagRegistryMap[K] | undefined };
 
 /**
  * Input to `flags.evaluate`. The canonical contact key is resolved

@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "flags:generate": "node --env-file-if-exists=.env node_modules/@hogsend/cli/dist/bin.js flags generate",
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "seed:example-blueprint": "tsx --env-file-if-exists=.env scripts/seed-example-blueprint.ts"
   },

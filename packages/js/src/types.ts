@@ -4,6 +4,21 @@
  * `RealtimeTransport` interface, and the `inapp.*` event union.
  */
 
+// `@hogsend/core` is a TYPE-ONLY optional peer — we reference its augmentable
+// `FlagRegistryMap` purely to type `hogsend.flags()`/`getFlag()`; nothing here
+// is emitted at runtime. When the consumer runs `hogsend flags generate` these
+// narrow to known keys/values; UNaugmented they degrade to today's
+// `Record<string, unknown>` / `unknown` via `IsEmptyFlagRegistry`. Same
+// TS2307-under-`skipLibCheck:false` caveat as `@hogsend/client`'s email import.
+// Imported from the zero-dependency `@hogsend/core/flags-registry` subpath (NOT
+// the main entry) so a browser bundle never drags the engine/db type graph; the
+// consumer's `declare module "@hogsend/core"` augmentation still merges into
+// this same `FlagRegistryMap` interface symbol.
+import type {
+  FlagKey,
+  FlagRegistryMap,
+  IsEmptyFlagRegistry,
+} from "@hogsend/core/flags-registry";
 import type { Banner, BannerClient } from "./banner/index.js";
 import type {
   FeedClient,
@@ -350,13 +365,17 @@ export interface Hogsend {
    * change). `{}` until the first fetch resolves. Named `flags` (not
    * `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
    */
-  flags(): Record<string, unknown>;
+  flags: IsEmptyFlagRegistry extends true
+    ? () => Record<string, unknown>
+    : () => { [K in FlagKey]: FlagRegistryMap[K] | undefined };
   /**
    * A single flag's evaluated value, or `undefined` until the first fetch
    * resolves (or when the flag does not exist). A boolean flag reads `true`
    * when on; a multivariate flag reads its matched arm's value.
    */
-  getFlag(key: string): unknown;
+  getFlag: IsEmptyFlagRegistry extends true
+    ? (key: string) => unknown
+    : <K extends FlagKey>(key: K) => FlagRegistryMap[K] | undefined;
 
   // ── the spine (single telemetry path) ──
   capture(

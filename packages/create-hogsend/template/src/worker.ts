@@ -3,6 +3,7 @@ import { buckets } from "./buckets/index.js";
 import { campaigns } from "./campaigns/index.js";
 import { destinations } from "./destinations/index.js";
 import { templates } from "./emails/index.js";
+import { flags } from "./flags/index.js";
 import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
@@ -15,6 +16,9 @@ async function main() {
     lists,
     campaigns,
     destinations,
+    // Mirror the API's flag registration (registry-mirror rule) so BOTH
+    // processes reconcile the code-defined flags into `flags` rows at boot.
+    flags,
     email: { templates },
     // Feeds the Studio journey-graph route your `Templates`/`Events` `as const`
     // maps so `Templates.X`/`Events.X` in journey source resolve to real values —

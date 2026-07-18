@@ -23,9 +23,56 @@ Because membership is a hash of `(contact, flag)`, a contact's answer is **stick
   **`flag`, not `featureFlag`.** The browser hook is `useFlag`, not `useFeatureFlag`, so it sits next to PostHog's hook in the same file without a name clash. If you already run PostHog flags, keep them — these are Hogsend's own, evaluated against your Hogsend contacts.
 </Callout>
 
-## Create a flag
+## Define flags in code
 
-In Studio, open **Flags → New flag**: give it a key, a type, a default, and a rollout. Targeting and multivariate arms are edited as JSON (property conditions and `{ key, value, weight }` arms). Or create it from the server SDK:
+The front door for a **durable product flag** is `defineFlag()` — the flag sibling of `defineJourney` / `defineCampaign`. You commit the flag's contract to the repo; the boot reconciler upserts it into a `flags` row. Git history is your flag history.
+
+```ts title="src/flags/index.ts"
+import { defineFlag } from "@hogsend/engine";
+
+export const previewBanner = defineFlag({
+  key: "preview-banner",
+  name: "Preview banner",
+  type: "boolean",
+  description: "Shows the in-progress preview banner.",
+});
+
+export const flags = [previewBanner];
+```
+
+Add the `flags` array to `createHogsendClient({ flags })` in both `src/index.ts` and `src/worker.ts` (the scaffold already wires this), and deploy.
+
+### A definition is only half the flag
+
+A `defineFlag` definition owns the flag's **contract**; the DB owns its **state**. The two never overlap.
+
+| Owned by code (`defineFlag`) | Owned by the operator (Studio / admin API) |
+|---|---|
+| `key`, `name`, `type` | `enabled` — the live master switch |
+| `variants` — the multivariate arms | `rollout` — the eligible share |
+| `defaultValue`, `description` | `targeting` — property conditions |
+
+Every code-defined flag is **born disabled with rollout 0**. Shipping a flag file never flips live traffic — an operator turns it on and dials targeting/rollout in Studio, and the reconciler syncs only contract drift afterward, never touching that state. `enabled` in a definition is a one-time create seed; flipping it in code later does nothing. There is no `targeting` or `rollout` field on a definition — those are live levers, not committed ones.
+
+### Typed reads
+
+Run `pnpm flags:generate` after adding or removing a flag. It infers each flag's served value type — a boolean flag → `boolean`, a multivariate flag → the union of its `variants[].value` literals — and writes a `FlagRegistryMap` augmentation to `src/flags/flags.d.ts`. Commit it.
+
+```tsx title="browser"
+import { useFlag } from "@hogsend/react";
+
+const showBanner = useFlag("preview-banner"); // boolean | undefined; a typo key won't compile
+```
+
+After codegen, `useFlag` / `useFlags` (`@hogsend/react`), `hogsend.getFlag` (`@hogsend/js`), and `client.flags.evaluate` (`@hogsend/client`) all type-check the key and narrow the value against **this app's** flags. Skip the codegen and every surface degrades to `string` keys / `unknown` values — nothing breaks, you just lose the narrowing.
+
+<Callout type="info">
+  **`defineFlag` for durable flags, `client.flags.create()` / Studio for dynamic ones.** Both create real flags on the same evaluation engine. Reach for the code front door when the flag is content you want reviewed in a PR and read by a typed key; reach for the data plane (below) for a quick kill-switch, an A/B you'll retire, or a flag an operator needs without a deploy. The two coexist — a dynamic flag evaluates unchanged alongside your code-defined ones.
+</Callout>
+
+## Create a flag dynamically
+
+For an experimental or short-lived flag, skip the repo. In Studio, open **Flags → New flag**: give it a key, a type, a default, and a rollout. Targeting and multivariate arms are edited as JSON (property conditions and `{ key, value, weight }` arms). Or create it from the server SDK:
 
 ```ts title="server"
 import { Hogsend } from "@hogsend/client";

@@ -119,6 +119,23 @@ export const flagCreateSchema = z.object({
 });
 
 /**
+ * `defineFlag()` DEFINE input — the CONTRACT subset of {@link flagCreateSchema}
+ * WITHOUT `targeting`/`rollout`/`conditionSets` (those are DB/operator-owned and
+ * never expressed in code). `enabled` is a one-time CREATE seed (default false);
+ * everything else names the flag's identity + served shape. Validated at
+ * definition time by `defineFlag`.
+ */
+export const flagDefineSchema = z.object({
+  key: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  enabled: z.boolean().optional(),
+  type: flagTypeSchema,
+  variants: z.array(flagVariantSchema).optional(),
+  defaultValue: z.unknown().optional(),
+});
+
+/**
  * Admin UPDATE input — every field optional (toggle `enabled`, edit
  * key/targeting/rollout/variants, etc.). `key` is editable (it must stay unique
  * among live flags; the route returns 409 on a collision) — changing it
@@ -140,3 +157,4 @@ export const flagUpdateSchema = z.object({
 
 export type FlagCreateInput = z.infer<typeof flagCreateSchema>;
 export type FlagUpdateInput = z.infer<typeof flagUpdateSchema>;
+export type FlagDefineInput = z.infer<typeof flagDefineSchema>;
