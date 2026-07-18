@@ -82,10 +82,15 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
       # Gate: the engine line must type-check and build before we publish
-      # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
-      - run: pnpm check-types
+      # anything. `pnpm release` also runs `pnpm build` again as a publish guard
+      # (a cache hit after this step warms Turbo). Cap Turbo fan-out at
+      # --concurrency=2 to avoid OOM-ing the runner on a cold cache (a version
+      # bump touches every package.json and busts the cache), matching ci.yml.
+      # The `pnpm -- --concurrency` form leaks the flag to tsc, so call turbo
+      # directly.
+      - run: pnpm exec turbo run check-types --concurrency=2
         if: steps.phase.outputs.publish == 'true'
-      - run: pnpm build
+      - run: pnpm exec turbo run build --concurrency=2
         if: steps.phase.outputs.publish == 'true'
       # Release-integrity gate: assert the version-line invariants (ENGINE_VERSION
       # in sync, engine-line uniform, the three scaffold lists agree, no
