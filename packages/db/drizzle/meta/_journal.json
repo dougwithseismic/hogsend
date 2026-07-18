@@ -435,6 +435,13 @@
       "when": 1784371808903,
       "tag": "0061_absent_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1784394240977,
+      "tag": "0062_fat_living_mummy",
+      "breakpoints": true
     }
   ]
 }

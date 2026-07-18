@@ -16,6 +16,10 @@ export const churnPrevention = defineJourney({
       { event: Events.SUBSCRIPTION_CANCELLED },
       { event: Events.USER_DELETED },
     ],
+    // D7: goal only, NO holdout — dunning is quasi-transactional; withholding
+    // payment-failure notices is forfeited revenue, not learning.
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

@@ -47,6 +47,11 @@ export const segmentDestination = defineDestination({
       );
     }
     const host = config.host ?? "https://api.segment.io";
+
+    // impact.digest has no subject identity; the fallback below would emit
+    // a junk track keyed on `anonymousId: envelope.id` — noise. Skipping
+    // is honest.
+    if (envelope.type === "impact.digest") return null;
     const data = envelope.data as {
       userId?: string | null;
       to?: string | null;

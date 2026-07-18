@@ -521,7 +521,8 @@ export type OutboundEventType =
   | "deal.sold"
   | "group.identified"
   | "group.member_added"
-  | "group.member_removed";
+  | "group.member_removed"
+  | "impact.digest";
 
 /**
  * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed

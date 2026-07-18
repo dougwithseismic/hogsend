@@ -16,4 +16,10 @@ export {
   evaluateEnrollmentPolicy,
 } from "./lib/enrollment-policy.js";
 export { isHeldOut } from "./lib/holdout.js";
+export {
+  pickVariant,
+  validateVariantArms,
+  validateVariantKey,
+  variantBucket,
+} from "./lib/variant.js";
 export { isListSubscribed } from "./lists/subscription.js";

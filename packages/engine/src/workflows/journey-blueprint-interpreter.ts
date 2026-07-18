@@ -33,11 +33,13 @@ import {
 } from "../journeys/execute-journey-run.js";
 import { TERMINAL_STATUSES } from "../journeys/journey-context.js";
 import { logTransition } from "../journeys/journey-log.js";
+import { computeJourneyVersionHash } from "../journeys/journey-version.js";
 import { sendConnectorAction } from "../lib/connector-actions.js";
 import { getDb } from "../lib/db.js";
 import { sendEmail } from "../lib/email.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
+import { stableStringify } from "../lib/stable-stringify.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
 
@@ -57,7 +59,7 @@ export function blueprintMetaFromRow(row: JourneyBlueprintRow): JourneyMeta {
   const triggerWhere = (row.triggerWhere ?? undefined) as
     | PropertyCondition[]
     | undefined;
-  return {
+  const base: JourneyMeta = {
     id: row.id,
     name: row.name,
     ...(row.description ? { description: row.description } : {}),
@@ -76,6 +78,21 @@ export function blueprintMetaFromRow(row: JourneyBlueprintRow): JourneyMeta {
     // `{}` / zero duration disables the suppress guard — same contract as
     // JourneyMeta.suppress (the boundary maps it to suppressMs: 0).
     suppress: (row.suppress ?? {}) as DurationObject,
+  };
+  // Impact experiments (Decision A): blueprint enrollments stamp a
+  // graph-content hash with v{row.version} as the label. The run always
+  // executes the CURRENT graph and hashes this same current row, so the
+  // stamp reflects the content that ran. stableStringify(row.graph) is
+  // key-order-stable — jsonb round-trip reordering cannot fork the hash.
+  // (The context.__blueprintVersion dispatch-time pin is a different
+  // question and stays untouched.)
+  return {
+    ...base,
+    version: `v${row.version}`,
+    versionHash: computeJourneyVersionHash({
+      meta: base,
+      body: stableStringify(row.graph),
+    }),
   };
 }
 

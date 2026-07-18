@@ -39,6 +39,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import { JourneyFlow } from "./journeys/journey-flow";
+import { JourneyImpactCard } from "./journeys/journey-impact";
 
 const PAGE_SIZE = 25;
 
@@ -537,6 +538,7 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
               selected. */}
           <JourneyFlow journeyId={journeyId} journey={journey} />
 
+          <JourneyImpactCard journeyId={journeyId} />
           <JourneyRevenueCard journeyId={journeyId} />
           <JourneyEmailsCard journeyId={journeyId} />
           <JourneyStatesBrowser journeyId={journeyId} />

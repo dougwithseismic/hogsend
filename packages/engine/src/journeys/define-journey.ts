@@ -11,6 +11,7 @@ import {
   hasJourneyTaskFactory,
   type JourneyTask,
 } from "./journey-task-factory.js";
+import { computeJourneyVersionHash } from "./journey-version.js";
 
 export interface DefinedJourney {
   meta: JourneyMeta;
@@ -125,7 +126,7 @@ export function defineJourney(options: {
   const source = captureCallSite();
   const { trigger, exitOn, ...rest } = options.meta;
   const triggerWhere = normalizeWhere(trigger.where);
-  const meta: JourneyMeta = {
+  const normalized: JourneyMeta = {
     ...rest,
     trigger: {
       event: trigger.event,
@@ -142,6 +143,20 @@ export function defineJourney(options: {
           }),
         }
       : {}),
+  };
+  // Impact experiments (Decision A): attach the engine-computed content
+  // fingerprint AFTER normalization, so `where` builder fns are already
+  // resolved POJOs (the hash input is canonical data, never a function).
+  // NEVER authored: the spread overwrites any input value (JourneyMetaInput
+  // omits versionHash; JS callers are overridden here). Both the eager task
+  // path and the lazy authoring-subpath getter below close over this same
+  // meta — executeJourneyRun sees the hash with zero further plumbing.
+  const meta: JourneyMeta = {
+    ...normalized,
+    versionHash: computeJourneyVersionHash({
+      meta: normalized,
+      body: runSource,
+    }),
   };
 
   const definition = { meta, run: options.run, runSource, source };

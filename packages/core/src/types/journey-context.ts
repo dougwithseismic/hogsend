@@ -326,6 +326,43 @@ export interface JourneyContext {
   once<T>(key: string, compute: () => Promise<T> | T): Promise<T>;
 
   /**
+   * Deterministic experiment arm for THIS user — the replay-law-safe A/B
+   * primitive. Assignment is a pure sha256 bucket over (journeyId, key,
+   * userId): NO RNG, NO clock — the same user gets the same arm on every
+   * evaluation and, while the arms array is unchanged, on every re-entry.
+   * The assignment is additionally RECORDED once per enrollment
+   * (journey_states.context __variants__ bag), and the recorded value wins
+   * VERBATIM on any later call within that enrollment — including a replay
+   * after a deploy that changed `arms`. A re-entry mints a NEW state row and
+   * re-DERIVES the arm from the hash; editing the arms array between entries
+   * may reassign re-entrants. Issues ZERO durable Hatchet calls
+   * (positionally invisible in the journal, like ctx.throttle).
+   *
+   * Equal split only in v1 (weights deferred — see out of scope).
+   *
+   * Holdout diverts BEFORE run() executes, so variants split the TREATMENT
+   * cohort only; per-variant lift is each variant vs the whole held-out
+   * cohort.
+   *
+   * A variant-selected template needs NO ctx.once wrap and no
+   * idempotencyLabel of its own: the arm is deterministic + recorded, so a
+   * replay re-derives the identical send key. The pre-existing rule stands:
+   * if a LATER unconditional send can hit the SAME template as one of the
+   * arms under the same nearest wait label, give one of them a distinct
+   * idempotencyLabel (the engine throws the loud key-collision error
+   * otherwise).
+   *
+   * Runtime caveat: a recorded arm from an OLDER deploy may not be in the
+   * current `arms` — it is returned verbatim (and warned once); the
+   * literal-union return type is best-effort, same accepted unsoundness
+   * class as ctx.once<T>.
+   */
+  variant<const A extends readonly [string, ...string[]]>(
+    key: string,
+    arms: A,
+  ): Promise<A[number]>;
+
+  /**
    * Aggregate multiple trigger events over a fixed window into ONE execution —
    * the "digest" primitive. The FIRST event enrolls the journey; every event of
    * the same name that arrives while the window is open is durably absorbed by

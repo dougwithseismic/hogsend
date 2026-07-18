@@ -1,4 +1,5 @@
 import { days, defineJourney, hours, minutes } from "@hogsend/engine/journeys";
+import { pickVariant } from "@hogsend/engine/testing";
 import { describe, expect, it } from "vitest";
 import { createJourneyTest } from "./index.js";
 
@@ -417,5 +418,31 @@ describe("JourneyContext completeness", () => {
       properties: { linked: true },
       occurredAt: "2025-01-01T00:00:00.000Z",
     });
+  });
+
+  it("derives a deterministic ctx.variant arm and honors seeded assignments", async () => {
+    let arm: "setup" | "outcome" | undefined;
+    const journey = defineJourney({
+      meta: meta("variant-complete"),
+      run: async (_current, ctx) => {
+        arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+      },
+    });
+
+    await createJourneyTest(journey, { user }).run();
+    expect(arm).toBe(
+      pickVariant({
+        journeyId: "variant-complete",
+        key: "welcome-subject",
+        userId: user.id,
+        arms: ["setup", "outcome"],
+      }),
+    );
+
+    await createJourneyTest(journey, {
+      user,
+      variants: { "welcome-subject": "outcome" },
+    }).run();
+    expect(arm).toBe("outcome");
   });
 });

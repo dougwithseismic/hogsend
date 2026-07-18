@@ -29,6 +29,11 @@ export const aiReengagement = defineJourney({
     entryLimit: "once_per_period",
     suppress: days(60),
     exitOn: [{ event: Events.USER_ACTIVATED }, { event: Events.USER_DELETED }],
+    // D7: 15% on winbacks (see reactivation-dormancy). The ctx.once action
+    // recording is already replay-safe; the run body is untouched.
+    holdout: { percent: 15 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

@@ -256,6 +256,28 @@ export interface OutboundPayloads {
     userEmail: string;
     heldOutAt: string;
   };
+  /**
+   * Weekly impact digest (impact experiments D5) — facts-only rollup of
+   * shipped journey changes and holdout-lift threshold crossings, emitted
+   * by the engine-owned cron. Shipped entries are structurally
+   * observational (the type carries no lift fields); lift entries are
+   * holdout-backed causal. The ONE self-referential catalog event: the
+   * cron derives its watermark from its own delivery rows.
+   */
+  "impact.digest": {
+    /** UTC YYYY-MM-DD of the emit — also the dedupeKey day. */
+    periodKey: string;
+    /** ISO — watermark (last digest delivery, clamped to 30 days back). */
+    since: string;
+    /** ISO — this run's snapshot instant. */
+    until: string;
+    /**
+     * Lift first (desc |winProbability − 0.5|), then shipped (desc
+     * firstSeenAt); capped at 50.
+     */
+    entries: ImpactDigestEntry[];
+    truncated: boolean;
+  };
   "bucket.entered": BucketEventPayload;
   "bucket.left": BucketEventPayload & { reason?: string };
   /**
@@ -319,6 +341,84 @@ export interface CrmDealEventPayload {
   userId: string | null;
   at: string;
 }
+
+/**
+ * One journey-version cohort inside an impact digest entry. Exposure-window
+ * metadata rides along because current vs previous cohorts have DIFFERENT
+ * exposure (a 3-day-old version vs a 60-day-old one is not a fair rate
+ * comparison) — subscribers MUST normalize or caveat against these.
+ */
+export interface ImpactVersionCohort {
+  versionHash: string;
+  versionLabel: string | null;
+  /**
+   * All-time distinct treated users for this version — deliberately NOT
+   * windowed by `days` (named to say so; the /impact route's version rows
+   * ARE windowed).
+   */
+  enrollmentsAllTime: number;
+  converters: number;
+  /** converters / enrollmentsAllTime; 0 when the cohort is empty. */
+  conversionRate: number;
+  /** ISO min(created_at) of this hash's rows. */
+  firstSeenAt: string;
+  /** Whole days between firstSeenAt and the digest's `until`. */
+  exposureDays: number;
+}
+
+/**
+ * "You shipped a change" — OBSERVATIONAL by construction: the type carries
+ * no liftPercent/winProbability, so causal language is structurally
+ * impossible (the causal-language law, routes/admin/funnels.ts:16).
+ */
+export interface ImpactDigestShippedEntry {
+  kind: "shipped";
+  causal: false;
+  journeyId: string;
+  /** null for blueprint/unregistered journeys. */
+  journeyName: string | null;
+  versionHash: string;
+  versionLabel: string | null;
+  change: "new_journey" | "new_version" | "new_label";
+  /** Set for new_label (the label that was current before the window). */
+  previousVersionLabel: string | null;
+  firstSeenAt: string;
+  goalDefinitionId: string | null;
+  current: ImpactVersionCohort;
+  /** null for new_journey / new_label. */
+  previous: ImpactVersionCohort | null;
+}
+
+/**
+ * "This is working / hurting" — a holdout-backed win-probability CROSSING
+ * (not level: no weekly re-nag). Suppressed verdicts never produce an
+ * entry, so winProbability is never null here; smallSample rides verbatim.
+ */
+export interface ImpactDigestLiftEntry {
+  kind: "lift";
+  causal: true;
+  journeyId: string;
+  journeyName: string | null;
+  goalDefinitionId: string | null;
+  /** The lift window in days (90 — mirrors the lift route default). */
+  windowDays: number;
+  direction: "up" | "down";
+  treatment: { contacts: number; converters: number; rate: number };
+  control: { contacts: number; converters: number; rate: number };
+  liftPercent: number | null;
+  winProbability: number;
+  /**
+   * Last digest's as-REPORTED value when available (frozen-payload
+   * override), else the live recompute at the previous watermark; null
+   * when neither produced a probability.
+   */
+  previousWinProbability: number | null;
+  smallSample: boolean;
+}
+
+export type ImpactDigestEntry =
+  | ImpactDigestShippedEntry
+  | ImpactDigestLiftEntry;
 
 /**
  * The signed envelope shape written to `webhook_deliveries.payload` and sent

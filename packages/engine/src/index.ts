@@ -260,8 +260,13 @@ export {
   setJourneySources,
 } from "./journeys/journey-sources-singleton.js";
 export {
+  computeJourneyVersionHash,
+  normalizeRunSource,
+} from "./journeys/journey-version.js";
+export {
   type RecordNamespace,
   recordOnce,
+  stripRecordNamespaces,
 } from "./journeys/record-once.js";
 export {
   buildJourneyRegistry,
@@ -509,6 +514,11 @@ export {
   fxProviderFromEnv,
   parseFxRatesEnv,
 } from "./lib/fx.js";
+export {
+  computeGlobalControlReadout,
+  GLOBAL_CONTROL_SCAN_CEILING,
+  type GlobalControlReadout,
+} from "./lib/global-control-readout.js";
 export { hatchet } from "./lib/hatchet.js";
 export {
   globalControlPercent,
@@ -536,6 +546,15 @@ export {
   type IngestResult,
   ingestEvent,
 } from "./lib/ingestion.js";
+// --- Reconciled journey-lift helper (impact experiments D4.1) — the ONE
+// implementation of the causal cohort math, shared by /lift (2a), /impact
+// (2b), and the impact digest (3b) ---
+export {
+  computeJourneyLift,
+  computeLiftValues,
+  type JourneyLiftResult,
+  type LiftCohort,
+} from "./lib/journey-lift.js";
 // --- Leader lease (connector-runtime singleton election) ---
 export {
   acquireLeaderLease,
@@ -582,6 +601,10 @@ export {
 // --- Outbound webhooks: emit spine (Section 1.4) ---
 export {
   emitOutbound,
+  type ImpactDigestEntry,
+  type ImpactDigestLiftEntry,
+  type ImpactDigestShippedEntry,
+  type ImpactVersionCohort,
   OUTBOUND_EVENTS,
   type OutboundEventName,
   type OutboundPayloads,
@@ -870,6 +893,13 @@ export {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
+export {
+  buildImpactDigest,
+  detectLiftCrossings,
+  detectShippedVersions,
+  type ImpactDigestInput,
+  impactDigestTask,
+} from "./workflows/impact-digest.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
 export {
   importSuppressionsTask,

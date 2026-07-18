@@ -13,6 +13,12 @@ export const aiOnboarding = defineJourney({
     entryLimit: "once",
     suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }],
+    // D7: shares the user.created trigger — marginal lift (see
+    // activation-welcome). The ctx.once plan call is already replay-safe;
+    // the run body is untouched.
+    holdout: { percent: 10 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

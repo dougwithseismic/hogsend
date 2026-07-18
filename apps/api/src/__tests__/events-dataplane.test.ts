@@ -8,6 +8,7 @@ const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
 const { and, eq } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 const { journeys } = await import("../journeys/index.js");
+const { conversions } = await import("../conversions/index.js");
 
 // Hatchet injected via the container override seam so the ingest pipeline's
 // `hatchet.events.push` lands on a spy. The push payload is how a journey is
@@ -28,6 +29,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  conversions,
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);

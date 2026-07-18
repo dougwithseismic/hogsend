@@ -62,9 +62,11 @@ export const welcome = defineJourney({
 
 - **`ctx` is orchestration primitives ONLY** — `sleep`, `sleepUntil`, `when`,
   `waitForEvent`, `digest`, `throttle`, `checkpoint`, `trigger`, `once`,
-  `guard.isSubscribed`, `history.hasEvent/journey/email`. `ctx.digest` collapses a
-  window of trigger events into ONE run (batch via `Object.groupBy` over
-  `digest.events`); `ctx.throttle` is an advisory windowed send-count check.
+  `variant`, `guard.isSubscribed`, `history.hasEvent/journey/email`. `ctx.digest`
+  collapses a window of trigger events into ONE run (batch via `Object.groupBy`
+  over `digest.events`); `ctx.throttle` is an advisory windowed send-count
+  check; `ctx.variant(key, arms)` is the deterministic RECORDED A/B arm (pure
+  sha256, equal split, replayed verbatim within an enrollment).
   Features are standalone imports: `sendEmail()` comes from
   `@hogsend/engine/journeys`, NOT off `ctx`.
 - **Fan-out is DESTINATIONS, not `ctx`.** There is no `ctx.identify` /

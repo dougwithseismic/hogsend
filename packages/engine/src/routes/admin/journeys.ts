@@ -25,7 +25,16 @@ import {
 import type { AppEnv } from "../../app.js";
 import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
 import { ingestEvent } from "../../lib/ingestion.js";
-import { computeLift } from "../../lib/lift-stats.js";
+import {
+  computeJourneyLift,
+  computeLiftValues,
+} from "../../lib/journey-lift.js";
+import {
+  cohortSchema,
+  type DefinitionSource,
+  definitionSourceSchema,
+  liftVerdictSchema,
+} from "./impact-schemas.js";
 
 /**
  * Per-process cache of the built {@link JourneyGraph}. A journey's `runSource`
@@ -43,6 +52,16 @@ const journeySchema = z.object({
     event: z.string(),
   }),
   entryLimit: z.enum(["once", "once_per_period", "unlimited"]),
+  /** Display-only author label (JourneyMeta.version) of the CURRENT
+   * deployed definition. */
+  version: z.string().optional(),
+  /** Engine-computed content fingerprint (12 hex) of the CURRENT deployed
+   * definition — what a fresh enrollment would stamp. Treat a NEW hash as
+   * "possible new version": toolchain bumps can fork it (D1). */
+  versionHash: z.string().optional(),
+  /** Conversion definition id (JourneyMeta.goal) — boot-validated; the
+   * /lift + /impact readouts default to it. */
+  goal: z.string().optional(),
   counts: z.object({
     active: z.number(),
     waiting: z.number(),
@@ -64,6 +83,10 @@ export const stateSchema = z.object({
   currentNodeId: z.string(),
   status: z.string(),
   hatchetRunId: z.string().nullable(),
+  /** Impact experiments (D1): definition fingerprint + label stamped at
+   * this row's INSERT. Null = pre-versioning ("unversioned") row. */
+  journeyVersionHash: z.string().nullable(),
+  journeyVersionLabel: z.string().nullable(),
   context: z.record(z.string(), z.unknown()),
   errorMessage: z.string().nullable(),
   entryCount: z.number(),
@@ -485,19 +508,12 @@ const graphRoute = createRoute({
  * Holdout lift (impact plan §4.2) — the ONLY surface allowed causal
  * language. Treatment = entered enrollments in the window; control =
  * held_out diversions (§4.1). Outcome = the contact fired ≥1 conversion
- * AFTER their state row was created. Beta-binomial win probability with a
- * suppression floor and a loud small-sample flag (lib/lift-stats.ts).
+ * AFTER their state row was created. Cohort math + verdict live in the
+ * shared computeJourneyLift/computeLiftValues helpers (lib/journey-lift.ts
+ * — also the engine of the phase-2b /impact route and the 3b digest);
+ * this route merges the per-currency values into the cohorts to keep its
+ * original wire shape.
  */
-const liftCohortSchema = z.object({
-  contacts: z.number(),
-  converters: z.number(),
-  rate: z.number(),
-  /** Qualifying conversion value per currency (full, not fractional). */
-  value: z.array(
-    z.object({ currency: z.string().nullable(), value: z.number() }),
-  ),
-});
-
 const liftRoute = createRoute({
   method: "get",
   path: "/{id}/lift",
@@ -507,7 +523,8 @@ const liftRoute = createRoute({
     params: z.object({ id: z.string() }),
     query: z.object({
       days: z.coerce.number().min(1).max(365).default(90),
-      /** Scope the outcome to one conversion point; default any. */
+      /** Scope the outcome to one conversion point. Default: the
+       * journey's meta.goal; else any conversion. */
       definitionId: z.string().optional(),
     }),
   },
@@ -518,14 +535,16 @@ const liftRoute = createRoute({
           schema: z.object({
             journeyId: z.string(),
             days: z.number(),
+            /** The EFFECTIVE definition scoping the outcome (query param,
+             * else the journey's meta.goal); null = any conversion. */
             definitionId: z.string().nullable(),
-            treatment: liftCohortSchema,
-            control: liftCohortSchema,
-            liftPercent: z.number().nullable(),
-            /** Null when suppressed (combined conversions < 10). */
-            winProbability: z.number().nullable(),
-            suppressed: z.boolean(),
-            smallSample: z.boolean(),
+            /** Where the effective definitionId came from — the single
+             * source enum shared with /impact (phase 2b) and the Studio
+             * mirror (phase 3a). */
+            definitionSource: definitionSourceSchema,
+            treatment: cohortSchema,
+            control: cohortSchema,
+            ...liftVerdictSchema.shape,
           }),
         },
       },
@@ -587,6 +606,9 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         enabled: effectiveEnabled,
         trigger: { event: j.trigger.event },
         entryLimit: j.entryLimit,
+        version: j.version,
+        versionHash: j.versionHash,
+        goal: j.goal,
         counts: countsMap.get(j.id) ?? { ...emptyCounts },
       };
     });
@@ -656,6 +678,9 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
             where: meta.trigger.where as Record<string, unknown>[] | undefined,
           },
           entryLimit: meta.entryLimit,
+          version: meta.version,
+          versionHash: meta.versionHash,
+          goal: meta.goal,
           exitOn: meta.exitOn?.map((e) => ({
             event: e.event,
             where: e.where as Record<string, unknown>[] | undefined,
@@ -1112,94 +1137,39 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(liftRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, registry } = c.get("container");
     const { id } = c.req.valid("param");
-    const { days, definitionId } = c.req.valid("query");
-    const since = new Date(
-      Date.now() - days * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const sinceTs = sql`${since}::timestamptz`;
+    const { days, definitionId: queryDefinitionId } = c.req.valid("query");
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // Outcome: the contact fired ≥1 qualifying conversion AFTER their state
-    // row was created (post-assignment — the intent-to-treat clock).
-    const definitionSql = definitionId
-      ? sql` and c.definition_id = ${definitionId}`
-      : sql``;
-    const convertedSql = sql`exists (
-      select 1 from conversions c
-      where c.user_key = ${journeyStates.userId}
-        and c.occurred_at >= ${journeyStates.createdAt}${definitionSql}
-    )`;
+    // definitionId resolution: explicit query param > journey meta.goal >
+    // any conversion. registry.get(id) is undefined for (a) deleted/renamed
+    // journeys with historical states and (b) DEFINED journeys excluded by
+    // the ENABLED_JOURNEYS csv — both keep the pre-goal "any" behavior and
+    // report source "none". The route still never 404s.
+    const goal = registry.get(id)?.goal;
+    const definitionId = queryDefinitionId ?? goal;
+    const definitionSource: DefinitionSource = queryDefinitionId
+      ? "query"
+      : goal
+        ? "goal"
+        : "none";
 
-    const cohort = async (control: boolean) => {
-      const statusFilter = control
-        ? eq(journeyStates.status, "held_out")
-        : sql`${journeyStates.status} != 'held_out'`;
-      const [row] = await db
-        .select({
-          contacts: sql<number>`count(distinct ${journeyStates.userId})::int`,
-          converters: sql<number>`(count(distinct ${journeyStates.userId}) filter (where ${convertedSql}))::int`,
-        })
-        .from(journeyStates)
-        .where(
-          and(
-            eq(journeyStates.journeyId, id),
-            gteCreated(sinceTs),
-            statusFilter,
-          ),
-        );
-      // Full qualifying conversion value per currency (secondary read-out —
-      // the rate is the primary lift instrument).
-      const valueRows = await db.execute<{
-        currency: string | null;
-        value: number;
-      }>(sql`
-        select c.currency, coalesce(sum(c.value), 0)::float8 as value
-        from conversions c
-        where c.value is not null
-          and exists (
-            select 1 from journey_states js
-            where js.journey_id = ${id}
-              and js.created_at >= ${sinceTs}
-              and ${control ? sql`js.status = 'held_out'` : sql`js.status != 'held_out'`}
-              and js.user_id = c.user_key
-              and c.occurred_at >= js.created_at
-          )${definitionId ? sql` and c.definition_id = ${definitionId}` : sql``}
-        group by c.currency
-      `);
-      const contacts = Number(row?.contacts ?? 0);
-      const converters = row?.converters ?? 0;
-      return {
-        contacts,
-        converters,
-        rate: contacts > 0 ? converters / contacts : 0,
-        value: [...valueRows].map((r) => ({
-          currency: r.currency,
-          value: Number(r.value),
-        })),
-      };
-    };
-
-    const [treatment, control] = await Promise.all([
-      cohort(false),
-      cohort(true),
+    const [result, values] = await Promise.all([
+      computeJourneyLift({ db, journeyId: id, since, definitionId }),
+      computeLiftValues({ db, journeyId: id, since, definitionId }),
     ]);
-    const verdict = computeLift({ treatment, control });
 
     return c.json(
       {
         journeyId: id,
         days,
         definitionId: definitionId ?? null,
-        treatment,
-        control,
-        ...verdict,
+        definitionSource,
+        treatment: { ...result.treatment, value: values.treatment },
+        control: { ...result.control, value: values.control },
+        ...result.verdict,
       },
       200,
     );
   });
-
-/** `created_at >= since` as a reusable fragment (lift cohort windows). */
-function gteCreated(sinceTs: ReturnType<typeof sql>) {
-  return sql`${journeyStates.createdAt} >= ${sinceTs}`;
-}

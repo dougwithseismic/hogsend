@@ -8,6 +8,7 @@ const { createApp, createHogsendClient } = await import("@hogsend/engine");
 const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
+const { conversions } = await import("../conversions/index.js");
 const { templates } = await import("../emails/index.js");
 // The real app lists (incl. `product-updates`) — wired so the marketing
 // template's `product-updates` category resolves to a defined list (matching
@@ -37,6 +38,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  conversions,
   lists,
   email: { templates },
   overrides: { hatchet: mockHatchet },

@@ -23,6 +23,16 @@ export const journeyStates = pgTable(
     currentNodeId: text("current_node_id").notNull(),
     status: journeyStatusEnum("status").notNull().default("active"),
     hatchetRunId: text("hatchet_run_id"),
+    /**
+     * Impact experiments (Decision A): content fingerprint of the journey
+     * DEFINITION this row was created under — stamped at INSERT on both
+     * the enrollment and held_out paths, NEVER updated (a replay/resume
+     * recovers the row and must keep the entry-time version). Nullable:
+     * rows predating the feature form the "unversioned" cohort.
+     */
+    journeyVersionHash: text("journey_version_hash"),
+    /** Author label (JourneyMeta.version / blueprint v{n}). Display-only. */
+    journeyVersionLabel: text("journey_version_label"),
     context: jsonb("context").$type<Record<string, unknown>>().default({}),
     errorMessage: text("error_message"),
     entryCount: integer("entry_count").notNull().default(1),

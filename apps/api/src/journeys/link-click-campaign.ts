@@ -29,6 +29,11 @@ export const linkClickCampaign = defineJourney({
     // linkId/campaign, or it exits on ANY managed-link click for the contact.)
     entryLimit: "once",
     suppress: days(0),
+    // D7: the one lead-shaped goal binding in this app — volume plus a
+    // conversion-shaped outcome distinguish it from the other connector
+    // journeys. No holdout.
+    goal: "lead-submitted",
+    version: "2026-07-baseline",
   },
   run: async (user, _ctx) => {
     // The click resolved to this contact (the personal link carried their

@@ -64,6 +64,14 @@ export class ConversionRegistry {
   count(): number {
     return this.all.length;
   }
+
+  /**
+   * Membership check over ALL definitions (named-trigger + wildcard) by
+   * `meta.id` — the container's `meta.goal` boot validation reads this.
+   */
+  has(id: string): boolean {
+    return this.all.some((def) => def.meta.id === id);
+  }
 }
 
 const singleton = createOptionalSingleton<ConversionRegistry>();

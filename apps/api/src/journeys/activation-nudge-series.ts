@@ -11,6 +11,11 @@ export const activationNudgeSeries = defineJourney({
     entryLimit: "once",
     suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
+    // D7: shares the user.created trigger with activation-welcome — lift is
+    // marginal on top of the other holdout journeys' sends (see there).
+    holdout: { percent: 10 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

@@ -25,7 +25,7 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 21-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 30-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
  *
@@ -48,6 +48,11 @@ import { Webhook } from "svix";
  * `link.arrived` is the landing-confirmed subset of `link.clicked`: the
  * visitor reported back from the destination (opt-in `hs_ref` +
  * POST /v1/t/arrive) with identity evidence.
+ *
+ * `impact.digest` is the weekly facts-only impact rollup (shipped journey
+ * versions/labels + holdout-lift threshold crossings). It is the one
+ * SELF-REFERENTIAL event: the digest cron derives its watermark from its
+ * own `impact.digest` delivery rows in `webhook_deliveries`.
  */
 export const WEBHOOK_EVENT_TYPES = [
   "contact.created",
@@ -85,6 +90,9 @@ export const WEBHOOK_EVENT_TYPES = [
   "group.identified",
   "group.member_added",
   "group.member_removed",
+  // Weekly impact digest (impact experiments D5). Self-referential: the
+  // cron watermarks off its own delivery rows.
+  "impact.digest",
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

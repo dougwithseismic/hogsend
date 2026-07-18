@@ -241,6 +241,8 @@ export type JourneyListItem = {
   enabled: boolean;
   trigger: { event: string };
   entryLimit: "once" | "once_per_period" | "unlimited";
+  /** Conversion definition id the lift/impact readouts default to. */
+  goal?: string;
   counts: {
     active: number;
     waiting: number;
@@ -303,6 +305,8 @@ export type JourneyDetail = {
   trigger: { event: string; where?: JourneyCondition[] };
   exitOn?: Array<{ event: string; where?: JourneyCondition[] }>;
   entryLimit: "once" | "once_per_period" | "unlimited";
+  /** Conversion definition id the lift/impact readouts default to. */
+  goal?: string;
   suppress: Record<string, number>;
   counts: {
     active: number;
@@ -2111,6 +2115,9 @@ export const qk = {
   journeyState: (id: string, stateId: string) =>
     ["journey-state", id, stateId] as const,
   journeyTemplates: (id: string) => ["journey-templates", id] as const,
+  journeyImpact: (id: string, days: number) =>
+    ["journey-impact", id, days] as const,
+  impactOverview: (days: number) => ["impact-overview", days] as const,
   journeyGraph: (id: string) => ["journey-graph", id] as const,
   blueprints: ["blueprints"] as const,
   blueprint: (id: string) => ["blueprint", id] as const,
@@ -2433,6 +2440,206 @@ export type ConversionsStats = {
 
 export function getConversionsStats() {
   return api.get<ConversionsStats>("/v1/admin/conversions/stats");
+}
+
+// ---------------------------------------------------------------------------
+// Impact — journey lift/versions/variants + program overview (impact
+// experiments spec D4.4/D4.5). Types are written MECHANICALLY from the frozen
+// engine Zod schemas in packages/engine/src/routes/admin/journey-impact.ts
+// and routes/admin/impact.ts — the engine owns the shapes; edit there first.
+// ---------------------------------------------------------------------------
+
+/** Mirrors the engine LiftVerdict (packages/engine/src/lib/lift-stats.ts). */
+export type LiftVerdict = {
+  /** ALREADY ×100 by the engine (lift-stats.ts:109-111) — render with
+   * toFixed(1), NEVER formatPercent. Null when control converts at 0%. */
+  liftPercent: number | null;
+  /** P(treatment > control), 0–1 fraction; null ONLY when suppressed. */
+  winProbability: number | null;
+  /** Under 10 combined conversions — render counts, never a percentage. */
+  suppressed: boolean;
+  /** Either cohort under 100 contacts — warn loudly, never hide. */
+  smallSample: boolean;
+};
+
+export type CohortCounts = {
+  contacts: number;
+  converters: number;
+  /** 0–1 fraction — render with formatPercent. */
+  rate: number;
+};
+
+/** Counts + per-currency conversion value (never summed across currencies). */
+export type ImpactCohort = CohortCounts & {
+  value: Array<{ currency: string | null; value: number }>;
+};
+
+export type ImpactGoal = {
+  /** Effective conversion definition scoping every outcome; null = any. */
+  definitionId: string | null;
+  source: "query" | "goal" | "none";
+  /** Registered definition's display name; null when unscoped/unknown. */
+  name: string | null;
+};
+
+export type ImpactOverall = {
+  /** True ONLY when a held-out cohort exists (causal-language law). When
+   * false, `treatment` IS the observational read. */
+  causal: boolean;
+  treatment: ImpactCohort;
+  control: ImpactCohort;
+  /** Null when control.contacts === 0 (no Beta(1,1) ghost verdicts). */
+  verdict: LiftVerdict | null;
+};
+
+export type ImpactVersion = {
+  /** journey_version_hash; null = the pre-versioning bucket. Treat a new
+   * hash as "possible new version" — toolchain bumps can fork it. */
+  hash: string | null;
+  /** Latest-by-created_at label on this hash's rows. Hash is truth. */
+  label: string | null;
+  firstEnrolledAt: string | null;
+  lastEnrolledAt: string | null;
+  enrollments: number;
+  converters: number;
+  rate: number;
+  /** Contemporaneous holdout lift (control = held_out rows with the SAME
+   * hash). Null when this version diverted nobody. */
+  liftVsControl: ({ causal: true; control: CohortCounts } & LiftVerdict) | null;
+};
+
+export type ImpactVariantArm = {
+  arm: string;
+  enrollments: number;
+  converters: number;
+  rate: number;
+  /** Observational engagement funnel for this arm (email_sends). */
+  engagement: {
+    causal: false;
+    sends: number;
+    opened: number;
+    clicked: number;
+  };
+  /** Arm cohort vs the WHOLE held-out cohort; null without holdout. */
+  liftVsControl: ({ causal: true } & LiftVerdict) | null;
+};
+
+export type ImpactVariant = { key: string; arms: ImpactVariantArm[] };
+
+export type JourneyImpact = {
+  journeyId: string;
+  days: number;
+  goal: ImpactGoal;
+  /** Authored holdout config; null when none or unregistered. */
+  holdout: { percent: number } | null;
+  /** Identity of the CURRENT deployed definition; null when unregistered. */
+  currentVersionHash: string | null;
+  currentVersionLabel: string | null;
+  overall: ImpactOverall;
+  /** Newest version first (server order). */
+  versions: ImpactVersion[];
+  variants: ImpactVariant[];
+};
+
+export function getJourneyImpact(id: string, days = 90) {
+  return api.get<JourneyImpact>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/impact`,
+    { query: { days } },
+  );
+}
+
+/** Vendored from @hogsend/attribution ATTRIBUTION_MODELS — Studio ships a
+ * standalone SPA dist and does not bundle engine packages. */
+export type ImpactAttributionModel =
+  | "first"
+  | "last"
+  | "lastNonDirect"
+  | "linear"
+  | "timeDecay"
+  | "positionU"
+  | "positionW"
+  | "blended";
+
+export type ImpactOverviewLift = {
+  causal: true;
+  control: CohortCounts;
+} & LiftVerdict;
+
+export type ImpactJourneyRow = {
+  journeyId: string;
+  /** Registry name; null for blueprint/removed ids seen only in data. */
+  name: string | null;
+  registered: boolean;
+  versionLabel: string | null;
+  goalDefinitionId: string | null;
+  /** Null when no holdout configured or journey unregistered — lets the UI
+   * split "no holdout" from "holdout on, no held-out contacts yet". */
+  holdoutPercent: number | null;
+  observational: {
+    causal: false;
+    enrollments: number;
+    converters: number;
+    rate: number;
+  };
+  attributed: {
+    causal: false;
+    model: ImpactAttributionModel;
+    values: Array<{
+      currency: string | null;
+      value: number;
+      conversions: number;
+    }>;
+  };
+  /** Present only where a held-out cohort exists in the window. */
+  lift: ImpactOverviewLift | null;
+};
+
+export type ImpactCampaignRow = {
+  campaignId: string;
+  name: string;
+  status: string;
+  sends: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  attributed: Array<{
+    currency: string | null;
+    value: number;
+    conversions: number;
+  }>;
+};
+
+export type ImpactGlobalControl =
+  | { state: "off" }
+  | {
+      state: "skipped";
+      reason: "too_many_contacts";
+      percent: number;
+      contactCount: number;
+    }
+  | ({
+      state: "computed";
+      causal: true;
+      percent: number;
+      contactsScanned: number;
+      treatment: CohortCounts;
+      control: CohortCounts;
+    } & LiftVerdict);
+
+export type ImpactOverview = {
+  days: number;
+  model: ImpactAttributionModel;
+  rankedBy: "converters";
+  journeys: ImpactJourneyRow[];
+  /** Correlational-only, whole section — no lift, no win probability. */
+  campaigns: { causal: false; rows: ImpactCampaignRow[] };
+  globalControl: ImpactGlobalControl;
+};
+
+export function getImpactOverview(days = 90) {
+  return api.get<ImpactOverview>("/v1/admin/impact/overview", {
+    query: { days },
+  });
 }
 
 /** What each timing subject is anchored on: a journey enrollment or an event. */

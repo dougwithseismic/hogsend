@@ -15,6 +15,10 @@ export const conversionAbandonedCheckout = defineJourney({
       { event: Events.SUBSCRIPTION_CREATED },
       { event: Events.CHECKOUT_COMPLETED },
     ],
+    // D7: 10% holdout on steady lifecycle mail.
+    holdout: { percent: 10 },
+    goal: "revenue",
+    version: "2026-07-baseline",
   },
 
   run: async (user, ctx) => {

@@ -125,10 +125,41 @@ NOT sends (pushes, Slack messages, a specific action), use the named-counter
 recipe: `ctx.trigger({ event: "nudge.sent", userId })` to record + a windowed
 `ctx.history.hasEvent({ event: "nudge.sent", within: days(7) })` to count.
 
-`ctx.digest`, `ctx.throttle`, and `ctx.once` persist recorded state under the
-reserved context keys `__digest__` / `__throttle__` / `__once__` (don't write
-them yourself) and reserve the `digest:` / `throttle:` label prefixes — give each
+`ctx.digest`, `ctx.throttle`, `ctx.once`, and `ctx.variant` persist recorded
+state under the reserved context keys `__digest__` / `__throttle__` /
+`__once__` / `__variants__` (don't write them yourself — the engine strips all
+four from incoming trigger-event properties before seeding context) and
+digest/throttle reserve the `digest:` / `throttle:` label prefixes — give each
 call a distinct `label` when a run has more than one.
+
+## Variant — deterministic A/B arm
+
+```ts
+// Equal-split experiment arm for THIS user. Pure sha256 over
+// (journeyId, key, userId) — no RNG, no clock; RECORDED once per enrollment
+// (__variants__ bag) and replayed VERBATIM on any later call in that
+// enrollment, even if a deploy changed the arms array. A re-entry re-derives
+// the same arm while the arms are unchanged. Zero durable Hatchet calls.
+const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+
+await sendEmail({
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.ACTIVATION_WELCOME,
+  subject: arm === "outcome" ? "Outcome-first subject" : "Setup-first subject",
+});
+```
+
+Key charset: `/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/` (no `:`, no spaces).
+Same-template sends across arms need NO `idempotencyLabel` (the arm is
+deterministic + recorded, so replays re-derive the identical send key); the
+only rule is the pre-existing one — a LATER unconditional send of the SAME
+template under the same nearest wait label needs a distinct `idempotencyLabel`
+(the engine throws the loud key-collision error otherwise). Holdout diverts
+BEFORE `run()`, so variants split the treatment cohort only. In harness tests,
+seed with `createJourneyTest(journey, { user, variants: { "welcome-subject":
+"outcome" } })`.
 
 ## Observability
 
