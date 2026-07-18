@@ -43,14 +43,17 @@ export function Dialog({
       <button
         type="button"
         aria-label="Close dialog"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          "glass-panel relative z-10 w-full max-w-lg p-6 text-white shadow-black/50 shadow-xl",
+          // Opaque elevated surface — solid so page content never bleeds
+          // through the panel (unlike the translucent .glass-panel used for
+          // ambient chrome like toasts).
+          "relative z-10 w-full max-w-lg rounded-xl border border-white/10 bg-[#141011] p-6 text-white shadow-2xl shadow-black/60",
           className,
         )}
       >

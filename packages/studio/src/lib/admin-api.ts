@@ -1817,9 +1817,10 @@ export type FlagVariant = {
 };
 
 /**
- * One targeting predicate — the shared PropertyCondition vocabulary (a flag
- * reuses it rather than inventing a condition type). Loosely typed here (like
- * `JourneyCondition`): the view renders it as a chip and round-trips it as JSON.
+ * One PROPERTY-leaf targeting predicate — the shared PropertyCondition
+ * vocabulary (a flag reuses it rather than inventing a condition type). The only
+ * leaf kind in Phase-1 targeting. `unary` operators (`exists`/`not_exists`)
+ * carry no `value`.
  */
 export type FlagTargetingCondition = {
   type: "property";
@@ -1827,6 +1828,26 @@ export type FlagTargetingCondition = {
   operator: string;
   value?: string | number | boolean;
 };
+
+/**
+ * An AND/OR group of targeting nodes. Children are themselves {@link
+ * FlagTargeting} nodes, so groups nest arbitrarily. Mirrors the engine's
+ * `FlagTargetingComposite` (@hogsend/core) — kept as a local type because the
+ * Studio ships as a standalone SPA `dist` and does not bundle engine source.
+ */
+export type FlagTargetingComposite = {
+  type: "composite";
+  operator: "and" | "or";
+  conditions: FlagTargeting[];
+};
+
+/**
+ * A flag's targeting condition TREE: a PROPERTY leaf or an AND/OR COMPOSITE of
+ * further nodes. Empty targeting matches everyone. Mirrors the engine's
+ * `FlagTargeting`. NOTE: the stored/serialized shape may still be a legacy bare
+ * `FlagTargetingCondition[]` (implicit AND) — readers accept BOTH (see `Flag`).
+ */
+export type FlagTargeting = FlagTargetingCondition | FlagTargetingComposite;
 
 export type FlagType = "boolean" | "multivariate";
 
@@ -1847,7 +1868,12 @@ export type Flag = {
   type: FlagType;
   variants: FlagVariant[];
   defaultValue: unknown;
-  targeting: FlagTargetingCondition[];
+  /**
+   * The targeting predicate. Serialized as the Phase-1 tree, but a legacy flag
+   * may still carry a bare `FlagTargetingCondition[]` (implicit AND) — the
+   * editor normalizes both on load.
+   */
+  targeting: FlagTargeting | FlagTargetingCondition[];
   rollout: number;
   /** Provenance seam ("native" today). */
   origin: string;
@@ -1871,7 +1897,7 @@ export type FlagCreateBody = {
   type: FlagType;
   variants?: FlagVariant[];
   defaultValue?: unknown;
-  targeting?: FlagTargetingCondition[];
+  targeting?: FlagTargeting | FlagTargetingCondition[];
   rollout?: number;
 };
 
@@ -1881,13 +1907,14 @@ export function createFlag(body: FlagCreateBody) {
 
 /** Every field optional — `key` is immutable and deliberately omitted. */
 export type FlagUpdateBody = {
+  key?: string;
   name?: string;
   description?: string;
   enabled?: boolean;
   type?: FlagType;
   variants?: FlagVariant[];
   defaultValue?: unknown;
-  targeting?: FlagTargetingCondition[];
+  targeting?: FlagTargeting | FlagTargetingCondition[];
   rollout?: number;
 };
 
@@ -1903,6 +1930,30 @@ export function archiveFlag(id: string) {
   return api.delete<{ archived: boolean }>(
     `/v1/admin/flags/${encodeURIComponent(id)}`,
   );
+}
+
+// --- Targeting catalog (reusable condition-builder raw material) ----------
+
+/** One property operator with a human label; `unary` ops take no value. */
+export type TargetingOperator = {
+  value: string;
+  label: string;
+  unary: boolean;
+};
+
+/**
+ * `GET /v1/admin/targeting/catalog` — the raw material a condition builder needs
+ * to compose PROPERTY leaves: the distinct contact-property keys (capped,
+ * sorted) plus the operator vocabulary. Named generically (not flag-specific)
+ * because buckets/journeys will add targeting sources later.
+ */
+export type TargetingCatalog = {
+  properties: string[];
+  operators: TargetingOperator[];
+};
+
+export function getTargetingCatalog() {
+  return api.get<TargetingCatalog>("/v1/admin/targeting/catalog");
 }
 
 // --- Query keys ----------------------------------------------------------
@@ -1960,6 +2011,7 @@ export const qk = {
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,
   flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
+  targetingCatalog: ["targeting-catalog"] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
   dealsStats: (funnel?: string) => ["deals-stats", funnel ?? null] as const,
   dealsTimeseries: (days: number, funnel?: string) =>

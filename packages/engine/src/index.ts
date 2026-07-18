@@ -478,6 +478,7 @@ export {
   type EvaluableFlag,
   evaluateFlag,
   evaluateFlagsForContact,
+  evaluateTargeting,
   flagBucket,
   flagUnit,
 } from "./lib/flags.js";

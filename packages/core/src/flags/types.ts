@@ -1,5 +1,28 @@
 import type { PropertyCondition } from "../types/conditions.js";
 
+/**
+ * A composite (AND/OR) node of a flag's targeting tree. Its children are
+ * themselves {@link FlagTargeting} nodes, so groups nest arbitrarily. Phase-1
+ * flags target on PROPERTY leaves only — no event/bucket/journey leaves — so
+ * this is a strict subset of the general `CompositeCondition`.
+ */
+export interface FlagTargetingComposite {
+  type: "composite";
+  operator: "and" | "or";
+  conditions: FlagTargeting[];
+}
+
+/**
+ * A flag's targeting condition tree: a PROPERTY leaf or an AND/OR COMPOSITE of
+ * further nodes. Evaluation is pure + DB-free (property comparisons only), so it
+ * stays cheap enough to run for every flag on every browser evaluation.
+ *
+ * BACK-COMPAT: the stored shape was a bare `PropertyCondition[]` (implicit AND,
+ * incl. `[]` = matches everyone). Readers accept BOTH — a bare array is treated
+ * as `{ type: "composite", operator: "and", conditions: [...] }`.
+ */
+export type FlagTargeting = PropertyCondition | FlagTargetingComposite;
+
 /** The two shapes a flag can serve. */
 export type FlagType = "boolean" | "multivariate";
 

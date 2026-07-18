@@ -2,6 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flag as FlagIcon, Plus } from "lucide-react";
 import { useState } from "react";
 import {
+  ConditionBuilder,
+  emptyTargetingGroup,
+  toTargetingGroup,
+} from "@/components/condition-builder";
+import {
   EmptyState,
   ErrorState,
   PageHeader,
@@ -28,10 +33,12 @@ import {
   createFlag,
   type Flag,
   type FlagCreateBody,
+  type FlagTargeting,
   type FlagTargetingCondition,
   type FlagType,
   type FlagUpdateBody,
   type FlagVariant,
+  getTargetingCatalog,
   listFlags,
   qk,
   updateFlag,
@@ -46,9 +53,9 @@ import { cn } from "@/lib/utils";
  * switch is the whole reason flags exist. Create mints a DB-backed flag; archive
  * is a soft-delete that frees the key.
  *
- * Targeting + multivariate variants + a non-scalar default value are edited as
- * JSON textareas (the v1 authoring surface): the shapes reuse the shared
- * PropertyCondition / FlagVariant vocabularies, validated server-side.
+ * Targeting is edited with the reusable <ConditionBuilder> (an AND/OR tree of
+ * PROPERTY leaves); multivariate variants + a non-scalar default value are still
+ * edited as JSON textareas. All shapes are validated server-side.
  */
 export function FlagsView() {
   const { toast } = useToast();
@@ -292,16 +299,34 @@ function renderValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** One-line targeting summary; empty targeting matches everyone. */
-function targetingSummary(targeting: FlagTargetingCondition[]): string {
-  if (targeting.length === 0) return "Everyone";
-  return targeting
-    .map((c) =>
-      [c.property, c.operator, c.value === undefined ? "" : String(c.value)]
-        .filter(Boolean)
-        .join(" "),
-    )
-    .join(", ");
+/** Render one PROPERTY leaf as "prop operator value". */
+function leafSummary(c: FlagTargetingCondition): string {
+  return [c.property, c.operator, c.value === undefined ? "" : String(c.value)]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * One-line targeting summary over the condition tree (or a legacy bare array);
+ * empty targeting matches everyone. Nested groups render parenthesized and
+ * joined by their own AND/OR conjunction.
+ */
+function targetingSummary(
+  targeting: FlagTargeting | FlagTargetingCondition[],
+): string {
+  const group = toTargetingGroup(targeting);
+  return summarizeGroup(group, true) || "Everyone";
+}
+
+function summarizeGroup(node: FlagTargeting, top: boolean): string {
+  if (node.type === "property") return leafSummary(node);
+  const joiner = node.operator === "or" ? " OR " : " AND ";
+  const parts = node.conditions
+    .map((child) => summarizeGroup(child, false))
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  const joined = parts.join(joiner);
+  return top || parts.length === 1 ? joined : `(${joined})`;
 }
 
 // --- Create / edit form ----------------------------------------------------
@@ -318,8 +343,8 @@ type FormState = {
   defaultJson: string;
   /** Multivariate flags: the arms, as JSON (FlagVariant[]). */
   variantsJson: string;
-  /** Targeting predicate, as JSON (PropertyCondition[]). */
-  targetingJson: string;
+  /** Targeting predicate, as a condition tree (composite root). */
+  targeting: FlagTargeting;
 };
 
 function initialForm(flag?: Flag): FormState {
@@ -333,7 +358,7 @@ function initialForm(flag?: Flag): FormState {
       defaultBool: false,
       defaultJson: "null",
       variantsJson: "[]",
-      targetingJson: "[]",
+      targeting: emptyTargetingGroup(),
     };
   }
   return {
@@ -345,7 +370,8 @@ function initialForm(flag?: Flag): FormState {
     defaultBool: flag.defaultValue === true,
     defaultJson: JSON.stringify(flag.defaultValue ?? null, null, 2),
     variantsJson: JSON.stringify(flag.variants ?? [], null, 2),
-    targetingJson: JSON.stringify(flag.targeting ?? [], null, 2),
+    // Normalize a legacy bare array / lone leaf into an editable group.
+    targeting: toTargetingGroup(flag.targeting),
   };
 }
 
@@ -372,15 +398,6 @@ function buildBody(
     return { error: "Rollout must be a whole number between 0 and 100." };
   }
 
-  const targeting = parseJson<FlagTargetingCondition[]>(
-    state.targetingJson,
-    [],
-  );
-  if (targeting.error) return { error: `Targeting: ${targeting.error}` };
-  if (!Array.isArray(targeting.value)) {
-    return { error: "Targeting must be a JSON array of conditions." };
-  }
-
   let defaultValue: unknown;
   let variants: FlagVariant[] = [];
   if (state.type === "boolean") {
@@ -397,21 +414,31 @@ function buildBody(
     variants = vs.value;
   }
 
+  const key = state.key.trim();
+  if (!key) return { error: "Key is required." };
+
   const common: FlagUpdateBody = {
+    key,
     name,
     description: state.description.trim() || undefined,
     type: state.type,
     rollout,
-    targeting: targeting.value,
+    targeting: state.targeting,
     defaultValue,
     variants,
   };
 
   if (mode === "edit") return { body: common };
+  return { body: { ...common, type: state.type } as FlagCreateBody };
+}
 
-  const key = state.key.trim();
-  if (!key) return { error: "Key is required." };
-  return { body: { ...common, key, type: state.type } as FlagCreateBody };
+/** Slugify a name into a stable key: lowercase, non-alphanumerics → hyphens. */
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function parseJson<T>(raw: string, empty: T): { value?: T; error?: string } {
@@ -439,9 +466,33 @@ function FlagFormDialog({
 }) {
   const [state, setState] = useState<FormState>(() => initialForm(flag));
   const [error, setError] = useState<string | null>(null);
+  // While creating, the key auto-follows the name until the user edits it by
+  // hand; editing an existing flag starts "dirty" so we never rewrite its key.
+  const [keyDirty, setKeyDirty] = useState(mode === "edit");
+
+  // Seeds the ConditionBuilder's property combobox + operator vocabulary. The
+  // builder degrades to free-text + a built-in operator set while this loads.
+  const catalogQuery = useQuery({
+    queryKey: qk.targetingCatalog,
+    queryFn: getTargetingCatalog,
+    staleTime: 60_000,
+  });
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setState((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setName(value: string) {
+    setState((prev) => ({
+      ...prev,
+      name: value,
+      key: keyDirty ? prev.key : slugify(value),
+    }));
+  }
+
+  function setKey(value: string) {
+    setKeyDirty(true);
+    set("key", value);
   }
 
   function submit() {
@@ -461,7 +512,7 @@ function FlagFormDialog({
       title={mode === "create" ? "Create flag" : `Edit ${flag?.name ?? "flag"}`}
       description={
         mode === "create"
-          ? "A native, DB-backed feature flag. Everything but the key is editable later."
+          ? "A native, DB-backed feature flag — evaluated live by your SDKs and journeys."
           : "Changes take effect live — no redeploy."
       }
       footer={
@@ -480,29 +531,28 @@ function FlagFormDialog({
       }
     >
       <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-        {mode === "create" ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="flag-key">Key</Label>
-            <Input
-              id="flag-key"
-              placeholder="new-checkout-flow"
-              value={state.key}
-              onChange={(e) => set("key", e.target.value)}
-            />
-            <p className="text-white/40 text-xs">
-              The stable identifier the SDK evaluates. Immutable once created.
-            </p>
-          </div>
-        ) : null}
-
         <div className="space-y-1.5">
           <Label htmlFor="flag-name">Name</Label>
           <Input
             id="flag-name"
             placeholder="New checkout flow"
             value={state.name}
-            onChange={(e) => set("name", e.target.value)}
+            onChange={(e) => setName(e.target.value)}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="flag-key">Key</Label>
+          <Input
+            id="flag-key"
+            placeholder="new-checkout-flow"
+            value={state.key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <p className="text-white/40 text-xs">
+            The identifier your SDK reads. Auto-filled from the name — edit it
+            any time; it must stay unique.
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -576,14 +626,20 @@ function FlagFormDialog({
           </>
         )}
 
-        <JsonField
-          id="flag-targeting"
-          label="Targeting"
-          hint="A JSON array of PropertyCondition. Empty = everyone matches."
-          value={state.targetingJson}
-          onChange={(v) => set("targetingJson", v)}
-          rows={4}
-        />
+        <div className="space-y-1.5">
+          <Label htmlFor="flag-targeting">Targeting</Label>
+          <div id="flag-targeting">
+            <ConditionBuilder
+              value={state.targeting}
+              onChange={(next) => set("targeting", next)}
+              catalog={catalogQuery.data}
+            />
+          </div>
+          <p className="text-white/40 text-xs">
+            Only contacts matching these conditions are eligible. Empty =
+            everyone matches.
+          </p>
+        </div>
 
         {error ? <p className="text-red-400 text-sm">{error}</p> : null}
       </div>

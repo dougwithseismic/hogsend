@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { FlagVariant, PropertyCondition } from "@hogsend/core";
+import type {
+  FlagTargeting,
+  FlagVariant,
+  PropertyCondition,
+} from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import { contacts, type Database, flags } from "@hogsend/db";
 import { and, eq, isNull } from "drizzle-orm";
@@ -8,7 +12,8 @@ import { and, eq, isNull } from "drizzle-orm";
  * The structural subset of a flag the evaluator reads. Both the drizzle row
  * (`flags.$inferSelect`) and the portable `FlagDefinition` (@hogsend/core)
  * satisfy it, so the same pure function serves the DB path and any in-memory
- * caller.
+ * caller. `targeting` accepts BOTH the legacy `PropertyCondition[]` (implicit
+ * AND) and the Phase-1 condition tree ({@link FlagTargeting}).
  */
 export interface EvaluableFlag {
   key: string;
@@ -16,8 +21,46 @@ export interface EvaluableFlag {
   type: string;
   variants: FlagVariant[];
   defaultValue: unknown;
-  targeting: PropertyCondition[];
+  targeting: FlagTargeting | PropertyCondition[];
   rollout: number;
+}
+
+/**
+ * PURE, DB-FREE evaluation of a flag's targeting tree against a contact's
+ * properties. Reuses the shared property-comparison logic
+ * (`evaluatePropertyConditions`) for leaves; folds AND/OR over composite nodes.
+ *
+ * Shapes handled:
+ *   - a bare `PropertyCondition[]` (legacy stored shape) → implicit AND;
+ *     `[]` (or a nullish node) → matches everyone
+ *   - a PROPERTY leaf → the operator comparison
+ *   - a COMPOSITE node → `and` (every child) / `or` (some child); an EMPTY
+ *     group (no conditions) → matches everyone regardless of operator
+ *
+ * No database access: browser `GET /v1/flags` evaluates every flag per request,
+ * so targeting MUST stay property-only and cheap.
+ */
+export function evaluateTargeting(
+  node: FlagTargeting | PropertyCondition[] | null | undefined,
+  properties: Record<string, unknown>,
+): boolean {
+  // Nullish or the legacy bare array = implicit AND (empty ⇒ everyone).
+  if (node == null) return true;
+  if (Array.isArray(node)) {
+    return node.every((leaf) => evaluateTargeting(leaf, properties));
+  }
+  if (node.type === "composite") {
+    // An empty group is "no constraint" ⇒ everyone, regardless of operator.
+    // (A bare `[]` and an empty AND both already mean everyone; without this an
+    // empty OR would `.some([])` ⇒ false ⇒ nobody, silently disabling a flag
+    // that every Studio surface still labels "Matches everyone".)
+    if (node.conditions.length === 0) return true;
+    return node.operator === "or"
+      ? node.conditions.some((child) => evaluateTargeting(child, properties))
+      : node.conditions.every((child) => evaluateTargeting(child, properties));
+  }
+  // A single PROPERTY leaf.
+  return evaluatePropertyConditions({ conditions: [node], properties });
 }
 
 /**
@@ -75,13 +118,7 @@ export function evaluateFlag(
 ): unknown {
   if (!flag.enabled) return flag.defaultValue;
 
-  if (
-    flag.targeting.length > 0 &&
-    !evaluatePropertyConditions({
-      conditions: flag.targeting,
-      properties: ctx.properties,
-    })
-  ) {
+  if (!evaluateTargeting(flag.targeting, ctx.properties)) {
     return flag.defaultValue;
   }
 

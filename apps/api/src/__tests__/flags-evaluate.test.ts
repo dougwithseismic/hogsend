@@ -62,6 +62,176 @@ describe("evaluateFlag — targeting gate", () => {
   });
 });
 
+describe("evaluateFlag — condition tree targeting", () => {
+  it("legacy PropertyCondition[] array is treated as implicit AND", () => {
+    const flag = boolFlag({
+      targeting: [
+        { type: "property", property: "plan", operator: "eq", value: "pro" },
+        { type: "property", property: "seats", operator: "gte", value: 5 },
+      ],
+    });
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", seats: 5 },
+      }),
+    ).toBe(true);
+    // One leaf fails → the whole AND fails → default.
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", seats: 3 },
+      }),
+    ).toBe(false);
+  });
+
+  it("an AND composite tree requires every child", () => {
+    const flag = boolFlag({
+      targeting: {
+        type: "composite",
+        operator: "and",
+        conditions: [
+          { type: "property", property: "plan", operator: "eq", value: "pro" },
+          {
+            type: "property",
+            property: "country",
+            operator: "eq",
+            value: "US",
+          },
+        ],
+      },
+    });
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", country: "US" },
+      }),
+    ).toBe(true);
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", country: "CA" },
+      }),
+    ).toBe(false);
+  });
+
+  it("an OR composite tree needs only one child", () => {
+    const flag = boolFlag({
+      targeting: {
+        type: "composite",
+        operator: "or",
+        conditions: [
+          { type: "property", property: "plan", operator: "eq", value: "pro" },
+          {
+            type: "property",
+            property: "trial",
+            operator: "eq",
+            value: true,
+          },
+        ],
+      },
+    });
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "free", trial: true },
+      }),
+    ).toBe(true);
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "free", trial: false },
+      }),
+    ).toBe(false);
+  });
+
+  it("evaluates a nested group (AND of a leaf + an OR group)", () => {
+    const flag = boolFlag({
+      targeting: {
+        type: "composite",
+        operator: "and",
+        conditions: [
+          { type: "property", property: "plan", operator: "eq", value: "pro" },
+          {
+            type: "composite",
+            operator: "or",
+            conditions: [
+              {
+                type: "property",
+                property: "country",
+                operator: "eq",
+                value: "US",
+              },
+              {
+                type: "property",
+                property: "country",
+                operator: "eq",
+                value: "CA",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    // pro + (US or CA) → matches.
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", country: "CA" },
+      }),
+    ).toBe(true);
+    // pro but wrong country → the inner OR fails → default.
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "pro", country: "GB" },
+      }),
+    ).toBe(false);
+    // right country but wrong plan → the outer AND fails → default.
+    expect(
+      evaluateFlag(flag, {
+        contactKey: "u1",
+        properties: { plan: "free", country: "US" },
+      }),
+    ).toBe(false);
+  });
+
+  it("an empty AND composite matches everyone (like an empty array)", () => {
+    const flag = boolFlag({
+      targeting: { type: "composite", operator: "and", conditions: [] },
+    });
+    for (const key of ["a", "b", "c"]) {
+      expect(evaluateFlag(flag, { contactKey: key, properties: {} })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("an empty OR composite matches everyone too (empty group = no constraint)", () => {
+    // The Studio builder + list summary both label any empty group "everyone"
+    // regardless of operator, so an empty OR must not `.some([]) ⇒ false`.
+    const flag = boolFlag({
+      targeting: { type: "composite", operator: "or", conditions: [] },
+    });
+    for (const key of ["a", "b", "c"]) {
+      expect(evaluateFlag(flag, { contactKey: key, properties: {} })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("a nested empty OR group inside an AND root still matches everyone", () => {
+    const flag = boolFlag({
+      targeting: {
+        type: "composite",
+        operator: "and",
+        conditions: [{ type: "composite", operator: "or", conditions: [] }],
+      },
+    });
+    expect(evaluateFlag(flag, { contactKey: "x", properties: {} })).toBe(true);
+  });
+});
+
 describe("evaluateFlag — rollout stickiness + distribution", () => {
   it("is sticky: the same contactKey yields the same result across calls", () => {
     const flag = boolFlag({ rollout: 50 });

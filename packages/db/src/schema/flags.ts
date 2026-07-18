@@ -45,6 +45,24 @@ interface FlagPropertyCondition {
 }
 
 /**
+ * A composite (AND/OR) node of the Phase-1 targeting tree. Structural mirror of
+ * @hogsend/core's `FlagTargetingComposite` (db can't import core). Children are
+ * themselves targeting nodes, so groups nest arbitrarily.
+ */
+interface FlagTargetingComposite {
+  type: "composite";
+  operator: "and" | "or";
+  conditions: FlagTargetingNode[];
+}
+
+/**
+ * One node of a flag's targeting tree: a property leaf or an AND/OR composite.
+ * The stored column also accepts the legacy bare `FlagPropertyCondition[]`
+ * (implicit AND) — see the column `$type` below.
+ */
+type FlagTargetingNode = FlagPropertyCondition | FlagTargetingComposite;
+
+/**
  * Native, DB-backed feature flag — Hogsend's sovereign answer to a flag
  * service. Evaluation is STICKY by construction (a deterministic sha256 hash of
  * contactKey+flagKey), so there is no per-user assignment storage. `origin` is
@@ -69,10 +87,11 @@ export const flags = pgTable(
     // Served when disabled / targeting fails / not in the rollout slice. For a
     // boolean flag this is `false`.
     defaultValue: jsonb("default_value"),
-    // Targeting predicate — reuses the shared PropertyCondition vocabulary.
-    // Empty means everyone matches.
+    // Targeting predicate — a property leaf or an AND/OR composite tree of
+    // property leaves, OR the legacy bare `FlagPropertyCondition[]` (implicit
+    // AND). Empty (`[]`) means everyone matches.
     targeting: jsonb("targeting")
-      .$type<FlagPropertyCondition[]>()
+      .$type<FlagTargetingNode | FlagPropertyCondition[]>()
       .notNull()
       .default([]),
     // Percent (0-100) of the targeted audience eligible for a non-default value.

@@ -1,8 +1,9 @@
 import {
+  type FlagTargeting,
   type FlagVariant,
   flagCreateSchema,
+  flagTargetingSchema,
   flagUpdateSchema,
-  type PropertyCondition,
 } from "@hogsend/core";
 import { flags } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
@@ -23,13 +24,6 @@ const flagVariantSchema = z.object({
   weight: z.number(),
 });
 
-const propertyConditionSchema = z.object({
-  type: z.literal("property"),
-  property: z.string(),
-  operator: z.string(),
-  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
-});
-
 const flagSchema = z.object({
   id: z.string(),
   key: z.string(),
@@ -39,7 +33,7 @@ const flagSchema = z.object({
   type: z.string(),
   variants: z.array(flagVariantSchema),
   defaultValue: z.unknown(),
-  targeting: z.array(propertyConditionSchema),
+  targeting: flagTargetingSchema,
   rollout: z.number(),
   origin: z.string(),
   archivedAt: z.string().nullable(),
@@ -57,7 +51,7 @@ function serializeFlag(row: typeof flags.$inferSelect) {
     type: row.type,
     variants: row.variants as FlagVariant[],
     defaultValue: row.defaultValue,
-    targeting: row.targeting as PropertyCondition[],
+    targeting: row.targeting as FlagTargeting,
     rollout: row.rollout,
     origin: row.origin,
     archivedAt: row.archivedAt?.toISOString() ?? null,
@@ -129,6 +123,10 @@ const updateFlagRoute = createRoute({
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Flag not found",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "A live flag with that key already exists",
     },
   },
 });
@@ -217,9 +215,27 @@ export const adminFlagsRouter = new OpenAPIHono<AppEnv>()
     const rows = await db.select().from(flags).where(eq(flags.id, id)).limit(1);
     if (!rows[0]) return c.json({ error: "Flag not found" }, 404);
 
+    // A key rename must stay unique among LIVE flags (the partial-unique index
+    // is the backstop; this is the friendly 409). Skip when the key is
+    // unchanged so re-saving the same flag never self-collides.
+    if (body.key !== undefined && body.key !== rows[0].key) {
+      const clash = await db
+        .select({ id: flags.id })
+        .from(flags)
+        .where(and(eq(flags.key, body.key), isNull(flags.archivedAt)))
+        .limit(1);
+      if (clash[0]) {
+        return c.json(
+          { error: "A live flag with that key already exists" },
+          409,
+        );
+      }
+    }
+
     const [updated] = await db
       .update(flags)
       .set({
+        ...(body.key !== undefined ? { key: body.key } : {}),
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(body.description !== undefined
           ? { description: body.description }
