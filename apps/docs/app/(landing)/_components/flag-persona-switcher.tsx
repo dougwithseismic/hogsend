@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn";
  * The "What's your team?" switcher — the section dogfoods Hogsend's own feature
  * flags on the marketing page.
  *
- * Left column is the RESULT: a team-matched video plus its headline/pitch.
+ * Left column is the RESULT: a team-matched video plus a pillar-style caption.
  * Right column is the FLAG: a `visitor-team` multivariate flag rendered as a
  * column of real toggle switches (flip one on, the rest flip off — exactly one
  * arm is ever served), the real shipping code (`defineFlag` → `useFlag` →
@@ -26,23 +26,14 @@ import { cn } from "@/lib/cn";
  * rendered in the page and handed in as `code` nodes.
  */
 
-type TeamKey =
-  | "founder"
-  | "growth"
-  | "product"
-  | "engineering"
-  | "sales"
-  | "recruiting"
-  | "browsing";
+type TeamKey = "founder" | "growth" | "product" | "sales" | "hr";
 
 const TEAM_ORDER: readonly TeamKey[] = [
   "founder",
   "growth",
   "product",
-  "engineering",
   "sales",
-  "recruiting",
-  "browsing",
+  "hr",
 ];
 
 interface Team {
@@ -50,8 +41,9 @@ interface Team {
   label: string;
   /** The value the multivariate flag serves for this arm. */
   value: string;
-  headline: string;
-  sub: string;
+  /** Pillar-style caption under the video: a tight title + a factual body. */
+  title: string;
+  body: string;
   video: { id: string; title: string };
 }
 
@@ -61,8 +53,8 @@ const TEAMS: Record<TeamKey, Team> = {
   founder: {
     label: "Founder",
     value: "founder",
-    headline: "Being a founder is hard enough.",
-    sub: "Your lifecycle shouldn't need a full-time operator. Ship onboarding, trials, and win-back as code your agents can extend.",
+    title: "Lifecycle without the hire",
+    body: "Onboarding, trials, and win-back ship as code your agents extend, with no lifecycle team to staff.",
     video: {
       id: "f4_14pZlJBs",
       title: "Before the Startup, with Paul Graham",
@@ -71,8 +63,8 @@ const TEAMS: Record<TeamKey, Team> = {
   growth: {
     label: "Growth",
     value: "growth",
-    headline: "Your growth loops belong in the repo.",
-    sub: "Every loop is a journey you can read. Trigger on real events, and read the same flag in the browser, on the server, and inside a journey.",
+    title: "Every loop in the repo",
+    body: "Trigger on real events and read the same flag in the browser, on the server, and inside a journey.",
     video: {
       id: "6qAB6aUMIeA",
       title: "Lenny interviews Elena Verna on the new AI growth playbook",
@@ -81,51 +73,31 @@ const TEAMS: Record<TeamKey, Team> = {
   product: {
     label: "Product",
     value: "product",
-    headline: "Ship the journey with the feature.",
-    sub: "Lifecycle isn't another team's job. Wire activation and onboarding into the product you're already shipping.",
+    title: "Journeys ship with features",
+    body: "Wire activation and onboarding into the product you're already building, not a separate tool.",
     video: {
       id: "h-KVGHoQ_98",
       title: "The Nature of Product, with Marty Cagan (Lenny's Podcast)",
     },
   },
-  engineering: {
-    label: "Engineering",
-    value: "engineering",
-    headline: "Lifecycle is just code.",
-    sub: "Journeys are TypeScript in your repo. Type-checked, reviewed in a PR, and versioned like everything else you ship.",
-    video: {
-      id: "tBh5MHb5KJM",
-      title: "Growth Engineering with Alexey Komissarouk",
-    },
-  },
   sales: {
     label: "Sales",
     value: "sales",
-    headline: "More offers out. More replies back.",
-    sub: "Fire the follow-up the moment the signal lands. No batch, no waiting on marketing to build the flow.",
+    title: "Follow-ups on the signal",
+    body: "Fire the next touch the moment the event lands. No batch, no waiting on marketing to build the flow.",
     video: {
       id: "-Awbn72F4hY",
       title: "22 Minutes of the Best Alex Hormozi Sales Tips",
     },
   },
-  recruiting: {
-    label: "Recruiting",
-    value: "recruiting",
-    headline: "Hiring for growth?",
-    sub: "This is the stack they want to work in: code-first lifecycle, agent-native, versioned in git. No drag-and-drop canvas.",
+  hr: {
+    label: "HR",
+    value: "hr",
+    title: "Onboarding that runs itself",
+    body: "Candidate nurture and new-hire sequences as journeys, on the same triggers and code as everything else.",
     video: {
       id: "i_PjjXKNpA4",
       title: "The Startup Playbook for Hiring Your First Engineers",
-    },
-  },
-  browsing: {
-    label: "Just browsing",
-    value: "browsing",
-    headline: "Take a look around.",
-    sub: "Every toggle here is one arm of the same flag. It's the whole product running on itself, right on this page.",
-    video: {
-      id: "GXVB8yVIm7I",
-      title: "What Is Growth Engineering? Here's How It Really Works",
     },
   },
 };
@@ -158,8 +130,8 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
   }
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[1fr_400px]">
-      {/* LEFT — the result: video + the pitch this arm renders. */}
+    <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
+      {/* LEFT — the result: video + a pillar-style caption for this arm. */}
       <div>
         <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
           {playing ? (
@@ -209,20 +181,13 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
           )}
         </div>
 
-        <div
-          aria-live="polite"
-          className="mt-4 rounded-lg border border-white/[0.08] bg-white/[0.02] px-6 py-5"
-        >
-          <p
-            className={cn(
-              "font-normal text-[26px] text-white leading-[1.15] tracking-[-0.01em] md:text-[30px]",
-              "[font-family:var(--ps-display)]",
-            )}
-          >
-            {active.headline}
-          </p>
-          <p className="mt-2 text-[15px] text-white/60 leading-relaxed tracking-[-0.01em]">
-            {active.sub}
+        {/* Pillar-style caption — matches the "Journeys as code" feature row. */}
+        <div aria-live="polite" className="mt-5">
+          <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+            {active.title}
+          </h3>
+          <p className="mt-2 max-w-[460px] text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+            {active.body}
           </p>
         </div>
       </div>
@@ -323,7 +288,7 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
         </div>
 
         {/* No line numbers — Shiki's transparent <pre>, our mono type. */}
-        <div className="max-h-[260px] overflow-auto px-4 py-3.5 text-[12.5px]">
+        <div className="max-h-[240px] overflow-auto px-4 py-3.5 text-[12.5px]">
           {code[tab]}
         </div>
 

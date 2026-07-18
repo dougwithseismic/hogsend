@@ -1306,12 +1306,10 @@ export const visitorTeam = defineFlag({
     { key: "founder", value: "founder", weight: 1 },
     { key: "growth", value: "growth", weight: 1 },
     { key: "product", value: "product", weight: 1 },
-    { key: "engineering", value: "engineering", weight: 1 },
     { key: "sales", value: "sales", weight: 1 },
-    { key: "recruiting", value: "recruiting", weight: 1 },
-    { key: "browsing", value: "browsing", weight: 1 },
+    { key: "hr", value: "hr", weight: 1 },
   ],
-  defaultValue: "browsing",
+  defaultValue: "founder",
 });
 
 export const flags = [visitorTeam];`,
