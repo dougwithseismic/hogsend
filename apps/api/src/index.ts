@@ -27,6 +27,7 @@ import {
   setDiscordDb,
 } from "./discord.js";
 import { templates } from "./emails/index.js";
+import { flags } from "./flags/index.js";
 import { funnels } from "./funnels.js";
 import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
@@ -39,6 +40,7 @@ const discordConnector = buildDiscordConnector();
 const client = createHogsendClient({
   journeys,
   conversions,
+  flags,
   buckets,
   lists,
   funnels,

@@ -1,10 +1,19 @@
 export {
+  type DefinedFlag,
+  type DefinedFlagVariant,
+  defineFlag,
+  type FlagDefineMeta,
+  type FlagValueOf,
+} from "./define.js";
+export {
   bucketConditionSchema,
   dealConditionSchema,
   type FlagCreateInput,
+  type FlagDefineInput,
   type FlagUpdateInput,
   flagConditionSetSchema,
   flagCreateSchema,
+  flagDefineSchema,
   flagTargetingNodeSchema,
   flagTargetingSchema,
   flagTypeSchema,
