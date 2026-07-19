@@ -2390,56 +2390,79 @@ async function PsGroups() {
 
 /* --------------------------------------------------------- event plugins -- */
 
-/* Every entry below ships on main: engine webhook presets (stripe, clerk,
-   supabase, segment, intercom) or plugin packages (twilio, discord, telegram).
-   Event tokens are the literal names the source emits. */
-const SOURCE_CARDS: { title: string; body: string; tokens: string[] }[] = [
+/* One entry per tool the plugin system deals with. Monochrome brand marks in
+   public/images/logos/, painted via CSS mask so they all read as one set.
+   `ratio` = the SVG's viewBox aspect ratio (width / height); wordmark-shaped
+   marks (Attio, Crisp) carry their own name, so `wordmark` skips the label.
+   `soon` = the integration is real but not on main yet — rendered dimmed. */
+const SOURCE_LOGOS: {
+  name: string;
+  file: string;
+  ratio: number;
+  wordmark?: boolean;
+  soon?: boolean;
+}[] = [
+  { name: "Stripe", file: "stripe.svg", ratio: 1 },
+  { name: "Clerk", file: "clerk.svg", ratio: 1 },
+  { name: "Supabase", file: "supabase.svg", ratio: 1 },
+  { name: "Segment", file: "segment.svg", ratio: 1 },
+  { name: "Intercom & Fin", file: "intercom.svg", ratio: 1 },
   {
-    title: "Stripe",
-    body: "Customers fold into contacts; subscriptions and invoices arrive under their own names, signature-verified.",
-    tokens: ["subscription.*", "invoice.*"],
+    name: "Vapi",
+    file: "vapi.svg",
+    ratio: 33.8 / 9.8,
+    wordmark: true,
+    soon: true,
   },
+  { name: "Twilio", file: "twilio.svg", ratio: 1 },
+  { name: "Discord", file: "discord.svg", ratio: 1 },
+  { name: "Telegram", file: "telegram.svg", ratio: 1 },
+  { name: "PostHog", file: "posthog.svg", ratio: 1 },
+  { name: "Resend", file: "resend.svg", ratio: 1 },
   {
-    title: "Clerk",
-    body: "Sign-ups become contacts the moment they happen — waitlist joins included.",
-    tokens: ["user.created", "waitlist.joined"],
+    name: "Crisp",
+    file: "crisp.svg",
+    ratio: 1651 / 647,
+    wordmark: true,
+    soon: true,
   },
-  {
-    title: "Supabase",
-    body: "Auth users fold straight into contacts — create, update, delete.",
-    tokens: ["contact.created"],
-  },
-  {
-    title: "Segment",
-    body: "Already instrumented? track calls pass through under their own names; group calls write the company.",
-    tokens: ["track", "identify", "group"],
-  },
-  {
-    title: "Intercom & Fin",
-    body: "Support threads are lifecycle moments — react when Fin resolves a thread or a human escalates one.",
-    tokens: ["support.resolved", "support.escalated"],
-  },
-  {
-    title: "Twilio",
-    body: "Inbound SMS and delivery receipts, with STOP/START consent handled for you.",
-    tokens: ["sms.inbound", "sms.delivered"],
-  },
-  {
-    title: "Discord",
-    body: "Joins, messages, reactions, presence — community activity lands on the contact.",
-    tokens: ["discord.member_joined", "discord.reaction_added"],
-  },
-  {
-    title: "Telegram",
-    body: "A /start deep link folds the chat onto a contact; messages arrive as events.",
-    tokens: ["telegram.started", "telegram.message"],
-  },
-  {
-    title: "Your own app",
-    body: "Anything with a webhook: declare the auth header, validate with Zod, transform the payload to an event.",
-    tokens: ["defineWebhookSource()"],
-  },
+  { name: "Postmark", file: "postmark.svg", ratio: 1 },
+  { name: "HubSpot", file: "hubspot.svg", ratio: 1 },
+  { name: "Attio", file: "attio.svg", ratio: 103 / 26, wordmark: true },
+  { name: "HighLevel", file: "gohighlevel.svg", ratio: 15 / 23 },
+  { name: "Meta CAPI", file: "meta.svg", ratio: 1 },
+  { name: "Slack", file: "slack.svg", ratio: 1, soon: true },
 ];
+
+/* Three marquee lanes — roughly equal, "soon" entries spread across lanes so
+   no single lane reads as the graveyard. */
+const SOURCE_LANES = [
+  SOURCE_LOGOS.slice(0, 6),
+  SOURCE_LOGOS.slice(6, 12),
+  SOURCE_LOGOS.slice(12),
+];
+
+/** A brand SVG painted as a flat silhouette via CSS mask (inherits color). */
+function BrandMark({ file, ratio }: { file: string; ratio: number }) {
+  const url = `url(/images/logos/${file})`;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-7 bg-current"
+      style={{
+        WebkitMaskImage: url,
+        maskImage: url,
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+        WebkitMaskSize: "contain",
+        maskSize: "contain",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+        aspectRatio: String(ratio),
+      }}
+    />
+  );
+}
 
 function PsSources() {
   return (
@@ -2466,37 +2489,49 @@ function PsSources() {
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
-            Each source below ships in the engine or as a plugin and lands as a
-            first-class event — the same pipeline as your own hogsend.capture
-            calls. Any of them can trigger a journey, branch one mid-run, or
-            exit one.
+            There&rsquo;s one plugin system behind all of these — webhook
+            presets in the engine, @hogsend/plugin-* packages beside it, built
+            in the open in the same repo. Signals land as first-class events
+            that trigger, branch, or exit a journey; the CRM and ads legs carry
+            conversions back out.
           </p>
         </Reveal>
 
-        <Reveal delay={0.1} className="mt-12 block">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {SOURCE_CARDS.map((s) => (
-              <div
-                key={s.title}
-                className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
-              >
-                <h3 className="font-medium text-base text-white tracking-[-0.025em]">
-                  {s.title}
-                </h3>
-                <p className="mt-2 flex-1 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                  {s.body}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {s.tokens.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
+        <Reveal delay={0.1} className="mt-14 block">
+          <div className="flex flex-col gap-8">
+            {SOURCE_LANES.map((lane, i) => (
+              <LogoMarquee
+                // biome-ignore lint/suspicious/noArrayIndexKey: static lanes, order is stable
+                key={i}
+                // Each half of the marquee track must be wider than the
+                // viewport or the -50% wrap shows as a jump — repeat the
+                // six-logo lane so a half is ~12 items wide.
+                items={[...lane, ...lane].map((l, j) => (
+                  <span
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static duplicated lane, order is stable
+                    key={`${l.name}-${j}`}
+                    className={cn(
+                      "flex items-center gap-3",
+                      l.soon ? "text-white/30" : "text-white/75",
+                    )}
+                  >
+                    <BrandMark file={l.file} ratio={l.ratio} />
+                    {l.wordmark ? (
+                      <span className="sr-only">{l.name}</span>
+                    ) : (
+                      <span className="whitespace-nowrap text-[19px] tracking-[-0.02em]">
+                        {l.name}
+                      </span>
+                    )}
+                    {l.soon ? (
+                      <span className="font-mono text-[10px] text-white/30 uppercase tracking-wide">
+                        soon
+                      </span>
+                    ) : null}
+                  </span>
+                ))}
+                durationSec={[64, 80, 72][i]}
+              />
             ))}
           </div>
         </Reveal>
