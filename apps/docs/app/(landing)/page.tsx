@@ -41,6 +41,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
@@ -1514,6 +1515,98 @@ async function PsCode() {
             }}
             envs={{ resend: resendEnv, postmark: postmarkEnv }}
             raw={JOURNEY_SAMPLES}
+          />
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------- email answers -- */
+
+/* Real API on both sides of the demo: the template is a valid React Email
+   component using EmailAction (@hogsend/email), the journey side is a valid
+   ctx.waitForEvent read. The feed in the card is illustrative. */
+const EMAIL_ANSWER_SAMPLES = {
+  email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function TrialCheckIn() {
+  return (
+    <Section>
+      <Text>Hey — you're a week in. Where are you?</Text>
+
+      {/* Every answer in an email is a link. Two answers, two EmailActions —
+          the click emits trial.check_in through the full ingest pipeline. */}
+      <EmailAction
+        href="https://app.example.com"
+        event="trial.check_in"
+        properties={{ answer: "great" }}
+      >
+        Going great
+      </EmailAction>
+
+      <EmailAction
+        href="https://cal.com/you/help"
+        event="trial.check_in"
+        properties={{ answer: "help" }}
+      >
+        Need a hand
+      </EmailAction>
+    </Section>
+  );
+}`,
+  journey: `// The journey sends the email, then just waits for the answer.
+await sendEmail({ to: user.email, template: "trial-check-in" });
+
+const reply = await ctx.waitForEvent({
+  event: "trial.check_in",
+  timeout: days(3),
+  label: "trial-check-in",
+});
+
+// Branch on the answer directly — no webhook wiring, no forms.
+if (!reply.timedOut && reply.properties?.answer === "help") {
+  await sendEmail({ to: user.email, template: "founder-intro-call" });
+}`,
+} as const;
+
+async function PsEmailAnswers() {
+  const [emailNode, journeyNode] = await Promise.all([
+    CodeHighlight({ code: EMAIL_ANSWER_SAMPLES.email, lang: "tsx" }),
+    CodeHighlight({ code: EMAIL_ANSWER_SAMPLES.journey, lang: "ts" }),
+  ]);
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <PlusGrid className="top-20 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>In-email answers</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">The email answers back.</span>{" "}
+            <span className="text-white/40">
+              A click is a typed event; the journey branches on it. Try it —
+              press a button in the email.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Every link in every email is rewritten to your own domain at send
+            time, so opens and clicks are tracked first-party — no provider
+            pixels. An EmailAction goes further: the click emits a named event
+            with properties, and a waiting journey reads the answer directly.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <EmailAnswersCard
+            code={{ email: emailNode, journey: journeyNode }}
+            raw={EMAIL_ANSWER_SAMPLES}
           />
         </Reveal>
       </Container>
@@ -3485,6 +3578,7 @@ export default async function HomePage({
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsFlags />
       <PsCode />
+      <PsEmailAnswers />
       <PsImpact />
       <PsAgents />
       <PsUseCases />
