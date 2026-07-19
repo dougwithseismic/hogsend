@@ -20,6 +20,12 @@ import {
   productRowClass,
   productRowLabelClass,
 } from "./product-card";
+import {
+  TEAM_LABELS,
+  TEAM_ORDER,
+  type TeamKey,
+  useVisitorTeam,
+} from "./team-context";
 
 /**
  * The "What's your team?" switcher — the section dogfoods Hogsend's own feature
@@ -37,19 +43,7 @@ import {
  * rendered in the page and handed in as `code` nodes.
  */
 
-type TeamKey = "founder" | "growth" | "product" | "sales" | "hr";
-
-const TEAM_ORDER: readonly TeamKey[] = [
-  "founder",
-  "growth",
-  "product",
-  "sales",
-  "hr",
-];
-
 interface Team {
-  /** Toggle label. */
-  label: string;
   /** The value the multivariate flag serves for this arm. */
   value: string;
   /** Pillar-style caption under the video: a tight title + a factual body. */
@@ -62,7 +56,6 @@ interface Team {
 // are verified to resolve a YouTube thumbnail.
 const TEAMS: Record<TeamKey, Team> = {
   founder: {
-    label: "Founder",
     value: "founder",
     title: "Lifecycle without the hire",
     body: "Onboarding, trials, and win-back ship as code your agents extend, with no lifecycle team to staff.",
@@ -72,7 +65,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   growth: {
-    label: "Growth",
     value: "growth",
     title: "Every loop in the repo",
     body: "Trigger on real events and read the same flag in the browser, on the server, and inside a journey.",
@@ -82,7 +74,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   product: {
-    label: "Product",
     value: "product",
     title: "Journeys ship with features",
     body: "Wire activation and onboarding into the product you're already building, not a separate tool.",
@@ -92,7 +83,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   sales: {
-    label: "Sales",
     value: "sales",
     title: "Follow-ups on the signal",
     body: "Fire the next touch the moment the event lands. No batch, no waiting on marketing to build the flow.",
@@ -102,7 +92,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   hr: {
-    label: "HR",
     value: "hr",
     title: "Onboarding that runs itself",
     body: "Candidate nurture and new-hire sequences as journeys, on the same triggers and code as everything else.",
@@ -128,7 +117,7 @@ type FlagPersonaSwitcherProps = {
 };
 
 export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
-  const [team, setTeam] = useState<TeamKey>("founder");
+  const { team, setTeam } = useVisitorTeam();
   const [tab, setTab] = useState<CodeTab>("react");
   const [playing, setPlaying] = useState(false);
 
@@ -235,7 +224,7 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
                     productRowLabelClass(isActive),
                   )}
                 >
-                  {TEAMS[key].label}
+                  {TEAM_LABELS[key]}
                 </span>
                 <span
                   aria-hidden="true"

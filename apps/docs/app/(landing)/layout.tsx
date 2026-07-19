@@ -1,5 +1,6 @@
 import { Montserrat } from "next/font/google";
 import type { ReactNode } from "react";
+import { VisitorTeamProvider } from "./_components/team-context";
 import "./home.css";
 
 /**
@@ -24,7 +25,7 @@ const display = Montserrat({
 export default function LandingLayout({ children }: { children: ReactNode }) {
   return (
     <div className={`${display.variable} min-h-screen bg-ink text-white/75`}>
-      {children}
+      <VisitorTeamProvider>{children}</VisitorTeamProvider>
     </div>
   );
 }
