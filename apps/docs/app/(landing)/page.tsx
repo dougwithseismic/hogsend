@@ -1567,11 +1567,12 @@ async function PsCode() {
 
 /* ---------------------------------------------------- email answers -- */
 
-/* Real API on both sides of the demo: the template is a valid React Email
-   component using EmailAction (@hogsend/email), the journey side is a valid
-   ctx.waitForEvent read. The feed in the card is illustrative. */
-const EMAIL_ANSWER_SAMPLES = {
-  email: `import { EmailAction } from "@hogsend/email";
+/* Real API on both sides of every scenario: each template is a valid React
+   Email component using EmailAction (@hogsend/email), each journey side a
+   valid ctx.waitForEvent read. The feed in the card is illustrative. */
+const EMAIL_ANSWER_SNIPPETS = {
+  trial: {
+    email: `import { EmailAction } from "@hogsend/email";
 import { Section, Text } from "@react-email/components";
 
 export function TrialCheckIn() {
@@ -1599,7 +1600,7 @@ export function TrialCheckIn() {
     </Section>
   );
 }`,
-  journey: `// The journey sends the email, then just waits for the answer.
+    journey: `// The journey sends the email, then just waits for the answer.
 await sendEmail({ to: user.email, template: "trial-check-in" });
 
 const reply = await ctx.waitForEvent({
@@ -1612,13 +1613,210 @@ const reply = await ctx.waitForEvent({
 if (!reply.timedOut && reply.properties?.answer === "help") {
   await sendEmail({ to: user.email, template: "founder-intro-call" });
 }`,
+  },
+  nps: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+const SCORES = Array.from({ length: 11 }, (_, i) => i);
+
+export function NpsSurvey() {
+  return (
+    <Section>
+      <Text>One number — how likely are you to recommend us?</Text>
+
+      {/* Eleven answers, one event. Each number is a link whose click
+          emits nps.answered with its score. */}
+      {SCORES.map((score) => (
+        <EmailAction
+          key={score}
+          href="https://example.com/thanks"
+          event="nps.answered"
+          properties={{ score }}
+        >
+          {String(score)}
+        </EmailAction>
+      ))}
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "nps-survey" });
+
+const reply = await ctx.waitForEvent({
+  event: "nps.answered",
+  timeout: days(7),
+  label: "nps-survey",
+});
+
+// Branch on the score directly — no survey tool, no webhook wiring.
+const score = Number(reply.properties?.score);
+if (!reply.timedOut && score >= 9) {
+  await sendEmail({ to: user.email, template: "nps-review-ask" });
+} else if (!reply.timedOut && score <= 6) {
+  await sendEmail({ to: user.email, template: "nps-founder-followup" });
+}`,
+  },
+  winback: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function WinbackReason() {
+  return (
+    <Section>
+      <Text>Your account went quiet. What pulled you away?</Text>
+
+      <EmailAction
+        href="https://example.com/pricing"
+        event="winback.reason"
+        properties={{ reason: "pricing" }}
+      >
+        Too pricey
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="winback.reason"
+        properties={{ reason: "missing_feature" }}
+      >
+        Missing a feature
+      </EmailAction>
+
+      <EmailAction
+        href="https://app.example.com"
+        event="winback.reason"
+        properties={{ reason: "busy" }}
+      >
+        Just busy
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "winback-reason" });
+
+const reply = await ctx.waitForEvent({
+  event: "winback.reason",
+  timeout: days(7),
+  label: "winback-reason",
+});
+
+// A churn reason is a typed event — branch now, segment on it forever.
+if (reply.properties?.reason === "missing_feature") {
+  await sendEmail({ to: user.email, template: "founder-which-feature" });
+} else if (reply.properties?.reason === "busy") {
+  await ctx.sleep({ duration: days(30), label: "busy-snooze" });
+  await sendEmail({ to: user.email, template: "winback-second-touch" });
+}`,
+  },
+  slot: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function OnboardingCall() {
+  return (
+    <Section>
+      <Text>Twenty minutes, we set up your first journey. Pick a slot:</Text>
+
+      <EmailAction
+        href="https://cal.com/you/onboarding"
+        event="onboarding.slot_picked"
+        properties={{ slot: "tue-10" }}
+      >
+        Tuesday 10:00
+      </EmailAction>
+
+      <EmailAction
+        href="https://cal.com/you/onboarding"
+        event="onboarding.slot_picked"
+        properties={{ slot: "thu-14" }}
+      >
+        Thursday 14:00
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "onboarding-call" });
+
+const reply = await ctx.waitForEvent({
+  event: "onboarding.slot_picked",
+  timeout: days(3),
+  label: "onboarding-call",
+});
+
+if (!reply.timedOut) {
+  // The answer carries the slot — confirm it back in one send.
+  await sendEmail({
+    to: user.email,
+    template: "call-confirmed",
+    props: { slot: String(reply.properties?.slot) },
+  });
+}`,
+  },
+  vote: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function RoadmapVote() {
+  return (
+    <Section>
+      <Text>Three candidates for next quarter. Your click is the ballot:</Text>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "webhooks" }}
+      >
+        Webhooks API
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "sso" }}
+      >
+        SSO
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "mobile" }}
+      >
+        Mobile app
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "roadmap-vote" });
+
+const reply = await ctx.waitForEvent({
+  event: "roadmap.vote",
+  timeout: days(14),
+  label: "roadmap-vote",
+});
+
+// The vote is a typed event on the contact — segment on it later,
+// and close the loop the day the picked feature ships.
+if (!reply.timedOut && reply.properties?.pick === "sso") {
+  await sendEmail({ to: user.email, template: "sso-waitlist-confirm" });
+}`,
+  },
 } as const;
 
 async function PsEmailAnswers() {
-  const [emailNode, journeyNode] = await Promise.all([
-    CodeHighlight({ code: EMAIL_ANSWER_SAMPLES.email, lang: "tsx" }),
-    CodeHighlight({ code: EMAIL_ANSWER_SAMPLES.journey, lang: "ts" }),
-  ]);
+  const scenarioCode = Object.fromEntries(
+    await Promise.all(
+      Object.entries(EMAIL_ANSWER_SNIPPETS).map(async ([key, s]) => {
+        const [email, journey] = await Promise.all([
+          CodeHighlight({ code: s.email, lang: "tsx" }),
+          CodeHighlight({ code: s.journey, lang: "ts" }),
+        ]);
+        return [key, { email, journey }] as const;
+      }),
+    ),
+  ) as Record<
+    keyof typeof EMAIL_ANSWER_SNIPPETS,
+    { email: ReactNode; journey: ReactNode }
+  >;
 
   return (
     <section className="relative border-[#f6483826] border-t overflow-hidden">
@@ -1647,10 +1845,7 @@ async function PsEmailAnswers() {
         </Reveal>
 
         <Reveal delay={0.1} className="mt-12 block">
-          <EmailAnswersCard
-            code={{ email: emailNode, journey: journeyNode }}
-            raw={EMAIL_ANSWER_SAMPLES}
-          />
+          <EmailAnswersCard code={scenarioCode} raw={EMAIL_ANSWER_SNIPPETS} />
         </Reveal>
       </Container>
     </section>
