@@ -2583,10 +2583,10 @@ const FEATURE_INDEX: Array<{ label: string; href: string }> = [
   { label: "Video events", href: "#video" },
   { label: "Feature flags", href: "#flags" },
   { label: "In-email answers", href: "#email-answers" },
+  { label: "Links & QR", href: "#links" },
+  { label: "Discord", href: "#discord" },
   { label: "Impact experiments", href: "#experiments" },
   { label: "Digest & timing", href: "#timing" },
-  { label: "Discord", href: "#discord" },
-  { label: "Links & QR", href: "#links" },
   { label: "Studio, live", href: "#live-demo" },
   { label: "Durable execution", href: "#hatchet" },
 ];
@@ -4324,14 +4324,14 @@ export default async function HomePage({
       <PsUseCases />
       <PsFeatureIndex engineVersion={engineVersion} />
       <PsBuildingBlocks />
-      {/* Feature deep-dive stack — video through links & QR, back to back. */}
+      {/* Feature deep-dive stack — video through timing, back to back. */}
       <PsVideo />
       <PsFlags />
       <PsEmailAnswers />
+      <PsLinks />
+      <PsDiscord />
       <PsImpact />
       <PsTiming />
-      <PsDiscord />
-      <PsLinks />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
