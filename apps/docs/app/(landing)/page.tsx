@@ -841,7 +841,10 @@ const VIDEO_PILLARS = [
 
 function PsVideo() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="video"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <Container className="relative pt-16 pb-28">
         <Reveal>
           <Eyebrow>Hogsend Video</Eyebrow>
@@ -1468,7 +1471,10 @@ async function PsFlags() {
   ]);
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="flags"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1819,7 +1825,10 @@ async function PsEmailAnswers() {
   >;
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="email-answers"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <PlusGrid className="top-20 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1871,7 +1880,10 @@ async function PsLinks() {
   ]);
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="links"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <DotPatch className="top-24 left-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal className="flex flex-col items-center text-center">
@@ -1968,7 +1980,10 @@ const IMPACT_FEATURES = [
 
 function PsImpact() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="experiments"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2110,7 +2125,10 @@ async function PsTiming() {
   const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="timing"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <PlusGrid className="top-24 right-0 hidden h-36 w-48 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2160,7 +2178,10 @@ async function PsTiming() {
 
 function PsDiscord() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="discord"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2549,6 +2570,65 @@ function _PsHowItWorks() {
             ))}
           </div>
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------- feature index -- */
+
+/** Every entry hot-links to a section further down this page. */
+const FEATURE_INDEX: Array<{ label: string; href: string }> = [
+  { label: "Building blocks", href: "#building-blocks" },
+  { label: "Ten starter journeys", href: "#use-cases" },
+  { label: "Video events", href: "#video" },
+  { label: "Feature flags", href: "#flags" },
+  { label: "In-email answers", href: "#email-answers" },
+  { label: "Impact experiments", href: "#experiments" },
+  { label: "Digest & timing", href: "#timing" },
+  { label: "Discord", href: "#discord" },
+  { label: "Links & QR", href: "#links" },
+  { label: "Studio, live", href: "#live-demo" },
+  { label: "Durable execution", href: "#hatchet" },
+];
+
+function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <Container className="pt-20 pb-16 md:pt-24">
+        <Reveal>
+          <Eyebrow>Shipped, not roadmap</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Everything below is in{" "}
+              {engineVersion ? `v${engineVersion}` : "the current release"}, on
+              npm today.
+            </span>{" "}
+            <span className="text-white/40">Jump straight to a feature.</span>
+          </h2>
+          <span
+            aria-hidden="true"
+            className="mt-8 inline-block animate-bounce font-mono text-[#f64838] text-2xl"
+          >
+            ↓
+          </span>
+          <div className="mt-6 flex max-w-[900px] flex-wrap gap-2">
+            {FEATURE_INDEX.map((f) => (
+              <a
+                key={f.href}
+                href={f.href}
+                className="rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
+              >
+                {f.label}
+              </a>
+            ))}
+          </div>
+        </Reveal>
       </Container>
     </section>
   );
@@ -3037,7 +3117,10 @@ async function PsBuildingBlocks() {
   ];
 
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section
+      id="building-blocks"
+      className="relative border-[#f6483826] border-t"
+    >
       <Container className="pt-16 pb-24">
         <Reveal>
           <Eyebrow>Building blocks</Eyebrow>
@@ -3449,7 +3532,7 @@ function HatchetRunTimeline() {
 
 function PsHatchet() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section id="hatchet" className="relative border-[#f6483826] border-t">
       <Container className="pt-16 pb-24">
         <Reveal>
           <div className="flex items-center justify-between gap-6">
@@ -4235,17 +4318,18 @@ export default async function HomePage({
       <PsProblem />
       <PsProofStrip />
       <PsManifesto />
-      <PsBuildingBlocks />
-      {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsCode />
-      <PsTiming />
+      {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
+      <PsFeatureIndex engineVersion={engineVersion} />
+      <PsBuildingBlocks />
       <PsUseCases />
       {/* Feature deep-dive stack — video through links & QR, back to back. */}
       <PsVideo />
       <PsFlags />
       <PsEmailAnswers />
       <PsImpact />
+      <PsTiming />
       <PsDiscord />
       <PsLinks />
       <PsProductDemo />
