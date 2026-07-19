@@ -2,6 +2,7 @@ import { Mail, MessageSquare, Zap } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import QRCode from "qrcode";
 import type { JSX, ReactNode } from "react";
 import {
   fieldInitialHour,
@@ -46,6 +47,7 @@ import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
+import { QrLinksCard } from "./_components/qr-links-card";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -1609,6 +1611,74 @@ async function PsEmailAnswers() {
             raw={EMAIL_ANSWER_SAMPLES}
           />
         </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------- tracked links + QR -- */
+
+/** Real QR codes, generated exactly like the engine's
+ * `GET /v1/admin/links/:id/qr` (same `qrcode` library, level M), encoding the
+ * durable `/v1/t/c/<uid>` URL — never the slug. The retarget row deliberately
+ * reuses the print QR: the whole point is the printed code never changes. */
+async function PsLinks() {
+  const toSvg = (url: string) =>
+    QRCode.toString(url, {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 0,
+    });
+  const [printQr, personalQr] = await Promise.all([
+    toSvg("https://api.acme.dev/v1/t/c/7f3ad2c8"),
+    toSvg("https://api.acme.dev/v1/t/c/b91e64a0"),
+  ]);
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 left-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal className="flex flex-col items-center text-center">
+          <Eyebrow>Tracked links + QR</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">Print runs that report back.</span>{" "}
+            <span className="text-white/40">
+              Mint a link, get a QR code, put it on anything. The scan is an
+              event.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Every managed link gets a vanity slug, first-party click tracking,
+            and a print-ready SVG or PNG QR code from the API. Scans count
+            separately from clicks, a personal link identifies the scanner, and
+            because the QR encodes a durable engine URL you can re-point a
+            printed code any time.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <QrLinksCard
+            qr={{ print: printQr, personal: personalQr, retarget: printQr }}
+          />
+        </Reveal>
+
+        <div className="mx-auto mt-10 flex max-w-[720px] flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[520px] text-left text-sm text-white/55 tracking-[-0.02em]">
+            Direct mail, conference badges, packaging — anything you can print
+            becomes a journey trigger.
+          </p>
+          <Link
+            href="/playbook/direct-mail-qr-codes"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the direct-mail play →
+          </Link>
+        </div>
       </Container>
     </section>
   );
@@ -3582,6 +3652,7 @@ export default async function HomePage({
       <PsImpact />
       <PsAgents />
       <PsUseCases />
+      <PsLinks />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />

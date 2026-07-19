@@ -269,7 +269,6 @@ export function ImpactReadout() {
       {/* Version rows — the toggle-list idiom; selecting swaps the readout. */}
       <fieldset
         className={PRODUCT_ROW_LIST_CLASS}
-        role="radiogroup"
         aria-label="Journey versions"
       >
         {VERSION_ORDER.map((key) => {
@@ -279,8 +278,7 @@ export function ImpactReadout() {
             <button
               key={key}
               type="button"
-              role="radio"
-              aria-checked={isActive}
+              aria-pressed={isActive}
               onClick={() => setSelected(key)}
               className={cn(
                 "text-left outline-none transition-colors",
