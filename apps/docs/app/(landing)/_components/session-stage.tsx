@@ -112,8 +112,14 @@ function usePinnedFeed(rootRef: React.RefObject<HTMLDivElement | null>) {
         viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <=
         NEAR_TAIL;
     };
+    // the feed mutates on every typed character; coalesce to one write a frame
+    let frame = 0;
     const pin = () => {
-      if (pinned) viewport.scrollTop = viewport.scrollHeight;
+      if (!pinned || frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (pinned) viewport.scrollTop = viewport.scrollHeight;
+      });
     };
 
     const followTail = viewport.scrollTo.bind(viewport);
@@ -133,6 +139,7 @@ function usePinnedFeed(rootRef: React.RefObject<HTMLDivElement | null>) {
     pin();
 
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       viewport.scrollTo = followTail;
       viewport.removeEventListener("scroll", trackIntent);
       content.disconnect();
@@ -147,10 +154,15 @@ export function SessionStage({
   engineVersion,
   highlighted,
   className,
+  portalTarget,
 }: {
   engineVersion?: string;
   highlighted: Record<string, ReactNode>;
   className?: string;
+  /** The hero section. Windows are portalled here — outside this column's
+   *  stacking context so they clear the plugin strip, but still inside the
+   *  hero so they scroll away with it instead of trailing the reader. */
+  portalTarget: React.RefObject<HTMLElement | null>;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const cliRef = useRef<HTMLDivElement>(null);
@@ -179,20 +191,29 @@ export function SessionStage({
 
   /** Park a window just off the terminal's right edge, so the two sit side by
    *  side with only a sliver of overlap, clamped into the viewport. */
-  const restingPlace = useCallback((index = 0) => {
-    const stage = stageRef.current?.getBoundingClientRect();
-    // Cascade DOWN and LEFT, not down-and-right: the first window already sits
-    // against the right edge, so a rightward offset gets clamped away and the
-    // stack lands on top of itself.
-    const preferred = (stage ? stage.right : 0) - 36 - index * 44;
-    return {
-      x: Math.min(
+  const restingPlace = useCallback(
+    (index = 0) => {
+      const stage = stageRef.current?.getBoundingClientRect();
+      const hero = portalTarget.current?.getBoundingClientRect();
+      if (!stage || !hero) return { x: 16, y: 16 };
+
+      // Cascade DOWN and LEFT: the first window sits against the terminal's
+      // right edge, so a rightward offset would clamp away and the stack would
+      // land on top of itself.
+      const preferred = stage.right - 36 - index * 44;
+      const clamped = Math.min(
         Math.max(16, preferred),
         Math.max(16, window.innerWidth - WINDOW_WIDTH - 16),
-      ),
-      y: Math.max(16, (stage ? stage.top : 120) + 48 + index * 62),
-    };
-  }, []);
+      );
+
+      // coordinates are relative to the hero, which is the offset parent
+      return {
+        x: clamped - hero.left,
+        y: stage.top - hero.top + 48 + index * 62,
+      };
+    },
+    [portalTarget],
+  );
 
   /** Explicit open — clicking a write line, or tearing the tab off. */
   const openFile = useCallback(
@@ -290,15 +311,31 @@ export function SessionStage({
       });
     };
 
+    // Typing mutates the feed ~100x a second, but rows only appear every few
+    // hundred ms. Scan on a row-count change, and at most once a frame.
+    let rows = -1;
+    let frame = 0;
     const tick = () => {
-      readWrites();
-      readSurfaces();
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const count = viewport.querySelectorAll("p").length;
+        if (count === rows) return;
+        rows = count;
+        readWrites();
+        readSurfaces();
+      });
     };
 
     tick();
     const observer = new MutationObserver(tick);
+    // childList only: character-by-character typing is characterData, and a
+    // new output row is always an element insertion
     observer.observe(viewport, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [restingPlace, windowing]);
 
   /* ---- clicking a written file in the feed opens it ---- */
@@ -365,7 +402,14 @@ export function SessionStage({
               active={tab === "file"}
               label={scenario.file}
               onSelect={() => setTab("file")}
-              onTear={(at) => openFile(scenario.file, at)}
+              onTear={(at) => {
+                // the tab reports viewport coords; windows live in the hero
+                const hero = portalTarget.current?.getBoundingClientRect();
+                openFile(scenario.file, {
+                  x: Math.max(8, at.x - (hero?.left ?? 0)),
+                  y: Math.max(8, at.y - (hero?.top ?? 0)),
+                });
+              }}
             />
 
             <span className="ml-auto flex shrink-0 items-center gap-3 px-4 font-mono text-[11px]">
@@ -431,9 +475,11 @@ export function SessionStage({
         </div>
       </WindowFrame>
 
-      {/* Portalled to <body>: the hero column is its own stacking context, so
-          a window rendered inside it can never rise above the plugin strip. */}
-      {mounted && windowing
+      {/* Portalled to the hero, not this column: the column is its own
+          stacking context so a window inside it can never clear the plugin
+          strip — but the hero is still the scroll parent, so windows travel
+          with it instead of hovering over the whole page. */}
+      {mounted && windowing && portalTarget.current
         ? createPortal(
             <AnimatePresence>
               {popped.map((w) => {
@@ -497,7 +543,7 @@ export function SessionStage({
                 );
               })}
             </AnimatePresence>,
-            document.body,
+            portalTarget.current ?? document.body,
           )
         : null}
     </div>
@@ -592,10 +638,7 @@ function TearableTab({
           onSelect();
           return;
         }
-        onTear({
-          x: Math.max(8, event.clientX - 120),
-          y: Math.max(8, event.clientY - 16),
-        });
+        onTear({ x: event.clientX - 120, y: event.clientY - 16 });
       }}
       className={cn(
         "flex min-w-0 cursor-grab items-center gap-2 border-r border-white/[0.08] px-4 py-2.5 font-mono text-[11px] tracking-wide transition-colors active:cursor-grabbing",

@@ -1,6 +1,7 @@
 "use client";
 
 import { Braces, LineChart, Radio, Workflow } from "lucide-react";
+import { useRef } from "react";
 import { FieldStage } from "@/app/spike-daylight/dayfield-shared";
 import { getFieldConfig } from "@/app/spike-daylight/field-config";
 import { CopyButton } from "@/components/ds/copy-button";
@@ -61,9 +62,15 @@ export function WiredHeroSection({
   configId?: string;
 }) {
   const config = getFieldConfig(configId);
+  // windows are portalled here: outside the copy/terminal grid's stacking
+  // context, but still inside the hero so they scroll away with it
+  const heroRef = useRef<HTMLElement>(null);
 
   return (
-    <section className="relative min-h-[100svh] overflow-hidden text-white">
+    <section
+      ref={heroRef}
+      className="relative min-h-[100svh] overflow-hidden text-white"
+    >
       <FieldStage config={config} variant="stage">
         <div className="relative z-20 mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-6 pt-28 pb-10 md:px-10 md:pt-32">
           {/* ---- the stage: copy one third, session panel two thirds ---- */}
@@ -128,6 +135,7 @@ export function WiredHeroSection({
               engineVersion={engineVersion}
               highlighted={highlighted}
               className="relative z-30 min-w-0 xl:max-w-[560px]"
+              portalTarget={heroRef}
             />
           </div>
 

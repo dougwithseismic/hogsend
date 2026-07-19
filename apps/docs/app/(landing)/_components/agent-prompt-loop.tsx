@@ -73,8 +73,25 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [inView, setInView] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLFieldSetElement>(null);
   const isHolding = isHovered || isFocusWithin;
+
+  // Stop the replay clock while the session is off-screen. It is a decorative
+  // loop that re-renders every 10ms while typing; running it under the fold
+  // burns main-thread time nobody can see.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { rootMargin: "200px" },
+    );
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -96,7 +113,7 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
 
   // The replay clock. Hovering or focusing freezes the feed in place.
   useEffect(() => {
-    if (reduceMotion || isHolding) return;
+    if (reduceMotion || isHolding || !inView) return;
 
     const delay =
       frame.phase === "typing"
@@ -116,7 +133,7 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
     }, delay);
 
     return () => window.clearTimeout(timeout);
-  }, [frame, isHolding, reduceMotion]);
+  }, [frame, isHolding, inView, reduceMotion]);
 
   // Follow the feed: every new character/line smooth-scrolls to the bottom.
   useEffect(() => {
@@ -151,6 +168,7 @@ export function AgentPromptLoop({ engineVersion }: { engineVersion?: string }) {
 
   return (
     <fieldset
+      ref={shellRef}
       aria-label="Lifecycle prompt examples"
       className="relative min-w-0 overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg transition-[border-color,box-shadow] duration-300 hover:border-[#23c489]/35 hover:shadow-[0_0_32px_rgba(35,196,137,0.12)]"
       data-prompt-id={scenario.id}
