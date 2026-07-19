@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { type JSX, type ReactNode, useState } from "react";
+import { Fragment, type JSX, type ReactNode, useState } from "react";
 import { cn } from "@/lib/cn";
 
 /**
@@ -14,6 +14,8 @@ import { cn } from "@/lib/cn";
 export type BlockTab = {
   id: string;
   label: string;
+  /** Rail cluster this tab belongs to; a header renders at each new group. */
+  group?: string;
   title: string;
   description: string;
   tags: string[];
@@ -32,28 +34,42 @@ export function PsBlocksTabs({ tabs }: { tabs: BlockTab[] }): JSX.Element {
         role="tablist"
         aria-orientation="vertical"
         aria-label="Building blocks"
-        className="flex flex-row flex-wrap gap-1.5 lg:flex-col"
+        className="flex flex-row flex-wrap items-center gap-1.5 lg:flex-col lg:flex-nowrap lg:items-stretch"
       >
-        {tabs.map((tab) => {
+        {tabs.map((tab, i) => {
           const isActive = tab.id === activeId;
+          const groupStart =
+            tab.group !== undefined && tab.group !== tabs[i - 1]?.group;
           return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              id={`ps-block-tab-${tab.id}`}
-              aria-selected={isActive}
-              aria-controls={`ps-block-panel-${tab.id}`}
-              onClick={() => setActiveId(tab.id)}
-              className={cn(
-                "select-none rounded-[6px] border px-3.5 py-2 text-left font-medium text-sm tracking-[-0.025em] outline-none transition-colors duration-200",
-                isActive
-                  ? "border-[#f64838]/35 bg-[#f64838]/[0.08] text-white"
-                  : "border-transparent text-white/55 hover:bg-white/[0.05] hover:text-white",
+            <Fragment key={tab.id}>
+              {groupStart && (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "select-none px-1 font-mono text-[10px] text-white/30 uppercase tracking-[0.08em] lg:px-3.5",
+                    i > 0 ? "basis-full lg:mt-4" : "basis-full",
+                  )}
+                >
+                  {tab.group}
+                </span>
               )}
-            >
-              {tab.label}
-            </button>
+              <button
+                type="button"
+                role="tab"
+                id={`ps-block-tab-${tab.id}`}
+                aria-selected={isActive}
+                aria-controls={`ps-block-panel-${tab.id}`}
+                onClick={() => setActiveId(tab.id)}
+                className={cn(
+                  "select-none rounded-[6px] border px-3.5 py-2 text-left font-medium text-sm tracking-[-0.025em] outline-none transition-colors duration-200",
+                  isActive
+                    ? "border-[#f64838]/35 bg-[#f64838]/[0.08] text-white"
+                    : "border-transparent text-white/55 hover:bg-white/[0.05] hover:text-white",
+                )}
+              >
+                {tab.label}
+              </button>
+            </Fragment>
           );
         })}
       </div>

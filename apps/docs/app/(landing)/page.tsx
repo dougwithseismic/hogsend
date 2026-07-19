@@ -2465,6 +2465,134 @@ $ hogsend connect posthog
 → person reads wired — timezones, property conditions
 → PostHog → Hogsend webhook provisioned (idempotent)`;
 
+const BLOCK_TIMING = `run: async (user, ctx) => {
+  // A noisy week of events collapses into THIS one run —
+  // later events are absorbed and handed back at flush.
+  const digest = await ctx.digest({ window: days(7) });
+  if (!digest.count) return;
+
+  // Tuesday 09:00 in the READER'S timezone — resolved per
+  // user, then slept to durably (survives deploys).
+  await ctx.sleepUntil(ctx.when.next("tuesday").at("09:00"));
+
+  await sendEmail({
+    to: user.email,
+    template: "weekly-digest",
+    props: { events: digest.events },
+  });
+}`;
+
+const BLOCK_VARIANT = `run: async (user, ctx) => {
+  // Deterministic per user — recorded on first pass,
+  // replayed verbatim across redeploys. No RNG, no drift.
+  const arm = await ctx.variant("welcome-subject", [
+    "setup",
+    "outcome",
+  ]);
+
+  await sendEmail({
+    to: user.email,
+    template: arm === "setup" ? "welcome-setup" : "welcome-outcome",
+  });
+}`;
+
+const BLOCK_FLAGS = `// Flags live in your repo — typed, reviewed, deployed.
+export const newCheckout = defineFlag({
+  key: "new-checkout-flow",
+  name: "New checkout flow",
+  type: "boolean",
+});
+
+// In React — the same shape as PostHog's hook:
+const enabled = useFlag("new-checkout-flow");`;
+
+const BLOCK_SMS = `run: async (user) => {
+  const phone = String(user.properties.phone ?? "");
+  // SMS is additive — no number, no send.
+  if (!isE164(phone)) return;
+
+  // Marketing SMS fails closed without explicit consent;
+  // the STOP list is checked on every send.
+  await sendSms({
+    to: phone,
+    userId: user.id,
+    template: "cart-reminder",
+  });
+}`;
+
+const BLOCK_CONNECTORS = `// DM them where they actually are — gated on the
+// member's channel preference. A closed DM is a soft
+// failure (delivered: false), never a crash.
+await sendConnectorAction({
+  connectorId: "discord",
+  action: "dmMember",
+  args: {
+    member: user.email,
+    content: "Your seat is ready — see you in #welcome.",
+  },
+});`;
+
+const BLOCK_GROUPS = `// Server — write the account and its properties.
+await hs.groups.identify({
+  groupType: "company",
+  groupKey: "acme.com",
+  properties: { plan: "pro", seats: 42 },
+});
+
+// Browser — associate this visitor's events with it.
+hogsend.group("company", "acme.com");`;
+
+const BLOCK_SOURCES = `export const billing = defineWebhookSource({
+  meta: { id: "billing", name: "Billing" },
+  auth: {
+    type: "match",
+    header: "x-webhook-secret",
+    envKey: "BILLING_WEBHOOK_SECRET",
+  },
+  schema: z.object({
+    type: z.string(),
+    customer: z.object({ id: z.string(), email: z.string() }),
+  }),
+  async transform(payload) {
+    return {
+      userId: payload.customer.id,
+      email: payload.customer.email,
+      event: payload.type,
+    };
+  },
+});`;
+
+const BLOCK_LINKS = `# Mint a tracked link — vanity slug, QR from the same API
+$ curl -X POST $API/v1/admin/links \\
+    -d '{"url":"https://example.com/launch","slug":"spring-mailer"}'
+→ vanity /l/spring-mailer · QR via /v1/admin/links/:id/qr
+
+# The printed QR encodes the durable id, never the URL —
+# re-point 5,000 postcards with one call
+$ curl -X PATCH $API/v1/admin/links/$ID \\
+    -d '{"originalUrl":"https://example.com/spring-offer-v2"}'`;
+
+const BLOCK_CAMPAIGNS = `const { campaignId, status } = await hs.campaigns.send({
+  name: "March launch",
+  list: "product-updates",        // or a live bucket
+  template: "launch-announcement", // typed against your registry
+  props: { feature: "Flags" },
+  sendAt: "2026-08-01T09:00:00Z",  // omit to send now
+});`;
+
+const BLOCK_MCP = `{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.your-instance.com",
+        "HOGSEND_ADMIN_KEY": "hsk_…"
+      }
+    }
+  }
+}`;
+
 /** The homepage BuildingBlocks showcase, re-set light: a vertical tab rail
  * over real-code panels (async Shiki nodes composed into the client tabs). */
 async function PsBuildingBlocks() {
@@ -2477,6 +2605,16 @@ async function PsBuildingBlocks() {
     bucketMedia,
     destinationsMedia,
     posthogMedia,
+    timingMedia,
+    variantMedia,
+    flagsMedia,
+    smsMedia,
+    connectorsMedia,
+    groupsMedia,
+    sourcesMedia,
+    linksMedia,
+    campaignsMedia,
+    mcpMedia,
   ] = await Promise.all([
     CodeHighlight({ code: BLOCK_JOURNEY, lang: "ts" }),
     CodeHighlight({ code: BLOCK_WAIT, lang: "ts" }),
@@ -2486,12 +2624,23 @@ async function PsBuildingBlocks() {
     CodeHighlight({ code: BLOCK_BUCKET, lang: "ts" }),
     CodeHighlight({ code: BLOCK_DESTINATIONS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_POSTHOG, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_TIMING, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_VARIANT, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_FLAGS, lang: "tsx" }),
+    CodeHighlight({ code: BLOCK_SMS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_CONNECTORS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_GROUPS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_SOURCES, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_LINKS, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_CAMPAIGNS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_MCP, lang: "json" }),
   ]);
 
   const tabs = [
     {
       id: "journeys",
       label: "Journeys",
+      group: "Author",
       title: "Emails that play out over time",
       description:
         "Trigger on an event, send, sleep, then branch on what happened while you waited. The control flow is plain TypeScript.",
@@ -2502,6 +2651,7 @@ async function PsBuildingBlocks() {
     {
       id: "wait",
       label: "Wait for event",
+      group: "Author",
       title: "Wait for what they do next",
       description:
         "Pause the journey until the user acts or a timeout wins. The wait is durable, so it survives deploys, and the branch afterwards is an if statement.",
@@ -2510,8 +2660,42 @@ async function PsBuildingBlocks() {
       media: waitMedia,
     },
     {
+      id: "timing",
+      label: "Digest & timing",
+      group: "Author",
+      title: "Collapse the noise, land the moment",
+      description:
+        "ctx.digest absorbs a week of events into one run; ctx.when schedules the send for Tuesday 09:00 in each reader's own timezone — resolved per user, slept to durably.",
+      tags: ["One send, not five", "Their timezone", "Durable sleep"],
+      filename: "src/journeys/weekly-digest.ts",
+      media: timingMedia,
+    },
+    {
+      id: "experiments",
+      label: "Experiments",
+      group: "Author",
+      title: "A/B arms inside the journey",
+      description:
+        "ctx.variant deals each user a deterministic arm — recorded on first pass and replayed verbatim across redeploys, so a crash never flips someone's experience mid-journey.",
+      tags: ["Deterministic split", "Recorded per user", "Replay-safe"],
+      filename: "src/journeys/welcome.ts",
+      media: variantMedia,
+    },
+    {
+      id: "flags",
+      label: "Feature flags",
+      group: "Author",
+      title: "Flags defined next to the journeys",
+      description:
+        "defineFlag puts the flag in your repo; useFlag reads it in React with the same shape as PostHog's hook. One flag can gate an email, a page, or a whole journey branch.",
+      tags: ["Code-first", "Typed keys", "useFlag in React"],
+      filename: "src/flags/index.ts",
+      media: flagsMedia,
+    },
+    {
       id: "answers",
       label: "In-email answers",
+      group: "Channels",
       title: "Ask a question inside the email",
       description:
         "A yes/no, an NPS score, a one-tap choice — each answer is a link whose click fires a real event with its payload. The journey branches on the answer; PostHog receives it under your event name.",
@@ -2520,18 +2704,9 @@ async function PsBuildingBlocks() {
       media: answersMedia,
     },
     {
-      id: "tracking",
-      label: "Tracking",
-      title: "Opens and clicks, first-party",
-      description:
-        "Every send is tracked first-party for opens and link clicks; engagement flows back as events you can branch on mid-journey or fan out to your destinations.",
-      tags: ["Open tracking", "Click tracking", "Any channel"],
-      filename: "src/journeys/welcome.ts",
-      media: trackingMedia,
-    },
-    {
       id: "provider",
       label: "Your provider",
+      group: "Channels",
       title: "Send through your own account",
       description:
         "Email goes out through your own Resend or Postmark — your domain, your reputation, your costs. Swapping the provider is one env var; the journey code never changes.",
@@ -2540,8 +2715,42 @@ async function PsBuildingBlocks() {
       media: providerMedia,
     },
     {
+      id: "sms",
+      label: "SMS",
+      group: "Channels",
+      title: "Texts with the same guardrails",
+      description:
+        "sendSms runs the same pipeline as email — consent-gated (marketing fails closed without an explicit grant), STOP list checked on every send, links shortened and tracked.",
+      tags: ["Consent-gated", "STOP handled", "Tracked short links"],
+      filename: "src/journeys/cart-reminder.ts",
+      media: smsMedia,
+    },
+    {
+      id: "connectors",
+      label: "Discord & Telegram",
+      group: "Channels",
+      title: "Reach them where they hang out",
+      description:
+        "Journeys can DM a linked Discord or Telegram member through one call. Sends respect the member's channel preference, and a closed DM is a soft failure, not a crash.",
+      tags: ["dmMember", "Preference-gated", "Soft failures"],
+      filename: "src/journeys/community.ts",
+      media: connectorsMedia,
+    },
+    {
+      id: "broadcasts",
+      label: "Broadcasts",
+      group: "Channels",
+      title: "One-off sends to a list or bucket",
+      description:
+        "campaigns.send takes a list or a live bucket plus a template from your registry — typed props included — and runs the send in the worker. Schedule it or send now.",
+      tags: ["List or bucket", "Typed template", "Schedule or now"],
+      filename: "scripts/launch.ts",
+      media: campaignsMedia,
+    },
+    {
       id: "buckets",
       label: "Buckets",
+      group: "Audience",
       title: "Live groups of people",
       description:
         "Define who belongs with declarative criteria. Membership updates as events arrive, and joining a bucket can kick off a journey on its own.",
@@ -2550,8 +2759,53 @@ async function PsBuildingBlocks() {
       media: bucketMedia,
     },
     {
+      id: "groups",
+      label: "Groups",
+      group: "Audience",
+      title: "Accounts, teams, companies",
+      description:
+        "Track the company behind the person. The server writes group properties; the browser associates a visitor's events with their account. When PostHog is connected, it all forwards as group analytics.",
+      tags: ["Account-level", "B2B events", "PostHog $groups"],
+      filename: "src/lib/accounts.ts",
+      media: groupsMedia,
+    },
+    {
+      id: "sources",
+      label: "Webhook sources",
+      group: "Audience",
+      title: "Any webhook becomes a trigger",
+      description:
+        "defineWebhookSource verifies, validates with Zod, and transforms any inbound webhook into an event — Stripe, Segment, Intercom, or your own billing system. The result can enroll journeys directly.",
+      tags: ["Verified inbound", "Zod-validated", "Enrolls journeys"],
+      filename: "src/webhook-sources/billing.ts",
+      media: sourcesMedia,
+    },
+    {
+      id: "tracking",
+      label: "Tracking",
+      group: "Observe & fan out",
+      title: "Opens and clicks, first-party",
+      description:
+        "Every send is tracked first-party for opens and link clicks; engagement flows back as events you can branch on mid-journey or fan out to your destinations.",
+      tags: ["Open tracking", "Click tracking", "Any channel"],
+      filename: "src/journeys/welcome.ts",
+      media: trackingMedia,
+    },
+    {
+      id: "links",
+      label: "Links & QR",
+      group: "Observe & fan out",
+      title: "Tracked links that survive the print run",
+      description:
+        "Mint a link, get a vanity slug and a QR from the same API. The QR encodes the durable id — never the destination — so a printed code can be re-pointed after the mailers ship.",
+      tags: ["Vanity /l/slug", "SVG & PNG QR", "Re-point later"],
+      filename: "terminal",
+      media: linksMedia,
+    },
+    {
       id: "destinations",
       label: "Destinations",
+      group: "Observe & fan out",
       title: "Fan events out, durably",
       description:
         "Send email and lifecycle events out to PostHog, Segment, Slack, or any signed webhook. Each delivery is retried, signed, and dead-lettered for you.",
@@ -2566,12 +2820,24 @@ async function PsBuildingBlocks() {
     {
       id: "posthog",
       label: "PostHog",
+      group: "Observe & fan out",
       title: "Connect PostHog in one command",
       description:
         "The scaffold asks if you're using PostHog and writes the keys. Once deployed, hogsend connect posthog opens one browser consent and wires the rest.",
       tags: ["One command, one click", "Person reads wired", "Round-trip safe"],
       filename: "terminal",
       media: posthogMedia,
+    },
+    {
+      id: "mcp",
+      label: "Agents & MCP",
+      group: "Observe & fan out",
+      title: "Your agent operates the engine",
+      description:
+        "@hogsend/mcp runs over stdio or hosted at /v1/mcp. An admin-scoped agent can draft journey blueprints, pull reports, and send operator-gated test emails.",
+      tags: ["stdio & hosted", "Blueprints", "Reports"],
+      filename: "claude_desktop_config.json",
+      media: mcpMedia,
     },
   ];
 
@@ -3775,6 +4041,7 @@ export default async function HomePage({
       <PsManifesto />
       <PsVideo />
       <PsProblem />
+      <PsBuildingBlocks />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsFlags />
       <PsCode />
@@ -3789,7 +4056,6 @@ export default async function HomePage({
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
       <PsCorePlatform />
-      <PsBuildingBlocks />
       <PsStudioDemo />
       <PsHatchet />
       <PsEconomics />
