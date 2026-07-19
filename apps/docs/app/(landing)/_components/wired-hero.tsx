@@ -95,7 +95,7 @@ export function WiredHeroSection({
                 )}
                 style={{ textShadow: "0 2px 44px rgba(5,1,1,0.55)" }}
               >
-                Build lifecycle journeys that grow your product.
+                Your customer lifecycle belongs in your repo.
               </h1>
 
               <p className="mt-6 max-w-[520px] text-[16px] leading-relaxed text-white/80 md:text-lg">
