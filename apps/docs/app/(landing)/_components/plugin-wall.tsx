@@ -2,7 +2,7 @@ import { LogoMarquee } from "@/components/ds/marquee";
 import { cn } from "@/lib/cn";
 
 /* ==========================================================================
- *  SPIKE — the event-plugin wall, lifted onto the hero.
+ *  The event-plugin strip on the hero.
  *
  *  The list and the flat-silhouette mark are copied from `PsSources` in
  *  app/(landing)/page.tsx, where both are module-private. If this graduates

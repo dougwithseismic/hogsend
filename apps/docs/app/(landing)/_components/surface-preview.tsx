@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import type { SurfacePreview } from "./minted-files";
 
 /* ==========================================================================
- *  SPIKE — the non-email surfaces a run produces.
+ *  The non-email surfaces a run produces.
  *
  *  A journey that DMs on Discord, gates on a Slack approval, or raises an
  *  in-app warning is doing something the code window cannot show. These panes

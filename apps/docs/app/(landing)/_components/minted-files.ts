@@ -1,5 +1,5 @@
 /* ==========================================================================
- *  SPIKE — what each CLI run writes, keyed by the exact path the terminal
+ *  What each CLI run writes, keyed by the exact path the terminal
  *  prints. The run emits lines like `+ src/emails/payment-failed.tsx`; the
  *  hero mints a window for that path at the moment the line lands, so this
  *  map has to agree with `PROMPT_SCENARIOS[].output` verbatim.
