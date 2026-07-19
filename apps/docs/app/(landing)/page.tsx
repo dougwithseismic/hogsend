@@ -2561,50 +2561,6 @@ async function PsBuildingBlocks() {
   );
 }
 
-/* ---------------------------------------------------------------- setup -- */
-
-function PsSetup() {
-  return (
-    <section className="relative">
-      <Container className="relative">
-        {/* Aura backdrop: warm core, crimzon ring — contained in the frame. */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(60% 55% at 50% 42%, rgba(253,220,180,0.16) 0%, rgba(246,110,88,0.14) 28%, rgba(246,72,56,0.10) 62%, rgba(246,72,56,0.03) 85%, transparent 100%)",
-          }}
-        />
-        <div className="relative flex flex-col items-center pt-28 pb-32 text-center">
-          <Eyebrow>Start building</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[880px] font-normal text-white text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
-              DISPLAY,
-            )}
-          >
-            Your first journey is one command away.
-          </h2>
-
-          <div className="mt-12 flex w-full max-w-[680px] items-center gap-2 rounded-lg border border-white/10 bg-[#101014] p-2 pl-3 shadow-xl sm:gap-4 sm:pl-5">
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-left font-mono text-[11px] text-white/90 sm:text-[13.5px]">
-              <span className="text-white/40">$ </span>
-              {INSTALL_COMMAND}
-            </code>
-            <CopyButton value={INSTALL_COMMAND} className="shrink-0" />
-          </div>
-
-          <p className="mt-5 max-w-[560px] text-white/45 text-sm leading-[22px] tracking-[-0.02em]">
-            Free to self-host · No per-contact billing · Journeys ready to
-            customize
-          </p>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
 /* -------------------------------------------------------- core platform -- */
 
 function PsCorePlatform() {
@@ -3793,7 +3749,6 @@ export default async function HomePage({
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
-      <PsSetup />
       <PsCorePlatform />
       <PsBuildingBlocks />
       <PsStudioDemo />
