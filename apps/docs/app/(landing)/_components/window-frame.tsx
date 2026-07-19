@@ -5,7 +5,7 @@ import { type ReactNode, useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 /* ==========================================================================
- *  SPIKE — a draggable, resizable glass window.
+ *  A draggable, resizable glass window.
  *
  *  Drag comes from motion (already a dependency) so the window keeps its slot
  *  in the layout and only moves by transform — nothing reflows around it.

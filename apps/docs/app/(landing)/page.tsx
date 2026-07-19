@@ -51,11 +51,13 @@ import { DiscordLinkCard } from "./_components/discord-link-card";
 import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
+import { MINTED_FILES } from "./_components/minted-files";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { TimingCard } from "./_components/timing-card";
+import { WiredHeroSection } from "./_components/wired-hero";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -4583,12 +4585,13 @@ export default async function HomePage({
   searchParams: Promise<{ hero?: string }>;
 }): Promise<JSX.Element> {
   const engineVersion = await getEngineVersion();
-  // Hero selection. The day-field vista is the default; the match-day stadium
-  // takes over automatically on the World Cup final (by New-York date, the
-  // event's timezone); `?hero=classic` restores the original thermal hero.
-  // Query overrides win, for previewing any variant on any day. Reading
-  // searchParams/date opts this page into dynamic rendering — acceptable for a
-  // hero that changes by hour and day.
+  // Hero selection. The windowed agent session is the default; the match-day
+  // stadium takes over automatically on the World Cup final (by New-York date,
+  // the event's timezone). `?hero=field` restores the plain day-field hero and
+  // `?hero=classic` the original thermal one, and `?hero=wired` forces the
+  // default back on the one day match-day pre-empts it. Query overrides win,
+  // for previewing any variant on any day. Reading searchParams/date opts this page
+  // into dynamic rendering — acceptable for a hero that changes by hour and day.
   const { hero } = await searchParams;
   const nyDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -4601,9 +4604,11 @@ export default async function HomePage({
         ? "matchday"
         : hero === "field"
           ? "field"
-          : isFinalDay
-            ? "matchday"
-            : "field";
+          : hero === "wired"
+            ? "wired"
+            : isFinalDay
+              ? "matchday"
+              : "wired";
   const fieldConfig =
     heroVariant === "matchday" ? MATCHDAY_FIELD : LANDSCAPE_FIELD;
   // Fixed-time fields (the match day) paint the right frame at SSR — no flash.
@@ -4611,6 +4616,16 @@ export default async function HomePage({
   // The clock + preview scrubber are a preview affordance: show them only when
   // a `?hero=` query is present, never for a normal visitor.
   const showFieldControls = hero !== undefined;
+  // Shiki is an async RSC and the window stage is a client component, so every
+  // file a run can write is highlighted here and handed down keyed by path.
+  const heroSources = Object.fromEntries(
+    Object.values(MINTED_FILES)
+      .filter((file) => file.kind === "code")
+      .map((file) => [
+        file.path,
+        <CodeHighlight key={file.path} code={file.source} lang="ts" />,
+      ]),
+  );
   return (
     <main className="overflow-x-clip tracking-normal">
       <script
@@ -4625,6 +4640,17 @@ export default async function HomePage({
           <AnnouncementBanner />
           <PsNav />
           <PsHero engineVersion={engineVersion} />
+        </>
+      ) : heroVariant === "wired" ? (
+        /* The live agent session: headline beside the CLI, with each file the
+           run writes minted into its own window. Same fixed glass nav over the
+           hour-lit vista as the day-field hero it replaces. */
+        <>
+          <PsNav fixed glass />
+          <WiredHeroSection
+            engineVersion={engineVersion}
+            highlighted={heroSources}
+          />
         </>
       ) : (
         /* Day-field hero: fixed glass nav over the hour-lit backdrop (vista, or

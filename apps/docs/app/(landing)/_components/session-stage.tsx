@@ -10,9 +10,9 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AgentPromptLoop } from "@/app/(landing)/_components/agent-prompt-loop";
-import { PROMPT_SCENARIOS } from "@/app/(landing)/_components/agent-prompt-loop-state";
 import { cn } from "@/lib/cn";
+import { AgentPromptLoop } from "./agent-prompt-loop";
+import { PROMPT_SCENARIOS } from "./agent-prompt-loop-state";
 import { EmailPane } from "./email-preview";
 import {
   fileFor,
@@ -24,7 +24,7 @@ import { SurfacePane } from "./surface-preview";
 import { WindowFrame } from "./window-frame";
 
 /* ==========================================================================
- *  SPIKE — the hero's window stage.
+ *  The hero's window stage.
  *
  *  The docked window holds the CLI replay. Every file the run writes gets its
  *  own floating window, minted at the moment the terminal prints the

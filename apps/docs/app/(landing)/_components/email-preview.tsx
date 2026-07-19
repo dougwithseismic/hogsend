@@ -1,7 +1,7 @@
 import type { EmailPreview } from "./minted-files";
 
 /* ==========================================================================
- *  SPIKE — an email window shows the rendered template, not its source.
+ *  An email window shows the rendered template, not its source.
  *
  *  A journey file answers "what runs"; the email answers "what lands in the
  *  inbox". Showing source for both wastes the second window. This renders a
