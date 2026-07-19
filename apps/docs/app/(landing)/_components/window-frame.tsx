@@ -5,7 +5,7 @@ import { type ReactNode, useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 /* ==========================================================================
- *  SPIKE — a draggable, resizable glass window.
+ *  A draggable, resizable glass window.
  *
  *  Drag comes from motion (already a dependency) so the window keeps its slot
  *  in the layout and only moves by transform — nothing reflows around it.
@@ -62,12 +62,17 @@ export function WindowFrame({
       const startWidth = box.width ?? frameRef.current?.offsetWidth ?? 0;
       const startHeight = box.height;
 
-      const top = frameRef.current?.getBoundingClientRect().top ?? 0;
-      const left = frameRef.current?.getBoundingClientRect().left ?? 0;
+      const rect = frameRef.current?.getBoundingClientRect();
       // clamp to what is still on screen, so you can always reach the bottom
       // edge (and the grip) after growing the window
-      const maxHeight = Math.max(minSize.height, window.innerHeight - top - 16);
-      const maxWidth = Math.max(minSize.width, window.innerWidth - left - 16);
+      const maxHeight = Math.max(
+        minSize.height,
+        window.innerHeight - (rect?.top ?? 0) - 16,
+      );
+      const maxWidth = Math.max(
+        minSize.width,
+        window.innerWidth - (rect?.left ?? 0) - 16,
+      );
 
       const onMove = (moveEvent: PointerEvent) => {
         setBox({
@@ -117,7 +122,9 @@ export function WindowFrame({
         height: box.height,
         ...(initialPosition
           ? {
-              position: "fixed",
+              // absolute, not fixed: windows belong to the hero and scroll
+              // away with it rather than following the reader down the page
+              position: "absolute",
               left: initialPosition.x,
               top: initialPosition.y,
             }
