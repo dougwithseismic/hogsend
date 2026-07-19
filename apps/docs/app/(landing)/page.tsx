@@ -42,6 +42,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { DiscordLinkCard } from "./_components/discord-link-card";
 import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
@@ -1921,6 +1922,59 @@ async function PsTiming() {
   );
 }
 
+/* -------------------------------------------------------- discord -- */
+
+function PsDiscord() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Community channel</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Your Discord is a lifecycle channel.
+            </span>{" "}
+            <span className="text-white/40">
+              One /link folds a member onto their contact — then journeys can DM
+              them.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            The bot verifies through their inbox — a one-click emailed confirm,
+            never the Discord-reported address. From then on presence, messages,
+            and reactions keep a last-seen on the contact, and a journey can
+            send a DM the same way it sends an email, gated on the
+            member&rsquo;s channel preference.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <DiscordLinkCard />
+        </Reveal>
+
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Built for community-led companies — the channel your users actually
+            read, wired into the same journeys as email and SMS.
+          </p>
+          <Link
+            href="/docs/integrations/discord"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the Discord docs →
+          </Link>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
 /* -------------------------------------------------- elephant in the room -- */
 
 const ELEPHANT_COLUMNS = [
@@ -3733,6 +3787,7 @@ export default async function HomePage({
       <PsImpact />
       <PsTiming />
       <PsAgents />
+      <PsDiscord />
       <PsUseCases />
       <PsLinks />
       <PsProductDemo />
