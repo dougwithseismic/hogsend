@@ -9,6 +9,23 @@ import { type ReactNode, useState } from "react";
 import { CopyButton } from "@/components/ds/copy-button";
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { cn } from "@/lib/cn";
+import {
+  PRODUCT_MONO_VALUE_CLASS,
+  PRODUCT_ROW_LIST_CLASS,
+  ProductCard,
+  ProductCardFooter,
+  ProductCardHeader,
+  ProductLabel,
+  ProductTag,
+  productRowClass,
+  productRowLabelClass,
+} from "./product-card";
+import {
+  TEAM_LABELS,
+  TEAM_ORDER,
+  type TeamKey,
+  useVisitorTeam,
+} from "./team-context";
 
 /**
  * The "What's your team?" switcher — the section dogfoods Hogsend's own feature
@@ -26,19 +43,7 @@ import { cn } from "@/lib/cn";
  * rendered in the page and handed in as `code` nodes.
  */
 
-type TeamKey = "founder" | "growth" | "product" | "sales" | "hr";
-
-const TEAM_ORDER: readonly TeamKey[] = [
-  "founder",
-  "growth",
-  "product",
-  "sales",
-  "hr",
-];
-
 interface Team {
-  /** Toggle label. */
-  label: string;
   /** The value the multivariate flag serves for this arm. */
   value: string;
   /** Pillar-style caption under the video: a tight title + a factual body. */
@@ -51,7 +56,6 @@ interface Team {
 // are verified to resolve a YouTube thumbnail.
 const TEAMS: Record<TeamKey, Team> = {
   founder: {
-    label: "Founder",
     value: "founder",
     title: "Lifecycle without the hire",
     body: "Onboarding, trials, and win-back ship as code your agents extend, with no lifecycle team to staff.",
@@ -61,7 +65,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   growth: {
-    label: "Growth",
     value: "growth",
     title: "Every loop in the repo",
     body: "Trigger on real events and read the same flag in the browser, on the server, and inside a journey.",
@@ -71,7 +74,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   product: {
-    label: "Product",
     value: "product",
     title: "Journeys ship with features",
     body: "Wire activation and onboarding into the product you're already building, not a separate tool.",
@@ -81,7 +83,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   sales: {
-    label: "Sales",
     value: "sales",
     title: "Follow-ups on the signal",
     body: "Fire the next touch the moment the event lands. No batch, no waiting on marketing to build the flow.",
@@ -91,7 +92,6 @@ const TEAMS: Record<TeamKey, Team> = {
     },
   },
   hr: {
-    label: "HR",
     value: "hr",
     title: "Onboarding that runs itself",
     body: "Candidate nurture and new-hire sequences as journeys, on the same triggers and code as everything else.",
@@ -117,7 +117,7 @@ type FlagPersonaSwitcherProps = {
 };
 
 export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
-  const [team, setTeam] = useState<TeamKey>("founder");
+  const { team, setTeam } = useVisitorTeam();
   const [tab, setTab] = useState<CodeTab>("react");
   const [playing, setPlaying] = useState(false);
 
@@ -193,25 +193,16 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
       </div>
 
       {/* RIGHT — the flag: toggle arms + the real code + live readout. */}
-      <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+      <ProductCard>
         {/* Flag header — reads like a Studio flag card. */}
-        <div className="border-white/[0.08] border-b px-4 py-3">
-          <div className="flex items-center justify-between">
-            <code className="font-mono text-[13px] text-white/85">
-              visitor-team
-            </code>
-            <span className="rounded-[4px] border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em]">
-              multivariate
-            </span>
-          </div>
-          <p className="mt-1.5 text-[12px] text-white/40 leading-snug tracking-[-0.01em]">
-            One arm per visitor. Your targeting rules choose it in production;
-            flip the arms here to preview.
-          </p>
-        </div>
+        <ProductCardHeader
+          title="visitor-team"
+          tag={<ProductTag>multivariate</ProductTag>}
+          description="One arm per visitor. Your targeting rules choose it in production; flip the arms here to preview."
+        />
 
         {/* Toggle arms — flip one on, the rest flip off. */}
-        <fieldset className="flex flex-col gap-0.5 px-2 py-2">
+        <fieldset className={PRODUCT_ROW_LIST_CLASS}>
           {TEAM_ORDER.map((key) => {
             const isActive = key === team;
             return (
@@ -222,17 +213,18 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
                 aria-checked={isActive}
                 onClick={() => choose(key)}
                 className={cn(
-                  "flex items-center justify-between rounded-[6px] px-2.5 py-2 text-left outline-none transition-colors",
-                  isActive ? "bg-white/[0.05]" : "hover:bg-white/[0.03]",
+                  "flex items-center justify-between text-left outline-none transition-colors",
+                  productRowClass(isActive),
+                  !isActive && "hover:bg-white/[0.03]",
                 )}
               >
                 <span
                   className={cn(
-                    "font-medium text-[13px] tracking-[-0.02em] transition-colors",
-                    isActive ? "text-white" : "text-white/55",
+                    "transition-colors",
+                    productRowLabelClass(isActive),
                   )}
                 >
-                  {TEAMS[key].label}
+                  {TEAM_LABELS[key]}
                 </span>
                 <span
                   aria-hidden="true"
@@ -294,17 +286,17 @@ export function FlagPersonaSwitcher({ code, raw }: FlagPersonaSwitcherProps) {
 
         {/* Live evaluation — the flag this page is reading, right now. Label on
             its own line so the key → value pair never wraps into columns. */}
-        <div className="border-white/[0.08] border-t bg-white/[0.03] px-4 py-3">
-          <p className="mb-1.5 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-            evaluated for you
-          </p>
-          <div className="flex items-center gap-2 font-mono text-[12.5px]">
+        <ProductCardFooter>
+          <ProductLabel className="mb-1.5">evaluated for you</ProductLabel>
+          <div
+            className={cn("flex items-center gap-2", PRODUCT_MONO_VALUE_CLASS)}
+          >
             <span className="text-white/55">visitor-team</span>
             <span className="text-white/30">→</span>
             <span className="text-[#f8a08f]">"{active.value}"</span>
           </div>
-        </div>
-      </div>
+        </ProductCardFooter>
+      </ProductCard>
 
       {/* Footer row — honest note + deep link, spanning both columns. */}
       <div className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">

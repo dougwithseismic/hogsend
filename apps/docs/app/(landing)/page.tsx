@@ -2,6 +2,7 @@ import { Mail, MessageSquare, Zap } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import QRCode from "qrcode";
 import type { JSX, ReactNode } from "react";
 import {
   fieldInitialHour,
@@ -31,8 +32,13 @@ import { getEngineVersion } from "@/lib/engine-version";
 import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
 import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
+import studioEvents from "@/public/images/studio/03-events-ingestion.png";
 import studioSends from "@/public/images/studio/04-sends-history.png";
+import studioTemplates from "@/public/images/studio/05-templates-catalog.png";
+import studioLinks from "@/public/images/studio/06-links-tracking.png";
+import studioCampaigns from "@/public/images/studio/07-campaigns-list.png";
 import studioJourneys from "@/public/images/studio/08-journeys-overview.png";
+import studioBuckets from "@/public/images/studio/09-buckets-audiences.png";
 import { AgentPromptLoop } from "./_components/agent-prompt-loop";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
@@ -41,9 +47,15 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { DiscordLinkCard } from "./_components/discord-link-card";
+import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
+import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
+import { QrLinksCard } from "./_components/qr-links-card";
+import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
+import { TimingCard } from "./_components/timing-card";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -795,8 +807,92 @@ function PsManifesto() {
               teams who build it in code.
             </span>
           </p>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- video -- */
+
+/** Hogsend Video — the player IS the product surface. The section holds the
+ * @hogsend/video player with its live event-feed terminal (press play and the
+ * simulated feed hands over to the real events), then names the facts:
+ * monotonic watch depth, once-per-milestone progress events, one event shape
+ * across providers, emitters that also write to PostHog/GA4. */
+const VIDEO_PILLARS = [
+  {
+    title: "Depth that survives scrubbing",
+    body: "percentWatched is the deepest point reached — monotonic, so skipping back and forth never inflates it.",
+  },
+  {
+    title: "Milestones fire once",
+    body: "video.progress lands a single event at 25, 50, 75, and 90 percent, alongside started, completed, and replay.",
+  },
+  {
+    title: "One event shape, any player",
+    body: "YouTube, Vimeo, and native <video> emit the same events, so journeys never care where the video lives.",
+  },
+  {
+    title: "Emitters, not lock-in",
+    body: "createHogsendEmitter feeds your journeys; the same interface writes to PostHog or GA4, or all of them combined.",
+  },
+];
+
+function PsVideo() {
+  return (
+    <section
+      id="video"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Hogsend Video</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Every video becomes an event stream.
+            </span>{" "}
+            <span className="text-white/40">
+              This player is @hogsend/video. Press play — the feed beside it is
+              the events it captures.
+            </span>
+          </h2>
+        </Reveal>
+
+        <Reveal delay={0.1} className="block">
           <ManifestoVideo />
         </Reveal>
+
+        <div className="mt-16 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+          {VIDEO_PILLARS.map((p) => (
+            <div key={p.title}>
+              <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                {p.title}
+              </h3>
+              <p className="mt-2 max-w-[300px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
+                {p.body}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-12 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Watch depth is a journey trigger like any other event — the
+            retargeting play in the playbook runs on it.
+          </p>
+          <Link
+            href="/docs/client-side/video"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the video docs →
+          </Link>
+        </div>
       </Container>
     </section>
   );
@@ -858,41 +954,74 @@ function PsStudioDemo() {
           </span>
         </div>
 
-        {/* The Studio itself, framed as the window you're about to open. */}
-        <TrackDemoClick placement="home-demo-screenshot">
-          <a
-            href={DEMO_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-14 block overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl transition-colors hover:border-white/30"
-          >
-            <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
-              <div className="flex items-center gap-3">
-                <div aria-hidden="true" className="flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                </div>
-                <span className="font-mono text-white/40 text-[11px] tracking-wide">
-                  demo.hogsend.com/studio — Forgeline
-                </span>
-              </div>
-              <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
-                <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-                live
-              </span>
-            </div>
-            <Image
-              src={studioOverview}
-              alt="Hogsend Studio on the demo instance — Forgeline's overview"
-              className="w-full"
-            />
-          </a>
-        </TrackDemoClick>
+        {/* The Studio itself, framed as the window you're about to open —
+            thumbnails flip between the real views on the demo instance. */}
+        <StudioGallery shots={STUDIO_SHOTS} />
       </Container>
     </section>
   );
 }
+
+/** Real Studio views on the seeded Forgeline demo — paths match the SPA's
+ * TanStack routes (basepath /studio). */
+const STUDIO_SHOTS: StudioShot[] = [
+  {
+    key: "overview",
+    label: "Overview",
+    path: "/studio",
+    alt: "Hogsend Studio on the demo instance — Forgeline's overview",
+    image: studioOverview,
+  },
+  {
+    key: "journeys",
+    label: "Journeys",
+    path: "/studio/journeys",
+    alt: "Studio journeys — every run, wait, and branch observed live",
+    image: studioJourneys,
+  },
+  {
+    key: "sends",
+    label: "Sends",
+    path: "/studio/sends",
+    alt: "Studio sends — delivery, opens, and clicks per email",
+    image: studioSends,
+  },
+  {
+    key: "events",
+    label: "Events",
+    path: "/studio/events",
+    alt: "Studio events — the ingested event stream",
+    image: studioEvents,
+  },
+  {
+    key: "templates",
+    label: "Templates",
+    path: "/studio/templates",
+    alt: "Studio templates — the React Email catalog with previews",
+    image: studioTemplates,
+  },
+  {
+    key: "links",
+    label: "Links",
+    path: "/studio/links",
+    alt: "Studio links — tracked links, scans, and clicks",
+    image: studioLinks,
+  },
+  {
+    key: "campaigns",
+    label: "Campaigns",
+    path: "/studio/campaigns",
+    alt: "Studio campaigns — broadcasts and their stats",
+    image: studioCampaigns,
+  },
+  {
+    key: "buckets",
+    label: "Buckets",
+    path: "/studio/buckets",
+    alt: "Studio buckets — live audience membership",
+    image: studioBuckets,
+  },
+];
 
 /* ------------------------------------------------------------------ stats -- */
 
@@ -1342,7 +1471,10 @@ async function PsFlags() {
   ]);
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section
+      id="flags"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1434,6 +1566,665 @@ async function PsCode() {
             raw={JOURNEY_SAMPLES}
           />
         </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------- email answers -- */
+
+/* Real API on both sides of every scenario: each template is a valid React
+   Email component using EmailAction (@hogsend/email), each journey side a
+   valid ctx.waitForEvent read. The feed in the card is illustrative. */
+const EMAIL_ANSWER_SNIPPETS = {
+  trial: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function TrialCheckIn() {
+  return (
+    <Section>
+      <Text>Hey — you're a week in. Where are you?</Text>
+
+      {/* Every answer in an email is a link. Two answers, two EmailActions —
+          the click emits trial.check_in through the full ingest pipeline. */}
+      <EmailAction
+        href="https://app.example.com"
+        event="trial.check_in"
+        properties={{ answer: "great" }}
+      >
+        Going great
+      </EmailAction>
+
+      <EmailAction
+        href="https://cal.com/you/help"
+        event="trial.check_in"
+        properties={{ answer: "help" }}
+      >
+        Need a hand
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `// The journey sends the email, then just waits for the answer.
+await sendEmail({ to: user.email, template: "trial-check-in" });
+
+const reply = await ctx.waitForEvent({
+  event: "trial.check_in",
+  timeout: days(3),
+  label: "trial-check-in",
+});
+
+// Branch on the answer directly — no webhook wiring, no forms.
+if (!reply.timedOut && reply.properties?.answer === "help") {
+  await sendEmail({ to: user.email, template: "founder-intro-call" });
+}`,
+  },
+  nps: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+const SCORES = Array.from({ length: 11 }, (_, i) => i);
+
+export function NpsSurvey() {
+  return (
+    <Section>
+      <Text>One number — how likely are you to recommend us?</Text>
+
+      {/* Eleven answers, one event. Each number is a link whose click
+          emits nps.answered with its score. */}
+      {SCORES.map((score) => (
+        <EmailAction
+          key={score}
+          href="https://example.com/thanks"
+          event="nps.answered"
+          properties={{ score }}
+        >
+          {String(score)}
+        </EmailAction>
+      ))}
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "nps-survey" });
+
+const reply = await ctx.waitForEvent({
+  event: "nps.answered",
+  timeout: days(7),
+  label: "nps-survey",
+});
+
+// Branch on the score directly — no survey tool, no webhook wiring.
+const score = Number(reply.properties?.score);
+if (!reply.timedOut && score >= 9) {
+  await sendEmail({ to: user.email, template: "nps-review-ask" });
+} else if (!reply.timedOut && score <= 6) {
+  await sendEmail({ to: user.email, template: "nps-founder-followup" });
+}`,
+  },
+  winback: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function WinbackReason() {
+  return (
+    <Section>
+      <Text>Your account went quiet. What pulled you away?</Text>
+
+      <EmailAction
+        href="https://example.com/pricing"
+        event="winback.reason"
+        properties={{ reason: "pricing" }}
+      >
+        Too pricey
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="winback.reason"
+        properties={{ reason: "missing_feature" }}
+      >
+        Missing a feature
+      </EmailAction>
+
+      <EmailAction
+        href="https://app.example.com"
+        event="winback.reason"
+        properties={{ reason: "busy" }}
+      >
+        Just busy
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "winback-reason" });
+
+const reply = await ctx.waitForEvent({
+  event: "winback.reason",
+  timeout: days(7),
+  label: "winback-reason",
+});
+
+// A churn reason is a typed event — branch now, segment on it forever.
+if (reply.properties?.reason === "missing_feature") {
+  await sendEmail({ to: user.email, template: "founder-which-feature" });
+} else if (reply.properties?.reason === "busy") {
+  await ctx.sleep({ duration: days(30), label: "busy-snooze" });
+  await sendEmail({ to: user.email, template: "winback-second-touch" });
+}`,
+  },
+  slot: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function OnboardingCall() {
+  return (
+    <Section>
+      <Text>Twenty minutes, we set up your first journey. Pick a slot:</Text>
+
+      <EmailAction
+        href="https://cal.com/you/onboarding"
+        event="onboarding.slot_picked"
+        properties={{ slot: "tue-10" }}
+      >
+        Tuesday 10:00
+      </EmailAction>
+
+      <EmailAction
+        href="https://cal.com/you/onboarding"
+        event="onboarding.slot_picked"
+        properties={{ slot: "thu-14" }}
+      >
+        Thursday 14:00
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "onboarding-call" });
+
+const reply = await ctx.waitForEvent({
+  event: "onboarding.slot_picked",
+  timeout: days(3),
+  label: "onboarding-call",
+});
+
+if (!reply.timedOut) {
+  // The answer carries the slot — confirm it back in one send.
+  await sendEmail({
+    to: user.email,
+    template: "call-confirmed",
+    props: { slot: String(reply.properties?.slot) },
+  });
+}`,
+  },
+  vote: {
+    email: `import { EmailAction } from "@hogsend/email";
+import { Section, Text } from "@react-email/components";
+
+export function RoadmapVote() {
+  return (
+    <Section>
+      <Text>Three candidates for next quarter. Your click is the ballot:</Text>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "webhooks" }}
+      >
+        Webhooks API
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "sso" }}
+      >
+        SSO
+      </EmailAction>
+
+      <EmailAction
+        href="https://example.com/roadmap"
+        event="roadmap.vote"
+        properties={{ pick: "mobile" }}
+      >
+        Mobile app
+      </EmailAction>
+    </Section>
+  );
+}`,
+    journey: `await sendEmail({ to: user.email, template: "roadmap-vote" });
+
+const reply = await ctx.waitForEvent({
+  event: "roadmap.vote",
+  timeout: days(14),
+  label: "roadmap-vote",
+});
+
+// The vote is a typed event on the contact — segment on it later,
+// and close the loop the day the picked feature ships.
+if (!reply.timedOut && reply.properties?.pick === "sso") {
+  await sendEmail({ to: user.email, template: "sso-waitlist-confirm" });
+}`,
+  },
+} as const;
+
+async function PsEmailAnswers() {
+  const scenarioCode = Object.fromEntries(
+    await Promise.all(
+      Object.entries(EMAIL_ANSWER_SNIPPETS).map(async ([key, s]) => {
+        const [email, journey] = await Promise.all([
+          CodeHighlight({ code: s.email, lang: "tsx" }),
+          CodeHighlight({ code: s.journey, lang: "ts" }),
+        ]);
+        return [key, { email, journey }] as const;
+      }),
+    ),
+  ) as Record<
+    keyof typeof EMAIL_ANSWER_SNIPPETS,
+    { email: ReactNode; journey: ReactNode }
+  >;
+
+  return (
+    <section
+      id="email-answers"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <PlusGrid className="top-20 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>In-email answers</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">The email answers back.</span>{" "}
+            <span className="text-white/40">
+              A click is a typed event; the journey branches on it. Try it —
+              press a button in the email.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Every link in every email is rewritten to your own domain at send
+            time, so opens and clicks are tracked first-party — no provider
+            pixels. An EmailAction goes further: the click emits a named event
+            with properties, and a waiting journey reads the answer directly.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <EmailAnswersCard code={scenarioCode} raw={EMAIL_ANSWER_SNIPPETS} />
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------- tracked links + QR -- */
+
+/** Real QR codes, generated exactly like the engine's
+ * `GET /v1/admin/links/:id/qr` (same `qrcode` library, level M), encoding the
+ * durable `/v1/t/c/<uid>` URL — never the slug. The retarget row deliberately
+ * reuses the print QR: the whole point is the printed code never changes. */
+async function PsLinks() {
+  const toSvg = (url: string) =>
+    QRCode.toString(url, {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 0,
+    });
+  const [printQr, personalQr] = await Promise.all([
+    toSvg("https://api.acme.dev/v1/t/c/7f3ad2c8"),
+    toSvg("https://api.acme.dev/v1/t/c/b91e64a0"),
+  ]);
+
+  return (
+    <section
+      id="links"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <DotPatch className="top-24 left-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal className="flex flex-col items-center text-center">
+          <Eyebrow>Tracked links + QR</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">Print runs that report back.</span>{" "}
+            <span className="text-white/40">
+              Mint a link, get a QR code, put it on anything. The scan is an
+              event.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Every managed link gets a vanity slug, first-party click tracking,
+            and a print-ready SVG or PNG QR code from the API. Scans count
+            separately from clicks, a personal link identifies the scanner, and
+            because the QR encodes a durable engine URL you can re-point a
+            printed code any time.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <QrLinksCard
+            qr={{ print: printQr, personal: personalQr, retarget: printQr }}
+          />
+        </Reveal>
+
+        <div className="mx-auto mt-10 flex max-w-[720px] flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[520px] text-left text-sm text-white/55 tracking-[-0.02em]">
+            Direct mail, conference badges, packaging — anything you can print
+            becomes a journey trigger.
+          </p>
+          <Link
+            href="/playbook/direct-mail-qr-codes"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the direct-mail play →
+          </Link>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------- impact experiments -- */
+
+/* Illustrative readouts — the SHAPE of the report Hogsend generates from a
+   team's own journeys and goals, not measured Hogsend results. Numbers are
+   internally consistent (lift ≈ treatment ÷ control − 1) and clearly tagged
+   `example` in the UI so nothing reads as a sourced claim. */
+const IMPACT_STEPS = [
+  {
+    title: "Version the journey",
+    body: "Every edit is a version. Run the new one against the last — no separate tool.",
+  },
+  {
+    title: "Split with a holdout",
+    body: "A randomised share gets the change; a control gets nothing to measure against.",
+  },
+  {
+    title: "Read the lift",
+    body: "The goal event, measured against the control, with a confidence you can act on.",
+  },
+];
+
+/* The counterweight column — each card names a problem every lifecycle team
+   has, then how the feature answers it (from docs/conversions/impact). */
+const IMPACT_FEATURES = [
+  {
+    title: "Know which edit moved the number",
+    body: "You reworked the welcome series three weeks ago — did it work? Every enrollment carries a fingerprint of the journey code that created it, so the readout splits before-vs-after on its own. No tagging, no spreadsheet archaeology.",
+    token: "meta.version",
+  },
+  {
+    title: "Split-test without an experiment platform",
+    body: "One call inside the journey assigns each user an arm — sticky across retries and redeploys, no assignment service to run. The readout reports every arm against the same control.",
+    token: "ctx.variant",
+  },
+  {
+    title: "Proof, not attribution flattery",
+    body: 'Opens and clicks can\'t tell you what would have happened anyway. Hold back 10% as a control and the lift is measured against people who got nothing — the only number allowed to say "caused".',
+    token: "meta.holdout",
+  },
+  {
+    title: "It won't let you fool yourself",
+    body: 'A +40% on twelve users is noise. Under 10 conversions the verdict stays "collecting" — never a percentage; small cohorts ship flagged. You act when the number can carry the decision.',
+    token: "smallSample",
+  },
+];
+
+function PsImpact() {
+  return (
+    <section
+      id="experiments"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Impact experiments</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Every journey change is an experiment.
+            </span>{" "}
+            <span className="text-white/40">So prove it moved the number.</span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Ship two versions of a journey to a randomised split, hold back a
+            control, and Hogsend measures the goal event against it. You get the
+            incrementality — the welcome series raised activation, and by how
+            much — not a guess.
+          </p>
+        </Reveal>
+
+        {/* The flag section's column recipe, mirrored: the interactive card
+            takes the flag card's 380px column on the LEFT, the supporting
+            content takes the wide column on the right. */}
+        <div className="mt-14 grid items-start gap-5 lg:grid-cols-[380px_1fr]">
+          {/* LEFT — the interactive readout card. */}
+          <Reveal>
+            <ImpactReadout />
+            <p className="mt-5 text-center text-[12px] text-white/35 leading-5 tracking-[-0.01em]">
+              Illustrative readout — the report Hogsend generates from your own
+              journeys and goals.
+            </p>
+          </Reveal>
+
+          {/* RIGHT — the fat column: how a readout is made, then the
+              feature's real guarantees as cards. */}
+          <Reveal delay={0.1}>
+            <ol className="flex flex-wrap gap-x-10 gap-y-6">
+              {IMPACT_STEPS.map((s, i) => (
+                <li key={s.title} className="flex min-w-[220px] flex-1 gap-4">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-[6px] border border-white/15 bg-white/[0.04] font-mono text-[12px] text-white/70",
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  <div>
+                    <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                      {s.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                      {s.body}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            {/* The guarantees — benchmark-card idiom, API token as the chip. */}
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {IMPACT_FEATURES.map((f) => (
+                <div
+                  key={f.token}
+                  className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                >
+                  <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                    {f.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                    {f.body}
+                  </p>
+                  <span className="mt-4 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]">
+                    {f.token}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+
+          {/* Footer row — honest note + deep link, spanning both columns
+              (the flags section's footer idiom). */}
+          <div className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
+            <p className="max-w-[640px] text-white/55 text-sm tracking-[-0.02em]">
+              Attributed, influenced, and incremental stay separate numbers —
+              only the holdout-backed one may say "caused". Already live?{" "}
+              <code className="font-mono text-[13px] text-white/75">
+                hogsend attribution backfill
+              </code>{" "}
+              credits your whole history.
+            </p>
+            <Link
+              href="/docs/conversions/impact"
+              className="font-medium text-white text-sm tracking-[-0.025em] hover:opacity-70"
+            >
+              Read the impact docs →
+            </Link>
+          </div>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------- timing -- */
+
+/* Verbatim shipping API: ctx.digest (window absorb + flush), ctx.when
+   (timezone-resolving fluent scheduler), ctx.sleepUntil (durable). The demo
+   card beside it holds the illustrative week. */
+const TIMING_SAMPLE = `export const weeklyDigest = defineJourney({
+  meta: {
+    id: "weekly-digest",
+    trigger: { event: "report.shared" },
+    entryLimit: "unlimited",
+  },
+  run: async (user, ctx) => {
+    // A week of report.shared events collapses into THIS one run —
+    // later events are absorbed and handed back at flush.
+    const digest = await ctx.digest({ window: days(7) });
+
+    // Tuesday 09:00 in the READER'S timezone — resolved per user,
+    // then slept to durably (survives deploys and restarts).
+    await ctx.sleepUntil(ctx.when.next("tuesday").at("09:00"));
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      template: "weekly-digest",
+      props: { sections: Object.groupBy(digest.events, (e) => e.name) },
+    });
+  },
+});`;
+
+async function PsTiming() {
+  const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
+
+  return (
+    <section
+      id="timing"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <PlusGrid className="top-24 right-0 hidden h-36 w-48 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Timing primitives</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              A week of noise. One email, Tuesday 9am.
+            </span>{" "}
+            <span className="text-white/40">Their 9am, not yours.</span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            ctx.digest absorbs a window of trigger events into one run and hands
+            them back at flush. ctx.when turns &ldquo;Tuesday 09:00&rdquo; into
+            an absolute instant in each reader&rsquo;s own timezone, and the
+            sleep to it is durable — deploys and restarts don&rsquo;t lose the
+            send.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
+            <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+              <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
+                <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
+                  src/journeys/weekly-digest.ts
+                </span>
+                <CopyButton value={TIMING_SAMPLE} />
+              </div>
+              <div className="ps-code max-h-[440px] overflow-auto px-4 py-4 text-[12.5px]">
+                {timingNode}
+              </div>
+            </div>
+            <TimingCard />
+          </div>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------- discord -- */
+
+function PsDiscord() {
+  return (
+    <section
+      id="discord"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Community channel</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Your Discord is a lifecycle channel.
+            </span>{" "}
+            <span className="text-white/40">
+              One /link folds a member onto their contact — then journeys can DM
+              them.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            The bot verifies through their inbox — a one-click emailed confirm,
+            never the Discord-reported address. From then on presence, messages,
+            and reactions keep a last-seen on the contact, and a journey can
+            send a DM the same way it sends an email, gated on the
+            member&rsquo;s channel preference.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <DiscordLinkCard />
+        </Reveal>
+
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Built for community-led companies — the channel your users actually
+            read, wired into the same journeys as email and SMS.
+          </p>
+          <Link
+            href="/docs/integrations/discord"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the Discord docs →
+          </Link>
+        </div>
       </Container>
     </section>
   );
@@ -1784,6 +2575,65 @@ function _PsHowItWorks() {
   );
 }
 
+/* ---------------------------------------------------------- feature index -- */
+
+/** Every entry hot-links to a section further down this page. */
+const FEATURE_INDEX: Array<{ label: string; href: string }> = [
+  { label: "Building blocks", href: "#building-blocks" },
+  { label: "Ten starter journeys", href: "#use-cases" },
+  { label: "Video events", href: "#video" },
+  { label: "Feature flags", href: "#flags" },
+  { label: "In-email answers", href: "#email-answers" },
+  { label: "Impact experiments", href: "#experiments" },
+  { label: "Digest & timing", href: "#timing" },
+  { label: "Discord", href: "#discord" },
+  { label: "Links & QR", href: "#links" },
+  { label: "Studio, live", href: "#live-demo" },
+  { label: "Durable execution", href: "#hatchet" },
+];
+
+function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <Container className="pt-20 pb-16 md:pt-24">
+        <Reveal>
+          <Eyebrow>Shipped, not roadmap</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Everything below is in{" "}
+              {engineVersion ? `v${engineVersion}` : "the current release"}, on
+              npm today.
+            </span>{" "}
+            <span className="text-white/40">Jump straight to a feature.</span>
+          </h2>
+          <span
+            aria-hidden="true"
+            className="mt-8 inline-block animate-bounce font-mono text-[#f64838] text-2xl"
+          >
+            ↓
+          </span>
+          <div className="mt-6 flex max-w-[900px] flex-wrap gap-2">
+            {FEATURE_INDEX.map((f) => (
+              <a
+                key={f.href}
+                href={f.href}
+                className="rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
+              >
+                {f.label}
+              </a>
+            ))}
+          </div>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
 /* -------------------------------------------------------- building blocks -- */
 
 const BLOCK_JOURNEY = `export const welcome = defineJourney({
@@ -1890,6 +2740,134 @@ $ hogsend connect posthog
 → person reads wired — timezones, property conditions
 → PostHog → Hogsend webhook provisioned (idempotent)`;
 
+const BLOCK_TIMING = `run: async (user, ctx) => {
+  // A noisy week of events collapses into THIS one run —
+  // later events are absorbed and handed back at flush.
+  const digest = await ctx.digest({ window: days(7) });
+  if (!digest.count) return;
+
+  // Tuesday 09:00 in the READER'S timezone — resolved per
+  // user, then slept to durably (survives deploys).
+  await ctx.sleepUntil(ctx.when.next("tuesday").at("09:00"));
+
+  await sendEmail({
+    to: user.email,
+    template: "weekly-digest",
+    props: { events: digest.events },
+  });
+}`;
+
+const BLOCK_VARIANT = `run: async (user, ctx) => {
+  // Deterministic per user — recorded on first pass,
+  // replayed verbatim across redeploys. No RNG, no drift.
+  const arm = await ctx.variant("welcome-subject", [
+    "setup",
+    "outcome",
+  ]);
+
+  await sendEmail({
+    to: user.email,
+    template: arm === "setup" ? "welcome-setup" : "welcome-outcome",
+  });
+}`;
+
+const BLOCK_FLAGS = `// Flags live in your repo — typed, reviewed, deployed.
+export const newCheckout = defineFlag({
+  key: "new-checkout-flow",
+  name: "New checkout flow",
+  type: "boolean",
+});
+
+// In React — the same shape as PostHog's hook:
+const enabled = useFlag("new-checkout-flow");`;
+
+const BLOCK_SMS = `run: async (user) => {
+  const phone = String(user.properties.phone ?? "");
+  // SMS is additive — no number, no send.
+  if (!isE164(phone)) return;
+
+  // Marketing SMS fails closed without explicit consent;
+  // the STOP list is checked on every send.
+  await sendSms({
+    to: phone,
+    userId: user.id,
+    template: "cart-reminder",
+  });
+}`;
+
+const BLOCK_CONNECTORS = `// DM them where they actually are — gated on the
+// member's channel preference. A closed DM is a soft
+// failure (delivered: false), never a crash.
+await sendConnectorAction({
+  connectorId: "discord",
+  action: "dmMember",
+  args: {
+    member: user.email,
+    content: "Your seat is ready — see you in #welcome.",
+  },
+});`;
+
+const BLOCK_GROUPS = `// Server — write the account and its properties.
+await hs.groups.identify({
+  groupType: "company",
+  groupKey: "acme.com",
+  properties: { plan: "pro", seats: 42 },
+});
+
+// Browser — associate this visitor's events with it.
+hogsend.group("company", "acme.com");`;
+
+const BLOCK_SOURCES = `export const billing = defineWebhookSource({
+  meta: { id: "billing", name: "Billing" },
+  auth: {
+    type: "match",
+    header: "x-webhook-secret",
+    envKey: "BILLING_WEBHOOK_SECRET",
+  },
+  schema: z.object({
+    type: z.string(),
+    customer: z.object({ id: z.string(), email: z.string() }),
+  }),
+  async transform(payload) {
+    return {
+      userId: payload.customer.id,
+      email: payload.customer.email,
+      event: payload.type,
+    };
+  },
+});`;
+
+const BLOCK_LINKS = `# Mint a tracked link — vanity slug, QR from the same API
+$ curl -X POST $API/v1/admin/links \\
+    -d '{"url":"https://example.com/launch","slug":"spring-mailer"}'
+→ vanity /l/spring-mailer · QR via /v1/admin/links/:id/qr
+
+# The printed QR encodes the durable id, never the URL —
+# re-point 5,000 postcards with one call
+$ curl -X PATCH $API/v1/admin/links/$ID \\
+    -d '{"originalUrl":"https://example.com/spring-offer-v2"}'`;
+
+const BLOCK_CAMPAIGNS = `const { campaignId, status } = await hs.campaigns.send({
+  name: "March launch",
+  list: "product-updates",        // or a live bucket
+  template: "launch-announcement", // typed against your registry
+  props: { feature: "Flags" },
+  sendAt: "2026-08-01T09:00:00Z",  // omit to send now
+});`;
+
+const BLOCK_MCP = `{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.your-instance.com",
+        "HOGSEND_ADMIN_KEY": "hsk_…"
+      }
+    }
+  }
+}`;
+
 /** The homepage BuildingBlocks showcase, re-set light: a vertical tab rail
  * over real-code panels (async Shiki nodes composed into the client tabs). */
 async function PsBuildingBlocks() {
@@ -1902,6 +2880,16 @@ async function PsBuildingBlocks() {
     bucketMedia,
     destinationsMedia,
     posthogMedia,
+    timingMedia,
+    variantMedia,
+    flagsMedia,
+    smsMedia,
+    connectorsMedia,
+    groupsMedia,
+    sourcesMedia,
+    linksMedia,
+    campaignsMedia,
+    mcpMedia,
   ] = await Promise.all([
     CodeHighlight({ code: BLOCK_JOURNEY, lang: "ts" }),
     CodeHighlight({ code: BLOCK_WAIT, lang: "ts" }),
@@ -1911,12 +2899,23 @@ async function PsBuildingBlocks() {
     CodeHighlight({ code: BLOCK_BUCKET, lang: "ts" }),
     CodeHighlight({ code: BLOCK_DESTINATIONS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_POSTHOG, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_TIMING, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_VARIANT, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_FLAGS, lang: "tsx" }),
+    CodeHighlight({ code: BLOCK_SMS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_CONNECTORS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_GROUPS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_SOURCES, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_LINKS, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_CAMPAIGNS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_MCP, lang: "json" }),
   ]);
 
   const tabs = [
     {
       id: "journeys",
       label: "Journeys",
+      group: "Author",
       title: "Emails that play out over time",
       description:
         "Trigger on an event, send, sleep, then branch on what happened while you waited. The control flow is plain TypeScript.",
@@ -1927,6 +2926,7 @@ async function PsBuildingBlocks() {
     {
       id: "wait",
       label: "Wait for event",
+      group: "Author",
       title: "Wait for what they do next",
       description:
         "Pause the journey until the user acts or a timeout wins. The wait is durable, so it survives deploys, and the branch afterwards is an if statement.",
@@ -1935,8 +2935,42 @@ async function PsBuildingBlocks() {
       media: waitMedia,
     },
     {
+      id: "timing",
+      label: "Digest & timing",
+      group: "Author",
+      title: "Collapse the noise, land the moment",
+      description:
+        "ctx.digest absorbs a week of events into one run; ctx.when schedules the send for Tuesday 09:00 in each reader's own timezone — resolved per user, slept to durably.",
+      tags: ["One send, not five", "Their timezone", "Durable sleep"],
+      filename: "src/journeys/weekly-digest.ts",
+      media: timingMedia,
+    },
+    {
+      id: "experiments",
+      label: "Experiments",
+      group: "Author",
+      title: "A/B arms inside the journey",
+      description:
+        "ctx.variant deals each user a deterministic arm — recorded on first pass and replayed verbatim across redeploys, so a crash never flips someone's experience mid-journey.",
+      tags: ["Deterministic split", "Recorded per user", "Replay-safe"],
+      filename: "src/journeys/welcome.ts",
+      media: variantMedia,
+    },
+    {
+      id: "flags",
+      label: "Feature flags",
+      group: "Author",
+      title: "Flags defined next to the journeys",
+      description:
+        "defineFlag puts the flag in your repo; useFlag reads it in React with the same shape as PostHog's hook. One flag can gate an email, a page, or a whole journey branch.",
+      tags: ["Code-first", "Typed keys", "useFlag in React"],
+      filename: "src/flags/index.ts",
+      media: flagsMedia,
+    },
+    {
       id: "answers",
       label: "In-email answers",
+      group: "Channels",
       title: "Ask a question inside the email",
       description:
         "A yes/no, an NPS score, a one-tap choice — each answer is a link whose click fires a real event with its payload. The journey branches on the answer; PostHog receives it under your event name.",
@@ -1945,18 +2979,9 @@ async function PsBuildingBlocks() {
       media: answersMedia,
     },
     {
-      id: "tracking",
-      label: "Tracking",
-      title: "Opens and clicks, first-party",
-      description:
-        "Every send is tracked first-party for opens and link clicks; engagement flows back as events you can branch on mid-journey or fan out to your destinations.",
-      tags: ["Open tracking", "Click tracking", "Any channel"],
-      filename: "src/journeys/welcome.ts",
-      media: trackingMedia,
-    },
-    {
       id: "provider",
       label: "Your provider",
+      group: "Channels",
       title: "Send through your own account",
       description:
         "Email goes out through your own Resend or Postmark — your domain, your reputation, your costs. Swapping the provider is one env var; the journey code never changes.",
@@ -1965,8 +2990,42 @@ async function PsBuildingBlocks() {
       media: providerMedia,
     },
     {
+      id: "sms",
+      label: "SMS",
+      group: "Channels",
+      title: "Texts with the same guardrails",
+      description:
+        "sendSms runs the same pipeline as email — consent-gated (marketing fails closed without an explicit grant), STOP list checked on every send, links shortened and tracked.",
+      tags: ["Consent-gated", "STOP handled", "Tracked short links"],
+      filename: "src/journeys/cart-reminder.ts",
+      media: smsMedia,
+    },
+    {
+      id: "connectors",
+      label: "Discord & Telegram",
+      group: "Channels",
+      title: "Reach them where they hang out",
+      description:
+        "Journeys can DM a linked Discord or Telegram member through one call. Sends respect the member's channel preference, and a closed DM is a soft failure, not a crash.",
+      tags: ["dmMember", "Preference-gated", "Soft failures"],
+      filename: "src/journeys/community.ts",
+      media: connectorsMedia,
+    },
+    {
+      id: "broadcasts",
+      label: "Broadcasts",
+      group: "Channels",
+      title: "One-off sends to a list or bucket",
+      description:
+        "campaigns.send takes a list or a live bucket plus a template from your registry — typed props included — and runs the send in the worker. Schedule it or send now.",
+      tags: ["List or bucket", "Typed template", "Schedule or now"],
+      filename: "scripts/launch.ts",
+      media: campaignsMedia,
+    },
+    {
       id: "buckets",
       label: "Buckets",
+      group: "Audience",
       title: "Live groups of people",
       description:
         "Define who belongs with declarative criteria. Membership updates as events arrive, and joining a bucket can kick off a journey on its own.",
@@ -1975,8 +3034,53 @@ async function PsBuildingBlocks() {
       media: bucketMedia,
     },
     {
+      id: "groups",
+      label: "Groups",
+      group: "Audience",
+      title: "Accounts, teams, companies",
+      description:
+        "Track the company behind the person. The server writes group properties; the browser associates a visitor's events with their account. When PostHog is connected, it all forwards as group analytics.",
+      tags: ["Account-level", "B2B events", "PostHog $groups"],
+      filename: "src/lib/accounts.ts",
+      media: groupsMedia,
+    },
+    {
+      id: "sources",
+      label: "Webhook sources",
+      group: "Audience",
+      title: "Any webhook becomes a trigger",
+      description:
+        "defineWebhookSource verifies, validates with Zod, and transforms any inbound webhook into an event — Stripe, Segment, Intercom, or your own billing system. The result can enroll journeys directly.",
+      tags: ["Verified inbound", "Zod-validated", "Enrolls journeys"],
+      filename: "src/webhook-sources/billing.ts",
+      media: sourcesMedia,
+    },
+    {
+      id: "tracking",
+      label: "Tracking",
+      group: "Observe & fan out",
+      title: "Opens and clicks, first-party",
+      description:
+        "Every send is tracked first-party for opens and link clicks; engagement flows back as events you can branch on mid-journey or fan out to your destinations.",
+      tags: ["Open tracking", "Click tracking", "Any channel"],
+      filename: "src/journeys/welcome.ts",
+      media: trackingMedia,
+    },
+    {
+      id: "links",
+      label: "Links & QR",
+      group: "Observe & fan out",
+      title: "Tracked links that survive the print run",
+      description:
+        "Mint a link, get a vanity slug and a QR from the same API. The QR encodes the durable id — never the destination — so a printed code can be re-pointed after the mailers ship.",
+      tags: ["Vanity /l/slug", "SVG & PNG QR", "Re-point later"],
+      filename: "terminal",
+      media: linksMedia,
+    },
+    {
       id: "destinations",
       label: "Destinations",
+      group: "Observe & fan out",
       title: "Fan events out, durably",
       description:
         "Send email and lifecycle events out to PostHog, Segment, Slack, or any signed webhook. Each delivery is retried, signed, and dead-lettered for you.",
@@ -1991,6 +3095,7 @@ async function PsBuildingBlocks() {
     {
       id: "posthog",
       label: "PostHog",
+      group: "Observe & fan out",
       title: "Connect PostHog in one command",
       description:
         "The scaffold asks if you're using PostHog and writes the keys. Once deployed, hogsend connect posthog opens one browser consent and wires the rest.",
@@ -1998,10 +3103,24 @@ async function PsBuildingBlocks() {
       filename: "terminal",
       media: posthogMedia,
     },
+    {
+      id: "mcp",
+      label: "Agents & MCP",
+      group: "Observe & fan out",
+      title: "Your agent operates the engine",
+      description:
+        "@hogsend/mcp runs over stdio or hosted at /v1/mcp. An admin-scoped agent can draft journey blueprints, pull reports, and send operator-gated test emails.",
+      tags: ["stdio & hosted", "Blueprints", "Reports"],
+      filename: "claude_desktop_config.json",
+      media: mcpMedia,
+    },
   ];
 
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section
+      id="building-blocks"
+      className="relative border-[#f6483826] border-t"
+    >
       <Container className="pt-16 pb-24">
         <Reveal>
           <Eyebrow>Building blocks</Eyebrow>
@@ -2020,50 +3139,6 @@ async function PsBuildingBlocks() {
         <Reveal delay={0.1} className="mt-12 block">
           <PsBlocksTabs tabs={tabs} />
         </Reveal>
-      </Container>
-    </section>
-  );
-}
-
-/* ---------------------------------------------------------------- setup -- */
-
-function PsSetup() {
-  return (
-    <section className="relative">
-      <Container className="relative">
-        {/* Aura backdrop: warm core, crimzon ring — contained in the frame. */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(60% 55% at 50% 42%, rgba(253,220,180,0.16) 0%, rgba(246,110,88,0.14) 28%, rgba(246,72,56,0.10) 62%, rgba(246,72,56,0.03) 85%, transparent 100%)",
-          }}
-        />
-        <div className="relative flex flex-col items-center pt-28 pb-32 text-center">
-          <Eyebrow>Start building</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[880px] font-normal text-white text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
-              DISPLAY,
-            )}
-          >
-            Your first journey is one command away.
-          </h2>
-
-          <div className="mt-12 flex w-full max-w-[680px] items-center gap-2 rounded-lg border border-white/10 bg-[#101014] p-2 pl-3 shadow-xl sm:gap-4 sm:pl-5">
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-left font-mono text-[11px] text-white/90 sm:text-[13.5px]">
-              <span className="text-white/40">$ </span>
-              {INSTALL_COMMAND}
-            </code>
-            <CopyButton value={INSTALL_COMMAND} className="shrink-0" />
-          </div>
-
-          <p className="mt-5 max-w-[560px] text-white/45 text-sm leading-[22px] tracking-[-0.02em]">
-            Free to self-host · No per-contact billing · Journeys ready to
-            customize
-          </p>
-        </div>
       </Container>
     </section>
   );
@@ -2457,7 +3532,7 @@ function HatchetRunTimeline() {
 
 function PsHatchet() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section id="hatchet" className="relative border-[#f6483826] border-t">
       <Container className="pt-16 pb-24">
         <Reveal>
           <div className="flex items-center justify-between gap-6">
@@ -3240,20 +4315,27 @@ export default async function HomePage({
           />
         </>
       )}
+      <PsProblem />
       <PsProofStrip />
       <PsManifesto />
-      <PsProblem />
-      {/* Temporarily hidden: <_PsHowItWorks /> */}
-      <PsFlags />
       <PsCode />
+      {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
+      <PsFeatureIndex engineVersion={engineVersion} />
+      <PsBuildingBlocks />
       <PsUseCases />
+      {/* Feature deep-dive stack — video through links & QR, back to back. */}
+      <PsVideo />
+      <PsFlags />
+      <PsEmailAnswers />
+      <PsImpact />
+      <PsTiming />
+      <PsDiscord />
+      <PsLinks />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
-      <PsSetup />
       <PsCorePlatform />
-      <PsBuildingBlocks />
       <PsStudioDemo />
       <PsHatchet />
       <PsEconomics />

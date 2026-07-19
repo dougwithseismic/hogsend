@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type JSX, type ReactNode, useState } from "react";
 import { CopyButton } from "@/components/ds/copy-button";
 import { cn } from "@/lib/cn";
+import { TEAM_LABELS, type TeamKey, useVisitorTeam } from "./team-context";
 
 /**
  * Light-chrome port of the homepage UseCasePicker: Polar-style outline chips
@@ -54,6 +55,16 @@ const USE_CASES: Record<
   },
 };
 
+/** The visitor-team arm (the flag card above) picks the default use case.
+ * A manual chip click takes over for good — the persona only sets defaults. */
+const TEAM_USE_CASE: Record<TeamKey, UseCaseValue> = {
+  founder: "onboarding",
+  growth: "winback",
+  product: "onboarding",
+  sales: "trial_conversion",
+  hr: "community",
+};
+
 const PROVIDER_ORDER: readonly ProviderValue[] = ["resend", "postmark"];
 const PROVIDER_LABELS: Record<ProviderValue, string> = {
   resend: "Resend",
@@ -72,8 +83,10 @@ export function PsCodePicker({
   envs,
   raw,
 }: PsCodePickerProps): JSX.Element {
-  const [useCase, setUseCase] = useState<UseCaseValue>("onboarding");
+  const { team } = useVisitorTeam();
+  const [manual, setManual] = useState<UseCaseValue | null>(null);
   const [provider, setProvider] = useState<ProviderValue>("resend");
+  const useCase = manual ?? TEAM_USE_CASE[team];
   const active = USE_CASES[useCase];
 
   return (
@@ -95,7 +108,7 @@ export function PsCodePicker({
               id={`ps-usecase-tab-${value}`}
               aria-selected={isActive}
               aria-controls={`ps-usecase-panel-${value}`}
-              onClick={() => setUseCase(value)}
+              onClick={() => setManual(value)}
               className={cn(
                 "select-none rounded-[6px] border px-4 py-2 font-medium text-sm tracking-[-0.025em] outline-none transition-colors duration-200",
                 isActive
@@ -194,6 +207,13 @@ export function PsCodePicker({
       {/* Footer row — caption left, deep link right. */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-white/55 text-sm tracking-[-0.02em]">
+          {manual === null && (
+            <>
+              Picked for the{" "}
+              <span className="text-white/75">{TEAM_LABELS[team]}</span> arm
+              above — flip the flag and this follows.{" "}
+            </>
+          )}
           Shortened from the full journey — the API is real, the provider lives
           in config.
         </p>
