@@ -2580,7 +2580,6 @@ function _PsHowItWorks() {
 /** Every entry hot-links to a section further down this page. */
 const FEATURE_INDEX: Array<{ label: string; href: string }> = [
   { label: "Building blocks", href: "#building-blocks" },
-  { label: "Ten starter journeys", href: "#use-cases" },
   { label: "Video events", href: "#video" },
   { label: "Feature flags", href: "#flags" },
   { label: "In-email answers", href: "#email-answers" },
@@ -2597,7 +2596,7 @@ function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
     <section className="relative border-[#f6483826] border-t overflow-hidden">
       <Container className="pt-20 pb-16 md:pt-24">
         <Reveal>
-          <Eyebrow>Shipped, not roadmap</Eyebrow>
+          <Eyebrow>Feature index</Eyebrow>
           <h2
             className={cn(
               "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
@@ -2605,11 +2604,12 @@ function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
             )}
           >
             <span className="text-white">
-              Everything below is in{" "}
-              {engineVersion ? `v${engineVersion}` : "the current release"}, on
-              npm today.
+              Here&apos;s everything that&apos;s in Hogsend today.
             </span>{" "}
-            <span className="text-white/40">Jump straight to a feature.</span>
+            <span className="text-white/40">
+              {engineVersion ? `All of it is in v${engineVersion}. ` : null}
+              Jump straight to a feature.
+            </span>
           </h2>
           <span
             aria-hidden="true"
@@ -4321,9 +4321,9 @@ export default async function HomePage({
       <PsCode />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
+      <PsUseCases />
       <PsFeatureIndex engineVersion={engineVersion} />
       <PsBuildingBlocks />
-      <PsUseCases />
       {/* Feature deep-dive stack — video through links & QR, back to back. */}
       <PsVideo />
       <PsFlags />
