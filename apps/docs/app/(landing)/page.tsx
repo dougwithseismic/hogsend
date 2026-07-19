@@ -42,6 +42,7 @@ import {
   type UseCaseValue,
 } from "./_components/code-picker";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
+import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { WordReveal } from "./_components/word-reveal";
@@ -1434,6 +1435,162 @@ async function PsCode() {
             raw={JOURNEY_SAMPLES}
           />
         </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------- impact experiments -- */
+
+/* Illustrative readouts — the SHAPE of the report Hogsend generates from a
+   team's own journeys and goals, not measured Hogsend results. Numbers are
+   internally consistent (lift ≈ treatment ÷ control − 1) and clearly tagged
+   `example` in the UI so nothing reads as a sourced claim. */
+const IMPACT_STEPS = [
+  {
+    title: "Version the journey",
+    body: "Every edit is a version. Run the new one against the last — no separate tool.",
+  },
+  {
+    title: "Split with a holdout",
+    body: "A randomised share gets the change; a control gets nothing to measure against.",
+  },
+  {
+    title: "Read the lift",
+    body: "The goal event, measured against the control, with a confidence you can act on.",
+  },
+];
+
+/* The counterweight column — each card names a problem every lifecycle team
+   has, then how the feature answers it (from docs/conversions/impact). */
+const IMPACT_FEATURES = [
+  {
+    title: "Know which edit moved the number",
+    body: "You reworked the welcome series three weeks ago — did it work? Every enrollment carries a fingerprint of the journey code that created it, so the readout splits before-vs-after on its own. No tagging, no spreadsheet archaeology.",
+    token: "meta.version",
+  },
+  {
+    title: "Split-test without an experiment platform",
+    body: "One call inside the journey assigns each user an arm — sticky across retries and redeploys, no assignment service to run. The readout reports every arm against the same control.",
+    token: "ctx.variant",
+  },
+  {
+    title: "Proof, not attribution flattery",
+    body: 'Opens and clicks can\'t tell you what would have happened anyway. Hold back 10% as a control and the lift is measured against people who got nothing — the only number allowed to say "caused".',
+    token: "meta.holdout",
+  },
+  {
+    title: "It won't let you fool yourself",
+    body: 'A +40% on twelve users is noise. Under 10 conversions the verdict stays "collecting" — never a percentage; small cohorts ship flagged. You act when the number can carry the decision.',
+    token: "smallSample",
+  },
+];
+
+function PsImpact() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Impact experiments</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Every journey change is an experiment.
+            </span>{" "}
+            <span className="text-white/40">So prove it moved the number.</span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Ship two versions of a journey to a randomised split, hold back a
+            control, and Hogsend measures the goal event against it. You get the
+            incrementality — the welcome series raised activation, and by how
+            much — not a guess.
+          </p>
+        </Reveal>
+
+        {/* The flag section's column recipe, mirrored: the interactive card
+            takes the flag card's 380px column on the LEFT, the supporting
+            content takes the wide column on the right. */}
+        <div className="mt-14 grid items-start gap-5 lg:grid-cols-[380px_1fr]">
+          {/* LEFT — the interactive readout card. */}
+          <Reveal>
+            <ImpactReadout />
+            <p className="mt-5 text-center text-[12px] text-white/35 leading-5 tracking-[-0.01em]">
+              Illustrative readout — the report Hogsend generates from your own
+              journeys and goals.
+            </p>
+          </Reveal>
+
+          {/* RIGHT — the fat column: how a readout is made, then the
+              feature's real guarantees as cards. */}
+          <Reveal delay={0.1}>
+            <ol className="flex flex-wrap gap-x-10 gap-y-6">
+              {IMPACT_STEPS.map((s, i) => (
+                <li key={s.title} className="flex min-w-[220px] flex-1 gap-4">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-[6px] border border-white/15 bg-white/[0.04] font-mono text-[12px] text-white/70",
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  <div>
+                    <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                      {s.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                      {s.body}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            {/* The guarantees — benchmark-card idiom, API token as the chip. */}
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {IMPACT_FEATURES.map((f) => (
+                <div
+                  key={f.token}
+                  className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                >
+                  <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                    {f.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                    {f.body}
+                  </p>
+                  <span className="mt-4 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]">
+                    {f.token}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+
+          {/* Footer row — honest note + deep link, spanning both columns
+              (the flags section's footer idiom). */}
+          <div className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
+            <p className="max-w-[640px] text-white/55 text-sm tracking-[-0.02em]">
+              Attributed, influenced, and incremental stay separate numbers —
+              only the holdout-backed one may say "caused". Already live?{" "}
+              <code className="font-mono text-[13px] text-white/75">
+                hogsend attribution backfill
+              </code>{" "}
+              credits your whole history.
+            </p>
+            <Link
+              href="/docs/conversions/impact"
+              className="font-medium text-white text-sm tracking-[-0.025em] hover:opacity-70"
+            >
+              Read the impact docs →
+            </Link>
+          </div>
+        </div>
       </Container>
     </section>
   );
@@ -3246,6 +3403,7 @@ export default async function HomePage({
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsFlags />
       <PsCode />
+      <PsImpact />
       <PsAgents />
       <PsUseCases />
       <PsProductDemo />
