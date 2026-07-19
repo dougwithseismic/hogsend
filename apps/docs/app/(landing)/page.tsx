@@ -1863,25 +1863,6 @@ async function PsEmailAnswers() {
 
 /* ---------------------------------------------------- tracked links + QR -- */
 
-/* Verbatim-valid against the admin links router: POST body takes url/slug,
-   the QR endpoint takes format (svg|png) + size (64–2048) + transparent, and
-   the PATCH re-point field is originalUrl. All three are admin-key authed. */
-const LINKS_QR_CURL = `# 1 · mint — one call, vanity slug + tracked id back
-curl -X POST $API/v1/admin/links \\
-  -H "Authorization: Bearer $ADMIN_KEY" \\
-  -d '{ "url": "https://example.com/launch", "slug": "spring-mailer" }'
-# → { "id": "7f3a…", "vanityUrl": "/l/spring-mailer", … }
-
-# 2 · the QR — print-ready SVG or PNG, straight from the API
-curl -o spring-mailer.png -H "Authorization: Bearer $ADMIN_KEY" \\
-  "$API/v1/admin/links/7f3a…/qr?format=png&size=1024"
-# encodes the durable /v1/t/c/… URL, never the destination
-
-# 3 · re-point the printed code after the mailers ship
-curl -X PATCH $API/v1/admin/links/7f3a… \\
-  -H "Authorization: Bearer $ADMIN_KEY" \\
-  -d '{ "originalUrl": "https://example.com/spring-offer-v2" }'`;
-
 /** Real QR codes, generated exactly like the engine's
  * `GET /v1/admin/links/:id/qr` (same `qrcode` library, level M), encoding the
  * durable `/v1/t/c/<uid>` URL — never the slug. The retarget row deliberately
@@ -1893,10 +1874,9 @@ async function PsLinks() {
       errorCorrectionLevel: "M",
       margin: 0,
     });
-  const [printQr, personalQr, curlNode] = await Promise.all([
+  const [printQr, personalQr] = await Promise.all([
     toSvg("https://api.acme.dev/v1/t/c/7f3ad2c8"),
     toSvg("https://api.acme.dev/v1/t/c/b91e64a0"),
-    CodeHighlight({ code: LINKS_QR_CURL, lang: "bash" }),
   ]);
 
   return (
@@ -1930,31 +1910,9 @@ async function PsLinks() {
         </Reveal>
 
         <Reveal delay={0.1} className="mt-12 block">
-          <div className="grid items-start gap-5 lg:grid-cols-[1fr_480px]">
-            <QrLinksCard
-              qr={{ print: printQr, personal: personalQr, retarget: printQr }}
-            />
-
-            {/* The same three moves as the card, as the API you'd call. */}
-            <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
-              <div className="flex items-center gap-3 border-white/[0.08] border-b px-4 py-0">
-                <div aria-hidden="true" className="flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                </div>
-                <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
-                  mint → QR → re-point
-                </span>
-                <span className="ml-auto py-2.5">
-                  <CopyButton value={LINKS_QR_CURL} />
-                </span>
-              </div>
-              <div className="ps-code max-h-[460px] overflow-auto px-4 py-4 text-[12px]">
-                {curlNode}
-              </div>
-            </div>
-          </div>
+          <QrLinksCard
+            qr={{ print: printQr, personal: personalQr, retarget: printQr }}
+          />
         </Reveal>
 
         <div className="mx-auto mt-10 flex max-w-[720px] flex-wrap items-center justify-between gap-3">
