@@ -1,0 +1,256 @@
+"use client";
+
+import { Braces, LineChart, Radio, Workflow } from "lucide-react";
+import { useState } from "react";
+import { PsNav } from "@/app/(landing)/_components/nav";
+import { FieldStage } from "@/app/spike-daylight/dayfield-shared";
+import { getFieldConfig } from "@/app/spike-daylight/field-config";
+import { CopyButton } from "@/components/ds/copy-button";
+import { ThermalHover } from "@/components/ds/thermal";
+import { cn } from "@/lib/cn";
+import { PluginStrip } from "./plugin-wall";
+import { SessionStage } from "./session-stage";
+
+/* ==========================================================================
+ *  SPIKE — "wired stage" hero.
+ *
+ *  A left-aligned headline column with the journey source as the hero object,
+ *  wired to three lifecycle stages (Measure → Keep → Grow) climbing a rising
+ *  line, plus floating readout cards. Same dayfield vista behind it, same
+ *  crimzon palette as the rest of the site — the accent in the reference comp
+ *  was lime, which we do not have; #f64838 carries the wire instead.
+ *
+ *  Not linked from nav, noindex. Nothing here is wired to real data yet: the
+ *  readout numbers are illustrative placeholders for the composition.
+ * ========================================================================== */
+
+const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest";
+const DISPLAY = "[font-family:var(--ff-display)]";
+const ACCENT = "#f64838";
+
+const PILLARS = [
+  {
+    icon: Braces,
+    title: "Code-first",
+    body: "Journeys are TypeScript in your repo. Version, review and ship them like the rest of your product.",
+  },
+  {
+    icon: Workflow,
+    title: "Full-funnel",
+    body: "Onboarding, activation, retention, monetization — one engine across every stage.",
+  },
+  {
+    icon: Radio,
+    title: "Event-powered",
+    body: "React to any event from your product, your warehouse or any webhook source.",
+  },
+  {
+    icon: LineChart,
+    title: "Measure impact",
+    body: "Built-in experiments, holdouts and lift measurement on every journey.",
+  },
+] as const;
+
+/* -------------------------------------------------------------------------- */
+
+type Layout = "split" | "center";
+
+/** Spike-only A/B switch so the two hero shapes can be compared in place. */
+function LayoutSwitch({
+  layout,
+  onChange,
+}: {
+  layout: Layout;
+  onChange: (next: Layout) => void;
+}) {
+  return (
+    <div className="-translate-x-1/2 fixed bottom-5 left-1/2 z-[60] flex items-center gap-1 rounded-full border border-white/15 bg-black/70 p-1 backdrop-blur-md">
+      {(["split", "center"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={cn(
+            "cursor-pointer rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+            layout === option
+              ? "bg-white/15 text-white"
+              : "text-white/50 hover:text-white/80",
+          )}
+        >
+          {option === "split" ? "Split" : "Centred"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function WiredHeroSection({
+  engineVersion,
+  highlighted,
+  configId,
+}: {
+  engineVersion?: string;
+  highlighted: Record<string, React.ReactNode>;
+  configId?: string;
+}) {
+  const config = getFieldConfig(configId);
+  const [layout, setLayout] = useState<Layout>("split");
+  const centered = layout === "center";
+
+  return (
+    <section className="relative min-h-[100svh] overflow-hidden text-white">
+      <FieldStage config={config} variant="stage">
+        <LayoutSwitch layout={layout} onChange={setLayout} />
+        <div className="relative z-20 mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-6 pt-28 pb-10 md:px-10 md:pt-32">
+          {/* ---- the stage ----
+              split:  copy one third, session panel two thirds
+              center: copy centred over a full-width panel (the shape the live
+                      dayfield hero uses today) */}
+          <div
+            className={cn(
+              "relative gap-10",
+              centered
+                ? "flex flex-col items-center text-center"
+                : "grid items-center xl:grid-cols-[1fr_2fr] xl:gap-14",
+            )}
+          >
+            {/* copy column */}
+            <div
+              className={cn(
+                "relative z-30",
+                centered ? "max-w-[820px]" : "max-w-[600px] xl:max-w-none",
+              )}
+            >
+              <a
+                href="https://course.hogsend.com"
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 py-1 pr-3 pl-1 text-[12px] backdrop-blur-md sm:text-[13px]"
+              >
+                <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium">
+                  New
+                </span>
+                <span className="font-medium">Measure → Keep → Grow</span>
+                <span className="text-white/50">· Live</span>
+              </a>
+
+              <h1
+                className={cn(
+                  "mt-6 text-balance font-normal text-[42px] leading-[1.04] tracking-[-0.03em] md:text-[56px]",
+                  centered ? "xl:text-[62px]" : "xl:text-[52px]",
+                  DISPLAY,
+                )}
+                style={{ textShadow: "0 2px 44px rgba(5,1,1,0.55)" }}
+              >
+                Build lifecycle journeys that grow your product.
+              </h1>
+
+              <p
+                className={cn(
+                  "mt-6 text-[16px] leading-relaxed text-white/80 md:text-lg",
+                  centered ? "mx-auto max-w-[640px]" : "max-w-[520px]",
+                )}
+              >
+                The lifecycle automation framework for growth engineering teams
+                that ship code. Journeys live in your repo, reviewed and
+                versioned like the rest of your product.
+              </p>
+
+              {/* the copy column is a third of the stage, so the CTAs stack
+                  rather than fighting for one line at xl */}
+              <div
+                className={cn(
+                  "mt-8 flex gap-3",
+                  centered
+                    ? "flex-wrap items-center justify-center"
+                    : "flex-col items-start",
+                )}
+              >
+                <ThermalHover intensity="bold">
+                  <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-black/45 py-2.5 pr-2 pl-4 backdrop-blur-md">
+                    <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
+                      <span className="text-white/40">$ </span>
+                      {INSTALL_COMMAND}
+                    </code>
+                    <CopyButton
+                      value={INSTALL_COMMAND}
+                      className="shrink-0 text-white/50 hover:text-white"
+                    />
+                  </span>
+                </ThermalHover>
+                <a
+                  href="/docs"
+                  className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
+                >
+                  View docs →
+                </a>
+              </div>
+            </div>
+
+            {/* ---- the CLI session + the file it minted ---- */}
+            {/* the terminal deliberately stops short of the column's right
+                edge — the minted file window parks in the gap it leaves */}
+            <SessionStage
+              engineVersion={engineVersion}
+              highlighted={highlighted}
+              className={cn(
+                "relative z-30 min-w-0",
+                centered
+                  ? "w-full max-w-[720px] text-left"
+                  : "xl:max-w-[560px]",
+              )}
+            />
+          </div>
+
+          {/* ---- event plugins, three lanes ---- */}
+          <div className="relative z-30 mt-12">
+            <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-white/50">
+              Event plugins
+            </p>
+            <PluginStrip className="mt-4" />
+          </div>
+
+          {/* ---- pillars ---- */}
+          <div className="relative z-30 mt-10 grid gap-8 border-white/10 border-t pt-8 sm:grid-cols-2 xl:grid-cols-4">
+            {PILLARS.map(({ icon: Icon, title, body }) => (
+              <div key={title} className="flex gap-3">
+                <span
+                  className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[6px] border"
+                  style={{
+                    borderColor: `${ACCENT}55`,
+                    background: `${ACCENT}1a`,
+                  }}
+                >
+                  <Icon size={14} style={{ color: ACCENT }} />
+                </span>
+                <div>
+                  <p className="text-[15px] text-white">{title}</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-white/60">
+                    {body}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </FieldStage>
+    </section>
+  );
+}
+
+/** Standalone spike page shell. */
+export function WiredHero({
+  engineVersion,
+  highlighted,
+}: {
+  engineVersion?: string;
+  highlighted: Record<string, React.ReactNode>;
+}) {
+  return (
+    <main className="bg-[#050101] text-white">
+      <PsNav fixed glass />
+      <WiredHeroSection
+        engineVersion={engineVersion}
+        highlighted={highlighted}
+      />
+    </main>
+  );
+}
