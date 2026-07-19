@@ -2503,9 +2503,13 @@ function PsSources() {
               <LogoMarquee
                 // biome-ignore lint/suspicious/noArrayIndexKey: static lanes, order is stable
                 key={i}
-                items={lane.map((l) => (
+                // Each half of the marquee track must be wider than the
+                // viewport or the -50% wrap shows as a jump — repeat the
+                // six-logo lane so a half is ~12 items wide.
+                items={[...lane, ...lane].map((l, j) => (
                   <span
-                    key={l.name}
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static duplicated lane, order is stable
+                    key={`${l.name}-${j}`}
                     className={cn(
                       "flex items-center gap-3",
                       l.soon ? "text-white/30" : "text-white/75",
@@ -2526,8 +2530,7 @@ function PsSources() {
                     ) : null}
                   </span>
                 ))}
-                durationSec={[44, 56, 50][i]}
-                reverse={i === 1}
+                durationSec={[64, 80, 72][i]}
               />
             ))}
           </div>
