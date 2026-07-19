@@ -48,6 +48,7 @@ import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
+import { TimingCard } from "./_components/timing-card";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -1835,6 +1836,86 @@ function PsImpact() {
             </Link>
           </div>
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------- timing -- */
+
+/* Verbatim shipping API: ctx.digest (window absorb + flush), ctx.when
+   (timezone-resolving fluent scheduler), ctx.sleepUntil (durable). The demo
+   card beside it holds the illustrative week. */
+const TIMING_SAMPLE = `export const weeklyDigest = defineJourney({
+  meta: {
+    id: "weekly-digest",
+    trigger: { event: "report.shared" },
+    entryLimit: "unlimited",
+  },
+  run: async (user, ctx) => {
+    // A week of report.shared events collapses into THIS one run —
+    // later events are absorbed and handed back at flush.
+    const digest = await ctx.digest({ window: days(7) });
+
+    // Tuesday 09:00 in the READER'S timezone — resolved per user,
+    // then slept to durably (survives deploys and restarts).
+    await ctx.sleepUntil(ctx.when.next("tuesday").at("09:00"));
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      template: "weekly-digest",
+      props: { sections: Object.groupBy(digest.events, (e) => e.name) },
+    });
+  },
+});`;
+
+async function PsTiming() {
+  const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <PlusGrid className="top-24 right-0 hidden h-36 w-48 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Timing primitives</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              A week of noise. One email, Tuesday 9am.
+            </span>{" "}
+            <span className="text-white/40">Their 9am, not yours.</span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            ctx.digest absorbs a window of trigger events into one run and hands
+            them back at flush. ctx.when turns &ldquo;Tuesday 09:00&rdquo; into
+            an absolute instant in each reader&rsquo;s own timezone, and the
+            sleep to it is durable — deploys and restarts don&rsquo;t lose the
+            send.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
+            <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+              <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
+                <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
+                  src/journeys/weekly-digest.ts
+                </span>
+                <CopyButton value={TIMING_SAMPLE} />
+              </div>
+              <div className="ps-code max-h-[440px] overflow-auto px-4 py-4 text-[12.5px]">
+                {timingNode}
+              </div>
+            </div>
+            <TimingCard />
+          </div>
+        </Reveal>
       </Container>
     </section>
   );
@@ -3650,6 +3731,7 @@ export default async function HomePage({
       <PsCode />
       <PsEmailAnswers />
       <PsImpact />
+      <PsTiming />
       <PsAgents />
       <PsUseCases />
       <PsLinks />
