@@ -796,8 +796,89 @@ function PsManifesto() {
               teams who build it in code.
             </span>
           </p>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- video -- */
+
+/** Hogsend Video — the player IS the product surface. The section holds the
+ * @hogsend/video player with its live event-feed terminal (press play and the
+ * simulated feed hands over to the real events), then names the facts:
+ * monotonic watch depth, once-per-milestone progress events, one event shape
+ * across providers, emitters that also write to PostHog/GA4. */
+const VIDEO_PILLARS = [
+  {
+    title: "Depth that survives scrubbing",
+    body: "percentWatched is the deepest point reached — monotonic, so skipping back and forth never inflates it.",
+  },
+  {
+    title: "Milestones fire once",
+    body: "video.progress lands a single event at 25, 50, 75, and 90 percent, alongside started, completed, and replay.",
+  },
+  {
+    title: "One event shape, any player",
+    body: "YouTube, Vimeo, and native <video> emit the same events, so journeys never care where the video lives.",
+  },
+  {
+    title: "Emitters, not lock-in",
+    body: "createHogsendEmitter feeds your journeys; the same interface writes to PostHog or GA4, or all of them combined.",
+  },
+];
+
+function PsVideo() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Hogsend Video</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Every video becomes an event stream.
+            </span>{" "}
+            <span className="text-white/40">
+              This player is @hogsend/video. Press play — the feed beside it is
+              the events it captures.
+            </span>
+          </h2>
+        </Reveal>
+
+        <Reveal delay={0.1} className="block">
           <ManifestoVideo />
         </Reveal>
+
+        <div className="mt-16 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+          {VIDEO_PILLARS.map((p) => (
+            <div key={p.title}>
+              <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                {p.title}
+              </h3>
+              <p className="mt-2 max-w-[300px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
+                {p.body}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-12 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Watch depth is a journey trigger like any other event — the
+            retargeting play in the playbook runs on it.
+          </p>
+          <Link
+            href="/docs/client-side/video"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the video docs →
+          </Link>
+        </div>
       </Container>
     </section>
   );
@@ -3399,6 +3480,7 @@ export default async function HomePage({
       )}
       <PsProofStrip />
       <PsManifesto />
+      <PsVideo />
       <PsProblem />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsFlags />
