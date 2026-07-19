@@ -32,8 +32,13 @@ import { getEngineVersion } from "@/lib/engine-version";
 import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
 import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
+import studioEvents from "@/public/images/studio/03-events-ingestion.png";
 import studioSends from "@/public/images/studio/04-sends-history.png";
+import studioTemplates from "@/public/images/studio/05-templates-catalog.png";
+import studioLinks from "@/public/images/studio/06-links-tracking.png";
+import studioCampaigns from "@/public/images/studio/07-campaigns-list.png";
 import studioJourneys from "@/public/images/studio/08-journeys-overview.png";
+import studioBuckets from "@/public/images/studio/09-buckets-audiences.png";
 import { AgentPromptLoop } from "./_components/agent-prompt-loop";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
@@ -49,6 +54,7 @@ import { ImpactReadout } from "./_components/impact-readout";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
+import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { TimingCard } from "./_components/timing-card";
 import { WordReveal } from "./_components/word-reveal";
 
@@ -945,41 +951,74 @@ function PsStudioDemo() {
           </span>
         </div>
 
-        {/* The Studio itself, framed as the window you're about to open. */}
-        <TrackDemoClick placement="home-demo-screenshot">
-          <a
-            href={DEMO_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-14 block overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl transition-colors hover:border-white/30"
-          >
-            <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
-              <div className="flex items-center gap-3">
-                <div aria-hidden="true" className="flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                </div>
-                <span className="font-mono text-white/40 text-[11px] tracking-wide">
-                  demo.hogsend.com/studio — Forgeline
-                </span>
-              </div>
-              <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
-                <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-                live
-              </span>
-            </div>
-            <Image
-              src={studioOverview}
-              alt="Hogsend Studio on the demo instance — Forgeline's overview"
-              className="w-full"
-            />
-          </a>
-        </TrackDemoClick>
+        {/* The Studio itself, framed as the window you're about to open —
+            thumbnails flip between the real views on the demo instance. */}
+        <StudioGallery shots={STUDIO_SHOTS} />
       </Container>
     </section>
   );
 }
+
+/** Real Studio views on the seeded Forgeline demo — paths match the SPA's
+ * TanStack routes (basepath /studio). */
+const STUDIO_SHOTS: StudioShot[] = [
+  {
+    key: "overview",
+    label: "Overview",
+    path: "/studio",
+    alt: "Hogsend Studio on the demo instance — Forgeline's overview",
+    image: studioOverview,
+  },
+  {
+    key: "journeys",
+    label: "Journeys",
+    path: "/studio/journeys",
+    alt: "Studio journeys — every run, wait, and branch observed live",
+    image: studioJourneys,
+  },
+  {
+    key: "sends",
+    label: "Sends",
+    path: "/studio/sends",
+    alt: "Studio sends — delivery, opens, and clicks per email",
+    image: studioSends,
+  },
+  {
+    key: "events",
+    label: "Events",
+    path: "/studio/events",
+    alt: "Studio events — the ingested event stream",
+    image: studioEvents,
+  },
+  {
+    key: "templates",
+    label: "Templates",
+    path: "/studio/templates",
+    alt: "Studio templates — the React Email catalog with previews",
+    image: studioTemplates,
+  },
+  {
+    key: "links",
+    label: "Links",
+    path: "/studio/links",
+    alt: "Studio links — tracked links, scans, and clicks",
+    image: studioLinks,
+  },
+  {
+    key: "campaigns",
+    label: "Campaigns",
+    path: "/studio/campaigns",
+    alt: "Studio campaigns — broadcasts and their stats",
+    image: studioCampaigns,
+  },
+  {
+    key: "buckets",
+    label: "Buckets",
+    path: "/studio/buckets",
+    alt: "Studio buckets — live audience membership",
+    image: studioBuckets,
+  },
+];
 
 /* ------------------------------------------------------------------ stats -- */
 
