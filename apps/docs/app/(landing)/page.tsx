@@ -4037,20 +4037,21 @@ export default async function HomePage({
           />
         </>
       )}
+      <PsProblem />
       <PsProofStrip />
       <PsManifesto />
-      <PsVideo />
-      <PsProblem />
       <PsBuildingBlocks />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
-      <PsFlags />
       <PsCode />
-      <PsEmailAnswers />
-      <PsImpact />
       <PsTiming />
       <PsAgents />
-      <PsDiscord />
       <PsUseCases />
+      {/* Feature deep-dive stack — video through links & QR, back to back. */}
+      <PsVideo />
+      <PsFlags />
+      <PsEmailAnswers />
+      <PsImpact />
+      <PsDiscord />
       <PsLinks />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
