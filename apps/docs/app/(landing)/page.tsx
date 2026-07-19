@@ -2230,6 +2230,294 @@ function PsDiscord() {
   );
 }
 
+/* -------------------------------------------------------- contact groups -- */
+
+/* Verbatim shipping API: @hogsend/js group()/capture (association-only) and
+   @hogsend/client groups.identify/addMember (secret-key writes). */
+const GROUPS_BROWSER_SAMPLE = `import { createHogsend } from "@hogsend/js";
+
+const hogsend = createHogsend({ apiUrl, publishableKey: "pk_…" });
+
+// Bill's session — tie him to the account
+hogsend.group("company", "acme.com");
+hogsend.group("team", "growth");
+
+// every capture now carries { company, team }
+hogsend.capture("feature_used");`;
+
+const GROUPS_SERVER_SAMPLE = `// server — the secret key writes properties
+await hogsend.groups.identify({
+  groupType: "company",
+  groupKey: "acme.com",
+  displayName: "Acme Inc",
+  properties: { plan: "scale", seats: 40 },
+});
+
+await hogsend.groups.addMember({
+  groupType: "company",
+  groupKey: "acme.com",
+  contactId: bill.id,
+  role: "admin",
+});`;
+
+const GROUPS_FEATURES: { title: string; body: string; token: string }[] = [
+  {
+    title: "Any shared entity",
+    body: "A group is a (type, key) pair — company acme.com, team growth, a household, an account. The first event creates it; no schema to migrate.",
+    token: '("company", "acme.com")',
+  },
+  {
+    title: "Standalone, DB-first",
+    body: "Groups, memberships, and the per-event association live in Hogsend's own tables. Works with zero analytics provider configured.",
+    token: "user_events.groups",
+  },
+  {
+    title: "PostHog for free",
+    body: "When PostHog is connected, associations forward as $groups on every mirrored capture and property writes call groupIdentify.",
+    token: "$groups",
+  },
+  {
+    title: "Browser associates, server writes",
+    body: "A publishable key can only attach a group to events. Group properties and memberships are secret-key writes, enforced at the route.",
+    token: "groups.identify()",
+  },
+];
+
+async function PsGroups() {
+  const browserNode = await CodeHighlight({
+    code: GROUPS_BROWSER_SAMPLE,
+    lang: "ts",
+  });
+  const serverNode = await CodeHighlight({
+    code: GROUPS_SERVER_SAMPLE,
+    lang: "ts",
+  });
+
+  return (
+    <section
+      id="groups"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Contact groups</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              Bill, Derek, and Bob all work at Acme.
+            </span>{" "}
+            <span className="text-white/40">
+              Hogsend can treat them as one account.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Contact groups roll individual activity up to the company, team, or
+            workspace it belongs to. One call associates a contact with a group;
+            every event they fire carries the association, membership accrues
+            automatically, and the account reads back as one entity in Studio.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
+            <div className="flex flex-col gap-5">
+              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
+                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
+                    browser — @hogsend/js
+                  </span>
+                  <CopyButton value={GROUPS_BROWSER_SAMPLE} />
+                </div>
+                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
+                  {browserNode}
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
+                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
+                    server — @hogsend/client
+                  </span>
+                  <CopyButton value={GROUPS_SERVER_SAMPLE} />
+                </div>
+                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
+                  {serverNode}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+              {GROUPS_FEATURES.map((f) => (
+                <div
+                  key={f.token}
+                  className="flex flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                >
+                  <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                    {f.title}
+                  </h3>
+                  <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                    {f.body}
+                  </p>
+                  <span className="mt-4 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]">
+                    {f.token}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Journeys are person-scoped today — group-level journeys are a later
+            phase, not a fine-print surprise.
+          </p>
+          <Link
+            href="/articles/hogsend-0-50-the-big-one"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            Read the 0.50 write-up →
+          </Link>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------- event plugins -- */
+
+/* Every entry below ships on main: engine webhook presets (stripe, clerk,
+   supabase, segment, intercom) or plugin packages (twilio, discord, telegram).
+   Event tokens are the literal names the source emits. */
+const SOURCE_CARDS: { title: string; body: string; tokens: string[] }[] = [
+  {
+    title: "Stripe",
+    body: "Customers fold into contacts; subscriptions and invoices arrive under their own names, signature-verified.",
+    tokens: ["subscription.*", "invoice.*"],
+  },
+  {
+    title: "Clerk",
+    body: "Sign-ups become contacts the moment they happen — waitlist joins included.",
+    tokens: ["user.created", "waitlist.joined"],
+  },
+  {
+    title: "Supabase",
+    body: "Auth users fold straight into contacts — create, update, delete.",
+    tokens: ["contact.created"],
+  },
+  {
+    title: "Segment",
+    body: "Already instrumented? track calls pass through under their own names; group calls write the company.",
+    tokens: ["track", "identify", "group"],
+  },
+  {
+    title: "Intercom & Fin",
+    body: "Support threads are lifecycle moments — react when Fin resolves a thread or a human escalates one.",
+    tokens: ["support.resolved", "support.escalated"],
+  },
+  {
+    title: "Twilio",
+    body: "Inbound SMS and delivery receipts, with STOP/START consent handled for you.",
+    tokens: ["sms.inbound", "sms.delivered"],
+  },
+  {
+    title: "Discord",
+    body: "Joins, messages, reactions, presence — community activity lands on the contact.",
+    tokens: ["discord.member_joined", "discord.reaction_added"],
+  },
+  {
+    title: "Telegram",
+    body: "A /start deep link folds the chat onto a contact; messages arrive as events.",
+    tokens: ["telegram.started", "telegram.message"],
+  },
+  {
+    title: "Your own app",
+    body: "Anything with a webhook: declare the auth header, validate with Zod, transform the payload to an event.",
+    tokens: ["defineWebhookSource()"],
+  },
+];
+
+function PsSources() {
+  return (
+    <section
+      id="sources"
+      className="relative border-[#f6483826] border-t overflow-hidden"
+    >
+      <PlusGrid className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Event plugins</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              People do more than click emails.
+            </span>{" "}
+            <span className="text-white/40">
+              Payments, sign-ups, support threads, SMS replies — all journey
+              triggers.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
+            Each source below ships in the engine or as a plugin and lands as a
+            first-class event — the same pipeline as your own hogsend.capture
+            calls. Any of them can trigger a journey, branch one mid-run, or
+            exit one.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {SOURCE_CARDS.map((s) => (
+              <div
+                key={s.title}
+                className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+              >
+                <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                  {s.title}
+                </h3>
+                <p className="mt-2 flex-1 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                  {s.body}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {s.tokens.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
+            Every preset is defineWebhookSource() under the hood — a source we
+            don&rsquo;t ship is a transform function away.
+          </p>
+          <Link
+            href="/integrations"
+            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
+          >
+            See all integrations →
+          </Link>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
 /* -------------------------------------------------- elephant in the room -- */
 
 const ELEPHANT_COLUMNS = [
@@ -2582,9 +2870,11 @@ const FEATURE_INDEX: Array<{ label: string; href: string }> = [
   { label: "Building blocks", href: "#building-blocks" },
   { label: "Video events", href: "#video" },
   { label: "Feature flags", href: "#flags" },
+  { label: "Contact groups", href: "#groups" },
   { label: "In-email answers", href: "#email-answers" },
   { label: "Links & QR", href: "#links" },
   { label: "Discord", href: "#discord" },
+  { label: "Event plugins", href: "#sources" },
   { label: "Impact experiments", href: "#experiments" },
   { label: "Digest & timing", href: "#timing" },
   { label: "Studio, live", href: "#live-demo" },
@@ -4327,9 +4617,11 @@ export default async function HomePage({
       {/* Feature deep-dive stack — video through timing, back to back. */}
       <PsVideo />
       <PsFlags />
+      <PsGroups />
       <PsEmailAnswers />
       <PsLinks />
       <PsDiscord />
+      <PsSources />
       <PsImpact />
       <PsTiming />
       <PsProductDemo />
