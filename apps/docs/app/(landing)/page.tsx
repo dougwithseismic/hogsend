@@ -2407,16 +2407,6 @@ const SOURCE_LOGOS: {
   { name: "Supabase", file: "supabase.svg", ratio: 1 },
   { name: "Segment", file: "segment.svg", ratio: 1 },
   { name: "Intercom & Fin", file: "intercom.svg", ratio: 1 },
-  { name: "Twilio", file: "twilio.svg", ratio: 1 },
-  { name: "Discord", file: "discord.svg", ratio: 1 },
-  { name: "Telegram", file: "telegram.svg", ratio: 1 },
-  { name: "PostHog", file: "posthog.svg", ratio: 1 },
-  { name: "Resend", file: "resend.svg", ratio: 1 },
-  { name: "Postmark", file: "postmark.svg", ratio: 1 },
-  { name: "HubSpot", file: "hubspot.svg", ratio: 1 },
-  { name: "Attio", file: "attio.svg", ratio: 103 / 26, wordmark: true },
-  { name: "HighLevel", file: "gohighlevel.svg", ratio: 15 / 23 },
-  { name: "Meta CAPI", file: "meta.svg", ratio: 1 },
   {
     name: "Vapi",
     file: "vapi.svg",
@@ -2424,6 +2414,11 @@ const SOURCE_LOGOS: {
     wordmark: true,
     soon: true,
   },
+  { name: "Twilio", file: "twilio.svg", ratio: 1 },
+  { name: "Discord", file: "discord.svg", ratio: 1 },
+  { name: "Telegram", file: "telegram.svg", ratio: 1 },
+  { name: "PostHog", file: "posthog.svg", ratio: 1 },
+  { name: "Resend", file: "resend.svg", ratio: 1 },
   {
     name: "Crisp",
     file: "crisp.svg",
@@ -2431,7 +2426,20 @@ const SOURCE_LOGOS: {
     wordmark: true,
     soon: true,
   },
+  { name: "Postmark", file: "postmark.svg", ratio: 1 },
+  { name: "HubSpot", file: "hubspot.svg", ratio: 1 },
+  { name: "Attio", file: "attio.svg", ratio: 103 / 26, wordmark: true },
+  { name: "HighLevel", file: "gohighlevel.svg", ratio: 15 / 23 },
+  { name: "Meta CAPI", file: "meta.svg", ratio: 1 },
   { name: "Slack", file: "slack.svg", ratio: 1, soon: true },
+];
+
+/* Three marquee lanes — roughly equal, "soon" entries spread across lanes so
+   no single lane reads as the graveyard. */
+const SOURCE_LANES = [
+  SOURCE_LOGOS.slice(0, 6),
+  SOURCE_LOGOS.slice(6, 12),
+  SOURCE_LOGOS.slice(12),
 ];
 
 /** A brand SVG painted as a flat silhouette via CSS mask (inherits color). */
@@ -2490,31 +2498,39 @@ function PsSources() {
         </Reveal>
 
         <Reveal delay={0.1} className="mt-14 block">
-          <ul className="flex max-w-[1000px] flex-wrap items-center gap-x-12 gap-y-8">
-            {SOURCE_LOGOS.map((l) => (
-              <li
-                key={l.name}
-                className={cn(
-                  "flex items-center gap-3",
-                  l.soon ? "text-white/30" : "text-white/75",
-                )}
-              >
-                <BrandMark file={l.file} ratio={l.ratio} />
-                {l.wordmark ? (
-                  <span className="sr-only">{l.name}</span>
-                ) : (
-                  <span className="text-[19px] tracking-[-0.02em]">
-                    {l.name}
+          <div className="flex flex-col gap-8">
+            {SOURCE_LANES.map((lane, i) => (
+              <LogoMarquee
+                // biome-ignore lint/suspicious/noArrayIndexKey: static lanes, order is stable
+                key={i}
+                items={lane.map((l) => (
+                  <span
+                    key={l.name}
+                    className={cn(
+                      "flex items-center gap-3",
+                      l.soon ? "text-white/30" : "text-white/75",
+                    )}
+                  >
+                    <BrandMark file={l.file} ratio={l.ratio} />
+                    {l.wordmark ? (
+                      <span className="sr-only">{l.name}</span>
+                    ) : (
+                      <span className="whitespace-nowrap text-[19px] tracking-[-0.02em]">
+                        {l.name}
+                      </span>
+                    )}
+                    {l.soon ? (
+                      <span className="font-mono text-[10px] text-white/30 uppercase tracking-wide">
+                        soon
+                      </span>
+                    ) : null}
                   </span>
-                )}
-                {l.soon ? (
-                  <span className="font-mono text-[10px] text-white/30 uppercase tracking-wide">
-                    soon
-                  </span>
-                ) : null}
-              </li>
+                ))}
+                durationSec={[44, 56, 50][i]}
+                reverse={i === 1}
+              />
             ))}
-          </ul>
+          </div>
         </Reveal>
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-3">

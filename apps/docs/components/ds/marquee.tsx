@@ -3,6 +3,10 @@ import { cn } from "@/lib/cn";
 type LogoMarqueeProps = {
   items: React.ReactNode[];
   className?: string;
+  /** Seconds per loop (default 36). Vary per lane for a layered feel. */
+  durationSec?: number;
+  /** Run right-to-left → left-to-right instead. */
+  reverse?: boolean;
 };
 
 /**
@@ -12,7 +16,12 @@ type LogoMarqueeProps = {
  *
  * Respects prefers-reduced-motion (global CSS pauses/limits animation).
  */
-export function LogoMarquee({ items, className }: LogoMarqueeProps) {
+export function LogoMarquee({
+  items,
+  className,
+  durationSec,
+  reverse,
+}: LogoMarqueeProps) {
   // Two copies of the track so the -50% translate wraps seamlessly. We mark
   // the duplicate aria-hidden so screen readers only announce one set.
   return (
@@ -49,7 +58,13 @@ export function LogoMarquee({ items, className }: LogoMarqueeProps) {
 }
 `}</style>
       <div className="hs-marquee-root">
-        <div className="hs-marquee-track">
+        <div
+          className="hs-marquee-track"
+          style={{
+            ...(durationSec ? { animationDuration: `${durationSec}s` } : null),
+            ...(reverse ? { animationDirection: "reverse" } : null),
+          }}
+        >
           {/* primary set */}
           <ul className="flex shrink-0 list-none items-center gap-12 pr-12">
             {items.map((item, i) => (
