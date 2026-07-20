@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, Plus, Shuffle, Trash2, Zap } from "lucide-react";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
 import { EventPicker } from "@/components/event-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -298,13 +299,22 @@ export function DebugDrawer({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="debug-user">User ID</Label>
+          <Label>User ID</Label>
           <div className="flex gap-2">
-            <Input
-              id="debug-user"
-              placeholder="test_user"
+            <ContactPicker
+              ariaLabel="User ID"
               value={userId}
-              onChange={(e) => setUserId(e.target.value)}
+              placeholder="test_user"
+              onChange={setUserId}
+              // Picking a real contact also fills the email (if empty), so
+              // the fired event folds onto the same identity.
+              onPick={(contact) => {
+                if (contact.email) {
+                  setUserEmail((prev) => prev || contact.email || "");
+                }
+              }}
+              className="flex-1"
+              allowCustom
             />
             <Button
               variant="outline"
@@ -319,13 +329,15 @@ export function DebugDrawer({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="debug-email">User email (optional)</Label>
-          <Input
-            id="debug-email"
-            type="email"
-            placeholder="you@example.com"
+          <Label>User email (optional)</Label>
+          <ContactPicker
+            ariaLabel="User email"
             value={userEmail}
-            onChange={(e) => setUserEmail(e.target.value)}
+            placeholder="you@example.com"
+            onChange={setUserEmail}
+            emit="email"
+            allowCustom
+            allowClear
           />
         </div>
 

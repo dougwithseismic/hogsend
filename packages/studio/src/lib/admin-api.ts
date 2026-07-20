@@ -947,7 +947,9 @@ export function listGroupMembers(
 
 export type Contact = {
   id: string;
-  externalId: string;
+  externalId: string | null;
+  /** Present on the admin list (serialized with includeAnonymousId). */
+  anonymousId?: string | null;
   email: string | null;
   properties: Record<string, unknown>;
   firstSeenAt: string;
@@ -972,6 +974,8 @@ export type ContactListFilters = {
   minRevenue?: number;
   /** Has a deal currently in this canonical stage. */
   dealStage?: string;
+  /** Server cap is 100; the contacts table default stays 50. */
+  limit?: number;
 };
 
 export function listContacts(filters: ContactListFilters = {}) {
@@ -985,9 +989,17 @@ export function listContacts(filters: ContactListFilters = {}) {
       search: filters.search || undefined,
       minRevenue: filters.minRevenue,
       dealStage: filters.dealStage || undefined,
-      limit: 50,
+      limit: filters.limit ?? 50,
     },
   });
+}
+
+/**
+ * The ingest-facing contact key — the same precedence `ingestEvent` and the
+ * admin event/send `userId` filters resolve against (exact match server-side).
+ */
+export function contactKey(contact: Contact): string {
+  return contact.externalId ?? contact.anonymousId ?? contact.id;
 }
 
 /** Per-currency revenue rollup over the contact's valued events. */

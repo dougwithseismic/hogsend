@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
 import {
   EmptyState,
   ErrorState,
@@ -217,12 +218,14 @@ export function SendsView() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-user">User ID</Label>
-          <Input
-            id="f-user"
-            placeholder="user id"
+          <Label>Person</Label>
+          <ContactPicker
+            ariaLabel="Person"
             value={filters.userId}
-            onChange={(e) => patch({ userId: e.target.value })}
+            placeholder="All people"
+            onChange={(userId) => patch({ userId })}
+            allowClear
+            allowCustom
           />
         </div>
         <div className="space-y-1.5">

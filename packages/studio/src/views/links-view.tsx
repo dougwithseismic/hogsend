@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { AlertTriangle, Copy, Link2, Pencil, Plus, QrCode } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
 import {
   EmptyState,
   ErrorState,
@@ -577,14 +578,14 @@ export function LinksView() {
               </span>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="link-distinct-id">
-                Recipient distinct ID (optional)
-              </Label>
-              <Input
-                id="link-distinct-id"
-                placeholder="user_123 or email"
+              <Label>Recipient distinct ID (optional)</Label>
+              <ContactPicker
+                ariaLabel="Recipient"
                 value={distinctId}
-                onChange={(e) => setDistinctId(e.target.value)}
+                placeholder="user_123 or email"
+                onChange={setDistinctId}
+                allowClear
+                allowCustom
               />
               <p className="text-white/40 text-xs">
                 Attaches this link's clicks to a known person. Ignored for
