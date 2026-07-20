@@ -2074,6 +2074,8 @@ export type TargetingCatalog = {
   dealStages: string[];
   events: TargetingEventName[];
   campaigns: TargetingIdName[];
+  /** Registered email template keys (older engines omit it). */
+  templates?: string[];
 };
 
 export function getTargetingCatalog() {
@@ -2256,6 +2258,8 @@ export type DealsStats = {
     averageOrderValue: number | null;
   }>;
   avgTimeToCloseHours: number | null;
+  /** Distinct deal providers in this funnel (older engines omit it). */
+  providers?: string[];
 };
 
 export function listDeals(filters: DealListFilters) {

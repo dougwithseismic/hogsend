@@ -1,5 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IdSelect } from "@/components/ui/id-select";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type {
@@ -413,7 +414,13 @@ function LeafInputs({
     case "event":
       return <EventInputs leaf={leaf} catalog={catalog} onChange={onChange} />;
     case "email_engagement":
-      return <EmailEngagementInputs leaf={leaf} onChange={onChange} />;
+      return (
+        <EmailEngagementInputs
+          leaf={leaf}
+          catalog={catalog}
+          onChange={onChange}
+        />
+      );
     default:
       return (
         <PropertyInputs leaf={leaf} catalog={catalog} onChange={onChange} />
@@ -442,46 +449,6 @@ function NegateSelect({
     >
       <option value="yes">{affirmative}</option>
       <option value="no">{negative}</option>
-    </Select>
-  );
-}
-
-/** A native select that always includes the current value as an option, so a
- * stored id/name that isn't in the (bounded) catalog still round-trips. */
-function IdSelect({
-  ariaLabel,
-  value,
-  options,
-  placeholder,
-  onChange,
-  className,
-}: {
-  ariaLabel: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  placeholder: string;
-  onChange: (next: string) => void;
-  className?: string;
-}) {
-  const known = options.some((o) => o.value === value);
-  return (
-    <Select
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={className}
-    >
-      {value === "" ? (
-        <option value="" disabled>
-          {placeholder}
-        </option>
-      ) : null}
-      {!known && value !== "" ? <option value={value}>{value}</option> : null}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
     </Select>
   );
 }
@@ -829,19 +796,25 @@ function EventInputs({
 
 function EmailEngagementInputs({
   leaf,
+  catalog,
   onChange,
 }: {
   leaf: FlagEmailEngagementCondition;
+  catalog?: TargetingCatalog;
   onChange: (next: FlagTargetingLeaf) => void;
 }) {
   return (
     <>
-      <Input
-        aria-label="Template key"
-        placeholder="template-key"
+      <IdSelect
+        ariaLabel="Template key"
         value={leaf.templateKey}
-        onChange={(e) => onChange({ ...leaf, templateKey: e.target.value })}
-        className="h-9 w-52 font-mono text-xs"
+        placeholder="Select a template"
+        options={(catalog?.templates ?? []).map((key) => ({
+          value: key,
+          label: key,
+        }))}
+        onChange={(templateKey) => onChange({ ...leaf, templateKey })}
+        className="w-52 font-mono text-xs"
       />
       <Select
         aria-label="Engagement check"

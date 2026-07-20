@@ -20,7 +20,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type EmailListFilters, listEmails, qk } from "@/lib/admin-api";
+import {
+  type EmailListFilters,
+  listEmails,
+  listJourneys,
+  listTemplates,
+  qk,
+} from "@/lib/admin-api";
 import { formatDateTime, truncate } from "@/lib/format";
 import { SendDetailDrawer } from "./sends/send-detail-drawer";
 
@@ -96,6 +102,18 @@ export function SendsView() {
     placeholderData: keepPreviousData,
   });
 
+  // Registered catalogs feed the template/journey filters — no free-typed ids.
+  const templatesQuery = useQuery({
+    queryKey: qk.templates,
+    queryFn: listTemplates,
+  });
+  const journeysQuery = useQuery({
+    queryKey: qk.journeys,
+    queryFn: listJourneys,
+  });
+  const templateKeys = templatesQuery.data?.templates ?? [];
+  const journeys = journeysQuery.data?.journeys ?? [];
+
   function patch(next: Partial<Filters>) {
     setFilters((prev) => ({ ...prev, ...next }));
     setOffset(0);
@@ -147,12 +165,18 @@ export function SendsView() {
       <div className="grid gap-3 rounded-lg border bg-white/[0.015] p-4 md:grid-cols-3 lg:grid-cols-4">
         <div className="space-y-1.5">
           <Label htmlFor="f-template">Template</Label>
-          <Input
+          <Select
             id="f-template"
-            placeholder="template key"
             value={filters.templateKey}
             onChange={(e) => patch({ templateKey: e.target.value })}
-          />
+          >
+            <option value="">All</option>
+            {templateKeys.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.key}
+              </option>
+            ))}
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="f-status">Status</Label>
@@ -185,13 +209,19 @@ export function SendsView() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-journey">Journey ID</Label>
-          <Input
+          <Label htmlFor="f-journey">Journey</Label>
+          <Select
             id="f-journey"
-            placeholder="journey id"
             value={filters.journeyId}
             onChange={(e) => patch({ journeyId: e.target.value })}
-          />
+          >
+            <option value="">All</option>
+            {journeys.map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.name}
+              </option>
+            ))}
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="f-user">User ID</Label>

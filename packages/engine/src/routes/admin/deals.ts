@@ -140,6 +140,8 @@ const statsSchema = z.object({
   ),
   /** Mean sold-deal cycle time in hours (created → soldAt), lifetime. */
   avgTimeToCloseHours: z.number().nullable(),
+  /** Distinct deal providers in this funnel — the list filter's vocabulary. */
+  providers: z.array(z.string()),
 });
 
 const statsRoute = createRoute({
@@ -389,39 +391,45 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
       Date.now() - 30 * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    const [stageRows, rankRows, currencyRows, cycleRows] = await Promise.all([
-      db
-        .select({ stage: deals.canonicalStage, n: count() })
-        .from(deals)
-        .where(scopeWhere)
-        .groupBy(deals.canonicalStage),
-      db
-        .select({ rank: deals.stageRank, n: count() })
-        .from(deals)
-        .where(scopeWhere)
-        .groupBy(deals.stageRank),
-      db
-        .select({
-          currency: deals.currency,
-          soldRevenue30d: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} >= ${thirtyDaysAgo}::timestamptz), 0)::float8`,
-          soldRevenueLifetime: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} is not null), 0)::float8`,
-          soldCount30d: sql<number>`count(*) filter (where ${deals.soldAt} >= ${thirtyDaysAgo}::timestamptz)::int`,
-          soldCountLifetime: sql<number>`count(*) filter (where ${deals.soldAt} is not null)::int`,
-          openPipelineValue: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} is null and ${deals.canonicalStage} != 'lost'), 0)::float8`,
-          openPipelineCount: sql<number>`count(*) filter (where ${deals.soldAt} is null and ${deals.canonicalStage} != 'lost')::int`,
-        })
-        .from(deals)
-        .where(scopeWhere)
-        .groupBy(deals.currency),
-      db
-        .select({
-          avgHours: sql<
-            number | null
-          >`avg(extract(epoch from (${deals.soldAt} - ${deals.createdAt})) / 3600)::float8`,
-        })
-        .from(deals)
-        .where(and(sql`${deals.soldAt} is not null`, ...scope)),
-    ]);
+    const [stageRows, rankRows, currencyRows, cycleRows, providerRows] =
+      await Promise.all([
+        db
+          .select({ stage: deals.canonicalStage, n: count() })
+          .from(deals)
+          .where(scopeWhere)
+          .groupBy(deals.canonicalStage),
+        db
+          .select({ rank: deals.stageRank, n: count() })
+          .from(deals)
+          .where(scopeWhere)
+          .groupBy(deals.stageRank),
+        db
+          .select({
+            currency: deals.currency,
+            soldRevenue30d: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} >= ${thirtyDaysAgo}::timestamptz), 0)::float8`,
+            soldRevenueLifetime: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} is not null), 0)::float8`,
+            soldCount30d: sql<number>`count(*) filter (where ${deals.soldAt} >= ${thirtyDaysAgo}::timestamptz)::int`,
+            soldCountLifetime: sql<number>`count(*) filter (where ${deals.soldAt} is not null)::int`,
+            openPipelineValue: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.soldAt} is null and ${deals.canonicalStage} != 'lost'), 0)::float8`,
+            openPipelineCount: sql<number>`count(*) filter (where ${deals.soldAt} is null and ${deals.canonicalStage} != 'lost')::int`,
+          })
+          .from(deals)
+          .where(scopeWhere)
+          .groupBy(deals.currency),
+        db
+          .select({
+            avgHours: sql<
+              number | null
+            >`avg(extract(epoch from (${deals.soldAt} - ${deals.createdAt})) / 3600)::float8`,
+          })
+          .from(deals)
+          .where(and(sql`${deals.soldAt} is not null`, ...scope)),
+        db
+          .selectDistinct({ provider: deals.provider })
+          .from(deals)
+          .where(scopeWhere)
+          .orderBy(asc(deals.provider)),
+      ]);
 
     const stageOrder = [...ladder.stages, "lost"];
     const stages: Record<string, number> = {};
@@ -466,6 +474,7 @@ export const adminDealsRouter = new OpenAPIHono<AppEnv>()
           }))
           .sort((a, b) => b.soldRevenueLifetime - a.soldRevenueLifetime),
         avgTimeToCloseHours: cycleRows[0]?.avgHours ?? null,
+        providers: providerRows.map((row) => row.provider),
       },
       200,
     );

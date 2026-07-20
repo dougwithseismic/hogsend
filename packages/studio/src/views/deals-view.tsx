@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { IdSelect } from "@/components/ui/id-select";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -36,6 +37,7 @@ import {
   getConversionTiming,
   getDealsStats,
   getDealsTimeseries,
+  getTargetingCatalog,
   listConversions,
   listDeals,
   qk,
@@ -80,6 +82,12 @@ function fillDays(
   }
   return out;
 }
+
+// "events" is the engine's synthetic provider for deals minted by funnel
+// event triggers (server-side sources — browser `inapp` is denied by
+// default, so don't gloss it as "in-app").
+const providerLabel = (provider: string) =>
+  provider === "events" ? "Product events" : provider;
 
 const DISPATCH_DOT: Record<string, string> = {
   delivered: "#4ade80",
@@ -343,10 +351,12 @@ function ContactCell({
 
 function DealsTable({
   stages,
+  providers,
   funnel,
   onOpenContact,
 }: {
   stages: string[];
+  providers: string[];
   funnel?: string;
   onOpenContact: (contactId: string) => void;
 }) {
@@ -431,13 +441,8 @@ function DealsTable({
       key: "provider",
       label: "Provider",
       sort: "provider",
-      // "events" is the engine's synthetic provider for deals minted by
-      // funnel event triggers (server-side sources — browser `inapp` is
-      // denied by default, so don't gloss it as "in-app").
       render: (deal) => (
-        <span className="text-white/60">
-          {deal.provider === "events" ? "Product events" : deal.provider}
-        </span>
+        <span className="text-white/60">{providerLabel(deal.provider)}</span>
       ),
     },
     {
@@ -542,15 +547,23 @@ function DealsTable({
             ))}
           </Select>
         </div>
-        <Input
-          className="w-36"
-          placeholder="Provider"
-          value={provider}
-          onChange={(e) => {
-            setProvider(e.target.value);
-            setOffset(0);
-          }}
-        />
+        <div className="w-44">
+          <Select
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value);
+              setOffset(0);
+            }}
+            aria-label="Filter by provider"
+          >
+            <option value="">All providers</option>
+            {providers.map((p) => (
+              <option key={p} value={p}>
+                {providerLabel(p)}
+              </option>
+            ))}
+          </Select>
+        </div>
         <Input
           className="w-32"
           placeholder="Min value"
@@ -1159,7 +1172,6 @@ const TIMING_BUCKETS: Array<{
 function TimingPanel() {
   const [definitionId, setDefinitionId] = useState("");
   const [anchorType, setAnchorType] = useState<TimingAnchorType>("journey");
-  const [anchorInput, setAnchorInput] = useState("");
   const [anchorId, setAnchorId] = useState("");
 
   const statsQuery = useQuery({
@@ -1168,21 +1180,31 @@ function TimingPanel() {
   });
   const definitions = statsQuery.data?.definitions ?? [];
 
+  // Registered journeys + observed/declared event names — the anchor is
+  // always a pick from these catalogs, never free-typed.
+  const catalogQuery = useQuery({
+    queryKey: qk.targetingCatalog,
+    queryFn: getTargetingCatalog,
+  });
+  const anchorOptions =
+    anchorType === "journey"
+      ? (catalogQuery.data?.journeys ?? []).map((j) => ({
+          value: j.id,
+          label: j.name,
+        }))
+      : (catalogQuery.data?.events ?? []).map((ev) => ({
+          value: ev.name,
+          label: ev.name,
+        }));
+
   // Default to the first conversion point once the catalog loads, so the
-  // controls arrive pre-filled and only the anchor is left to type.
+  // controls arrive pre-filled and only the anchor is left to pick.
   useEffect(() => {
     const first = definitions[0];
     if (!definitionId && first) {
       setDefinitionId(first.definitionId);
     }
   }, [definitionId, definitions]);
-
-  // Debounce the free-typed anchor (journey id or event name) so we don't
-  // refire on every keystroke.
-  useEffect(() => {
-    const t = window.setTimeout(() => setAnchorId(anchorInput.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [anchorInput]);
 
   const ready = definitionId !== "" && anchorId !== "";
   const query = useQuery({
@@ -1226,18 +1248,27 @@ function TimingPanel() {
         <div className="w-32">
           <Select
             value={anchorType}
-            onChange={(e) => setAnchorType(e.target.value as TimingAnchorType)}
+            onChange={(e) => {
+              setAnchorType(e.target.value as TimingAnchorType);
+              // Journey ids and event names are different vocabularies — a
+              // stale anchor from the other type would just 0-match.
+              setAnchorId("");
+            }}
             aria-label="Anchor on"
           >
             <option value="journey">Journey</option>
             <option value="event">Event</option>
           </Select>
         </div>
-        <Input
+        <IdSelect
+          ariaLabel={anchorType === "journey" ? "Journey" : "Event"}
+          value={anchorId}
+          placeholder={
+            anchorType === "journey" ? "Select a journey" : "Select an event"
+          }
+          options={anchorOptions}
+          onChange={setAnchorId}
           className="w-64"
-          placeholder={anchorType === "journey" ? "Journey id" : "Event name"}
-          value={anchorInput}
-          onChange={(e) => setAnchorInput(e.target.value)}
         />
         <span className="ml-auto text-xs text-white/40">
           Last {TIMING_DAYS} days · correlational
@@ -1256,7 +1287,7 @@ function TimingPanel() {
       ) : data && data.anchored === 0 ? (
         <EmptyState
           title="Nobody anchored in the window"
-          description={`No ${anchorType === "journey" ? "enrollments" : "events"} matched "${anchorId}" in the last ${TIMING_DAYS} days. Check the ${anchorType === "journey" ? "journey id" : "event name"}.`}
+          description={`No ${anchorType === "journey" ? "enrollments" : "events"} matched "${anchorId}" in the last ${TIMING_DAYS} days. Pick another ${anchorType === "journey" ? "journey" : "event"}.`}
         />
       ) : data ? (
         <>
@@ -1592,6 +1623,7 @@ export function DealsView() {
         <DealsTable
           key={funnel ?? statsQuery.data?.funnelId ?? "default"}
           stages={stageOrder}
+          providers={statsQuery.data?.providers ?? []}
           funnel={funnel ?? statsQuery.data?.funnelId ?? "default"}
           onOpenContact={setOpenContactId}
         />

@@ -1,5 +1,6 @@
 import { CANONICAL_STAGES, flagTargetingSchema } from "@hogsend/core";
 import { campaigns, contacts } from "@hogsend/db";
+import { getTemplateNames } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
@@ -93,6 +94,7 @@ const catalogSchema = z.object({
   dealStages: z.array(z.string()),
   events: z.array(eventNameEntrySchema),
   campaigns: z.array(idNameSchema),
+  templates: z.array(z.string()),
 });
 
 const catalogRoute = createRoute({
@@ -146,7 +148,7 @@ const countRoute = createRoute({
 
 export const targetingRouter = new OpenAPIHono<AppEnv>()
   .openapi(catalogRoute, async (c) => {
-    const { db, registry, bucketRegistry } = c.get("container");
+    const { db, registry, bucketRegistry, templates } = c.get("container");
 
     // Distinct top-level property keys across a bounded SAMPLE of the most
     // recently-updated live contacts, sorted + capped. Sampling first (inner
@@ -191,6 +193,7 @@ export const targetingRouter = new OpenAPIHono<AppEnv>()
         dealStages: DEAL_STAGES,
         events: events.events,
         campaigns: campaignRows,
+        templates: getTemplateNames(templates),
       },
       200,
     );
