@@ -1,6 +1,19 @@
 import { contacts, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  max,
+  min,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import type { HogsendClient } from "../../container.js";
 import {
@@ -169,6 +182,59 @@ const namesRoute = createRoute({
   },
 });
 
+/**
+ * One-line explanations for the engine-stamped ingest origins, so the Studio
+ * source picker can say what a source IS rather than just echo its slug.
+ * Anything not listed here and not a registered connector is "observed" —
+ * sources are an open vocabulary exactly like event names.
+ */
+const BUILTIN_SOURCES: Record<string, string> = {
+  api: "Server-side ingest — the secret-key /v1/events endpoint and SDKs.",
+  inapp: "Browser SDK ingest (publishable key).",
+  studio: "Fired from the Studio (debug drawer, admin tools).",
+  journey: "Emitted by a journey via ctx.trigger().",
+  connector: "Inbound connector engagement (Discord, Telegram, …).",
+  tracking: "First-party email tracking — opens, clicks, semantic actions.",
+  bucket: "Bucket entry/exit transitions.",
+  import: "Contact import jobs.",
+  sms: "SMS pipeline — delivery status, link clicks, inbound messages.",
+};
+
+const sourceEntrySchema = z.object({
+  name: z.string(),
+  occurrences: z.number(),
+  firstSeenAt: z.string().nullable(),
+  lastSeenAt: z.string().nullable(),
+  // "connector" = a registered inbound connector (label = its display name),
+  // "builtin" = an engine-stamped origin (label = what it means),
+  // "observed" = seen in the event store but not otherwise known.
+  kind: z.enum(["connector", "builtin", "observed"]),
+  label: z.string().nullable(),
+});
+
+const sourcesRoute = createRoute({
+  method: "get",
+  path: "/sources",
+  tags: ["Admin — Events"],
+  summary: "List event sources (observed + registered)",
+  description:
+    "Best-effort source vocabulary for the events filter. Merges sources " +
+    "actually observed on stored events (with occurrence counts and " +
+    "first/last seen) with registered inbound connectors that haven't " +
+    "fired yet (zero-backfilled). Sources are an open vocabulary — any " +
+    "other value is also valid.",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ sources: z.array(sourceEntrySchema) }),
+        },
+      },
+      description: "Merged observed + registered source vocabulary",
+    },
+  },
+});
+
 const exitSchema = z.object({
   journeyId: z.string(),
   stateId: z.string(),
@@ -291,6 +357,67 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
       limit,
     });
     return c.json({ note, events }, 200);
+  })
+  // Registered before getRoute so the literal "sources" is never captured as
+  // an {id}. One grouped scan over the indexed source column (sources number
+  // in the dozens at most), then registered-connector + builtin labeling.
+  .openapi(sourcesRoute, async (c) => {
+    const container = c.get("container");
+    const { db } = container;
+
+    const observed = await db
+      .select({
+        name: userEvents.source,
+        occurrences: count(),
+        firstSeenAt: min(userEvents.occurredAt),
+        lastSeenAt: max(userEvents.occurredAt),
+      })
+      .from(userEvents)
+      .where(isNotNull(userEvents.source))
+      .groupBy(userEvents.source)
+      .orderBy(desc(count()));
+
+    const connectors = new Map(
+      container.connectorRegistry
+        .getAll()
+        .map((conn) => [conn.meta.id, conn.meta.name ?? conn.meta.id]),
+    );
+
+    const entries = observed
+      .filter((row) => row.name !== null)
+      .map((row) => {
+        const name = row.name as string;
+        const connectorLabel = connectors.get(name);
+        return {
+          name,
+          occurrences: row.occurrences,
+          firstSeenAt: row.firstSeenAt?.toISOString() ?? null,
+          lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+          kind: connectorLabel
+            ? ("connector" as const)
+            : BUILTIN_SOURCES[name]
+              ? ("builtin" as const)
+              : ("observed" as const),
+          label: connectorLabel ?? BUILTIN_SOURCES[name] ?? null,
+        };
+      });
+
+    // Zero-backfill registered connectors that haven't fired yet, so a
+    // freshly-wired source is pickable before its first event arrives.
+    const seen = new Set(entries.map((e) => e.name));
+    for (const [id, label] of connectors) {
+      if (seen.has(id)) continue;
+      entries.push({
+        name: id,
+        occurrences: 0,
+        firstSeenAt: null,
+        lastSeenAt: null,
+        kind: "connector" as const,
+        label,
+      });
+    }
+
+    return c.json({ sources: entries }, 200);
   })
   .openapi(getRoute, async (c) => {
     const { db } = c.get("container");
