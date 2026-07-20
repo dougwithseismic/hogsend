@@ -12,7 +12,37 @@ import {
 import { type ReactNode, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { EmailPane } from "./email-preview";
-import type { EmailPreview } from "./minted-files";
+import type { EmailPreview, SurfacePreview } from "./minted-files";
+import { SurfacePane } from "./surface-preview";
+
+type FileNote = { title: string; body: string; tags?: string[] };
+
+/** Fallback corner pane — "say stuff about it in the bottom right": what the
+ *  file is, in one line, plus the capability tags. */
+function NotePane({ note }: { note: FileNote }) {
+  return (
+    <div className="px-4 py-3.5">
+      <p className="font-medium text-[13.5px] text-white/90 leading-[1.3]">
+        {note.title}
+      </p>
+      <p className="mt-2 text-[12px] text-white/55 leading-[1.55]">
+        {note.body}
+      </p>
+      {note.tags?.length ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {note.tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-0.5 font-mono text-[10px] text-white/55"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /* ==========================================================================
  *  The scaffold explorer — an IDE-shaped window that walks the app
@@ -30,6 +60,8 @@ export type ExplorerFile = {
   path: string;
   email?: EmailPreview;
   timing?: boolean;
+  surface?: SurfacePreview;
+  note?: FileNote;
 };
 
 export type ExplorerRecipe = { label: string; path: string };
@@ -217,6 +249,44 @@ export function ScaffoldExplorer({
   const tree = useMemo(() => buildTree(files), [files]);
   const activeFile = files.find((f) => f.path === active);
 
+  // Every file describes itself in the corner: a rendered email, the surface
+  // it delivers (Discord/Telegram/Slack), the schedule it resolves, or a
+  // plain "what this is" note.
+  const pane: {
+    hint: string;
+    title: string;
+    tag: string;
+    body: ReactNode;
+  } | null = activeFile?.email
+    ? {
+        hint: "renders → preview",
+        title: active.split("/").pop() ?? "",
+        tag: "rendered",
+        body: <EmailPane email={activeFile.email} />,
+      }
+    : activeFile?.surface
+      ? {
+          hint: `delivers → ${activeFile.surface.kind}`,
+          title: `${activeFile.surface.kind} message`,
+          tag: "delivered",
+          body: <SurfacePane surface={activeFile.surface} />,
+        }
+      : activeFile?.timing
+        ? {
+            hint: "resolves → schedule",
+            title: "ctx.when",
+            tag: "schedule",
+            body: <TimingPane />,
+          }
+        : activeFile?.note
+          ? {
+              hint: "what this is",
+              title: activeFile.note.title,
+              tag: "about",
+              body: <NotePane note={activeFile.note} />,
+            }
+          : null;
+
   const toggleFolder = (folderPath: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -326,13 +396,9 @@ export function ScaffoldExplorer({
               <span className="truncate font-mono text-[11px] text-white/45">
                 {active}
               </span>
-              {activeFile?.email ? (
+              {pane ? (
                 <span className="shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em]">
-                  renders → preview
-                </span>
-              ) : activeFile?.timing ? (
-                <span className="shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em]">
-                  resolves → schedule
+                  {pane.hint}
                 </span>
               ) : null}
             </div>
@@ -344,44 +410,34 @@ export function ScaffoldExplorer({
               {highlighted[active] ?? null}
             </div>
 
-            {/* corner preview window — rendered email or resolved schedule */}
-            {activeFile?.email || activeFile?.timing ? (
+            {/* corner window — email / surface / schedule / note, per file */}
+            {pane ? (
               <div
                 key={`${active}-preview`}
                 className="scaffold-preview-in absolute right-4 bottom-4 hidden w-[320px] overflow-hidden rounded-lg border border-white/[0.12] bg-[var(--tw-ink-high)] shadow-[0_24px_60px_rgba(0,0,0,0.55)] lg:block"
               >
                 <div className="flex items-center justify-between border-white/[0.08] border-b px-3.5 py-2">
                   <span className="truncate font-mono text-[10.5px] text-white/60">
-                    {activeFile.email ? active.split("/").pop() : "ctx.when"}
+                    {pane.title}
                   </span>
                   <span className="shrink-0 font-mono text-[9.5px] text-white/35 uppercase tracking-[0.08em]">
-                    {activeFile.email ? "rendered" : "schedule"}
+                    {pane.tag}
                   </span>
                 </div>
-                <div className="max-h-[300px] overflow-auto [scrollbar-width:thin]">
-                  {activeFile.email ? (
-                    <EmailPane email={activeFile.email} />
-                  ) : (
-                    <TimingPane />
-                  )}
+                <div className="max-h-[320px] overflow-auto [scrollbar-width:thin]">
+                  {pane.body}
                 </div>
               </div>
             ) : null}
           </div>
 
-          {/* small-screen preview — below the code, not floating */}
-          {activeFile?.email || activeFile?.timing ? (
+          {/* small-screen pane — below the code, not floating */}
+          {pane ? (
             <div className="border-white/[0.07] border-t lg:hidden">
               <div className="px-4 py-2 font-mono text-[10px] text-white/35 uppercase tracking-[0.08em]">
-                {activeFile.email ? "Rendered" : "Schedule"}
+                {pane.tag}
               </div>
-              <div className="max-h-[280px] overflow-auto">
-                {activeFile.email ? (
-                  <EmailPane email={activeFile.email} />
-                ) : (
-                  <TimingPane />
-                )}
-              </div>
+              <div className="max-h-[300px] overflow-auto">{pane.body}</div>
             </div>
           ) : null}
         </div>

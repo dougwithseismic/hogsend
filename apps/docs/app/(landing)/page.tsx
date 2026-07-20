@@ -717,8 +717,31 @@ const EXPLORER_RECIPES = [
     label: "Discord summon",
     path: "hogsend/src/journeys/marketing/event-summon.ts",
   },
+  {
+    label: "Discord DM",
+    path: "hogsend/src/journeys/lifecycle/discord-welcome.ts",
+  },
+  {
+    label: "Telegram",
+    path: "hogsend/src/journeys/lifecycle/telegram-nudge.ts",
+  },
+  { label: "SMS", path: "hogsend/src/journeys/lifecycle/cart-reminder.ts" },
+  {
+    label: "Slack approval",
+    path: "hogsend/src/journeys/lifecycle/approval-gate.ts",
+  },
+  { label: "Experiments", path: "hogsend/src/journeys/product/experiments.ts" },
+  { label: "Buckets", path: "hogsend/src/buckets/went-dormant.ts" },
+  { label: "Flags", path: "hogsend/src/flags.ts" },
+  { label: "Groups", path: "api/src/routes/groups.ts" },
+  { label: "Destinations", path: "hogsend/src/destinations/crm.ts" },
+  { label: "Webhook sources", path: "hogsend/src/webhook-sources/billing.ts" },
+  { label: "Links & QR", path: "hogsend/scripts/event-qr.sh" },
+  { label: "Broadcasts", path: "api/src/campaigns/march-launch.ts" },
   { label: "Backend API", path: "api/src/routes/signup.ts" },
   { label: "React hooks", path: "web/src/components/paywall.tsx" },
+  { label: "Video", path: "web/src/components/lesson-player.tsx" },
+  { label: "Agents & MCP", path: ".mcp.json" },
 ];
 
 function PsProblem() {
@@ -775,11 +798,15 @@ function PsProblem() {
             }}
           />
           <ScaffoldExplorer
-            files={SCAFFOLD_FILES.map(({ path, email, timing }) => ({
-              path,
-              email,
-              timing,
-            }))}
+            files={SCAFFOLD_FILES.map(
+              ({ path, email, timing, surface, note }) => ({
+                path,
+                email,
+                timing,
+                surface,
+                note,
+              }),
+            )}
             recipes={EXPLORER_RECIPES}
             highlighted={Object.fromEntries(
               SCAFFOLD_FILES.map((f) => [
@@ -3198,7 +3225,7 @@ const BLOCK_MCP = `{
 
 /** The homepage BuildingBlocks showcase, re-set light: a vertical tab rail
  * over real-code panels (async Shiki nodes composed into the client tabs). */
-async function PsBuildingBlocks() {
+async function _PsBuildingBlocks() {
   const [
     journeyMedia,
     waitMedia,
@@ -4687,7 +4714,6 @@ export default async function HomePage({
       <PsAgents />
       <PsUseCases />
       <PsFeatureIndex engineVersion={engineVersion} />
-      <PsBuildingBlocks />
       {/* Feature deep-dive stack — video through timing, back to back. */}
       <PsVideo />
       <PsFlags />

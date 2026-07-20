@@ -1,4 +1,4 @@
-import type { EmailPreview } from "./minted-files";
+import type { EmailPreview, SurfacePreview } from "./minted-files";
 
 /* ==========================================================================
  *  The scaffolded workspace the homepage explorer walks through — a small
@@ -16,14 +16,24 @@ import type { EmailPreview } from "./minted-files";
  *  corner window beside the code.
  * ========================================================================== */
 
+/** The corner pane that describes a file — "say stuff about it in the
+ *  bottom right". Rendered for capability files that don't ship an email or a
+ *  connector surface. */
+export type FileNote = { title: string; body: string; tags?: string[] };
+
 export type ScaffoldFile = {
   path: string;
-  lang: "ts" | "tsx" | "ini" | "bash";
+  lang: "ts" | "tsx" | "ini" | "bash" | "json";
   source: string;
   /** When present, the explorer floats the rendered email beside the code. */
   email?: EmailPreview;
   /** When true, the explorer floats the timezone schedule readout instead. */
   timing?: boolean;
+  /** When present, floats what actually lands — a Discord/Telegram/Slack/bell
+   *  card — the way the hero mints connector surfaces. */
+  surface?: SurfacePreview;
+  /** Fallback corner pane: a short "what this is" note with capability tags. */
+  note?: FileNote;
 };
 
 /* ---- email factory: one definition renders both the source shown in the
@@ -392,6 +402,228 @@ export const silverMedalist = defineJourney({
 });`,
   },
 
+  {
+    path: "hogsend/src/journeys/product/experiments.ts",
+    lang: "ts",
+    note: {
+      title: "A/B arms inside the journey",
+      body: "ctx.variant picks a deterministic arm per user — recorded on the first pass and replayed verbatim across redeploys. No RNG, no drift, no external experiment tool.",
+      tags: ["Deterministic", "Replay-safe", "No RNG"],
+    },
+    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const welcomeExperiment = defineJourney({
+  meta: { id: "welcome-experiment", trigger: { event: "user.signed_up" } },
+  run: async (user, ctx) => {
+    // Deterministic per user — recorded on first pass,
+    // replayed verbatim across redeploys. No RNG, no drift.
+    const arm = await ctx.variant("welcome-subject", ["setup", "outcome"]);
+
+    await sendEmail({
+      to: user.email,
+      template: arm === "setup" ? "welcome" : "first-win",
+    });
+  },
+});`,
+  },
+
+  /* ---- journeys/lifecycle — the multi-channel reaches --------------------- */
+  {
+    path: "hogsend/src/journeys/lifecycle/discord-welcome.ts",
+    lang: "ts",
+    surface: {
+      kind: "discord",
+      from: "my-app",
+      meta: "just now",
+      body: "Your seat is ready — see you in #welcome 👋 Reply here any time; a human reads these.",
+      trigger: 'sendConnectorAction({ connectorId: "discord" })',
+    },
+    note: {
+      title: "Reach them where they hang out",
+      body: "DM on Discord, gated on the member's channel preference. A closed DM is a soft failure (delivered: false), never a crash.",
+      tags: ["Discord DM", "Preference-gated", "Soft-fail"],
+    },
+    source: `import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+
+export const discordWelcome = defineJourney({
+  meta: { id: "discord-welcome", trigger: { event: "discord.member_joined" } },
+  run: async (user) => {
+    // DM them where they actually are — gated on the member's
+    // channel preference. A closed DM is a soft failure
+    // (delivered: false), never a crash.
+    await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: {
+        member: user.email,
+        content: "Your seat is ready — see you in #welcome.",
+      },
+    });
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/journeys/lifecycle/telegram-nudge.ts",
+    lang: "ts",
+    surface: {
+      kind: "telegram",
+      from: "my-app bot",
+      meta: "just now",
+      body: "Left something in your cart? It's still yours — tap to pick up where you left off.",
+      trigger: 'sendConnectorAction({ connectorId: "telegram" })',
+    },
+    note: {
+      title: "Same helper, Telegram",
+      body: "The connector contract is channel-neutral — swap discord for telegram and the journey code is otherwise identical. Both replay-safe under the same key kind.",
+      tags: ["Telegram DM", "Channel-neutral", "One contract"],
+    },
+    source: `import { hours } from "@hogsend/core";
+import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+
+export const telegramNudge = defineJourney({
+  meta: { id: "telegram-nudge", trigger: { event: "cart.abandoned" } },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(3), label: "cool-off" });
+
+    // Same call shape as Discord — only the connectorId changes.
+    await sendConnectorAction({
+      connectorId: "telegram",
+      action: "dmMember",
+      args: {
+        member: String(user.properties.telegramChatId),
+        content: "Left something in your cart? Tap to pick up where you left off.",
+      },
+    });
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/journeys/lifecycle/cart-reminder.ts",
+    lang: "ts",
+    note: {
+      title: "Texts with the same guardrails",
+      body: "SMS is additive — no number, no send. Marketing texts fail closed without explicit consent, and the STOP list is checked on every send.",
+      tags: ["TCPA consent", "STOP list", "E.164 only"],
+    },
+    source: `import { defineJourney, sendSms } from "@hogsend/engine";
+import { isE164 } from "@hogsend/core";
+
+export const cartReminder = defineJourney({
+  meta: { id: "cart-reminder", trigger: { event: "cart.abandoned" } },
+  run: async (user) => {
+    const phone = String(user.properties.phone ?? "");
+    // SMS is additive — no number, no send.
+    if (!isE164(phone)) return;
+
+    // Marketing SMS fails closed without explicit consent;
+    // the STOP list is checked on every send.
+    await sendSms({ to: phone, userId: user.id, template: "cart-reminder" });
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/journeys/lifecycle/approval-gate.ts",
+    lang: "ts",
+    surface: {
+      kind: "slack",
+      from: "Hogsend",
+      meta: "#approvals",
+      body: "Enterprise trial started: acme.com (42 seats). Approve the white-glove onboarding sequence?",
+      actions: ["Approve", "Skip"],
+      trigger: "ctx.waitForEvent({ event: 'approval.decided' })",
+    },
+    note: {
+      title: "A human in the loop",
+      body: "Post to Slack, then durably wait for the click. The journey parks for as long as it takes — the approval is just another event it waits on.",
+      tags: ["Slack approval", "Durable wait", "Human gate"],
+    },
+    source: `import { days } from "@hogsend/core";
+import { defineJourney, sendConnectorAction, sendEmail } from "@hogsend/engine";
+
+export const approvalGate = defineJourney({
+  meta: { id: "approval-gate", trigger: { event: "trial.enterprise" } },
+  run: async (user, ctx) => {
+    await sendConnectorAction({
+      connectorId: "slack",
+      action: "sendChannelMessage",
+      args: { channel: "#approvals", content: \`Approve white-glove for \${user.email}?\` },
+    });
+
+    // Park durably until a human clicks Approve — or a day passes.
+    const { timedOut } = await ctx.waitForEvent({
+      event: "approval.decided",
+      timeout: days(1),
+    });
+
+    if (!timedOut) await sendEmail({ to: user.email, template: "welcome" });
+  },
+});`,
+  },
+
+  /* ---- buckets, flags, destinations — the standing definitions ------------ */
+  {
+    path: "hogsend/src/buckets/went-dormant.ts",
+    lang: "ts",
+    note: {
+      title: "Live groups of people",
+      body: "A bucket is a saved, always-current segment. Entering or leaving it is an event — so a bucket can trigger a journey the moment someone goes quiet.",
+      tags: ["Time-based", "Entry = trigger", "Composable criteria"],
+    },
+    source: `import { days, defineBucket } from "@hogsend/engine";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        b.event("app.active").exists(),
+        b.event("app.active").within(days(7)).notExists(),
+      ),
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/flags.ts",
+    lang: "ts",
+    note: {
+      title: "Flags defined next to the journeys",
+      body: "Feature flags live in your repo — typed, reviewed, deployed. The React hook is the same shape as PostHog's, so a typo'd key won't compile.",
+      tags: ["Typed keys", "In-repo", "useFlag()"],
+    },
+    source: `import { defineFlag } from "@hogsend/engine";
+
+// Flags live in your repo — typed, reviewed, deployed.
+export const newCheckout = defineFlag({
+  key: "new-checkout-flow",
+  name: "New checkout flow",
+  type: "boolean",
+});`,
+  },
+  {
+    path: "hogsend/src/destinations/crm.ts",
+    lang: "ts",
+    note: {
+      title: "Fan events out, durably",
+      body: "Every email + lifecycle event can fan out to PostHog, Segment, Slack, or any signed webhook — or your own destination defined in code.",
+      tags: ["Signed webhooks", "Durable delivery", "BYO destination"],
+    },
+    source: `import { defineDestination } from "@hogsend/engine";
+
+// Fan lifecycle events out to your CRM — or PostHog,
+// Segment, Slack, any signed webhook.
+export const crm = defineDestination({
+  meta: { id: "crm", name: "CRM" },
+  events: ["contact.created", "contact.updated"],
+  transform: (envelope, { endpoint }) => ({
+    url: endpoint.url,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(envelope),
+  }),
+});`,
+  },
+
   /* ---- emails — one file per template the journeys reference -------------- */
   email("hogsend/src/emails/product/welcome.tsx", {
     subject: "Welcome to my-app",
@@ -568,6 +800,11 @@ export const silverMedalist = defineJourney({
   {
     path: "hogsend/src/webhook-sources/stripe.ts",
     lang: "ts",
+    note: {
+      title: "A preset webhook source",
+      body: "The built-in Stripe preset is signature-verified with node:crypto and normalizes events (invoice.payment_failed, subscription.updated) so any of them can trigger a journey.",
+      tags: ["Signed", "Normalized events", "One line"],
+    },
     source: `import { stripeSource } from "@hogsend/engine";
 
 // The built-in Stripe preset: signature-verified with node:crypto,
@@ -576,11 +813,47 @@ export const silverMedalist = defineJourney({
 // and point Stripe at POST /v1/webhooks/stripe — that's the setup.
 export const stripe = stripeSource;`,
   },
+  {
+    path: "hogsend/src/webhook-sources/billing.ts",
+    lang: "ts",
+    note: {
+      title: "Any webhook becomes a trigger",
+      body: "No preset? Define one: declare the auth, validate with a Zod schema, and transform the payload into an event. The result feeds the same pipeline as everything else.",
+      tags: ["BYO source", "Zod-validated", "→ any journey"],
+    },
+    source: `import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+export const billing = defineWebhookSource({
+  meta: { id: "billing", name: "Billing" },
+  auth: {
+    type: "match",
+    header: "x-webhook-secret",
+    envKey: "BILLING_WEBHOOK_SECRET",
+  },
+  schema: z.object({
+    type: z.string(),
+    customer: z.object({ id: z.string(), email: z.string() }),
+  }),
+  async transform(payload) {
+    return {
+      userId: payload.customer.id,
+      email: payload.customer.email,
+      event: payload.type,
+    };
+  },
+});`,
+  },
 
   /* ---- scripts ------------------------------------------------------------ */
   {
     path: "hogsend/scripts/event-qr.sh",
     lang: "bash",
+    note: {
+      title: "Tracked links that survive the print run",
+      body: "The QR encodes the durable link id, never the destination — so 5,000 printed postcards can be re-pointed with one PATCH after they ship.",
+      tags: ["Vanity slug", "SVG + PNG QR", "Re-point later"],
+    },
     source: `# Mint a tracked link for the event posters — vanity slug,
 # first-party clicks, QR from the same API.
 curl -X POST "$API_URL/v1/admin/links" \\
@@ -599,6 +872,11 @@ curl -X POST "$API_URL/v1/admin/links" \\
   {
     path: "hogsend/src/worker.ts",
     lang: "ts",
+    note: {
+      title: "One durable worker runs it all",
+      body: "Every journey is a Hatchet durable task. A seven-day sleep survives deploys, restarts, and crashes — the worker picks up exactly where it left off.",
+      tags: ["Hatchet", "Durable", "Survives deploys"],
+    },
     source: `// Powered by Hatchet — every journey runs as a durable task.
 // A seven-day sleep survives deploys, restarts, and crashes.
 import { createWorker } from "@hogsend/engine";
@@ -633,6 +911,11 @@ POSTHOG_API_KEY=phc_...`,
   {
     path: "api/src/routes/signup.ts",
     lang: "ts",
+    note: {
+      title: "Backend Node, on the server SDK",
+      body: "The secret-key client talks to the engine's data API from any Node backend — one events.track() starts the whole lifecycle, routing to every journey that triggers on it.",
+      tags: ["@hogsend/client", "Hono / any Node", "One call → journeys"],
+    },
     source: `import { Hogsend } from "@hogsend/client";
 import { Hono } from "hono";
 
@@ -661,10 +944,82 @@ export const signup = new Hono().post("/", async (c) => {
 });`,
   },
 
+  {
+    path: "api/src/routes/groups.ts",
+    lang: "ts",
+    note: {
+      title: "Accounts, teams, companies",
+      body: "First-class group analytics — write account properties from the server, associate a browser visitor's events from the client. Works with zero analytics provider; an automatic win when PostHog is on.",
+      tags: ["Account-level", "Secret-key writes", "PostHog-parity"],
+    },
+    source: `import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
+
+// Server — write the account and its properties.
+export async function upsertAccount(domain: string) {
+  await hs.groups.identify({
+    groupType: "company",
+    groupKey: domain,
+    properties: { plan: "pro", seats: 42 },
+  });
+}
+// Browser side just associates: hogsend.group("company", domain).`,
+  },
+  {
+    path: "api/src/campaigns/march-launch.ts",
+    lang: "ts",
+    note: {
+      title: "One-off sends to a list or bucket",
+      body: "Broadcasts are the imperative side of the same engine — send to a list or a live bucket, template typed against your registry, scheduled or immediate.",
+      tags: ["Lists + buckets", "Typed template", "Scheduled"],
+    },
+    source: `import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
+
+export async function sendLaunch() {
+  const { campaignId, status } = await hs.campaigns.send({
+    name: "March launch",
+    list: "product-updates", // or a live bucket
+    template: "launch-announcement", // typed against your registry
+    props: { feature: "Flags" },
+    sendAt: "2026-08-01T09:00:00Z", // omit to send now
+  });
+  return { campaignId, status };
+}`,
+  },
+  {
+    path: ".mcp.json",
+    lang: "json",
+    note: {
+      title: "Your agent operates the engine",
+      body: "Hogsend ships an MCP server — point Claude or Cursor at it and an agent can read journeys, draft sends, and manage flags through the same typed API you use.",
+      tags: ["MCP server", "Agent-native", "Same typed API"],
+    },
+    source: `{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.my-app.com",
+        "HOGSEND_ADMIN_KEY": "hsk_..."
+      }
+    }
+  }
+}`,
+  },
+
   /* ==== web/ — the product, consuming the client SDK ====================== */
   {
     path: "web/src/app.tsx",
     lang: "tsx",
+    note: {
+      title: "Anonymous by default, upgrade to identified",
+      body: "One provider, one client for the whole tree. pk_ keys are browser-safe and anonymous-only by design — identity is a server-minted userToken, never trusted input.",
+      tags: ["One client", "pk_ anon-only", "Server-minted identity"],
+    },
     source: `import { HogsendProvider } from "@hogsend/react";
 
 // One provider, one client — every hook below shares it.
@@ -684,6 +1039,11 @@ export function App({ children }: { children: React.ReactNode }) {
   {
     path: "web/src/components/paywall.tsx",
     lang: "tsx",
+    note: {
+      title: "The same flags, in the browser",
+      body: "useFlag reads the flag you defined in hogsend/src/flags.ts — same typed key, same shape as PostHog's hook. capture() sends a first-party event that any journey can trigger on.",
+      tags: ["useFlag()", "Typed key", "capture()"],
+    },
     source: `import { useFlag, useHogsend } from "@hogsend/react";
 
 // Flags live in the repo — typed, reviewed, deployed.
@@ -702,6 +1062,11 @@ export function Paywall() {
   {
     path: "web/src/components/lesson-player.tsx",
     lang: "tsx",
+    note: {
+      title: "Watch depth as first-class events",
+      body: "Milestones fire once, monotonic, the same event shape into Hogsend and PostHog — so a journey can wait for video.milestone_reached like any other event.",
+      tags: ["Watch depth", "Fire-once", "→ journey trigger"],
+    },
     source: `import { useHogsend } from "@hogsend/react";
 import {
   createHogsendEmitter,
