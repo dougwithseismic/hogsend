@@ -152,6 +152,13 @@ async function run(ctx: CommandContext): Promise<void> {
   // 1. bump @hogsend/* deps via the package manager.
   if (doDeps) {
     const specs = deps.map((n) => `${n}@${target}`);
+    // `--json`/`--yes`/no-TTY promise a promptless run, but the pm child can
+    // still hit its own interactive confirmation — pnpm 11's modules-purge
+    // prompt aborts with ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY when the
+    // installed node_modules disagrees with the lockfile. CI=true makes every
+    // supported pm answer its prompts non-interactively; an interactive run
+    // keeps the inherited env so pnpm can actually ask.
+    const nonInteractive = ctx.json || values.yes || !ctx.out.interactive;
     const dep = await ctx.out.step(
       `Bumping @hogsend/* -> ${target} (${pm})`,
       async () =>
@@ -159,6 +166,9 @@ async function run(ctx: CommandContext): Promise<void> {
           cwd,
           stdio: ctx.json ? "ignore" : "inherit",
           shell: process.platform === "win32",
+          env: nonInteractive
+            ? { ...process.env, CI: "true" }
+            : process.env,
         }),
     );
     results.push({
