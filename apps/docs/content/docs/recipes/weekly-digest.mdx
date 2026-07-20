@@ -65,7 +65,7 @@ export const weeklyDigest = defineJourney({
       to: user.email,
       userId: user.id,
       journeyStateId: user.stateId,
-      template: Templates.RETENTION_WEEKLY_DIGEST, // "retention/weekly-digest"
+      template: Templates.RETENTION_WEEKLY_DIGEST, // "retention-weekly-digest"
       subject: "Your week in review",
       journeyName: user.journeyName,
       props: { totalReports: digest.count, projects },
@@ -90,11 +90,11 @@ export const Events = {
 } as const;
 
 export const Templates = {
-  RETENTION_WEEKLY_DIGEST: "retention/weekly-digest",
+  RETENTION_WEEKLY_DIGEST: "retention-weekly-digest",
 } as const;
 ```
 
-The `retention/weekly-digest` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)); after that, the `props` bag above is type-checked. Register the journey by adding `weeklyDigest` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+The `retention-weekly-digest` template ships in the example app ([see it rendered](/emails)) — copy it into your `src/emails/` with a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)); after that, the `props` bag above is type-checked. Register the journey by adding `weeklyDigest` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
 
 ## Alternative: a scheduled fan-out (cron task)
 
@@ -158,7 +158,7 @@ export const weeklyDigestTask = hatchet.task({
       }
 
       const result = await emailService.send({
-        template: Templates.RETENTION_WEEKLY_DIGEST, // "retention/weekly-digest"
+        template: Templates.RETENTION_WEEKLY_DIGEST, // "retention-weekly-digest"
         to: contact.email,
         userId: row.userId,
         subject: "Your week in review",

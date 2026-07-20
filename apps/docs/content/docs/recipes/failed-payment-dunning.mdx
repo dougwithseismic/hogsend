@@ -44,7 +44,7 @@ export const dunning = defineJourney({
       to: user.email,
       userId: user.id,
       journeyStateId: user.stateId,
-      template: Templates.BILLING_PAYMENT_FAILED, // "billing/payment-failed"
+      template: Templates.CHURN_PAYMENT_FAILED, // "churn-payment-failed"
       subject: "Your payment didn't go through",
       journeyName: user.journeyName,
     });
@@ -221,7 +221,7 @@ export const Events = {
 } as const;
 
 export const Templates = {
-  BILLING_PAYMENT_FAILED: "billing/payment-failed",
+  CHURN_PAYMENT_FAILED: "churn-payment-failed",
   BILLING_UPDATE_CARD: "billing/update-card",
   BILLING_FINAL_NOTICE: "billing/final-notice",
   INTERNAL_DUNNING_ALERT: "internal/dunning-alert",

@@ -80,6 +80,8 @@ export const dormantWinback = defineJourney({
 });
 ```
 
+Both templates ship in the example app — [see them rendered](/emails).
+
 The `ctx.guard.isSubscribed()` re-check after the long wait matters:
 someone who unsubscribed during the two weeks never gets the second
 email.

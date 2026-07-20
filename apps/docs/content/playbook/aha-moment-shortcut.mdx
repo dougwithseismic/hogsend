@@ -68,11 +68,14 @@ export const setupShortcut = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "activation/setup-shortcut",
+      template: "activation-quickstart",
     });
   },
 });
 ```
+
+That template ships in the example app — it's rendered on [the templates
+page](/emails).
 
 For the high-touch variant — a human offering to do the setup live — see
 the [concierge onboarding recipe](/docs/recipes/concierge-onboarding).

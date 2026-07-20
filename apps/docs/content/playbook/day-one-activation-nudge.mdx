@@ -65,11 +65,14 @@ export const dayOneNudge = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "activation/first-project-nudge",
+      template: "activation-nudge",
     });
   },
 });
 ```
+
+The nudge template is one of the examples shipped with the engine — see it
+rendered on [the templates page](/emails).
 
 For the multi-step version — milestone celebrations and a second nudge —
 see the [activation milestones

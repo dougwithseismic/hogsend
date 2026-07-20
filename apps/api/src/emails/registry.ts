@@ -3,27 +3,44 @@ import ActivationCommunityEmail from "./activation-community.js";
 import ActivationFeatureHighlightEmail from "./activation-feature-highlight.js";
 import ActivationNudgeEmail from "./activation-nudge.js";
 import ActivationQuickstartEmail from "./activation-quickstart.js";
+import AdvocacyReviewAskEmail from "./advocacy-review-ask.js";
+import BillingUpcomingPaymentEmail from "./billing-upcoming-payment.js";
 import ChurnPaymentFailedEmail from "./churn-payment-failed.js";
+import ContentWeeklyArticlesEmail from "./content-weekly-articles.js";
 import ConversionTrialExpiringEmail from "./conversion-trial-expiring.js";
 import ConversionUsageMilestoneEmail from "./conversion-usage-milestone.js";
 import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
+import EventsQrCheckinEmail from "./events-qr-checkin.js";
+import EventsWereLiveEmail from "./events-were-live.js";
+import FeedbackCsatEmail from "./feedback-csat.js";
+import FeedbackDidThisHelpEmail from "./feedback-did-this-help.js";
 import FeedbackNpsSurveyEmail from "./feedback-nps-survey.js";
+import GroupsAccountDigestEmail from "./groups-account-digest.js";
+import ImpactJourneyLiftReportEmail from "./impact-journey-lift-report.js";
 import JourneyNotificationEmail from "./journey-notification.js";
 import MarketingProductUpdateEmail from "./marketing-product-update.js";
+import OnboardingComeBackToItEmail from "./onboarding-come-back-to-it.js";
 import OnboardingNudgeEmail from "./onboarding-nudge.js";
 import OnboardingPersonalizedEmail from "./onboarding-personalized.js";
 import PasswordResetEmail from "./password-reset.js";
+import PreboardingManagerWelcomeEmail from "./preboarding-manager-welcome.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
 import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
 import ReengageTipAEmail from "./reengage-tip-a.js";
 import ReengageTipBEmail from "./reengage-tip-b.js";
 import ReengageWebinarEmail from "./reengage-webinar.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
+import RetentionFounderCheckinEmail from "./retention-founder-checkin.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
+import SalesProposalOpenedEmail from "./sales-proposal-opened.js";
+import SalesWhitepaperFollowUpEmail from "./sales-whitepaper-follow-up.js";
+import TeamInviteTeammateEmail from "./team-invite-teammate.js";
 import TransactionalMagicLinkEmail from "./transactional-magic-link.js";
 import TransactionalReceiptEmail from "./transactional-receipt.js";
 import TransactionalVerifyEmailEmail from "./transactional-verify-email.js";
 import WelcomeEmail from "./welcome.js";
+import WinbackFinalNoteEmail from "./winback-final-note.js";
+import WinbackWhatsNewEmail from "./winback-whats-new.js";
 
 // This app's template registry — CONTENT. Maps each template key to its
 // component + default subject + category (+ optional preview text). Passed to
@@ -239,6 +256,175 @@ export const templates: TemplateRegistry = withSources(import.meta.dirname, {
   // --- Marketing — broadcast to a list via
   // hs.campaigns.send. Category is the real `product-updates` list id, so the
   // mailer's suppression check + preference center gate it.
+  // --- Playbook-backed lifecycle set. Each of these backs a play on
+  // hogsend.com/playbook and demonstrates one engine capability (semantic
+  // links, Survey, tracked QR, groups, holdout lift, …).
+  "billing/upcoming-payment": {
+    component: BillingUpcomingPaymentEmail,
+    defaultSubject: "Heads-up: your renewal is coming",
+    category: "transactional",
+    preview: (props) =>
+      `${props.name ?? "there"}, your plan renews soon — no action needed`,
+    examples: {
+      name: "Ada",
+      planName: "Team plan",
+      amount: "$49.00",
+      renewalDate: "August 1",
+      cardLast4: "4242",
+    },
+  },
+  "team/invite-teammate": {
+    component: TeamInviteTeammateEmail,
+    defaultSubject: "Journeys ship faster with a reviewer",
+    category: "journey",
+    preview: () => "Working alone in here?",
+    examples: { name: "Ada", seatsAvailable: 3 },
+  },
+  "content/weekly-articles": {
+    component: ContentWeeklyArticlesEmail,
+    defaultSubject: "Three reads worth your time this week",
+    category: "journey",
+    preview: (props) => `${props.name ?? "there"}, this week's short list`,
+    examples: { name: "Ada" },
+  },
+  "sales/proposal-opened": {
+    component: SalesProposalOpenedEmail,
+    defaultSubject: "Acme just opened your proposal",
+    category: "transactional",
+    preview: (props) =>
+      `${props.prospectName ?? "They"} opened it ${props.openedAt ?? "just now"}`,
+    examples: {
+      name: "Ada",
+      prospectName: "Acme",
+      proposalTitle: "Q3 rollout proposal",
+      openCount: 3,
+      openedAt: "2 minutes ago",
+    },
+  },
+  "sales/whitepaper-follow-up": {
+    component: SalesWhitepaperFollowUpEmail,
+    defaultSubject: "You read the whole thing",
+    category: "journey",
+    preview: () => "Skipping the pitch — here's the practical next step",
+    examples: {
+      name: "Ada",
+      whitepaperTitle: "Lifecycle email, in your repo",
+      caseStudyUrl: "https://hogsend.com/articles/case-study",
+    },
+  },
+  "events/were-live": {
+    component: EventsWereLiveEmail,
+    defaultSubject: "We're live — room's open",
+    category: "journey",
+    preview: (props) => `${props.eventTitle ?? "Your session"} just started`,
+    examples: { name: "Ada" },
+  },
+  "events/qr-checkin": {
+    component: EventsQrCheckinEmail,
+    defaultSubject: "Your ticket + check-in code",
+    category: "transactional",
+    preview: (props) => `Check-in code for ${props.eventTitle ?? "your event"}`,
+    examples: { name: "Ada" },
+  },
+  "preboarding/manager-welcome": {
+    component: PreboardingManagerWelcomeEmail,
+    defaultSubject: "Before your first day — a note from your manager",
+    category: "journey",
+    preview: (props) =>
+      `A note from ${props.managerName ?? "your manager"} before day one`,
+    examples: {
+      name: "Ada",
+      managerName: "Sam",
+      teamName: "the platform team",
+      startDate: "Monday, 4 August",
+    },
+  },
+  "onboarding/come-back-to-it": {
+    component: OnboardingComeBackToItEmail,
+    defaultSubject: "Your setup is saved where you left it",
+    category: "journey",
+    preview: () => "You stopped at the right-before-it-works part",
+    examples: {
+      name: "Ada",
+      lastStepLabel: "connecting your first event source",
+    },
+  },
+  "retention/founder-checkin": {
+    component: RetentionFounderCheckinEmail,
+    defaultSubject: "Quick check-in",
+    category: "journey",
+    preview: () => "Noticed something — is everything working for you?",
+    examples: {
+      name: "Ada",
+      founderName: "Doug",
+      usageObservation: "your sends dropped off about two weeks ago",
+    },
+  },
+  "winback/whats-new": {
+    component: WinbackWhatsNewEmail,
+    defaultSubject: "What changed while you were away",
+    category: "journey",
+    preview: () => "The short version — no guilt trip",
+    examples: { name: "Ada", monthsAway: 3 },
+  },
+  "winback/final-note": {
+    component: WinbackFinalNoteEmail,
+    defaultSubject: "Last one from us — promise",
+    category: "journey",
+    preview: () => "If you don't open the app after this, we stop sending",
+    examples: { name: "Ada" },
+  },
+  "advocacy/review-ask": {
+    component: AdvocacyReviewAskEmail,
+    defaultSubject: "While it's going well — a favor",
+    category: "journey",
+    preview: () => "Two honest sentences beat five stars and no words",
+    examples: {
+      name: "Ada",
+      winDescription: "your first journey crossed 1,000 delivered emails",
+      platformName: "G2",
+    },
+  },
+  "feedback/csat": {
+    component: FeedbackCsatEmail,
+    defaultSubject: "One tap: how did we do?",
+    category: "journey",
+    preview: (props) =>
+      `How was ${props.interactionLabel ?? "your experience"}?`,
+    examples: {
+      name: "Ada",
+      interactionLabel: "your support conversation yesterday",
+    },
+  },
+  "feedback/did-this-help": {
+    component: FeedbackDidThisHelpEmail,
+    defaultSubject: "Yes or no — that's the whole survey",
+    category: "journey",
+    preview: (props) => `Did ${props.subjectLabel ?? "it"} actually help?`,
+    examples: { name: "Ada", subjectLabel: "the setup guide we sent" },
+  },
+  "impact/journey-lift-report": {
+    component: ImpactJourneyLiftReportEmail,
+    defaultSubject: "Did the journey actually move the metric?",
+    category: "journey",
+    preview: (props) =>
+      `${props.journeyName ?? "Journey"}: ${props.liftPercent ?? "lift"} vs holdout`,
+    examples: {
+      name: "Ada",
+      journeyName: "Trial upgrade",
+      liftPercent: "+18%",
+      winProbability: "96%",
+    },
+  },
+  "groups/account-digest": {
+    component: GroupsAccountDigestEmail,
+    defaultSubject: "Your team's week in Hogsend",
+    category: "journey",
+    preview: (props) =>
+      `${props.groupName ?? "Your account"}, rolled up across every seat`,
+    examples: { name: "Ada", groupName: "Acme", quietSeats: 2 },
+  },
+
   "marketing/product-update": {
     component: MarketingProductUpdateEmail,
     defaultSubject: "What's new in Hogsend",
