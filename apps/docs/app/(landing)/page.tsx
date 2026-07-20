@@ -583,27 +583,28 @@ function PsProductDemo() {
         </p>
       </Container>
 
-      {/* The crimzon planet horizon, full-bleed — hero treatment, no
-          contained panel, rules and glow run edge to edge. */}
+      {/* Twilight-halftone horizon, full-bleed — the closing-CTA treatment
+          Doug loves (halftone dots + a glow that reads warm against the
+          purple ground), swapped in for the old hard-red planet. */}
       <div className="relative mt-12 h-[300px] md:h-[340px]">
         {/* Thermal smoke bed under the horizon glow. */}
-        <ThermalLayer strength={0.45} />
-        <HalftoneOverlay className="opacity-40" />
+        <ThermalLayer strength={0.3} />
+        <HalftoneOverlay className="opacity-45" />
         <div
           aria-hidden="true"
-          className="absolute inset-0"
+          className="absolute inset-0 mix-blend-screen"
           style={{
             background:
-              "radial-gradient(70% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+              "radial-gradient(72% 72% at 50% 118%, rgba(190,150,255,0.42) 0%, rgba(255,150,128,0.3) 38%, rgba(190,150,255,0.08) 66%, transparent 82%)",
           }}
         />
-        {/* The crisp horizon arc. */}
+        {/* The crisp horizon arc — warm peach, softened. */}
         <div
           aria-hidden="true"
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(52% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+              "radial-gradient(52% 46% at 50% 116%, transparent 59%, rgba(255,168,132,0.7) 61.5%, rgba(255,168,132,0.1) 66%, transparent 71%)",
           }}
         />
       </div>
@@ -901,7 +902,9 @@ const VIDEO_PILLARS = [
 
 function PsVideo() {
   return (
-    <section id="video" className="relative tw-section overflow-hidden">
+    // No top seam: the Feature index above is the header of everything below,
+    // so the two read as one band rather than being split by a horizon line.
+    <section id="video" className="relative overflow-hidden">
       <Container className="relative pt-16 pb-28">
         <Reveal>
           <Eyebrow>Hogsend Video</Eyebrow>
@@ -962,7 +965,7 @@ function PsVideo() {
  * lands in PostHog and on the visitor's dogfood contact. */
 const DEMO_CREDENTIALS = "demo@hogsend.com · forgeline-demo-2026";
 
-function PsStudioDemo() {
+function _PsStudioDemo() {
   return (
     <section id="live-demo" className="relative tw-section">
       <Container className="pt-16 pb-24">
@@ -2322,6 +2325,91 @@ const GROUPS_FEATURES: { title: string; body: string; token: string }[] = [
   },
 ];
 
+/** A compact account-rollup visual: three people resolve into one Acme
+ *  account with live properties — what "treat them as one account" looks like. */
+function GroupRollup() {
+  const members = [
+    { name: "Bill", email: "bill@acme.com", tint: "#f64838" },
+    { name: "Derek", email: "derek@acme.com", tint: "#c98bff" },
+    { name: "Bob", email: "bob@acme.com", tint: "#ff9a6c" },
+  ];
+  return (
+    <div className="grid items-center gap-6 rounded-xl border border-[var(--tw-border)] bg-white/[0.02] p-6 md:grid-cols-[1fr_auto_1fr] md:p-8">
+      {/* the three contacts */}
+      <div className="flex flex-col gap-2.5">
+        {members.map((m) => (
+          <div
+            key={m.email}
+            className="flex items-center gap-3 rounded-lg border border-[var(--tw-border)] bg-white/[0.03] px-3.5 py-2.5"
+          >
+            <span
+              aria-hidden="true"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-[11px] text-white"
+              style={{ backgroundColor: m.tint }}
+            >
+              {m.name.slice(0, 1)}
+            </span>
+            <span className="font-medium text-[13px] text-white/85">
+              {m.name}
+            </span>
+            <span className="truncate font-mono text-[11px] text-white/35">
+              {m.email}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* the association arrow */}
+      <div className="flex items-center justify-center">
+        <span
+          aria-hidden="true"
+          className="hidden font-mono text-[#f64838] text-lg md:inline"
+        >
+          →
+        </span>
+        <span
+          aria-hidden="true"
+          className="font-mono text-[#f64838] text-lg md:hidden"
+        >
+          ↓
+        </span>
+      </div>
+
+      {/* the account they roll up into */}
+      <div className="overflow-hidden rounded-lg border border-[#f64838]/25 bg-[#f64838]/[0.06]">
+        <div className="flex items-center gap-3 border-white/[0.06] border-b px-4 py-3">
+          <span
+            aria-hidden="true"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/10 font-semibold text-[13px] text-white"
+          >
+            A
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium text-[14px] text-white">Acme</p>
+            <p className="font-mono text-[10.5px] text-white/40">
+              company · acme.com
+            </p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-3 divide-x divide-white/[0.06]">
+          {[
+            ["plan", "pro"],
+            ["seats", "42"],
+            ["members", "3"],
+          ].map(([k, v]) => (
+            <div key={k} className="px-3 py-2.5 text-center">
+              <dt className="font-mono text-[9.5px] text-white/35 uppercase tracking-[0.06em]">
+                {k}
+              </dt>
+              <dd className="mt-0.5 font-medium text-[14px] text-white">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 async function PsGroups() {
   const browserNode = await CodeHighlight({
     code: GROUPS_BROWSER_SAMPLE,
@@ -2359,7 +2447,11 @@ async function PsGroups() {
           </p>
         </Reveal>
 
-        <Reveal delay={0.1} className="mt-12 block">
+        <Reveal delay={0.05} className="mt-12 block">
+          <GroupRollup />
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-5 block">
           <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
             <div className="flex flex-col gap-5">
               <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
@@ -2932,7 +3024,6 @@ function _PsHowItWorks() {
 
 /** Every entry hot-links to a section further down this page. */
 const FEATURE_INDEX: Array<{ label: string; href: string }> = [
-  { label: "Building blocks", href: "#building-blocks" },
   { label: "Video events", href: "#video" },
   { label: "Feature flags", href: "#flags" },
   { label: "Contact groups", href: "#groups" },
@@ -2941,8 +3032,6 @@ const FEATURE_INDEX: Array<{ label: string; href: string }> = [
   { label: "Discord", href: "#discord" },
   { label: "Event plugins", href: "#sources" },
   { label: "Impact experiments", href: "#experiments" },
-  { label: "Digest & timing", href: "#timing" },
-  { label: "Studio, live", href: "#live-demo" },
   { label: "Durable execution", href: "#hatchet" },
 ];
 
@@ -3498,7 +3587,7 @@ async function _PsBuildingBlocks() {
 
 /* -------------------------------------------------------- core platform -- */
 
-function PsCorePlatform() {
+function _PsCorePlatform() {
   return (
     <section className="relative">
       <Container className="py-20">
@@ -4726,8 +4815,6 @@ export default async function HomePage({
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
-      <PsCorePlatform />
-      <PsStudioDemo />
       <PsHatchet />
       <PsEconomics />
       <PsFaq />
