@@ -9,7 +9,8 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section } from "@/components/ds/section";
-import { SampleRequest } from "@/components/landing/sample-request";
+// Disabled for now (see the commented-out usage in TemplateCard):
+// import { SampleRequest } from "@/components/landing/sample-request";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL, SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -462,7 +463,10 @@ function TemplateCard({ entry, stage, link, index }: TemplateCardProps) {
           </Link>
         </div>
 
-        <SampleRequest template={entry.key} />
+        {/* "Email me this one" is disabled for now: a public form that mails
+            any typed address is an abuse vector. Revisit behind the signed-up
+            flow (terms + privacy consent) before re-enabling.
+        <SampleRequest template={entry.key} /> */}
       </Card>
     </Reveal>
   );
@@ -488,8 +492,8 @@ export default function EmailsPage() {
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
             Production React Email + Tailwind components covering the whole
             lifecycle — onboarding to billing to the impact report. Every
-            screenshot below is rendered from the live registry, and every card
-            can email you the real thing.
+            screenshot below is rendered from the live registry, straight from
+            the source in the example app.
           </p>
         </Reveal>
       </Section>
