@@ -11,7 +11,7 @@ import {
 import { conversions } from "./conversions.js";
 
 /**
- * The attribution credit LEDGER (docs/revenue-attribution-plan.md §6.1) —
+ * The attribution credit LEDGER —
  * one row per (conversion, model, touchpoint), written once at conversion
  * time with EVERY model's allocation. Persisting all models up front means
  * switching the reporting model is a WHERE clause, not a re-derivation of

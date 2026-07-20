@@ -9,7 +9,7 @@ import {
 } from "@hogsend/core";
 
 /**
- * GoHighLevel `CrmProvider` (docs/revenue-attribution-plan.md §4.4).
+ * GoHighLevel `CrmProvider`.
  *
  * The reference value-in-payload CRM: GHL's opportunity webhooks carry
  * `monetaryValue`, `pipelineId`, `pipelineStageId`, and `status` directly, so

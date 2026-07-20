@@ -190,8 +190,7 @@ vendor/
 **Build note (raw `.ts` engine).** `@hogsend/engine` ships raw TypeScript and is
 bundled by your app's tsup `noExternal`. After ejecting, the package **name is
 unchanged** (`@hogsend/engine`), so keep `@hogsend/engine` in your tsup
-`noExternal` list and the vendored build works exactly as before. See R4 in
-[phase-5-plan.md](./phase-5-plan.md).
+`noExternal` list and the vendored build works exactly as before.
 
 **Upgrade contract after eject:**
 
@@ -283,5 +282,3 @@ The scripted equivalents are `packages/cli/scripts/patch-check.sh` and
   classification, public API).
 - [UPGRADING.md](./UPGRADING.md) — the upgrade contract this ladder lives inside,
   including the "if you've patched or ejected" note.
-- [packages-migration-plan.md](./packages-migration-plan.md) — the overall
-  engine-as-packages plan.

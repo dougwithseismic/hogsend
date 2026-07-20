@@ -1,6 +1,6 @@
 /**
- * Holdout lift statistics (docs/attribution-impact-plan.md §4.2, open Q1
- * resolved): Bayesian beta-binomial with a uniform Beta(1,1) prior — the
+ * Holdout lift statistics: Bayesian beta-binomial with a uniform Beta(1,1)
+ * prior — the
  * lean, honest method at self-hosted volumes. Win probability is
  * P(treatment rate > control rate) under independent posteriors
  * Beta(k+1, n−k+1), computed by DETERMINISTIC numeric integration (no

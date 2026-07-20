@@ -4,7 +4,7 @@ import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 /**
- * Admin conversions API (docs/revenue-attribution-plan.md §5b.2) — fired
+ * Admin conversions API — fired
  * conversion points and their per-destination delivery state. Answers the
  * operator question "did the ad platform actually receive the sale?".
  */

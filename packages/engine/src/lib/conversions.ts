@@ -12,7 +12,7 @@ import { REVENUE_EXCLUDED_EVENTS } from "./revenue.js";
 import { createOptionalSingleton } from "./singleton.js";
 
 /**
- * Conversion evaluation at ingest (docs/revenue-attribution-plan.md §5.1) —
+ * Conversion evaluation at ingest —
  * the hook `ingestEvent` calls after a FRESH event insert. Definitions are
  * code-first (`createHogsendClient({ conversions })`); a fired instance is
  * recorded once per (definition, event row) — the unique index makes a

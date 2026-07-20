@@ -490,7 +490,7 @@ export interface HogsendClientOptions {
    */
   conversionDestinations?: ConversionDestination[];
   /**
-   * CRM sync providers (docs/revenue-attribution-plan.md §4) — the pluggable
+   * CRM sync providers — the pluggable
    * layer that pushes leads INTO client CRMs and lands pipeline stage changes
    * + deal values back on the event spine as `funnel.stage_changed`. Register
    * one (`provider`) or many (`providers`); each is webhook-served at

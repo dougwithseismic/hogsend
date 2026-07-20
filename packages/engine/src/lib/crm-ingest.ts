@@ -20,7 +20,7 @@ import { emitOutbound } from "./outbound.js";
 /**
  * Land normalized {@link CrmStageEvent}s on the spine — the shared sink of
  * BOTH the webhook route and the reconciliation poll
- * (docs/revenue-attribution-plan.md §4).
+ *.
  *
  * Per event: (1) resolve the contact — `crm_links` alias first (works with
  * zero PII in the payload), else the payload email (minting the links so the

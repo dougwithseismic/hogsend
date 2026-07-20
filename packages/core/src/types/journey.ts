@@ -93,7 +93,7 @@ export interface JourneyMeta {
   suppress: DurationObject;
 
   /**
-   * Per-journey holdout (docs/attribution-impact-plan.md §4.1) — the causal
+   * Per-journey holdout — the causal
    * instrument. `percent` (0–50) of would-have-entered contacts are diverted
    * at the enrollment guard chain's END (after every other guard, so a
    * contact blocked by entry limits/preferences is never counted as held

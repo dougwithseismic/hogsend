@@ -12,7 +12,7 @@ import { contacts } from "./contacts.js";
 import { userEvents } from "./user-events.js";
 
 /**
- * Fired conversion instances (docs/revenue-attribution-plan.md §5.1) — one
+ * Fired conversion instances — one
  * row per (definition, triggering event). Definitions are code-first
  * (`defineConversion`); this table is the durable record the attribution
  * engine credits and conversion destinations dispatch from. The unique

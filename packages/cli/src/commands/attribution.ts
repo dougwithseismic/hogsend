@@ -4,10 +4,9 @@ import type { Command, CommandContext } from "./types.js";
 const usage = `hogsend attribution backfill [options]
 
 Replay historical events through conversion evaluation + the attribution
-credit ledger (docs/attribution-impact-plan.md §5.1). An existing deploy
-that upgrades gets its whole history credited; a definition/window change
-gets a clean, logged recompute. Both machines are idempotent — re-running
-a backfill never double-counts.
+credit ledger. An existing deploy that upgrades gets its whole history
+credited; a definition/window change gets a clean, logged recompute. Both
+machines are idempotent — re-running a backfill never double-counts.
 
 Loops POST /v1/admin/attribution/backfill until the cursor is exhausted,
 printing per-batch progress. Ad-platform dispatches are never re-fired

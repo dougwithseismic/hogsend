@@ -1,6 +1,6 @@
 /**
  * Ad-click / campaign attribution capture — the browser end of the revenue
- * spine (docs/revenue-attribution-plan.md §Phase 2).
+ * spine.
  *
  * On an attributed landing (any allowlisted click ID or `utm_*` param in the
  * URL) the client fires ONE `campaign.arrived` event carrying the params as

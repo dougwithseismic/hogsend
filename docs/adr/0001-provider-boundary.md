@@ -3,13 +3,11 @@
 > **Status:** ACCEPTED (scoped) — 2026-06-05. See **Decision (2026-06-05)** below
 > for what is being done now vs. deferred; the "Open decisions" at the end are
 > resolved in line with it.
-> **Supersedes:** the deferred "Move 2" rename thread in
-> [boundary-revision-proposal.md](../boundary-revision-proposal.md) (which shrank
-> the provider to a dumb `EmailProvider` but left contract *ownership* and the
-> word "plugin" unresolved).
-> **Builds on:** the content-vs-framework principle in
-> [boundary-revision-proposal.md](../boundary-revision-proposal.md) and the locked
-> decisions in [engine-boundary.md](../engine-boundary.md) (esp. **D5**, marked
+> **Supersedes:** the deferred "Move 2" rename thread from the boundary revision
+> proposal (which shrank the provider to a dumb `EmailProvider` but left contract
+> *ownership* and the word "plugin" unresolved).
+> **Builds on:** the content-vs-framework principle from that proposal and the
+> locked decisions in [engine-boundary.md](../engine-boundary.md) (esp. **D5**, marked
 > *revisit post-1.0*).
 >
 > First entry in `docs/adr/`. Future architecture decisions are numbered ADRs here.

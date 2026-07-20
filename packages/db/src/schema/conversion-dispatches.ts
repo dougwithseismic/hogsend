@@ -11,7 +11,7 @@ import {
 import { conversions } from "./conversions.js";
 
 /**
- * Conversion dispatch log (docs/revenue-attribution-plan.md §5.2) — one row
+ * Conversion dispatch log — one row
  * per (fired conversion, destination). `event_id` is the deterministic dedup
  * id resent verbatim on every retry; the unique (destination, event_id) pair
  * means a re-evaluated ingest or a re-enqueued task never double-creates a

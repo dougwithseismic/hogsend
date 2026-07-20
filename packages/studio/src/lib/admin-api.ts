@@ -2186,7 +2186,7 @@ export const qk = {
 };
 
 // ---------------------------------------------------------------------------
-// Deals — the revenue ledger (docs/revenue-attribution-plan.md §4b)
+// Deals — the revenue ledger
 // ---------------------------------------------------------------------------
 
 export type Deal = {
