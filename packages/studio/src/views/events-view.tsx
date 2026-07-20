@@ -1,6 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Radio } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
+import { EventPicker } from "@/components/event-picker";
 import { PropertyTable } from "@/components/property-table";
 import {
   EmptyState,
@@ -10,8 +12,8 @@ import {
 } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Drawer } from "@/components/ui/drawer";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,6 +29,7 @@ import {
   type EventListFilters,
   type EventListItem,
   getContact,
+  listEventNames,
   listEvents,
   listJourneys,
   qk,
@@ -190,17 +193,22 @@ export function EventsView() {
     refetchInterval: live && offset === 0 ? LIVE_INTERVAL_MS : false,
   });
 
-  // Known trigger events (from registered journeys) power the filter datalist.
+  // The full observed + declared vocabulary powers the event filter picker;
+  // journeys resolve its `usedBy` chips. Both cached for a minute.
   const journeysQuery = useQuery({
     queryKey: qk.journeys,
     queryFn: listJourneys,
+    staleTime: 60_000,
   });
-  const eventNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const j of journeysQuery.data?.journeys ?? [])
-      set.add(j.trigger.event);
-    return Array.from(set).sort();
-  }, [journeysQuery.data?.journeys]);
+  const eventNamesQuery = useQuery({
+    queryKey: qk.eventNames,
+    queryFn: listEventNames,
+    staleTime: 60_000,
+  });
+  const journeyItems = (journeysQuery.data?.journeys ?? []).map((j) => ({
+    id: j.id,
+    name: j.name,
+  }));
 
   // Source suggestions: the known origins + any sources actually present in the
   // loaded events, so a new/dynamic source (a webhook id, a connector platform)
@@ -249,42 +257,39 @@ export function EventsView() {
 
       <div className="grid gap-3 rounded-lg border bg-white/[0.015] p-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
-          <Label htmlFor="f-event">Event</Label>
-          <Input
-            id="f-event"
-            list="event-name-presets"
-            placeholder="all events"
+          <Label>Event</Label>
+          <EventPicker
+            ariaLabel="Event"
             value={filters.event}
-            onChange={(e) => patch({ event: e.target.value })}
+            placeholder="All events"
+            events={eventNamesQuery.data?.events ?? []}
+            journeys={journeyItems}
+            onChange={(event) => patch({ event })}
+            allowClear
+            allowCustom
           />
-          <datalist id="event-name-presets">
-            {eventNames.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-source">Source</Label>
-          <Input
-            id="f-source"
-            list="event-source-presets"
-            placeholder="all sources"
+          <Label>Source</Label>
+          <Combobox
+            ariaLabel="Source"
             value={filters.source}
-            onChange={(e) => patch({ source: e.target.value })}
+            placeholder="All sources"
+            options={sourceNames.map((s) => ({ value: s, label: s }))}
+            onChange={(source) => patch({ source })}
+            allowClear
+            allowCustom
           />
-          <datalist id="event-source-presets">
-            {sourceNames.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-user">User ID</Label>
-          <Input
-            id="f-user"
-            placeholder="user id"
+          <Label>Person</Label>
+          <ContactPicker
+            ariaLabel="Person"
             value={filters.userId}
-            onChange={(e) => patch({ userId: e.target.value })}
+            placeholder="All people"
+            onChange={(userId) => patch({ userId })}
+            allowClear
+            allowCustom
           />
         </div>
         <div className="space-y-1.5">

@@ -947,7 +947,9 @@ export function listGroupMembers(
 
 export type Contact = {
   id: string;
-  externalId: string;
+  externalId: string | null;
+  /** Present on the admin list (serialized with includeAnonymousId). */
+  anonymousId?: string | null;
   email: string | null;
   properties: Record<string, unknown>;
   firstSeenAt: string;
@@ -972,6 +974,8 @@ export type ContactListFilters = {
   minRevenue?: number;
   /** Has a deal currently in this canonical stage. */
   dealStage?: string;
+  /** Server cap is 100; the contacts table default stays 50. */
+  limit?: number;
 };
 
 export function listContacts(filters: ContactListFilters = {}) {
@@ -985,9 +989,17 @@ export function listContacts(filters: ContactListFilters = {}) {
       search: filters.search || undefined,
       minRevenue: filters.minRevenue,
       dealStage: filters.dealStage || undefined,
-      limit: 50,
+      limit: filters.limit ?? 50,
     },
   });
+}
+
+/**
+ * The ingest-facing contact key — the same precedence `ingestEvent` and the
+ * admin event/send `userId` filters resolve against (exact match server-side).
+ */
+export function contactKey(contact: Contact): string {
+  return contact.externalId ?? contact.anonymousId ?? contact.id;
 }
 
 /** Per-currency revenue rollup over the contact's valued events. */
@@ -2054,9 +2066,23 @@ export type TargetingIdName = { id: string; name: string };
 export type TargetingEventName = {
   name: string;
   occurrences: number;
+  /** Older engines omit it (added alongside the event picker detail pane). */
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
   usedBy: string[];
 };
+
+/**
+ * `GET /v1/admin/events/names` — the merged observed + declared event-name
+ * vocabulary on its own. Cheaper than the full targeting catalog when a view
+ * only needs event names (no contact-property sampling).
+ */
+export function listEventNames() {
+  return api.get<{ note: string; events: TargetingEventName[] }>(
+    "/v1/admin/events/names",
+    { query: { limit: 200 } },
+  );
+}
 
 /**
  * `GET /v1/admin/targeting/catalog` — the raw material a condition builder needs
@@ -2074,6 +2100,8 @@ export type TargetingCatalog = {
   dealStages: string[];
   events: TargetingEventName[];
   campaigns: TargetingIdName[];
+  /** Registered email template keys (older engines omit it). */
+  templates?: string[];
 };
 
 export function getTargetingCatalog() {
@@ -2159,6 +2187,7 @@ export const qk = {
   campaignStats: (id: string) => ["campaign-stats", id] as const,
   flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
   targetingCatalog: ["targeting-catalog"] as const,
+  eventNames: ["event-names"] as const,
   targetingCount: (targeting: FlagTargeting | FlagTargetingCondition[]) =>
     ["targeting-count", targeting] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,
@@ -2256,6 +2285,8 @@ export type DealsStats = {
     averageOrderValue: number | null;
   }>;
   avgTimeToCloseHours: number | null;
+  /** Distinct deal providers in this funnel (older engines omit it). */
+  providers?: string[];
 };
 
 export function listDeals(filters: DealListFilters) {

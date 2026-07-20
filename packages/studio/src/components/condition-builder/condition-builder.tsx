@@ -1,5 +1,7 @@
 import { Plus, X } from "lucide-react";
+import { EventPicker } from "@/components/event-picker";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type {
@@ -115,7 +117,7 @@ type SourceType = (typeof SOURCES)[number]["value"];
 /**
  * True when a source can't produce a savable leaf because its catalog list is
  * loaded-and-empty — `bucket`/`journey` seed an empty id in that case (the
- * IdSelect has no options to pick), which the backend's `.min(1)` rejects. While
+ * the combobox has no options to pick), which the backend's `.min(1)` rejects. While
  * the catalog is still loading (`undefined`) we allow the pick; buildBody
  * backstops the loading race. Other sources are always creatable (property is
  * free-text; deal/event carry their own defaults).
@@ -413,7 +415,13 @@ function LeafInputs({
     case "event":
       return <EventInputs leaf={leaf} catalog={catalog} onChange={onChange} />;
     case "email_engagement":
-      return <EmailEngagementInputs leaf={leaf} onChange={onChange} />;
+      return (
+        <EmailEngagementInputs
+          leaf={leaf}
+          catalog={catalog}
+          onChange={onChange}
+        />
+      );
     default:
       return (
         <PropertyInputs leaf={leaf} catalog={catalog} onChange={onChange} />
@@ -446,46 +454,6 @@ function NegateSelect({
   );
 }
 
-/** A native select that always includes the current value as an option, so a
- * stored id/name that isn't in the (bounded) catalog still round-trips. */
-function IdSelect({
-  ariaLabel,
-  value,
-  options,
-  placeholder,
-  onChange,
-  className,
-}: {
-  ariaLabel: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  placeholder: string;
-  onChange: (next: string) => void;
-  className?: string;
-}) {
-  const known = options.some((o) => o.value === value);
-  return (
-    <Select
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={className}
-    >
-      {value === "" ? (
-        <option value="" disabled>
-          {placeholder}
-        </option>
-      ) : null}
-      {!known && value !== "" ? <option value={value}>{value}</option> : null}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </Select>
-  );
-}
-
 function PropertyInputs({
   leaf,
   catalog,
@@ -498,23 +466,18 @@ function PropertyInputs({
   const operators = catalog?.operators ?? FALLBACK_OPERATORS;
   const properties = catalog?.properties ?? [];
   const unary = isUnary(leaf.operator, operators);
-  const listId = `prop-list-${leaf.property || "new"}`;
 
   return (
     <>
-      <Input
-        aria-label="Property"
-        list={listId}
-        placeholder="property"
+      <Combobox
+        ariaLabel="Property"
         value={leaf.property}
-        onChange={(e) => onChange({ ...leaf, property: e.target.value })}
-        className="h-9 w-44 font-mono text-xs"
+        placeholder="property"
+        options={properties.map((p) => ({ value: p, label: p }))}
+        onChange={(property) => onChange({ ...leaf, property })}
+        className="w-44 font-mono text-xs"
+        allowCustom
       />
-      <datalist id={listId}>
-        {properties.map((p) => (
-          <option key={p} value={p} />
-        ))}
-      </datalist>
 
       <Select
         aria-label="Operator"
@@ -573,7 +536,7 @@ function BucketInputs({
         affirmative="is in"
         negative="is not in"
       />
-      <IdSelect
+      <Combobox
         ariaLabel="Bucket"
         value={leaf.bucketId}
         placeholder="Select a bucket"
@@ -619,7 +582,7 @@ function JourneyInputs({
         <option value="active">enrolled in</option>
         <option value="completed">completed</option>
       </Select>
-      <IdSelect
+      <Combobox
         ariaLabel="Journey"
         value={leaf.journeyId}
         placeholder="Select a journey"
@@ -678,7 +641,7 @@ function DealInputs({
         </option>
       </Select>
       {leaf.predicate === "stage" ? (
-        <IdSelect
+        <Combobox
           ariaLabel="Deal stage"
           value={leaf.stage ?? ""}
           placeholder="Select a stage"
@@ -731,16 +694,14 @@ function EventInputs({
 
   return (
     <>
-      <IdSelect
+      <EventPicker
         ariaLabel="Event"
         value={leaf.eventName}
         placeholder="Select an event"
-        options={(catalog?.events ?? []).map((ev) => ({
-          value: ev.name,
-          label: ev.name,
-        }))}
+        events={catalog?.events ?? []}
+        journeys={catalog?.journeys ?? []}
         onChange={(eventName) => onChange({ ...leaf, eventName })}
-        className="w-52 font-mono text-xs"
+        className="w-52"
       />
       <Select
         aria-label="Event check"
@@ -829,19 +790,25 @@ function EventInputs({
 
 function EmailEngagementInputs({
   leaf,
+  catalog,
   onChange,
 }: {
   leaf: FlagEmailEngagementCondition;
+  catalog?: TargetingCatalog;
   onChange: (next: FlagTargetingLeaf) => void;
 }) {
   return (
     <>
-      <Input
-        aria-label="Template key"
-        placeholder="template-key"
+      <Combobox
+        ariaLabel="Template key"
         value={leaf.templateKey}
-        onChange={(e) => onChange({ ...leaf, templateKey: e.target.value })}
-        className="h-9 w-52 font-mono text-xs"
+        placeholder="Select a template"
+        options={(catalog?.templates ?? []).map((key) => ({
+          value: key,
+          label: key,
+        }))}
+        onChange={(templateKey) => onChange({ ...leaf, templateKey })}
+        className="w-52 font-mono text-xs"
       />
       <Select
         aria-label="Engagement check"

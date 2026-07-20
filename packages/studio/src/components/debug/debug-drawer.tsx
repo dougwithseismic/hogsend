@@ -2,6 +2,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, Plus, Shuffle, Trash2, Zap } from "lucide-react";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
+import { EventPicker } from "@/components/event-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
@@ -12,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   type IngestResult,
   ingestEvent,
+  listEventNames,
   listJourneys,
   qk,
 } from "@/lib/admin-api";
@@ -190,6 +193,13 @@ export function DebugDrawer({
     queryFn: listJourneys,
     enabled: open,
   });
+  // Full observed + declared vocabulary for the picker (cached a minute).
+  const eventNamesQuery = useQuery({
+    queryKey: qk.eventNames,
+    queryFn: listEventNames,
+    enabled: open,
+    staleTime: 60_000,
+  });
 
   const presets = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -258,19 +268,19 @@ export function DebugDrawer({
     >
       <div className="space-y-5">
         <div className="space-y-1.5">
-          <Label htmlFor="debug-event">Event name</Label>
-          <Input
-            id="debug-event"
-            list="debug-event-presets"
-            placeholder="e.g. user.created"
+          <Label>Event name</Label>
+          <EventPicker
+            ariaLabel="Event name"
             value={event}
-            onChange={(e) => setEvent(e.target.value)}
+            placeholder="e.g. user.created"
+            events={eventNamesQuery.data?.events ?? []}
+            journeys={(journeysQuery.data?.journeys ?? []).map((j) => ({
+              id: j.id,
+              name: j.name,
+            }))}
+            onChange={setEvent}
+            allowCustom
           />
-          <datalist id="debug-event-presets">
-            {presets.map((p) => (
-              <option key={p.event} value={p.event} />
-            ))}
-          </datalist>
           {presets.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {presets.map((p) => (
@@ -289,13 +299,22 @@ export function DebugDrawer({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="debug-user">User ID</Label>
+          <Label>User ID</Label>
           <div className="flex gap-2">
-            <Input
-              id="debug-user"
-              placeholder="test_user"
+            <ContactPicker
+              ariaLabel="User ID"
               value={userId}
-              onChange={(e) => setUserId(e.target.value)}
+              placeholder="test_user"
+              onChange={setUserId}
+              // Picking a real contact also fills the email (if empty), so
+              // the fired event folds onto the same identity.
+              onPick={(contact) => {
+                if (contact.email) {
+                  setUserEmail((prev) => prev || contact.email || "");
+                }
+              }}
+              className="flex-1"
+              allowCustom
             />
             <Button
               variant="outline"
@@ -310,13 +329,15 @@ export function DebugDrawer({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="debug-email">User email (optional)</Label>
-          <Input
-            id="debug-email"
-            type="email"
-            placeholder="you@example.com"
+          <Label>User email (optional)</Label>
+          <ContactPicker
+            ariaLabel="User email"
             value={userEmail}
-            onChange={(e) => setUserEmail(e.target.value)}
+            placeholder="you@example.com"
+            onChange={setUserEmail}
+            emit="email"
+            allowCustom
+            allowClear
           />
         </div>
 

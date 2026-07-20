@@ -189,7 +189,7 @@ export function ContactDetailDrawer({
         open={open}
         onClose={onClose}
         title={contact?.email ?? contact?.externalId ?? "Contact"}
-        description={contact ? contact.externalId : undefined}
+        description={contact?.externalId ?? undefined}
       >
         {contactQuery.isPending ? (
           <div className="space-y-4">

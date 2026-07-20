@@ -112,6 +112,7 @@ describe("GET /v1/admin/targeting/catalog", () => {
       dealStages: string[];
       events: Array<{ name: string }>;
       campaigns: Array<{ id: string; name: string }>;
+      templates: string[];
     };
 
     // All five new sources are present as arrays.
@@ -119,6 +120,10 @@ describe("GET /v1/admin/targeting/catalog", () => {
     expect(Array.isArray(body.journeys)).toBe(true);
     expect(Array.isArray(body.events)).toBe(true);
     expect(Array.isArray(body.campaigns)).toBe(true);
+
+    // Registered template keys (the email_engagement leaf's vocabulary) —
+    // empty here because the test client registers no templates.
+    expect(Array.isArray(body.templates)).toBe(true);
 
     // Deal stages are the canonical ladder + the terminal "lost".
     expect(body.dealStages).toContain("lead");

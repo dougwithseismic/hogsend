@@ -127,7 +127,10 @@ describe("admin deals ledger", () => {
       stages: Record<string, number>;
       currencies: Array<Record<string, unknown>>;
       avgTimeToCloseHours: number | null;
+      providers: string[];
     };
+    // The distinct-provider vocabulary includes our seeded provider.
+    expect(body.providers).toContain(RUN);
     // Shared dev DB: assert at-least (other rows may exist), exact on GBP
     // block only when our RUN rows dominate is unsafe — instead find GBP and
     // check the invariants our seed guarantees.

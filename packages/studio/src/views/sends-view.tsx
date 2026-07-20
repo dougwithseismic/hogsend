@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useState } from "react";
+import { ContactPicker } from "@/components/contact-picker";
 import {
   EmptyState,
   ErrorState,
@@ -9,6 +10,7 @@ import {
 } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -20,7 +22,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type EmailListFilters, listEmails, qk } from "@/lib/admin-api";
+import {
+  type EmailListFilters,
+  listEmails,
+  listJourneys,
+  listTemplates,
+  qk,
+} from "@/lib/admin-api";
 import { formatDateTime, truncate } from "@/lib/format";
 import { SendDetailDrawer } from "./sends/send-detail-drawer";
 
@@ -96,6 +104,20 @@ export function SendsView() {
     placeholderData: keepPreviousData,
   });
 
+  // Registered catalogs feed the template/journey filters — no free-typed ids.
+  const templatesQuery = useQuery({
+    queryKey: qk.templates,
+    queryFn: listTemplates,
+    staleTime: 60_000,
+  });
+  const journeysQuery = useQuery({
+    queryKey: qk.journeys,
+    queryFn: listJourneys,
+    staleTime: 60_000,
+  });
+  const templateKeys = templatesQuery.data?.templates ?? [];
+  const journeys = journeysQuery.data?.journeys ?? [];
+
   function patch(next: Partial<Filters>) {
     setFilters((prev) => ({ ...prev, ...next }));
     setOffset(0);
@@ -146,12 +168,14 @@ export function SendsView() {
 
       <div className="grid gap-3 rounded-lg border bg-white/[0.015] p-4 md:grid-cols-3 lg:grid-cols-4">
         <div className="space-y-1.5">
-          <Label htmlFor="f-template">Template</Label>
-          <Input
-            id="f-template"
-            placeholder="template key"
+          <Label>Template</Label>
+          <Combobox
+            ariaLabel="Template"
             value={filters.templateKey}
-            onChange={(e) => patch({ templateKey: e.target.value })}
+            placeholder="All templates"
+            options={templateKeys.map((t) => ({ value: t.key, label: t.key }))}
+            onChange={(templateKey) => patch({ templateKey })}
+            allowClear
           />
         </div>
         <div className="space-y-1.5">
@@ -185,21 +209,25 @@ export function SendsView() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-journey">Journey ID</Label>
-          <Input
-            id="f-journey"
-            placeholder="journey id"
+          <Label>Journey</Label>
+          <Combobox
+            ariaLabel="Journey"
             value={filters.journeyId}
-            onChange={(e) => patch({ journeyId: e.target.value })}
+            placeholder="All journeys"
+            options={journeys.map((j) => ({ value: j.id, label: j.name }))}
+            onChange={(journeyId) => patch({ journeyId })}
+            allowClear
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-user">User ID</Label>
-          <Input
-            id="f-user"
-            placeholder="user id"
+          <Label>Person</Label>
+          <ContactPicker
+            ariaLabel="Person"
             value={filters.userId}
-            onChange={(e) => patch({ userId: e.target.value })}
+            placeholder="All people"
+            onChange={(userId) => patch({ userId })}
+            allowClear
+            allowCustom
           />
         </div>
         <div className="space-y-1.5">
