@@ -1,6 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IdSelect } from "@/components/ui/id-select";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type {
@@ -16,6 +16,7 @@ import type {
   TargetingCatalog,
   TargetingOperator,
 } from "@/lib/admin-api";
+import { eventOptions } from "@/lib/event-options";
 import { cn } from "@/lib/utils";
 
 /**
@@ -116,7 +117,7 @@ type SourceType = (typeof SOURCES)[number]["value"];
 /**
  * True when a source can't produce a savable leaf because its catalog list is
  * loaded-and-empty — `bucket`/`journey` seed an empty id in that case (the
- * IdSelect has no options to pick), which the backend's `.min(1)` rejects. While
+ * the combobox has no options to pick), which the backend's `.min(1)` rejects. While
  * the catalog is still loading (`undefined`) we allow the pick; buildBody
  * backstops the loading race. Other sources are always creatable (property is
  * free-text; deal/event carry their own defaults).
@@ -540,7 +541,7 @@ function BucketInputs({
         affirmative="is in"
         negative="is not in"
       />
-      <IdSelect
+      <Combobox
         ariaLabel="Bucket"
         value={leaf.bucketId}
         placeholder="Select a bucket"
@@ -586,7 +587,7 @@ function JourneyInputs({
         <option value="active">enrolled in</option>
         <option value="completed">completed</option>
       </Select>
-      <IdSelect
+      <Combobox
         ariaLabel="Journey"
         value={leaf.journeyId}
         placeholder="Select a journey"
@@ -645,7 +646,7 @@ function DealInputs({
         </option>
       </Select>
       {leaf.predicate === "stage" ? (
-        <IdSelect
+        <Combobox
           ariaLabel="Deal stage"
           value={leaf.stage ?? ""}
           placeholder="Select a stage"
@@ -698,14 +699,11 @@ function EventInputs({
 
   return (
     <>
-      <IdSelect
+      <Combobox
         ariaLabel="Event"
         value={leaf.eventName}
         placeholder="Select an event"
-        options={(catalog?.events ?? []).map((ev) => ({
-          value: ev.name,
-          label: ev.name,
-        }))}
+        options={eventOptions(catalog?.events ?? [])}
         onChange={(eventName) => onChange({ ...leaf, eventName })}
         className="w-52 font-mono text-xs"
       />
@@ -805,7 +803,7 @@ function EmailEngagementInputs({
 }) {
   return (
     <>
-      <IdSelect
+      <Combobox
         ariaLabel="Template key"
         value={leaf.templateKey}
         placeholder="Select a template"

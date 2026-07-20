@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { IdSelect } from "@/components/ui/id-select";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -43,6 +43,7 @@ import {
   qk,
   type TimingAnchorType,
 } from "@/lib/admin-api";
+import { eventOptions } from "@/lib/event-options";
 import {
   formatCurrency,
   formatDateTime,
@@ -1192,10 +1193,7 @@ function TimingPanel() {
           value: j.id,
           label: j.name,
         }))
-      : (catalogQuery.data?.events ?? []).map((ev) => ({
-          value: ev.name,
-          label: ev.name,
-        }));
+      : eventOptions(catalogQuery.data?.events ?? []);
 
   // Default to the first conversion point once the catalog loads, so the
   // controls arrive pre-filled and only the anchor is left to pick.
@@ -1260,7 +1258,7 @@ function TimingPanel() {
             <option value="event">Event</option>
           </Select>
         </div>
-        <IdSelect
+        <Combobox
           ariaLabel={anchorType === "journey" ? "Journey" : "Event"}
           value={anchorId}
           placeholder={

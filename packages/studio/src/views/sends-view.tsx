@@ -9,6 +9,7 @@ import {
 } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -164,19 +165,15 @@ export function SendsView() {
 
       <div className="grid gap-3 rounded-lg border bg-white/[0.015] p-4 md:grid-cols-3 lg:grid-cols-4">
         <div className="space-y-1.5">
-          <Label htmlFor="f-template">Template</Label>
-          <Select
-            id="f-template"
+          <Label>Template</Label>
+          <Combobox
+            ariaLabel="Template"
             value={filters.templateKey}
-            onChange={(e) => patch({ templateKey: e.target.value })}
-          >
-            <option value="">All</option>
-            {templateKeys.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.key}
-              </option>
-            ))}
-          </Select>
+            placeholder="All templates"
+            options={templateKeys.map((t) => ({ value: t.key, label: t.key }))}
+            onChange={(templateKey) => patch({ templateKey })}
+            allowClear
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="f-status">Status</Label>
@@ -209,19 +206,15 @@ export function SendsView() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-journey">Journey</Label>
-          <Select
-            id="f-journey"
+          <Label>Journey</Label>
+          <Combobox
+            ariaLabel="Journey"
             value={filters.journeyId}
-            onChange={(e) => patch({ journeyId: e.target.value })}
-          >
-            <option value="">All</option>
-            {journeys.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.name}
-              </option>
-            ))}
-          </Select>
+            placeholder="All journeys"
+            options={journeys.map((j) => ({ value: j.id, label: j.name }))}
+            onChange={(journeyId) => patch({ journeyId })}
+            allowClear
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="f-user">User ID</Label>
