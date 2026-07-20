@@ -1,9 +1,9 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Column, Row, Section, Text } from "react-email";
+import { Section } from "react-email";
 import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
-import { Body, Button, Divider, Title } from "./_components/ui.js";
+import { Body, Button, Divider, Stat, Title } from "./_components/ui.js";
 import type { GroupsAccountDigestEmailProps } from "./types.js";
 
 // Account-level digest for the workspace owner — group analytics, not
@@ -33,24 +33,15 @@ export default function GroupsAccountDigestEmail({
         Everything below rolls up across every seat on {groupName}.
       </Body>
 
-      <Section className="my-5 rounded-xl border border-solid border-zinc-200 bg-zinc-50 px-5 py-4">
-        <Row>
-          {stats.map((stat) => (
-            <Column key={stat.label} className="pr-4 align-top">
-              <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                {stat.label}
-              </Text>
-              <Text className="m-0 text-[20px] font-bold leading-tight text-zinc-900">
-                {stat.value}
-              </Text>
-              {stat.change && (
-                <Text className="m-0 text-xs font-medium text-emerald-600">
-                  {stat.change}
-                </Text>
-              )}
-            </Column>
-          ))}
-        </Row>
+      <Section className="my-5">
+        {stats.map((stat) => (
+          <Stat
+            key={stat.label}
+            label={stat.label}
+            value={stat.value}
+            change={stat.change}
+          />
+        ))}
       </Section>
 
       {quietSeats > 0 && (

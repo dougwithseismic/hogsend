@@ -1,6 +1,6 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Column, Row, Section, Text } from "react-email";
+import { Section, Text } from "react-email";
 import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
 import { Body, Button, Callout, Divider, Title } from "./_components/ui.js";
@@ -34,24 +34,18 @@ export default function ImpactJourneyLiftReportEmail({
       </Body>
 
       <Callout tone="success">
-        <Row>
-          <Column>
-            <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              Measured lift
-            </Text>
-            <Text className="m-0 text-[26px] font-bold leading-tight text-zinc-900">
-              {liftPercent}
-            </Text>
-          </Column>
-          <Column>
-            <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              Win probability
-            </Text>
-            <Text className="m-0 text-[26px] font-bold leading-tight text-zinc-900">
-              {winProbability}
-            </Text>
-          </Column>
-        </Row>
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          Measured lift
+        </Text>
+        <Text className="m-0 text-[26px] font-bold leading-tight text-zinc-900">
+          {liftPercent}
+        </Text>
+        <Text className="m-0 mt-3 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          Win probability
+        </Text>
+        <Text className="m-0 text-[26px] font-bold leading-tight text-zinc-900">
+          {winProbability}
+        </Text>
       </Callout>
 
       <Section className="mb-2">
