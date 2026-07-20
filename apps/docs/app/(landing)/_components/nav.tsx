@@ -35,7 +35,7 @@ const FLAT_LINKS = [
 ];
 
 const TRIGGER_CLASS =
-  "font-medium text-white text-sm tracking-[-0.025em] transition-opacity hover:opacity-70";
+  "whitespace-nowrap font-medium text-white text-sm tracking-[-0.025em] transition-opacity hover:opacity-70";
 
 export function PsNav({
   fixed = false,
@@ -72,11 +72,14 @@ export function PsNav({
       )}
     >
       <div className="mx-auto flex h-[54px] w-full max-w-[1256px] items-center justify-between px-6 md:px-10">
-        <div className="flex items-center gap-8">
-          <Link href="/">
+        <div className="flex min-w-0 items-center gap-8">
+          <Link href="/" className="shrink-0">
             <InkLogo />
           </Link>
-          <ul className="hidden items-center gap-5 md:flex">
+          {/* Nine items plus the right-hand cluster do not fit below 1280px —
+              everything below xl is served by the mobile panel, which mirrors
+              the full link set. */}
+          <ul className="hidden items-center gap-5 xl:flex">
             <NavDropdown
               label="Use cases"
               triggerHref="/#use-cases"
@@ -110,7 +113,7 @@ export function PsNav({
             ))}
           </ul>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {/* The REAL nav bell — the live in-app feed entry point. Renders
               nothing when no engine is wired (isHogsendConfigured gate). */}
           <NavBell align="end" variant="bordered" />
@@ -130,7 +133,7 @@ export function PsNav({
           </a>
           <Link
             href="/docs/getting-started"
-            className="ml-1 hidden h-8 items-center rounded-[6px] bg-white px-3.5 font-medium text-[#0a0606] text-sm tracking-[-0.02em] transition-opacity hover:opacity-85 md:inline-flex"
+            className="ml-1 hidden h-8 shrink-0 items-center whitespace-nowrap rounded-[6px] bg-white px-3.5 font-medium text-[#0a0606] text-sm tracking-[-0.02em] transition-opacity hover:opacity-85 sm:inline-flex"
           >
             Start building
           </Link>
@@ -144,7 +147,7 @@ export function PsNav({
             aria-expanded={menuOpen}
             aria-controls="landing-nav-mobile"
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex size-8 items-center justify-center rounded-[6px] border border-white/10 text-white md:hidden"
+            className="flex size-8 shrink-0 items-center justify-center rounded-[6px] border border-white/10 text-white xl:hidden"
           >
             {menuOpen ? (
               <X className="size-4" strokeWidth={1.5} />
@@ -159,7 +162,7 @@ export function PsNav({
       <div
         id="landing-nav-mobile"
         hidden={!menuOpen}
-        className="max-h-[calc(100vh-54px)] overflow-y-auto border-white/10 border-t bg-[#050101]/95 backdrop-blur-md md:hidden"
+        className="max-h-[calc(100vh-54px)] overflow-y-auto border-white/10 border-t bg-[#050101]/95 backdrop-blur-md xl:hidden"
       >
         <div className="mx-auto flex w-full max-w-[1256px] flex-col gap-1 px-6 py-4">
           {FLAT_LINKS.map((l) => (
