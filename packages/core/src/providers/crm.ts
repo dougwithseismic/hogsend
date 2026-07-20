@@ -1,6 +1,6 @@
 /**
  * CRM provider contract — the pluggable sync layer of the revenue spine
- * (docs/revenue-attribution-plan.md §Phase 4). A `CrmProvider` is a dumb,
+ *. A `CrmProvider` is a dumb,
  * provider-neutral wire with exactly three jobs:
  *
  * 1. `pushLead` — deliver a normalized lead INTO the client's CRM;

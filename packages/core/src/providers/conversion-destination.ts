@@ -1,5 +1,5 @@
 /**
- * Conversion destinations (docs/revenue-attribution-plan.md §5.2) — where
+ * Conversion destinations — where
  * fired conversion points get dispatched: ad-platform feedback APIs (Meta
  * CAPI, Google Enhanced Conversions, LinkedIn CAPI, …).
  *

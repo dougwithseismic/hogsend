@@ -6,7 +6,7 @@ import {
 } from "@hogsend/core";
 
 /**
- * Meta Conversions API destination (docs/revenue-attribution-plan.md §5.3) —
+ * Meta Conversions API destination —
  * the reference `ConversionDestination`. Sends ONE server event per fired
  * conversion with:
  *

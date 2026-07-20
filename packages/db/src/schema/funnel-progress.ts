@@ -10,8 +10,8 @@ import {
 import { contacts } from "./contacts.js";
 
 /**
- * Per-contact event-funnel projection (docs/attribution-impact-plan.md
- * §3.3) — the thin sibling of `deals` for funnels whose stages are EVENT
+ * Per-contact event-funnel projection — the thin sibling of `deals` for
+ * funnels whose stages are EVENT
  * matchers instead of CRM claims. One row per (contact, funnel, stage),
  * written FIRST-REACH-ONLY at ingest (the unique index absorbs replays and
  * repeat events), so both progression counts ("how many reached activated")

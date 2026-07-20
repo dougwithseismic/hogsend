@@ -1,7 +1,7 @@
 import { defineConversion } from "@hogsend/engine";
 
 /**
- * Conversion points (docs/revenue-attribution-plan.md §5) — WHICH events
+ * Conversion points — WHICH events
  * count as valued conversions for this deployment. Code-first content, like
  * journeys. Fired instances land in the `conversions` table; add destination
  * ids (e.g. `destinations: ["meta-capi"]` with a configured

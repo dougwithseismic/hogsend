@@ -1,6 +1,6 @@
 /**
  * `lead.submitted` — the canonical lead-capture event
- * (docs/revenue-attribution-plan.md §Phase 3, recipe: docs/lead-intake.md).
+ * (recipe: docs/lead-intake.md).
  *
  * Hogsend deliberately does NOT ship a form engine: any form vendor
  * (Heyflow, Perspective, Framer, Webflow, custom) that can POST a webhook

@@ -5,7 +5,7 @@ import { resolveFunnelTargets } from "./funnel-transitions.js";
 import type { Logger } from "./logger.js";
 
 /**
- * Event-funnel REPORTING projection (docs/attribution-impact-plan.md §3.3) —
+ * Event-funnel REPORTING projection —
  * one first-reach row per (contact, funnel, stage), the raw material for
  * progression counts ("how many reached activated") and velocity ("median
  * time signed_up → activated"). Complements the deals projection the

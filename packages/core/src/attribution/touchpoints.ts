@@ -1,6 +1,6 @@
 /**
  * Touchpoint classification — which events on the spine count as marketing
- * TOUCHES for attribution (docs/revenue-attribution-plan.md §Phase 2/6).
+ * TOUCHES for attribution.
  *
  * Touchpoints are a query-time classification of `user_events`, not a table:
  * the attribution engine (Phase 6) reads a contact's ordered events, keeps the

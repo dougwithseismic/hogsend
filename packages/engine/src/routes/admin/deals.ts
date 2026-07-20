@@ -17,7 +17,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AppEnv } from "../../app.js";
 
 /**
- * Admin deals API (docs/revenue-attribution-plan.md §4b.1) — the ledger view
+ * Admin deals API — the ledger view
  * over the `deals` projection: filterable list for the Studio pipeline board
  * + the revenue stats block (per-currency, never cross-summed). Stages are
  * per-funnel ladders (`client.funnels`), not a fixed enum; the `funnel`

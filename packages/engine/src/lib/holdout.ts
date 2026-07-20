@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /**
- * Deterministic holdout assignment (docs/attribution-impact-plan.md §4.1).
+ * Deterministic holdout assignment.
  * NO RNG and NO clock — the replay law: journey tasks replay-from-top on
  * eviction/crash, so the same (userId, journeyId, salt) must bucket
  * identically on every evaluation, forever. sha256's first 4 bytes give a

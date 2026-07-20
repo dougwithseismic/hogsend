@@ -178,7 +178,7 @@ Consequences for releasing:
 
 Clients own their **own** migration track
 (`drizzle.__client_migrations`) separately — engine releases never touch it. See
-the two-track design in [packages-migration-plan.md §4](./packages-migration-plan.md).
+the two-track design.
 
 ---
 
@@ -210,7 +210,7 @@ That is why:
   source actually travels.
 - No new build step is required for raw-source packages to be publishable.
 
-This is locked by [packages-migration-plan.md §10](./packages-migration-plan.md).
+This is locked.
 If a future consumer needs prebuilt JS, that's a separate change to `exports` +
 `tsup`, out of scope for the current model.
 

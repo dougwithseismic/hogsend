@@ -9,7 +9,7 @@ import {
 } from "@hogsend/core";
 
 /**
- * HubSpot `CrmProvider` (docs/revenue-attribution-plan.md §4.6).
+ * HubSpot `CrmProvider`.
  *
  * The webhook-then-hydrate class: `deal.propertyChange` payloads carry only
  * `objectId` + `propertyName` + `propertyValue`, so stage changes hydrate the

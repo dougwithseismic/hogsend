@@ -1,7 +1,7 @@
 import type { TouchpointChannel } from "@hogsend/core";
 
 /**
- * Multi-model revenue attribution (docs/revenue-attribution-plan.md §6.1) —
+ * Multi-model revenue attribution —
  * pure functions from an ordered touchpoint path to per-touchpoint credit
  * weights. No I/O, no clock reads: everything comes in as arguments, so the
  * engine can compute EVERY model at conversion time and persist the credits

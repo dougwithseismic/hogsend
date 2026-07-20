@@ -352,7 +352,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   // Auto-capture on init (default on; inert when the URL carries no hs_ref).
   if (resolved.captureRef) autoCaptureRef();
 
-  // ── Campaign/ad-click attribution (docs/revenue-attribution-plan.md §2) ──
+  // ── Campaign/ad-click attribution ──
   // Same storage adapter the identity store resolves (localStorage → memory).
   const attributionStorage = resolveStorage(resolved.storage);
 

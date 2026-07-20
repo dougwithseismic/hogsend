@@ -9,7 +9,7 @@ import {
 } from "@hogsend/core";
 
 /**
- * Attio `CrmProvider` (docs/revenue-attribution-plan.md §4.5).
+ * Attio `CrmProvider`.
  *
  * The reference value-by-fetch CRM: Attio's `record.*` webhooks are THIN —
  * they say which record changed, never what it now holds — so

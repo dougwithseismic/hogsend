@@ -6,8 +6,7 @@ import { backfillAttributionBatch } from "../../lib/attribution-backfill.js";
 import { getConversionRegistry } from "../../lib/conversions.js";
 
 /**
- * Admin attribution API (docs/revenue-attribution-plan.md §6.2, extended by
- * docs/attribution-impact-plan.md §1.5) — reads over the credit ledger.
+ * Admin attribution API — reads over the credit ledger.
  * Every model was persisted at conversion time, so model comparison is a
  * GROUP BY, not a re-computation — and since the ledger carries
  * journey/campaign/template scope, "revenue by journey" is too.

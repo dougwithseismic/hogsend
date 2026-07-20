@@ -10,7 +10,7 @@ import type { Logger } from "./logger.js";
 
 /**
  * The deals projection + external-id alias map
- * (docs/revenue-attribution-plan.md §4.2). Events stay the append-only truth;
+ *. Events stay the append-only truth;
  * this module materializes current deal state with the MONOTONIC stage rule:
  * a change applies only when it advances the canonical rank (heals
  * webhook+poll double-detection and out-of-order delivery), `lost` applies

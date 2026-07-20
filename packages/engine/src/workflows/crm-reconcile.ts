@@ -9,7 +9,7 @@ import { hatchet } from "../lib/hatchet.js";
 import { createLogger, type Logger } from "../lib/logger.js";
 
 /**
- * CRM reconciliation poll (docs/revenue-attribution-plan.md §4.3) — the pull
+ * CRM reconciliation poll — the pull
  * half of the webhook+poll hybrid. Every provider implementing `poll` is
  * walked on a cron: read the persisted cursor, pull changed deals, feed them
  * through the SAME `ingestCrmStageEvents` sink the webhook route uses (the

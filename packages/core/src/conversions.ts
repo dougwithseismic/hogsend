@@ -5,14 +5,14 @@ import type { PropertyCondition } from "./types/conditions.js";
 import type { JourneyWhere } from "./types/journey.js";
 
 /**
- * Conversion-point definitions (docs/revenue-attribution-plan.md §5.1) — the
+ * Conversion-point definitions — the
  * product's atomic unit: WHICH event, under WHAT conditions, counts as a
  * valued conversion for a campaign/journey/deployment, and where the value
  * comes from. Code-first like journeys/campaigns; fired instances are
  * recorded in the `conversions` table by the engine's ingest hook and fanned
  * out to conversion destinations (§5.2).
  *
- * MILESTONES (docs/attribution-impact-plan.md §3.2) are a convention, not a
+ * MILESTONES are a convention, not a
  * type: a conversion definition whose meaning is progress rather than money
  * — `activation.completed`, `trial.started`, a canonical stage event. Define
  * one exactly like a revenue conversion but on a valueless event (or omit
@@ -65,7 +65,7 @@ export interface ConversionMeta {
    */
   attributionWindowDays?: number;
   /**
-   * Per-channel lookback overrides (docs/attribution-impact-plan.md §2.1).
+   * Per-channel lookback overrides.
    * A channel listed here uses its own window instead of
    * `attributionWindowDays`; unlisted channels keep the definition-wide
    * window, so existing single-window definitions are untouched. Industry

@@ -23,8 +23,8 @@ import type { OutboundEventName } from "../lib/outbound.js";
  * NOTE: `defineDestination` is for event FAN-OUT to product/data tools
  * (PostHog, Segment, Slack, a CRM, a warehouse). Ad-platform conversion
  * forwarding (Meta CAPI, Google Enhanced Conversions) is Hogsend-native but
- * lives in its own sibling layer (`defineConversionDestination`, per
- * docs/revenue-attribution-plan.md) — it needs identifier hashing, click-id
+ * lives in its own sibling layer (`defineConversionDestination`) — it needs
+ * identifier hashing, click-id
  * joins, and deterministic event_id idempotency this generic pipe deliberately
  * does not have. It is NOT deferred to any third-party CDP: the money path has
  * no external dependency.
