@@ -166,9 +166,7 @@ async function run(ctx: CommandContext): Promise<void> {
           cwd,
           stdio: ctx.json ? "ignore" : "inherit",
           shell: process.platform === "win32",
-          env: nonInteractive
-            ? { ...process.env, CI: "true" }
-            : process.env,
+          env: nonInteractive ? { ...process.env, CI: "true" } : process.env,
         }),
     );
     results.push({
