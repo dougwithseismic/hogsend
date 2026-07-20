@@ -57,10 +57,15 @@ function buildTree(files: ExplorerFile[]): TreeNode[] {
   return root;
 }
 
+function leafCount(node: TreeNode): number {
+  if (!node.children) return 1;
+  return node.children.reduce((n, c) => n + leafCount(c), 0);
+}
+
 function fileIcon(path: string) {
   if (path.includes("/emails/")) return Mail;
   if (path.includes("/webhook-sources/")) return Webhook;
-  if (path.startsWith("scripts/")) return QrCode;
+  if (path.endsWith(".sh")) return QrCode;
   if (path.endsWith(".env")) return Settings2;
   if (path.includes("/journeys/")) return Braces;
   return FileCode2;
@@ -69,33 +74,59 @@ function fileIcon(path: string) {
 function FileRow({
   node,
   depth,
+  parentPath,
   active,
   onSelect,
+  collapsed,
+  onToggle,
 }: {
   node: TreeNode;
   depth: number;
+  parentPath: string;
   active: string;
   onSelect: (path: string) => void;
+  collapsed: ReadonlySet<string>;
+  onToggle: (folderPath: string) => void;
 }) {
   if (node.children) {
+    const folderPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+    const isCollapsed = collapsed.has(folderPath);
     return (
       <div>
-        <div
-          className="flex items-center gap-1.5 py-[3.5px] font-mono text-[11.5px] text-white/45"
-          style={{ paddingLeft: 12 + depth * 14 }}
+        <button
+          type="button"
+          onClick={() => onToggle(folderPath)}
+          className="flex w-full cursor-pointer items-center gap-1.5 py-[3.5px] text-left font-mono text-[11.5px] text-white/45 transition-colors hover:text-white/75"
+          style={{ paddingLeft: 10 + depth * 11 }}
         >
-          <ChevronDown size={11} className="text-white/25" />
-          {node.name}
-        </div>
-        {node.children.map((child) => (
-          <FileRow
-            key={child.name}
-            node={child}
-            depth={depth + 1}
-            active={active}
-            onSelect={onSelect}
+          <ChevronDown
+            size={11}
+            className={cn(
+              "shrink-0 text-white/25 transition-transform",
+              isCollapsed && "-rotate-90",
+            )}
           />
-        ))}
+          {node.name}
+          {isCollapsed ? (
+            <span className="ml-1 text-[9.5px] text-white/25">
+              {leafCount(node)}
+            </span>
+          ) : null}
+        </button>
+        {isCollapsed
+          ? null
+          : node.children.map((child) => (
+              <FileRow
+                key={child.name}
+                node={child}
+                depth={depth + 1}
+                parentPath={folderPath}
+                active={active}
+                onSelect={onSelect}
+                collapsed={collapsed}
+                onToggle={onToggle}
+              />
+            ))}
       </div>
     );
   }
@@ -113,7 +144,7 @@ function FileRow({
           ? "bg-[#f64838]/[0.12] text-white"
           : "text-white/55 hover:bg-white/[0.04] hover:text-white/85",
       )}
-      style={{ paddingLeft: 12 + depth * 14 + 16 }}
+      style={{ paddingLeft: 10 + depth * 11 + 15 }}
     >
       <Icon
         size={12}
@@ -135,8 +166,21 @@ export function ScaffoldExplorer({
   highlighted: Record<string, ReactNode>;
 }) {
   const [active, setActive] = useState(files[0]?.path ?? "");
+  // The 13 email templates start folded so the tree reads at a glance;
+  // the count chip invites the click.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set(["hogsend/src/emails"]),
+  );
   const tree = useMemo(() => buildTree(files), [files]);
   const activeFile = files.find((f) => f.path === active);
+
+  const toggleFolder = (folderPath: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderPath)) next.delete(folderPath);
+      else next.add(folderPath);
+      return next;
+    });
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl">
@@ -148,8 +192,9 @@ export function ScaffoldExplorer({
           <span className="h-2.5 w-2.5 rounded-full bg-white/[0.12]" />
         </div>
         <span className="min-w-0 flex-1 truncate text-center font-mono text-[11px] text-white/40">
-          my-app — written by{" "}
-          <span className="text-white/60">create-hogsend</span>
+          my-app — <span className="text-white/60">hogsend/</span> written by
+          create-hogsend · <span className="text-white/60">web/</span> is your
+          product
         </span>
         <span className="hidden font-mono text-[10px] text-white/25 sm:block">
           click a file
@@ -158,7 +203,7 @@ export function ScaffoldExplorer({
 
       <div className="flex">
         {/* file tree — collapses to a chip row on small screens */}
-        <aside className="hidden max-h-[560px] w-[230px] shrink-0 overflow-y-auto border-white/[0.07] border-r py-3 [scrollbar-width:thin] md:block">
+        <aside className="hidden max-h-[560px] w-[240px] shrink-0 overflow-y-auto border-white/[0.07] border-r py-3 [scrollbar-width:thin] md:block">
           <div className="px-3 pb-2 font-mono text-[10px] text-white/30 uppercase tracking-[0.08em]">
             my-app
           </div>
@@ -167,8 +212,11 @@ export function ScaffoldExplorer({
               key={node.name}
               node={node}
               depth={0}
+              parentPath=""
               active={active}
               onSelect={setActive}
+              collapsed={collapsed}
+              onToggle={toggleFolder}
             />
           ))}
         </aside>

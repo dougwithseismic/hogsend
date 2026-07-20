@@ -1,17 +1,19 @@
 import type { EmailPreview } from "./minted-files";
 
 /* ==========================================================================
- *  The scaffolded app the homepage explorer walks through — what
- *  `pnpm dlx create-hogsend@latest my-app` hands you, grown to show the
- *  range: journeys grouped by the team that owns them (product, billing,
- *  marketing, people), React Email templates, the Stripe webhook preset, a
- *  QR-link mint script, and the Hatchet-powered worker.
+ *  The scaffolded workspace the homepage explorer walks through — a small
+ *  monorepo: `hogsend/` is the engine app `create-hogsend` writes (journeys
+ *  grouped by the team that owns them, React Email templates one-for-one
+ *  with every template a journey references, the Stripe preset, the
+ *  Hatchet-powered worker), and `web/` is the product itself consuming the
+ *  client SDK (provider, flags hook, video watch-depth).
  *
- *  Journey/webhook files use the real engine API (same rules as the homepage
- *  code blocks; playbook names — dunning, event summon, pre-boarding, silver
- *  medalist — match hogsend.com/playbook). Email files carry BOTH source and
- *  a rendered `EmailPreview`: the explorer shows the code and floats the
- *  rendered message in a corner window.
+ *  Journey/webhook/web files use the real engine + SDK APIs (same rules as
+ *  the homepage code blocks; playbook names — dunning, event summon,
+ *  pre-boarding, silver medalist, second-session rescue — match
+ *  hogsend.com/playbook). Every email file carries BOTH source and a
+ *  rendered `EmailPreview`; the explorer floats the rendered message in a
+ *  corner window beside the code.
  * ========================================================================== */
 
 export type ScaffoldFile = {
@@ -22,13 +24,99 @@ export type ScaffoldFile = {
   email?: EmailPreview;
 };
 
+/* ---- email factory: one definition renders both the source shown in the
+ *      editor and the preview floated beside it, so they can never drift. -- */
+
+function pascal(file: string): string {
+  return file
+    .replace(/\.tsx$/, "")
+    .split("-")
+    .map((s) => s[0]?.toUpperCase() + s.slice(1))
+    .join("");
+}
+
+function wrap(text: string, width = 56): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (line && `${line} ${word}`.length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function email(
+  path: string,
+  def: {
+    subject: string;
+    preheader: string;
+    heading: string;
+    body: string[];
+    cta: { label: string; href: string; note?: string };
+    sentBy: string;
+    comment?: string;
+  },
+): ScaffoldFile {
+  const name = pascal(path.split("/").pop() ?? "");
+  const paragraphs = def.body
+    .map((p) =>
+      [
+        "      <Text>",
+        ...wrap(p).map((l) => `        ${l}`),
+        "      </Text>",
+      ].join("\n"),
+    )
+    .join("\n");
+  return {
+    path,
+    lang: "tsx",
+    source: `${def.comment ?? "// Powered by react-email — a template is just a component."}
+import { Button, Heading, Text } from "@react-email/components";
+import { EmailLayout } from "../_layout";
+
+export function ${name}() {
+  return (
+    <EmailLayout preview="${def.preheader}">
+      <Heading>${def.heading}</Heading>
+${paragraphs}
+      <Button href={appUrl("${def.cta.href}")}>
+        ${def.cta.label}
+      </Button>
+    </EmailLayout>
+  );
+}`,
+    email: {
+      subject: def.subject,
+      preheader: def.preheader,
+      heading: def.heading,
+      body: def.body,
+      cta: { label: def.cta.label, note: def.cta.note },
+      footer: `Sent by ${def.sentBy}.`,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------------- */
+
 export const SCAFFOLD_FILES: ScaffoldFile[] = [
+  /* ==== hogsend/ — the engine app ========================================= */
+
   /* ---- journeys/product -------------------------------------------------- */
   {
-    path: "src/journeys/product/onboarding.ts",
+    path: "hogsend/src/journeys/product/onboarding.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import {
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+} from "@hogsend/engine";
 
 export const onboarding = defineJourney({
   meta: {
@@ -45,15 +133,53 @@ export const onboarding = defineJourney({
       timeout: days(3),
     });
 
-    await sendEmail({
-      to: user.email,
-      template: timedOut ? "activation-nudge" : "first-win",
-    });
+    if (timedOut) {
+      // Stalled — nudge them, and tag the team where it works.
+      await sendEmail({ to: user.email, template: "activation-nudge" });
+      await sendConnectorAction({
+        connectorId: "discord",
+        action: "sendChannelMessage",
+        args: {
+          channelId: process.env.GROWTH_CHANNEL_ID,
+          content: \`\${user.email} stalled before their first project.\`,
+        },
+      });
+      return;
+    }
+
+    await sendEmail({ to: user.email, template: "first-win" });
   },
 });`,
   },
   {
-    path: "src/journeys/product/winback.ts",
+    path: "hogsend/src/journeys/product/second-session-rescue.ts",
+    lang: "ts",
+    source: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+// The second session is the real activation moment — most
+// churn simply never comes back for it.
+export const secondSessionRescue = defineJourney({
+  meta: {
+    id: "second-session-rescue",
+    trigger: { event: "session.first_ended" },
+    entryLimit: "once",
+  },
+  run: async (user, ctx) => {
+    const { timedOut } = await ctx.waitForEvent({
+      event: "session.started",
+      timeout: days(2),
+    });
+
+    if (timedOut) {
+      await sendEmail({ to: user.email, template: "second-session" });
+    }
+    // Came back on their own? Say nothing. Silence is a feature.
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/journeys/product/winback.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -76,7 +202,7 @@ export const winback = defineJourney({
 
   /* ---- journeys/billing --------------------------------------------------- */
   {
-    path: "src/journeys/billing/dunning.ts",
+    path: "hogsend/src/journeys/billing/dunning.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -103,10 +229,9 @@ export const dunning = defineJourney({
 
   /* ---- journeys/marketing ------------------------------------------------- */
   {
-    path: "src/journeys/marketing/event-summon.ts",
+    path: "hogsend/src/journeys/marketing/event-summon.ts",
     lang: "ts",
-    source: `import { hours } from "@hogsend/core";
-import {
+    source: `import {
   defineJourney,
   sendConnectorAction,
   sendEmail,
@@ -120,7 +245,7 @@ export const eventSummon = defineJourney({
     trigger: { event: "event.doors_open" },
     entryLimit: "once_per_period",
   },
-  run: async (user, ctx) => {
+  run: async (user) => {
     await sendEmail({ to: user.email, template: "doors-open" });
 
     if (user.properties.discordMemberId) {
@@ -133,15 +258,13 @@ export const eventSummon = defineJourney({
         },
       });
     }
-
-    await ctx.sleep({ duration: hours(2), label: "doors" });
   },
 });`,
   },
 
   /* ---- journeys/people ---------------------------------------------------- */
   {
-    path: "src/journeys/people/pre-boarding.ts",
+    path: "hogsend/src/journeys/people/pre-boarding.ts",
     lang: "ts",
     source: `import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -166,7 +289,7 @@ export const preBoarding = defineJourney({
 });`,
   },
   {
-    path: "src/journeys/people/silver-medalist.ts",
+    path: "hogsend/src/journeys/people/silver-medalist.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -194,110 +317,151 @@ export const silverMedalist = defineJourney({
 });`,
   },
 
-  /* ---- emails ------------------------------------------------------------- */
-  {
-    path: "src/emails/welcome.tsx",
-    lang: "tsx",
-    source: `// Powered by react-email — a template is just a component.
-import { Button, Heading, Text } from "@react-email/components";
-import { EmailLayout } from "./_layout";
-
-export function WelcomeEmail({ name }: { name?: string }) {
-  return (
-    <EmailLayout preview="Your workspace is ready.">
-      <Heading>Welcome{name ? \`, \${name}\` : ""} 👋</Heading>
-      <Text>
-        Your workspace is ready. Connect your repo and your
-        first journey ships with your next deploy.
-      </Text>
-      <Button href={appUrl("/start")}>Open your workspace</Button>
-    </EmailLayout>
-  );
-}`,
-    email: {
-      subject: "Welcome to my-app",
-      preheader: "Your workspace is ready.",
-      heading: "Welcome 👋",
-      body: [
-        "Your workspace is ready. Connect your repo and your first journey ships with your next deploy.",
-      ],
-      cta: { label: "Open your workspace" },
-      footer:
-        "Sent by the onboarding journey — src/journeys/product/onboarding.ts.",
+  /* ---- emails — one file per template the journeys reference -------------- */
+  email("hogsend/src/emails/product/welcome.tsx", {
+    subject: "Welcome to my-app",
+    preheader: "Your workspace is ready.",
+    heading: "Welcome 👋",
+    body: [
+      "Your workspace is ready. Connect your repo and your first journey ships with your next deploy.",
+    ],
+    cta: { label: "Open your workspace", href: "/start" },
+    sentBy: "onboarding — journeys/product/onboarding.ts",
+  }),
+  email("hogsend/src/emails/product/activation-nudge.tsx", {
+    subject: "Your first project is one command away",
+    preheader: "Three minutes, start to finish.",
+    heading: "Stuck on step one?",
+    body: [
+      "Most teams get their first project live in under three minutes. If something got in the way, reply — a human reads these.",
+    ],
+    cta: { label: "Create your first project", href: "/new" },
+    sentBy: "onboarding (stalled branch) — onboarding.ts",
+  }),
+  email("hogsend/src/emails/product/first-win.tsx", {
+    subject: "That first project looked good",
+    preheader: "Here's what unlocks next.",
+    heading: "First project — done ✅",
+    body: [
+      "Nice work. Now wire a webhook source and your product's own events start driving journeys.",
+    ],
+    cta: { label: "Add a webhook source", href: "/sources" },
+    sentBy: "onboarding (happy branch) — onboarding.ts",
+  }),
+  email("hogsend/src/emails/product/second-session.tsx", {
+    subject: "Pick up where you left off",
+    preheader: "Your setup is saved and waiting.",
+    heading: "Everything's where you left it",
+    body: [
+      "Your first session set the groundwork. The second one is where it clicks — your setup is saved and waiting.",
+    ],
+    cta: { label: "Jump back in", href: "/dashboard" },
+    sentBy: "second-session-rescue.ts",
+  }),
+  email("hogsend/src/emails/product/winback-check-in.tsx", {
+    subject: "Still the right tool?",
+    preheader: "No pitch — one honest question.",
+    heading: "How's it going?",
+    body: [
+      "You went quiet a few weeks ago. If we stopped being useful, tell us why — if you just got busy, everything is where you left it.",
+    ],
+    cta: { label: "See what's changed", href: "/changelog" },
+    sentBy: "winback — journeys/product/winback.ts",
+  }),
+  email("hogsend/src/emails/product/winback-offer.tsx", {
+    subject: "Still thinking it over?",
+    preheader: "20% off your next three months — expires Friday.",
+    heading: "We kept your workspace warm",
+    body: [
+      "Everything is where you left it — journeys, templates, contacts.",
+      "If budget was the sticking point, here's 20% off your next three months.",
+    ],
+    cta: {
+      label: "Reactivate my workspace",
+      href: "/reactivate",
+      note: "Offer expires Friday",
     },
-  },
-  {
-    path: "src/emails/winback-offer.tsx",
-    lang: "tsx",
-    source: `// Powered by react-email — versioned and reviewed like
-// the journey that sends it.
-import { Button, Heading, Text } from "@react-email/components";
-import { EmailLayout } from "./_layout";
-
-export function WinbackOffer() {
-  return (
-    <EmailLayout preview="20% off your next three months.">
-      <Heading>We kept your workspace warm</Heading>
-      <Text>
-        Everything is where you left it — journeys, templates,
-        contacts. If budget was the sticking point, here's 20%
-        off your next three months.
-      </Text>
-      <Button href={appUrl("/reactivate")}>
-        Reactivate my workspace
-      </Button>
-    </EmailLayout>
-  );
-}`,
-    email: {
-      subject: "Still thinking it over?",
-      preheader: "20% off your next three months — expires Friday.",
-      heading: "We kept your workspace warm",
-      body: [
-        "Everything is where you left it — journeys, templates, contacts.",
-        "If budget was the sticking point, here's 20% off your next three months.",
-      ],
-      cta: { label: "Reactivate my workspace", note: "Offer expires Friday" },
-      footer: "Sent by the winback journey — src/journeys/product/winback.ts.",
-    },
-  },
-  {
-    path: "src/emails/pre-boarding-day-one.tsx",
-    lang: "tsx",
-    source: `// Powered by react-email — the people team's templates live
-// beside product's, in the same repo.
-import { Button, Heading, Text } from "@react-email/components";
-import { EmailLayout } from "./_layout";
-
-export function PreBoardingDayOne({ name }: { name: string }) {
-  return (
-    <EmailLayout preview="We can't wait — here's everything for day one.">
-      <Heading>You're in, {name} 🎉</Heading>
-      <Text>
-        Contract's signed — the whole team is excited. Your
-        laptop ships this week; here's your day-one guide,
-        your team, and where to show up.
-      </Text>
-      <Button href={docsUrl("/day-one")}>Read the day-one guide</Button>
-    </EmailLayout>
-  );
-}`,
-    email: {
-      subject: "You're in! Here's day one",
-      preheader: "We can't wait — everything you need for your first day.",
-      heading: "You're in 🎉",
-      body: [
-        "Contract's signed — the whole team is excited. Your laptop ships this week.",
-        "Here's your day-one guide, your team, and where to show up.",
-      ],
-      cta: { label: "Read the day-one guide" },
-      footer: "Sent by pre-boarding — src/journeys/people/pre-boarding.ts.",
-    },
-  },
+    sentBy: "winback — journeys/product/winback.ts",
+    comment:
+      "// Powered by react-email — versioned and reviewed like\n// the journey that sends it.",
+  }),
+  email("hogsend/src/emails/billing/card-trouble.tsx", {
+    subject: "Your payment didn't go through",
+    preheader: "No interruption yet — just update your card.",
+    heading: "Card trouble — easy fix",
+    body: [
+      "Your last invoice didn't clear. Nothing is paused yet — update your card and we'll retry automatically.",
+    ],
+    cta: { label: "Update payment method", href: "/billing" },
+    sentBy: "dunning — journeys/billing/dunning.ts",
+  }),
+  email("hogsend/src/emails/billing/final-notice.tsx", {
+    subject: "Last try before your plan pauses",
+    preheader: "We retry one more time tomorrow.",
+    heading: "One more retry tomorrow",
+    body: [
+      "We've retried your card for three days. One more attempt tomorrow, then your plan pauses — your data stays safe either way.",
+    ],
+    cta: { label: "Fix it in 30 seconds", href: "/billing" },
+    sentBy: "dunning (grace elapsed) — dunning.ts",
+  }),
+  email("hogsend/src/emails/marketing/doors-open.tsx", {
+    subject: "Doors are open 🎪",
+    preheader: "We're live — come find your seat.",
+    heading: "We're live",
+    body: [
+      "Doors just opened. Grab your seat, say hi in the chat, and bring a question for the Q&A.",
+    ],
+    cta: { label: "Join the stream", href: "/live" },
+    sentBy: "event-summon — journeys/marketing/event-summon.ts",
+  }),
+  email("hogsend/src/emails/people/pre-boarding-day-one.tsx", {
+    subject: "You're in! Here's day one",
+    preheader: "We can't wait — everything you need for your first day.",
+    heading: "You're in 🎉",
+    body: [
+      "Contract's signed — the whole team is excited. Your laptop ships this week.",
+      "Here's your day-one guide, your team, and where to show up.",
+    ],
+    cta: { label: "Read the day-one guide", href: "/day-one" },
+    sentBy: "pre-boarding — journeys/people/pre-boarding.ts",
+    comment:
+      "// Powered by react-email — the people team's templates live\n// beside product's, in the same repo.",
+  }),
+  email("hogsend/src/emails/people/day-before-checklist.tsx", {
+    subject: "Tomorrow's the day",
+    preheader: "Three things before 9am.",
+    heading: "See you tomorrow ☀️",
+    body: [
+      "Quick checklist: badge photo uploaded, laptop charged, and doors open at 9 — your buddy meets you in the lobby.",
+    ],
+    cta: { label: "Open the checklist", href: "/day-one#checklist" },
+    sentBy: "pre-boarding (day-before) — pre-boarding.ts",
+  }),
+  email("hogsend/src/emails/people/stay-in-touch.tsx", {
+    subject: "We meant it — let's stay in touch",
+    preheader: "You were a genuinely close call.",
+    heading: "You were a close call",
+    body: [
+      "The decision came down to timing, not talent. When the right role opens we'd love to talk again — no re-interview from zero.",
+    ],
+    cta: { label: "Keep my profile warm", href: "/talent" },
+    sentBy: "silver-medalist — journeys/people/silver-medalist.ts",
+  }),
+  email("hogsend/src/emails/people/role-reopened.tsx", {
+    subject: "That role just reopened",
+    preheader: "You're the first person we thought of.",
+    heading: "First call goes to you",
+    body: [
+      "The role you interviewed for is open again, and you're the first person we're telling. Fancy picking up where we left off?",
+    ],
+    cta: { label: "Restart the conversation", href: "/talent/apply" },
+    sentBy: "silver-medalist (role.reopened) — silver-medalist.ts",
+  }),
 
   /* ---- webhook sources ---------------------------------------------------- */
   {
-    path: "src/webhook-sources/stripe.ts",
+    path: "hogsend/src/webhook-sources/stripe.ts",
     lang: "ts",
     source: `import { stripeSource } from "@hogsend/engine";
 
@@ -310,7 +474,7 @@ export const stripe = stripeSource;`,
 
   /* ---- scripts ------------------------------------------------------------ */
   {
-    path: "scripts/event-qr.sh",
+    path: "hogsend/scripts/event-qr.sh",
     lang: "bash",
     source: `# Mint a tracked link for the event posters — vanity slug,
 # first-party clicks, QR from the same API.
@@ -328,7 +492,7 @@ curl -X POST "$API_URL/v1/admin/links" \\
 
   /* ---- entry points -------------------------------------------------------- */
   {
-    path: "src/worker.ts",
+    path: "hogsend/src/worker.ts",
     lang: "ts",
     source: `// Powered by Hatchet — every journey runs as a durable task.
 // A seven-day sleep survives deploys, restarts, and crashes.
@@ -341,7 +505,7 @@ const worker = await createWorker({ container: client, journeys });
 await worker.start();`,
   },
   {
-    path: ".env",
+    path: "hogsend/.env",
     lang: "ini",
     source: `DATABASE_URL=postgres://localhost:5432/my-app
 
@@ -354,8 +518,79 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 # Connectors
 DISCORD_BOT_TOKEN=...
+GROWTH_CHANNEL_ID=...
 
 # Optional: PostHog turns on identity + person properties.
 POSTHOG_API_KEY=phc_...`,
+  },
+
+  /* ==== web/ — the product, consuming the client SDK ====================== */
+  {
+    path: "web/src/app.tsx",
+    lang: "tsx",
+    source: `import { HogsendProvider } from "@hogsend/react";
+
+// One provider, one client — every hook below shares it.
+// pk_ keys are browser-safe and anonymous-only by design;
+// identity is a server-minted userToken, never trusted input.
+export function App({ children }: { children: React.ReactNode }) {
+  return (
+    <HogsendProvider
+      apiUrl="https://api.my-app.com"
+      publishableKey={import.meta.env.VITE_HOGSEND_PK}
+    >
+      {children}
+    </HogsendProvider>
+  );
+}`,
+  },
+  {
+    path: "web/src/components/paywall.tsx",
+    lang: "tsx",
+    source: `import { useFlag, useHogsend } from "@hogsend/react";
+
+// Flags live in the repo — typed, reviewed, deployed.
+// A typo'd key won't compile.
+export function Paywall() {
+  const newCheckout = useFlag("new-checkout-flow");
+  const { capture } = useHogsend();
+
+  return (
+    <button onClick={() => capture("checkout.opened")}>
+      {newCheckout ? "Start free — no card needed" : "Start trial"}
+    </button>
+  );
+}`,
+  },
+  {
+    path: "web/src/components/lesson-player.tsx",
+    lang: "tsx",
+    source: `import { useHogsend } from "@hogsend/react";
+import {
+  createHogsendEmitter,
+  createHtml5Adapter,
+  createVideoTracker,
+} from "@hogsend/video";
+
+// Watch depth as first-class events: milestones fire once,
+// monotonic, the same shape into Hogsend and PostHog — so a
+// journey can wait for video.milestone_reached.
+export function LessonPlayer({ src }: { src: string }) {
+  const { capture } = useHogsend();
+  const tracker = createVideoTracker({
+    emitter: createHogsendEmitter({ capture }),
+    milestones: [10, 50, 95],
+  });
+
+  return (
+    <video
+      controls
+      src={src}
+      ref={(el) =>
+        el && tracker.attach(createHtml5Adapter(el, { title: "Lesson 1" }))
+      }
+    />
+  );
+}`,
   },
 ];
