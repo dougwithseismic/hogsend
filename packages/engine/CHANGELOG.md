@@ -1,5 +1,69 @@
 # @hogsend/engine
 
+## 0.51.0
+
+### Minor Changes
+
+- 6242b49: Campaign send stats now attribute via the indexed `email_sends.campaign_id`
+  column instead of LIKE-scanning the idempotency key (fixes #572). The column
+  has been the designed carrier since migration 0051 backfilled it — the key is
+  dedup-only, and suppressed sends never write one, so a key scan could never
+  see them.
+
+  Switched read sites: the admin campaign stats aggregate + per-step breakdown
+  (the step number still lives only in the key, so step rows anchor on the
+  step-scoped pattern scoped to the FK first), the Impact overview campaigns
+  rollup (the `split_part` + UUID-guard parsing is gone), the admin emails
+  `?campaignId=` filter (now uuid-validated), and campaign-wave engagement
+  cohorts.
+
+  Campaign stats gain an additive `skipped` count: keyless FK-attributed rows —
+  suppressed or test-mode-blocked sends that were never dispatched. `sends` and
+  `failed` are now explicitly scoped to keyed rows so they keep meaning
+  "dispatch attempts"/"dispatch failures" (suppression shares the row-level
+  `failed` status). Studio's `CampaignStats`/`CampaignStepStats` types carry the
+  new field.
+
+- 8630d07: Registry-fed pickers across the Studio: searchable two-pane selectors (PostHog-style list + detail pane) replace every free-typed identifier — events (trigger bolt, usedBy journeys, first/last seen, occurrences), people (server-searched, profile card with identity keys/groups/properties and an open-profile deep link), sources (registered connectors labeled and zero-backfilled, engine origins explained), plus a groups type filter, template/journey comboboxes, and open-vocabulary escape hatches everywhere. New admin endpoints: `GET /v1/admin/events/sources`, `GET /v1/admin/groups/types`, `firstSeenAt` on `/v1/admin/events/names`, `templates` on the targeting catalog, `providers` on deals stats, and a `/contacts?contact=<id>` deep link into the contact drawer.
+- 72bb45d: Policy-gated sends get a first-class `suppressed` status (new
+  `email_send_status` enum value, migration 0063). Suppression and test-mode
+  blocks used to write the same `failed` status as real dispatch failures —
+  and since a provider failure releases its idempotency key so a retry can
+  re-attempt, the two row shapes were byte-identical, which made the campaign
+  stats' `skipped`/`failed` split unsound (a provider failure would have been
+  reported as "suppressed" and `failed` could never fire in production).
+
+  Campaign stats and the Impact rollup now discriminate on status alone:
+  `skipped` = `suppressed` rows, `failed` = failed at dispatch, `sends` =
+  everything that was actually attempted. The always-zero per-step `skipped`
+  is dropped from the step breakdown (suppressed rows write no step key), and
+  the per-step queries now run concurrently. Frequency caps and journey
+  `meta.suppress` min-gap checks exclude `suppressed` rows exactly like
+  `failed` ones (neither reached the inbox). Studio renders the new status as
+  a dim (non-destructive) terminal chip and offers it in the sends filter.
+
+  Pre-existing suppressed rows (written as `failed`, keyless) are left as-is —
+  they are genuinely indistinguishable from historical provider failures; the
+  split is authoritative for rows written from this version on.
+
+### Patch Changes
+
+- ee234f5: The flags reconciler's "key already owned by a non-code flag" warn now names
+  the resolution (fixes #574): set `origin = 'code'` on the row if it should be
+  contract-synced from `defineFlag`, or remove the same-key definition.
+  Behavior is unchanged — operator-owned rows are still never touched; the
+  papercut was that `origin` defaults to `"native"` on insert, so rows seeded
+  out-of-band for code-defined keys tripped a dead-end warn on every boot.
+- Updated dependencies [6242b49]
+- Updated dependencies [72bb45d]
+  - @hogsend/attribution@0.51.0
+  - @hogsend/core@0.51.0
+  - @hogsend/email@0.51.0
+  - @hogsend/plugin-posthog@0.51.0
+  - @hogsend/plugin-resend@0.51.0
+  - @hogsend/sms@0.51.0
+  - @hogsend/db@0.51.0
+
 ## 0.50.0
 
 ### Minor Changes
