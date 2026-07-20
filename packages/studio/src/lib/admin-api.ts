@@ -1753,8 +1753,10 @@ export function getCampaign(id: string) {
 
 /**
  * Per-step slice of a multi-step campaign's stats, attributed via the
- * step-scoped send keys. Send steps carry that wave's engagement funnel
- * (`durationMs` null); wait steps carry only `durationMs` (counters zero).
+ * step-scoped send keys (scoped to the campaign_id FK). Send steps carry
+ * that wave's engagement funnel (`durationMs` null); wait steps carry only
+ * `durationMs` (counters zero). Suppressed sends write no key, so `skipped`
+ * is always 0 per step — it only shows at the campaign level.
  */
 export type CampaignStepStats = {
   index: number;
@@ -1768,14 +1770,17 @@ export type CampaignStepStats = {
   bounced: number;
   complained: number;
   failed: number;
+  skipped: number;
   lastSentAt: string | null;
 };
 
 /**
- * Post-dispatch engagement for one campaign, aggregated from its email sends.
- * The campaign row itself knows sent/skipped/failed at dispatch time; this
- * knows what happened to the mail afterwards (first-party opens/clicks plus
- * provider delivered/bounced/complained webhooks).
+ * Post-dispatch engagement for one campaign, aggregated from its email sends
+ * (attributed via the campaign_id column, so keyless suppressed rows are
+ * included as `skipped`). The campaign row itself knows sent/skipped/failed
+ * at dispatch time; this knows what happened to the mail afterwards
+ * (first-party opens/clicks plus provider delivered/bounced/complained
+ * webhooks).
  */
 export type CampaignStats = {
   sends: number;
@@ -1785,6 +1790,7 @@ export type CampaignStats = {
   bounced: number;
   complained: number;
   failed: number;
+  skipped: number;
   lastSentAt: string | null;
   /** Only on multi-step campaigns: one entry per authored step, in order. */
   steps?: CampaignStepStats[];

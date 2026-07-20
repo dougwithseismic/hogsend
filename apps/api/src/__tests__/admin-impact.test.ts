@@ -901,6 +901,7 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
         fromEmail: "no-reply@example.test",
         toEmail: `${RUN}-c-u1@example.test`,
         subject: "t",
+        campaignId: oldCampaignId,
         idempotencyKey: `campaign:${oldCampaignId}:0:${RUN}-c-u1@example.test`,
         deliveredAt: now,
         openedAt: now,
@@ -910,14 +911,26 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
         fromEmail: "no-reply@example.test",
         toEmail: `${RUN}-c-u2@example.test`,
         subject: "t",
+        campaignId: oldCampaignId,
         idempotencyKey: `campaign:${oldCampaignId}:0:${RUN}-c-u2@example.test`,
         deliveredAt: now,
       },
       {
-        // multi-step key — split_part(…, ':', 2) still isolates the id
+        // a suppressed send: FK stamped, NO idempotency key (suppression
+        // shares the "failed" status but never consumes a key) — attributed
+        // to the campaign, but kept OUT of the dispatch funnel below.
+        fromEmail: "no-reply@example.test",
+        toEmail: `${RUN}-c-u6@example.test`,
+        subject: "t",
+        status: "failed",
+        campaignId: oldCampaignId,
+      },
+      {
+        // multi-step key — attribution is the campaign_id column either way
         fromEmail: "no-reply@example.test",
         toEmail: `${RUN}-c-u3@example.test`,
         subject: "t",
+        campaignId: oldCampaignId,
         idempotencyKey: `campaign:${oldCampaignId}:1:${RUN}-c-u3@example.test`,
       },
     ]);
@@ -944,7 +957,7 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
     expect(row.attributed).toEqual([]);
   });
 
-  it("split_part totals match a per-campaign LIKE cross-check", async () => {
+  it("rollup totals match a per-campaign campaign_id cross-check", async () => {
     const body = await (
       await app.request("/v1/admin/impact/overview", {
         headers: AUTH_HEADER,
@@ -956,7 +969,8 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
     const checkRows = await db.execute<{ sends: number }>(sql`
       select count(*)::int as sends
       from email_sends
-      where idempotency_key like ${`campaign:${oldCampaignId}:%`}
+      where campaign_id = ${oldCampaignId}
+        and idempotency_key is not null
     `);
     expect(row.sends).toBe(Number([...checkRows][0]?.sends ?? -1));
   });
@@ -1002,7 +1016,9 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
     ]);
   });
 
-  it("malformed campaign idempotency keys are ignored, never a crash", async () => {
+  it("a campaign-shaped key with no campaign_id stamp is invisible, never a crash", async () => {
+    // The key is dedup-only; without the FK stamp the row attributes to no
+    // campaign — malformed key segments can no longer reach the rollup.
     await db.insert(emailSends).values({
       fromEmail: "no-reply@example.test",
       toEmail: `${RUN}-c-u5@example.test`,

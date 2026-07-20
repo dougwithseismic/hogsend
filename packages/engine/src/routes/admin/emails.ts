@@ -17,12 +17,10 @@ import {
   inArray,
   isNotNull,
   isNull,
-  like,
   lte,
   or,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { campaignSendKeyPattern } from "../../lib/campaign-send-key.js";
 
 const emailSchema = z.object({
   id: z.string(),
@@ -142,7 +140,7 @@ const listRoute = createRoute({
        * Only the sends of one campaign — matched on the deterministic
        * `campaign:<id>:<email>` idempotency key the blast wrote per recipient.
        */
-      campaignId: z.string().optional(),
+      campaignId: z.string().uuid().optional(),
       userId: z.string().optional(),
       category: z.string().optional(),
       engagement: z
@@ -278,10 +276,10 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
     if (status) conditions.push(eq(emailSends.status, status));
     if (category) conditions.push(eq(emailSends.category, category));
     if (journeyId) conditions.push(eq(journeyStates.journeyId, journeyId));
+    // The indexed campaign_id column is the attribution — a key scan would
+    // miss suppressed sends, which write no idempotency key at all.
     if (campaignId) {
-      conditions.push(
-        like(emailSends.idempotencyKey, campaignSendKeyPattern(campaignId)),
-      );
+      conditions.push(eq(emailSends.campaignId, campaignId));
     }
     // Match the denormalized identity OR the journey-state join, so journeyless
     // sends (which only carry the denormalized userId) are still filterable.
