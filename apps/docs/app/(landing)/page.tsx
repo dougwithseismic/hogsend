@@ -55,6 +55,8 @@ import { MINTED_FILES } from "./_components/minted-files";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
+import { ScaffoldExplorer } from "./_components/scaffold-explorer";
+import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
@@ -739,7 +741,9 @@ function PsProblem() {
           </div>
         </div>
 
-        {/* Product shot in a dark frame, floating over a soft gradient. */}
+        {/* The scaffolded app itself, floating over a soft gradient — file
+            tree on the left, the clicked file's code on the right, and the
+            rendered email in a corner window when a template is selected. */}
         <div className="relative mt-16">
           <div
             aria-hidden="true"
@@ -749,14 +753,15 @@ function PsProblem() {
                 "linear-gradient(180deg, transparent 0%, rgba(246,72,56,0.18) 45%, rgba(246,120,80,0.14) 80%, transparent 100%)",
             }}
           />
-          <div className="relative overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-2xl">
-            <Image
-              src={studioJourneys}
-              alt="Hogsend Studio — journeys observed live"
-              className="w-full"
-              priority
-            />
-          </div>
+          <ScaffoldExplorer
+            files={SCAFFOLD_FILES.map(({ path, email }) => ({ path, email }))}
+            highlighted={Object.fromEntries(
+              SCAFFOLD_FILES.map((f) => [
+                f.path,
+                <CodeHighlight key={f.path} code={f.source} lang={f.lang} />,
+              ]),
+            )}
+          />
         </div>
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}

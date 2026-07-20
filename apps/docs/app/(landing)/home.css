@@ -202,3 +202,24 @@
     width: 12ch;
   }
 }
+
+/* Scaffold explorer: the corner email preview slides in when an email
+   template is selected. Transform/opacity only; off under reduced motion. */
+@keyframes scaffold-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.scaffold-preview-in {
+  animation: scaffold-preview-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scaffold-preview-in {
+    animation: none;
+  }
+}
