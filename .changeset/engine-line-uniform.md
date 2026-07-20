@@ -3,7 +3,6 @@
 "@hogsend/cli": minor
 "@hogsend/client": minor
 "@hogsend/core": minor
-"@hogsend/db": minor
 "@hogsend/email": minor
 "hogsend": minor
 "@hogsend/js": minor
@@ -17,7 +16,6 @@
 "@hogsend/plugin-twilio": minor
 "@hogsend/react": minor
 "@hogsend/sms": minor
-"@hogsend/studio": minor
 "@hogsend/testing": minor
 "@hogsend/video": minor
 "create-hogsend": minor
