@@ -13,23 +13,23 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-type Plan = "managed" | "setup";
+type Plan = "audit" | "build";
 
 const COPY: Record<Plan, { title: string; body: string; next: string }> = {
-  managed: {
-    title: "Your managed instance is on the way",
-    body: "Payment's in — thank you. I'll provision your own single-tenant Hogsend in its own Railway project and email you as soon as it's live, with the Studio login and next steps.",
-    next: "While that spins up, the docs cover how everything fits together.",
+  audit: {
+    title: "Your lifecycle audit is booked",
+    body: "Payment's in — thank you. I'll email you within a day to lock the week and gather what I need: your analytics, your email provider, and where you think the funnel leaks.",
+    next: "Want a head start? The docs walk through the pieces I'll be looking at.",
   },
-  setup: {
-    title: "Your setup week is booked",
-    body: "Payment's in — thank you. I'll email you within a day to lock the week and gather what I need: your PostHog, your email provider, and where you think the funnel leaks.",
-    next: "Want a head start? The docs walk through the pieces I'll wire up.",
+  build: {
+    title: "Your build is booked",
+    body: "Payment's in — thank you. I'll email you within a day to lock the kickoff date and gather access: your repo, your analytics, and your email provider.",
+    next: "While we wait, the docs cover how everything fits together.",
   },
 };
 
 function planFrom(value: string | string[] | undefined): Plan {
-  return value === "setup" ? "setup" : "managed";
+  return value === "build" ? "build" : "audit";
 }
 
 export default async function ServiceThanksPage({

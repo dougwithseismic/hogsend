@@ -27,6 +27,7 @@ import { DiscordMark, GitHubMark, InkLogo } from "./brand";
 
 const FLAT_LINKS = [
   { label: "Templates", href: "/emails" },
+  { label: "Services", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
   { label: "Articles", href: "/articles" },

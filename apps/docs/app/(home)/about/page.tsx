@@ -221,16 +221,16 @@ export default function AboutPage(): JSX.Element {
 
             <div className="relative grid gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-center">
               <div className="flex flex-col items-start">
-                <Eyebrow className="mb-4">The setup week</Eyebrow>
+                <Eyebrow className="mb-4">The audit</Eyebrow>
                 <h2 className="max-w-xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-                  Set up for you, in a week
+                  Start by finding the leaks
                 </h2>
                 <p className="mt-5 max-w-xl text-base text-white/70 leading-6">
-                  I built Hogsend to go faster for my clients; the setup week is
-                  the same engagement, productised. One week, $2,300 — deployed
-                  on your infrastructure, PostHog and your provider wired in,
-                  event taxonomy agreed, templates ported, and your first
-                  journeys live in your repo by Friday.
+                  I built Hogsend to go faster for my clients; the service is
+                  the same engagement, productised. One week, $2,000 — your
+                  events, your emails, and your funnel gone through end to end,
+                  and a 90-day roadmap you can act on with or without me. It
+                  comes off the build if you go ahead.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-5">
                   <Button href="mailto:doug@withseismic.com" icon>

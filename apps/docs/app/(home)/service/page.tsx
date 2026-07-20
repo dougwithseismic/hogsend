@@ -19,24 +19,25 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
-import { CheckoutCta } from "@/components/service/checkout-cta";
 import { ServiceInquiryForm } from "@/components/service/inquiry-form";
+import { SERVICE_LADDER, type ServiceTier } from "@/lib/pricing";
 
 // Bare label — the root layout template appends " — Hogsend".
 export const metadata: Metadata = {
-  title: "Done-for-you lifecycle email for PostHog-native startups",
+  title: "Lifecycle marketing, built and run in your repo",
   description:
-    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program with you. Done-for-you at $1,500/month, three-month minimum: month one is the install plus a PostHog account analysis. Just want the install? That's the $2,300 setup week.",
+    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the program. Starts with a $2,000 one-week lifecycle audit, credited against the $9,500 30-day build. Runs on your own accounts, in your own repo.",
   alternates: { canonical: "/service" },
   keywords: [
-    "done-for-you email",
+    "lifecycle marketing",
     "lifecycle email",
-    "posthog",
+    "done-for-you email",
     "trial conversion",
     "win-back emails",
     "email automation agency",
     "customer lifecycle",
     "marketing automation for developers",
+    "fractional growth engineer",
   ],
 };
 
@@ -92,13 +93,13 @@ const METHOD_STEPS: Parameters<typeof ProcessSteps>[0]["steps"] = [
     n: "01",
     title: "I find where you're leaking",
     description:
-      "I learn your product and your funnel, and pin down the exact moments where customers stall, cancel, or drift away — the ones worth an email.",
+      "I learn your product and your funnel, and pin down the exact moments where customers stall, cancel, or drift away — the ones worth an email. This is the audit, and it stands on its own.",
   },
   {
     n: "02",
     title: "I build the program around them",
     description:
-      "I design and write the emails and the timing for each moment, tailored to your product. Done for you — there's no tool for you to learn and no brief for you to write.",
+      "I design and write the emails and the timing for each moment, tailored to your product. It ships as TypeScript in your repository, reviewed like the rest of your product.",
   },
   {
     n: "03",
@@ -106,15 +107,6 @@ const METHOD_STEPS: Parameters<typeof ProcessSteps>[0]["steps"] = [
     description:
       "It sends from your own accounts to real customers, and I keep it monitored and improving as your product and funnel change. You stay focused on the product.",
   },
-];
-
-const DONE_FOR_YOU_ITEMS: string[] = [
-  "Month one: Hogsend deployed, PostHog and your email provider wired in, templates ported, first journeys live in your repo",
-  "A PostHog account analysis, and the program built on it",
-  "Doug, founding growth engineer, working directly with you throughout",
-  "New journeys and experiments as your product and funnel change",
-  "Monitoring, so a stalled or broken send gets caught",
-  "A weekly report on the program",
 ];
 
 const OWNERSHIP_TAGS: string[] = [
@@ -191,6 +183,72 @@ function MomentsCard(): JSX.Element {
   );
 }
 
+/**
+ * One rung of the ladder. The first step carries the accent treatment — it's
+ * the only CTA cold traffic is asked to take.
+ */
+function LadderCard({
+  tier,
+  step,
+  primary,
+}: {
+  tier: ServiceTier;
+  step: string;
+  primary: boolean;
+}): JSX.Element {
+  return (
+    <Card
+      className={`relative flex h-full flex-col overflow-hidden p-8 ${
+        primary ? "border-accent/40" : ""
+      }`}
+    >
+      {primary ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.22), transparent 70%)",
+          }}
+        />
+      ) : null}
+      <div className="relative flex flex-1 flex-col">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-base text-white">
+            {step}. {tier.name}
+          </span>
+          {primary ? <TagPill accent>Start here</TagPill> : null}
+        </div>
+
+        <div className="mt-5 flex items-baseline gap-1.5">
+          <span className="font-display text-[36px] text-white leading-[44px]">
+            {tier.price}
+          </span>
+          <span className="text-base text-white/60">{tier.suffix}</span>
+        </div>
+
+        <p className="mt-4 text-base text-white/70 leading-6">{tier.promise}</p>
+
+        <p className="eyebrow mt-8 text-white/50">What it covers</p>
+        <CheckList items={tier.includes} />
+
+        <div className="mt-auto pt-8">
+          <div className="border-white/[0.08] border-t pt-6">
+            <Button
+              href="#enquire"
+              variant={primary ? "accent" : "outline"}
+              icon
+              className={primary ? "w-full justify-center" : ""}
+            >
+              {primary ? "Book the audit" : "Talk it through"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ------------------------------------------------------------------------ */
 /*  Page                                                                     */
 /* ------------------------------------------------------------------------ */
@@ -198,36 +256,34 @@ function MomentsCard(): JSX.Element {
 export default function ServicePage(): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
-      {/* ---- Hero: the problem + the fix ------------------------------ */}
+      {/* ---- Hero: the outcome, in the buyer's language ---------------- */}
       <Section divider={false} containerClassName="container-page pt-32 pb-20">
         <AuroraBeam className="opacity-60" />
         <div className="relative z-10 grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-16">
           <Reveal className="flex flex-col">
             <PillBadge className="mb-6 self-start">Service</PillBadge>
             <h1 className="max-w-2xl font-display text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[44px] md:leading-[52px]">
-              Done-for-you lifecycle email for PostHog teams
+              Your lifecycle marketing, built and run in your repo
             </h1>
             <p className="mt-6 max-w-xl text-base text-white/70 leading-7">
-              Every product loses customers at the same few moments — a trial
-              that stalls, a subscription that cancels, a first purchase that
+              Every product loses customers at the same few moments. A trial
+              that stalls. A subscription that cancels. A first purchase that
               never becomes a second. Each one is recoverable with the right
               email at the right time, but only if something is watching for it.
               I find those moments in your funnel, build the emails that recover
-              them, and run the whole program for you. It sends from your own
-              PostHog and Resend accounts, with no per-contact billing and
-              nothing for you to build or operate.
+              them, and run the whole program. It sends from your own accounts,
+              with no per-contact billing.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
               <Button href="#enquire" variant="accent" icon>
-                Book a done-for-you call
+                Start with an audit
               </Button>
-              <Button href="/docs/getting-started" variant="outline">
-                Read the docs
+              <Button href="#how" variant="outline">
+                See how the build works
               </Button>
             </div>
             <p className="eyebrow mt-6 text-white/50">
-              Done-for-you $1,500/month · 3-month minimum · No per-contact
-              billing
+              Audit $2,000 · Build $9,500 · Run from $4,000/mo
             </p>
           </Reveal>
 
@@ -241,9 +297,9 @@ export default function ServicePage(): JSX.Element {
       <Section>
         <Reveal>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
-            <Stat value="$1,500/mo" label="Done-for-you, 3-month minimum" />
-            <Stat value="Month one" label="Is the install" />
-            <Stat value="Included" label="A PostHog account analysis" />
+            <Stat value="$2,000" label="One-week audit, credited" />
+            <Stat value="30 days" label="From kickoff to live" />
+            <Stat value="Your repo" label="Where the program lives" />
             <Stat value="$0" label="Per-contact fees" />
           </dl>
         </Reveal>
@@ -271,6 +327,41 @@ export default function ServicePage(): JSX.Element {
         </div>
       </Section>
 
+      {/* ---- The ladder: audit → build → run -------------------------- */}
+      <Section id="pricing">
+        <SectionHeading
+          eyebrow="How it's priced"
+          title="Start with an audit. Build if it's worth building."
+          subtitle="Three steps, each one useful on its own. The audit tells you what's leaking whether or not you hire me for the rest, and its fee comes off the build if you do."
+        />
+
+        <div className="mt-12 grid items-stretch gap-6 lg:grid-cols-3">
+          {SERVICE_LADDER.map((tier, index) => (
+            <Reveal key={tier.id} delay={index * 0.08}>
+              <LadderCard
+                tier={tier}
+                step={String(index + 1)}
+                primary={index === 0}
+              />
+            </Reveal>
+          ))}
+        </div>
+
+        <Reveal delay={0.24}>
+          <p className="mt-8 text-sm text-white/60">
+            Prefer to run it yourself? The engine is free and source-available —
+            every feature, no paid tier held back. See the{" "}
+            <Link
+              href="/pricing"
+              className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
+            >
+              pricing page
+            </Link>
+            .
+          </p>
+        </Reveal>
+      </Section>
+
       {/* ---- How I work: find, build, run ----------------------------- */}
       <Section id="how">
         <Reveal>
@@ -283,144 +374,36 @@ export default function ServicePage(): JSX.Element {
         </Reveal>
       </Section>
 
-      {/* ---- Pricing: the done-for-you plan ---------------------------- */}
-      <Section id="pricing">
+      {/* ---- Risk reversal: the no-lock-in band ----------------------- */}
+      <Section id="ownership">
         <SectionHeading
-          eyebrow="How it's priced"
-          title="One plan: installed and operated"
-          subtitle="Three months to a lifecycle program that's live and running. Month one is the install; from then on we operate it with you. No per-contact meter."
+          eyebrow="No lock-in"
+          title="Fire me and it all keeps working"
+          subtitle="Your engineering team will sign off on this — it's code they can read, in your repository, not another SaaS login. It runs on your accounts under a source-available licence, so there is no platform holding your list hostage. If we stop working together, nothing has to move off anything. Your team can read it, change it, and run it without me."
         />
-
-        <div className="mx-auto mt-12 max-w-xl">
-          {/* Done-for-you — the accent-highlighted single offer. */}
-          <Reveal delay={0.08}>
-            <Card className="relative flex flex-col overflow-hidden border-accent/40 p-8">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.22), transparent 70%)",
-                }}
-              />
-              <div className="relative flex flex-1 flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">Done-for-you</span>
-                  <TagPill accent>Founder-led</TagPill>
-                </div>
-
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $1,500
-                  </span>
-                  <span className="text-base text-white/60">/per month</span>
-                </div>
-
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Three-month minimum. Month one is the install; from month two
-                  onward I operate it: new journeys, experiments, and a weekly
-                  report.
-                </p>
-
-                <p className="eyebrow mt-8 text-white/50">What it covers</p>
-                <CheckList items={DONE_FOR_YOU_ITEMS} />
-
-                <div className="mt-auto pt-8">
-                  <div className="border-white/[0.08] border-t pt-6">
-                    <Button
-                      href="#enquire"
-                      variant="accent"
-                      icon
-                      className="w-full justify-center"
-                    >
-                      Request a call
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </Reveal>
-        </div>
-
-        {/* Setup-week footnote — the install alone, still purchasable. */}
-        <Reveal delay={0.16}>
-          <div className="mt-8 flex flex-col items-center gap-4 text-center">
-            <p className="mx-auto max-w-2xl text-base text-white/60 leading-6">
-              Just want the install? The setup week is $2,300 one-time — the
-              same month-one work as a fixed one-week engagement: Hogsend
-              deployed, wired to PostHog and your email provider, and your first
-              journeys live in your repo. Running it from there is yours.
-            </p>
-            <CheckoutCta
-              tier="setup"
-              label="Buy the setup week"
-              variant="outline"
-              next="/service"
-            />
+        <Reveal delay={0.1}>
+          <div className="mt-10 flex flex-wrap gap-2">
+            {OWNERSHIP_TAGS.map((tag) => (
+              <TagPill key={tag}>{tag}</TagPill>
+            ))}
           </div>
-        </Reveal>
-
-        <Reveal delay={0.2}>
-          <p className="mt-8 text-sm text-white/60">
-            If you only want the software run — a managed single-tenant
-            instance, no lifecycle work — that&apos;s $149/month on the{" "}
-            <Link
-              href="/pricing"
-              className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
-            >
-              pricing page
-            </Link>
-            .
-          </p>
         </Reveal>
       </Section>
 
-      {/* ---- Book a call: the done-for-you inquiry form --------------- */}
+      {/* ---- Book a call: the inquiry form ---------------------------- */}
       <Section id="enquire">
         <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
           <Reveal>
             <SectionHeading
               eyebrow="Book a call"
-              title="Start the done-for-you"
-              subtitle="Tell me what your product does and where you think the funnel leaks. The first conversation is about your product, not a feature list — from there I'll scope the setup and send you a time to grab."
+              title="Start with the audit"
+              subtitle="Tell me what your product does and where you think the funnel leaks. The first conversation is about your product, not a feature list — from there I'll scope the audit and send you a time to grab."
             />
-            <div className="mt-8 flex flex-wrap gap-2">
-              {OWNERSHIP_TAGS.map((tag) => (
-                <TagPill key={tag}>{tag}</TagPill>
-              ))}
-            </div>
           </Reveal>
           <Reveal delay={0.1}>
             <ServiceInquiryForm />
           </Reveal>
         </div>
-      </Section>
-
-      {/* ---- Ownership: the no-lock-in band --------------------------- */}
-      <Section id="ownership">
-        <Reveal>
-          <Card className="p-8 md:p-10">
-            <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
-              <div className="max-w-2xl">
-                <Eyebrow className="mb-3">No lock-in</Eyebrow>
-                <h2 className="font-display text-[24px] text-white leading-[1.2] tracking-[-0.02em] md:text-[28px]">
-                  It runs on your accounts, and you keep all of it
-                </h2>
-                <p className="mt-4 text-base text-white/70 leading-7">
-                  No platform to get locked into, and no per-contact bill that
-                  grows as your list does. If we ever stop working together,
-                  nothing has to move off anything — it was always your accounts
-                  and your program.
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2 md:flex-col md:items-end">
-                {OWNERSHIP_TAGS.map((tag) => (
-                  <TagPill key={tag}>{tag}</TagPill>
-                ))}
-              </div>
-            </div>
-          </Card>
-        </Reveal>
       </Section>
 
       {/* ---- Closing CTA ---------------------------------------------- */}
@@ -430,17 +413,17 @@ export default function ServicePage(): JSX.Element {
           <Reveal className="flex flex-col items-center">
             <Eyebrow className="mb-4">Get started</Eyebrow>
             <h2 className="max-w-2xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-              Scope the setup
+              Find out what you&apos;re leaking
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-7">
-              Tell me what your product does and where you think the funnel
-              leaks. The first conversation is about your product, not a feature
-              list — from there I&apos;ll scope the setup.
+              One week, $2,000, and you get a map of every moment your funnel
+              loses people plus a 90-day roadmap. It comes off the build if you
+              go ahead, and it&apos;s yours to act on if you don&apos;t.
             </p>
           </Reveal>
           <Reveal delay={0.1} className="mt-10">
             <Button href="#enquire" variant="accent" icon>
-              Book a call
+              Book the audit
             </Button>
           </Reveal>
           <Reveal delay={0.16}>

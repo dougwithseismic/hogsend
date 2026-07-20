@@ -230,7 +230,7 @@ export function ServiceInquiryForm(): JSX.Element {
           )}
         </button>
         <p className="eyebrow text-white/50">
-          Done-for-you · $1,500/mo · 3-month minimum
+          Audit $2,000 · Credited against the build
         </p>
       </div>
 

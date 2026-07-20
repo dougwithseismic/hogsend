@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
 
   const marketingPages = [
+    "/service",
     "/pricing",
     "/growth-metrics",
     "/emails",
