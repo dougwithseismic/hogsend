@@ -108,10 +108,12 @@ export function SendsView() {
   const templatesQuery = useQuery({
     queryKey: qk.templates,
     queryFn: listTemplates,
+    staleTime: 60_000,
   });
   const journeysQuery = useQuery({
     queryKey: qk.journeys,
     queryFn: listJourneys,
+    staleTime: 60_000,
   });
   const templateKeys = templatesQuery.data?.templates ?? [];
   const journeys = journeysQuery.data?.journeys ?? [];

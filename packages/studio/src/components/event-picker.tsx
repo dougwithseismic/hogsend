@@ -1,5 +1,9 @@
-import { ChevronDown, Search, X, Zap } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Search, Zap } from "lucide-react";
+import {
+  PICKER_INPUT_CLASS,
+  PickerClearButton,
+  usePicker,
+} from "@/components/ui/picker";
 import type { TargetingEventName, TargetingIdName } from "@/lib/admin-api";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -66,12 +70,7 @@ export function EventPicker({
   /** Open-vocabulary mode: offer a `Use "<typed>"` row for unseen names. */
   allowCustom?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const picker = usePicker();
 
   const known = events.some((ev) => ev.name === value);
   const all = rankEvents(
@@ -88,12 +87,12 @@ export function EventPicker({
         ]
       : events,
   );
-  const q = query.trim().toLowerCase();
+  const q = picker.query.trim().toLowerCase();
   const filtered = q
     ? all.filter((ev) => ev.name.toLowerCase().includes(q))
     : all;
   const visible = filtered.slice(0, MAX_VISIBLE);
-  const trimmed = query.trim();
+  const trimmed = picker.query.trim();
   const custom =
     allowCustom && trimmed !== "" && !all.some((ev) => ev.name === trimmed);
   const rows: Array<TargetingEventName & { isNew?: boolean }> = custom
@@ -109,107 +108,51 @@ export function EventPicker({
         ...visible,
       ]
     : visible;
-  const detail = rows[active] ?? rows[0];
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  // Keep the active row in view while arrowing through the list.
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-index="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  const detail = rows[picker.active] ?? rows[0];
 
   function pick(next: string) {
     onChange(next);
-    setOpen(false);
-    setQuery("");
-    inputRef.current?.blur();
-  }
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
-      setOpen(true);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((a) => Math.min(a + 1, rows.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActive((a) => Math.max(a - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const hit = rows[active];
-      if (hit) pick(hit.name);
-    } else if (e.key === "Escape") {
-      setOpen(false);
-      setQuery("");
-      inputRef.current?.blur();
-    }
+    picker.close();
   }
 
   const triggers = detail?.usedBy ?? [];
 
   return (
-    <div ref={rootRef} className={cn("relative", className)}>
+    <div ref={picker.rootRef} className={cn("relative", className)}>
       <input
-        ref={inputRef}
+        ref={picker.inputRef}
         aria-label={ariaLabel}
-        role="combobox"
-        aria-expanded={open}
         placeholder={placeholder}
-        value={open ? query : value}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setActive(0);
-          if (!open) setOpen(true);
-        }}
-        onFocus={() => {
-          setOpen(true);
-          setQuery("");
-          setActive(0);
-        }}
-        onKeyDown={onKeyDown}
-        className="flex h-9 w-full rounded-md border border-hairline-faint bg-white/[0.04] py-1 pl-3 pr-8 font-mono text-xs text-white transition-colors duration-200 placeholder:font-sans placeholder:text-sm placeholder:text-white/40 hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        value={picker.open ? picker.query : value}
+        onKeyDown={picker.keyDown(rows.length, (i) => {
+          const hit = rows[i];
+          if (hit) pick(hit.name);
+        })}
+        className={cn(
+          PICKER_INPUT_CLASS,
+          "font-mono text-xs placeholder:font-sans placeholder:text-sm",
+        )}
+        {...picker.inputProps}
       />
       {allowClear && value !== "" ? (
-        <button
-          type="button"
-          aria-label={`Clear ${ariaLabel}`}
-          // mousedown, not click: it must win against the input's blur/close.
-          onMouseDown={(e) => {
-            e.preventDefault();
-            pick("");
-          }}
-          className="absolute right-7 top-1/2 -translate-y-1/2 text-white/40 transition-colors hover:text-white"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <PickerClearButton
+          label={`Clear ${ariaLabel}`}
+          onClear={() => pick("")}
+        />
       ) : null}
       <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
 
-      {open ? (
+      {picker.open ? (
         <div className="absolute z-30 mt-1 w-[40rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-md border border-white/[0.1] bg-[#141010] shadow-xl">
           <div className="relative border-b border-white/[0.06]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
             <p className="py-2 pl-9 pr-3 text-sm text-white/40">
-              {query === "" ? "Type to search events" : query}
+              {picker.query === "" ? "Type to search events" : picker.query}
             </p>
           </div>
           <div className="flex">
             <div
-              ref={listRef}
+              ref={picker.listRef}
               role="listbox"
               className="max-h-80 w-1/2 overflow-y-auto py-1"
             >
@@ -228,10 +171,10 @@ export function EventPicker({
                       e.preventDefault();
                       pick(ev.name);
                     }}
-                    onMouseEnter={() => setActive(i)}
+                    onMouseEnter={() => picker.setActive(i)}
                     className={cn(
                       "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs",
-                      i === active
+                      i === picker.active
                         ? "bg-white/[0.06] text-white"
                         : "text-white/75",
                       ev.name === value && !ev.isNew ? "text-accent" : "",

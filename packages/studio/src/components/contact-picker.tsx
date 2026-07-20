@@ -1,6 +1,11 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ChevronDown, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  PICKER_INPUT_CLASS,
+  PickerClearButton,
+  usePicker,
+} from "@/components/ui/picker";
 import { type Contact, contactKey, listContacts } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
@@ -39,24 +44,19 @@ export function ContactPicker({
   allowClear?: boolean;
   allowCustom?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const picker = usePicker();
   const [search, setSearch] = useState("");
-  const [active, setActive] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   // Debounce the typed query into the committed server search term.
   useEffect(() => {
-    const t = window.setTimeout(() => setSearch(query.trim()), 300);
+    const t = window.setTimeout(() => setSearch(picker.query.trim()), 300);
     return () => window.clearTimeout(t);
-  }, [query]);
+  }, [picker.query]);
 
   const contactsQuery = useQuery({
     queryKey: ["contact-picker", search],
     queryFn: () => listContacts({ search: search || undefined, limit: 20 }),
-    enabled: open,
+    enabled: picker.open,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
@@ -66,107 +66,48 @@ export function ContactPicker({
   const contacts = (contactsQuery.data?.contacts ?? []).filter(
     (c) => emitted(c) !== "",
   );
-  const trimmed = query.trim();
+  const trimmed = picker.query.trim();
   const custom =
     allowCustom &&
     trimmed !== "" &&
     !contacts.some((c) => emitted(c) === trimmed);
   // rows: an optional "use raw value" row, then the server page.
   const rowCount = contacts.length + (custom ? 1 : 0);
-  const rowContact = (i: number): Contact | null =>
-    custom ? (i === 0 ? null : contacts[i - 1]!) : contacts[i]!;
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-index="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  const rowContact = (i: number): Contact | undefined =>
+    custom ? (i === 0 ? undefined : contacts[i - 1]) : contacts[i];
 
   function pickRow(i: number) {
     const contact = rowContact(i);
     onChange(contact ? emitted(contact) : trimmed);
     if (contact) onPick?.(contact);
-    setOpen(false);
-    setQuery("");
-    inputRef.current?.blur();
-  }
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
-      setOpen(true);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((a) => Math.min(a + 1, rowCount - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActive((a) => Math.max(a - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (rowCount > 0) pickRow(Math.min(active, rowCount - 1));
-    } else if (e.key === "Escape") {
-      setOpen(false);
-      setQuery("");
-      inputRef.current?.blur();
-    }
+    picker.close();
   }
 
   return (
-    <div ref={rootRef} className={cn("relative", className)}>
+    <div ref={picker.rootRef} className={cn("relative", className)}>
       <input
-        ref={inputRef}
+        ref={picker.inputRef}
         aria-label={ariaLabel}
-        role="combobox"
-        aria-expanded={open}
         placeholder={placeholder}
-        value={open ? query : value}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setActive(0);
-          if (!open) setOpen(true);
-        }}
-        onFocus={() => {
-          setOpen(true);
-          setQuery("");
-          setActive(0);
-        }}
-        onKeyDown={onKeyDown}
-        className="flex h-9 w-full rounded-md border border-hairline-faint bg-white/[0.04] py-1 pl-3 pr-8 text-sm text-white transition-colors duration-200 placeholder:text-white/40 hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        value={picker.open ? picker.query : value}
+        onKeyDown={picker.keyDown(rowCount, pickRow)}
+        className={PICKER_INPUT_CLASS}
+        {...picker.inputProps}
       />
       {allowClear && value !== "" ? (
-        <button
-          type="button"
-          aria-label={`Clear ${ariaLabel}`}
-          // mousedown, not click: it must win against the input's blur/close.
-          onMouseDown={(e) => {
-            e.preventDefault();
+        <PickerClearButton
+          label={`Clear ${ariaLabel}`}
+          onClear={() => {
             onChange("");
-            setOpen(false);
-            setQuery("");
+            picker.close();
           }}
-          className="absolute right-7 top-1/2 -translate-y-1/2 text-white/40 transition-colors hover:text-white"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        />
       ) : null}
       <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
 
-      {open ? (
+      {picker.open ? (
         <div
-          ref={listRef}
+          ref={picker.listRef}
           role="listbox"
           className="absolute z-30 mt-1 max-h-80 w-full min-w-72 overflow-y-auto rounded-md border border-white/[0.1] bg-[#141010] py-1 shadow-xl"
         >
@@ -186,10 +127,10 @@ export function ContactPicker({
                 e.preventDefault();
                 pickRow(0);
               }}
-              onMouseEnter={() => setActive(0)}
+              onMouseEnter={() => picker.setActive(0)}
               className={cn(
                 "w-full px-3 py-1.5 text-left text-sm italic text-white/60",
-                active === 0 ? "bg-white/[0.06] text-white" : "",
+                picker.active === 0 ? "bg-white/[0.06] text-white" : "",
               )}
             >
               Use "{trimmed}"
@@ -214,10 +155,10 @@ export function ContactPicker({
                     e.preventDefault();
                     pickRow(i);
                   }}
-                  onMouseEnter={() => setActive(i)}
+                  onMouseEnter={() => picker.setActive(i)}
                   className={cn(
                     "flex w-full flex-col gap-0.5 px-3 py-1.5 text-left",
-                    i === active ? "bg-white/[0.06]" : "",
+                    i === picker.active ? "bg-white/[0.06]" : "",
                   )}
                 >
                   <span
