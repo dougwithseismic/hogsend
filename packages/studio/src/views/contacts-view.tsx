@@ -22,13 +22,18 @@ import { formatRelative } from "@/lib/format";
 import { DEFAULT_STAGES, stageLabel } from "@/lib/stages";
 import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
-export function ContactsView() {
+export function ContactsView({
+  /** Deep-linked contact (`?contact=<uuid>`) whose drawer opens on load. */
+  initialContactId = null,
+}: {
+  initialContactId?: string | null;
+}) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [minRevenueInput, setMinRevenueInput] = useState("");
   const [minRevenue, setMinRevenue] = useState<number | undefined>(undefined);
   const [dealStage, setDealStage] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialContactId);
 
   // The deployment's configured pipeline ladder drives the stage options.
   const statsQuery = useQuery({

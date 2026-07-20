@@ -177,7 +177,16 @@ const groupDetailRoute = createRoute({
 const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
-  component: ContactsView,
+  // Deep link: /contacts?contact=<uuid> opens that contact's drawer — the
+  // "open profile" target for pickers and anything else that links a person.
+  validateSearch: (search: Record<string, unknown>): { contact?: string } => ({
+    contact: typeof search.contact === "string" ? search.contact : undefined,
+  }),
+  // Search params are read here so the view stays router-agnostic.
+  component: function ContactsRoute() {
+    const { contact } = contactsRoute.useSearch();
+    return <ContactsView initialContactId={contact ?? null} />;
+  },
 });
 
 const suppressionsRoute = createRoute({

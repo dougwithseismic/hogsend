@@ -575,6 +575,28 @@ const listRoute = createRoute({
   },
 });
 
+const listTypesRoute = createRoute({
+  method: "get",
+  path: "/types",
+  tags: ["Admin — Groups"],
+  summary: "List distinct group types",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            types: z.array(
+              z.object({ groupType: z.string(), count: z.number() }),
+            ),
+          }),
+        },
+      },
+      description:
+        "Distinct group types across live groups with per-type counts, largest first",
+    },
+  },
+});
+
 const getRoute = createRoute({
   method: "get",
   path: "/{groupType}/{groupKey}",
@@ -696,6 +718,18 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
       },
       200,
     );
+  })
+  // Registered before the `/{groupType}/{groupKey}` param route so the
+  // literal "types" isn't captured as a groupType.
+  .openapi(listTypesRoute, async (c) => {
+    const { db } = c.get("container");
+    const rows = await db
+      .select({ groupType: groups.groupType, count: count() })
+      .from(groups)
+      .where(isNull(groups.deletedAt))
+      .groupBy(groups.groupType)
+      .orderBy(desc(count()), asc(groups.groupType));
+    return c.json({ types: rows }, 200);
   })
   .openapi(listMembersRoute, async (c) => {
     const { db } = c.get("container");
