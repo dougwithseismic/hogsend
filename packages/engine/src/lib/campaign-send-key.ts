@@ -1,16 +1,18 @@
 /**
  * The deterministic per-recipient idempotency key a campaign send writes to
- * `email_sends.idempotency_key`. This key is ALSO how a send row is
- * attributed back to its campaign (there is no campaign_id FK on
- * email_sends), so the format is owned here — the send-campaign task mints
- * keys with `campaignSendKey` and the admin campaign-stats/sends routes match
- * them with the pattern helpers.
+ * `email_sends.idempotency_key`. The key exists for DEDUP; campaign
+ * attribution is the `email_sends.campaign_id` column (stamped on every
+ * campaign-dispatched row including suppressed sends, which write no key at
+ * all; legacy rows backfilled by migration 0051). The one thing the key
+ * still uniquely carries is the STEP NUMBER of a multi-step campaign, which
+ * is why the per-step stats breakdown matches `campaignStepSendKeyPattern`
+ * (scoped to the campaign_id FK first).
  *
  * Two formats, chosen by the campaign's step count (NOT per call site):
  *
  *  - Single-step campaigns (steps.length === 1 or a NULL steps blob) ALWAYS
- *    use the legacy `campaign:<id>:<email>` — behavior, stats queries, and
- *    any in-flight campaign at deploy time are byte-for-byte unchanged.
+ *    use the legacy `campaign:<id>:<email>` — behavior and any in-flight
+ *    campaign at deploy time are byte-for-byte unchanged.
  *  - Multi-step campaigns use `campaign:<id>:<step>:<email>` for ALL steps
  *    including 0. No ambiguity with the legacy format is possible (no
  *    multi-step campaign exists before this ships), and per-step stats
@@ -32,17 +34,6 @@ export function campaignSendKey(
 /** Escape LIKE metacharacters so an id/step can't widen a pattern match. */
 function escapeLike(value: string): string {
   return value.replace(/([\\%_])/g, "\\$1");
-}
-
-/**
- * SQL LIKE pattern matching every send of one campaign — a correct superset
- * of BOTH key formats (legacy and step-scoped), so campaign-level stats need
- * no format awareness. The id is escaped so LIKE metacharacters in it can't
- * widen the match (ids are UUIDs today, but the route accepts arbitrary
- * strings).
- */
-export function campaignSendKeyPattern(campaignId: string): string {
-  return `campaign:${escapeLike(campaignId)}:%`;
 }
 
 /**

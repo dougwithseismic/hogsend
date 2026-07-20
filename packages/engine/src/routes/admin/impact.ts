@@ -353,12 +353,15 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
     );
 
     // (d) Campaigns — correlational only, ACTIVITY-windowed enumeration:
-    // ids come from the in-window email_sends split_part rollup ∪ in-window
+    // ids come from the in-window email_sends campaign_id rollup ∪ in-window
     // attribution_credits.campaign_id (NOT "newest 50 created in window" —
     // that drops older-but-active multi-step/scheduled campaigns whose
-    // sends fall inside the window). Cap 50 by send volume desc.
-    const UUID_RE =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // sends fall inside the window). Cap 50 by send volume desc. The
+    // indexed campaign_id column is the attribution (stamped at send time,
+    // backfilled from legacy idempotency keys by migration 0051) — never
+    // key parsing. Suppressed/blocked rows carry the FK but were never
+    // dispatched (they write no idempotency key), so they stay out of the
+    // funnel.
     const [campaignSendRows, campaignCreditRows] = await Promise.all([
       db.execute<{
         campaign_id: string;
@@ -367,13 +370,14 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
         opened: number;
         clicked: number;
       }>(sql`
-        select split_part(idempotency_key, ':', 2) as campaign_id,
+        select campaign_id::text as campaign_id,
           count(*)::int as sends,
           count(delivered_at)::int as delivered,
           count(opened_at)::int as opened,
           count(clicked_at)::int as clicked
         from email_sends
-        where idempotency_key like 'campaign:%'
+        where campaign_id is not null
+          and idempotency_key is not null
           and created_at >= ${sinceTs}
         group by 1
       `),
@@ -395,19 +399,15 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
     ]);
 
     const sendsByCampaign = new Map(
-      [...campaignSendRows]
-        // split_part can only be trusted on well-formed keys; a malformed
-        // segment would break the uuid-typed campaigns lookup below.
-        .filter((r) => UUID_RE.test(r.campaign_id))
-        .map((r) => [
-          r.campaign_id,
-          {
-            sends: Number(r.sends),
-            delivered: Number(r.delivered),
-            opened: Number(r.opened),
-            clicked: Number(r.clicked),
-          },
-        ]),
+      [...campaignSendRows].map((r) => [
+        r.campaign_id,
+        {
+          sends: Number(r.sends),
+          delivered: Number(r.delivered),
+          opened: Number(r.opened),
+          clicked: Number(r.clicked),
+        },
+      ]),
     );
     const creditsByCampaign = new Map<
       string,

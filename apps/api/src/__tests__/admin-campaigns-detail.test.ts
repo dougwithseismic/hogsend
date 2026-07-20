@@ -81,6 +81,7 @@ beforeAll(async () => {
         toEmail: "clicked@example.com",
         subject: "Stats test",
         status: "clicked",
+        campaignId,
         idempotencyKey: `campaign:${campaignId}:clicked@example.com`,
         sentAt: new Date(base.getTime() + 1000),
         deliveredAt: new Date(base.getTime() + 2000),
@@ -94,6 +95,7 @@ beforeAll(async () => {
         toEmail: "sent@example.com",
         subject: "Stats test",
         status: "sent",
+        campaignId,
         idempotencyKey: `campaign:${campaignId}:sent@example.com`,
         sentAt: new Date(base.getTime() + 5000),
       },
@@ -104,7 +106,20 @@ beforeAll(async () => {
         toEmail: "failed@example.com",
         subject: "Stats test",
         status: "failed",
+        campaignId,
         idempotencyKey: `campaign:${campaignId}:failed@example.com`,
+      },
+      // A suppressed send: campaign_id stamped but NO idempotency key at all
+      // (suppression deliberately leaves the key unconsumed, and writes the
+      // shared "failed" status) — only the FK attribution can see this row,
+      // and only the missing key tells it apart from a dispatch failure.
+      {
+        templateKey: "stats-test-template",
+        fromEmail: "from@hogsend.com",
+        toEmail: "suppressed@example.com",
+        subject: "Stats test",
+        status: "failed",
+        campaignId,
       },
       // A send belonging to the OTHER campaign — must not be counted.
       {
@@ -113,6 +128,7 @@ beforeAll(async () => {
         toEmail: "other@example.com",
         subject: "Stats test",
         status: "opened",
+        campaignId: otherCampaignId,
         idempotencyKey: `campaign:${otherCampaignId}:other@example.com`,
         sentAt: new Date(base.getTime() + 9000),
         deliveredAt: new Date(base.getTime() + 9500),
@@ -155,6 +171,9 @@ describe("GET /v1/admin/campaigns/:id/stats", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
+    // `sends` and `failed` exclude the keyless suppressed row (not a
+    // dispatch attempt, despite its "failed" status); it is still attributed
+    // — via the FK — as `skipped`.
     expect(body).toEqual({
       sends: 3,
       delivered: 1,
@@ -163,6 +182,7 @@ describe("GET /v1/admin/campaigns/:id/stats", () => {
       bounced: 0,
       complained: 0,
       failed: 1,
+      skipped: 1,
       lastSentAt: new Date(base.getTime() + 5000).toISOString(),
     });
   });
@@ -181,18 +201,19 @@ describe("GET /v1/admin/campaigns/:id/stats", () => {
 });
 
 describe("GET /v1/admin/emails?campaignId=", () => {
-  it("lists only the campaign's sends", async () => {
+  it("lists all the campaign's sends, including keyless suppressed rows", async () => {
     const res = await app.request(
       `/v1/admin/emails?limit=100&campaignId=${campaignId}`,
       { headers: AUTH_HEADER },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.total).toBe(3);
+    expect(body.total).toBe(4);
     const recipients = body.emails.map((e: { toEmail: string }) => e.toEmail);
     expect(recipients).toContain("clicked@example.com");
     expect(recipients).toContain("sent@example.com");
     expect(recipients).toContain("failed@example.com");
+    expect(recipients).toContain("suppressed@example.com");
     expect(recipients).not.toContain("other@example.com");
   });
 
@@ -203,7 +224,12 @@ describe("GET /v1/admin/emails?campaignId=", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.total).toBe(1);
-    expect(body.emails[0]?.toEmail).toBe("failed@example.com");
+    // Suppression writes the same row-level "failed" status as a dispatch
+    // failure, so the status filter surfaces both; the stats endpoint is
+    // what tells them apart (by the missing idempotency key).
+    expect(body.total).toBe(2);
+    const recipients = body.emails.map((e: { toEmail: string }) => e.toEmail);
+    expect(recipients).toContain("failed@example.com");
+    expect(recipients).toContain("suppressed@example.com");
   });
 });

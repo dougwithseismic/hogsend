@@ -29,7 +29,6 @@ import {
 } from "@hogsend/db";
 import { type SQL, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
-import { campaignSendKeyPattern } from "../lib/campaign-send-key.js";
 
 /**
  * The v1 linked-identity map: connector id → the `contacts` column that holds
@@ -107,13 +106,13 @@ export function waveConditionSql(opts: {
 }
 
 /**
- * Engagement over THIS campaign's prior deliveries. The campaign-level LIKE
- * (`campaign:<escaped-id>:%`) is a correct superset of BOTH key formats
- * (legacy and step-scoped), so an absent `templateKey` — "any prior send of
- * this campaign" — and a template-filtered check both anchor on it. Negative
- * checks are NOT EXISTS of the same positive-engagement subquery, so
- * `notOpened()` reads "no opened send of this campaign", including members
- * who received nothing (e.g. suppressed on the prior wave).
+ * Engagement over THIS campaign's prior deliveries, anchored on the indexed
+ * `campaign_id` column (stamped on every campaign-dispatched row regardless
+ * of key format; suppressed rows carry it too but have no engagement
+ * timestamps, so they can never match positively). Negative checks are NOT
+ * EXISTS of the same positive-engagement subquery, so `notOpened()` reads
+ * "no opened send of this campaign", including members who received nothing
+ * (e.g. suppressed on the prior wave).
  */
 function engagementSql(
   condition: EmailEngagementCondition,
@@ -129,7 +128,7 @@ function engagementSql(
       : sql.empty();
   const positive = sql`exists (
     select 1 from ${emailSends}
-    where ${emailSends.idempotencyKey} like ${campaignSendKeyPattern(campaignId)}
+    where ${emailSends.campaignId} = ${campaignId}
       and ${emailSends.toEmail} = ${campaignRecipients.email}
       and ${engagedAt} is not null${templateFilter}
   )`;

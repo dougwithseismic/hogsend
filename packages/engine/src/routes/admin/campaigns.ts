@@ -9,12 +9,19 @@
 import { type CampaignStep, durationToMs } from "@hogsend/core";
 import { campaigns, emailSends } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray, like, max, sql } from "drizzle-orm";
-import type { AppEnv } from "../../app.js";
 import {
-  campaignSendKeyPattern,
-  campaignStepSendKeyPattern,
-} from "../../lib/campaign-send-key.js";
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  like,
+  max,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import type { AppEnv } from "../../app.js";
+import { campaignStepSendKeyPattern } from "../../lib/campaign-send-key.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { campaignSchema, serializeCampaign } from "../campaigns/index.js";
 
@@ -68,9 +75,12 @@ const getRouteDef = createRoute({
 /**
  * One row of the per-step breakdown for a multi-step campaign: the step's
  * identity (`kind` + `templateKey` for send steps, `durationMs` for wait
- * steps) plus the same engagement aggregate as the campaign level, scoped to
- * the step's `campaign:<id>:<step>:%` idempotency-key pattern. Wait steps
- * deliver nothing, so their counts are zeroed.
+ * steps) plus the same engagement aggregate as the campaign level. The step
+ * number only lives in the `campaign:<id>:<step>:%` idempotency-key format,
+ * so step rows anchor on that pattern (scoped to the campaign_id FK first) —
+ * which also means suppressed sends (no key) can never attribute to a step
+ * and `skipped` is always 0 here. Wait steps deliver nothing, so their
+ * counts are zeroed.
  */
 const campaignStepStatsSchema = z.object({
   index: z.number(),
@@ -84,18 +94,22 @@ const campaignStepStatsSchema = z.object({
   bounced: z.number(),
   complained: z.number(),
   failed: z.number(),
+  skipped: z.number(),
   lastSentAt: z.string().nullable(),
 });
 
 /**
  * Post-dispatch engagement for one campaign, aggregated from the `email_sends`
- * rows the blast wrote (attributed via the `campaign:<id>:…` idempotency
- * key — there is no campaign FK on email_sends). Complements the counters on
- * the campaign row itself: the row knows sent/skipped/failed at dispatch time,
- * this knows what happened to the mail AFTERWARDS (delivered/opened/clicked/
- * bounced/complained via first-party tracking + provider webhooks). Multi-step
- * campaigns additionally carry `steps` — one entry per step, in step order
- * (the campaign-level numbers are a superset of every step's).
+ * rows the blast wrote — attributed via the indexed `campaign_id` column
+ * (stamped at send time, backfilled from legacy idempotency keys by migration
+ * 0051), NOT by parsing the key: suppressed sends write no key at all, so a
+ * key scan can never see them. Complements the counters on the campaign row
+ * itself: the row knows sent/skipped/failed at dispatch time, this knows what
+ * happened to the mail AFTERWARDS (delivered/opened/clicked/bounced/complained
+ * via first-party tracking + provider webhooks) plus the suppressed rows as
+ * `skipped`. Multi-step campaigns additionally carry `steps` — one entry per
+ * step, in step order (the campaign-level numbers are a superset of every
+ * step's).
  */
 const campaignStatsSchema = z.object({
   sends: z.number(),
@@ -105,6 +119,7 @@ const campaignStatsSchema = z.object({
   bounced: z.number(),
   complained: z.number(),
   failed: z.number(),
+  skipped: z.number(),
   lastSentAt: z.string().nullable(),
   steps: z.array(campaignStepStatsSchema).optional(),
 });
@@ -213,28 +228,39 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
     }
 
     // count(column) counts non-NULL values, so each engagement timestamp
-    // doubles as its own tally. No campaign FK on email_sends — the LIKE on the
-    // deterministic idempotency key is the attribution (admin-plane traffic, so
-    // the prefix scan is acceptable without a dedicated index). Shared by the
-    // campaign-level aggregate and the per-step breakdown.
-    const aggregate = async (pattern: string) => {
+    // doubles as its own tally. Attribution is the indexed `campaign_id`
+    // column (stamped on every campaign row including suppressed sends;
+    // legacy rows backfilled by migration 0051). A suppressed/blocked send
+    // writes NO idempotency key (and shares the `failed` status with real
+    // dispatch failures), so keyless rows are the `skipped` bucket and both
+    // `sends` and `failed` are scoped to keyed rows — they keep meaning
+    // "dispatch attempts"/"dispatch failures". Shared by the campaign-level
+    // aggregate and the per-step breakdown.
+    const aggregate = async (where: SQL | undefined) => {
       const agg = (
         await db
           .select({
-            sends: count(),
+            sends:
+              sql<number>`count(*) filter (where ${emailSends.idempotencyKey} is not null)`.mapWith(
+                Number,
+              ),
             delivered: count(emailSends.deliveredAt),
             opened: count(emailSends.openedAt),
             clicked: count(emailSends.clickedAt),
             bounced: count(emailSends.bouncedAt),
             complained: count(emailSends.complainedAt),
             failed:
-              sql<number>`count(*) filter (where ${emailSends.status} = 'failed')`.mapWith(
+              sql<number>`count(*) filter (where ${emailSends.status} = 'failed' and ${emailSends.idempotencyKey} is not null)`.mapWith(
+                Number,
+              ),
+            skipped:
+              sql<number>`count(*) filter (where ${emailSends.idempotencyKey} is null)`.mapWith(
                 Number,
               ),
             lastSentAt: max(emailSends.sentAt),
           })
           .from(emailSends)
-          .where(like(emailSends.idempotencyKey, pattern))
+          .where(where)
       )[0];
       return {
         sends: agg?.sends ?? 0,
@@ -244,21 +270,23 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
         bounced: agg?.bounced ?? 0,
         complained: agg?.complained ?? 0,
         failed: agg?.failed ?? 0,
+        skipped: agg?.skipped ?? 0,
         lastSentAt: agg?.lastSentAt ? agg.lastSentAt.toISOString() : null,
       };
     };
 
-    // The campaign-level pattern (`campaign:<id>:%`) is a superset of both
-    // key formats, so these numbers are format-agnostic and unchanged for
-    // legacy single-send rows.
-    const campaignLevel = await aggregate(campaignSendKeyPattern(id));
+    // Campaign-level: the FK matches every row of both key formats AND the
+    // keyless suppressed rows, so these numbers are format-agnostic and
+    // unchanged for legacy single-send rows.
+    const campaignLevel = await aggregate(eq(emailSends.campaignId, id));
 
     // Per-step breakdown, only when the row carries a steps blob (NULL =
-    // legacy single-send — no `steps` in the response). Send-step aggregates
-    // filter on the step-scoped pattern (`campaign:<id>:<k>:%` — multi-step
-    // campaigns key ALL steps including 0 that way); wait steps deliver
-    // nothing. One query per step is fine at the ≤10-step cap on the
-    // admin plane.
+    // legacy single-send — no `steps` in the response). The step number only
+    // exists inside the key, so send-step aggregates still filter on the
+    // step-scoped pattern (`campaign:<id>:<k>:%` — multi-step campaigns key
+    // ALL steps including 0 that way), anchored on the indexed FK first; wait
+    // steps deliver nothing. One query per step is fine at the ≤10-step cap
+    // on the admin plane.
     const blob = row.steps;
     if (!blob) {
       return c.json(campaignLevel, 200);
@@ -275,7 +303,15 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
           kind: step.kind,
           templateKey: step.template,
           durationMs: null,
-          ...(await aggregate(campaignStepSendKeyPattern(id, index))),
+          ...(await aggregate(
+            and(
+              eq(emailSends.campaignId, id),
+              like(
+                emailSends.idempotencyKey,
+                campaignStepSendKeyPattern(id, index),
+              ),
+            ),
+          )),
         });
       } else {
         steps.push({
@@ -290,6 +326,7 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
           bounced: 0,
           complained: 0,
           failed: 0,
+          skipped: 0,
           lastSentAt: null,
         });
       }
