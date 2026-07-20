@@ -221,3 +221,57 @@ describe("GET /v1/admin/events/names", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("GET /v1/admin/events/sources", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await app.request("/v1/admin/events/sources");
+    expect(res.status).toBe(401);
+  });
+
+  it("aggregates observed sources and labels builtins/connectors", async () => {
+    const sourceName = `${RUN}-src`;
+    await db.insert(userEvents).values([
+      { userId: EVENTS_USER, event: `${RUN}.src-a`, source: sourceName },
+      { userId: EVENTS_USER, event: `${RUN}.src-b`, source: sourceName },
+    ]);
+
+    const res = await app.request("/v1/admin/events/sources", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const sources = body.sources as {
+      name: string;
+      occurrences: number;
+      firstSeenAt: string | null;
+      lastSeenAt: string | null;
+      kind: "connector" | "builtin" | "observed";
+      label: string | null;
+    }[];
+
+    // The run-unique source: observed, counted, stamped with recency.
+    const mine = sources.find((s) => s.name === sourceName);
+    expect(mine).toBeDefined();
+    expect(mine?.occurrences).toBe(2);
+    expect(mine?.kind).toBe("observed");
+    expect(mine?.label).toBeNull();
+    expect(mine?.firstSeenAt).toBeTruthy();
+    expect(mine?.lastSeenAt).toBeTruthy();
+
+    // Every registered inbound connector appears, fired or not
+    // (zero-backfill), carrying its display name.
+    for (const conn of container.connectorRegistry.getAll()) {
+      const entry = sources.find((s) => s.name === conn.meta.id);
+      expect(entry).toBeDefined();
+      expect(entry?.kind).toBe("connector");
+      expect(entry?.label).toBe(conn.meta.name);
+    }
+  });
+
+  it("is not captured by the /{id} param route", async () => {
+    const res = await app.request("/v1/admin/events/sources", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+  });
+});

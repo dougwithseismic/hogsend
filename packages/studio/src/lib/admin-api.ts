@@ -1028,6 +1028,23 @@ export type ContactGroup = {
   joinedAt: string;
 };
 
+export type SourceEntry = {
+  name: string;
+  occurrences: number;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  /** connector = registered inbound connector; builtin = engine-stamped
+   * origin; observed = seen in the store but not otherwise known. */
+  kind: "connector" | "builtin" | "observed";
+  /** Connector display name, or the builtin origin's explanation. */
+  label: string | null;
+};
+
+/** Observed + registered source vocabulary for the events Source filter. */
+export function listEventSources() {
+  return api.get<{ sources: SourceEntry[] }>("/v1/admin/events/sources");
+}
+
 export function getContact(id: string) {
   return api.get<{
     contact: Contact;
@@ -2199,6 +2216,7 @@ export const qk = {
   flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
   targetingCatalog: ["targeting-catalog"] as const,
   eventNames: ["event-names"] as const,
+  eventSources: ["event-sources"] as const,
   targetingCount: (targeting: FlagTargeting | FlagTargetingCondition[]) =>
     ["targeting-count", targeting] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,

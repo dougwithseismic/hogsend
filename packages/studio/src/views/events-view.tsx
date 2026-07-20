@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ContactPicker } from "@/components/contact-picker";
 import { EventPicker } from "@/components/event-picker";
 import { PropertyTable } from "@/components/property-table";
+import { SourcePicker } from "@/components/source-picker";
 import {
   EmptyState,
   ErrorState,
@@ -12,7 +13,6 @@ import {
 } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
 import { Drawer } from "@/components/ui/drawer";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -30,6 +30,7 @@ import {
   type EventListItem,
   getContact,
   listEventNames,
+  listEventSources,
   listEvents,
   listJourneys,
   qk,
@@ -39,17 +40,6 @@ import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
 const PAGE_SIZE = 25;
 const LIVE_INTERVAL_MS = 4000;
-/** Common engine-stamped origins for the Source filter suggestions; merged with
- * whatever sources actually appear in the loaded events so it never drifts. */
-const KNOWN_SOURCES = [
-  "posthog",
-  "api",
-  "studio",
-  "connector",
-  "journey",
-  "import",
-];
-
 type TimeWindow = "all" | "1h" | "24h" | "7d";
 
 const WINDOW_MS: Record<Exclude<TimeWindow, "all">, number> = {
@@ -210,16 +200,13 @@ export function EventsView() {
     name: j.name,
   }));
 
-  // Source suggestions: the known origins + any sources actually present in the
-  // loaded events, so a new/dynamic source (a webhook id, a connector platform)
-  // still shows up as a filter hint.
-  const sourceNames = useMemo(() => {
-    const set = new Set<string>(KNOWN_SOURCES);
-    for (const ev of query.data?.events ?? []) {
-      if (ev.source) set.add(ev.source);
-    }
-    return Array.from(set).sort();
-  }, [query.data?.events]);
+  // The source vocabulary (observed + registered connectors) — one cached
+  // fetch feeding the Source picker's list and detail pane.
+  const sourcesQuery = useQuery({
+    queryKey: qk.eventSources,
+    queryFn: listEventSources,
+    staleTime: 60_000,
+  });
 
   function patch(next: Partial<Filters>) {
     setFilters((prev) => ({ ...prev, ...next }));
@@ -271,11 +258,11 @@ export function EventsView() {
         </div>
         <div className="space-y-1.5">
           <Label>Source</Label>
-          <Combobox
+          <SourcePicker
             ariaLabel="Source"
             value={filters.source}
             placeholder="All sources"
-            options={sourceNames.map((s) => ({ value: s, label: s }))}
+            sources={sourcesQuery.data?.sources ?? []}
             onChange={(source) => patch({ source })}
             allowClear
             allowCustom
