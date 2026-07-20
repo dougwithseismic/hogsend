@@ -1,4 +1,5 @@
 import { Plus, X } from "lucide-react";
+import { EventPicker } from "@/components/event-picker";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,6 @@ import type {
   TargetingCatalog,
   TargetingOperator,
 } from "@/lib/admin-api";
-import { eventOptions } from "@/lib/event-options";
 import { cn } from "@/lib/utils";
 
 /**
@@ -699,13 +699,14 @@ function EventInputs({
 
   return (
     <>
-      <Combobox
+      <EventPicker
         ariaLabel="Event"
         value={leaf.eventName}
         placeholder="Select an event"
-        options={eventOptions(catalog?.events ?? [])}
+        events={catalog?.events ?? []}
+        journeys={catalog?.journeys ?? []}
         onChange={(eventName) => onChange({ ...leaf, eventName })}
-        className="w-52 font-mono text-xs"
+        className="w-52"
       />
       <Select
         aria-label="Event check"

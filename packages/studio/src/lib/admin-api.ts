@@ -2054,9 +2054,23 @@ export type TargetingIdName = { id: string; name: string };
 export type TargetingEventName = {
   name: string;
   occurrences: number;
+  /** Older engines omit it (added alongside the event picker detail pane). */
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
   usedBy: string[];
 };
+
+/**
+ * `GET /v1/admin/events/names` — the merged observed + declared event-name
+ * vocabulary on its own. Cheaper than the full targeting catalog when a view
+ * only needs event names (no contact-property sampling).
+ */
+export function listEventNames() {
+  return api.get<{ note: string; events: TargetingEventName[] }>(
+    "/v1/admin/events/names",
+    { query: { limit: 200 } },
+  );
+}
 
 /**
  * `GET /v1/admin/targeting/catalog` — the raw material a condition builder needs
@@ -2161,6 +2175,7 @@ export const qk = {
   campaignStats: (id: string) => ["campaign-stats", id] as const,
   flags: (includeArchived: boolean) => ["flags", includeArchived] as const,
   targetingCatalog: ["targeting-catalog"] as const,
+  eventNames: ["event-names"] as const,
   targetingCount: (targeting: FlagTargeting | FlagTargetingCondition[]) =>
     ["targeting-count", targeting] as const,
   deals: (filters: DealListFilters) => ["deals", filters] as const,

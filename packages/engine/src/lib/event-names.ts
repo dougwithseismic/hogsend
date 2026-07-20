@@ -14,7 +14,7 @@
  */
 import { journeyBlueprints, userEvents } from "@hogsend/db";
 import { z } from "@hono/zod-openapi";
-import { count, desc, ilike, inArray, max } from "drizzle-orm";
+import { count, desc, ilike, inArray, max, min } from "drizzle-orm";
 import type { HogsendClient } from "../container.js";
 
 /**
@@ -25,6 +25,7 @@ import type { HogsendClient } from "../container.js";
 export const eventNameEntrySchema = z.object({
   name: z.string(),
   occurrences: z.number(),
+  firstSeenAt: z.string().nullable(),
   lastSeenAt: z.string().nullable(),
   // Where the name is declared as a trigger: "journey:<id>" for code journeys,
   // "blueprint:<id> (<status>)" for blueprints.
@@ -58,6 +59,7 @@ export async function listEventNameVocabulary(opts: {
       .select({
         name: userEvents.event,
         occurrences: count(),
+        firstSeenAt: min(userEvents.occurredAt),
         lastSeenAt: lastSeen,
       })
       .from(userEvents)
@@ -79,6 +81,7 @@ export async function listEventNameVocabulary(opts: {
     byName.set(row.name, {
       name: row.name,
       occurrences: Number(row.occurrences),
+      firstSeenAt: row.firstSeenAt?.toISOString() ?? null,
       lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
       usedBy: [],
     });
@@ -92,6 +95,7 @@ export async function listEventNameVocabulary(opts: {
     const created: EventNameEntry = {
       name,
       occurrences: 0,
+      firstSeenAt: null,
       lastSeenAt: null,
       usedBy: [],
     };
@@ -126,6 +130,7 @@ export async function listEventNameVocabulary(opts: {
       .select({
         name: userEvents.event,
         occurrences: count(),
+        firstSeenAt: min(userEvents.occurredAt),
         lastSeenAt: max(userEvents.occurredAt),
       })
       .from(userEvents)
@@ -135,6 +140,7 @@ export async function listEventNameVocabulary(opts: {
       const entry = byName.get(row.name);
       if (!entry) continue;
       entry.occurrences = Number(row.occurrences);
+      entry.firstSeenAt = row.firstSeenAt?.toISOString() ?? null;
       entry.lastSeenAt = row.lastSeenAt?.toISOString() ?? null;
     }
   }

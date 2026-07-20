@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BarChart } from "@/components/bar-chart";
+import { EventPicker } from "@/components/event-picker";
 import { FunnelNotes, FunnelStages } from "@/components/funnel";
 import { StatCard } from "@/components/stat-card";
 import {
@@ -37,13 +38,13 @@ import {
   getConversionTiming,
   getDealsStats,
   getDealsTimeseries,
-  getTargetingCatalog,
   listConversions,
   listDeals,
+  listEventNames,
+  listJourneys,
   qk,
   type TimingAnchorType,
 } from "@/lib/admin-api";
-import { eventOptions } from "@/lib/event-options";
 import {
   formatCurrency,
   formatDateTime,
@@ -1181,19 +1182,24 @@ function TimingPanel() {
   });
   const definitions = statsQuery.data?.definitions ?? [];
 
-  // Registered journeys + observed/declared event names — the anchor is
-  // always a pick from these catalogs, never free-typed.
-  const catalogQuery = useQuery({
-    queryKey: qk.targetingCatalog,
-    queryFn: getTargetingCatalog,
+  // The anchor vocabularies, from the two LIGHT endpoints (the registry-read
+  // journey list + the event-name vocabulary — not the full targeting
+  // catalog, which also samples contact property keys we don't need here).
+  // Cached for a minute so reopening the picker never refetches.
+  const journeysQuery = useQuery({
+    queryKey: qk.journeys,
+    queryFn: listJourneys,
+    staleTime: 60_000,
   });
-  const anchorOptions =
-    anchorType === "journey"
-      ? (catalogQuery.data?.journeys ?? []).map((j) => ({
-          value: j.id,
-          label: j.name,
-        }))
-      : eventOptions(catalogQuery.data?.events ?? []);
+  const eventNamesQuery = useQuery({
+    queryKey: qk.eventNames,
+    queryFn: listEventNames,
+    staleTime: 60_000,
+  });
+  const journeyItems = (journeysQuery.data?.journeys ?? []).map((j) => ({
+    id: j.id,
+    name: j.name,
+  }));
 
   // Default to the first conversion point once the catalog loads, so the
   // controls arrive pre-filled and only the anchor is left to pick.
@@ -1258,16 +1264,26 @@ function TimingPanel() {
             <option value="event">Event</option>
           </Select>
         </div>
-        <Combobox
-          ariaLabel={anchorType === "journey" ? "Journey" : "Event"}
-          value={anchorId}
-          placeholder={
-            anchorType === "journey" ? "Select a journey" : "Select an event"
-          }
-          options={anchorOptions}
-          onChange={setAnchorId}
-          className="w-64"
-        />
+        {anchorType === "journey" ? (
+          <Combobox
+            ariaLabel="Journey"
+            value={anchorId}
+            placeholder="Select a journey"
+            options={journeyItems.map((j) => ({ value: j.id, label: j.name }))}
+            onChange={setAnchorId}
+            className="w-64"
+          />
+        ) : (
+          <EventPicker
+            ariaLabel="Event"
+            value={anchorId}
+            placeholder="Select an event"
+            events={eventNamesQuery.data?.events ?? []}
+            journeys={journeyItems}
+            onChange={setAnchorId}
+            className="w-64"
+          />
+        )}
         <span className="ml-auto text-xs text-white/40">
           Last {TIMING_DAYS} days · correlational
         </span>
