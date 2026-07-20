@@ -90,12 +90,15 @@ export const whitepaperPricingReader = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "sales/whitepaper-pricing-follow-up",
-      props: { section: user.properties.linkUrl },
+      template: "sales/whitepaper-follow-up",
+      props: { whitepaperTitle: "State of Onboarding 2026" },
     });
   },
 });
 ```
+
+The follow-up template ships in the example app — [see it
+rendered](/emails).
 
 A forwarded copy still credits the original recipient — read that as a
 warm intro happening inside the account, not as noise. The mechanics are

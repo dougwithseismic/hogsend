@@ -105,6 +105,9 @@ export const webinarGoLive = defineJourney({
 });
 ```
 
+The email fallback uses a template shipped in the example app — [see it
+rendered](/emails).
+
 If they join off the calendar invite before the push, `exitOn` cancels the
 run mid-sleep and nothing sends. For community-hosted events there's a
 sharper variant: journeys can trigger on `discord.presence_active`, the

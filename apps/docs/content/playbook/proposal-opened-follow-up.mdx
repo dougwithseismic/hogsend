@@ -67,12 +67,17 @@ export const proposalOpened = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "internal/proposal-opened",
-      props: user.properties,
+      template: "sales/proposal-opened",
+      props: {
+        prospectName: String(user.properties.slug ?? "the account"),
+        openedAt: "just now",
+      },
     });
   },
 });
 ```
+
+The alert template ships in the example app — [see it rendered](/emails).
 
 Vanity links (`/l/pricing-acme`) and QR codes come from the same
 [link-tracking machinery](/docs/guides/link-tracking), so the play covers

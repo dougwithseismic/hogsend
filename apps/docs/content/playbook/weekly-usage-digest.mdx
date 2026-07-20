@@ -66,12 +66,22 @@ export const weeklyDigest = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "retention/weekly-digest",
-      props: { sections: byType },
+      template: "retention-weekly-digest",
+      props: {
+        periodLabel: "this week",
+        stats: Object.entries(byType).map(([name, events]) => ({
+          label: name,
+          value: String(events?.length ?? 0),
+        })),
+      },
     });
   },
 });
 ```
+
+The digest template ships in the example app — [see it rendered](/emails).
+For the account-level roll-up across every seat, the example app also
+ships `groups/account-digest`.
 
 That's the rolling, per-user shape. The whole-audience-every-Monday shape
 is deliberately *not* a journey — it's one query in a cron task. Both

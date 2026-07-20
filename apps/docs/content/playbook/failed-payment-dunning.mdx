@@ -69,7 +69,7 @@ export const dunning = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "billing/payment-failed",
+      template: "churn-payment-failed",
     });
     const retry = await ctx.waitForEvent({
       event: "invoice.paid",
@@ -80,12 +80,16 @@ export const dunning = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
-      template: "billing/payment-failed",
+      template: "churn-payment-failed",
       idempotencyLabel: "dunning-reminder",
     });
   },
 });
 ```
+
+Both touches reuse one template, distinguished by `idempotencyLabel`; it
+ships in the example app and is rendered on [the templates
+page](/emails).
 
 The full version — Stripe preset setup, a second escalation, and an operator
 alert on final failure — is the [failed payment dunning
