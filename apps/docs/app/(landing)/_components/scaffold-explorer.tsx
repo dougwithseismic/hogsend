@@ -5,6 +5,7 @@ import {
   ChevronDown,
   FileCode2,
   Mail,
+  QrCode,
   Settings2,
   Webhook,
 } from "lucide-react";
@@ -59,6 +60,7 @@ function buildTree(files: ExplorerFile[]): TreeNode[] {
 function fileIcon(path: string) {
   if (path.includes("/emails/")) return Mail;
   if (path.includes("/webhook-sources/")) return Webhook;
+  if (path.startsWith("scripts/")) return QrCode;
   if (path.endsWith(".env")) return Settings2;
   if (path.includes("/journeys/")) return Braces;
   return FileCode2;
@@ -79,7 +81,7 @@ function FileRow({
     return (
       <div>
         <div
-          className="flex items-center gap-1.5 py-[5px] font-mono text-[11.5px] text-white/45"
+          className="flex items-center gap-1.5 py-[3.5px] font-mono text-[11.5px] text-white/45"
           style={{ paddingLeft: 12 + depth * 14 }}
         >
           <ChevronDown size={11} className="text-white/25" />
@@ -106,7 +108,7 @@ function FileRow({
       type="button"
       onClick={() => onSelect(path)}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2 py-[5px] text-left font-mono text-[11.5px] transition-colors",
+        "flex w-full cursor-pointer items-center gap-2 py-[3.5px] text-left font-mono text-[11.5px] transition-colors",
         isActive
           ? "bg-[#f64838]/[0.12] text-white"
           : "text-white/55 hover:bg-white/[0.04] hover:text-white/85",
@@ -156,7 +158,7 @@ export function ScaffoldExplorer({
 
       <div className="flex">
         {/* file tree — collapses to a chip row on small screens */}
-        <aside className="hidden w-[220px] shrink-0 border-white/[0.07] border-r py-3 md:block">
+        <aside className="hidden max-h-[560px] w-[230px] shrink-0 overflow-y-auto border-white/[0.07] border-r py-3 [scrollbar-width:thin] md:block">
           <div className="px-3 pb-2 font-mono text-[10px] text-white/30 uppercase tracking-[0.08em]">
             my-app
           </div>
@@ -205,7 +207,7 @@ export function ScaffoldExplorer({
 
             <div
               key={active}
-              className="ps-code h-[420px] overflow-auto px-4 py-4 [scrollbar-width:thin] md:h-[460px] [&_pre]:!bg-transparent [&_pre]:text-[12.5px] [&_pre]:leading-[1.65]"
+              className="ps-code h-[420px] overflow-auto px-4 py-4 [scrollbar-width:thin] md:h-[520px] [&_pre]:!bg-transparent [&_pre]:text-[12.5px] [&_pre]:leading-[1.65]"
             >
               {highlighted[active] ?? null}
             </div>
