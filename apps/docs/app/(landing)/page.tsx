@@ -336,7 +336,7 @@ function HeroDemoSketch() {
           runs its welcome journey, and sends from hello@hogsend.com a few
           seconds later.
         </p>
-        <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-white/10 p-1.5 pl-4">
+        <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-[var(--tw-border)] p-1.5 pl-4">
           <span className="flex-1 font-mono text-white/75 text-sm">
             <span className="ps-type">sam@acme.com</span>
             <span
@@ -368,7 +368,7 @@ function HeroDemoSketch() {
           {feed.map((n) => (
             <div
               key={n.title}
-              className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+              className="ps-feed-in rounded-md border border-[var(--tw-border)] bg-white/[0.04] px-4 py-3"
               style={{ animationDelay: `${n.delay}s` }}
             >
               <div className="flex items-start gap-3">
@@ -399,7 +399,7 @@ function HeroDemoSketch() {
           ))}
           {/* The in-email answer — the click IS the answer. */}
           <div
-            className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+            className="ps-feed-in rounded-md border border-[var(--tw-border)] bg-white/[0.04] px-4 py-3"
             style={{ animationDelay: "7s" }}
           >
             <div className="flex items-start gap-3">
@@ -418,7 +418,7 @@ function HeroDemoSketch() {
                   <span className="rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-medium text-[#f64838] text-[12px]">
                     Likely
                   </span>
-                  <span className="rounded-full border border-white/10 px-3 py-1 font-medium text-white/55 text-[12px]">
+                  <span className="rounded-full border border-[var(--tw-border)] px-3 py-1 font-medium text-white/55 text-[12px]">
                     Not yet
                   </span>
                 </div>
@@ -698,6 +698,29 @@ function PillarIcon({ index }: { index: number }) {
   );
 }
 
+/** The old "pick a use case" and "timing primitives" sections, merged into
+ * the explorer as quick-select recipe chips. Each opens a real file in the
+ * scaffold — journeys, the backend API route, the React hooks. */
+const EXPLORER_RECIPES = [
+  { label: "Onboarding", path: "hogsend/src/journeys/product/onboarding.ts" },
+  {
+    label: "Trial conversion",
+    path: "hogsend/src/journeys/billing/trial-conversion.ts",
+  },
+  { label: "Win-back", path: "hogsend/src/journeys/product/winback.ts" },
+  { label: "Dunning", path: "hogsend/src/journeys/billing/dunning.ts" },
+  {
+    label: "Weekly digest + timing",
+    path: "hogsend/src/journeys/product/weekly-digest.ts",
+  },
+  {
+    label: "Discord summon",
+    path: "hogsend/src/journeys/marketing/event-summon.ts",
+  },
+  { label: "Backend API", path: "api/src/routes/signup.ts" },
+  { label: "React hooks", path: "web/src/components/paywall.tsx" },
+];
+
 function PsProblem() {
   return (
     <section className="relative tw-section overflow-hidden">
@@ -748,11 +771,16 @@ function PsProblem() {
             className="absolute inset-x-0 top-12 bottom-0"
             style={{
               background:
-                "linear-gradient(180deg, transparent 0%, rgba(246,72,56,0.18) 45%, rgba(246,120,80,0.14) 80%, transparent 100%)",
+                "linear-gradient(180deg, transparent 0%, rgba(190,150,255,0.14) 40%, rgba(255,170,130,0.16) 80%, transparent 100%)",
             }}
           />
           <ScaffoldExplorer
-            files={SCAFFOLD_FILES.map(({ path, email }) => ({ path, email }))}
+            files={SCAFFOLD_FILES.map(({ path, email, timing }) => ({
+              path,
+              email,
+              timing,
+            }))}
+            recipes={EXPLORER_RECIPES}
             highlighted={Object.fromEntries(
               SCAFFOLD_FILES.map((f) => [
                 f.path,
@@ -945,7 +973,7 @@ function PsStudioDemo() {
               Open the live demo
             </Btn>
           </TrackDemoClick>
-          <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
+          <span className="flex items-center gap-3 rounded-[6px] border border-[var(--tw-border)] bg-white/[0.04] py-3 pr-3 pl-4">
             <code className="font-mono text-[12.5px] text-white/90">
               {DEMO_CREDENTIALS}
             </code>
@@ -1069,7 +1097,7 @@ function _PsStats() {
         <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
           {BENCHMARKS.map((b, i) => (
             <Reveal key={b.source} delay={i * 0.08}>
-              <div className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-6">
+              <div className="flex h-full flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-6">
                 <span
                   className={cn(
                     "text-white text-[44px] leading-[1.1] tracking-[-0.02em]",
@@ -1275,7 +1303,7 @@ function PsAgents() {
             {AGENT_CHIPS.map((chip) => (
               <span
                 key={chip}
-                className="inline-flex items-center gap-2 rounded-[6px] border border-white/10 bg-white/[0.06] px-4 py-2 font-medium text-white text-sm tracking-[-0.025em]"
+                className="inline-flex items-center gap-2 rounded-[6px] border border-[var(--tw-border)] bg-white/[0.06] px-4 py-2 font-medium text-white text-sm tracking-[-0.025em]"
               >
                 <span
                   aria-hidden="true"
@@ -1515,7 +1543,7 @@ async function PsFlags() {
   );
 }
 
-async function PsCode() {
+async function _PsCode() {
   const [
     onboarding,
     trialConversion,
@@ -2041,7 +2069,7 @@ function PsImpact() {
               {IMPACT_FEATURES.map((f) => (
                 <div
                   key={f.token}
-                  className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                  className="flex h-full flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-5"
                 >
                   <h3 className="font-medium text-base text-white tracking-[-0.025em]">
                     {f.title}
@@ -2111,7 +2139,7 @@ const TIMING_SAMPLE = `export const weeklyDigest = defineJourney({
   },
 });`;
 
-async function PsTiming() {
+async function _PsTiming() {
   const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
 
   return (
@@ -2142,7 +2170,7 @@ async function PsTiming() {
 
         <Reveal delay={0.1} className="mt-12 block">
           <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
-            <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+            <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
               <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
                 <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
                   src/journeys/weekly-digest.ts
@@ -2307,7 +2335,7 @@ async function PsGroups() {
         <Reveal delay={0.1} className="mt-12 block">
           <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
             <div className="flex flex-col gap-5">
-              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+              <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
                 <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
                   <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
                     browser — @hogsend/js
@@ -2318,7 +2346,7 @@ async function PsGroups() {
                   {browserNode}
                 </div>
               </div>
-              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+              <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
                 <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
                   <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
                     server — @hogsend/client
@@ -2335,7 +2363,7 @@ async function PsGroups() {
               {GROUPS_FEATURES.map((f) => (
                 <div
                   key={f.token}
-                  className="flex flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                  className="flex flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-5"
                 >
                   <h3 className="font-medium text-base text-white tracking-[-0.025em]">
                     {f.title}
@@ -2714,7 +2742,7 @@ function PsJourneyTraceMock() {
     },
   ];
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+    <div className="rounded-2xl border border-[var(--tw-border)] bg-white/[0.04] p-6">
       <span className="font-mono text-white/40 text-[11px] tracking-wide">
         src/journeys/onboarding.ts — run
       </span>
@@ -2922,7 +2950,7 @@ function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
               <a
                 key={f.href}
                 href={f.href}
-                className="rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
+                className="rounded-full border border-[var(--tw-border)] bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
               >
                 {f.label}
               </a>
@@ -3447,7 +3475,7 @@ function PsCorePlatform() {
   return (
     <section className="relative">
       <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0a0606] p-8 text-white md:p-12">
+        <div className="relative overflow-hidden rounded-2xl border border-[var(--tw-border)] bg-[#0a0606] p-8 text-white md:p-12">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0"
@@ -3547,7 +3575,7 @@ function HatchetRunTimeline() {
   const DEPLOY_X = 620;
   return (
     <div
-      className="relative mt-10 overflow-hidden rounded-lg border border-white/10 bg-[#0a0606] md:mt-14"
+      className="relative mt-10 overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[#0a0606] md:mt-14"
       aria-hidden="true"
     >
       <style>{`
@@ -3611,7 +3639,7 @@ function HatchetRunTimeline() {
                   {s.sub}
                 </p>
                 {sleepLeg && (
-                  <div className="mt-3.5 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="mt-3.5 rounded border border-[var(--tw-border)] bg-white/[0.03] px-3 py-2">
                     <p className="font-mono text-[10px] text-white/50">
                       deploy · worker restarts
                     </p>
@@ -3996,7 +4024,7 @@ function PsEconomics() {
           </Reveal>
           {RENT_MODELS.map((m, i) => (
             <Reveal key={m.name} delay={(i + 1) * 0.06} className="h-full">
-              <div className="flex h-full flex-col justify-between rounded-lg border border-white/10 bg-white/[0.03] p-6">
+              <div className="flex h-full flex-col justify-between rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-6">
                 <div>
                   <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
                     {m.name}
@@ -4180,7 +4208,7 @@ function PsUseCases() {
             <ThermalHover key={d.href}>
               <Link
                 href={d.href}
-                className="group block rounded-[6px] border border-white/10 p-6 transition-colors hover:border-[#f64838]/40"
+                className="group block rounded-[6px] border border-[var(--tw-border)] p-6 transition-colors hover:border-[#f64838]/40"
               >
                 <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
                   Deep dive
@@ -4655,7 +4683,6 @@ export default async function HomePage({
       <PsProblem />
       <PsProofStrip />
       <PsManifesto />
-      <PsCode />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
       <PsUseCases />
@@ -4670,7 +4697,6 @@ export default async function HomePage({
       <PsDiscord />
       <PsSources />
       <PsImpact />
-      <PsTiming />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />

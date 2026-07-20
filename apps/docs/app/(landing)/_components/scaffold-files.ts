@@ -22,6 +22,8 @@ export type ScaffoldFile = {
   source: string;
   /** When present, the explorer floats the rendered email beside the code. */
   email?: EmailPreview;
+  /** When true, the explorer floats the timezone schedule readout instead. */
+  timing?: boolean;
 };
 
 /* ---- email factory: one definition renders both the source shown in the
@@ -200,7 +202,80 @@ export const winback = defineJourney({
 });`,
   },
 
+  {
+    path: "hogsend/src/journeys/product/weekly-digest.ts",
+    lang: "ts",
+    timing: true,
+    source: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+// Rolling per-user digest: the first report opens a 7-day
+// window, the rest of the week folds into ONE send.
+export const weeklyDigest = defineJourney({
+  meta: {
+    id: "weekly-digest",
+    trigger: { event: "report.created" },
+    entryLimit: "unlimited", // a fresh window after each flush
+    suppress: days(0), // the digest IS the rate limit
+  },
+  run: async (user, ctx) => {
+    const digest = await ctx.digest({ window: days(7), label: "weekly" });
+
+    // Tuesday 09:00 in the READER'S timezone — resolved per
+    // user, then slept to durably (survives deploys).
+    await ctx.sleepUntil(ctx.when.next("tuesday").at("09:00"));
+
+    // 7 days is a long wait — re-check consent before sending.
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Grouping is plain TypeScript over the window's events.
+    const byProject = Object.groupBy(digest.events, (e) =>
+      String(e.properties?.projectId),
+    );
+
+    await sendEmail({
+      to: user.email,
+      template: "weekly-digest",
+      props: { projects: Object.keys(byProject) },
+    });
+  },
+});`,
+  },
+
   /* ---- journeys/billing --------------------------------------------------- */
+  {
+    path: "hogsend/src/journeys/billing/trial-conversion.ts",
+    lang: "ts",
+    source: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const trialConversion = defineJourney({
+  meta: {
+    id: "trial-conversion",
+    trigger: { event: "trial.started" },
+    // Converted? Out instantly — mid-sequence, mid-sleep, anywhere.
+    exitOn: [{ event: "subscription.created" }],
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: days(1), label: "day-one" });
+    await sendEmail({ to: user.email, template: "trial-first-value" });
+
+    await ctx.sleep({ duration: days(5), label: "mid-trial" });
+
+    // Branch on real usage, not time: have they done the thing?
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: "report.created",
+      within: days(6),
+    });
+
+    await sendEmail({
+      to: user.email,
+      template: found ? "trial-upgrade-value" : "activation-nudge",
+    });
+  },
+});`,
+  },
   {
     path: "hogsend/src/journeys/billing/dunning.ts",
     lang: "ts",
@@ -385,6 +460,36 @@ export const silverMedalist = defineJourney({
     comment:
       "// Powered by react-email — versioned and reviewed like\n// the journey that sends it.",
   }),
+  email("hogsend/src/emails/product/weekly-digest.tsx", {
+    subject: "Your week in review",
+    preheader: "Everything your projects did this week, in one email.",
+    heading: "Your week in review 📈",
+    body: [
+      "Three projects moved this week. Here's what happened while you were building — reports, comments, and the numbers that changed.",
+    ],
+    cta: { label: "Open the full digest", href: "/digest" },
+    sentBy: "weekly-digest — one send per active week",
+  }),
+  email("hogsend/src/emails/billing/trial-first-value.tsx", {
+    subject: "Day one: the shortest path to value",
+    preheader: "One thing to try before anything else.",
+    heading: "Start here",
+    body: [
+      "Skip the tour. The single feature trial users love most takes two minutes — here's exactly how to run it on your own data.",
+    ],
+    cta: { label: "Try it on your data", href: "/quickstart" },
+    sentBy: "trial-conversion (day one) — trial-conversion.ts",
+  }),
+  email("hogsend/src/emails/billing/trial-upgrade-value.tsx", {
+    subject: "You've already outgrown the trial",
+    preheader: "Your usage says you're ready.",
+    heading: "You're ready",
+    body: [
+      "You've shipped real work this week — the trial limits are the only thing in your way now. Upgrade keeps everything exactly as it is.",
+    ],
+    cta: { label: "Upgrade and keep going", href: "/upgrade" },
+    sentBy: "trial-conversion (usage branch) — trial-conversion.ts",
+  }),
   email("hogsend/src/emails/billing/card-trouble.tsx", {
     subject: "Your payment didn't go through",
     preheader: "No interruption yet — just update your card.",
@@ -522,6 +627,38 @@ GROWTH_CHANNEL_ID=...
 
 # Optional: PostHog turns on identity + person properties.
 POSTHOG_API_KEY=phc_...`,
+  },
+
+  /* ==== api/ — your backend, on the server SDK ============================ */
+  {
+    path: "api/src/routes/signup.ts",
+    lang: "ts",
+    source: `import { Hogsend } from "@hogsend/client";
+import { Hono } from "hono";
+
+// Backend Node: the secret-key client talks to the engine's
+// data API — capture events, upsert contacts, mint links.
+const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_API_URL,
+  apiKey: process.env.HOGSEND_SECRET_KEY,
+});
+
+export const signup = new Hono().post("/", async (c) => {
+  const { email } = await c.req.json();
+  const user = await createUser(email);
+
+  // ONE capture starts the lifecycle: the engine routes
+  // user.signed_up to every journey that triggers on it —
+  // onboarding, and anything you ship next.
+  await hs.events.track({
+    userId: user.id,
+    email,
+    event: "user.signed_up",
+    properties: { plan: "trial" },
+  });
+
+  return c.json({ ok: true });
+});`,
   },
 
   /* ==== web/ — the product, consuming the client SDK ====================== */

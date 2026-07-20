@@ -29,7 +29,47 @@ import type { EmailPreview } from "./minted-files";
 export type ExplorerFile = {
   path: string;
   email?: EmailPreview;
+  timing?: boolean;
 };
+
+export type ExplorerRecipe = { label: string; path: string };
+
+/** Compact schedule readout for `ctx.when` files — the local send time is
+ *  pinned per reader while the UTC instant moves. July offsets, real math. */
+function TimingPane() {
+  const rows = [
+    { city: "San Francisco", zone: "PDT", utc: "16:00 UTC" },
+    { city: "Berlin", zone: "CEST", utc: "07:00 UTC" },
+    { city: "Tokyo", zone: "JST", utc: "00:00 UTC" },
+  ];
+  return (
+    <div className="px-4 py-3">
+      <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+        ctx.when.next("tuesday").at("09:00")
+      </p>
+      <ul className="mt-2.5 space-y-1.5">
+        {rows.map((r) => (
+          <li
+            key={r.city}
+            className="flex items-baseline justify-between gap-3 text-[12px]"
+          >
+            <span className="text-white/70">{r.city}</span>
+            <span className="font-mono text-[11px] text-white/85">
+              Tue 09:00 <span className="text-white/35">{r.zone}</span>
+            </span>
+            <span className="font-mono text-[10.5px] text-white/30">
+              {r.utc}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 border-white/[0.07] border-t pt-2.5 text-[11px] text-white/40 leading-[1.5]">
+        The local time never moves — the UTC instant does. Resolved per user,
+        slept to durably.
+      </p>
+    </div>
+  );
+}
 
 type TreeNode = {
   name: string;
@@ -161,12 +201,15 @@ function FileRow({
 export function ScaffoldExplorer({
   files,
   highlighted,
+  recipes,
 }: {
   files: ExplorerFile[];
   highlighted: Record<string, ReactNode>;
+  /** Quick-select chips over the editor — each names a recipe and opens its file. */
+  recipes?: ExplorerRecipe[];
 }) {
   const [active, setActive] = useState(files[0]?.path ?? "");
-  // The 13 email templates start folded so the tree reads at a glance;
+  // The email templates start folded so the tree reads at a glance;
   // the count chip invites the click.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set(["hogsend/src/emails"]),
@@ -181,6 +224,22 @@ export function ScaffoldExplorer({
       else next.add(folderPath);
       return next;
     });
+
+  // Selecting a file (tree row, chip, or recipe) also expands its ancestor
+  // folders so the tree always shows where you are.
+  const openFile = (path: string) => {
+    setActive(path);
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      const segments = path.split("/");
+      let folder = "";
+      for (const segment of segments.slice(0, -1)) {
+        folder = folder ? `${folder}/${segment}` : segment;
+        next.delete(folder);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl">
@@ -214,7 +273,7 @@ export function ScaffoldExplorer({
               depth={0}
               parentPath=""
               active={active}
-              onSelect={setActive}
+              onSelect={openFile}
               collapsed={collapsed}
               onToggle={toggleFolder}
             />
@@ -227,7 +286,7 @@ export function ScaffoldExplorer({
               <button
                 key={f.path}
                 type="button"
-                onClick={() => setActive(f.path)}
+                onClick={() => openFile(f.path)}
                 className={cn(
                   "shrink-0 cursor-pointer rounded-full border px-3 py-1 font-mono text-[10.5px] transition-colors",
                   active === f.path
@@ -240,6 +299,27 @@ export function ScaffoldExplorer({
             ))}
           </div>
 
+          {/* recipe quick-select — the old "pick a use case" section, merged */}
+          {recipes?.length ? (
+            <div className="hidden flex-wrap gap-1.5 border-white/[0.07] border-b px-3 py-2.5 md:flex">
+              {recipes.map((r) => (
+                <button
+                  key={r.path}
+                  type="button"
+                  onClick={() => openFile(r.path)}
+                  className={cn(
+                    "shrink-0 cursor-pointer rounded-full border px-3 py-1 font-mono text-[10.5px] transition-colors",
+                    active === r.path
+                      ? "border-[#f64838]/40 bg-[#f64838]/[0.12] text-white"
+                      : "border-white/[0.08] text-white/50 hover:border-white/20 hover:text-white/80",
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {/* editor pane */}
           <div className="relative">
             <div className="flex items-center justify-between border-white/[0.07] border-b px-4 py-2">
@@ -249,6 +329,10 @@ export function ScaffoldExplorer({
               {activeFile?.email ? (
                 <span className="shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em]">
                   renders → preview
+                </span>
+              ) : activeFile?.timing ? (
+                <span className="shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em]">
+                  resolves → schedule
                 </span>
               ) : null}
             </div>
@@ -260,35 +344,43 @@ export function ScaffoldExplorer({
               {highlighted[active] ?? null}
             </div>
 
-            {/* corner preview window for email templates */}
-            {activeFile?.email ? (
+            {/* corner preview window — rendered email or resolved schedule */}
+            {activeFile?.email || activeFile?.timing ? (
               <div
                 key={`${active}-preview`}
-                className="scaffold-preview-in absolute right-4 bottom-4 hidden w-[320px] overflow-hidden rounded-lg border border-white/[0.12] bg-[#101014] shadow-[0_24px_60px_rgba(0,0,0,0.55)] lg:block"
+                className="scaffold-preview-in absolute right-4 bottom-4 hidden w-[320px] overflow-hidden rounded-lg border border-white/[0.12] bg-[var(--tw-ink-high)] shadow-[0_24px_60px_rgba(0,0,0,0.55)] lg:block"
               >
                 <div className="flex items-center justify-between border-white/[0.08] border-b px-3.5 py-2">
                   <span className="truncate font-mono text-[10.5px] text-white/60">
-                    {active.split("/").pop()}
+                    {activeFile.email ? active.split("/").pop() : "ctx.when"}
                   </span>
                   <span className="shrink-0 font-mono text-[9.5px] text-white/35 uppercase tracking-[0.08em]">
-                    rendered
+                    {activeFile.email ? "rendered" : "schedule"}
                   </span>
                 </div>
                 <div className="max-h-[300px] overflow-auto [scrollbar-width:thin]">
-                  <EmailPane email={activeFile.email} />
+                  {activeFile.email ? (
+                    <EmailPane email={activeFile.email} />
+                  ) : (
+                    <TimingPane />
+                  )}
                 </div>
               </div>
             ) : null}
           </div>
 
-          {/* small-screen rendered preview — below the code, not floating */}
-          {activeFile?.email ? (
+          {/* small-screen preview — below the code, not floating */}
+          {activeFile?.email || activeFile?.timing ? (
             <div className="border-white/[0.07] border-t lg:hidden">
               <div className="px-4 py-2 font-mono text-[10px] text-white/35 uppercase tracking-[0.08em]">
-                Rendered
+                {activeFile.email ? "Rendered" : "Schedule"}
               </div>
               <div className="max-h-[280px] overflow-auto">
-                <EmailPane email={activeFile.email} />
+                {activeFile.email ? (
+                  <EmailPane email={activeFile.email} />
+                ) : (
+                  <TimingPane />
+                )}
               </div>
             </div>
           ) : null}

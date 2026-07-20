@@ -252,10 +252,9 @@
   background: linear-gradient(
     90deg,
     transparent 4%,
-    rgba(190, 150, 255, 0.18) 24%,
-    rgba(255, 164, 116, 0.34) 46%,
-    rgba(246, 72, 56, 0.3) 56%,
-    rgba(190, 150, 255, 0.2) 78%,
+    rgba(190, 150, 255, 0.16) 26%,
+    rgba(255, 190, 150, 0.3) 50%,
+    rgba(190, 150, 255, 0.16) 74%,
     transparent 96%
   );
 }
@@ -269,7 +268,7 @@
   pointer-events: none;
   background: radial-gradient(
     60% 100% at 50% 0%,
-    rgba(255, 150, 108, 0.05),
+    rgba(205, 170, 255, 0.04),
     transparent 70%
   );
 }
