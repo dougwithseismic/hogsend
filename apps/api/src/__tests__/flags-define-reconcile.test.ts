@@ -156,7 +156,12 @@ describe("reconcileDefinedFlags", () => {
     expect(row?.origin).toBe("native");
     expect(row?.name).toBe("Studio flag");
     expect(row?.enabled).toBe(true);
-    expect(warn).toHaveBeenCalled();
+    // The warn must name the resolution, not just the collision — an
+    // out-of-band seeded row for a code-defined key trips this on every boot.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("set origin = 'code'"),
+      expect.objectContaining({ key: k, origin: "native" }),
+    );
   });
 
   it("warns and skips duplicate keys in the defined array without throwing", async () => {
