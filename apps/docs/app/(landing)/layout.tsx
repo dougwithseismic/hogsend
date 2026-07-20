@@ -24,7 +24,9 @@ const display = Montserrat({
 
 export default function LandingLayout({ children }: { children: ReactNode }) {
   return (
-    <div className={`${display.variable} min-h-screen bg-ink text-white/75`}>
+    <div
+      className={`${display.variable} min-h-screen bg-[var(--tw-ink)] text-white/75`}
+    >
       <VisitorTeamProvider>{children}</VisitorTeamProvider>
     </div>
   );

@@ -50,11 +50,14 @@ import {
 import { DiscordLinkCard } from "./_components/discord-link-card";
 import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
+import { GroupAccountSwitcher } from "./_components/group-account-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
 import { MINTED_FILES } from "./_components/minted-files";
 import { PsNav } from "./_components/nav";
 import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
+import { ScaffoldExplorer } from "./_components/scaffold-explorer";
+import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
@@ -136,20 +139,18 @@ function Eyebrow({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.08em]",
-        light ? "text-white/80" : "text-white",
+        "inline-flex items-center gap-2 rounded-full border border-[var(--tw-border)] bg-white/[0.03] px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em]",
+        light ? "text-white/80" : "text-white/90",
         className,
       )}
     >
-      <svg
-        width="9"
-        height="8"
-        viewBox="0 0 9 8"
+      <span
         aria-hidden="true"
-        className="text-[#f64838]"
-      >
-        <path d="M4.5 0L9 8H0z" fill="currentColor" />
-      </svg>
+        className="h-[7px] w-[7px] rounded-full"
+        style={{
+          background: "linear-gradient(135deg, #ffb187 0%, #f64838 100%)",
+        }}
+      />
       {children}
     </span>
   );
@@ -176,11 +177,11 @@ function Btn({
       target={newTab ? "_blank" : undefined}
       rel={newTab ? "noreferrer" : undefined}
       className={cn(
-        "inline-flex items-center justify-center rounded-[6px] font-medium tracking-[-0.025em] transition-colors",
-        size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-3.5 text-base",
+        "inline-flex items-center justify-center rounded-full font-medium tracking-[-0.025em] transition-colors",
+        size === "sm" ? "px-4.5 py-2 text-sm" : "px-6 py-3.5 text-base",
         variant === "solid" && "bg-white text-[#0a0a0a] hover:bg-white/90",
         variant === "outline" &&
-          "border border-white/25 text-white hover:bg-white/[0.06]",
+          "border border-[var(--tw-border)] text-white hover:bg-white/[0.06]",
         variant === "ghost" && "text-white hover:opacity-70",
         className,
       )}
@@ -240,7 +241,7 @@ function PlusGrid({ className }: { className?: string }) {
       className={cn("pointer-events-none absolute", className)}
       style={{
         backgroundImage:
-          "url(\"data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 10v8M10 14h8' stroke='%23f64838' stroke-opacity='0.25' stroke-width='1'/%3E%3C/svg%3E\")",
+          "url(\"data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 10v8M10 14h8' stroke='%23bfa0ff' stroke-opacity='0.22' stroke-width='1'/%3E%3C/svg%3E\")",
         backgroundSize: "28px 28px",
       }}
     />
@@ -255,7 +256,7 @@ function DotPatch({ className }: { className?: string }) {
       className={cn("pointer-events-none absolute", className)}
       style={{
         backgroundImage:
-          "radial-gradient(rgba(246,72,56,0.4) 1.2px, transparent 1.2px)",
+          "radial-gradient(rgba(190,160,255,0.38) 1.2px, transparent 1.2px)",
         backgroundSize: "9px 9px",
       }}
     />
@@ -336,7 +337,7 @@ function HeroDemoSketch() {
           runs its welcome journey, and sends from hello@hogsend.com a few
           seconds later.
         </p>
-        <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-white/10 p-1.5 pl-4">
+        <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-[var(--tw-border)] p-1.5 pl-4">
           <span className="flex-1 font-mono text-white/75 text-sm">
             <span className="ps-type">sam@acme.com</span>
             <span
@@ -368,7 +369,7 @@ function HeroDemoSketch() {
           {feed.map((n) => (
             <div
               key={n.title}
-              className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+              className="ps-feed-in rounded-md border border-[var(--tw-border)] bg-white/[0.04] px-4 py-3"
               style={{ animationDelay: `${n.delay}s` }}
             >
               <div className="flex items-start gap-3">
@@ -399,7 +400,7 @@ function HeroDemoSketch() {
           ))}
           {/* The in-email answer — the click IS the answer. */}
           <div
-            className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+            className="ps-feed-in rounded-md border border-[var(--tw-border)] bg-white/[0.04] px-4 py-3"
             style={{ animationDelay: "7s" }}
           >
             <div className="flex items-start gap-3">
@@ -418,7 +419,7 @@ function HeroDemoSketch() {
                   <span className="rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-medium text-[#f64838] text-[12px]">
                     Likely
                   </span>
-                  <span className="rounded-full border border-white/10 px-3 py-1 font-medium text-white/55 text-[12px]">
+                  <span className="rounded-full border border-[var(--tw-border)] px-3 py-1 font-medium text-white/55 text-[12px]">
                     Not yet
                   </span>
                 </div>
@@ -565,7 +566,7 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 
 function PsProductDemo() {
   return (
-    <section className="relative overflow-hidden border-[#f6483826] border-t">
+    <section className="relative overflow-hidden tw-section">
       <Container className="pt-20 text-center">
         <Eyebrow>Try it live</Eyebrow>
         <h2
@@ -583,27 +584,28 @@ function PsProductDemo() {
         </p>
       </Container>
 
-      {/* The crimzon planet horizon, full-bleed — hero treatment, no
-          contained panel, rules and glow run edge to edge. */}
+      {/* Twilight-halftone horizon, full-bleed — the closing-CTA treatment
+          Doug loves (halftone dots + a glow that reads warm against the
+          purple ground), swapped in for the old hard-red planet. */}
       <div className="relative mt-12 h-[300px] md:h-[340px]">
         {/* Thermal smoke bed under the horizon glow. */}
-        <ThermalLayer strength={0.45} />
-        <HalftoneOverlay className="opacity-40" />
+        <ThermalLayer strength={0.3} />
+        <HalftoneOverlay className="opacity-45" />
         <div
           aria-hidden="true"
-          className="absolute inset-0"
+          className="absolute inset-0 mix-blend-screen"
           style={{
             background:
-              "radial-gradient(70% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+              "radial-gradient(72% 72% at 50% 118%, rgba(190,150,255,0.42) 0%, rgba(255,150,128,0.3) 38%, rgba(190,150,255,0.08) 66%, transparent 82%)",
           }}
         />
-        {/* The crisp horizon arc. */}
+        {/* The crisp horizon arc — warm peach, softened. */}
         <div
           aria-hidden="true"
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(52% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+              "radial-gradient(52% 46% at 50% 116%, transparent 59%, rgba(255,168,132,0.7) 61.5%, rgba(255,168,132,0.1) 66%, transparent 71%)",
           }}
         />
       </div>
@@ -683,7 +685,7 @@ function PillarIcon({ index }: { index: number }) {
     <path key="c" d="M7 16h18M16 7v18" />,
   ];
   return (
-    <span className="inline-flex size-[46px] items-center justify-center border border-white/15 bg-white/[0.04]">
+    <span className="inline-flex size-[46px] items-center justify-center rounded-xl border border-[var(--tw-border)] bg-[var(--tw-card)]">
       <svg
         viewBox="0 0 32 32"
         fill="none"
@@ -698,9 +700,55 @@ function PillarIcon({ index }: { index: number }) {
   );
 }
 
+/** The old "pick a use case" and "timing primitives" sections, merged into
+ * the explorer as quick-select recipe chips. Each opens a real file in the
+ * scaffold — journeys, the backend API route, the React hooks. */
+const EXPLORER_RECIPES = [
+  { label: "Onboarding", path: "hogsend/src/journeys/product/onboarding.ts" },
+  {
+    label: "Trial conversion",
+    path: "hogsend/src/journeys/billing/trial-conversion.ts",
+  },
+  { label: "Win-back", path: "hogsend/src/journeys/product/winback.ts" },
+  { label: "Dunning", path: "hogsend/src/journeys/billing/dunning.ts" },
+  {
+    label: "Weekly digest + timing",
+    path: "hogsend/src/journeys/product/weekly-digest.ts",
+  },
+  {
+    label: "Discord summon",
+    path: "hogsend/src/journeys/marketing/event-summon.ts",
+  },
+  {
+    label: "Discord DM",
+    path: "hogsend/src/journeys/lifecycle/discord-welcome.ts",
+  },
+  {
+    label: "Telegram",
+    path: "hogsend/src/journeys/lifecycle/telegram-nudge.ts",
+  },
+  { label: "SMS", path: "hogsend/src/journeys/lifecycle/cart-reminder.ts" },
+  {
+    label: "Slack approval",
+    path: "hogsend/src/journeys/lifecycle/approval-gate.ts",
+  },
+  { label: "Experiments", path: "hogsend/src/journeys/product/experiments.ts" },
+  { label: "Buckets", path: "hogsend/src/buckets/went-dormant.ts" },
+  { label: "Flags", path: "hogsend/src/flags.ts" },
+  { label: "Groups", path: "api/src/routes/groups.ts" },
+  { label: "Destinations", path: "hogsend/src/destinations/crm.ts" },
+  { label: "Webhook sources", path: "hogsend/src/webhook-sources/billing.ts" },
+  { label: "Links & QR", path: "hogsend/scripts/event-qr.sh" },
+  { label: "Broadcasts", path: "api/src/campaigns/march-launch.ts" },
+  { label: "Backend API", path: "api/src/routes/signup.ts" },
+  { label: "React hooks", path: "web/src/components/paywall.tsx" },
+  { label: "Video", path: "web/src/components/lesson-player.tsx" },
+  { label: "Agents & MCP", path: ".mcp.json" },
+];
+
 function PsProblem() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-40 w-56 lg:block" />
       <Container className="pt-24 pb-28 md:pt-32">
         <Eyebrow>Signal → response</Eyebrow>
@@ -739,24 +787,36 @@ function PsProblem() {
           </div>
         </div>
 
-        {/* Product shot in a dark frame, floating over a soft gradient. */}
+        {/* The scaffolded app itself, floating over a soft gradient — file
+            tree on the left, the clicked file's code on the right, and the
+            rendered email in a corner window when a template is selected. */}
         <div className="relative mt-16">
           <div
             aria-hidden="true"
             className="absolute inset-x-0 top-12 bottom-0"
             style={{
               background:
-                "linear-gradient(180deg, transparent 0%, rgba(246,72,56,0.18) 45%, rgba(246,120,80,0.14) 80%, transparent 100%)",
+                "linear-gradient(180deg, transparent 0%, rgba(190,150,255,0.14) 40%, rgba(255,170,130,0.16) 80%, transparent 100%)",
             }}
           />
-          <div className="relative overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-2xl">
-            <Image
-              src={studioJourneys}
-              alt="Hogsend Studio — journeys observed live"
-              className="w-full"
-              priority
-            />
-          </div>
+          <ScaffoldExplorer
+            files={SCAFFOLD_FILES.map(
+              ({ path, email, timing, surface, note }) => ({
+                path,
+                email,
+                timing,
+                surface,
+                note,
+              }),
+            )}
+            recipes={EXPLORER_RECIPES}
+            highlighted={Object.fromEntries(
+              SCAFFOLD_FILES.map((f) => [
+                f.path,
+                <CodeHighlight key={f.path} code={f.source} lang={f.lang} />,
+              ]),
+            )}
+          />
         </div>
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
@@ -788,7 +848,7 @@ function PsProblem() {
  * (white lede → faint body), mirroring the use-case ProblemStatement block. */
 function PsManifesto() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
@@ -843,10 +903,9 @@ const VIDEO_PILLARS = [
 
 function PsVideo() {
   return (
-    <section
-      id="video"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    // No top seam: the Feature index above is the header of everything below,
+    // so the two read as one band rather than being split by a horizon line.
+    <section id="video" className="relative overflow-hidden">
       <Container className="relative pt-16 pb-28">
         <Reveal>
           <Eyebrow>Hogsend Video</Eyebrow>
@@ -907,9 +966,9 @@ function PsVideo() {
  * lands in PostHog and on the visitor's dogfood contact. */
 const DEMO_CREDENTIALS = "demo@hogsend.com · forgeline-demo-2026";
 
-function PsStudioDemo() {
+function _PsStudioDemo() {
   return (
-    <section id="live-demo" className="relative border-[#f6483826] border-t">
+    <section id="live-demo" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Eyebrow>Live demo</Eyebrow>
 
@@ -945,7 +1004,7 @@ function PsStudioDemo() {
               Open the live demo
             </Btn>
           </TrackDemoClick>
-          <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
+          <span className="flex items-center gap-3 rounded-[6px] border border-[var(--tw-border)] bg-white/[0.04] py-3 pr-3 pl-4">
             <code className="font-mono text-[12.5px] text-white/90">
               {DEMO_CREDENTIALS}
             </code>
@@ -1047,7 +1106,7 @@ const BENCHMARKS = [
 
 function _PsStats() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="relative pt-16 pb-24">
         <PlusGrid className="top-12 right-0 hidden h-44 w-72 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
         <Reveal>
@@ -1069,7 +1128,7 @@ function _PsStats() {
         <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
           {BENCHMARKS.map((b, i) => (
             <Reveal key={b.source} delay={i * 0.08}>
-              <div className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-6">
+              <div className="flex h-full flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-6">
                 <span
                   className={cn(
                     "text-white text-[44px] leading-[1.1] tracking-[-0.02em]",
@@ -1205,7 +1264,7 @@ const BLUEPRINT_CARDS: { title: string; body: ReactNode }[] = [
 
 function PsAgents() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Eyebrow>Agent-native</Eyebrow>
         <h2
@@ -1275,7 +1334,7 @@ function PsAgents() {
             {AGENT_CHIPS.map((chip) => (
               <span
                 key={chip}
-                className="inline-flex items-center gap-2 rounded-[6px] border border-white/10 bg-white/[0.06] px-4 py-2 font-medium text-white text-sm tracking-[-0.025em]"
+                className="inline-flex items-center gap-2 rounded-[6px] border border-[var(--tw-border)] bg-white/[0.06] px-4 py-2 font-medium text-white text-sm tracking-[-0.025em]"
               >
                 <span
                   aria-hidden="true"
@@ -1473,10 +1532,7 @@ async function PsFlags() {
   ]);
 
   return (
-    <section
-      id="flags"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="flags" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1518,7 +1574,7 @@ async function PsFlags() {
   );
 }
 
-async function PsCode() {
+async function _PsCode() {
   const [
     onboarding,
     trialConversion,
@@ -1536,7 +1592,7 @@ async function PsCode() {
   ]);
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <DotPatch className="top-20 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1827,10 +1883,7 @@ async function PsEmailAnswers() {
   >;
 
   return (
-    <section
-      id="email-answers"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="email-answers" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-20 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1882,10 +1935,7 @@ async function PsLinks() {
   ]);
 
   return (
-    <section
-      id="links"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="links" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal className="flex flex-col items-center text-center">
@@ -1982,10 +2032,7 @@ const IMPACT_FEATURES = [
 
 function PsImpact() {
   return (
-    <section
-      id="experiments"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="experiments" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2053,7 +2100,7 @@ function PsImpact() {
               {IMPACT_FEATURES.map((f) => (
                 <div
                   key={f.token}
-                  className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
+                  className="flex h-full flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-5"
                 >
                   <h3 className="font-medium text-base text-white tracking-[-0.025em]">
                     {f.title}
@@ -2123,14 +2170,11 @@ const TIMING_SAMPLE = `export const weeklyDigest = defineJourney({
   },
 });`;
 
-async function PsTiming() {
+async function _PsTiming() {
   const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
 
   return (
-    <section
-      id="timing"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="timing" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-24 right-0 hidden h-36 w-48 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2157,7 +2201,7 @@ async function PsTiming() {
 
         <Reveal delay={0.1} className="mt-12 block">
           <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
-            <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
+            <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
               <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
                 <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
                   src/journeys/weekly-digest.ts
@@ -2180,10 +2224,7 @@ async function PsTiming() {
 
 function PsDiscord() {
   return (
-    <section
-      id="discord"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="discord" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2252,7 +2293,7 @@ await hogsend.groups.identify({
   groupType: "company",
   groupKey: "acme.com",
   displayName: "Acme Inc",
-  properties: { plan: "scale", seats: 40 },
+  properties: { plan: "pro", seats: 42 },
 });
 
 await hogsend.groups.addMember({
@@ -2261,29 +2302,6 @@ await hogsend.groups.addMember({
   contactId: bill.id,
   role: "admin",
 });`;
-
-const GROUPS_FEATURES: { title: string; body: string; token: string }[] = [
-  {
-    title: "Any shared entity",
-    body: "A group is a (type, key) pair — company acme.com, team growth, a household, an account. The first event creates it; no schema to migrate.",
-    token: '("company", "acme.com")',
-  },
-  {
-    title: "Standalone, DB-first",
-    body: "Groups, memberships, and the per-event association live in Hogsend's own tables. Works with zero analytics provider configured.",
-    token: "user_events.groups",
-  },
-  {
-    title: "PostHog for free",
-    body: "When PostHog is connected, associations forward as $groups on every mirrored capture and property writes call groupIdentify.",
-    token: "$groups",
-  },
-  {
-    title: "Browser associates, server writes",
-    body: "A publishable key can only attach a group to events. Group properties and memberships are secret-key writes, enforced at the route.",
-    token: "groups.identify()",
-  },
-];
 
 async function PsGroups() {
   const browserNode = await CodeHighlight({
@@ -2296,10 +2314,7 @@ async function PsGroups() {
   });
 
   return (
-    <section
-      id="groups"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="groups" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2326,65 +2341,14 @@ async function PsGroups() {
         </Reveal>
 
         <Reveal delay={0.1} className="mt-12 block">
-          <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
-            <div className="flex flex-col gap-5">
-              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
-                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
-                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
-                    browser — @hogsend/js
-                  </span>
-                  <CopyButton value={GROUPS_BROWSER_SAMPLE} />
-                </div>
-                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
-                  {browserNode}
-                </div>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-xl">
-                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
-                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
-                    server — @hogsend/client
-                  </span>
-                  <CopyButton value={GROUPS_SERVER_SAMPLE} />
-                </div>
-                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
-                  {serverNode}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              {GROUPS_FEATURES.map((f) => (
-                <div
-                  key={f.token}
-                  className="flex flex-col rounded-lg border border-white/10 bg-white/[0.03] p-5"
-                >
-                  <h3 className="font-medium text-base text-white tracking-[-0.025em]">
-                    {f.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                    {f.body}
-                  </p>
-                  <span className="mt-4 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]">
-                    {f.token}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <GroupAccountSwitcher
+            code={{ browser: browserNode, server: serverNode }}
+            raw={{
+              browser: GROUPS_BROWSER_SAMPLE,
+              server: GROUPS_SERVER_SAMPLE,
+            }}
+          />
         </Reveal>
-
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
-            Journeys are person-scoped today — group-level journeys are a later
-            phase, not a fine-print surprise.
-          </p>
-          <Link
-            href="/articles/hogsend-0-50-the-big-one"
-            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
-          >
-            Read the 0.50 write-up →
-          </Link>
-        </div>
       </Container>
     </section>
   );
@@ -2468,10 +2432,7 @@ function BrandMark({ file, ratio }: { file: string; ratio: number }) {
 
 function PsSources() {
   return (
-    <section
-      id="sources"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="sources" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2606,10 +2567,7 @@ const ELEPHANT_COLUMNS = [
 
 function PsElephant() {
   return (
-    <section
-      id="posthog-workflows"
-      className="relative border-[#f6483826] border-t"
-    >
+    <section id="posthog-workflows" className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Reveal>
           <Eyebrow>The elephant in the room</Eyebrow>
@@ -2741,7 +2699,7 @@ function PsJourneyTraceMock() {
     },
   ];
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+    <div className="rounded-2xl border border-[var(--tw-border)] bg-white/[0.04] p-6">
       <span className="font-mono text-white/40 text-[11px] tracking-wide">
         src/journeys/onboarding.ts — run
       </span>
@@ -2845,7 +2803,7 @@ const HOW_STEPS = [
 
 function _PsHowItWorks() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-28 left-0 hidden h-40 w-52 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-16">
         {/* Sticky header column — the original ProcessSteps scroll idiom. */}
@@ -2904,7 +2862,6 @@ function _PsHowItWorks() {
 
 /** Every entry hot-links to a section further down this page. */
 const FEATURE_INDEX: Array<{ label: string; href: string }> = [
-  { label: "Building blocks", href: "#building-blocks" },
   { label: "Video events", href: "#video" },
   { label: "Feature flags", href: "#flags" },
   { label: "Contact groups", href: "#groups" },
@@ -2913,14 +2870,12 @@ const FEATURE_INDEX: Array<{ label: string; href: string }> = [
   { label: "Discord", href: "#discord" },
   { label: "Event plugins", href: "#sources" },
   { label: "Impact experiments", href: "#experiments" },
-  { label: "Digest & timing", href: "#timing" },
-  { label: "Studio, live", href: "#live-demo" },
   { label: "Durable execution", href: "#hatchet" },
 ];
 
 function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <Container className="pt-20 pb-16 md:pt-24">
         <Reveal>
           <Eyebrow>Feature index</Eyebrow>
@@ -2949,7 +2904,7 @@ function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
               <a
                 key={f.href}
                 href={f.href}
-                className="rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
+                className="rounded-full border border-[var(--tw-border)] bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
               >
                 {f.label}
               </a>
@@ -3197,7 +3152,7 @@ const BLOCK_MCP = `{
 
 /** The homepage BuildingBlocks showcase, re-set light: a vertical tab rail
  * over real-code panels (async Shiki nodes composed into the client tabs). */
-async function PsBuildingBlocks() {
+async function _PsBuildingBlocks() {
   const [
     journeyMedia,
     waitMedia,
@@ -3444,10 +3399,7 @@ async function PsBuildingBlocks() {
   ];
 
   return (
-    <section
-      id="building-blocks"
-      className="relative border-[#f6483826] border-t"
-    >
+    <section id="building-blocks" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Reveal>
           <Eyebrow>Building blocks</Eyebrow>
@@ -3473,11 +3425,11 @@ async function PsBuildingBlocks() {
 
 /* -------------------------------------------------------- core platform -- */
 
-function PsCorePlatform() {
+function _PsCorePlatform() {
   return (
     <section className="relative">
       <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0a0606] p-8 text-white md:p-12">
+        <div className="relative overflow-hidden rounded-2xl border border-[var(--tw-border)] bg-[#0a0606] p-8 text-white md:p-12">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0"
@@ -3577,7 +3529,7 @@ function HatchetRunTimeline() {
   const DEPLOY_X = 620;
   return (
     <div
-      className="relative mt-10 overflow-hidden rounded-lg border border-white/10 bg-[#0a0606] md:mt-14"
+      className="relative mt-10 overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[#0a0606] md:mt-14"
       aria-hidden="true"
     >
       <style>{`
@@ -3641,7 +3593,7 @@ function HatchetRunTimeline() {
                   {s.sub}
                 </p>
                 {sleepLeg && (
-                  <div className="mt-3.5 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="mt-3.5 rounded border border-[var(--tw-border)] bg-white/[0.03] px-3 py-2">
                     <p className="font-mono text-[10px] text-white/50">
                       deploy · worker restarts
                     </p>
@@ -3859,7 +3811,7 @@ function HatchetRunTimeline() {
 
 function PsHatchet() {
   return (
-    <section id="hatchet" className="relative border-[#f6483826] border-t">
+    <section id="hatchet" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Reveal>
           <div className="flex items-center justify-between gap-6">
@@ -3956,7 +3908,7 @@ const RENT_MODELS: {
 
 function PsEconomics() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Reveal>
           <Eyebrow>Economics</Eyebrow>
@@ -4026,7 +3978,7 @@ function PsEconomics() {
           </Reveal>
           {RENT_MODELS.map((m, i) => (
             <Reveal key={m.name} delay={(i + 1) * 0.06} className="h-full">
-              <div className="flex h-full flex-col justify-between rounded-lg border border-white/10 bg-white/[0.03] p-6">
+              <div className="flex h-full flex-col justify-between rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-6">
                 <div>
                   <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
                     {m.name}
@@ -4157,7 +4109,7 @@ const USE_CASE_DEEP_DIVES = [
 
 function PsUseCases() {
   return (
-    <section id="use-cases" className="relative border-[#f6483826] border-t">
+    <section id="use-cases" className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Eyebrow>Use cases</Eyebrow>
         <h2
@@ -4210,7 +4162,7 @@ function PsUseCases() {
             <ThermalHover key={d.href}>
               <Link
                 href={d.href}
-                className="group block rounded-[6px] border border-white/10 p-6 transition-colors hover:border-[#f64838]/40"
+                className="group block rounded-[6px] border border-[var(--tw-border)] p-6 transition-colors hover:border-[#f64838]/40"
               >
                 <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
                   Deep dive
@@ -4298,7 +4250,7 @@ const faqJsonLd = {
 
 function PsFaq() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="grid grid-cols-1 gap-12 pt-16 pb-32 lg:grid-cols-[1fr_1.5fr]">
         {/* Flint's FAQ layout: the heading floats on a soft aura blob. */}
         <div className="relative">
@@ -4360,7 +4312,7 @@ function PsFaq() {
 
 function PsClosingCta() {
   return (
-    <section className="relative overflow-hidden border-[#f6483826] border-t">
+    <section className="relative overflow-hidden tw-section">
       {/* Bookend horizon: the crimzon glow the page OPENED on returns at the
           bottom edge — the scroll ends where it began, on the thermal
           horizon. Stronger than the hero's; nothing sits below but footer. */}
@@ -4685,12 +4637,10 @@ export default async function HomePage({
       <PsProblem />
       <PsProofStrip />
       <PsManifesto />
-      <PsCode />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
       <PsUseCases />
       <PsFeatureIndex engineVersion={engineVersion} />
-      <PsBuildingBlocks />
       {/* Feature deep-dive stack — video through timing, back to back. */}
       <PsVideo />
       <PsFlags />
@@ -4700,12 +4650,9 @@ export default async function HomePage({
       <PsDiscord />
       <PsSources />
       <PsImpact />
-      <PsTiming />
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
-      <PsCorePlatform />
-      <PsStudioDemo />
       <PsHatchet />
       <PsEconomics />
       <PsFaq />
