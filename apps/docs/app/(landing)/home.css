@@ -223,3 +223,53 @@
     animation: none;
   }
 }
+
+/* ==========================================================================
+ * Twilight-warm reskin tokens — the below-hero page carries the vista's
+ * atmosphere down: deep twilight indigo instead of near-black, and section
+ * seams drawn as soft dusk "horizon" gradients instead of hard crimzon
+ * hairlines.
+ * ========================================================================== */
+:root {
+  --tw-ink: #0f0d18; /* page ground: deep twilight indigo */
+  --tw-ink-high: #141122; /* lifted surface */
+  --tw-card: rgba(198, 178, 255, 0.045); /* lavender-tinted glass */
+  --tw-border: rgba(210, 188, 255, 0.13);
+}
+
+/* Section seam: a horizon line that glows warm at the centre and cools to
+   lavender at the edges, like the vista's dusk sky. */
+.tw-section {
+  position: relative;
+}
+.tw-section::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 4%,
+    rgba(190, 150, 255, 0.18) 24%,
+    rgba(255, 164, 116, 0.34) 46%,
+    rgba(246, 72, 56, 0.3) 56%,
+    rgba(190, 150, 255, 0.2) 78%,
+    transparent 96%
+  );
+}
+/* A faint wide glow under the seam so sections open with a little dawn. */
+.tw-section::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 120px;
+  pointer-events: none;
+  background: radial-gradient(
+    60% 100% at 50% 0%,
+    rgba(255, 150, 108, 0.05),
+    transparent 70%
+  );
+}

@@ -138,20 +138,18 @@ function Eyebrow({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.08em]",
-        light ? "text-white/80" : "text-white",
+        "inline-flex items-center gap-2 rounded-full border border-[var(--tw-border)] bg-white/[0.03] px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em]",
+        light ? "text-white/80" : "text-white/90",
         className,
       )}
     >
-      <svg
-        width="9"
-        height="8"
-        viewBox="0 0 9 8"
+      <span
         aria-hidden="true"
-        className="text-[#f64838]"
-      >
-        <path d="M4.5 0L9 8H0z" fill="currentColor" />
-      </svg>
+        className="h-[7px] w-[7px] rounded-full"
+        style={{
+          background: "linear-gradient(135deg, #ffb187 0%, #f64838 100%)",
+        }}
+      />
       {children}
     </span>
   );
@@ -178,11 +176,11 @@ function Btn({
       target={newTab ? "_blank" : undefined}
       rel={newTab ? "noreferrer" : undefined}
       className={cn(
-        "inline-flex items-center justify-center rounded-[6px] font-medium tracking-[-0.025em] transition-colors",
-        size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-3.5 text-base",
+        "inline-flex items-center justify-center rounded-full font-medium tracking-[-0.025em] transition-colors",
+        size === "sm" ? "px-4.5 py-2 text-sm" : "px-6 py-3.5 text-base",
         variant === "solid" && "bg-white text-[#0a0a0a] hover:bg-white/90",
         variant === "outline" &&
-          "border border-white/25 text-white hover:bg-white/[0.06]",
+          "border border-[var(--tw-border)] text-white hover:bg-white/[0.06]",
         variant === "ghost" && "text-white hover:opacity-70",
         className,
       )}
@@ -242,7 +240,7 @@ function PlusGrid({ className }: { className?: string }) {
       className={cn("pointer-events-none absolute", className)}
       style={{
         backgroundImage:
-          "url(\"data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 10v8M10 14h8' stroke='%23f64838' stroke-opacity='0.25' stroke-width='1'/%3E%3C/svg%3E\")",
+          "url(\"data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 10v8M10 14h8' stroke='%23bfa0ff' stroke-opacity='0.22' stroke-width='1'/%3E%3C/svg%3E\")",
         backgroundSize: "28px 28px",
       }}
     />
@@ -257,7 +255,7 @@ function DotPatch({ className }: { className?: string }) {
       className={cn("pointer-events-none absolute", className)}
       style={{
         backgroundImage:
-          "radial-gradient(rgba(246,72,56,0.4) 1.2px, transparent 1.2px)",
+          "radial-gradient(rgba(190,160,255,0.38) 1.2px, transparent 1.2px)",
         backgroundSize: "9px 9px",
       }}
     />
@@ -567,7 +565,7 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 
 function PsProductDemo() {
   return (
-    <section className="relative overflow-hidden border-[#f6483826] border-t">
+    <section className="relative overflow-hidden tw-section">
       <Container className="pt-20 text-center">
         <Eyebrow>Try it live</Eyebrow>
         <h2
@@ -685,7 +683,7 @@ function PillarIcon({ index }: { index: number }) {
     <path key="c" d="M7 16h18M16 7v18" />,
   ];
   return (
-    <span className="inline-flex size-[46px] items-center justify-center border border-white/15 bg-white/[0.04]">
+    <span className="inline-flex size-[46px] items-center justify-center rounded-xl border border-[var(--tw-border)] bg-[var(--tw-card)]">
       <svg
         viewBox="0 0 32 32"
         fill="none"
@@ -702,7 +700,7 @@ function PillarIcon({ index }: { index: number }) {
 
 function PsProblem() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-40 w-56 lg:block" />
       <Container className="pt-24 pb-28 md:pt-32">
         <Eyebrow>Signal → response</Eyebrow>
@@ -793,7 +791,7 @@ function PsProblem() {
  * (white lede → faint body), mirroring the use-case ProblemStatement block. */
 function PsManifesto() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
@@ -848,10 +846,7 @@ const VIDEO_PILLARS = [
 
 function PsVideo() {
   return (
-    <section
-      id="video"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="video" className="relative tw-section overflow-hidden">
       <Container className="relative pt-16 pb-28">
         <Reveal>
           <Eyebrow>Hogsend Video</Eyebrow>
@@ -914,7 +909,7 @@ const DEMO_CREDENTIALS = "demo@hogsend.com · forgeline-demo-2026";
 
 function PsStudioDemo() {
   return (
-    <section id="live-demo" className="relative border-[#f6483826] border-t">
+    <section id="live-demo" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Eyebrow>Live demo</Eyebrow>
 
@@ -1052,7 +1047,7 @@ const BENCHMARKS = [
 
 function _PsStats() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="relative pt-16 pb-24">
         <PlusGrid className="top-12 right-0 hidden h-44 w-72 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
         <Reveal>
@@ -1210,7 +1205,7 @@ const BLUEPRINT_CARDS: { title: string; body: ReactNode }[] = [
 
 function PsAgents() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Eyebrow>Agent-native</Eyebrow>
         <h2
@@ -1478,10 +1473,7 @@ async function PsFlags() {
   ]);
 
   return (
-    <section
-      id="flags"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="flags" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1541,7 +1533,7 @@ async function PsCode() {
   ]);
 
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <DotPatch className="top-20 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1832,10 +1824,7 @@ async function PsEmailAnswers() {
   >;
 
   return (
-    <section
-      id="email-answers"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="email-answers" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-20 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -1887,10 +1876,7 @@ async function PsLinks() {
   ]);
 
   return (
-    <section
-      id="links"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="links" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal className="flex flex-col items-center text-center">
@@ -1987,10 +1973,7 @@ const IMPACT_FEATURES = [
 
 function PsImpact() {
   return (
-    <section
-      id="experiments"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="experiments" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2132,10 +2115,7 @@ async function PsTiming() {
   const timingNode = await CodeHighlight({ code: TIMING_SAMPLE, lang: "ts" });
 
   return (
-    <section
-      id="timing"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="timing" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-24 right-0 hidden h-36 w-48 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2185,10 +2165,7 @@ async function PsTiming() {
 
 function PsDiscord() {
   return (
-    <section
-      id="discord"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="discord" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-36 w-48 lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2301,10 +2278,7 @@ async function PsGroups() {
   });
 
   return (
-    <section
-      id="groups"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="groups" className="relative tw-section overflow-hidden">
       <DotPatch className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2473,10 +2447,7 @@ function BrandMark({ file, ratio }: { file: string; ratio: number }) {
 
 function PsSources() {
   return (
-    <section
-      id="sources"
-      className="relative border-[#f6483826] border-t overflow-hidden"
-    >
+    <section id="sources" className="relative tw-section overflow-hidden">
       <PlusGrid className="top-24 left-0 hidden h-36 w-48 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-16 pb-28">
         <Reveal>
@@ -2611,10 +2582,7 @@ const ELEPHANT_COLUMNS = [
 
 function PsElephant() {
   return (
-    <section
-      id="posthog-workflows"
-      className="relative border-[#f6483826] border-t"
-    >
+    <section id="posthog-workflows" className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Reveal>
           <Eyebrow>The elephant in the room</Eyebrow>
@@ -2850,7 +2818,7 @@ const HOW_STEPS = [
 
 function _PsHowItWorks() {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-28 left-0 hidden h-40 w-52 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-16">
         {/* Sticky header column — the original ProcessSteps scroll idiom. */}
@@ -2925,7 +2893,7 @@ const FEATURE_INDEX: Array<{ label: string; href: string }> = [
 
 function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
   return (
-    <section className="relative border-[#f6483826] border-t overflow-hidden">
+    <section className="relative tw-section overflow-hidden">
       <Container className="pt-20 pb-16 md:pt-24">
         <Reveal>
           <Eyebrow>Feature index</Eyebrow>
@@ -3449,10 +3417,7 @@ async function PsBuildingBlocks() {
   ];
 
   return (
-    <section
-      id="building-blocks"
-      className="relative border-[#f6483826] border-t"
-    >
+    <section id="building-blocks" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Reveal>
           <Eyebrow>Building blocks</Eyebrow>
@@ -3864,7 +3829,7 @@ function HatchetRunTimeline() {
 
 function PsHatchet() {
   return (
-    <section id="hatchet" className="relative border-[#f6483826] border-t">
+    <section id="hatchet" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Reveal>
           <div className="flex items-center justify-between gap-6">
@@ -3961,7 +3926,7 @@ const RENT_MODELS: {
 
 function PsEconomics() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Reveal>
           <Eyebrow>Economics</Eyebrow>
@@ -4162,7 +4127,7 @@ const USE_CASE_DEEP_DIVES = [
 
 function PsUseCases() {
   return (
-    <section id="use-cases" className="relative border-[#f6483826] border-t">
+    <section id="use-cases" className="relative tw-section">
       <Container className="pt-16 pb-28">
         <Eyebrow>Use cases</Eyebrow>
         <h2
@@ -4303,7 +4268,7 @@ const faqJsonLd = {
 
 function PsFaq() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section className="relative tw-section">
       <Container className="grid grid-cols-1 gap-12 pt-16 pb-32 lg:grid-cols-[1fr_1.5fr]">
         {/* Flint's FAQ layout: the heading floats on a soft aura blob. */}
         <div className="relative">
@@ -4365,7 +4330,7 @@ function PsFaq() {
 
 function PsClosingCta() {
   return (
-    <section className="relative overflow-hidden border-[#f6483826] border-t">
+    <section className="relative overflow-hidden tw-section">
       {/* Bookend horizon: the crimzon glow the page OPENED on returns at the
           bottom edge — the scroll ends where it began, on the thermal
           horizon. Stronger than the hero's; nothing sits below but footer. */}
