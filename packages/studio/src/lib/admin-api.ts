@@ -917,6 +917,16 @@ export function listGroups(filters: GroupListFilters = {}) {
   });
 }
 
+export type GroupTypeEntry = {
+  groupType: string;
+  count: number;
+};
+
+/** Distinct group types across live groups, largest first. */
+export function listGroupTypes() {
+  return api.get<{ types: GroupTypeEntry[] }>("/v1/admin/groups/types");
+}
+
 export function getGroup(groupType: string, groupKey: string) {
   return api.get<{ group: AdminGroupDetail; fx: GroupFx | null }>(
     `/v1/admin/groups/${encodeURIComponent(groupType)}/${encodeURIComponent(
@@ -2160,6 +2170,7 @@ export const qk = {
   bucket: (id: string) => ["bucket", id] as const,
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
   groups: (filters: GroupListFilters) => ["groups", filters] as const,
+  groupTypes: ["group-types"] as const,
   group: (groupType: string, groupKey: string) =>
     ["group", groupType, groupKey] as const,
   groupMembers: (

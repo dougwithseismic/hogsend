@@ -17,6 +17,7 @@ import {
   TableSkeleton,
 } from "@/components/states";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -32,6 +33,7 @@ import {
   type GroupListFilters,
   type GroupSort,
   listGroups,
+  listGroupTypes,
   qk,
 } from "@/lib/admin-api";
 import {
@@ -255,6 +257,7 @@ export function GroupsView() {
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [groupType, setGroupType] = useState("");
   const [sort, setSort] = useState<GroupSort>("lastSeen");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [offset, setOffset] = useState(0);
@@ -273,6 +276,7 @@ export function GroupsView() {
   const filters: GroupListFilters = {
     limit: PAGE_SIZE,
     offset,
+    groupType: groupType || undefined,
     search: search || undefined,
     sort,
     order,
@@ -283,6 +287,14 @@ export function GroupsView() {
     queryFn: () => listGroups(filters),
     placeholderData: keepPreviousData,
   });
+
+  // The distinct-type vocabulary feeding the filter — one cached fetch.
+  const typesQuery = useQuery({
+    queryKey: qk.groupTypes,
+    queryFn: listGroupTypes,
+    staleTime: 60_000,
+  });
+  const groupTypes = typesQuery.data?.types ?? [];
 
   const rows = useMemo(() => query.data?.groups ?? [], [query.data]);
   const total = query.data?.total ?? 0;
@@ -378,17 +390,38 @@ export function GroupsView() {
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
-          <Search
-            className="-translate-y-1/2 absolute top-1/2 left-3 h-4 w-4 text-white/40"
-            strokeWidth={1.5}
-          />
-          <Input
-            placeholder="Search by group key or name…"
-            className="pl-9"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
+        <div className="flex w-full max-w-xl flex-1 items-center gap-3">
+          <div className="relative w-full max-w-sm">
+            <Search
+              className="-translate-y-1/2 absolute top-1/2 left-3 h-4 w-4 text-white/40"
+              strokeWidth={1.5}
+            />
+            <Input
+              placeholder="Search by group key or name…"
+              className="pl-9"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+          </div>
+          {/* One type = nothing to narrow; skip the dropdown entirely. */}
+          {groupTypes.length > 1 || groupType ? (
+            <Combobox
+              ariaLabel="Group type"
+              className="w-44 shrink-0"
+              value={groupType}
+              placeholder="All types"
+              options={groupTypes.map((t) => ({
+                value: t.groupType,
+                label: t.groupType,
+                hint: formatNumber(t.count),
+              }))}
+              onChange={(next) => {
+                setGroupType(next);
+                setOffset(0);
+              }}
+              allowClear
+            />
+          ) : null}
         </div>
         <ColumnsMenu
           propertyKeys={propertyKeys}
@@ -404,10 +437,10 @@ export function GroupsView() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={Building2}
-          title={search ? "No groups found" : "No groups yet"}
+          title={search || groupType ? "No groups found" : "No groups yet"}
           description={
-            search
-              ? "No groups match your search."
+            search || groupType
+              ? "No groups match your filters."
               : "Groups appear here as events and memberships arrive carrying a group association (account, team, company, …)."
           }
         />

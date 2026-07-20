@@ -442,6 +442,54 @@ describe("GET /v1/admin/groups", () => {
   });
 });
 
+describe("GET /v1/admin/groups/types", () => {
+  it("401s without auth", async () => {
+    const res = await app.request("/v1/admin/groups/types");
+    expect(res.status).toBe(401);
+  });
+
+  // The literal "types" segment must resolve to the vocabulary route, not be
+  // captured as a `{groupType}` by the detail param route (which would 404).
+  it("returns distinct live types with counts, not a param-route 404", async () => {
+    const res = await app.request("/v1/admin/groups/types", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.types)).toBe(true);
+
+    const byType = new Map(
+      body.types.map((t: { groupType: string; count: number }) => [
+        t.groupType,
+        t.count,
+      ]),
+    );
+    expect(byType.get(REV_TYPE)).toBe(3);
+    expect(byType.get(PROMO_TYPE)).toBe(2);
+    expect(byType.get(FXU_TYPE)).toBe(3);
+  });
+
+  it("excludes soft-deleted groups from the vocabulary", async () => {
+    const deletedType = `${RUN}-deleted-only`;
+    await db.insert(groups).values({
+      groupType: deletedType,
+      groupKey: `${RUN}-deleted.com`,
+      deletedAt: new Date(),
+    });
+
+    const res = await app.request("/v1/admin/groups/types", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(
+      body.types.some(
+        (t: { groupType: string }) => t.groupType === deletedType,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("GET /v1/admin/groups/{groupType}/{groupKey}", () => {
   it("returns group detail with recentMembers and recentEvents", async () => {
     const res = await app.request(
