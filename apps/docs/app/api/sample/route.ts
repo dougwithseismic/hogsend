@@ -7,12 +7,48 @@ import { EMAIL_PATTERN, forwardToIngest, ingestConfigured } from "@/lib/ingest";
  * picks the component to send off this exact string.
  */
 const SAMPLE_TEMPLATES = [
+  // Legacy dogfood sample keys (pre-canonical naming) — old links still work.
   "activation/welcome",
   "activation/nudge",
   "lifecycle/trial-expiring",
-  "marketing/product-update",
-  "transactional/receipt",
+  // Canonical registry keys — the full /emails gallery. Must stay in sync
+  // with apps/api/src/emails/registry.ts and the dogfood sample journey.
+  "activation-quickstart",
+  "activation-nudge",
+  "activation-feature-highlight",
+  "activation-community",
+  "onboarding/come-back-to-it",
+  "onboarding-personalized",
+  "preboarding/manager-welcome",
+  "conversion-usage-milestone",
+  "conversion-trial-expiring",
+  "conversion-winback-offer",
+  "sales/proposal-opened",
+  "sales/whitepaper-follow-up",
+  "events/were-live",
+  "events/qr-checkin",
+  "retention-weekly-digest",
+  "retention-achievement",
+  "retention/founder-checkin",
+  "content/weekly-articles",
+  "groups/account-digest",
+  "team/invite-teammate",
+  "reactivation-checkin",
+  "reactivation-final-nudge",
+  "winback/whats-new",
+  "winback/final-note",
+  "billing/upcoming-payment",
+  "churn-payment-failed",
+  "feedback-nps-survey",
+  "feedback/csat",
+  "feedback/did-this-help",
+  "advocacy/review-ask",
+  "impact/journey-lift-report",
+  "welcome",
+  "transactional/verify-email",
   "transactional/magic-link",
+  "transactional/receipt",
+  "marketing/product-update",
 ] as const;
 
 type SampleTemplate = (typeof SAMPLE_TEMPLATES)[number];
