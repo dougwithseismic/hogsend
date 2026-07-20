@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, Plus, Shuffle, Trash2, Zap } from "lucide-react";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { EventPicker } from "@/components/event-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
@@ -12,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   type IngestResult,
   ingestEvent,
+  listEventNames,
   listJourneys,
   qk,
 } from "@/lib/admin-api";
@@ -190,6 +192,13 @@ export function DebugDrawer({
     queryFn: listJourneys,
     enabled: open,
   });
+  // Full observed + declared vocabulary for the picker (cached a minute).
+  const eventNamesQuery = useQuery({
+    queryKey: qk.eventNames,
+    queryFn: listEventNames,
+    enabled: open,
+    staleTime: 60_000,
+  });
 
   const presets = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -258,19 +267,19 @@ export function DebugDrawer({
     >
       <div className="space-y-5">
         <div className="space-y-1.5">
-          <Label htmlFor="debug-event">Event name</Label>
-          <Input
-            id="debug-event"
-            list="debug-event-presets"
-            placeholder="e.g. user.created"
+          <Label>Event name</Label>
+          <EventPicker
+            ariaLabel="Event name"
             value={event}
-            onChange={(e) => setEvent(e.target.value)}
+            placeholder="e.g. user.created"
+            events={eventNamesQuery.data?.events ?? []}
+            journeys={(journeysQuery.data?.journeys ?? []).map((j) => ({
+              id: j.id,
+              name: j.name,
+            }))}
+            onChange={setEvent}
+            allowCustom
           />
-          <datalist id="debug-event-presets">
-            {presets.map((p) => (
-              <option key={p.event} value={p.event} />
-            ))}
-          </datalist>
           {presets.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {presets.map((p) => (

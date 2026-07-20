@@ -52,6 +52,7 @@ export function EventPicker({
   onChange,
   className,
   allowClear = false,
+  allowCustom = false,
 }: {
   ariaLabel: string;
   value: string;
@@ -62,6 +63,8 @@ export function EventPicker({
   onChange: (next: string) => void;
   className?: string;
   allowClear?: boolean;
+  /** Open-vocabulary mode: offer a `Use "<typed>"` row for unseen names. */
+  allowCustom?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -90,7 +93,23 @@ export function EventPicker({
     ? all.filter((ev) => ev.name.toLowerCase().includes(q))
     : all;
   const visible = filtered.slice(0, MAX_VISIBLE);
-  const detail = visible[active] ?? visible[0];
+  const trimmed = query.trim();
+  const custom =
+    allowCustom && trimmed !== "" && !all.some((ev) => ev.name === trimmed);
+  const rows: Array<TargetingEventName & { isNew?: boolean }> = custom
+    ? [
+        {
+          name: trimmed,
+          occurrences: 0,
+          firstSeenAt: null,
+          lastSeenAt: null,
+          usedBy: [],
+          isNew: true,
+        },
+        ...visible,
+      ]
+    : visible;
+  const detail = rows[active] ?? rows[0];
 
   useEffect(() => {
     if (!open) return;
@@ -125,13 +144,13 @@ export function EventPicker({
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, visible.length - 1));
+      setActive((a) => Math.min(a + 1, rows.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const hit = visible[active];
+      const hit = rows[active];
       if (hit) pick(hit.name);
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -194,10 +213,10 @@ export function EventPicker({
               role="listbox"
               className="max-h-80 w-1/2 overflow-y-auto py-1"
             >
-              {visible.length === 0 ? (
+              {rows.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-white/40">No matches</p>
               ) : (
-                visible.map((ev, i) => (
+                rows.map((ev, i) => (
                   <button
                     key={ev.name}
                     type="button"
@@ -215,7 +234,8 @@ export function EventPicker({
                       i === active
                         ? "bg-white/[0.06] text-white"
                         : "text-white/75",
-                      ev.name === value ? "text-accent" : "",
+                      ev.name === value && !ev.isNew ? "text-accent" : "",
+                      ev.isNew ? "italic text-white/60" : "",
                     )}
                   >
                     {ev.usedBy.length > 0 ? (
@@ -223,7 +243,9 @@ export function EventPicker({
                     ) : (
                       <span className="w-3 shrink-0" />
                     )}
-                    <span className="truncate">{ev.name}</span>
+                    <span className="truncate">
+                      {ev.isNew ? `Use "${ev.name}"` : ev.name}
+                    </span>
                   </button>
                 ))
               )}
@@ -235,7 +257,17 @@ export function EventPicker({
             </div>
 
             <div className="w-1/2 space-y-3 border-l border-white/[0.06] p-4">
-              {detail ? (
+              {detail?.isNew ? (
+                <>
+                  <p className="break-all font-mono text-sm text-white">
+                    {detail.name}
+                  </p>
+                  <p className="text-xs text-white/40">
+                    New event name — nothing has fired it yet. Event names are
+                    an open vocabulary, so any name is valid.
+                  </p>
+                </>
+              ) : detail ? (
                 <>
                   <p className="break-all font-mono text-sm text-white">
                     {detail.name}

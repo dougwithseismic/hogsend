@@ -466,23 +466,18 @@ function PropertyInputs({
   const operators = catalog?.operators ?? FALLBACK_OPERATORS;
   const properties = catalog?.properties ?? [];
   const unary = isUnary(leaf.operator, operators);
-  const listId = `prop-list-${leaf.property || "new"}`;
 
   return (
     <>
-      <Input
-        aria-label="Property"
-        list={listId}
-        placeholder="property"
+      <Combobox
+        ariaLabel="Property"
         value={leaf.property}
-        onChange={(e) => onChange({ ...leaf, property: e.target.value })}
-        className="h-9 w-44 font-mono text-xs"
+        placeholder="property"
+        options={properties.map((p) => ({ value: p, label: p }))}
+        onChange={(property) => onChange({ ...leaf, property })}
+        className="w-44 font-mono text-xs"
+        allowCustom
       />
-      <datalist id={listId}>
-        {properties.map((p) => (
-          <option key={p} value={p} />
-        ))}
-      </datalist>
 
       <Select
         aria-label="Operator"

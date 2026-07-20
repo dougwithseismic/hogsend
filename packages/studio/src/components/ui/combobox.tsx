@@ -28,6 +28,7 @@ export function Combobox({
   onChange,
   className,
   allowClear = false,
+  allowCustom = false,
 }: {
   ariaLabel: string;
   value: string;
@@ -36,6 +37,8 @@ export function Combobox({
   onChange: (next: string) => void;
   className?: string;
   allowClear?: boolean;
+  /** Open-vocabulary mode: offer a `Use "<typed>"` row for unknown values. */
+  allowCustom?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -56,6 +59,15 @@ export function Combobox({
       )
     : all;
   const visible = filtered.slice(0, MAX_VISIBLE);
+  const trimmed = query.trim();
+  const custom =
+    allowCustom && trimmed !== "" && !all.some((o) => o.value === trimmed);
+  const rows: Array<ComboboxOption & { isCustom?: boolean }> = custom
+    ? [
+        { value: trimmed, label: `Use "${trimmed}"`, isCustom: true },
+        ...visible,
+      ]
+    : visible;
 
   useEffect(() => {
     if (!open) return;
@@ -90,13 +102,13 @@ export function Combobox({
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, visible.length - 1));
+      setActive((a) => Math.min(a + 1, rows.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const hit = visible[active];
+      const hit = rows[active];
       if (hit) pick(hit.value);
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -149,10 +161,10 @@ export function Combobox({
           role="listbox"
           className="absolute z-30 mt-1 max-h-72 w-full min-w-56 overflow-y-auto rounded-md border border-white/[0.1] bg-[#141010] py-1 shadow-xl"
         >
-          {visible.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="px-3 py-2 text-sm text-white/40">No matches</p>
           ) : (
-            visible.map((o, i) => (
+            rows.map((o, i) => (
               <button
                 key={o.value}
                 type="button"
@@ -168,7 +180,8 @@ export function Combobox({
                 className={cn(
                   "flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-sm",
                   i === active ? "bg-white/[0.06] text-white" : "text-white/80",
-                  o.value === value ? "text-accent" : "",
+                  o.value === value && !o.isCustom ? "text-accent" : "",
+                  o.isCustom ? "italic text-white/60" : "",
                 )}
               >
                 <span className="truncate">{o.label}</span>
