@@ -50,6 +50,7 @@ import {
 import { DiscordLinkCard } from "./_components/discord-link-card";
 import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
+import { GroupAccountSwitcher } from "./_components/group-account-switcher";
 import { ImpactReadout } from "./_components/impact-readout";
 import { MINTED_FILES } from "./_components/minted-files";
 import { PsNav } from "./_components/nav";
@@ -2292,7 +2293,7 @@ await hogsend.groups.identify({
   groupType: "company",
   groupKey: "acme.com",
   displayName: "Acme Inc",
-  properties: { plan: "scale", seats: 40 },
+  properties: { plan: "pro", seats: 42 },
 });
 
 await hogsend.groups.addMember({
@@ -2301,114 +2302,6 @@ await hogsend.groups.addMember({
   contactId: bill.id,
   role: "admin",
 });`;
-
-const GROUPS_FEATURES: { title: string; body: string; token: string }[] = [
-  {
-    title: "Any shared entity",
-    body: "A group is a (type, key) pair — company acme.com, team growth, a household, an account. The first event creates it; no schema to migrate.",
-    token: '("company", "acme.com")',
-  },
-  {
-    title: "Standalone, DB-first",
-    body: "Groups, memberships, and the per-event association live in Hogsend's own tables. Works with zero analytics provider configured.",
-    token: "user_events.groups",
-  },
-  {
-    title: "PostHog for free",
-    body: "When PostHog is connected, associations forward as $groups on every mirrored capture and property writes call groupIdentify.",
-    token: "$groups",
-  },
-  {
-    title: "Browser associates, server writes",
-    body: "A publishable key can only attach a group to events. Group properties and memberships are secret-key writes, enforced at the route.",
-    token: "groups.identify()",
-  },
-];
-
-/** A compact account-rollup visual: three people resolve into one Acme
- *  account with live properties — what "treat them as one account" looks like. */
-function GroupRollup() {
-  const members = [
-    { name: "Bill", email: "bill@acme.com", tint: "#f64838" },
-    { name: "Derek", email: "derek@acme.com", tint: "#c98bff" },
-    { name: "Bob", email: "bob@acme.com", tint: "#ff9a6c" },
-  ];
-  return (
-    <div className="grid items-center gap-6 rounded-xl border border-[var(--tw-border)] bg-white/[0.02] p-6 md:grid-cols-[1fr_auto_1fr] md:p-8">
-      {/* the three contacts */}
-      <div className="flex flex-col gap-2.5">
-        {members.map((m) => (
-          <div
-            key={m.email}
-            className="flex items-center gap-3 rounded-lg border border-[var(--tw-border)] bg-white/[0.03] px-3.5 py-2.5"
-          >
-            <span
-              aria-hidden="true"
-              className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-[11px] text-white"
-              style={{ backgroundColor: m.tint }}
-            >
-              {m.name.slice(0, 1)}
-            </span>
-            <span className="font-medium text-[13px] text-white/85">
-              {m.name}
-            </span>
-            <span className="truncate font-mono text-[11px] text-white/35">
-              {m.email}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* the association arrow */}
-      <div className="flex items-center justify-center">
-        <span
-          aria-hidden="true"
-          className="hidden font-mono text-[#f64838] text-lg md:inline"
-        >
-          →
-        </span>
-        <span
-          aria-hidden="true"
-          className="font-mono text-[#f64838] text-lg md:hidden"
-        >
-          ↓
-        </span>
-      </div>
-
-      {/* the account they roll up into */}
-      <div className="overflow-hidden rounded-lg border border-[#f64838]/25 bg-[#f64838]/[0.06]">
-        <div className="flex items-center gap-3 border-white/[0.06] border-b px-4 py-3">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/10 font-semibold text-[13px] text-white"
-          >
-            A
-          </span>
-          <div className="min-w-0">
-            <p className="font-medium text-[14px] text-white">Acme</p>
-            <p className="font-mono text-[10.5px] text-white/40">
-              company · acme.com
-            </p>
-          </div>
-        </div>
-        <dl className="grid grid-cols-3 divide-x divide-white/[0.06]">
-          {[
-            ["plan", "pro"],
-            ["seats", "42"],
-            ["members", "3"],
-          ].map(([k, v]) => (
-            <div key={k} className="px-3 py-2.5 text-center">
-              <dt className="font-mono text-[9.5px] text-white/35 uppercase tracking-[0.06em]">
-                {k}
-              </dt>
-              <dd className="mt-0.5 font-medium text-[14px] text-white">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-    </div>
-  );
-}
 
 async function PsGroups() {
   const browserNode = await CodeHighlight({
@@ -2447,70 +2340,15 @@ async function PsGroups() {
           </p>
         </Reveal>
 
-        <Reveal delay={0.05} className="mt-12 block">
-          <GroupRollup />
+        <Reveal delay={0.1} className="mt-12 block">
+          <GroupAccountSwitcher
+            code={{ browser: browserNode, server: serverNode }}
+            raw={{
+              browser: GROUPS_BROWSER_SAMPLE,
+              server: GROUPS_SERVER_SAMPLE,
+            }}
+          />
         </Reveal>
-
-        <Reveal delay={0.1} className="mt-5 block">
-          <div className="grid items-start gap-5 lg:grid-cols-[1fr_380px]">
-            <div className="flex flex-col gap-5">
-              <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
-                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
-                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
-                    browser — @hogsend/js
-                  </span>
-                  <CopyButton value={GROUPS_BROWSER_SAMPLE} />
-                </div>
-                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
-                  {browserNode}
-                </div>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-[var(--tw-border)] bg-[var(--tw-ink-high)] shadow-xl">
-                <div className="flex items-center justify-between border-white/[0.08] border-b px-4">
-                  <span className="border-[#f64838] border-b-2 py-2.5 font-mono text-[11px] text-white/75 tracking-wide">
-                    server — @hogsend/client
-                  </span>
-                  <CopyButton value={GROUPS_SERVER_SAMPLE} />
-                </div>
-                <div className="ps-code overflow-auto px-4 py-4 text-[12.5px]">
-                  {serverNode}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              {GROUPS_FEATURES.map((f) => (
-                <div
-                  key={f.token}
-                  className="flex flex-col rounded-lg border border-[var(--tw-border)] bg-white/[0.03] p-5"
-                >
-                  <h3 className="font-medium text-base text-white tracking-[-0.025em]">
-                    {f.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                    {f.body}
-                  </p>
-                  <span className="mt-4 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838]">
-                    {f.token}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Reveal>
-
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-[640px] text-sm text-white/55 tracking-[-0.02em]">
-            Journeys are person-scoped today — group-level journeys are a later
-            phase, not a fine-print surprise.
-          </p>
-          <Link
-            href="/articles/hogsend-0-50-the-big-one"
-            className="font-medium text-sm text-white tracking-[-0.025em] hover:opacity-70"
-          >
-            Read the 0.50 write-up →
-          </Link>
-        </div>
       </Container>
     </section>
   );
