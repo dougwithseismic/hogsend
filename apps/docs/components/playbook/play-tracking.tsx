@@ -53,7 +53,7 @@ function useViewEffect(slug: string, fire: () => void): void {
 }
 
 type CtaProps = {
-  rung: "self-serve" | "managed" | "dfy";
+  rung: "self-serve" | "audit" | "dfy";
   slug: string;
   children: ReactNode;
 };

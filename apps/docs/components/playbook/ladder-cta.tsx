@@ -11,18 +11,18 @@ const RUNGS = [
     cta: "Read the docs",
   },
   {
-    rung: "managed",
-    label: "Managed",
-    copy: "We run the infrastructure; you write the journeys.",
-    href: "/pricing",
-    cta: "See pricing",
+    rung: "audit",
+    label: "Find the leaks",
+    copy: "A one-week audit of where your funnel loses people.",
+    href: "/service",
+    cta: "See the audit",
   },
   {
     rung: "dfy",
     label: "Done for you",
-    copy: "We design, build, and run your lifecycle system.",
-    href: "/service",
-    cta: "Talk to us",
+    copy: "I design, build, and run your lifecycle system.",
+    href: "/service#enquire",
+    cta: "Talk to me",
   },
 ] as const;
 

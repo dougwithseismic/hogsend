@@ -4065,6 +4065,22 @@ function PsEconomics() {
         <p className="mt-6 text-white/40 text-[12px] tracking-[-0.02em]">
           *Published pricing, checked July 2026.
         </p>
+        <Reveal>
+          <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Link
+              href="/service"
+              className="text-[14px] text-white tracking-[-0.02em] underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white"
+            >
+              Have it built and run for you →
+            </Link>
+            <Link
+              href="/pricing"
+              className="text-[14px] text-white/50 tracking-[-0.02em] transition-colors hover:text-white/80"
+            >
+              Full pricing
+            </Link>
+          </div>
+        </Reveal>
       </Container>
     </section>
   );

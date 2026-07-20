@@ -17,6 +17,7 @@ import { Logo } from "./logo";
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Components", href: "/components" },
   { label: "Templates", href: "/emails" },
+  { label: "Services", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
@@ -232,7 +233,7 @@ export function NavDropdown({
       <Link
         href={triggerHref}
         className={cn(
-          "flex items-center gap-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          "flex items-center gap-1 whitespace-nowrap rounded outline-none focus-visible:ring-2 focus-visible:ring-accent",
           triggerClassName ??
             "text-[15px] tracking-[-0.02em] text-white/90 transition-colors hover:text-white",
         )}
@@ -306,7 +307,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
     >
       <nav
         aria-label="Primary"
-        className="container-page flex h-20 items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr]"
+        className="container-page flex h-20 items-center justify-between xl:grid xl:grid-cols-[1fr_auto_1fr]"
       >
         {/* Left: brand */}
         <div className="flex items-center">
@@ -320,7 +321,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
         </div>
 
         {/* Center: desktop links */}
-        <ul className="hidden items-center gap-8 md:flex">
+        <ul className="hidden items-center gap-8 xl:flex">
           <NavDropdown
             label="Use cases"
             triggerHref="/#use-cases"
@@ -347,7 +348,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             <li key={link.href}>
               <Link
                 href={link.href}
-                className="rounded text-[15px] tracking-[-0.02em] text-white/90 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+                className="whitespace-nowrap rounded text-[15px] tracking-[-0.02em] text-white/90 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {link.label}
               </Link>
@@ -356,7 +357,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
         </ul>
 
         {/* Right: Discord + GitHub + CTA */}
-        <div className="hidden items-center justify-end gap-4 md:flex">
+        <div className="hidden items-center justify-end gap-4 xl:flex">
           <a
             href={DISCORD_INVITE_URL}
             target="_blank"
@@ -383,7 +384,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
         </div>
 
         {/* Mobile: Discord + GitHub + hamburger */}
-        <div className="flex items-center gap-1 md:hidden">
+        <div className="flex items-center gap-1 xl:hidden">
           <a
             href={DISCORD_INVITE_URL}
             target="_blank"
@@ -425,7 +426,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
       <div
         id="site-nav-mobile"
         hidden={!menuOpen}
-        className="border-t border-hairline-faint bg-ink/95 backdrop-blur-md md:hidden"
+        className="border-t border-hairline-faint bg-ink/95 backdrop-blur-md xl:hidden"
       >
         <div className="container-page flex flex-col gap-1 py-4">
           {NAV_LINKS.map((link) => (
