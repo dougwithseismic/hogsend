@@ -117,10 +117,15 @@ export async function reconcileDefinedFlags(opts: {
       }
 
       // A same-key flag owned by an operator/Studio (origin != "code") is never
-      // clobbered by a code definition — leave it and warn.
+      // clobbered by a code definition — leave it and warn. The warn names the
+      // resolution because this is easy to trip innocently: `origin` defaults
+      // to "native" on insert, so any row seeded out-of-band (SQL, a seed
+      // script) for a code-defined key lands here on every boot.
       if (existing.origin !== "code") {
         logger.warn(
-          "flags: key already owned by a non-code flag — leaving it untouched",
+          `flags: key "${key}" already owned by a non-code flag (origin "${existing.origin}") — leaving it untouched. ` +
+            "If this row should be code-owned (contract-synced from defineFlag), set origin = 'code' on it; " +
+            "otherwise remove the defineFlag that shares this key.",
           { key, origin: existing.origin },
         );
         result.skipped++;
