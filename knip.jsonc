@@ -1,0 +1,74 @@
+// Dead-code scan: `pnpm lint:dead`.
+//
+// apps/api's ignoreDependencies are NOT unused. tsup bundles @hogsend/* via
+// noExternal, so those npm deps resolve from apps/api/node_modules at runtime
+// without ever being imported from apps/api/src. Removing them breaks prod.
+//
+// create-hogsend/template and examples/ are scaffold sources: copied verbatim
+// into new apps and never imported here, so every file in them reads as unused.
+//
+// Not ignored, but do NOT delete on knip's say-so: checkout-button.tsx and
+// /api/checkout are the dormant self-serve Stripe pipe, kept so a future
+// fixed-scope tier can go self-serve without rebuilding it. The ladder is
+// founder-led today (every tier converts `book`), so nothing renders the form
+// and knip reads it as unused.
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    ".": {
+      "ignore": ["packages/create-hogsend/template/**", "examples/**"]
+    },
+    "marketing/video": {
+      "entry": ["src/entries/**/*.{ts,tsx}", "src/index.ts", "scripts/**/*.ts"]
+    },
+    "apps/docs": {
+      "entry": [
+        "app/**/{page,layout,route,error,not-found,loading,template,default,sitemap,robots,opengraph-image,icon,apple-icon,manifest}.{ts,tsx}",
+        "app/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,mjs}",
+        "source.config.ts",
+        "next.config.{ts,mjs}"
+      ]
+    },
+    "apps/course": {
+      "entry": [
+        "app/**/{page,layout,route,error,not-found,loading,template,default,sitemap,robots,opengraph-image,icon}.{ts,tsx}",
+        "app/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,mjs}",
+        "source.config.ts",
+        "next.config.{ts,mjs}"
+      ]
+    },
+    "apps/api": {
+      "entry": ["src/index.ts", "src/worker.ts", "scripts/**/*.ts"],
+      "ignoreDependencies": [
+        "@hatchet-dev/typescript-sdk",
+        "@hogsend/plugin-twilio",
+        "@hono/mcp",
+        "@hono/zod-openapi",
+        "@scalar/hono-api-reference",
+        "better-auth",
+        "papaparse",
+        "@types/papaparse",
+        "qrcode",
+        "resend",
+        "twilio",
+        "winston"
+      ]
+    }
+  },
+  "ignore": [
+    "packages/create-hogsend/template/**",
+    "examples/**",
+    "**/*.d.ts",
+    "**/*.test.mts",
+    "**/*.node-test.mjs",
+    "apps/api/src/flags/flags.type-check.ts",
+    "marketing/shoot.mjs",
+    "marketing/video/remotion.config.ts",
+    "packages/inspector/loader/stamp-loader.cjs",
+    "packages/db/src/demo-seed.ts"
+  ],
+  "ignoreDependencies": ["@repo/typescript-config"],
+  "ignoreExportsUsedInFile": true
+}
