@@ -272,3 +272,200 @@ export interface MarketingProductUpdateProps {
   unsubscribeUrl?: string;
   preferencesUrl?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Billing templates
+// ---------------------------------------------------------------------------
+
+export interface BillingUpcomingPaymentEmailProps {
+  name: string;
+  planName?: string;
+  amount?: string;
+  renewalDate?: string;
+  cardLast4?: string;
+  manageBillingUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Team templates
+// ---------------------------------------------------------------------------
+
+export interface TeamInviteTeammateEmailProps {
+  name: string;
+  seatsAvailable?: number;
+  inviteUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Content templates
+// ---------------------------------------------------------------------------
+
+export interface ContentWeeklyArticlesEmailProps {
+  name: string;
+  periodLabel?: string;
+  articles?: Array<{ title: string; url: string; minutes?: number }>;
+  browseUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Sales templates (playbook: proposal-opened, whitepaper-reader-signals)
+// ---------------------------------------------------------------------------
+
+export interface SalesProposalOpenedEmailProps {
+  /** The rep receiving the internal alert. */
+  name: string;
+  prospectName?: string;
+  proposalTitle?: string;
+  openCount?: number;
+  openedAt?: string;
+  dealUrl?: string;
+}
+
+export interface SalesWhitepaperFollowUpEmailProps {
+  name: string;
+  whitepaperTitle?: string;
+  pricingUrl?: string;
+  caseStudyUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Event templates (playbook: live-event-summon; QR check-in)
+// ---------------------------------------------------------------------------
+
+export interface EventsWereLiveEmailProps {
+  name: string;
+  eventTitle?: string;
+  joinUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface EventsQrCheckinEmailProps {
+  name: string;
+  eventTitle?: string;
+  eventDate?: string;
+  venue?: string;
+  /** Tracked QR image minted via the links API — each scan is a recorded click. */
+  qrImageUrl?: string;
+  ticketUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-boarding templates (playbook: pre-boarding-sequence)
+// ---------------------------------------------------------------------------
+
+export interface PreboardingManagerWelcomeEmailProps {
+  /** The new hire. */
+  name: string;
+  managerName?: string;
+  managerEmail?: string;
+  teamName?: string;
+  startDate?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding rescue (playbook: second-session-rescue)
+// ---------------------------------------------------------------------------
+
+export interface OnboardingComeBackToItEmailProps {
+  name: string;
+  lastStepLabel?: string;
+  resumeUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Retention founder check-in (playbook: usage-drop-early-warning)
+// ---------------------------------------------------------------------------
+
+export interface RetentionFounderCheckinEmailProps {
+  name: string;
+  founderName?: string;
+  founderEmail?: string;
+  usageObservation?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Winback pair (playbook: dormant-user-winback)
+// ---------------------------------------------------------------------------
+
+export interface WinbackWhatsNewEmailProps {
+  name: string;
+  monthsAway?: number;
+  updates?: string[];
+  returnUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface WinbackFinalNoteEmailProps {
+  name: string;
+  returnUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Advocacy (playbook: post-win-review-ask)
+// ---------------------------------------------------------------------------
+
+export interface AdvocacyReviewAskEmailProps {
+  name: string;
+  winDescription?: string;
+  platformName?: string;
+  reviewUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback surveys (Survey component — one-click answers as events)
+// ---------------------------------------------------------------------------
+
+export interface FeedbackCsatEmailProps {
+  name: string;
+  /** What's being rated, e.g. "your support conversation yesterday". */
+  interactionLabel?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface FeedbackDidThisHelpEmailProps {
+  name: string;
+  /** What's being judged, e.g. "the setup guide". */
+  subjectLabel?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Impact report (holdouts + journey lift, stakeholder-facing)
+// ---------------------------------------------------------------------------
+
+export interface ImpactJourneyLiftReportEmailProps {
+  name: string;
+  journeyName?: string;
+  periodLabel?: string;
+  liftPercent?: string;
+  winProbability?: string;
+  holdoutPercent?: string;
+  enrolledConversion?: string;
+  holdoutConversion?: string;
+  reportUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Groups (account-level digest for the team owner)
+// ---------------------------------------------------------------------------
+
+export interface GroupsAccountDigestEmailProps {
+  name: string;
+  groupName?: string;
+  periodLabel?: string;
+  stats?: Array<{ label: string; value: string; change?: string }>;
+  quietSeats?: number;
+  dashboardUrl?: string;
+  unsubscribeUrl?: string;
+}

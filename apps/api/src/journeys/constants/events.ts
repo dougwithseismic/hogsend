@@ -26,6 +26,9 @@ export const Events = {
 
   NPS_SUBMITTED: "nps.submitted",
   NPS_DETRACTOR: "nps.detractor",
+  CSAT_SUBMITTED: "csat.submitted",
+  HELP_ANSWERED: "help.answered",
+  REVIEW_CLICKED: "review.clicked",
 
   TRIAL_STARTED: "trial.started",
 

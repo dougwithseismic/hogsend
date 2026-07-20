@@ -9,27 +9,44 @@ import type {
   ActivationFeatureHighlightEmailProps,
   ActivationNudgeEmailProps,
   ActivationQuickstartEmailProps,
+  AdvocacyReviewAskEmailProps,
+  BillingUpcomingPaymentEmailProps,
   ChurnPaymentFailedEmailProps,
+  ContentWeeklyArticlesEmailProps,
   ConversionTrialExpiringEmailProps,
   ConversionUsageMilestoneEmailProps,
   ConversionWinbackOfferEmailProps,
+  EventsQrCheckinEmailProps,
+  EventsWereLiveEmailProps,
+  FeedbackCsatEmailProps,
+  FeedbackDidThisHelpEmailProps,
   FeedbackNpsSurveyEmailProps,
+  GroupsAccountDigestEmailProps,
+  ImpactJourneyLiftReportEmailProps,
   JourneyNotificationEmailProps,
   MarketingProductUpdateProps,
+  OnboardingComeBackToItEmailProps,
   OnboardingNudgeEmailProps,
   OnboardingPersonalizedEmailProps,
   PasswordResetEmailProps,
+  PreboardingManagerWelcomeEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,
   ReengageTipAEmailProps,
   ReengageTipBEmailProps,
   ReengageWebinarEmailProps,
   RetentionAchievementEmailProps,
+  RetentionFounderCheckinEmailProps,
   RetentionWeeklyDigestEmailProps,
+  SalesProposalOpenedEmailProps,
+  SalesWhitepaperFollowUpEmailProps,
+  TeamInviteTeammateEmailProps,
   TransactionalMagicLinkProps,
   TransactionalReceiptProps,
   TransactionalVerifyEmailProps,
   WelcomeEmailProps,
+  WinbackFinalNoteEmailProps,
+  WinbackWhatsNewEmailProps,
 } from "./types.js";
 
 declare module "@hogsend/email" {
@@ -59,5 +76,22 @@ declare module "@hogsend/email" {
     "transactional/magic-link": TransactionalMagicLinkProps;
     "transactional/receipt": TransactionalReceiptProps;
     "marketing/product-update": MarketingProductUpdateProps;
+    "billing/upcoming-payment": BillingUpcomingPaymentEmailProps;
+    "team/invite-teammate": TeamInviteTeammateEmailProps;
+    "content/weekly-articles": ContentWeeklyArticlesEmailProps;
+    "sales/proposal-opened": SalesProposalOpenedEmailProps;
+    "sales/whitepaper-follow-up": SalesWhitepaperFollowUpEmailProps;
+    "events/were-live": EventsWereLiveEmailProps;
+    "events/qr-checkin": EventsQrCheckinEmailProps;
+    "preboarding/manager-welcome": PreboardingManagerWelcomeEmailProps;
+    "onboarding/come-back-to-it": OnboardingComeBackToItEmailProps;
+    "retention/founder-checkin": RetentionFounderCheckinEmailProps;
+    "winback/whats-new": WinbackWhatsNewEmailProps;
+    "winback/final-note": WinbackFinalNoteEmailProps;
+    "advocacy/review-ask": AdvocacyReviewAskEmailProps;
+    "feedback/csat": FeedbackCsatEmailProps;
+    "feedback/did-this-help": FeedbackDidThisHelpEmailProps;
+    "impact/journey-lift-report": ImpactJourneyLiftReportEmailProps;
+    "groups/account-digest": GroupsAccountDigestEmailProps;
   }
 }
