@@ -518,7 +518,7 @@ describe("test mode on the tracked (DB) path", () => {
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("test_mode_blocked");
     const row = inserts[0];
-    expect(row?.status).toBe("failed");
+    expect(row?.status).toBe("suppressed");
     expect(row?.metadata).toEqual({ testMode: true, originalTo: "orig@y.com" });
     expect(calls.some((c) => c.level === "error")).toBe(true);
   });

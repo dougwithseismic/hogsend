@@ -22,6 +22,13 @@ export const emailSendStatusEnum = pgEnum("email_send_status", [
   "bounced",
   "complained",
   "failed",
+  // Gated by policy BEFORE any dispatch (recipient suppression / preference
+  // check, or a test-mode block with no addressable inbox). Distinct from
+  // "failed" because a provider dispatch failure RELEASES its idempotency key
+  // (so a retry can re-attempt) and thereby becomes byte-identical to a
+  // suppressed row — status is the only place the difference can live.
+  // Appended last: pg enums are order-sensitive and ADD VALUE appends.
+  "suppressed",
 ]);
 
 export const importJobStatusEnum = pgEnum("import_job_status", [

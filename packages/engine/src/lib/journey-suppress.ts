@@ -1,6 +1,6 @@
 import type { Database } from "@hogsend/db";
 import { emailSends, journeyStates, smsSends } from "@hogsend/db";
-import { and, eq, gte, ne } from "drizzle-orm";
+import { and, eq, gte, ne, notInArray } from "drizzle-orm";
 import type { JourneyBoundary } from "../journeys/journey-boundary.js";
 import { recordOnce } from "../journeys/record-once.js";
 
@@ -29,7 +29,9 @@ export async function hasRecentJourneySend(opts: {
         eq(journeyStates.journeyId, opts.journeyId),
         eq(emailSends.toEmail, opts.to),
         gte(emailSends.createdAt, opts.since),
-        ne(emailSends.status, "failed"),
+        // Failed and policy-suppressed rows never reached the inbox — neither
+        // counts as a recent journey touch for the min-gap.
+        notInArray(emailSends.status, ["failed", "suppressed"]),
       ),
     )
     .limit(1);

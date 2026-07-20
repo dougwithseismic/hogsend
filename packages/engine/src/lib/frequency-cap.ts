@@ -1,7 +1,7 @@
 import { durationToMs } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { emailSends } from "@hogsend/db";
-import { and, count, eq, gte, ne } from "drizzle-orm";
+import { and, count, eq, gte, notInArray } from "drizzle-orm";
 import type { FrequencyCapConfig } from "./email-service-types.js";
 
 const DEFAULT_EXEMPT = ["transactional"];
@@ -28,7 +28,9 @@ export async function countRecentSends(opts: {
   const conditions = [
     eq(emailSends.toEmail, to),
     gte(emailSends.createdAt, since),
-    ne(emailSends.status, "failed"),
+    // Neither dispatch failures nor policy-suppressed rows reached the inbox,
+    // so neither consumes cap budget.
+    notInArray(emailSends.status, ["failed", "suppressed"]),
   ];
   if (category !== undefined) {
     conditions.push(eq(emailSends.category, category));

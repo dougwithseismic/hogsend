@@ -109,16 +109,15 @@ beforeAll(async () => {
         campaignId,
         idempotencyKey: `campaign:${campaignId}:failed@example.com`,
       },
-      // A suppressed send: campaign_id stamped but NO idempotency key at all
-      // (suppression deliberately leaves the key unconsumed, and writes the
-      // shared "failed" status) — only the FK attribution can see this row,
-      // and only the missing key tells it apart from a dispatch failure.
+      // A suppressed send: campaign_id stamped, first-class "suppressed"
+      // status, and NO idempotency key (suppression deliberately leaves the
+      // key unconsumed) — only the FK attribution can see this row.
       {
         templateKey: "stats-test-template",
         fromEmail: "from@hogsend.com",
         toEmail: "suppressed@example.com",
         subject: "Stats test",
-        status: "failed",
+        status: "suppressed",
         campaignId,
       },
       // A send belonging to the OTHER campaign — must not be counted.
@@ -171,9 +170,8 @@ describe("GET /v1/admin/campaigns/:id/stats", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    // `sends` and `failed` exclude the keyless suppressed row (not a
-    // dispatch attempt, despite its "failed" status); it is still attributed
-    // — via the FK — as `skipped`.
+    // The suppressed row is excluded from `sends`/`failed` (not a dispatch
+    // attempt) and surfaces — via the FK — as `skipped`.
     expect(body).toEqual({
       sends: 3,
       delivered: 1,
@@ -224,12 +222,9 @@ describe("GET /v1/admin/emails?campaignId=", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Suppression writes the same row-level "failed" status as a dispatch
-    // failure, so the status filter surfaces both; the stats endpoint is
-    // what tells them apart (by the missing idempotency key).
-    expect(body.total).toBe(2);
-    const recipients = body.emails.map((e: { toEmail: string }) => e.toEmail);
-    expect(recipients).toContain("failed@example.com");
-    expect(recipients).toContain("suppressed@example.com");
+    // Suppression carries its own status now, so a `failed` filter returns
+    // only genuine dispatch failures.
+    expect(body.total).toBe(1);
+    expect(body.emails[0]?.toEmail).toBe("failed@example.com");
   });
 });

@@ -187,10 +187,12 @@ describe("ctx.throttle (unit)", () => {
     const plainWhere = compile(plain.captured.where);
     expect(plainWhere.sql).toContain('"to_email"');
     expect(plainWhere.sql).toContain('"status"');
-    // ne renders as `<>`; the excluded status is bound as a param.
-    expect(plainWhere.sql).toContain("<>");
+    // notInArray renders as `not in`; the excluded statuses bind as params
+    // (failed AND suppressed — neither reached the inbox).
+    expect(plainWhere.sql).toContain("not in");
     expect(plainWhere.params).toContain("user@example.com");
     expect(plainWhere.params).toContain("failed");
+    expect(plainWhere.params).toContain("suppressed");
     expect(plainWhere.sql).not.toContain('"category"');
 
     // With a category: the COUNT additionally filters `category = <category>`.

@@ -363,7 +363,7 @@ afterAll(async () => {
 });
 
 describe("JourneyMeta.category — send-time behaviour", () => {
-  it("a not-opted-in recipient of an opt-in journey category gets an unsubscribed/failed row stamped with the category", async () => {
+  it("a not-opted-in recipient of an opt-in journey category gets an unsubscribed/suppressed row stamped with the category", async () => {
     const userId = newUser();
     const journey = makeJourney({
       journeyId: `cat-send-notsub-${userId}`,
@@ -385,7 +385,7 @@ describe("JourneyMeta.category — send-time behaviour", () => {
     expect(providerSend).not.toHaveBeenCalled();
     const rows = await sendsFor(userId);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe("failed");
+    expect(rows[0]?.status).toBe("suppressed");
     expect(rows[0]?.category).toBe("product-updates");
   });
 

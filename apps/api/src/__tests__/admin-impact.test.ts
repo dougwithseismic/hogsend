@@ -916,13 +916,13 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
         deliveredAt: now,
       },
       {
-        // a suppressed send: FK stamped, NO idempotency key (suppression
-        // shares the "failed" status but never consumes a key) — attributed
-        // to the campaign, but kept OUT of the dispatch funnel below.
+        // a suppressed send: FK stamped, status "suppressed", NO idempotency
+        // key — attributed to the campaign, but kept OUT of the dispatch
+        // funnel below.
         fromEmail: "no-reply@example.test",
         toEmail: `${RUN}-c-u6@example.test`,
         subject: "t",
-        status: "failed",
+        status: "suppressed",
         campaignId: oldCampaignId,
       },
       {
@@ -970,7 +970,7 @@ describe("GET /v1/admin/impact/overview — campaigns", () => {
       select count(*)::int as sends
       from email_sends
       where campaign_id = ${oldCampaignId}
-        and idempotency_key is not null
+        and status <> 'suppressed'
     `);
     expect(row.sends).toBe(Number([...checkRows][0]?.sends ?? -1));
   });

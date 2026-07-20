@@ -1,0 +1,1 @@
+ALTER TYPE "public"."email_send_status" ADD VALUE 'suppressed';
