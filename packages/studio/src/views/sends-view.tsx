@@ -34,6 +34,7 @@ const STATUSES = [
   "bounced",
   "complained",
   "failed",
+  "suppressed",
 ];
 
 const ENGAGEMENTS = ["opened", "clicked", "bounced", "complained"];

@@ -213,7 +213,12 @@ async function sendTrackedEmailInner<K extends TemplateName>(
           campaignId: options.campaignId,
           userId: options.userId,
           userEmail: options.userEmail ?? options.to,
-          status: "failed",
+          // First-class "suppressed" status: a provider dispatch failure
+          // releases its idempotency key (catch block below), making it
+          // byte-identical to this row EXCEPT for the status — so campaign
+          // stats can only tell "gated by policy" from "failed at dispatch"
+          // if suppression names itself here.
+          status: "suppressed",
           // A suppressed send does NOT consume the idempotency key — leaving it
           // unset lets a later retry (e.g. after the recipient re-subscribes)
           // actually attempt the send rather than dedup to the suppressed row.
@@ -398,7 +403,9 @@ async function sendTrackedEmailInner<K extends TemplateName>(
         campaignId: options.campaignId,
         userId: options.userId,
         userEmail: options.userEmail ?? options.to,
-        status: "failed",
+        // Policy-gated like suppression (the provider is never reached), so it
+        // shares the "suppressed" status; metadata.testMode marks the cause.
+        status: "suppressed",
         metadata: { testMode: true, originalTo: options.to },
       })
       .returning({ id: emailSends.id });

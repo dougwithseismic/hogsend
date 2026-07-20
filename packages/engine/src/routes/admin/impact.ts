@@ -359,9 +359,9 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
     // sends fall inside the window). Cap 50 by send volume desc. The
     // indexed campaign_id column is the attribution (stamped at send time,
     // backfilled from legacy idempotency keys by migration 0051) — never
-    // key parsing. Suppressed/blocked rows carry the FK but were never
-    // dispatched (they write no idempotency key), so they stay out of the
-    // funnel.
+    // key parsing. Policy-suppressed rows (status 'suppressed') carry the FK
+    // but were never dispatched, so they stay out of the funnel; provider
+    // failures (status 'failed', key released) stay IN it as attempts.
     const [campaignSendRows, campaignCreditRows] = await Promise.all([
       db.execute<{
         campaign_id: string;
@@ -377,7 +377,7 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
           count(clicked_at)::int as clicked
         from email_sends
         where campaign_id is not null
-          and idempotency_key is not null
+          and status <> 'suppressed'
           and created_at >= ${sinceTs}
         group by 1
       `),

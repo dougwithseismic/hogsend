@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 /**
  * Maps an email-send status to a badge variant + colour. Engine statuses:
  * queued | rendered | sent | delivered | opened | clicked | bounced |
- * complained | failed.
+ * complained | failed | suppressed.
  *
  * Crimzon is single-accent: engagement depth is encoded as progressively
  * brighter white chips; red is reserved for failure states.
@@ -36,6 +36,13 @@ const STATUS_STYLES: Record<
   queued: {
     variant: "outline",
     className: "border-white/[0.08] bg-white/[0.04] text-white/50",
+  },
+  // Policy-gated before dispatch (preference suppression / test-mode block) —
+  // a dim terminal, deliberately NOT destructive: nothing failed, the engine
+  // chose not to send.
+  suppressed: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.03] text-white/45",
   },
   // Journey-instance statuses (same single-accent vocabulary as the email
   // statuses above; `failed` is shared and stays destructive below).
