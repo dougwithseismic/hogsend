@@ -488,6 +488,80 @@ describe("recorded wait outcome (__waits__ replay terminal mark)", () => {
     expect(replayWaitFor).not.toHaveBeenCalled();
   });
 
+  it("a replay of a waitFor-resolved wait RE-ISSUES the identical durable call (#591)", async () => {
+    // Hatchet's journal is positional and param-checked for completed entries:
+    // a replay that skips the original waitFor (or re-computes its sleep
+    // duration) fails the whole run with a non-determinism error. So the
+    // replay must walk the same branch sequence — recorded scans return their
+    // frozen misses even though the resolving row is NOW visible — and re-issue
+    // the waitFor with byte-identical conditions.
+    const { stateId, userId } = await freshState();
+    const actor = `${RUN}-actor-journal`;
+
+    // First pass: scans miss (no row yet); the durable waitFor "fires" the
+    // event branch after persisting the resolving row (as ingest would), and
+    // the post-branch scan concludes the wait.
+    const firstWaitFor = vi.fn(async () => {
+      await seedEvent({
+        userId: actor,
+        groups: { company: COMPANY_KEY },
+        properties: { score: 9 },
+      });
+      return { CREATE: { event: [{}] } };
+    });
+    const first = await makeCtx({
+      stateId,
+      userId,
+      waitFor: firstWaitFor,
+    }).waitForEvent({
+      event: EVENT,
+      timeout: { hours: 1 },
+      label: "journal-answer",
+      group: { type: "company", key: COMPANY_KEY },
+    });
+    expect(first).toEqual({
+      timedOut: false,
+      properties: { score: 9 },
+      actorUserId: actor,
+    });
+    expect(firstWaitFor).toHaveBeenCalledTimes(1);
+
+    // Replay-from-top: the resolving row is visible in the DB now, but the
+    // recorded scan misses keep the control flow on the original path, so the
+    // waitFor is issued AGAIN — with the SAME conditions (the journal would
+    // answer it instantly) — and the outcome replays verbatim.
+    const replayWaitFor = vi.fn(async () => ({ CREATE: { event: [{}] } }));
+    const replay = await makeCtx({
+      stateId,
+      userId,
+      waitFor: replayWaitFor,
+    }).waitForEvent({
+      event: EVENT,
+      timeout: { hours: 1 },
+      label: "journal-answer",
+      group: { type: "company", key: COMPANY_KEY },
+    });
+    expect(replay).toEqual(first);
+    expect(replayWaitFor).toHaveBeenCalledTimes(1);
+
+    // Param-identical: same event CEL filter, same whole-seconds sleep.
+    const conds = (fn: ReturnType<typeof vi.fn>) =>
+      (
+        fn.mock.calls[0]?.[0] as {
+          conditions: Array<{
+            eventKey?: string;
+            expression?: string;
+            sleepFor?: unknown;
+          }>;
+        }
+      ).conditions.map((c) => ({
+        eventKey: c.eventKey,
+        expression: c.expression,
+        sleepFor: c.sleepFor,
+      }));
+    expect(conds(replayWaitFor)).toEqual(conds(firstWaitFor));
+  });
+
   it("two waits sharing a label in ONE run throw the loud collision error", async () => {
     const { stateId, userId } = await freshState();
     const actor = `${RUN}-actor-collide`;
