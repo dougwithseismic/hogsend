@@ -6,12 +6,14 @@ import {
   ChevronLeft,
   ChevronRight,
   FileCode2,
+  FlaskConical,
   Mail,
   QrCode,
   Settings2,
   Webhook,
 } from "lucide-react";
 import {
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -22,6 +24,7 @@ import {
 import { cn } from "@/lib/cn";
 import { EmailPane } from "./email-preview";
 import type { EmailPreview, SurfacePreview } from "./minted-files";
+import { GLOSSARY } from "./scaffold-glossary";
 import { SurfacePane } from "./surface-preview";
 
 type FileNote = { title: string; body: string; tags?: string[] };
@@ -144,12 +147,37 @@ function leafCount(node: TreeNode): number {
 }
 
 function fileIcon(path: string) {
+  if (path.endsWith(".test.ts")) return FlaskConical;
   if (path.includes("/emails/")) return Mail;
   if (path.includes("/webhook-sources/")) return Webhook;
   if (path.endsWith(".sh")) return QrCode;
   if (path.endsWith(".env")) return Settings2;
   if (path.includes("/journeys/")) return Braces;
   return FileCode2;
+}
+
+/** The boar tile from the site lockup, scaled to window-chrome size. */
+function BoarTile() {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-accent text-white"
+    >
+      <span
+        className="block h-[9px] w-[15px] bg-current"
+        style={{
+          WebkitMaskImage: "url(/images/logos/hogsend-boar.svg)",
+          maskImage: "url(/images/logos/hogsend-boar.svg)",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+          maskPosition: "center",
+          WebkitMaskSize: "contain",
+          maskSize: "contain",
+        }}
+      />
+    </span>
+  );
 }
 
 function FileRow({
@@ -283,6 +311,37 @@ export function ScaffoldExplorer({
     return () => observer.disconnect();
   }, [collapsed, updateTreeFade]);
 
+  // Glossary hover cards: the server marks the first occurrence of each
+  // known term with `data-term`; one delegated handler positions the card
+  // inside the scrollable code container (so it scrolls with the code).
+  const codeRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{
+    term: string;
+    x: number;
+    y: number;
+    below: boolean;
+  } | null>(null);
+  const handleGlossaryOver = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const el = (e.target as HTMLElement).closest("[data-term]");
+    const box = codeRef.current;
+    if (!(el instanceof HTMLElement) || !box) {
+      setTip(null);
+      return;
+    }
+    const term = el.dataset.term ?? "";
+    if (!GLOSSARY[term]) return;
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    const below = r.top - b.top < 110;
+    const centered = r.left - b.left + r.width / 2;
+    setTip({
+      term,
+      x: Math.min(Math.max(centered, 140), b.width - 140) + box.scrollLeft,
+      y: (below ? r.bottom : r.top) - b.top + box.scrollTop,
+      below,
+    });
+  };
+
   // Every file describes itself in the corner: a rendered email, the surface
   // it delivers (Discord/Telegram/Slack), the schedule it resolves, or a
   // plain "what this is" note.
@@ -333,6 +392,7 @@ export function ScaffoldExplorer({
   // folders so the tree always shows where you are.
   const openFile = (path: string) => {
     setActive(path);
+    setTip(null);
     setCollapsed((prev) => {
       const next = new Set(prev);
       const segments = path.split("/");
@@ -366,8 +426,9 @@ export function ScaffoldExplorer({
           product
         </span>
         <span className="hidden font-mono text-[10px] text-white/25 sm:block">
-          click a file
+          click a file · hover a dotted term
         </span>
+        <BoarTile />
       </div>
 
       <div className="flex">
@@ -484,11 +545,35 @@ export function ScaffoldExplorer({
               </span>
             </div>
 
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: delegated hover for supplementary glossary cards — the code stays fully readable without them */}
+            {/* biome-ignore lint/a11y/useKeyWithMouseEvents: hover targets are non-focusable Shiki tokens; the cards are annotations, not required content */}
             <div
               key={active}
-              className="ps-code h-[420px] overflow-auto px-4 py-4 [scrollbar-width:thin] md:h-[520px] [&_pre]:!bg-transparent [&_pre]:text-[12.5px] [&_pre]:leading-[1.65]"
+              ref={codeRef}
+              onMouseOver={handleGlossaryOver}
+              onMouseLeave={() => setTip(null)}
+              onScroll={() => setTip(null)}
+              className="ps-code relative h-[420px] overflow-auto px-4 py-4 [scrollbar-width:thin] md:h-[520px] [&_[data-term]]:cursor-help [&_[data-term]]:border-b [&_[data-term]]:border-[#f64838]/50 [&_[data-term]]:border-dotted [&_[data-term]:hover]:border-[#f64838] [&_pre]:!bg-transparent [&_pre]:text-[12.5px] [&_pre]:leading-[1.65]"
             >
               {highlighted[active] ?? null}
+              {/* hover card — positioned in content coordinates so it
+                  tracks the term; any scroll dismisses it */}
+              {tip ? (
+                <div
+                  className={cn(
+                    "pointer-events-none absolute z-10 w-[280px] -translate-x-1/2 rounded-lg border border-white/[0.14] bg-[#16161c] px-3.5 py-3 shadow-[0_16px_40px_rgba(0,0,0,0.5)]",
+                    tip.below ? "mt-2" : "-translate-y-full -mt-2",
+                  )}
+                  style={{ left: tip.x, top: tip.y }}
+                >
+                  <p className="font-mono text-[11px] text-[#f64838]">
+                    {tip.term}
+                  </p>
+                  <p className="mt-1.5 text-[11.5px] text-white/70 leading-[1.55]">
+                    {GLOSSARY[tip.term]}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             {/* corner window — email / surface / schedule / note, per file */}
