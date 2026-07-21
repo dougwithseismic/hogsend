@@ -54,6 +54,7 @@ The key must hold the **`ingest`** scope (or `full-admin`, which implies it). Mi
 | [`/v1/lists/:id/subscribe`](/docs/data-api/lists) | `POST` | Subscribe a contact to a list |
 | [`/v1/lists/:id/unsubscribe`](/docs/data-api/lists) | `POST` | Unsubscribe a contact from a list |
 | [`/v1/admin/webhooks`](/docs/data-api/webhooks) | `POST` `GET` | Manage outbound webhook endpoints (admin plane) — subscribe a URL to the lifecycle event stream |
+| [`/v1/admin/links`](/docs/data-api/client-sdk) | `POST` `GET` `PATCH` | Mint and manage tracked links + QR codes (admin plane), idempotent by slug or `idempotencyKey` |
 
 ## Subscribe to events
 

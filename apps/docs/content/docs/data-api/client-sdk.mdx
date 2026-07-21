@@ -3,7 +3,7 @@ title: Client SDK
 description: "@hogsend/client — the typed HTTP client for the data plane. Install, configure, every method, identity rules, and typed errors."
 ---
 
-`@hogsend/client` is the typed HTTP client for the Data API — contacts, events, transactional emails, and lists. It's a thin wrapper over native `fetch` with no heavy dependencies, and ships compiled ESM + CJS + `.d.ts`. It is distinct from `@hogsend/cli` (the read-only operator tool): the client is for your **application code** writing the data plane.
+`@hogsend/client` is the typed HTTP client for the Data API: contacts, events, transactional emails, and lists, plus admin-plane management of outbound webhooks and tracked links. It's a thin wrapper over native `fetch` with no heavy dependencies, and ships compiled ESM + CJS + `.d.ts`. It is distinct from `@hogsend/cli` (the read-only operator tool): the client is for your **application code** writing the data plane.
 
 ## Install
 
@@ -155,6 +155,46 @@ await admin.webhooks.create({
 | `sendTest(id)` | `{ enqueued, eventType }` | Out-of-band `webhook.test`, delivered regardless of subscription |
 
 `list` / `get` only ever expose the display `secretPrefix` (e.g. `whsec_AbCd`); the full secret is recoverable only from `create` and `rotateSecret`. `create` / `update` also take `kind` (defaults to `"webhook"`) and `config` for [keyed destinations](/docs/data-api/destinations) — a keyed destination carries no signing secret (`secretPrefix: null`, no `secret` on create) and its `config` credentials are redacted on `list` / `get`. See [Outbound webhooks](/docs/data-api/webhooks) for the event catalog, envelope, and delivery semantics, and [Outbound destinations](/docs/data-api/destinations) for the keyed kinds.
+
+### Links
+
+`hs.links.*` mints and manages tracked links (the surface behind the Studio **Links** view and the `/l/:slug` short URLs), including their print-ready QR codes.
+
+<Callout type="warn">
+  Like `hs.webhooks.*`, `hs.links.*` targets the **admin plane** (`/v1/admin/links`) and requires a **full-admin** `apiKey`, not the `ingest` data key. Use an admin-scoped client (the `admin` client above).
+</Callout>
+
+```ts
+const link = await admin.links.create({
+  url: "https://example.com/launch",
+  slug: "spring-mailer", // idempotent: re-running returns the same link
+  // Or, for a slugless link (a standalone QR), dedupe re-runs with a key:
+  // idempotencyKey: "spring-poster",
+}); // → { id, vanityUrl: ".../l/spring-mailer", existing, ... }
+
+const png = await admin.links.qr(link.id, { format: "png", size: 1024 }); // Uint8Array
+const svg = await admin.links.qr(link.id, { format: "svg" }); // string
+const qrUrl = admin.links.qrUrl(link.id, { format: "svg" }); // authless URL, no request
+
+// Re-point a printed QR: the code encodes the durable id, not the URL.
+await admin.links.update(link.id, { originalUrl: "https://example.com/v2" });
+
+await admin.links.get(link.id); // → LinkDetail (flat link + recent clicks)
+await admin.links.list({ limit: 50, type: "public" }); // → { links, total, limit, offset }
+await admin.links.archive(link.id); // soft-delete; the short URL keeps redirecting
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `create(input)` | `CreatedLink` | Idempotent by `slug` or `idempotencyKey`; `existing: true` on a compatible re-mint. `source` defaults to `"api"` |
+| `get(id)` | `LinkDetail` | Flat link plus recent clicks and per-destination stats |
+| `list(opts?)` | `LinkList` | `{ links, total, limit, offset }`; filter by `type` / `includeArchived` / `hasQr` |
+| `update(id, input)` | `Link` | Re-point `originalUrl` (a printed QR follows), rename, or re-slug |
+| `archive(id)` | `Link` | Soft-delete; the short URL keeps redirecting |
+| `qr(id, opts?)` | `Uint8Array` \| `string` | PNG bytes, or an SVG string when `format: "svg"` |
+| `qrUrl(id, opts?)` | `string` | Builds the QR URL locally, no request. Attach admin auth yourself |
+
+`create` is safe to re-run: a slug re-mint with the same destination and type returns the existing link instead of a `409`, and a slugless mint deduped on `idempotencyKey` does the same. A different destination, a different type, a slug held by an archived link, or a reused `idempotencyKey` with a different URL is a `409`.
 
 ## Verifying inbound webhooks
 

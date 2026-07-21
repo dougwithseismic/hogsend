@@ -73,15 +73,15 @@ const LINKS: Record<LinkKey, DemoLink> = {
   retarget: {
     label: "/l/spring-mailer",
     tag: "re-pointed",
-    body: "The exact code you already printed — the QR encodes the durable engine URL, never the slug or destination. One PATCH re-points 5,000 postcards to the new landing page.",
+    body: "The exact code you already printed, the QR encodes the durable engine URL, never the slug or destination. One call re-points 5,000 postcards to the new landing page.",
     stats: [
       { value: "0", label: "reprints" },
       { value: "1", label: "api call" },
       { value: "5,000", label: "mailers updated" },
     ],
     readout: {
-      left: "PATCH /v1/admin/links/:id",
-      right: '{ url: "…/spring-offer-v2" }',
+      left: "hs.links.update(link.id)",
+      right: '{ originalUrl: "…/spring-offer-v2" }',
     },
   },
 };
@@ -100,7 +100,7 @@ export function QrLinksCard({ qr }: QrLinksCardProps) {
       <ProductCardHeader
         title="spring-mailer"
         tag={<ProductTag>tracked link</ProductTag>}
-        description="Minted with one call — POST /v1/admin/links or the Studio Links view. SVG and PNG QR straight from the API."
+        description="Minted with one call, hs.links.create() or the Studio Links view. SVG and PNG QR straight from the API."
       />
 
       <fieldset aria-label="Link variant" className={PRODUCT_ROW_LIST_CLASS}>

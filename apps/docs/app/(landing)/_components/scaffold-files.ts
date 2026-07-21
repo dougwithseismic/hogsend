@@ -1094,25 +1094,32 @@ export const billing = defineWebhookSource({
 
   /* ---- scripts ------------------------------------------------------------ */
   {
-    path: "hogsend/scripts/event-qr.sh",
-    lang: "bash",
+    path: "hogsend/scripts/mint-link.ts",
+    lang: "ts",
     note: {
       title: "Tracked links that survive the print run",
-      body: "The QR encodes the durable link id, never the destination — so 5,000 printed postcards can be re-pointed with one PATCH after they ship.",
+      body: "The QR encodes the durable link id, never the destination, so 5,000 printed postcards can be re-pointed with one call after they ship.",
       tags: ["Vanity slug", "SVG + PNG QR", "Re-point later"],
     },
-    source: `# Mint a tracked link for the event posters — vanity slug,
-# first-party clicks, QR from the same API.
-curl -X POST "$API_URL/v1/admin/links" \\
-  -H "Authorization: Bearer $HOGSEND_SECRET_KEY" \\
-  -d '{
-    "url": "https://my-app.com/live",
-    "slug": "doors-open"
-  }'
+    source: `// Mint a tracked link for the event posters: vanity slug,
+// first-party clicks, and a QR from the same API.
+import { Hogsend } from "@hogsend/client";
 
-# → vanity /l/doors-open · QR via /v1/admin/links/:id/qr
-# The QR encodes the durable id, never the destination —
-# a printed poster can be re-pointed after it ships.`,
+const hs = new Hogsend({
+  baseUrl: process.env.API_URL!,
+  apiKey: process.env.HOGSEND_SECRET_KEY!,
+});
+
+const link = await hs.links.create({
+  url: "https://my-app.com/live",
+  slug: "doors-open", // idempotent: re-running returns the same link
+});
+// → vanity /l/doors-open · a print-ready QR from the same API:
+const png = await hs.links.qr(link.id, { format: "png", size: 1024 });
+
+// The QR encodes the durable id, never the destination, so a
+// printed poster can be re-pointed after it ships:
+await hs.links.update(link.id, { originalUrl: "https://my-app.com/encore" });`,
   },
 
   /* ---- entry points -------------------------------------------------------- */

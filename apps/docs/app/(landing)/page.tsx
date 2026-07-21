@@ -747,7 +747,7 @@ const EXPLORER_RECIPES = [
   { label: "Groups", path: "api/src/routes/groups.ts" },
   { label: "Destinations", path: "hogsend/src/destinations/crm.ts" },
   { label: "Webhook sources", path: "hogsend/src/webhook-sources/billing.ts" },
-  { label: "Links & QR", path: "hogsend/scripts/event-qr.sh" },
+  { label: "Links & QR", path: "hogsend/scripts/mint-link.ts" },
   { label: "Broadcasts", path: "api/src/campaigns/march-launch.ts" },
   { label: "Backend API", path: "api/src/routes/signup.ts" },
   { label: "React hooks", path: "web/src/components/paywall.tsx" },
