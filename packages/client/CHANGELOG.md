@@ -1,5 +1,14 @@
 # @hogsend/client
 
+## 0.53.0
+
+### Minor Changes
+
+- 53757e3: hs.links resource with idempotent minting. POST /v1/admin/links accepts an
+  idempotencyKey (slugless dedupe) and a source field, and returns the existing
+  link on a compatible slug re-mint instead of a 409. The client gains
+  hs.links.create/get/list/update/archive/qr/qrUrl.
+
 ## 0.52.1
 
 ### Patch Changes

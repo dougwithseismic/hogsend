@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/video",
-  "version": "0.52.1",
+  "version": "0.53.0",
   "type": "module",
   "license": "MIT",
   "description": "Standalone analytics-first video player: normalized watch-depth events (YouTube, Vimeo, HTML5) with a pluggable emitter for any analytics backend.",

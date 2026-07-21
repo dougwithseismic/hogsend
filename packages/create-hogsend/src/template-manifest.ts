@@ -16,7 +16,7 @@
  * secret-resolution fix, and the scaffold ships the Tier-1 AI onboarding
  * journey (Vercel AI SDK). Published to npm.
  */
-export const ENGINE_VERSION = "0.52.1";
+export const ENGINE_VERSION = "0.53.0";
 
 /** pnpm version pinned into pnpm-based scaffolds and the release smoke test. */
 export const PNPM_VERSION = "11.12.0";
