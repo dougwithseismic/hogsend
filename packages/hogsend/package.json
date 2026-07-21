@@ -1,6 +1,6 @@
 {
   "name": "hogsend",
-  "version": "0.52.0",
+  "version": "0.52.1",
   "description": "Hogsend CLI — bare-name alias for @hogsend/cli, so `npx hogsend` and `pnpm dlx hogsend` just work.",
   "type": "module",
   "license": "MIT",
