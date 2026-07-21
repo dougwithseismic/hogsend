@@ -3133,15 +3133,18 @@ const BLOCK_SOURCES = `export const billing = defineWebhookSource({
   },
 });`;
 
-const BLOCK_LINKS = `# Mint a tracked link — vanity slug, QR from the same API
-$ curl -X POST $API/v1/admin/links \\
-    -d '{"url":"https://example.com/launch","slug":"spring-mailer"}'
-→ vanity /l/spring-mailer · QR via /v1/admin/links/:id/qr
+const BLOCK_LINKS = `// Mint a tracked link, vanity slug, QR from the same API
+const link = await hs.links.create({
+  url: "https://example.com/launch",
+  slug: "spring-mailer",           // idempotent: re-run returns the same link
+});
+// vanity /l/spring-mailer · QR bytes via hs.links.qr(link.id)
 
-# The printed QR encodes the durable id, never the URL —
-# re-point 5,000 postcards with one call
-$ curl -X PATCH $API/v1/admin/links/$ID \\
-    -d '{"originalUrl":"https://example.com/spring-offer-v2"}'`;
+// The printed QR encodes the durable id, never the URL,
+// so you re-point 5,000 postcards with one call
+await hs.links.update(link.id, {
+  originalUrl: "https://example.com/spring-offer-v2",
+});`;
 
 const BLOCK_CAMPAIGNS = `const { campaignId, status } = await hs.campaigns.send({
   name: "March launch",
@@ -3202,7 +3205,7 @@ async function _PsBuildingBlocks() {
     CodeHighlight({ code: BLOCK_CONNECTORS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_GROUPS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_SOURCES, lang: "ts" }),
-    CodeHighlight({ code: BLOCK_LINKS, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_LINKS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_CAMPAIGNS, lang: "ts" }),
     CodeHighlight({ code: BLOCK_MCP, lang: "json" }),
   ]);
@@ -3370,7 +3373,7 @@ async function _PsBuildingBlocks() {
       description:
         "Mint a link, get a vanity slug and a QR from the same API. The QR encodes the durable id — never the destination — so a printed code can be re-pointed after the mailers ship.",
       tags: ["Vanity /l/slug", "SVG & PNG QR", "Re-point later"],
-      filename: "terminal",
+      filename: "scripts/mint-link.ts",
       media: linksMedia,
     },
     {

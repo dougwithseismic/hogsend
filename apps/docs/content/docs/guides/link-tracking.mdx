@@ -73,6 +73,26 @@ The same surface is a REST API: `POST /v1/admin/links` to mint,
 `GET /v1/admin/links` to list, `GET /v1/admin/links/:id` for one link with its
 recent clicks, `PATCH` to rename/regroup/re-target, `DELETE` to archive.
 
+From `@hogsend/client`, the same calls are the `hs.links` resource:
+
+```ts
+const link = await hs.links.create({
+  url: "https://example.com/launch",
+  slug: "spring-mailer", // idempotent: re-running returns the same link
+});
+// link.id, link.vanityUrl (/l/spring-mailer), link.existing
+
+await hs.links.update(link.id, {
+  originalUrl: "https://example.com/spring-offer-v2", // re-point a printed QR
+});
+const png = await hs.links.qr(link.id, { format: "png", size: 1024 }); // Uint8Array
+```
+
+`create` is idempotent: re-minting a slug with the same destination and type
+returns the existing link (`existing: true`) instead of a `409`. For a slugless
+link (a standalone QR, say), pass an `idempotencyKey` and re-runs dedupe the
+same way. `get`, `list`, `update`, and `archive` round out the resource.
+
 ## Vanity slugs
 
 A managed link can carry a memorable slug layered over the UUID short URL:
@@ -84,7 +104,9 @@ https://api.yourapp.com/l/black-friday
 - **Shape**: 1–64 characters of `a-z`, `0-9`, `-` — no leading or trailing
   hyphen. Input is lowercased before validation, so `/l/Black-Friday` resolves
   the same link.
-- **Unique per instance.** Minting or PATCHing a taken slug is a `409`.
+- **Unique per instance.** Minting or PATCHing a taken slug is a `409`, with
+  one exception: a re-mint that repeats a live link's destination and type
+  returns that link (`existing: true`) instead.
 - **Same click, same stats.** `/l/:slug` resolves the link's canonical tracked
   row and runs the exact click pipeline `/v1/t/c/:id` runs — one counter, one
   `link_clicks` history, whichever URL was hit.
@@ -101,6 +123,10 @@ Every managed link can render a QR code:
 ```
 GET /v1/admin/links/:id/qr?format=svg|png&size=64..2048&transparent=true|false
 ```
+
+From the client, `hs.links.qr(id, { format: "png" })` fetches the same code as
+bytes (a `Uint8Array`), and `hs.links.qrUrl(id, { format: "svg" })` builds the
+URL without fetching it.
 
 The code encodes the link's **durable scan URL** — never the vanity slug — so a
 printed code keeps working through slug changes and destination re-targets.

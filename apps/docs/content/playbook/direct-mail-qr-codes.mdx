@@ -67,6 +67,8 @@ const link = await mintLink({
   campaign: "q3-founders-mailer",
 });
 // GET /v1/admin/links/:id/qr?format=svg — print-ready, or use Studio's QR view
+// From @hogsend/client: hs.links.qr(link.id, { format: "png" }) returns the
+// bytes; hs.links.qrUrl(link.id) builds the same URL without fetching it.
 ```
 
 ```ts
