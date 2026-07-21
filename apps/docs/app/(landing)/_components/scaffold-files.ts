@@ -123,13 +123,20 @@ export const SCAFFOLD_FILES: ScaffoldFile[] = [
   {
     path: "hogsend/src/journeys/product/onboarding.ts",
     lang: "ts",
+    note: {
+      title: "Send, wait, branch on what they did",
+      body: "waitForEvent parks the journey durably until THIS user creates a project — or three days pass. The branch afterwards is an if statement, and the stalled path tags the growth team on Discord.",
+      tags: ["Durable wait", "Event or timeout", "Branch = if"],
+    },
     source: `import { days } from "@hogsend/core";
 import {
   defineJourney,
   sendConnectorAction,
   sendEmail,
-} from "@hogsend/engine";
+} from "@hogsend/engine/journeys";
 
+// The first week as control flow: welcome now, then branch
+// on whether they actually created a project.
 export const onboarding = defineJourney({
   meta: {
     id: "onboarding",
@@ -166,8 +173,13 @@ export const onboarding = defineJourney({
   {
     path: "hogsend/src/journeys/product/second-session-rescue.ts",
     lang: "ts",
+    note: {
+      title: "A rescue that knows when to stay quiet",
+      body: "Most churn simply never comes back for a second session. The email sends only when the return visit doesn't happen — someone who comes back on their own hears nothing.",
+      tags: ["Fires on absence", "entryLimit: once", "Silence = feature"],
+    },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // The second session is the real activation moment — most
 // churn simply never comes back for it.
@@ -191,11 +203,55 @@ export const secondSessionRescue = defineJourney({
 });`,
   },
   {
+    path: "hogsend/src/journeys/product/second-session-rescue.test.ts",
+    lang: "ts",
+    note: {
+      title: "Silence is provable too",
+      body: "Both branches get a test: the nudge when the second session never comes, and the exact-zero sends when they return on their own. Two virtual days, milliseconds of wall clock — no Postgres, no Docker.",
+      tags: ["@hogsend/testing", "Both branches", "Zero-send proof"],
+    },
+    source: `import { days } from "@hogsend/core";
+import { createJourneyTest } from "@hogsend/testing";
+import "@hogsend/testing/vitest";
+import { expect, it } from "vitest";
+import { secondSessionRescue } from "./second-session-rescue.js";
+
+// Prove the silence too — the rescue only speaks when the
+// second session never happens.
+it("nudges when the second session never comes", async () => {
+  const test = createJourneyTest(secondSessionRescue, {
+    user: { id: "u1", email: "quiet@acme.com" },
+  });
+
+  await test.run(); // two virtual days elapse, instantly
+
+  expect(test.mailbox).toHaveSent("second-session");
+});
+
+it("stays silent when they come back on their own", async () => {
+  const test = createJourneyTest(secondSessionRescue, {
+    user: { id: "u2", email: "hooked@acme.com" },
+  });
+
+  test.events.after(days(1), "session.started");
+  await test.run();
+
+  expect(test.mailbox).toHaveSentTimes("second-session", 0);
+});`,
+  },
+  {
     path: "hogsend/src/journeys/product/winback.ts",
     lang: "ts",
+    note: {
+      title: "Triggered by a bucket, not a campaign",
+      body: "bucket.went_dormant enrolls people the moment the segment catches them, and exitOn ends the sequence the instant they turn active again — even mid-sleep, the offer never lands on someone who already came back.",
+      tags: ["Bucket trigger", "exitOn", "Durable sleep"],
+    },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
+// Win back the quietly gone — enrolled by a live segment
+// the moment it catches them, not by an exported list.
 export const winback = defineJourney({
   meta: {
     id: "winback",
@@ -217,7 +273,7 @@ export const winback = defineJourney({
     lang: "ts",
     timing: true,
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // Rolling per-user digest: the first report opens a 7-day
 // window, the rest of the week folds into ONE send.
@@ -256,9 +312,15 @@ export const weeklyDigest = defineJourney({
   {
     path: "hogsend/src/journeys/billing/trial-conversion.ts",
     lang: "ts",
+    note: {
+      title: "Branch on usage, not the calendar",
+      body: "exitOn drops anyone who subscribes — instantly, wherever they are in the sequence. Day six checks ctx.history for a real report before choosing between the upgrade pitch and the activation nudge.",
+      tags: ["exitOn converts", "History check", "Usage branch"],
+    },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
+// A trial sequence that reads usage, not the calendar.
 export const trialConversion = defineJourney({
   meta: {
     id: "trial-conversion",
@@ -287,10 +349,55 @@ export const trialConversion = defineJourney({
 });`,
   },
   {
+    path: "hogsend/src/journeys/billing/trial-conversion.test.ts",
+    lang: "ts",
+    note: {
+      title: "The journey is a function — so test it",
+      body: "createJourneyTest runs the real run() against a virtual clock: scripted events, captured sends, no Postgres, no Docker. Six days of trial resolve in milliseconds — and the exitOn path is provable, not hoped for.",
+      tags: ["@hogsend/testing", "Virtual time", "Zero infra"],
+    },
+    source: `import { days } from "@hogsend/core";
+import { createJourneyTest } from "@hogsend/testing";
+import "@hogsend/testing/vitest";
+import { expect, it } from "vitest";
+import { trialConversion } from "./trial-conversion.js";
+
+// The journey is a plain function — so it unit-tests like
+// one. Virtual clock, scripted events, captured sends.
+it("pitches the upgrade when the trial shipped real work", async () => {
+  const test = createJourneyTest(trialConversion, {
+    user: { id: "u1", email: "dev@acme.com" },
+  });
+
+  test.events.after(days(2), "report.created", { reportId: "r1" });
+  await test.run(); // six virtual days, milliseconds of wall clock
+
+  expect(test.mailbox).toHaveSent("trial-upgrade-value");
+});
+
+it("goes quiet the moment they subscribe", async () => {
+  const test = createJourneyTest(trialConversion, {
+    user: { id: "u2", email: "buyer@acme.com" },
+  });
+
+  // exitOn ends the journey mid-sleep — prove it.
+  test.events.after(days(2), "subscription.created");
+  await test.run();
+
+  expect(test.mailbox).toHaveSent("trial-first-value");
+  expect(test.mailbox).not.toHaveSent("trial-upgrade-value");
+});`,
+  },
+  {
     path: "hogsend/src/journeys/billing/dunning.ts",
     lang: "ts",
+    note: {
+      title: "Fed by the Stripe preset",
+      body: "invoice.payment_failed arrives through src/webhook-sources/stripe.ts and enrolls this journey like any product event. exitOn cancels it the moment the invoice clears — a customer who pays never sees the final notice.",
+      tags: ["Stripe webhook", "exitOn paid", "Grace window"],
+    },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // Triggered by the Stripe webhook source —
 // src/webhook-sources/stripe.ts feeds the same pipeline.
@@ -312,15 +419,72 @@ export const dunning = defineJourney({
 });`,
   },
 
+  /* ---- journeys/sales — the agentic reach --------------------------------- */
+  {
+    path: "hogsend/src/journeys/sales/high-fit-followup.ts",
+    lang: "ts",
+    note: {
+      title: "trigger.where is the contract on agent output",
+      body: "An agent fires lead.research_completed (see api/src/agents) — but only scores the contract allows can enroll anyone. A hallucinated 9000 never reaches a customer, once_per_period backstops re-runs, and a booked meeting exits instantly.",
+      tags: ["Agent-triggered", "Score contract", "once_per_period"],
+    },
+    source: `import { days } from "@hogsend/core";
+import {
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+} from "@hogsend/engine/journeys";
+
+// Triggered by an agent's event — trigger.where is the
+// contract on model output. A hallucinated score of 9000
+// never enrolls anyone.
+export const highFitFollowup = defineJourney({
+  meta: {
+    id: "high-fit-followup",
+    trigger: {
+      event: "lead.research_completed",
+      where: (b) => b.all(b.prop("score").gte(80), b.prop("score").lte(100)),
+    },
+    entryLimit: "once_per_period",
+    exitOn: [{ event: "meeting.created" }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "high-fit" });
+
+    // A booked meeting is the goal — not more email.
+    const { timedOut } = await ctx.waitForEvent({
+      event: "meeting.created",
+      timeout: days(7),
+    });
+
+    if (timedOut) {
+      await sendConnectorAction({
+        connectorId: "slack",
+        action: "sendChannelMessage",
+        args: {
+          channel: "#sales",
+          content: \`High-fit lead went quiet: \${user.email}\`,
+        },
+      });
+    }
+  },
+});`,
+  },
+
   /* ---- journeys/marketing ------------------------------------------------- */
   {
     path: "hogsend/src/journeys/marketing/event-summon.ts",
     lang: "ts",
+    note: {
+      title: "Email everyone, DM the linked",
+      body: "One trigger, two channels: the doors-open email goes to the whole list, and members with a linked Discord get the DM where they'll actually see it in time. once_per_period keeps a repeat event from double-summoning.",
+      tags: ["Multi-channel", "Discord DM", "once_per_period"],
+    },
     source: `import {
   defineJourney,
   sendConnectorAction,
   sendEmail,
-} from "@hogsend/engine";
+} from "@hogsend/engine/journeys";
 
 // Live-event summon: email everyone, then DM the Discord
 // members where they actually are.
@@ -351,7 +515,12 @@ export const eventSummon = defineJourney({
   {
     path: "hogsend/src/journeys/people/pre-boarding.ts",
     lang: "ts",
-    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
+    note: {
+      title: "Lifecycle isn't only customers",
+      body: "The people team runs the offer-signed → day-one stretch on the same engine. sleepUntil parks the journey at an absolute date — the day before their start — and the checklist lands exactly then, however far away that is.",
+      tags: ["People ops", "sleepUntil", "Absolute date"],
+    },
+    source: `import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // Lifecycle isn't only customers — the people team runs the
 // offer-signed → day-one stretch through the same engine.
@@ -376,8 +545,13 @@ export const preBoarding = defineJourney({
   {
     path: "hogsend/src/journeys/people/silver-medalist.ts",
     lang: "ts",
+    note: {
+      title: "A 60-day wait is one line",
+      body: "waitForEvent holds durably for up to 60 days for role.reopened, and exitOn ends the journey the moment the candidate is hired. The follow-up only sends when there's a real role to offer.",
+      tags: ["60-day wait", "exitOn hired", "Warm bench"],
+    },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // The runner-up you'd hire tomorrow: keep them warm, and
 // reach back out the moment the role reopens.
@@ -410,8 +584,9 @@ export const silverMedalist = defineJourney({
       body: "ctx.variant picks a deterministic arm per user — recorded on the first pass and replayed verbatim across redeploys. No RNG, no drift, no external experiment tool.",
       tags: ["Deterministic", "Replay-safe", "No RNG"],
     },
-    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
+    source: `import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
+// Subject-line A/B without an external experiment tool.
 export const welcomeExperiment = defineJourney({
   meta: { id: "welcome-experiment", trigger: { event: "user.signed_up" } },
   run: async (user, ctx) => {
@@ -443,8 +618,10 @@ export const welcomeExperiment = defineJourney({
       body: "DM on Discord, gated on the member's channel preference. A closed DM is a soft failure (delivered: false), never a crash.",
       tags: ["Discord DM", "Preference-gated", "Soft-fail"],
     },
-    source: `import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+    source: `import { defineJourney, sendConnectorAction } from "@hogsend/engine/journeys";
 
+// First touch for new community members — in the app they
+// actually read, not their inbox.
 export const discordWelcome = defineJourney({
   meta: { id: "discord-welcome", trigger: { event: "discord.member_joined" } },
   run: async (user) => {
@@ -478,8 +655,9 @@ export const discordWelcome = defineJourney({
       tags: ["Telegram DM", "Channel-neutral", "One contract"],
     },
     source: `import { hours } from "@hogsend/core";
-import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+import { defineJourney, sendConnectorAction } from "@hogsend/engine/journeys";
 
+// Cart recovery on Telegram, three hours after abandonment.
 export const telegramNudge = defineJourney({
   meta: { id: "telegram-nudge", trigger: { event: "cart.abandoned" } },
   run: async (user, ctx) => {
@@ -505,9 +683,10 @@ export const telegramNudge = defineJourney({
       body: "SMS is additive — no number, no send. Marketing texts fail closed without explicit consent, and the STOP list is checked on every send.",
       tags: ["TCPA consent", "STOP list", "E.164 only"],
     },
-    source: `import { defineJourney, sendSms } from "@hogsend/engine";
+    source: `import { defineJourney, sendSms } from "@hogsend/engine/journeys";
 import { isE164 } from "@hogsend/core";
 
+// Cart recovery by text — with the consent rules built in.
 export const cartReminder = defineJourney({
   meta: { id: "cart-reminder", trigger: { event: "cart.abandoned" } },
   run: async (user) => {
@@ -528,36 +707,57 @@ export const cartReminder = defineJourney({
       kind: "slack",
       from: "Hogsend",
       meta: "#approvals",
-      body: "Enterprise trial started: acme.com (42 seats). Approve the white-glove onboarding sequence?",
+      body: "acme.com is at risk ($740 MRR). Approve the 30% save offer?",
       actions: ["Approve", "Skip"],
-      trigger: "ctx.waitForEvent({ event: 'approval.decided' })",
+      trigger: "ctx.waitForEvent({ event: 'approval.granted' })",
     },
     note: {
-      title: "A human in the loop",
-      body: "Post to Slack, then durably wait for the click. The journey parks for as long as it takes — the approval is just another event it waits on.",
-      tags: ["Slack approval", "Durable wait", "Human gate"],
+      title: "A human in the loop, fail-safe by default",
+      body: "The ask lands in Slack and the journey parks durably on the answer. Silence falls back to the standard, pre-approved offer — an unanswered ping never strands a customer. Full write-up in /recipes.",
+      tags: ["Human approval", "Fail-safe timeout", "trigger.where"],
     },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendConnectorAction, sendEmail } from "@hogsend/engine";
+import {
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+} from "@hogsend/engine/journeys";
 
+// Human in the loop: a big discount needs a person's yes.
+// The approval is just another event the journey waits on.
 export const approvalGate = defineJourney({
-  meta: { id: "approval-gate", trigger: { event: "trial.enterprise" } },
+  meta: {
+    id: "approval-gate",
+    trigger: {
+      event: "account.at_risk",
+      // only high-value accounts justify a human's time
+      where: (b) => b.prop("mrr").gte(500),
+    },
+    exitOn: [{ event: "subscription.reactivated" }],
+  },
   run: async (user, ctx) => {
     await sendConnectorAction({
       connectorId: "slack",
       action: "sendChannelMessage",
-      args: { channel: "#approvals", content: \`Approve white-glove for \${user.email}?\` },
+      args: {
+        channel: "#approvals",
+        content: \`Approve a 30% save offer for \${user.email}?\`,
+      },
     });
 
-    // Park until approval.decided is ingested for THIS user — the
+    // Park until approval.granted is ingested for THIS user — the
     // Approve button is one hs.events.send carrying the customer's
-    // userId, from any internal tool. Silence falls through in a day.
+    // userId, from any internal tool. Silence falls through in two days.
     const { timedOut } = await ctx.waitForEvent({
-      event: "approval.decided",
-      timeout: days(1),
+      event: "approval.granted",
+      timeout: days(2),
     });
 
-    if (!timedOut) await sendEmail({ to: user.email, template: "welcome" });
+    // Fail safe: silence means the standard, pre-approved offer.
+    await sendEmail({
+      to: user.email,
+      template: timedOut ? "winback-check-in" : "winback-offer",
+    });
   },
 });`,
   },
@@ -570,7 +770,7 @@ export const approvalGate = defineJourney({
       tags: ["Group-scoped wait", "actorUserId", "Durable"],
     },
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
 
 // The trial is per-company, so the wait is too: ANY teammate
 // upgrading resolves it — for every enrolled member at once.
@@ -604,6 +804,8 @@ export const teamUpgrade = defineJourney({
     },
     source: `import { days, defineBucket } from "@hogsend/engine";
 
+// The segment behind the winback journey — going dormant
+// IS the trigger.
 export const wentDormant = defineBucket({
   meta: {
     id: "went-dormant",
@@ -775,6 +977,16 @@ export const crm = defineDestination({
     cta: { label: "Fix it in 30 seconds", href: "/billing" },
     sentBy: "dunning (grace elapsed) — dunning.ts",
   }),
+  email("hogsend/src/emails/sales/high-fit.tsx", {
+    subject: "A setup plan sized for your team",
+    preheader: "Based on how teams like yours run it.",
+    heading: "Built for teams like yours",
+    body: [
+      "From what you've shared, you'd land in the same setup our mid-size product teams run. Twenty minutes and we'll map it to your stack.",
+    ],
+    cta: { label: "Pick a time", href: "/book" },
+    sentBy: "high-fit-followup — journeys/sales/high-fit-followup.ts",
+  }),
   email("hogsend/src/emails/marketing/doors-open.tsx", {
     subject: "Doors are open 🎪",
     preheader: "We're live — come find your seat.",
@@ -857,6 +1069,8 @@ export const stripe = stripeSource;`,
     source: `import { defineWebhookSource } from "@hogsend/engine";
 import { z } from "zod";
 
+// No preset for your billing system? Define the source —
+// same pipeline, same journeys.
 export const billing = defineWebhookSource({
   meta: { id: "billing", name: "Billing" },
   auth: {
@@ -923,6 +1137,11 @@ await worker.start();`,
   {
     path: "hogsend/.env",
     lang: "ini",
+    note: {
+      title: "Provider is config, not journey code",
+      body: "Swap Resend for Postmark by changing EMAIL_PROVIDER — no journey rewrite. Webhook sources and connectors switch on when their secrets are set, and PostHog is optional and additive.",
+      tags: ["One-var swap", "Auto-enable", "PostHog optional"],
+    },
     source: `DATABASE_URL=postgres://localhost:5432/my-app
 
 # Provider is config, not journey code — swap without a rewrite.
@@ -976,6 +1195,32 @@ export const signup = new Hono().post("/", async (c) => {
   return c.json({ ok: true });
 });`,
   },
+  {
+    path: "api/src/agents/research-agent.ts",
+    lang: "ts",
+    note: {
+      title: "Any agent can drive the lifecycle",
+      body: "Anything holding a secret key can report events — a Claude agent, a cron, a script. The idempotency key makes retry loops safe: however many times the agent re-runs, the event ingests once, and the journey's trigger.where decides who enrolls.",
+      tags: ["Agent tool", "Idempotent ingest", "→ high-fit-followup"],
+    },
+    source: `import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
+
+// The agent's tool: after researching a lead it reports ONE
+// event. The journey's trigger.where — not the model —
+// decides who gets enrolled.
+export async function reportResearch(lead: Lead, runId: string) {
+  await hs.events.send({
+    name: "lead.research_completed",
+    userId: lead.userId,
+    eventProperties: { score: lead.score, tier: lead.tier },
+    // however many times the agent loop retries, this
+    // ingests exactly once
+    idempotencyKey: \`research-\${lead.userId}-\${runId}\`,
+  });
+}`,
+  },
 
   {
     path: "api/src/routes/groups.ts",
@@ -989,6 +1234,7 @@ export const signup = new Hono().post("/", async (c) => {
 
 const hs = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
 
+// Account-level analytics for the sales-assist motion.
 // Server — write the account and its properties.
 export async function upsertAccount(domain: string) {
   await hs.groups.identify({
@@ -1011,6 +1257,8 @@ export async function upsertAccount(domain: string) {
 
 const hs = new Hogsend({ apiKey: process.env.HOGSEND_SECRET_KEY });
 
+// The one-off launch email — a broadcast sent from code,
+// like everything else here.
 export async function sendLaunch() {
   const { campaignId, status } = await hs.campaigns.send({
     name: "March launch",

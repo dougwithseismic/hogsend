@@ -1,10 +1,14 @@
-import { highlight } from "fumadocs-core/highlight";
+import { type HighlightOptions, highlight } from "fumadocs-core/highlight";
 import { cn } from "@/lib/cn";
+
+type ShikiTransformer = NonNullable<HighlightOptions["transformers"]>[number];
 
 type CodeHighlightProps = {
   code: string;
   lang: string;
   className?: string;
+  /** Extra Shiki transformers — e.g. the scaffold explorer's glossary marker. */
+  transformers?: ShikiTransformer[];
 };
 
 /**
@@ -17,9 +21,11 @@ export async function CodeHighlight({
   code,
   lang,
   className: propClassName,
+  transformers,
 }: CodeHighlightProps) {
   return highlight(code, {
     lang,
+    transformers,
     components: {
       pre: ({ className, style, ...props }) => (
         <pre
