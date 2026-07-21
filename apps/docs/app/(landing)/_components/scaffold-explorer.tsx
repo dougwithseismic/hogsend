@@ -3,6 +3,8 @@
 import {
   Braces,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   FileCode2,
   Mail,
   QrCode,
@@ -255,6 +257,7 @@ export function ScaffoldExplorer({
   );
   const tree = useMemo(() => buildTree(files), [files]);
   const activeFile = files.find((f) => f.path === active);
+  const activeIndex = files.findIndex((f) => f.path === active);
 
   // The tree scrolls inside the fixed-height window — fade the clipped edge
   // so it reads as scrollable rather than complete.
@@ -340,6 +343,12 @@ export function ScaffoldExplorer({
       }
       return next;
     });
+  };
+
+  // Arrow through the examples in file order, wrapping at the ends.
+  const stepFile = (delta: number) => {
+    const next = files[(activeIndex + delta + files.length) % files.length];
+    if (next) openFile(next.path);
   };
 
   return (
@@ -446,15 +455,33 @@ export function ScaffoldExplorer({
 
           {/* editor pane */}
           <div className="relative">
-            <div className="flex items-center justify-between border-white/[0.07] border-b px-4 py-2">
-              <span className="truncate font-mono text-[11px] text-white/45">
+            <div className="flex items-center gap-3 border-white/[0.07] border-b px-4 py-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-white/45">
                 {active}
               </span>
               {pane ? (
-                <span className="shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em]">
+                <span className="hidden shrink-0 font-mono text-[10px] text-[#f64838]/80 uppercase tracking-[0.06em] sm:block">
                   {pane.hint}
                 </span>
               ) : null}
+              <span className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  aria-label="Previous example"
+                  onClick={() => stepFile(-1)}
+                  className="cursor-pointer rounded-[4px] border border-white/[0.08] p-0.5 text-white/45 transition-colors hover:border-white/25 hover:text-white"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next example"
+                  onClick={() => stepFile(1)}
+                  className="cursor-pointer rounded-[4px] border border-white/[0.08] p-0.5 text-white/45 transition-colors hover:border-white/25 hover:text-white"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </span>
             </div>
 
             <div
