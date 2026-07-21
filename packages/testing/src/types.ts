@@ -16,6 +16,9 @@ export interface TestJourneyUser {
 export interface EventTarget {
   userId?: string;
   userEmail?: string;
+  /** groupType→groupKey association the scripted event carries (mirrors
+   * `user_events.groups`); matched by group-scoped waits/hasEvent. */
+  groups?: Record<string, string>;
 }
 
 export interface TestEvent {
@@ -23,6 +26,7 @@ export interface TestEvent {
   properties: Record<string, unknown>;
   userId: string;
   userEmail?: string;
+  groups?: Record<string, string>;
   occurredAt: string;
   source: "enrollment" | "script" | "trigger";
   sequence: number;
@@ -114,6 +118,12 @@ export interface JourneyTestOptions {
   preferences?: TestRecipientPreferences;
   history?: JourneyHistoryFixtures;
   entry?: EntryFixtures;
+  /**
+   * groupType→groupKey association carried by the synthesized enrollment
+   * (trigger) event — the ONLY source a bare-string `group:` option resolves
+   * from in the harness (no membership database exists here; engine leg 2).
+   */
+  triggerGroups?: Record<string, string>;
   /**
    * Global master subscription state. Scheduled changes also gate captured
    * recipient-directed effects after virtual time crosses their timestamp.

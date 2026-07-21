@@ -1312,7 +1312,39 @@ export function createJourneyContext(
     },
 
     history: {
-      async hasEvent({ userId: targetUserId, event, within }) {
+      async hasEvent({ userId: targetUserId, event, within, group }) {
+        // Group REPLACES the userId scoping: count rows via the persisted
+        // association map (same jsonb predicate as the wait scan). Resolution
+        // is READ-ONLY (`record: false`) — a history read never writes
+        // `__groupKeys__`.
+        if (group) {
+          const scope = await resolveGroupScope({
+            db,
+            stateId,
+            journeyId: config.journeyId ?? "unknown",
+            contactId: config.contactId,
+            triggerGroups: config.triggerGroups,
+            option: group,
+            record: false,
+          });
+          const [row] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(userEvents)
+            .where(
+              and(
+                sql`${userEvents.groups} ->> ${scope.type} = ${scope.key}`,
+                eq(userEvents.event, event),
+                within
+                  ? gte(
+                      userEvents.occurredAt,
+                      new Date(Date.now() - durationToMs(within)),
+                    )
+                  : undefined,
+              ),
+            );
+          const total = Number(row?.count ?? 0);
+          return { found: total > 0, count: total };
+        }
         const result = await evaluateEventCondition({
           condition: {
             type: "event",

@@ -521,6 +521,9 @@ export class JourneyTest {
       ...((target.userEmail ?? this.options.user.email)
         ? { userEmail: target.userEmail ?? this.options.user.email }
         : {}),
+      ...(target.groups
+        ? { groups: this.jsonSnapshot(target.groups, "event groups") }
+        : {}),
       occurredAt: new Date(at).toISOString(),
       source,
       sequence: this.sequence++,
@@ -1099,21 +1102,50 @@ export class JourneyTest {
 
   private matchingEvents(opts: {
     event?: string;
-    userId: string;
+    userId?: string;
+    /** Group scope REPLACES the userId scoping: matches any member's event
+     * whose carried association has `groups[type] == key`. */
+    group?: { type: string; key: string };
     since?: number;
     through?: number;
     where?: ReturnType<typeof normalizeWhere>;
   }): TestEvent[] {
     return this.journalEvents.filter((event) => {
       const at = new Date(event.occurredAt).getTime();
+      const scoped = opts.group
+        ? event.groups?.[opts.group.type] === opts.group.key
+        : event.userId === opts.userId;
       return (
-        event.userId === opts.userId &&
+        scoped &&
         (!opts.event || event.event === opts.event) &&
         (opts.since === undefined || at >= opts.since) &&
         (opts.through === undefined || at <= opts.through) &&
         this.conditionsMatch(event, opts.where)
       );
     });
+  }
+
+  /**
+   * Resolve a `group:` option to a `{ type, key }` scope. Explicit keys win;
+   * a bare type resolves ONLY from the enrollment (trigger) event's groups
+   * map (`options.triggerGroups`) — the harness has no membership database,
+   * so the engine's sole-live-membership leg cannot exist here.
+   */
+  private resolveGroupScope(option: string | { type: string; key?: string }): {
+    type: string;
+    key: string;
+  } {
+    const type = typeof option === "string" ? option : option.type;
+    if (typeof option === "object" && option.key !== undefined) {
+      return { type, key: option.key };
+    }
+    const key = this.options.triggerGroups?.[type];
+    if (key !== undefined) return { type, key };
+    throw new Error(
+      `group "${type}": the harness has no membership database to ` +
+        "auto-resolve a group key — pass an explicit { type, key } or set " +
+        "triggerGroups on the harness options",
+    );
   }
 
   private createContext(): JourneyContext {
@@ -1150,7 +1182,14 @@ export class JourneyTest {
         });
         return { sleptAt: started, resumedAt: this.now.toISOString() };
       },
-      waitForEvent: async ({ event, timeout, label, lookback, where }) => {
+      waitForEvent: async ({
+        event,
+        timeout,
+        label,
+        lookback,
+        where,
+        group,
+      }) => {
         const timeoutMs = durationToMs(timeout);
         if (timeoutMs > MAX_WAIT_MS) {
           throw new RangeError(
@@ -1178,10 +1217,16 @@ export class JourneyTest {
           }
         }
         const normalized = normalizeWhere(where);
+        // Group scope REPLACES user scoping: any member's carried
+        // association resolves the wait; `actorUserId` says who.
+        const scope = group ? this.resolveGroupScope(group) : undefined;
+        const eventScope = scope
+          ? { group: scope }
+          : { userId: this.options.user.id };
         if (lookback) {
           const hit = this.matchingEvents({
             event,
-            userId: this.options.user.id,
+            ...eventScope,
             since: startedMs - durationToMs(lookback),
             through: startedMs,
             where: normalized,
@@ -1202,13 +1247,14 @@ export class JourneyTest {
               timedOut: false,
               properties: scalars(hit.properties),
               ...(normalized?.length ? {} : { occurredAt: hit.occurredAt }),
+              actorUserId: hit.userId,
             };
           }
         }
         const deadline = startedMs + timeoutMs;
         const hit = this.matchingEvents({
           event,
-          userId: this.options.user.id,
+          ...eventScope,
           since: startedMs + 1,
           through: deadline,
           where: normalized,
@@ -1226,7 +1272,11 @@ export class JourneyTest {
           detail: { event, timedOut: !hit, source: "forward" },
         });
         return hit
-          ? { timedOut: false, properties: scalars(hit.properties) }
+          ? {
+              timedOut: false,
+              properties: scalars(hit.properties),
+              actorUserId: hit.userId,
+            }
           : { timedOut: true };
       },
       checkpoint: async (label) => {
@@ -1399,10 +1449,11 @@ export class JourneyTest {
       },
       guard: { isSubscribed: async () => this.subscriptionAt(this.currentMs) },
       history: {
-        hasEvent: async ({ userId, event, within }) => {
+        hasEvent: async ({ userId, event, within, group }) => {
+          // Same matching rule as the group wait: group REPLACES userId.
           const matches = this.matchingEvents({
             event,
-            userId,
+            ...(group ? { group: this.resolveGroupScope(group) } : { userId }),
             through: this.currentMs,
             ...(within ? { since: this.currentMs - durationToMs(within) } : {}),
           });
@@ -1570,7 +1621,7 @@ export class JourneyTest {
       this.currentMs,
       this.journey.meta.trigger.event,
       this.options.user.properties,
-      {},
+      this.options.triggerGroups ? { groups: this.options.triggerGroups } : {},
       "enrollment",
     );
     this.applyChangesThrough(this.currentMs);

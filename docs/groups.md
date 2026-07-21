@@ -13,7 +13,8 @@ Hogsend's own tables. When PostHog **is** configured the association forwards as
 `groupIdentify` — an automatic win, not a second integration to wire.
 
 **Group-level journeys are deliberately deferred** (a future phase). Journeys
-stay person-scoped today; a person-journey does not yet read group state. See
+stay person-scoped, but a person-journey can now *wait on* and *read*
+group-scoped events — see [Group-scoped waits](#group-scoped-waits) and
 [Deferrals](#deferrals-v1).
 
 ## The data model
@@ -330,6 +331,51 @@ and converting only some money would rank a partial sum.
 - **Standalone by default** — everything works with zero analytics provider.
   PostHog forwarding (`$groups` + `groupIdentify`) is an automatic add-on when
   `POSTHOG_API_KEY` is present, never a requirement.
+
+## Group-scoped waits
+
+A person-scoped journey can park until **any member of the enrolled user's
+group** fires an event — `ctx.waitForEvent` and `ctx.history.hasEvent` both
+take a `group` option:
+
+```ts
+const gate = await ctx.waitForEvent({
+  event: Events.PLAN_UPGRADED,
+  timeout: days(2),
+  group: "company",              // auto-resolve WHICH company from this user
+  // group: { type: "company", key: "acme.com" },  // or pin it explicitly
+});
+if (!gate.timedOut) {
+  // gate.actorUserId = WHO in the company acted — not necessarily this user
+}
+```
+
+**Key resolution** (the string form) runs once per wait, in this order: an
+explicit `key` → the trigger event's own `groups` association → the recorded
+key from an earlier auto-resolution in this enrollment → the user's **sole**
+live membership of that type. Zero or multiple memberships with nothing else
+to go on throws `GroupScopeUnresolvableError` at wait time — a group wait
+never silently waits on nothing. The membership-resolved key is recorded in
+the enrollment state and replayed verbatim, so membership churn mid-wait does
+not move an armed wait.
+
+**`actorUserId`** is present on every non-timeout result (for a plain
+user-scoped wait it equals the enrolled user). Post-wait code still refers to
+the *enrolled* user: `ctx.guard.isSubscribed()`, `sendEmail({ to: user.email })`
+are unchanged.
+
+**Fan-out is real**: if N members are each enrolled and parked on the same
+group wait, one event resumes all N runs. `meta.suppress` is the per-person
+send guard; there is no group-level throttle yet.
+
+**`ctx.history.hasEvent({ event, group })`** is the "already happened"
+counterpart — same option, same resolution (read-only: a history probe never
+pins a later wait), counting any member's matching events instead of one
+user's.
+
+Typed group types are opt-in: augment `GroupTypeMap` in a `groups.d.ts` (the
+`templates.d.ts` pattern) and every `group:` option narrows from `string` to
+your declared types at compile time.
 
 ## Deferrals (v1)
 
