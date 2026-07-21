@@ -86,7 +86,7 @@ describe("ctx.waitForEvent", () => {
       timeout: days(7),
     });
 
-    expect(res).toEqual({ timedOut: false });
+    expect(res).toEqual({ timedOut: false, actorUserId: "user-1" });
     expect(waitFor).toHaveBeenCalledTimes(1);
     expect(setCalls[0]).toMatchObject({
       status: "waiting",
@@ -136,7 +136,7 @@ describe("ctx.waitForEvent", () => {
       timeout: days(1),
     });
 
-    expect(res).toEqual({ timedOut: false });
+    expect(res).toEqual({ timedOut: false, actorUserId: "user-1" });
   });
 
   it("handles the pre-eviction un-wrapped envelope (timeout)", async () => {
@@ -286,7 +286,7 @@ describe("ctx.waitForEvent", () => {
       timeout: { hours: 720 },
     });
 
-    expect(res).toEqual({ timedOut: false });
+    expect(res).toEqual({ timedOut: false, actorUserId: "user-1" });
     expect(waitFor).toHaveBeenCalledTimes(1);
   });
 
@@ -337,6 +337,13 @@ describe("ctx.waitForEvent", () => {
         }),
       }),
     }));
+    // The recorded-outcome read (`__waits__` replay terminal mark): nothing
+    // recorded, so the wait runs live.
+    (db as unknown as Record<string, unknown>).query = {
+      journeyStates: {
+        findFirst: vi.fn(async () => ({ context: {} })),
+      },
+    };
     const ctx = makeCtx({ db, waitFor });
 
     const res = await ctx.waitForEvent({

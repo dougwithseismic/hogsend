@@ -67,6 +67,12 @@ export interface EventPayloadInput {
   userId: JsonValue;
   userEmail: JsonValue;
   properties: JsonValue;
+  /** The event's groupType→groupKey association map (`ingestEvent` pushes it
+   * on every event) — a group-scoped wait's trigger-association scope input. */
+  groups?: Record<string, string>;
+  /** The resolved subject contact row id (`ingestEvent` pushes it) — group
+   * membership auto-resolution input. */
+  contactId?: string;
   [key: string]: JsonValue;
 }
 
@@ -565,6 +571,15 @@ export async function executeJourneyRun(
     journeyId: meta.id,
     entryLimit: meta.entryLimit,
     ...(meta.entryPeriod ? { entryPeriod: meta.entryPeriod } : {}),
+    // Group-scope resolution inputs: the trigger event's association map
+    // (rides the task input, replay-stable) and the subject contact id —
+    // the pushed contactId when present, else the contact row already
+    // fetched for timezone above (best-effort: undefined only defers the
+    // resolver's no-contact throw to the membership leg).
+    ...(input.groups ? { triggerGroups: input.groups } : {}),
+    ...((input.contactId ?? contact?.id)
+      ? { contactId: input.contactId ?? contact?.id }
+      : {}),
   });
 
   // The journey boundary makes journey side effects (sendEmail, ctx.trigger)
