@@ -5,6 +5,7 @@
     "testing-journeys",
     "journey-blueprints",
     "buckets",
+    "groups",
     "events",
     "event-naming",
     "webhook-sources",

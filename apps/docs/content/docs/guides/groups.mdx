@@ -1,0 +1,162 @@
+---
+title: Groups
+description: First-class account/team/company-level entities — associate events with a group, write group properties server-side, and park journeys on group-scoped waits that any member can resolve.
+---
+
+Groups are Hogsend's account-level layer: a **group** is any collective a
+contact belongs to — a `company` (`acme.com`), a `team` (`growth`), a
+`workspace`. Every group is identified by its `(groupType, groupKey)` natural
+key, carries its own property bag, and tracks its members. The whole model is
+**standalone (DB-first)**: it works with zero analytics provider, and when
+PostHog *is* configured the association forwards as `$groups` on each mirrored
+capture and property writes call PostHog `groupIdentify` — an automatic win,
+not a second integration to wire.
+
+**Group-level journeys are deferred.** Journeys stay person-scoped — but a
+person-journey can *wait on* and *read* group-scoped events (see
+[Group-scoped waits](#group-scoped-waits)).
+
+## The three moving parts
+
+- **A group row** — one per live `(groupType, groupKey)`, with a jsonb
+  property bag. Created/updated by `identifyGroup` (server-side, secret key).
+- **Memberships** — a join between a group and a contact, managed by the
+  member add/remove API or automatically by event association.
+- **The per-event association** — a `groupType → groupKey` map carried on an
+  ingested event (`user_events.groups`). Association is the *only* group
+  operation a browser (publishable) key can perform.
+
+## Associating from the browser
+
+The browser SDK **associates only** — it never writes group properties or
+reads groups. `hogsend.group()` merges into the reactive `groups` slice;
+every subsequent capture carries the full map:
+
+```ts
+import { createHogsend } from "@hogsend/js";
+
+const hogsend = createHogsend({ apiUrl, publishableKey: "pk_…" });
+
+hogsend.group("company", "acme.com");
+hogsend.capture("dashboard.viewed"); // carries { company: "acme.com" }
+```
+
+Ingest persists the association, ensures the contact's membership in the
+group, and forwards `$groups` on the mirrored analytics capture.
+
+## Writing groups from your server
+
+Group property writes, membership mutations, and reads are **secret-key
+only**, via `@hogsend/client`:
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ baseUrl, apiKey: process.env.HOGSEND_API_KEY });
+
+await hs.groups.identify({
+  groupType: "company",
+  groupKey: "acme.com",
+  properties: { plan: "scale", seats: 42 },
+});
+await hs.groups.addMember({
+  groupType: "company",
+  groupKey: "acme.com",
+  userId: "user_123",
+});
+```
+
+Segment `group` calls land the same way through the signed Segment webhook
+source.
+
+## Group-scoped waits
+
+A person-scoped journey can park until **any member of the enrolled user's
+group** fires an event — `ctx.waitForEvent` and `ctx.history.hasEvent` both
+take a `group` option:
+
+```ts
+const gate = await ctx.waitForEvent({
+  event: Events.PLAN_UPGRADED,
+  timeout: days(2),
+  group: "company",              // auto-resolve WHICH company from this user
+  // group: { type: "company", key: "acme.com" },  // or pin it explicitly
+});
+if (!gate.timedOut) {
+  // gate.actorUserId = WHO in the company acted — not necessarily this user
+}
+```
+
+**Key resolution** (the string form) runs once per wait, in this order: an
+explicit `key` → the trigger event's own `groups` association → the recorded
+key from an earlier auto-resolution in this enrollment → the user's **sole**
+live membership of that type. Zero or multiple memberships with nothing else
+to go on throws `GroupScopeUnresolvableError` at wait time — a group wait
+never silently waits on nothing. The membership-resolved key is recorded in
+the enrollment state and replayed verbatim, so membership churn mid-wait does
+not move an armed wait.
+
+**`actorUserId`** is present on every non-timeout result (for a plain
+user-scoped wait it equals the enrolled user). Post-wait code still refers to
+the *enrolled* user: `ctx.guard.isSubscribed()`, `sendEmail({ to: user.email })`
+are unchanged.
+
+**Fan-out is real**: if N members are each enrolled and parked on the same
+group wait, one event resumes all N runs. `meta.suppress` is the per-person
+send guard; there is no group-level throttle yet.
+
+**`ctx.history.hasEvent({ event, group })`** is the "already happened"
+counterpart — same option, same resolution (read-only: a history probe never
+pins a later wait), counting any member's matching events instead of one
+user's.
+
+## Testing group waits
+
+The `@hogsend/testing` harness simulates group scope without a membership
+database: scripted events carry a `groups` map, and `triggerGroups` on the
+harness options is what a bare-string `group:` resolves from — anything else
+throws a named error suggesting the explicit `{ type, key }` form:
+
+```ts
+const test = createJourneyTest(teamUpgrade, {
+  user: { id: "user-a", email: "a@acme.com" },
+  triggerGroups: { company: "acme.com" },
+});
+test.events.after(
+  hours(1),
+  "plan.upgraded",
+  { plan: "scale" },
+  { userId: "user-b", groups: { company: "acme.com" } },
+);
+await test.run();
+// the wait resolved with actorUserId: "user-b"
+```
+
+## Typed group types
+
+`group:` options are plain strings until you augment `GroupTypeMap` — a
+`groups.d.ts` next to your `templates.d.ts` (the scaffold ships a commented
+stub):
+
+```ts
+declare module "@hogsend/core" {
+  interface GroupTypeMap {
+    company: true;
+    team: true;
+  }
+}
+```
+
+Once augmented, every `group:` option narrows from `string` to your declared
+types — typos are compile errors.
+
+## Security boundary
+
+| Operation | Key |
+| --- | --- |
+| Associate events (`hogsend.group()` → capture) | publishable (browser) |
+| Identify / property writes | secret |
+| Membership add/remove/list, reads | secret |
+
+A browser key can never write group properties or read groups — association
+is deliberately the only thing it can do.

@@ -394,7 +394,7 @@ const gate = await ctx.waitForEvent({
 });
 ```
 
-The engine resolves *which* company once, replay-stably (explicit `key` → the trigger event's `groups` association → the user's sole live membership; anything ambiguous throws instead of guessing), and the result's `actorUserId` names which member's event resolved the wait. One event resumes **every** member's parked run — keep `meta.suppress` in mind if the post-wait step sends.
+The engine resolves *which* company once, replay-stably (explicit `key` → the trigger event's `groups` association → the user's sole live membership; anything ambiguous throws instead of guessing), and the result's `actorUserId` names which member's event resolved the wait. One event resumes **every** member's parked run — keep `meta.suppress` in mind if the post-wait step sends. Full model: the [Groups guide](/docs/guides/groups).
 
 ## `ctx.digest()`
 
