@@ -70,7 +70,7 @@ import {
   registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
-import { readRecordedValue, recordOnce } from "./record-once.js";
+import { recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -383,28 +383,25 @@ export function createJourneyContext(
     // and the live CEL filter swap their user predicate for the group one).
     groupScope?: { type: string; key: string },
   ): Promise<WaitForEventResult> => {
-    // Terminal mark (the digest pattern): the recorded outcome — NOT the
-    // deadline — is what makes this wait replay-stable. `waitDeadline` is a
-    // shared column cleared at resolution so the NEXT wait site can mint its
-    // own, which means a replay-from-top of an ALREADY-RESOLVED wait re-derives
-    // a shifted scan window in which the resolving row is typically invisible —
-    // a re-armed wait could then flip to the timeout branch (duplicate-but-
-    // different sends downstream: the exact divergence class this engine's
-    // replay-safety design forbids). So the outcome is frozen set-once under
-    // `__waits__` and a replay returns it verbatim before touching the
-    // deadline. Registering the label makes an intra-run duplicate wait label
-    // a loud authoring error instead of a silent stale-outcome replay.
+    // Replay stability (the digest pattern, applied to CONTROL FLOW): Hatchet's
+    // journal is positional AND param-checked for COMPLETED entries, so a
+    // replay-from-top must re-issue exactly the durable calls the original run
+    // made, with identical parameters — skipping the wait (an early-returned
+    // recorded outcome) or re-computing a sleep duration from the wall clock
+    // makes the next durable call land on the wrong journal slot and the whole
+    // run fails with a non-determinism error (#591). The rule here is therefore
+    // NEVER skip a durable call; instead FREEZE every non-journaled input the
+    // control flow branches on — each scan result (`<nodeId>:scan:<seq>`), each
+    // arm's remaining-ms (`<nodeId>:arm:<seq>`, which is also the sleep param),
+    // and the deadline itself (`<nodeId>:deadline`; the shared `waitDeadline`
+    // column is cleared at resolution so it can't be the replay truth) — so the
+    // replay walks the identical branch sequence, Hatchet answers each re-issued
+    // waitFor from the journal instantly, and `recordOnce` at the end returns
+    // the frozen outcome verbatim. Registering the label makes an intra-run
+    // duplicate wait label a loud authoring error instead of a silent
+    // stale-outcome replay.
     registerRecordLabel(getJourneyBoundary(), `wait:${nodeId}`);
     const outcomeKey = `${nodeId}:result`;
-    const priorOutcome = await readRecordedValue({
-      db,
-      stateId,
-      namespace: "__waits__",
-      key: outcomeKey,
-    });
-    if (priorOutcome !== undefined) {
-      return priorOutcome as WaitForEventResult;
-    }
     const recordOutcome = (o: WaitForEventResult) =>
       recordOnce({
         db,
@@ -414,16 +411,28 @@ export function createJourneyContext(
         compute: () => o,
       });
 
-    // Durable deadline: read-first / set-once.
+    // Durable deadline: read-first / set-once. The RECORDED copy is the replay
+    // truth; the `waitDeadline` column is still written for observability and
+    // as the pre-record source for runs armed by an engine without the record
+    // (mixed-version replay keeps the original deadline instead of extending).
     const stateRow = await db
       .select({ waitDeadline: journeyStates.waitDeadline })
       .from(journeyStates)
       .where(eq(journeyStates.id, stateId))
       .limit(1);
     const storedDeadline = stateRow[0]?.waitDeadline ?? null;
-    const deadline = storedDeadline
-      ? new Date(storedDeadline)
-      : new Date(Date.now() + durationToMs(timeout));
+    const deadlineIso = await recordOnce<string>({
+      db,
+      stateId,
+      namespace: "__waits__",
+      key: `${nodeId}:deadline`,
+      compute: () =>
+        (storedDeadline
+          ? new Date(storedDeadline)
+          : new Date(Date.now() + durationToMs(timeout))
+        ).toISOString(),
+    });
+    const deadline = new Date(deadlineIso);
     if (!storedDeadline) {
       await db
         .update(journeyStates)
@@ -489,8 +498,23 @@ export function createJourneyContext(
       return null;
     };
 
+    // Every scan is frozen set-once in call order (misses included — a stored
+    // `null` is distinguishable from "not recorded"). On replay the scan
+    // sequence returns verbatim, so the loop takes the original branches even
+    // though the resolving row is NOW visible in the DB (or a once-visible row
+    // aged out of the window).
+    let scanSeq = 0;
+    const recordedScan = () =>
+      recordOnce<Awaited<ReturnType<typeof scanForMatch>>>({
+        db,
+        stateId,
+        namespace: "__waits__",
+        key: `${nodeId}:scan:${scanSeq++}`,
+        compute: scanForMatch,
+      });
+
     // Immediate hit (incl. the lookback window) — resolve without a state flip.
-    const preHit = await scanForMatch();
+    const preHit = await recordedScan();
     if (preHit) {
       await clearDeadline();
       return recordOutcome({ timedOut: false, ...preHit });
@@ -499,8 +523,9 @@ export function createJourneyContext(
     await enterWait(nodeId, "wait");
 
     let outcome: WaitForEventResult;
+    let armSeq = 0;
     while (true) {
-      const hit = await scanForMatch();
+      const hit = await recordedScan();
       if (hit) {
         outcome = { timedOut: false, ...hit };
         break;
@@ -518,7 +543,16 @@ export function createJourneyContext(
         throw new JourneyExitedError(stateId);
       }
 
-      const remainingMs = deadline.getTime() - Date.now();
+      // Frozen per arm: both the conclude-without-arming decision AND the
+      // sleep-branch parameter must replay identically (a completed waitFor's
+      // journal entry is param-checked).
+      const remainingMs = await recordOnce<number>({
+        db,
+        stateId,
+        namespace: "__waits__",
+        key: `${nodeId}:arm:${armSeq++}`,
+        compute: () => deadline.getTime() - Date.now(),
+      });
       if (remainingMs <= 0) {
         outcome = { timedOut: true };
         break;
@@ -541,7 +575,7 @@ export function createJourneyContext(
       if (!("event" in fired)) {
         // Timeout branch — one final scan for an event landing exactly as the
         // sleep expired, then conclude.
-        const last = await scanForMatch();
+        const last = await recordedScan();
         outcome = last ? { timedOut: false, ...last } : { timedOut: true };
         break;
       }
@@ -617,48 +651,65 @@ export function createJourneyContext(
     // can never re-push. A recent matching user_events row resolves the wait
     // immediately, payload included.
     if (lookback) {
-      const since = new Date(
-        (await refreshNow()).getTime() - durationToMs(lookback),
-      );
-      const recent = await db
-        .select({
-          properties: userEvents.properties,
-          occurredAt: userEvents.occurredAt,
-        })
-        .from(userEvents)
-        .where(
-          and(
-            eq(userEvents.userId, userId),
-            eq(userEvents.event, event),
-            gte(userEvents.occurredAt, since),
-          ),
-        )
-        .orderBy(desc(userEvents.occurredAt))
-        .limit(1);
-      const row = recent[0];
-      if (row) {
-        const scalars = Object.fromEntries(
-          Object.entries(row.properties ?? {}).filter(
-            ([, v]) =>
-              typeof v === "string" ||
-              typeof v === "number" ||
-              typeof v === "boolean" ||
-              v === null,
-          ),
-        ) as NonNullable<WaitForEventResult["properties"]>;
-        const occurredAt =
-          row.occurredAt instanceof Date
-            ? row.occurredAt.toISOString()
-            : row.occurredAt
-              ? String(row.occurredAt)
-              : undefined;
-        return {
-          timedOut: false,
-          properties: scalars,
-          ...(occurredAt ? { occurredAt } : {}),
-          // Lookback rows are user-scoped, so the actor IS the enrolled user.
-          actorUserId: userId,
-        };
+      // Recording under this node's key makes an intra-run duplicate wait
+      // label a loud error here too (same registry as the filtered leg).
+      registerRecordLabel(getJourneyBoundary(), `wait:${nodeId}`);
+      // Frozen set-once (miss included): whether the wait resolved via lookback
+      // is a control-flow branch in front of a durable call, so a replay must
+      // take the SAME side even though the window has shifted and the DB has
+      // moved on (the positional-journal rule — see the filtered leg above).
+      const lookbackHit = await recordOnce<WaitForEventResult | null>({
+        db,
+        stateId,
+        namespace: "__waits__",
+        key: `${nodeId}:lookback`,
+        compute: async () => {
+          const since = new Date(
+            (await refreshNow()).getTime() - durationToMs(lookback),
+          );
+          const recent = await db
+            .select({
+              properties: userEvents.properties,
+              occurredAt: userEvents.occurredAt,
+            })
+            .from(userEvents)
+            .where(
+              and(
+                eq(userEvents.userId, userId),
+                eq(userEvents.event, event),
+                gte(userEvents.occurredAt, since),
+              ),
+            )
+            .orderBy(desc(userEvents.occurredAt))
+            .limit(1);
+          const row = recent[0];
+          if (!row) return null;
+          const scalars = Object.fromEntries(
+            Object.entries(row.properties ?? {}).filter(
+              ([, v]) =>
+                typeof v === "string" ||
+                typeof v === "number" ||
+                typeof v === "boolean" ||
+                v === null,
+            ),
+          ) as NonNullable<WaitForEventResult["properties"]>;
+          const occurredAt =
+            row.occurredAt instanceof Date
+              ? row.occurredAt.toISOString()
+              : row.occurredAt
+                ? String(row.occurredAt)
+                : undefined;
+          return {
+            timedOut: false,
+            properties: scalars,
+            ...(occurredAt ? { occurredAt } : {}),
+            // Lookback rows are user-scoped, so the actor IS the enrolled user.
+            actorUserId: userId,
+          };
+        },
+      });
+      if (lookbackHit) {
+        return lookbackHit;
       }
     }
 

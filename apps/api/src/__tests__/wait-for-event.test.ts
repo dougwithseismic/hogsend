@@ -20,6 +20,13 @@ function makeWaitDbStub(
   let call = 0;
   const update = vi.fn(() => ({
     set: (vals: Record<string, unknown>) => {
+      // `recordOnce` context merges and waitDeadline writes are not status
+      // flips: satisfy them WITHOUT consuming the status-flip queue. Returning
+      // no post-merge context makes `recordOnce` fall back to its locally
+      // computed value — a compute-through stub.
+      if ("context" in vals || "waitDeadline" in vals) {
+        return { where: () => ({ returning: () => Promise.resolve([]) }) };
+      }
       setCalls.push(vals);
       return {
         where: () => ({
@@ -28,9 +35,13 @@ function makeWaitDbStub(
       };
     },
   }));
-  const db = { update } as unknown as Parameters<
-    typeof createJourneyContext
-  >[0]["db"];
+  const db = {
+    update,
+    // The `recordOnce` read-first path: nothing recorded, every wait runs live.
+    query: {
+      journeyStates: { findFirst: vi.fn(async () => ({ context: {} })) },
+    },
+  } as unknown as Parameters<typeof createJourneyContext>[0]["db"];
   return { db, update, setCalls };
 }
 
