@@ -58,6 +58,7 @@ import { PsFrame } from "./_components/page-frame";
 import { QrLinksCard } from "./_components/qr-links-card";
 import { ScaffoldExplorer } from "./_components/scaffold-explorer";
 import { SCAFFOLD_FILES } from "./_components/scaffold-files";
+import { glossaryTransformer } from "./_components/scaffold-glossary";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
@@ -729,10 +730,18 @@ const EXPLORER_RECIPES = [
   },
   { label: "SMS", path: "hogsend/src/journeys/lifecycle/cart-reminder.ts" },
   {
-    label: "Slack approval",
+    label: "Human approval",
     path: "hogsend/src/journeys/lifecycle/approval-gate.ts",
   },
+  {
+    label: "Agentic",
+    path: "hogsend/src/journeys/sales/high-fit-followup.ts",
+  },
   { label: "Experiments", path: "hogsend/src/journeys/product/experiments.ts" },
+  {
+    label: "Testing",
+    path: "hogsend/src/journeys/billing/trial-conversion.test.ts",
+  },
   { label: "Buckets", path: "hogsend/src/buckets/went-dormant.ts" },
   { label: "Flags", path: "hogsend/src/flags.ts" },
   { label: "Groups", path: "api/src/routes/groups.ts" },
@@ -813,7 +822,12 @@ function PsProblem() {
             highlighted={Object.fromEntries(
               SCAFFOLD_FILES.map((f) => [
                 f.path,
-                <CodeHighlight key={f.path} code={f.source} lang={f.lang} />,
+                <CodeHighlight
+                  key={f.path}
+                  code={f.source}
+                  lang={f.lang}
+                  transformers={[glossaryTransformer()]}
+                />,
               ]),
             )}
           />
