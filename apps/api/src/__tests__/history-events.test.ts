@@ -12,10 +12,16 @@ process.env.DATABASE_URL =
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-const { contacts, emailSends, smsSends, userEvents } = await import(
-  "@hogsend/db"
-);
-const { eq } = await import("drizzle-orm");
+const {
+  contacts,
+  emailSends,
+  groupMemberships,
+  groups,
+  journeyStates,
+  smsSends,
+  userEvents,
+} = await import("@hogsend/db");
+const { eq, like } = await import("drizzle-orm");
 const { hours } = await import("@hogsend/core");
 const { createHogsendClient, createJourneyContext } = await import(
   "@hogsend/engine"
@@ -45,7 +51,11 @@ const EMAIL_A = `${USER_A}@example.com`;
 const EMAIL_B = `${USER_B}@example.com`;
 
 /** Build a minimal `createJourneyContext` config wired to the container's db. */
-function makeCtx(userId: string, userEmail: string) {
+function makeCtx(
+  userId: string,
+  userEmail: string,
+  extra?: Partial<Parameters<typeof createJourneyContext>[0]>,
+) {
   return createJourneyContext({
     db: db as Parameters<typeof createJourneyContext>[0]["db"],
     // biome-ignore lint/suspicious/noExplicitAny: minimal test stub
@@ -65,6 +75,7 @@ function makeCtx(userId: string, userEmail: string) {
     userEmail,
     journeyContext: {},
     resolvedTimezone: "UTC",
+    ...extra,
   });
 }
 
@@ -114,10 +125,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(emailSends).where(eq(emailSends.userId, USER_A));
   await db.delete(smsSends).where(eq(smsSends.userId, USER_A));
-  await db.delete(userEvents).where(eq(userEvents.userId, USER_A));
-  await db.delete(userEvents).where(eq(userEvents.userId, USER_B));
-  await db.delete(contacts).where(eq(contacts.externalId, USER_A));
-  await db.delete(contacts).where(eq(contacts.externalId, USER_B));
+  await db.delete(userEvents).where(like(userEvents.userId, `${RUN}%`));
+  await db.delete(journeyStates).where(like(journeyStates.userId, `${RUN}%`));
+  // group_memberships cascade off contacts/groups.
+  await db.delete(contacts).where(like(contacts.externalId, `${RUN}%`));
+  await db.delete(groups).where(like(groups.groupKey, `${RUN}%`));
 });
 
 describe("ctx.history delivery", () => {
@@ -356,5 +368,126 @@ describe("getUserContext()", () => {
 
     const bundle = await getUserContext(ctx, user);
     expect("posthog" in bundle).toBe(false);
+  });
+});
+
+describe("ctx.history.hasEvent — group scope", () => {
+  const GROUP_KEY = `${RUN}-acme.com`;
+  const MEMBER = `${RUN}-member`;
+  const GROUP_EVENT = "deal.closed";
+  const JOURNEY_ID = `${RUN}-journey`;
+
+  beforeAll(async () => {
+    // Another member's events carrying the group association — one recent,
+    // one outside a 2h `within` window. The enrolled USER_A has none.
+    await db.insert(userEvents).values([
+      {
+        userId: MEMBER,
+        event: GROUP_EVENT,
+        properties: { amount: 100 },
+        groups: { company: GROUP_KEY },
+        occurredAt: NOW,
+      },
+      {
+        userId: MEMBER,
+        event: GROUP_EVENT,
+        properties: { amount: 50 },
+        groups: { company: GROUP_KEY },
+        occurredAt: THREE_HOURS_AGO,
+      },
+      // Same event under a DIFFERENT group key — must never match.
+      {
+        userId: `${RUN}-outsider`,
+        event: GROUP_EVENT,
+        properties: {},
+        groups: { company: `${RUN}-other.com` },
+        occurredAt: NOW,
+      },
+    ]);
+  });
+
+  it("finds another member's event via an explicit group key", async () => {
+    const ctx = makeCtx(USER_A, EMAIL_A, { journeyId: JOURNEY_ID });
+    await expect(
+      ctx.history.hasEvent({
+        userId: USER_A,
+        event: GROUP_EVENT,
+        group: { type: "company", key: GROUP_KEY },
+      }),
+    ).resolves.toEqual({ found: true, count: 2 });
+  });
+
+  it("respects `within` on the group leg", async () => {
+    const ctx = makeCtx(USER_A, EMAIL_A, { journeyId: JOURNEY_ID });
+    await expect(
+      ctx.history.hasEvent({
+        userId: USER_A,
+        event: GROUP_EVENT,
+        within: hours(2),
+        group: { type: "company", key: GROUP_KEY },
+      }),
+    ).resolves.toEqual({ found: true, count: 1 });
+  });
+
+  it("leaves the userId path unchanged when `group` is absent", async () => {
+    const ctx = makeCtx(USER_A, EMAIL_A, { journeyId: JOURNEY_ID });
+    // Group REPLACES userId scoping — without it, USER_A has no deal.closed.
+    await expect(
+      ctx.history.hasEvent({ userId: USER_A, event: GROUP_EVENT }),
+    ).resolves.toEqual({ found: false, count: 0 });
+    await expect(
+      ctx.history.hasEvent({ userId: USER_A, event: "page.viewed" }),
+    ).resolves.toMatchObject({ found: true });
+  });
+
+  it("auto-resolves a bare group type WITHOUT recording __groupKeys__", async () => {
+    // Enrolled contact with a sole live membership of the group.
+    const [contact] = await db
+      .insert(contacts)
+      .values({
+        externalId: `${RUN}-grp-contact`,
+        email: `${RUN}-grp-contact@example.com`,
+      })
+      .returning({ id: contacts.id });
+    const [group] = await db
+      .insert(groups)
+      .values({ groupType: "company", groupKey: GROUP_KEY })
+      .returning({ id: groups.id });
+    if (!contact || !group) throw new Error("seed failed");
+    await db
+      .insert(groupMemberships)
+      .values({ groupId: group.id, contactId: contact.id });
+    const [state] = await db
+      .insert(journeyStates)
+      .values({
+        userId: USER_A,
+        userEmail: EMAIL_A,
+        journeyId: JOURNEY_ID,
+        currentNodeId: "start",
+        status: "active",
+      })
+      .returning({ id: journeyStates.id });
+    if (!state) throw new Error("seed failed");
+
+    const ctx = makeCtx(USER_A, EMAIL_A, {
+      stateId: state.id,
+      journeyId: JOURNEY_ID,
+      contactId: contact.id,
+    });
+    await expect(
+      ctx.history.hasEvent({
+        userId: USER_A,
+        event: GROUP_EVENT,
+        group: "company",
+      }),
+    ).resolves.toEqual({ found: true, count: 2 });
+
+    // READ-ONLY resolution: the state row's context must stay untouched.
+    const [row] = await db
+      .select({ context: journeyStates.context })
+      .from(journeyStates)
+      .where(eq(journeyStates.id, state.id));
+    const context = (row?.context ?? {}) as Record<string, unknown>;
+    expect(context.__groupKeys__).toBeUndefined();
   });
 });

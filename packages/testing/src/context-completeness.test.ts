@@ -89,12 +89,18 @@ describe("JourneyContext completeness", () => {
       timedOut: false,
       properties: { order: 2 },
       occurredAt: "2026-07-14T09:00:00.000Z",
+      actorUserId: user.id,
     });
     expect(filteredLookback).toEqual({
       timedOut: false,
       properties: { ready: true },
+      actorUserId: user.id,
     });
-    expect(forward).toEqual({ timedOut: false, properties: { order: 1 } });
+    expect(forward).toEqual({
+      timedOut: false,
+      properties: { order: 1 },
+      actorUserId: user.id,
+    });
   });
 
   it("snapshots scripted events and history reads while normalizing fixture dates", async () => {
@@ -170,7 +176,11 @@ describe("JourneyContext completeness", () => {
 
     await test.run();
 
-    expect(matched).toEqual({ timedOut: false, properties: { ready: true } });
+    expect(matched).toEqual({
+      timedOut: false,
+      properties: { ready: true },
+      actorUserId: user.id,
+    });
     expect(firstHistory).toEqual([
       {
         event: "seeded",
@@ -417,6 +427,7 @@ describe("JourneyContext completeness", () => {
       timedOut: false,
       properties: { linked: true },
       occurredAt: "2025-01-01T00:00:00.000Z",
+      actorUserId: user.id,
     });
   });
 
@@ -444,5 +455,145 @@ describe("JourneyContext completeness", () => {
       variants: { "welcome-subject": "outcome" },
     }).run();
     expect(arm).toBe("outcome");
+  });
+});
+
+describe("group-scoped waits (harness parity)", () => {
+  it("matches another member's scripted event and reports the actor", async () => {
+    let result: unknown;
+    const journey = defineJourney({
+      meta: meta("group-wait"),
+      run: async (_current, ctx) => {
+        result = await ctx.waitForEvent({
+          event: "deal.closed",
+          timeout: hours(2),
+          group: { type: "company", key: "acme.com" },
+        });
+      },
+    });
+    const test = createJourneyTest(journey, { user });
+    // A wrong-key event and a group-less event must not resolve the wait.
+    test.events.after(
+      minutes(5),
+      "deal.closed",
+      { amount: 1 },
+      {
+        userId: "rival",
+        groups: { company: "other.com" },
+      },
+    );
+    test.events.after(
+      minutes(8),
+      "deal.closed",
+      { amount: 2 },
+      {
+        userId: "loner",
+      },
+    );
+    test.events.after(
+      minutes(10),
+      "deal.closed",
+      { amount: 42 },
+      {
+        userId: "teammate",
+        groups: { company: "acme.com" },
+      },
+    );
+
+    await test.run();
+    expect(result).toEqual({
+      timedOut: false,
+      properties: { amount: 42 },
+      actorUserId: "teammate",
+    });
+  });
+
+  it("resolves a bare group type from the trigger association", async () => {
+    let result: unknown;
+    const journey = defineJourney({
+      meta: meta("group-wait-bare"),
+      run: async (_current, ctx) => {
+        result = await ctx.waitForEvent({
+          event: "deal.closed",
+          timeout: hours(2),
+          group: "company",
+        });
+      },
+    });
+    const test = createJourneyTest(journey, {
+      user,
+      triggerGroups: { company: "acme.com" },
+    });
+    test.events.after(
+      minutes(10),
+      "deal.closed",
+      { amount: 7 },
+      {
+        userId: "teammate",
+        groups: { company: "acme.com" },
+      },
+    );
+
+    await test.run();
+    expect(result).toEqual({
+      timedOut: false,
+      properties: { amount: 7 },
+      actorUserId: "teammate",
+    });
+  });
+
+  it("throws the named harness limitation for an unresolvable bare type", async () => {
+    const journey = defineJourney({
+      meta: meta("group-wait-unresolvable"),
+      run: async (_current, ctx) => {
+        await ctx.waitForEvent({
+          event: "deal.closed",
+          timeout: hours(2),
+          group: "company",
+        });
+      },
+    });
+
+    await expect(createJourneyTest(journey, { user }).run()).rejects.toThrow(
+      /harness has no membership database.*explicit \{ type, key \}/,
+    );
+  });
+
+  it("mirrors the group option on history.hasEvent", async () => {
+    let viaGroup: unknown;
+    let viaUser: unknown;
+    const journey = defineJourney({
+      meta: meta("group-has-event"),
+      run: async (current, ctx) => {
+        viaGroup = await ctx.history.hasEvent({
+          userId: current.id,
+          event: "deal.closed",
+          group: { type: "company", key: "acme.com" },
+        });
+        viaUser = await ctx.history.hasEvent({
+          userId: current.id,
+          event: "deal.closed",
+        });
+      },
+    });
+    const test = createJourneyTest(journey, {
+      user,
+      history: {
+        events: [
+          {
+            event: "deal.closed",
+            userId: "teammate",
+            groups: { company: "acme.com" },
+            properties: {},
+            occurredAt: "2024-12-31T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    await test.run();
+    // Group REPLACES userId scoping: the enrolled user has no own event.
+    expect(viaGroup).toEqual({ found: true, count: 1 });
+    expect(viaUser).toEqual({ found: false, count: 0 });
   });
 });

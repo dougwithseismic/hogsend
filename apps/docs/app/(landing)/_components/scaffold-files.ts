@@ -745,7 +745,9 @@ export const approvalGate = defineJourney({
       },
     });
 
-    // Park until a human answers for THIS user — or two days pass.
+    // Park until approval.granted is ingested for THIS user — the
+    // Approve button is one hs.events.send carrying the customer's
+    // userId, from any internal tool. Silence falls through in two days.
     const { timedOut } = await ctx.waitForEvent({
       event: "approval.granted",
       timeout: days(2),
@@ -756,6 +758,37 @@ export const approvalGate = defineJourney({
       to: user.email,
       template: timedOut ? "winback-check-in" : "winback-offer",
     });
+  },
+});`,
+  },
+  {
+    path: "hogsend/src/journeys/billing/team-upgrade.ts",
+    lang: "ts",
+    note: {
+      title: "Wait on the whole account",
+      body: "group: \"company\" parks the journey until ANY member of this user's company fires the event — the key auto-resolves from their membership, one upgrade resumes every teammate's run, and actorUserId says who acted.",
+      tags: ["Group-scoped wait", "actorUserId", "Durable"],
+    },
+    source: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
+
+// The trial is per-company, so the wait is too: ANY teammate
+// upgrading resolves it — for every enrolled member at once.
+export const teamUpgrade = defineJourney({
+  meta: { id: "team-upgrade", trigger: { event: "trial.started" } },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "trial-first-value" });
+
+    const gate = await ctx.waitForEvent({
+      event: "plan.upgraded",
+      timeout: days(14),
+      group: "company",
+    });
+
+    if (!gate.timedOut && gate.actorUserId !== user.id) {
+      // A teammate upgraded — greet this user into the paid plan.
+      await sendEmail({ to: user.email, template: "trial-upgrade-value" });
+    }
   },
 });`,
   },

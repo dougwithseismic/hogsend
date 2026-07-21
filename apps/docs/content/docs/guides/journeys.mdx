@@ -382,6 +382,20 @@ run: async (user, ctx) => {
 
 This is the reactive complement to `ctx.sleep()` — combine them freely: sleep for a delay, then wait for the behavior you actually care about. Because the wait is scoped to the enrolled user and resumes through the same ingestion pipeline, any event your product (or a [webhook source](/docs/guides/events)) emits can wake a journey.
 
+### Waiting on a group, not a person
+
+Pass `group` to scope the wait to any member of the enrolled user's group — "park until *anyone at this company* upgrades":
+
+```ts
+const gate = await ctx.waitForEvent({
+  event: Events.PLAN_UPGRADED,
+  timeout: days(2),
+  group: "company",
+});
+```
+
+The engine resolves *which* company once, replay-stably (explicit `key` → the trigger event's `groups` association → the user's sole live membership; anything ambiguous throws instead of guessing), and the result's `actorUserId` names which member's event resolved the wait. One event resumes **every** member's parked run — keep `meta.suppress` in mind if the post-wait step sends. Full model: the [Groups guide](/docs/guides/groups).
+
 ## `ctx.digest()`
 
 Aggregate many trigger events over a fixed window into **one** execution. The first event enrolls the journey; every event of the same name that arrives while the window is open is absorbed by the active-enrollment guard — spawning no new run — and collected when the window flushes. A user firing an event 40 times in a week gets **one** email, not forty.

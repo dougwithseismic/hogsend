@@ -62,6 +62,7 @@ import {
   JOURNEY_EXECUTION_TIMEOUT_HOURS,
 } from "./constants.js";
 import { JourneyExitedError } from "./errors.js";
+import { type GroupScopeOption, resolveGroupScope } from "./group-scope.js";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
@@ -69,7 +70,7 @@ import {
   registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
-import { recordOnce } from "./record-once.js";
+import { readRecordedValue, recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -120,6 +121,21 @@ function warnVariantOnce(
  */
 function celStringLiteral(value: string): string {
   return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * CEL filter for a group-scoped wait: matches an event whose pushed payload
+ * carries the group association `groups[type] == key`. Membership is tested
+ * before indexing so an event with no `groups` map (an older producer) can
+ * never error the expression; both literals go through `celStringLiteral` so
+ * an externally-supplied type/key cannot break out of the filter.
+ */
+export function buildGroupEventFilter(type: string, key: string): string {
+  const typeLit = celStringLiteral(type);
+  return (
+    `'groups' in input && ${typeLit} in input.groups && ` +
+    `input.groups[${typeLit}] == ${celStringLiteral(key)}`
+  );
 }
 
 /** SQL eq-pushdown predicates for a `where` — a COARSE narrowing pre-filter,
@@ -186,6 +202,13 @@ interface JourneyContextConfig {
   entryLimit?: "once" | "once_per_period" | "unlimited";
   /** The journey's entry period (for `once_per_period`). */
   entryPeriod?: DurationObject;
+  /** The trigger event's groupType→groupKey association map (rides the task
+   * input, so replay-stable) — group-scope resolution leg 2. */
+  triggerGroups?: Record<string, string>;
+  /** The enrolled contact's row id — group membership auto-resolution
+   * (leg 4). Undefined defers to the resolver's no-contact throw, which
+   * only fires when that leg is actually reached. */
+  contactId?: string;
 }
 
 export function createJourneyContext(
@@ -355,7 +378,42 @@ export function createJourneyContext(
     nodeId: string,
     where: PropertyCondition[],
     lookback?: DurationObject,
+    // When present, the wait matches ANY member's event carrying this group
+    // association instead of the enrolled user's events (both the SQL scan
+    // and the live CEL filter swap their user predicate for the group one).
+    groupScope?: { type: string; key: string },
   ): Promise<WaitForEventResult> => {
+    // Terminal mark (the digest pattern): the recorded outcome — NOT the
+    // deadline — is what makes this wait replay-stable. `waitDeadline` is a
+    // shared column cleared at resolution so the NEXT wait site can mint its
+    // own, which means a replay-from-top of an ALREADY-RESOLVED wait re-derives
+    // a shifted scan window in which the resolving row is typically invisible —
+    // a re-armed wait could then flip to the timeout branch (duplicate-but-
+    // different sends downstream: the exact divergence class this engine's
+    // replay-safety design forbids). So the outcome is frozen set-once under
+    // `__waits__` and a replay returns it verbatim before touching the
+    // deadline. Registering the label makes an intra-run duplicate wait label
+    // a loud authoring error instead of a silent stale-outcome replay.
+    registerRecordLabel(getJourneyBoundary(), `wait:${nodeId}`);
+    const outcomeKey = `${nodeId}:result`;
+    const priorOutcome = await readRecordedValue({
+      db,
+      stateId,
+      namespace: "__waits__",
+      key: outcomeKey,
+    });
+    if (priorOutcome !== undefined) {
+      return priorOutcome as WaitForEventResult;
+    }
+    const recordOutcome = (o: WaitForEventResult) =>
+      recordOnce({
+        db,
+        stateId,
+        namespace: "__waits__",
+        key: outcomeKey,
+        compute: () => o,
+      });
+
     // Durable deadline: read-first / set-once.
     const stateRow = await db
       .select({ waitDeadline: journeyStates.waitDeadline })
@@ -393,15 +451,23 @@ export function createJourneyContext(
     // Narrowing only — `scanForMatch` re-verifies every row in JS.
     const eqPreds = eqPushdownPreds(where);
 
-    const scanForMatch = async (): Promise<NonNullable<
-      WaitForEventResult["properties"]
-    > | null> => {
+    const scanForMatch = async (): Promise<{
+      properties: NonNullable<WaitForEventResult["properties"]>;
+      actorUserId: string;
+    } | null> => {
       const recent = await db
-        .select({ properties: userEvents.properties })
+        .select({
+          properties: userEvents.properties,
+          userId: userEvents.userId,
+        })
         .from(userEvents)
         .where(
           and(
-            eq(userEvents.userId, userId),
+            // Group scope matches ANY member's row via the persisted
+            // association map; user scope keeps the enrolled-user predicate.
+            groupScope
+              ? sql`${userEvents.groups} ->> ${groupScope.type} = ${groupScope.key}`
+              : eq(userEvents.userId, userId),
             eq(userEvents.event, event),
             gte(userEvents.occurredAt, scanSince),
             ...eqPreds,
@@ -417,7 +483,7 @@ export function createJourneyContext(
         if (
           evaluatePropertyConditions({ conditions: where, properties: props })
         ) {
-          return narrowScalars(props);
+          return { properties: narrowScalars(props), actorUserId: row.userId };
         }
       }
       return null;
@@ -427,7 +493,7 @@ export function createJourneyContext(
     const preHit = await scanForMatch();
     if (preHit) {
       await clearDeadline();
-      return { timedOut: false, properties: preHit };
+      return recordOutcome({ timedOut: false, ...preHit });
     }
 
     await enterWait(nodeId, "wait");
@@ -436,7 +502,7 @@ export function createJourneyContext(
     while (true) {
       const hit = await scanForMatch();
       if (hit) {
-        outcome = { timedOut: false, properties: hit };
+        outcome = { timedOut: false, ...hit };
         break;
       }
 
@@ -462,7 +528,9 @@ export function createJourneyContext(
         Or(
           new UserEventCondition(
             event,
-            `input.userId == ${celStringLiteral(userId)}`,
+            groupScope
+              ? buildGroupEventFilter(groupScope.type, groupScope.key)
+              : `input.userId == ${celStringLiteral(userId)}`,
             "event",
           ),
           new SleepCondition(toSleepDuration(remainingMs), "timeout"),
@@ -474,9 +542,7 @@ export function createJourneyContext(
         // Timeout branch — one final scan for an event landing exactly as the
         // sleep expired, then conclude.
         const last = await scanForMatch();
-        outcome = last
-          ? { timedOut: false, properties: last }
-          : { timedOut: true };
+        outcome = last ? { timedOut: false, ...last } : { timedOut: true };
         break;
       }
       // Event branch: loop — the next scan picks up the (already persisted) row
@@ -485,7 +551,7 @@ export function createJourneyContext(
 
     await resumeFromWait(nodeId, { timedOut: outcome.timedOut });
     await clearDeadline();
-    return outcome;
+    return recordOutcome(outcome);
   };
 
   // Durably wait for THIS user's `event` OR `timeout`, whichever fires first,
@@ -496,6 +562,7 @@ export function createJourneyContext(
     nodeId: string,
     lookback?: DurationObject,
     where?: PropertyCondition[],
+    group?: GroupScopeOption,
   ): Promise<WaitForEventResult> => {
     // Reject a timeout longer than the journey task's executionTimeout up front
     // so it fails fast at authoring time. (Eviction-capable engines may allow
@@ -512,15 +579,34 @@ export function createJourneyContext(
     // it — set it before dispatching to either wait path.
     setBoundaryLabel(nodeId);
 
+    // A group-scoped wait resolves its scope ONCE, up front (explicit key →
+    // trigger association → recorded → sole membership; recordOnce is DB-only,
+    // so this issues no durable journal node), and ALWAYS takes the filtered
+    // leg — the legacy leg below has no re-arm scan and no timeout final scan.
+    // An empty `where` there is vacuous (`evaluatePropertyConditions` is
+    // Array.every; `eqPushdownPreds([])` is empty).
+    let groupScope: { type: string; key: string } | undefined;
+    if (group) {
+      groupScope = await resolveGroupScope({
+        db,
+        stateId,
+        journeyId: config.journeyId ?? "unknown",
+        contactId: config.contactId,
+        triggerGroups: config.triggerGroups,
+        option: group,
+      });
+    }
+
     // WHERE-filtered wait takes the durable re-arm path; an empty/absent `where`
     // keeps the exact legacy single-wait below byte-for-byte.
-    if (where && where.length > 0) {
+    if (groupScope || (where && where.length > 0)) {
       return performFilteredWaitForEvent(
         event,
         timeout,
         nodeId,
-        where,
+        where ?? [],
         lookback,
+        groupScope,
       );
     }
 
@@ -570,6 +656,8 @@ export function createJourneyContext(
           timedOut: false,
           properties: scalars,
           ...(occurredAt ? { occurredAt } : {}),
+          // Lookback rows are user-scoped, so the actor IS the enrolled user.
+          actorUserId: userId,
         };
       }
     }
@@ -603,6 +691,7 @@ export function createJourneyContext(
     // ({ userId, userEmail, properties }); the pre-eviction path may hand the
     // payload back un-wrapped — tolerate both, mirroring the CREATE-strip.
     let properties: WaitForEventResult["properties"];
+    let actorUserId: string | undefined;
     if (!timedOut) {
       const matches = fired.event;
       const first = Array.isArray(matches) ? matches[0] : matches;
@@ -621,6 +710,13 @@ export function createJourneyContext(
       ) {
         properties = candidate as NonNullable<WaitForEventResult["properties"]>;
       }
+      // This leg's CEL filter is user-scoped, so the actor is the enrolled
+      // user; prefer the fired payload's top-level `userId` when carried.
+      const actor =
+        payload && typeof payload === "object" && "userId" in payload
+          ? (payload as { userId?: unknown }).userId
+          : undefined;
+      actorUserId = typeof actor === "string" ? actor : userId;
     }
 
     await resumeFromWait(nodeId, { timedOut });
@@ -628,7 +724,11 @@ export function createJourneyContext(
     // reads a replay-stable instant (eviction engine) rather than the seed.
     await refreshNow();
 
-    return { timedOut, ...(properties ? { properties } : {}) };
+    return {
+      timedOut,
+      ...(properties ? { properties } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    };
   };
 
   // Scan the digest window ONCE at flush: all `event` rows for THIS user in
@@ -1046,13 +1146,14 @@ export function createJourneyContext(
       );
     },
 
-    async waitForEvent({ event, timeout, label, lookback, where }) {
+    async waitForEvent({ event, timeout, label, lookback, where, group }) {
       return performWaitForEvent(
         event,
         timeout,
         label ?? `wait-event:${event}`,
         lookback,
         normalizeWhere(where),
+        group,
       );
     },
 
@@ -1211,7 +1312,39 @@ export function createJourneyContext(
     },
 
     history: {
-      async hasEvent({ userId: targetUserId, event, within }) {
+      async hasEvent({ userId: targetUserId, event, within, group }) {
+        // Group REPLACES the userId scoping: count rows via the persisted
+        // association map (same jsonb predicate as the wait scan). Resolution
+        // is READ-ONLY (`record: false`) — a history read never writes
+        // `__groupKeys__`.
+        if (group) {
+          const scope = await resolveGroupScope({
+            db,
+            stateId,
+            journeyId: config.journeyId ?? "unknown",
+            contactId: config.contactId,
+            triggerGroups: config.triggerGroups,
+            option: group,
+            record: false,
+          });
+          const [row] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(userEvents)
+            .where(
+              and(
+                sql`${userEvents.groups} ->> ${scope.type} = ${scope.key}`,
+                eq(userEvents.event, event),
+                within
+                  ? gte(
+                      userEvents.occurredAt,
+                      new Date(Date.now() - durationToMs(within)),
+                    )
+                  : undefined,
+              ),
+            );
+          const total = Number(row?.count ?? 0);
+          return { found: total > 0, count: total };
+        }
         const result = await evaluateEventCondition({
           condition: {
             type: "event",

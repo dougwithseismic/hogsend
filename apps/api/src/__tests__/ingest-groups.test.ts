@@ -110,6 +110,17 @@ describe("ingestEvent — group dimension (Phase 2.2)", () => {
         ),
       );
     expect(memberships.length).toBe(1);
+
+    // (4) the Hatchet push payload carries the event's association map, so a
+    // journey waking on this event can read the group context off the wire.
+    const pushCalls = vi.mocked(hatchet.events.push).mock.calls;
+    const pushCall = pushCalls[pushCalls.length - 1];
+    if (!pushCall) throw new Error("hatchet.events.push was not called");
+    expect(pushCall[0]).toBe(`${RUN}.event`);
+    expect(pushCall[1]).toMatchObject({
+      userId: WITH_USER,
+      groups: { company: COMPANY_KEY },
+    });
   });
 
   it("leaves groups null and creates no membership when the event carries no groups (no regression)", async () => {
@@ -137,5 +148,16 @@ describe("ingestEvent — group dimension (Phase 2.2)", () => {
       .from(groupMemberships)
       .where(eq(groupMemberships.contactId, contactId));
     expect(memberships.length).toBe(0);
+
+    // The push payload still carries `groups` — as an empty map, so downstream
+    // consumers (group-scoped waits) can key on it without null checks.
+    const pushCalls = vi.mocked(hatchet.events.push).mock.calls;
+    const pushCall = pushCalls[pushCalls.length - 1];
+    if (!pushCall) throw new Error("hatchet.events.push was not called");
+    expect(pushCall[0]).toBe(`${RUN}.event`);
+    expect(pushCall[1]).toMatchObject({
+      userId: WITHOUT_USER,
+      groups: {},
+    });
   });
 });

@@ -9,9 +9,11 @@ export type RecordNamespace =
   | "__once__"
   | "__digest__"
   | "__throttle__"
-  | "__variants__";
+  | "__variants__"
+  | "__groupKeys__"
+  | "__waits__";
 
-// Closed-union → validated path token. NOT user input: only these four literals
+// Closed-union → validated path token. NOT user input: only these six literals
 // reach the interpolated jsonb path below, so it is injection-safe. `key` and the
 // JSON-stringified value are ALWAYS bound parameters regardless.
 const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
@@ -19,6 +21,8 @@ const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
   __digest__: "__digest__",
   __throttle__: "__throttle__",
   __variants__: "__variants__",
+  __groupKeys__: "__groupKeys__",
+  __waits__: "__waits__",
 };
 
 /** Extract the `(namespace)` sub-bag from an already-fetched context, `{}` when
@@ -112,6 +116,27 @@ export async function recordOnce<T>(opts: {
     return after[key] as T;
   }
   return value;
+}
+
+/**
+ * Read an already-recorded `(stateId, namespace, key)` value WITHOUT computing
+ * or writing — `undefined` when nothing is recorded. The read-only companion
+ * to {@link recordOnce} for call sites whose compute would issue durable work
+ * (recordOnce's `compute` must never add journal nodes).
+ */
+export async function readRecordedValue(opts: {
+  db: Database;
+  stateId: string;
+  namespace: RecordNamespace;
+  key: string;
+}): Promise<unknown> {
+  const { db, stateId, namespace, key } = opts;
+  const row = await db.query.journeyStates.findFirst({
+    where: eq(journeyStates.id, stateId),
+    columns: { context: true },
+  });
+  const bag = namespaceBag(row?.context, namespace);
+  return Object.hasOwn(bag, key) ? bag[key] : undefined;
 }
 
 /**

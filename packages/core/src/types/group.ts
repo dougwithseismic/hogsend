@@ -1,4 +1,33 @@
 /**
+ * Augmentable registry of the group types your app uses. Empty by design —
+ * consumers narrow it via module augmentation (a `groups.d.ts`, mirroring the
+ * `templates.d.ts` pattern for the email template registry):
+ *
+ * ```ts
+ * declare module "@hogsend/core" {
+ *   interface GroupTypeMap {
+ *     company: true;
+ *     team: true;
+ *   }
+ * }
+ * ```
+ *
+ * Once augmented, every `GroupType`-typed field (e.g. a group-scoped wait's
+ * `group` option) autocompletes and rejects unknown types at compile time.
+ */
+// biome-ignore lint/suspicious/noEmptyInterface: augmentation target by design
+export interface GroupTypeMap {}
+
+/**
+ * A group type name (e.g. "company"). Degrades to plain `string` while
+ * {@link GroupTypeMap} is unaugmented; narrows to the augmented keys once a
+ * consumer declares them.
+ */
+export type GroupType = keyof GroupTypeMap extends never
+  ? string
+  : keyof GroupTypeMap & string;
+
+/**
  * The groupType→groupKey association map carried on an event — the set of
  * groups an event belongs to (e.g. `{ company: "acme.com", team: "growth" }`).
  * Mirrors `user_events.groups`. Keys are group types, values are group keys.

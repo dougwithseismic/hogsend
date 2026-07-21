@@ -228,6 +228,11 @@ export {
   degradedGraphFromMeta,
 } from "./journeys/graph/build-graph.js";
 export {
+  type GroupScopeOption,
+  GroupScopeUnresolvableError,
+  resolveGroupScope,
+} from "./journeys/group-scope.js";
+export {
   createMemoize,
   deriveJourneyKey,
   getJourneyBoundary,
@@ -242,7 +247,10 @@ export {
   registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
-export { createJourneyContext } from "./journeys/journey-context.js";
+export {
+  buildGroupEventFilter,
+  createJourneyContext,
+} from "./journeys/journey-context.js";
 // --- Journey transition log (journey_logs writer — Phase 2 per-stage metrics) ---
 export {
   type JourneyLogAction,
