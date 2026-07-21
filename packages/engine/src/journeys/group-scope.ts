@@ -1,11 +1,6 @@
-import {
-  type Database,
-  groupMemberships,
-  groups,
-  journeyStates,
-} from "@hogsend/db";
+import { type Database, groupMemberships, groups } from "@hogsend/db";
 import { and, eq, isNull } from "drizzle-orm";
-import { recordOnce } from "./record-once.js";
+import { readRecordedValue, recordOnce } from "./record-once.js";
 
 /**
  * Thrown when a group-scoped primitive cannot pin its scope to a single group
@@ -139,19 +134,18 @@ export async function resolveGroupScope(opts: {
       key: type,
       compute: () => lookupSoleMembership({ db, journeyId, type, contactId }),
     });
-    return { type, key: key as string };
+    return { type, key };
   }
 
   // record: false — same order, no write. 3: read the recorded bag directly.
-  const row = await db.query.journeyStates.findFirst({
-    where: eq(journeyStates.id, stateId),
-    columns: { context: true },
+  const recorded = await readRecordedValue({
+    db,
+    stateId,
+    namespace: "__groupKeys__",
+    key: type,
   });
-  const bag = ((row?.context ?? {}) as Record<string, unknown>).__groupKeys__ as
-    | Record<string, unknown>
-    | undefined;
-  if (bag && Object.hasOwn(bag, type)) {
-    return { type, key: bag[type] as string };
+  if (recorded !== undefined) {
+    return { type, key: recorded as string };
   }
   // 4 without the record.
   const key = await lookupSoleMembership({ db, journeyId, type, contactId });
