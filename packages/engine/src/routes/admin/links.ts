@@ -17,6 +17,7 @@ import {
   assertHttpUrl,
   canonicalTrackedRowFilter,
   ensureQrTrackedLink,
+  IdempotencyConflictError,
   isSlugUniqueViolation,
   mintLink,
   normalizeSlug,
@@ -118,6 +119,12 @@ const destinationStatSchema = z.object({
   lastAt: z.string(),
 });
 
+// POST-only extension of the shared flat shape: `existing` reports whether the
+// mint recovered an already-live link (idempotent re-mint) instead of
+// inserting. Deliberately NOT on linkSchema — GET/list/PATCH/DELETE have no
+// mint semantics.
+const createdLinkSchema = linkSchema.extend({ existing: z.boolean() });
+
 const linkDetailSchema = linkSchema.extend({
   clicks: z.array(clickSchema),
   destinations: z.array(destinationStatSchema),
@@ -183,29 +190,47 @@ const createLinkRoute = createRoute({
     body: {
       content: {
         "application/json": {
-          schema: z.object({
-            url: z.string().url(),
-            type: z.enum(["personal", "public"]).default("public"),
-            // Optional vanity slug (`/l/:slug`). Normalized lowercase; 409 if
-            // already taken.
-            slug: z.string().optional(),
-            label: z.string().optional(),
-            description: z.string().optional(),
-            appendRef: z.boolean().optional(),
-            campaign: z.string().optional(),
-            // Honoured ONLY for personal links (the share-safe invariant in
-            // mintLink drops it for public). A canonical contact key the click
-            // should stitch the visitor's anon session into.
-            distinctId: z.string().optional(),
-          }),
+          schema: z
+            .object({
+              url: z.string().url(),
+              type: z.enum(["personal", "public"]).default("public"),
+              // Optional vanity slug (`/l/:slug`). Normalized lowercase; 409 if
+              // already taken by a different destination (same destination +
+              // type recovers the existing link — see idempotencyKey).
+              slug: z.string().optional(),
+              label: z.string().optional(),
+              description: z.string().optional(),
+              appendRef: z.boolean().optional(),
+              campaign: z.string().optional(),
+              // Honoured ONLY for personal links (the share-safe invariant in
+              // mintLink drops it for public). A canonical contact key the click
+              // should stitch the visitor's anon session into.
+              distinctId: z.string().optional(),
+              // Honest originating channel: Studio UI mints say "studio", SDK/
+              // programmatic mints say "api".
+              source: z.enum(["studio", "api"]).default("studio"),
+              // Idempotent-mint key for slugless links: same key + same url
+              // returns the existing link (existing: true); same key +
+              // different url is a 409. Mutually exclusive with slug (a slug
+              // IS an idempotency key).
+              idempotencyKey: z
+                .string()
+                .min(1)
+                .max(255)
+                .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+                .optional(),
+            })
+            .refine((d) => !(d.slug && d.idempotencyKey), {
+              message: "slug and idempotencyKey are mutually exclusive",
+            }),
         },
       },
     },
   },
   responses: {
     200: {
-      content: { "application/json": { schema: linkSchema } },
-      description: "Minted link",
+      content: { "application/json": { schema: createdLinkSchema } },
+      description: "Minted link (existing: true = idempotent re-mint)",
     },
     400: {
       content: { "application/json": { schema: errorSchema } },
@@ -213,7 +238,7 @@ const createLinkRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: errorSchema } },
-      description: "Slug already taken",
+      description: "Slug or idempotency key already taken",
     },
   },
 });
@@ -415,7 +440,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         db,
         url: body.url,
         baseUrl: env.API_PUBLIC_URL,
-        source: "studio",
+        source: body.source,
         type: body.type,
         slug: body.slug,
         label: body.label,
@@ -424,6 +449,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         campaign: body.campaign,
         distinctId: body.distinctId,
         createdBy: resolveActor(c) ?? undefined,
+        idempotencyKey: body.idempotencyKey,
       });
 
       const [row] = await db
@@ -436,16 +462,22 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Mint succeeded but link not found" }, 400);
       }
 
+      // One aggregate path for BOTH fresh and recovered mints: a fresh mint
+      // aggregates to clicks:0/scans:0 with the canonical trackedLinkId; a
+      // recovered link reports its real counts.
+      const agg = await aggregateFor(db, [minted.linkId]);
       return c.json(
-        serializeLink(
-          row,
-          { clicks: 0, scans: 0, trackedLinkId: minted.trackedLinkId },
-          env.API_PUBLIC_URL,
-        ),
+        {
+          ...serializeLink(row, agg.get(minted.linkId), env.API_PUBLIC_URL),
+          existing: minted.existing,
+        },
         200,
       );
     } catch (err) {
-      if (err instanceof SlugTakenError) {
+      if (
+        err instanceof SlugTakenError ||
+        err instanceof IdempotencyConflictError
+      ) {
         return c.json({ error: err.message }, 409);
       }
       const message = err instanceof Error ? err.message : "Mint failed";

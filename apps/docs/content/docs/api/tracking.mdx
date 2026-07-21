@@ -164,7 +164,10 @@ link's `tracked_links.click_count`; there is no counter on this table.
 
 Managed via the admin API: `POST /v1/admin/links` (mint), `GET /v1/admin/links`
 (list), `GET /v1/admin/links/:id` (one link + recent clicks), `PATCH` (rename /
-regroup), `DELETE` (archive).
+regroup), `DELETE` (archive). The same surface is available in
+`@hogsend/client` as `hs.links.create/get/list/update/archive/qr`, with an
+idempotent `create` (keyed by the slug, or by an explicit `idempotencyKey` for
+slugless links).
 
 ### `link_clicks`
 

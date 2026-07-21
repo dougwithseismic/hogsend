@@ -619,6 +619,153 @@ export interface RotateWebhookSecretResult {
 }
 
 // ---------------------------------------------------------------------------
+// links (admin plane — `/v1/admin/links`, requires a full-admin apiKey)
+// ---------------------------------------------------------------------------
+
+/**
+ * `personal` links stitch the visitor's anon session to the link's
+ * `distinctId`; `public` links are share-safe (never carry a `distinctId`).
+ */
+export type LinkType = "personal" | "public";
+
+/** A managed tracked link (the flat shape shared by every links endpoint). */
+export interface Link {
+  id: string;
+  /** The link's redirect tracked-row id (one per managed link). */
+  trackedLinkId: string | null;
+  originalUrl: string;
+  type: LinkType;
+  /** Vanity slug (`/l/:slug`, normalized lowercase); null when unset. */
+  slug: string | null;
+  /** The slug's short URL; null when no slug is set. */
+  vanityUrl: string | null;
+  label: string | null;
+  /** Longer operator note for bulk identification. */
+  description: string | null;
+  /** Arrival attribution opt-in: redirects append `hs_ref=<click id>`. */
+  appendRef: boolean;
+  campaign: string | null;
+  /** Honest originating channel — `"studio"` or `"api"`. */
+  source: string;
+  distinctId: string | null;
+  createdBy: string | null;
+  /** Total clicks across ALL entry paths — vanity, UUID, and QR scans. */
+  clickCount: number;
+  /** The QR-only subtotal of {@link Link.clickCount}. */
+  scanCount: number;
+  /** The short redirect URL (`${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`). */
+  url: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One recorded click on a managed link (with optional arrival stamp). */
+export interface LinkClick {
+  id: string;
+  trackedLinkId: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  clickedAt: string;
+  /** Who landed from this hit — `visitorKind: "token"` = verified userId. */
+  visitorDistinctId: string | null;
+  visitorKind: string | null;
+  arrivedAt: string | null;
+}
+
+/**
+ * Per-destination stats bucket: hits grouped by the destination URL that was
+ * live when they landed. `url: null` = hits recorded before provenance
+ * stamping existed.
+ */
+export interface LinkDestinationStat {
+  url: string | null;
+  clicks: number;
+  scans: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** `hs.links.get` result: the flat link plus recent clicks + stats. */
+export interface LinkDetail extends Link {
+  clicks: LinkClick[];
+  destinations: LinkDestinationStat[];
+  /** Landing-confirmed arrivals (stamped hits). */
+  arrivalCount: number;
+  /** The token-verified subset — how many KNOWN contacts arrived. */
+  identifiedArrivalCount: number;
+}
+
+/**
+ * `hs.links.create` result: the flat link plus `existing` — `true` when the
+ * mint recovered an already-live link (idempotent re-mint) instead of
+ * inserting.
+ */
+export interface CreatedLink extends Link {
+  existing: boolean;
+}
+
+/** Body for `hs.links.create` (POST `/v1/admin/links`). */
+export interface CreateLinkInput {
+  url: string;
+  /** Defaults to `"public"` on the server. */
+  type?: LinkType;
+  /**
+   * Optional vanity slug (`/l/:slug`). Mutually exclusive with
+   * `idempotencyKey` (a slug IS an idempotency key) — sending both is a 400;
+   * a slug taken by a different destination is a 409.
+   */
+  slug?: string;
+  label?: string;
+  description?: string;
+  appendRef?: boolean;
+  campaign?: string;
+  /** Honoured only for `type: "personal"` links (dropped for public). */
+  distinctId?: string;
+  /** Originating channel. The SDK defaults this to `"api"`. */
+  source?: "studio" | "api";
+  /**
+   * Idempotent-mint key for slugless links (1-255 chars,
+   * `/^[A-Za-z0-9][A-Za-z0-9_.-]*$/`): same key + same url returns the
+   * existing link (`existing: true`); same key + different url is a 409.
+   * Travels in the BODY (the admin route reads it there), not as a header.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * Body for `hs.links.update` (PATCH semantics — only provided fields change;
+ * `null` clears a nullable field, e.g. `slug: null` frees the slug).
+ */
+export interface UpdateLinkInput {
+  /** Re-targets the destination — the printed/shared code keeps working. */
+  originalUrl?: string;
+  slug?: string | null;
+  label?: string | null;
+  description?: string | null;
+  appendRef?: boolean;
+  campaign?: string | null;
+}
+
+/** Options for `hs.links.qr` / `hs.links.qrUrl`. */
+export interface LinkQrOptions {
+  /** Server default: `"svg"`. */
+  format?: "svg" | "png";
+  /** Rendered pixel width, 64-2048. Server default: 512. */
+  size?: number;
+  /** Transparent background (both formats) — for print/overlay use. */
+  transparent?: boolean;
+}
+
+/** `hs.links.list` result envelope. */
+export interface LinkList {
+  links: Link[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------------
 // emails.send — typed against the augmented TemplateRegistryMap, degrading to
 // `template: string` + permissive props when un-augmented.
 // ---------------------------------------------------------------------------

@@ -583,6 +583,7 @@ export {
 // filter, the 'qr' source marker) is deliberately NOT exported — it is
 // internal mechanics behind the /qr endpoint, not semver surface.
 export {
+  IdempotencyConflictError,
   type LinkType,
   type MintedLink,
   type MintLinkOptions,

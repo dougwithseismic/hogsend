@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HogsendAPIError, RateLimitError } from "../errors.js";
 import { Hogsend } from "../hogsend.js";
 import { verifyHogsendWebhook } from "../internal/verify.js";
+import type { LinkQrOptions } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Fetch mock harness
@@ -11,6 +12,8 @@ import { verifyHogsendWebhook } from "../internal/verify.js";
 interface MockResponseSpec {
   status?: number;
   body?: unknown;
+  /** Raw response bytes served by `arrayBuffer()` (image/QR responses). */
+  bytes?: Uint8Array;
   headers?: Record<string, string>;
   /** When set, the fetch rejects (transport failure). */
   throws?: Error;
@@ -55,6 +58,10 @@ function makeFetch(spec: MockResponseSpec) {
         headers: resHeaders,
         async text() {
           return text;
+        },
+        async arrayBuffer() {
+          if (spec.bytes) return spec.bytes.slice().buffer;
+          return new TextEncoder().encode(text).buffer;
         },
       } as unknown as Response;
     },
@@ -633,6 +640,247 @@ describe("webhooks", () => {
     expect(calls[0]?.url).toBe(
       "https://api.test.local/v1/admin/webhooks/we_1/test",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// links (admin plane)
+// ---------------------------------------------------------------------------
+
+describe("links", () => {
+  const link = {
+    id: "lk_1",
+    trackedLinkId: "tl_1",
+    originalUrl: "https://example.com/pricing",
+    type: "public",
+    slug: null,
+    vanityUrl: null,
+    label: null,
+    description: null,
+    appendRef: false,
+    campaign: null,
+    source: "api",
+    distinctId: null,
+    createdBy: null,
+    clickCount: 0,
+    scanCount: 0,
+    url: "https://api.test.local/v1/t/c/tl_1",
+    archivedAt: null,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  };
+
+  it("create POSTs /v1/admin/links with source 'api' and the idempotencyKey in the BODY (never the header)", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...link, existing: true },
+    });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.create(
+      {
+        url: "https://example.com/pricing",
+        idempotencyKey: "print-run-1",
+      },
+    );
+    // The idempotent re-mint flag surfaces verbatim.
+    expect(res.existing).toBe(true);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/links");
+    const body = calls[0]?.body as Record<string, unknown>;
+    // SDK provenance is honest: source defaults to "api", not "studio".
+    expect(body.source).toBe("api");
+    // The admin route reads idempotencyKey from the BODY.
+    expect(body.idempotencyKey).toBe("print-run-1");
+    // ...and it must NOT leak into the Idempotency-Key header.
+    expect(calls[0]?.headers["Idempotency-Key"]).toBeUndefined();
+  });
+
+  it("create passes an explicit source through", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...link, source: "studio", existing: false },
+    });
+    await client(fetchImpl as unknown as typeof fetch).links.create({
+      url: "https://example.com/pricing",
+      source: "studio",
+    });
+    expect((calls[0]?.body as { source?: string }).source).toBe("studio");
+  });
+
+  it("create maps a 409 slug/key conflict to HogsendAPIError", async () => {
+    const { fetchImpl } = makeFetch({
+      status: 409,
+      body: { error: "slug already taken" },
+    });
+    const err = await client(fetchImpl as unknown as typeof fetch)
+      .links.create({ url: "https://example.com", slug: "taken" })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(HogsendAPIError);
+    expect(err.status).toBe(409);
+  });
+
+  it("get GETs /v1/admin/links/{id} and url-encodes the id", async () => {
+    const detail = {
+      ...link,
+      clicks: [],
+      destinations: [],
+      arrivalCount: 0,
+      identifiedArrivalCount: 0,
+    };
+    const { fetchImpl, calls } = makeFetch({ body: detail });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.get(
+      "lk/1",
+    );
+    expect(res).toEqual(detail);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/links/lk%2F1");
+  });
+
+  it("list returns the envelope and OMITS includeArchived when false", async () => {
+    const envelope = { links: [link], total: 1, limit: 50, offset: 0 };
+    const { fetchImpl, calls } = makeFetch({ body: envelope });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.list({
+      includeArchived: false,
+    });
+    expect(res).toEqual(envelope);
+    // z.coerce.boolean() on the engine turns the string "false" into TRUE —
+    // the param must be absent entirely when false.
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/links");
+  });
+
+  it("list sends includeArchived=true when true and forwards hasQr", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { links: [], total: 0, limit: 50, offset: 0 },
+    });
+    await client(fetchImpl as unknown as typeof fetch).links.list({
+      includeArchived: true,
+      hasQr: false,
+    });
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/links?includeArchived=true&hasQr=false",
+    );
+  });
+
+  it("update PATCHes /v1/admin/links/{id} with the body fields", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...link, label: null, originalUrl: "https://example.com/new" },
+    });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.update(
+      "lk_1",
+      { originalUrl: "https://example.com/new", label: null },
+    );
+    expect(res.originalUrl).toBe("https://example.com/new");
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/links/lk_1");
+    // Omitted fields are dropped; explicit nulls survive (they mean "clear").
+    expect(calls[0]?.body).toEqual({
+      originalUrl: "https://example.com/new",
+      label: null,
+    });
+  });
+
+  it("archive DELETEs /v1/admin/links/{id} and returns the archived link", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...link, archivedAt: "2026-07-21T00:00:00.000Z" },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).links.archive("lk_1");
+    expect(res.archivedAt).toBe("2026-07-21T00:00:00.000Z");
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/links/lk_1");
+  });
+
+  it("qr({ format: 'png' }) returns the raw PNG bytes untouched", async () => {
+    // Real PNG magic + non-ASCII bytes: any UTF-8 round-trip corrupts these.
+    const png = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x10,
+    ]);
+    const { fetchImpl, calls } = makeFetch({
+      bytes: png,
+      headers: { "content-type": "image/png" },
+    });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.qr(
+      "lk_1",
+      { format: "png", size: 1024 },
+    );
+    expect(res).toBeInstanceOf(Uint8Array);
+    expect(Array.from(res)).toEqual(Array.from(png));
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/links/lk_1/qr?format=png&size=1024",
+    );
+  });
+
+  it("qr({ format: 'svg' }) returns the SVG as a string", async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`;
+    const { fetchImpl, calls } = makeFetch({
+      bytes: new TextEncoder().encode(svg),
+      headers: { "content-type": "image/svg+xml" },
+    });
+    const res = await client(fetchImpl as unknown as typeof fetch).links.qr(
+      "lk_1",
+      { format: "svg" },
+    );
+    expect(res).toBe(svg);
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/links/lk_1/qr?format=svg",
+    );
+  });
+
+  it("qr() with no format sends no format param and returns the SVG string (server default)", async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`;
+    const { fetchImpl, calls } = makeFetch({
+      bytes: new TextEncoder().encode(svg),
+      headers: { "content-type": "image/svg+xml" },
+    });
+    // Statically typed Promise<string> — the formatless default is SVG.
+    const pending: Promise<string> = client(
+      fetchImpl as unknown as typeof fetch,
+    ).links.qr("lk_1", { size: 256 });
+    const res = await pending;
+    expect(res).toBe(svg);
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/links/lk_1/qr?size=256",
+    );
+  });
+
+  it("qr accepts a LinkQrOptions-typed variable (union format)", async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"/>`;
+    const { fetchImpl } = makeFetch({
+      bytes: new TextEncoder().encode(svg),
+      headers: { "content-type": "image/svg+xml" },
+    });
+    const opts: LinkQrOptions = { format: "svg" };
+    const res = await client(fetchImpl as unknown as typeof fetch).links.qr(
+      "lk_1",
+      opts,
+    );
+    expect(res).toBe(svg);
+  });
+
+  it("qr forwards transparent=true only when set", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      bytes: new Uint8Array([0x89]),
+      headers: { "content-type": "image/png" },
+    });
+    await client(fetchImpl as unknown as typeof fetch).links.qr("lk_1", {
+      format: "png",
+      transparent: true,
+    });
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/links/lk_1/qr?format=png&transparent=true",
+    );
+  });
+
+  it("qrUrl builds the URL locally — NO network call", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: {} });
+    const url = client(fetchImpl as unknown as typeof fetch).links.qrUrl(
+      "lk_1",
+      { format: "svg", size: 256 },
+    );
+    expect(url).toBe(
+      "https://api.test.local/v1/admin/links/lk_1/qr?format=svg&size=256",
+    );
+    expect(calls.length).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

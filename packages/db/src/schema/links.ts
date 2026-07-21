@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -52,6 +53,10 @@ export const links = pgTable(
     appendRef: boolean("append_ref").notNull().default(false),
     // The admin actor who minted it (mirrors api_keys.createdBy).
     createdBy: text("created_by"),
+    // Caller-supplied idempotent-mint key: re-minting with the same key + same
+    // destination returns the existing link instead of a duplicate. Unique
+    // among LIVE rows only (partial index below) — archiving frees the key.
+    idempotencyKey: text("idempotency_key"),
     // Soft-delete: archive (not hard-delete) so historical `link_clicks` survive
     // (the `tracked_links.link_id` FK is ON DELETE set null as a backstop).
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -59,6 +64,10 @@ export const links = pgTable(
   },
   (table) => [
     uniqueIndex("links_slug_unique").on(table.slug),
+    // Partial unique (live rows only) — mirrors the groups natural-key arbiter.
+    uniqueIndex("links_idempotency_key_unique")
+      .on(table.idempotencyKey)
+      .where(sql`${table.archivedAt} is null`),
     index("links_source_idx").on(table.source),
     index("links_campaign_idx").on(table.campaign),
     index("links_created_at_idx").on(table.createdAt),

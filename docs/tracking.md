@@ -152,6 +152,16 @@ links keep `link_id` NULL, so the two stay independent.
   `PATCH originalUrl` re-targets the already-distributed short URL — it updates
   `links.originalUrl` AND every `tracked_links` row scoped by `link_id` in one
   transaction (the click route reads `tracked_links.originalUrl` fresh per hit)
+- **Idempotent mint**: `POST` accepts `idempotencyKey` (a caller-chosen dedupe
+  key for slugless links) and `source` (defaults to `"api"` for SDK mints; the
+  Studio UI sends `"studio"`), and the create response carries
+  `existing: boolean`. Recovery rule: a slug re-mint with the same destination
+  and type returns the existing link with `existing: true`; a different
+  destination, a different type, or a slug held by an archived link stays a
+  `409`; a reused `idempotencyKey` with a different URL is a `409`
+- **Client SDK**: `@hogsend/client` exposes this surface as `hs.links.*`
+  (`create`/`get`/`list`/`update`/`archive`/`qr`/`qrUrl`), with the idempotent
+  `create` above
 - **Archive is soft**: the short URL keeps redirecting; history survives
 - **Clicks emit `link.clicked`** on the outbound spine (never `email.clicked`),
   and — for personal links, human clicks only — re-ingest a first-party
@@ -165,7 +175,9 @@ URL: `https://<host>/l/black-friday`.
 - **Shape**: 1–64 chars of `[a-z0-9-]`, no leading/trailing hyphen. Input is
   lowercased before validation, so `/l/Black-Friday` resolves `black-friday`
 - **Unique per instance** (`links.slug`, unique index). A taken slug is a `409`
-  from `POST`/`PATCH`; invalid shape is a `400`
+  from `POST`/`PATCH` (exception: a `POST` re-mint with the same destination
+  and type returns the existing link, see Idempotent mint above); invalid shape
+  is a `400`
 - **Lifecycle**: set at mint (`slug`), replace or clear via `PATCH`
   (`slug: null` frees it for reuse). Archived links keep their slug reserved
   and keep resolving — clearing the slug is the explicit kill switch
@@ -192,6 +204,9 @@ dialog previews and downloads through it).
 
 - **Params**: `format=svg|png` (default `svg`), `size=64..2048` (default 512),
   `transparent=true` (transparent background, both formats — for print/overlay)
+- **Client SDK**: `hs.links.qr(id, { format, size, transparent })` fetches the
+  bytes (a `Uint8Array`); `hs.links.qrUrl(id, { format })` builds the URL
+  without fetching it
 - **Durable by construction**: the code encodes the link's scan URL —
   `/v1/t/c/<qr row id>` — NEVER the vanity slug. The scan row is a second
   `tracked_links` row (`source: "qr"`), lazily minted on first render and
