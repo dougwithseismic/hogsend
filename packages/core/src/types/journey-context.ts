@@ -1,5 +1,6 @@
 import type { DurationObject } from "../duration.js";
 import type { TimeZone } from "../schedule/tz.js";
+import type { GroupType } from "./group.js";
 import type { JourneyWhere } from "./journey.js";
 
 export interface SleepOptions {
@@ -83,6 +84,15 @@ export interface HasEventOptions {
   userId: string;
   event: string;
   within?: DurationObject;
+  /**
+   * Check whether ANY member of the group emitted the event, instead of the
+   * user in `userId` — group REPLACES the userId scoping for the lookup.
+   * String form auto-resolves the group key from the enrolled user (explicit
+   * key → the trigger event's groups association → the user's sole live
+   * membership of that type); ambiguous or absent membership throws. A pure
+   * read: resolution never records state.
+   */
+  group?: GroupType | { type: GroupType; key: string };
 }
 
 export interface HasEventResult {
@@ -172,6 +182,16 @@ export interface WaitForEventOptions {
    * exact legacy single-wait behavior.
    */
   where?: JourneyWhere;
+  /**
+   * Scope the wait to ANY member of the group instead of the enrolled user —
+   * the first matching event from any member resolves it (see
+   * `WaitForEventResult.actorUserId` for who). The string form names only the
+   * group TYPE and auto-resolves the key from the enrolled user: an explicit
+   * `{ type, key }` wins, else the trigger event's groups association, else
+   * the user's sole live membership of that type; an ambiguous or absent
+   * membership throws at wait time.
+   */
+  group?: GroupType | { type: GroupType; key: string };
 }
 
 export interface WaitForEventResult {
@@ -192,6 +212,12 @@ export interface WaitForEventResult {
    * for any timestamp written into an analytics payload after a wait.
    */
   occurredAt?: string;
+  /**
+   * The userId of the user whose event resolved the wait — present on every
+   * non-timeout hit. For a plain user-scoped wait it equals the enrolled
+   * user's id; for a group-scoped wait it identifies WHICH member acted.
+   */
+  actorUserId?: string;
 }
 
 export interface DigestOptions {

@@ -563,6 +563,12 @@ export async function ingestEvent(opts: {
       // (folds, never mints a twin). Additive/optional — consumers ignoring it
       // are unaffected.
       contactId,
+      // The event's group association map (groupType → groupKey), so a
+      // group-scoped wait can match on membership straight off the wire.
+      // Always present ({} when the event carries none) so downstream CEL
+      // filters never key on an absent field. Additive — existing consumers
+      // ignore it.
+      groups: event.groups ?? {},
     }),
     checkExits(db, registry, hatchet, logger, {
       userId: resolvedKey,
