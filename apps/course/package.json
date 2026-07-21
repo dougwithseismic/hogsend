@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/course",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "private": true,
   "scripts": {
     "prebuild": "node scripts/generate-workbook-manifest.mjs && node scripts/generate-transcripts.mjs && node scripts/generate-lesson-text.mjs",
