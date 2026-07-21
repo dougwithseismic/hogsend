@@ -44,6 +44,13 @@ export const Events = {
 
   // The smoke-test event the bundled test-onboarding journey listens for.
   TEST_SIGNUP: "test.signup",
+
+  // Smoke-test events for the bundled test-group-wait journey: fire
+  // `test.group_wait` for one member, `test.group_done` from any member of
+  // the same company; the journey emits `test.group_wait_result`.
+  TEST_GROUP_WAIT: "test.group_wait",
+  TEST_GROUP_DONE: "test.group_done",
+  TEST_GROUP_WAIT_RESULT: "test.group_wait_result",
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];

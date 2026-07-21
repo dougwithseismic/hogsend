@@ -1,6 +1,7 @@
 import type { DefinedJourney } from "@hogsend/engine/journeys";
 import { aiOnboarding } from "./ai-onboarding.js";
 import { feedbackCheckin } from "./feedback-checkin.js";
+import { testGroupWait } from "./test-group-wait.js";
 import { testOnboarding } from "./test-onboarding.js";
 import { trialExpiring } from "./trial-expiring.js";
 import { welcome } from "./welcome.js";
@@ -18,12 +19,14 @@ export const journeys: DefinedJourney[] = [
   trialExpiring,
   feedbackCheckin,
   testOnboarding,
+  testGroupWait,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
 export {
   aiOnboarding,
   feedbackCheckin,
+  testGroupWait,
   testOnboarding,
   trialExpiring,
   welcome,
