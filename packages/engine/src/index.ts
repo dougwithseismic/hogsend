@@ -228,6 +228,11 @@ export {
   degradedGraphFromMeta,
 } from "./journeys/graph/build-graph.js";
 export {
+  type GroupScopeOption,
+  GroupScopeUnresolvableError,
+  resolveGroupScope,
+} from "./journeys/group-scope.js";
+export {
   createMemoize,
   deriveJourneyKey,
   getJourneyBoundary,

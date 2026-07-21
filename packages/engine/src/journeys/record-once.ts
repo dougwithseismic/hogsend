@@ -9,9 +9,10 @@ export type RecordNamespace =
   | "__once__"
   | "__digest__"
   | "__throttle__"
-  | "__variants__";
+  | "__variants__"
+  | "__groupKeys__";
 
-// Closed-union → validated path token. NOT user input: only these four literals
+// Closed-union → validated path token. NOT user input: only these five literals
 // reach the interpolated jsonb path below, so it is injection-safe. `key` and the
 // JSON-stringified value are ALWAYS bound parameters regardless.
 const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
@@ -19,6 +20,7 @@ const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
   __digest__: "__digest__",
   __throttle__: "__throttle__",
   __variants__: "__variants__",
+  __groupKeys__: "__groupKeys__",
 };
 
 /** Extract the `(namespace)` sub-bag from an already-fetched context, `{}` when

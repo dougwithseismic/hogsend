@@ -286,7 +286,7 @@ describe("__variants__ — reserved record-once namespace", () => {
 });
 
 describe("stripRecordNamespaces — the seeding injection filter", () => {
-  it("removes all four reserved namespace keys and keeps everything else", () => {
+  it("removes all five reserved namespace keys and keeps everything else", () => {
     expect(
       stripRecordNamespaces({
         plan: "pro",
@@ -295,6 +295,7 @@ describe("stripRecordNamespaces — the seeding injection filter", () => {
         __digest__: "evil",
         __throttle__: "evil",
         __variants__: "evil",
+        __groupKeys__: "evil",
       }),
     ).toEqual({ plan: "pro", score: 7 });
   });
