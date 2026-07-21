@@ -123,6 +123,11 @@ export const SCAFFOLD_FILES: ScaffoldFile[] = [
   {
     path: "hogsend/src/journeys/product/onboarding.ts",
     lang: "ts",
+    note: {
+      title: "Send, wait, branch on what they did",
+      body: "waitForEvent parks the journey durably until THIS user creates a project — or three days pass. The branch afterwards is an if statement, and the stalled path tags the growth team on Discord.",
+      tags: ["Durable wait", "Event or timeout", "Branch = if"],
+    },
     source: `import { days } from "@hogsend/core";
 import {
   defineJourney,
@@ -166,6 +171,11 @@ export const onboarding = defineJourney({
   {
     path: "hogsend/src/journeys/product/second-session-rescue.ts",
     lang: "ts",
+    note: {
+      title: "A rescue that knows when to stay quiet",
+      body: "Most churn simply never comes back for a second session. The email sends only when the return visit doesn't happen — someone who comes back on their own hears nothing.",
+      tags: ["Fires on absence", "entryLimit: once", "Silence = feature"],
+    },
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -193,6 +203,11 @@ export const secondSessionRescue = defineJourney({
   {
     path: "hogsend/src/journeys/product/winback.ts",
     lang: "ts",
+    note: {
+      title: "Triggered by a bucket, not a campaign",
+      body: "bucket.went_dormant enrolls people the moment the segment catches them, and exitOn ends the sequence the instant they turn active again — even mid-sleep, the offer never lands on someone who already came back.",
+      tags: ["Bucket trigger", "exitOn", "Durable sleep"],
+    },
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -256,6 +271,11 @@ export const weeklyDigest = defineJourney({
   {
     path: "hogsend/src/journeys/billing/trial-conversion.ts",
     lang: "ts",
+    note: {
+      title: "Branch on usage, not the calendar",
+      body: "exitOn drops anyone who subscribes — instantly, wherever they are in the sequence. Day six checks ctx.history for a real report before choosing between the upgrade pitch and the activation nudge.",
+      tags: ["exitOn converts", "History check", "Usage branch"],
+    },
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -289,6 +309,11 @@ export const trialConversion = defineJourney({
   {
     path: "hogsend/src/journeys/billing/dunning.ts",
     lang: "ts",
+    note: {
+      title: "Fed by the Stripe preset",
+      body: "invoice.payment_failed arrives through src/webhook-sources/stripe.ts and enrolls this journey like any product event. exitOn cancels it the moment the invoice clears — a customer who pays never sees the final notice.",
+      tags: ["Stripe webhook", "exitOn paid", "Grace window"],
+    },
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -316,6 +341,11 @@ export const dunning = defineJourney({
   {
     path: "hogsend/src/journeys/marketing/event-summon.ts",
     lang: "ts",
+    note: {
+      title: "Email everyone, DM the linked",
+      body: "One trigger, two channels: the doors-open email goes to the whole list, and members with a linked Discord get the DM where they'll actually see it in time. once_per_period keeps a repeat event from double-summoning.",
+      tags: ["Multi-channel", "Discord DM", "once_per_period"],
+    },
     source: `import {
   defineJourney,
   sendConnectorAction,
@@ -351,6 +381,11 @@ export const eventSummon = defineJourney({
   {
     path: "hogsend/src/journeys/people/pre-boarding.ts",
     lang: "ts",
+    note: {
+      title: "Lifecycle isn't only customers",
+      body: "The people team runs the offer-signed → day-one stretch on the same engine. sleepUntil parks the journey at an absolute date — the day before their start — and the checklist lands exactly then, however far away that is.",
+      tags: ["People ops", "sleepUntil", "Absolute date"],
+    },
     source: `import { defineJourney, sendEmail } from "@hogsend/engine";
 
 // Lifecycle isn't only customers — the people team runs the
@@ -376,6 +411,11 @@ export const preBoarding = defineJourney({
   {
     path: "hogsend/src/journeys/people/silver-medalist.ts",
     lang: "ts",
+    note: {
+      title: "A 60-day wait is one line",
+      body: "waitForEvent holds durably for up to 60 days for role.reopened, and exitOn ends the journey the moment the candidate is hired. The follow-up only sends when there's a real role to offer.",
+      tags: ["60-day wait", "exitOn hired", "Warm bench"],
+    },
     source: `import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
@@ -890,6 +930,11 @@ await worker.start();`,
   {
     path: "hogsend/.env",
     lang: "ini",
+    note: {
+      title: "Provider is config, not journey code",
+      body: "Swap Resend for Postmark by changing EMAIL_PROVIDER — no journey rewrite. Webhook sources and connectors switch on when their secrets are set, and PostHog is optional and additive.",
+      tags: ["One-var swap", "Auto-enable", "PostHog optional"],
+    },
     source: `DATABASE_URL=postgres://localhost:5432/my-app
 
 # Provider is config, not journey code — swap without a rewrite.
