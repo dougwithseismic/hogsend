@@ -5,6 +5,7 @@ import { EmailsResource } from "./resources/emails.js";
 import { EventsResource } from "./resources/events.js";
 import { FlagsResource } from "./resources/flags.js";
 import { GroupsResource } from "./resources/groups.js";
+import { LinksResource } from "./resources/links.js";
 import { ListsResource } from "./resources/lists.js";
 import { WebhooksResource } from "./resources/webhooks.js";
 import type { HogsendOptions } from "./types.js";
@@ -47,6 +48,13 @@ export class Hogsend {
    * resources use. See {@link WebhooksResource}.
    */
   readonly webhooks: WebhooksResource;
+  /**
+   * Mint and manage tracked short links — vanity slugs, QR codes,
+   * per-destination stats, arrival attribution. REQUIRES a full-admin
+   * `apiKey` — this resource hits the admin plane (`/v1/admin/links`), NOT
+   * the ingest data plane the other resources use. See {@link LinksResource}.
+   */
+  readonly links: LinksResource;
 
   constructor(opts: HogsendOptions) {
     if (!opts.baseUrl) {
@@ -72,5 +80,6 @@ export class Hogsend {
     this.groups = new GroupsResource(http);
     this.flags = new FlagsResource(http);
     this.webhooks = new WebhooksResource(http);
+    this.links = new LinksResource(http);
   }
 }
