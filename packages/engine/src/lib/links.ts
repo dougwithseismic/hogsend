@@ -59,6 +59,15 @@ export interface MintLinkOptions {
    * OAuth redirect_uri destinations.
    */
   appendRef?: boolean;
+  /**
+   * Idempotent-mint key for slugless links: re-minting with the same key +
+   * same destination returns the EXISTING link (`existing: true`) instead of
+   * a duplicate; same key + different destination is an
+   * IdempotencyConflictError (→ 409). Unique among LIVE links only (partial
+   * index) — archiving frees the key. Mutually exclusive with `slug` (a slug
+   * IS an idempotency key: same slug + same url + same type recovers too).
+   */
+  idempotencyKey?: string;
 }
 
 export interface MintedLink {
@@ -72,6 +81,11 @@ export interface MintedLink {
   slug: string | null;
   /** The vanity short URL (`${baseUrl}/l/:slug`), if a slug was minted. */
   vanityUrl: string | null;
+  /**
+   * True when the mint RECOVERED an existing live link (same slug or
+   * idempotencyKey + same destination) instead of inserting a new one.
+   */
+  existing: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,11 +119,12 @@ export function normalizeSlug(raw: string): string {
 }
 
 /**
- * True when a DB error is the Postgres unique_violation on the slug index.
- * Walks the cause chain — drizzle wraps the driver's PostgresError in a
- * DrizzleQueryError whose `cause` carries the actual code/constraint.
+ * True when a DB error is the Postgres unique_violation on the named
+ * constraint. Walks the cause chain — drizzle wraps the driver's
+ * PostgresError in a DrizzleQueryError whose `cause` carries the actual
+ * code/constraint.
  */
-export function isSlugUniqueViolation(err: unknown): boolean {
+function isUniqueViolationOn(err: unknown, constraint: string): boolean {
   for (let e = err, depth = 0; e && depth < 5; depth++) {
     const candidate = e as {
       code?: string;
@@ -119,14 +134,39 @@ export function isSlugUniqueViolation(err: unknown): boolean {
     };
     if (
       candidate.code === "23505" &&
-      (candidate.constraint_name === "links_slug_unique" ||
-        (candidate.message?.includes("links_slug_unique") ?? false))
+      (candidate.constraint_name === constraint ||
+        (candidate.message?.includes(constraint) ?? false))
     ) {
       return true;
     }
     e = candidate.cause;
   }
   return false;
+}
+
+/** True when a DB error is the unique_violation on the slug index. */
+export function isSlugUniqueViolation(err: unknown): boolean {
+  return isUniqueViolationOn(err, "links_slug_unique");
+}
+
+/**
+ * True when a DB error is the unique_violation on the partial (live-rows-only)
+ * idempotency-key index.
+ */
+export function isIdempotencyKeyViolation(err: unknown): boolean {
+  return isUniqueViolationOn(err, "links_idempotency_key_unique");
+}
+
+/**
+ * Thrown when an idempotencyKey is already held by a LIVE link with a
+ * DIFFERENT destination → HTTP 409. (Same destination is not a conflict — it
+ * recovers the existing link.)
+ */
+export class IdempotencyConflictError extends Error {
+  constructor(key: string) {
+    super(`Idempotency key "${key}" already used for a different destination`);
+    this.name = "IdempotencyConflictError";
+  }
 }
 
 export function vanityUrlFor(baseUrl: string, slug: string): string {
@@ -240,8 +280,39 @@ export function assertHttpUrl(url: string): void {
   }
 }
 
+/**
+ * Build the MintedLink for an already-existing LIVE links row (idempotent
+ * recovery): resolves its CANONICAL tracked row (the redirect row, never the
+ * lazily-minted QR scan row) via the shared canonical-row predicate. Returns
+ * null if the link somehow has no tracked row — callers fall back to their
+ * conflict path rather than fabricating a dead redirect URL.
+ */
+async function recoverExistingLink(
+  db: Database,
+  baseUrl: string,
+  row: { id: string; slug: string | null },
+): Promise<MintedLink | null> {
+  const [tracked] = await db
+    .select({ id: sql<string | null>`min(${trackedLinks.id}::text)` })
+    .from(trackedLinks)
+    .where(and(eq(trackedLinks.linkId, row.id), canonicalTrackedRowFilter()));
+  const trackedLinkId = tracked?.id ?? null;
+  if (!trackedLinkId) return null;
+  return {
+    linkId: row.id,
+    trackedLinkId,
+    url: `${baseUrl}/v1/t/c/${trackedLinkId}`,
+    slug: row.slug,
+    vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
+    existing: true,
+  };
+}
+
 export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
   assertHttpUrl(opts.url);
+  if (opts.slug !== undefined && opts.idempotencyKey !== undefined) {
+    throw new Error("mintLink: slug and idempotencyKey are mutually exclusive");
+  }
   const type: LinkType = opts.type ?? "public";
   // A public link must NEVER carry a person token — drop any distinctId.
   const distinctId = type === "personal" ? (opts.distinctId ?? null) : null;
@@ -267,6 +338,7 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
         source: opts.source,
         distinctId,
         createdBy: opts.createdBy ?? null,
+        idempotencyKey: opts.idempotencyKey ?? null,
       });
       await tx.insert(trackedLinks).values({
         id: trackedLinkId,
@@ -278,7 +350,45 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
       });
     });
   } catch (err) {
-    if (slug && isSlugUniqueViolation(err)) throw new SlugTakenError(slug);
+    // Idempotent recovery. NOTE: these queries run AFTER the aborted
+    // transaction, on opts.db directly — the tx object is dead.
+    if (slug && isSlugUniqueViolation(err)) {
+      // A slug re-mint with the SAME destination + type is the same intent —
+      // return the existing LIVE link instead of 409ing a retry.
+      const [row] = await opts.db
+        .select()
+        .from(links)
+        .where(and(eq(links.slug, slug), isNull(links.archivedAt)))
+        .limit(1);
+      if (row && row.originalUrl === opts.url && row.type === type) {
+        const recovered = await recoverExistingLink(opts.db, opts.baseUrl, row);
+        if (recovered) return recovered;
+      }
+      // Slug held by an ARCHIVED link (the live lookup misses — archived
+      // links keep their slug reserved), a different destination, or a
+      // different type → conflict.
+      throw new SlugTakenError(slug);
+    }
+    if (opts.idempotencyKey && isIdempotencyKeyViolation(err)) {
+      const [row] = await opts.db
+        .select()
+        .from(links)
+        .where(
+          and(
+            eq(links.idempotencyKey, opts.idempotencyKey),
+            isNull(links.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (row && row.originalUrl === opts.url) {
+        const recovered = await recoverExistingLink(opts.db, opts.baseUrl, row);
+        if (recovered) return recovered;
+      }
+      if (row) throw new IdempotencyConflictError(opts.idempotencyKey);
+      // Defensive: the partial index only covers live rows, so the winning
+      // row should always be live — if it vanished, surface the raw error.
+      throw err;
+    }
     throw err;
   }
 
@@ -288,5 +398,6 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
     url: `${opts.baseUrl}/v1/t/c/${trackedLinkId}`,
     slug,
     vanityUrl: slug ? vanityUrlFor(opts.baseUrl, slug) : null,
+    existing: false,
   };
 }

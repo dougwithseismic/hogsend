@@ -1,0 +1,2 @@
+ALTER TABLE "links" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "links_idempotency_key_unique" ON "links" USING btree ("idempotency_key") WHERE "links"."archived_at" is null;

@@ -25,7 +25,7 @@ vi.mock("../workflows/send-email.js", () => ({
 }));
 
 const { linkClicks, links, trackedLinks } = await import("@hogsend/db");
-const { eq } = await import("drizzle-orm");
+const { eq, like } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
 const container = createHogsendClient();
@@ -81,12 +81,14 @@ describe("vanity slugs — mint + admin CRUD", () => {
     expect(res.status).toBe(200);
     expect(json.slug).toBe(`${RUN}-mixed`);
 
-    // The uppercase variant of an existing slug is the SAME slug → 409.
+    // The uppercase variant of an existing slug is the SAME slug → 409 for a
+    // DIFFERENT destination. (Same slug + same url + same type is the
+    // idempotent re-mint recovery, covered in admin-links-idempotent.test.ts.)
     const dup = await app.request("/v1/admin/links", {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({
-        url: "https://example.com/vanity",
+        url: "https://example.com/vanity-other",
         slug: `${RUN}-MIXED`,
       }),
     });
@@ -115,17 +117,29 @@ describe("vanity slugs — mint + admin CRUD", () => {
     const first = await mint({ slug: `${RUN}-taken` });
     expect(first.res.status).toBe(200);
 
-    const before = await db.select({ id: links.id }).from(links);
+    // Scope the count to THIS run's rows — vitest runs test files in
+    // parallel, so an unscoped whole-table count races with the other
+    // link-writing suites (admin-links, admin-links-idempotent).
+    const before = await db
+      .select({ id: links.id })
+      .from(links)
+      .where(like(links.slug, `${RUN}-%`));
+    // A different destination behind a held slug is a REAL conflict — the
+    // same-url case is the idempotent re-mint recovery (returns the existing
+    // link; covered in admin-links-idempotent.test.ts).
     const dup = await app.request("/v1/admin/links", {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({
-        url: "https://example.com/vanity",
+        url: "https://example.com/vanity-elsewhere",
         slug: `${RUN}-taken`,
       }),
     });
     expect(dup.status).toBe(409);
-    const after = await db.select({ id: links.id }).from(links);
+    const after = await db
+      .select({ id: links.id })
+      .from(links)
+      .where(like(links.slug, `${RUN}-%`));
     // The failed mint left no orphaned links row behind.
     expect(after.length).toBe(before.length);
   });
