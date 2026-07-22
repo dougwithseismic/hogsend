@@ -47,6 +47,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { DfyCallout } from "./_components/dfy-callout";
 import { DiscordLinkCard } from "./_components/discord-link-card";
 import { EmailAnswersCard } from "./_components/email-answers-card";
 import { FlagPersonaSwitcher } from "./_components/flag-persona-switcher";
@@ -4680,6 +4681,9 @@ export default async function HomePage({
       <PsClosingCta />
       <PsFooter />
       <PsFrame />
+      {/* Floating done-for-you card, bottom-right — desktop only; appears a
+          viewport past the hero, retires when the footer scrolls into view. */}
+      <DfyCallout />
     </main>
   );
 }
