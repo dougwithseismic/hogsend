@@ -23,7 +23,7 @@ export type FileNote = { title: string; body: string; tags?: string[] };
 
 export type ScaffoldFile = {
   path: string;
-  lang: "ts" | "tsx" | "ini" | "bash" | "json";
+  lang: "ts" | "tsx" | "ini" | "bash" | "json" | "md";
   source: string;
   /** When present, the explorer floats the rendered email beside the code. */
   email?: EmailPreview;
@@ -1277,13 +1277,158 @@ export async function sendLaunch() {
   return { campaignId, status };
 }`,
   },
+  /* ==== .claude/ — the agent workspace the scaffold vendors ============== */
+  {
+    path: ".claude/skills/hogsend-authoring-journeys/SKILL.md",
+    lang: "md",
+    note: {
+      title: "Your agent already knows the engine",
+      body: "create-hogsend vendors 14 Claude Code skills into .claude/skills/ — trigger-oriented playbooks for authoring journeys, emails, buckets, and operating a live instance. hogsend upgrade refreshes them alongside the engine.",
+      tags: ["14 skills vendored", "SKILL.md + references/", "hogsend upgrade"],
+    },
+    source: `---
+name: hogsend-authoring-journeys
+description: Use when adding or editing a lifecycle journey in
+  src/journeys/ — defineJourney() triggers, durable sleeps,
+  branching on history, and the register-in-index ritual.
+metadata:
+  author: withSeismic
+  version: "1.1.0"
+---
+
+# Authoring Hogsend journeys
+
+A journey is a code-first lifecycle flow. \`meta\` says who enters
+and when they exit; \`run(user, ctx)\` is plain TypeScript control
+flow — send email, durably sleep, branch on history. Each journey
+compiles to its own durable task, so the worker can restart
+mid-flow and resume exactly where it left off.
+
+## The rules that matter
+
+- \`ctx\` is durable primitives ONLY — \`sleep\`, \`when\`,
+  \`waitForEvent\`, \`guard\`, \`history\`. Email is a standalone
+  import: \`sendEmail()\`.
+- Durations are helpers, never strings: \`days(2)\`, \`hours(12)\`.
+- Re-check \`ctx.guard.isSubscribed()\` after any long sleep.
+
+## The wiring ritual (the #1 "it compiled, nothing fires" bug)
+
+1. Export the journey from \`src/journeys/index.ts\`.
+2. Thread it into \`createHogsendClient\` AND \`createWorker\`.
+3. Confirm its id in the worker's startup \`journeys: [...]\` log.`,
+  },
+  {
+    path: ".claude/skills/hogsend-cli/SKILL.md",
+    lang: "md",
+    note: {
+      title: "Operating a live instance, agent-first",
+      body: "The operating skills teach an agent to drive the hogsend CLI against any running instance — local or production. Every data command speaks --json: exactly one JSON document on stdout, nothing else.",
+      tags: ["--json contract", "Any instance", "Admin routes"],
+    },
+    source: `---
+name: hogsend-cli
+description: Use when an agent needs to inspect or operate a
+  running Hogsend instance — metrics, contacts, events, journeys,
+  health — by driving the consolidated hogsend CLI.
+---
+
+# Hogsend CLI
+
+The CLI wraps the app's \`/v1/admin/*\` and \`/v1/health\` routes,
+so it works against ANY running instance — local or production —
+without importing the database.
+
+## The --json contract (READ THIS FIRST)
+
+Every data command — read AND write — takes a global \`--json\`
+flag: EXACTLY ONE valid JSON document on stdout, nothing else.
+No spinners, no color, no prose. Always pass it when parsing.
+
+\`\`\`bash
+hogsend stats --json
+hogsend journeys list --json
+hogsend contacts get user_123 --json
+hogsend journeys disable winback --json
+\`\`\``,
+  },
+  {
+    path: ".claude/skills/hogsend-integrate/SKILL.md",
+    lang: "md",
+    note: {
+      title: "Point it at a codebase you already have",
+      body: "The integration skill is the outside-in playbook — detect the host stack, find the signup/auth/billing seams, wire @hogsend/client, then verify ingestion with the CLI. Install anywhere with hogsend skills add.",
+      tags: ["Outside-in", "Signup/billing seams", "hogsend skills add"],
+    },
+    source: `---
+name: hogsend-integrate
+description: Use when wiring an EXISTING product codebase —
+  Next.js, Express, Hono, Remix, SvelteKit — to a running
+  Hogsend instance via @hogsend/client.
+---
+
+# Integrate a host app with Hogsend
+
+You are in someone's PRODUCT codebase, not a Hogsend app. The
+goal: signups become contacts, key actions become events (which
+trigger journeys), and transactional sends go through the
+tracked pipeline.
+
+The shape of the work:
+
+1. Detect the stack — App Router? Express? better-auth? Stripe?
+2. Find the seams — signup, auth callbacks, billing webhooks.
+3. Wire the client — \`contacts.upsert\` on signup,
+   \`events.send\` on key actions, \`emails.send\` for
+   transactional.
+4. Verify ingestion with \`hogsend events --json\`.
+
+Confirm the seams with the user before editing; everything else
+is mechanical.`,
+  },
+  {
+    path: "CLAUDE.md",
+    lang: "md",
+    note: {
+      title: "The map your agent reads first",
+      body: "Every scaffold ships a CLAUDE.md — what each directory owns, the wiring ritual, and the house rules. An agent lands in the repo already knowing where journeys live and why something compiled but didn't fire.",
+      tags: ["Ships with scaffold", "Wiring ritual", "House rules"],
+    },
+    source: `# my-app
+
+A Hogsend app — code-first lifecycle orchestration on PostHog +
+Resend. A thin, CONTENT-ONLY consumer of @hogsend/engine: you
+author content and wire it into the engine's factories.
+
+## What you edit
+
+| Directory            | Author with            |
+| -------------------- | ---------------------- |
+| src/journeys/        | defineJourney()        |
+| src/emails/          | react-email + registry |
+| src/buckets/         | defineBucket()         |
+| src/webhook-sources/ | defineWebhookSource()  |
+| src/destinations/    | defineDestination()    |
+
+## The wiring ritual
+
+Authoring is half the job — every new journey/bucket/source must
+be exported from its index.ts AND threaded into the factory, or
+you hit the #1 bug: it compiled but nothing fires.
+
+## House rules
+
+- ctx is durable primitives only; sendEmail is a standalone import
+- Durations are days()/hours()/minutes(), never magic strings
+- ESM — .js extensions in relative imports. Node 22.`,
+  },
   {
     path: ".mcp.json",
     lang: "json",
     note: {
       title: "Your agent operates the engine",
-      body: "Hogsend ships an MCP server — point Claude or Cursor at it and an agent can read journeys, draft sends, and manage flags through the same typed API you use.",
-      tags: ["MCP server", "Agent-native", "Same typed API"],
+      body: "Hogsend ships an MCP server — stdio via @hogsend/mcp, or hosted by your instance at /v1/mcp. Its tools report on journeys and sends, draft journey blueprints, and fire test emails against the running engine.",
+      tags: ["stdio or hosted /v1/mcp", "Blueprints + reports", "Test sends"],
     },
     source: `{
   "mcpServers": {
