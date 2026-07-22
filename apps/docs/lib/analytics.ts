@@ -93,6 +93,9 @@ export const AnalyticsEvent = {
    * implement-this prompt, with `{ slug }`. The strongest intent signal a
    * play emits. */
   PLAY_PROMPT_COPIED: "docs.play_prompt_copied",
+  /** The floating done-for-you card's CTA (homepage, bottom-right) clicked
+   * through to /service, with `{ placement }`. */
+  SERVICE_CALLOUT_CLICKED: "docs.service_callout_clicked",
   /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
    * server-side to the Hogsend ingest API carrying the email, so the dogfood
    * lead alert can route on it. NOT a client `capture()`; the constant lives
