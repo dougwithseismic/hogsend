@@ -752,6 +752,10 @@ const EXPLORER_RECIPES = [
   { label: "Backend API", path: "api/src/routes/signup.ts" },
   { label: "React hooks", path: "web/src/components/paywall.tsx" },
   { label: "Video", path: "web/src/components/lesson-player.tsx" },
+  {
+    label: "Claude skills",
+    path: ".claude/skills/hogsend-authoring-journeys/SKILL.md",
+  },
   { label: "Agents & MCP", path: ".mcp.json" },
 ];
 

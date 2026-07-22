@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Bot,
   Braces,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileCode2,
+  FileText,
   FlaskConical,
   Mail,
   QrCode,
@@ -152,6 +154,8 @@ function fileIcon(path: string) {
   if (path.includes("/webhook-sources/")) return Webhook;
   if (path.endsWith(".sh")) return QrCode;
   if (path.endsWith(".env")) return Settings2;
+  if (path.endsWith(".mcp.json")) return Bot;
+  if (path.endsWith(".md")) return FileText;
   if (path.includes("/journeys/")) return Braces;
   return FileCode2;
 }
@@ -278,10 +282,10 @@ export function ScaffoldExplorer({
   recipes?: ExplorerRecipe[];
 }) {
   const [active, setActive] = useState(files[0]?.path ?? "");
-  // The email templates start folded so the tree reads at a glance;
-  // the count chip invites the click.
+  // The email templates and vendored skills start folded so the tree reads
+  // at a glance; the count chip invites the click.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-    () => new Set(["hogsend/src/emails"]),
+    () => new Set(["hogsend/src/emails", ".claude/skills"]),
   );
   const tree = useMemo(() => buildTree(files), [files]);
   const activeFile = files.find((f) => f.path === active);
