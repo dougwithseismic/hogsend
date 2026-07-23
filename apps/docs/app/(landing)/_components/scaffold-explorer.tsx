@@ -430,7 +430,7 @@ export function ScaffoldExplorer({
           product
         </span>
         <span className="hidden font-mono text-[10px] text-white/25 sm:block">
-          click a file · hover a dotted term
+          click a file to learn more
         </span>
         <BoarTile />
       </div>

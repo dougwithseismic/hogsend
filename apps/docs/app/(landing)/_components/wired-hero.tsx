@@ -85,7 +85,7 @@ export function WiredHeroSection({
                   New
                 </span>
                 <span className="font-medium">Measure → Keep → Grow</span>
-                <span className="text-white/50">· Live</span>
+                <span className="text-white/50">· Live Now</span>
               </a>
 
               <h1

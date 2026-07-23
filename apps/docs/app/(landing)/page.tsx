@@ -880,13 +880,12 @@ function PsManifesto() {
             )}
           >
             <span className="text-white">
-              Go-to-market is an engineering discipline now. The
-              &ldquo;Marketing Engineer&rdquo; isn&rsquo;t a dirty word.
-              It&rsquo;s the job.
+              Go-to-market is an engineering discipline now, and “Marketing
+              Engineer” isn’t a dirty word. It’s the job.
             </span>{" "}
             <span className="text-white/40">
-              Hogsend is ten years of product-led growth, handed to the scrappy
-              teams who build it in code.
+              Hogsend is built upon a decade of product-led growth consulting,
+              handed to the scrappy teams who build it in code.
             </span>
           </p>
         </Reveal>
