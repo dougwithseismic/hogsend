@@ -19,6 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/emails",
     "/about",
     "/campaigns",
+    "/features/journeys",
     "/use-cases/onboarding",
     "/use-cases/trial-conversion",
     "/use-cases/winback",
