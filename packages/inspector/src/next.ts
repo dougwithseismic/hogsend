@@ -47,6 +47,9 @@ export function withInspector(
     root: options.root ?? process.cwd(),
     include: options.include ?? ["/components/"],
   };
+  const loaderRule = {
+    loaders: [{ loader: loaderPath, options: loaderOptions }],
+  };
 
   return {
     ...nextConfig,
@@ -57,9 +60,8 @@ export function withInspector(
         // Glob is broad (Turbopack matches these reliably); the loader narrows
         // to `include` and passes everything else through untouched, so
         // non-matching modules keep the bundler's native fast path.
-        "*.tsx": {
-          loaders: [{ loader: loaderPath, options: loaderOptions }],
-        },
+        "*.tsx": loaderRule,
+        "*.jsx": loaderRule,
       },
     },
   };

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Click any element in your running app to open its exact source line in your editor — and (soon) edit its text in place, written straight back to source. Dev-only, Next.js + Turbopack.",
+  "description": "Click any element in your running app to edit its text in place or open its exact source line in your editor. Dev-only, Next.js + Turbopack.",
   "repository": {
     "type": "git",
     "url": "https://github.com/dougwithseismic/hogsend.git",
