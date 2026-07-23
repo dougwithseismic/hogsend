@@ -985,7 +985,7 @@ function PsVideo() {
  * lands in PostHog and on the visitor's dogfood contact. */
 const DEMO_CREDENTIALS = "demo@hogsend.com · forgeline-demo-2026";
 
-function _PsStudioDemo() {
+function PsStudioDemo() {
   return (
     <section id="live-demo" className="relative tw-section">
       <Container className="pt-16 pb-24">
@@ -1003,11 +1003,9 @@ function _PsStudioDemo() {
           </h2>
 
           <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
-            demo.hogsend.com is a stock Hogsend install seeded as Forgeline — a
-            fictional AI code-review product with six months of contacts,
-            journeys, sends, opens, and clicks. The sign-in is shared, and no
-            email provider is configured, so nothing you do in it can send real
-            mail.{" "}
+            demo.hogsend.com is a full Hogsend install seeded as Forgeline, a
+            fictional AI code-review product — six months of contacts, journeys,
+            sends, opens, and clicks to explore.{" "}
             <Link
               href="/docs/operating/studio"
               className="font-medium text-white"
@@ -1283,7 +1281,7 @@ const BLUEPRINT_CARDS: { title: string; body: ReactNode }[] = [
 
 function PsAgents() {
   return (
-    <section className="relative tw-section">
+    <section id="use-cases" className="relative tw-section">
       <Container className="pt-16 pb-24">
         <Eyebrow>Agent-native</Eyebrow>
         <h2
@@ -1344,6 +1342,97 @@ function PsAgents() {
             ))}
           </div>
         </div>
+
+        {/* The outcomes the agent ships — the old use-cases section, folded
+            in: ask for any of these and it's a journey in your repo. */}
+        <div className="mt-16">
+          <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
+            What to ask for
+          </span>
+          <h3
+            className={cn(
+              "mt-4 max-w-[760px] font-normal text-[28px] leading-[1.15] tracking-[-0.01em] md:text-[36px] md:leading-[42px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">
+              The messages every product should send
+            </span>{" "}
+            <span className="text-white/40">
+              — ten journeys ship in the scaffold.
+            </span>
+          </h3>
+        </div>
+
+        {/* The event-fanning card idiom: tinted panels, lead + gray rest —
+            each card now links to the lander or recipe category that covers
+            it. */}
+        <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {USE_CASES.map((u, i) => (
+            <Link
+              key={u.title}
+              href={u.href}
+              className="group p-6 transition-colors hover:bg-white/[0.07]"
+              style={{
+                background:
+                  i % 2 === 0
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(246,72,56,0.07)",
+              }}
+            >
+              <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
+                <span className="font-medium text-white">{u.title}.</span>{" "}
+                <span className="text-white/55">{u.body}</span>{" "}
+                <span
+                  aria-hidden="true"
+                  className="text-white/40 transition-colors group-hover:text-white"
+                >
+                  →
+                </span>
+              </p>
+            </Link>
+          ))}
+        </div>
+
+        {/* The four deep-dive landers — full pages, one per use case. */}
+        <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {USE_CASE_DEEP_DIVES.map((d) => (
+            <ThermalHover key={d.href}>
+              <Link
+                href={d.href}
+                className="group block rounded-[6px] border border-[var(--tw-border)] p-6 transition-colors hover:border-[#f64838]/40"
+              >
+                <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+                  Deep dive
+                </span>
+                <h3 className="mt-2 font-medium text-base text-white tracking-[-0.025em]">
+                  {d.title}{" "}
+                  <span
+                    aria-hidden="true"
+                    className="text-white/40 transition-colors group-hover:text-[#f64838]"
+                  >
+                    →
+                  </span>
+                </h3>
+                <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                  {d.body}
+                </p>
+              </Link>
+            </ThermalHover>
+          ))}
+        </div>
+
+        <p className="mt-10 text-sm text-white/55 tracking-[-0.02em]">
+          Every journey here sends one of{" "}
+          <Link href="/emails" className="font-medium text-white">
+            13 React Email templates in the scaffold →
+          </Link>{" "}
+          <span className="text-white/30">·</span> copy-paste variants for all
+          of these live in the{" "}
+          <Link href="/recipes" className="font-medium text-white">
+            35-recipe cookbook →
+          </Link>
+        </p>
 
         <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
           <p className="max-w-[420px] text-white/75 text-base tracking-[-0.025em]">
@@ -4129,99 +4218,6 @@ const USE_CASE_DEEP_DIVES = [
   },
 ];
 
-function PsUseCases() {
-  return (
-    <section id="use-cases" className="relative tw-section">
-      <Container className="pt-16 pb-28">
-        <Eyebrow>Use cases</Eyebrow>
-        <h2
-          className={cn(
-            "mt-8 max-w-[760px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
-            DISPLAY,
-          )}
-        >
-          <span className="text-white">
-            The messages every product should send
-          </span>{" "}
-          <span className="text-white/40">
-            — ten journeys ship in the scaffold.
-          </span>
-        </h2>
-
-        {/* The event-fanning card idiom: tinted panels, lead + gray rest —
-            each card now links to the lander or recipe category that covers
-            it. */}
-        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {USE_CASES.map((u, i) => (
-            <Link
-              key={u.title}
-              href={u.href}
-              className="group p-6 transition-colors hover:bg-white/[0.07]"
-              style={{
-                background:
-                  i % 2 === 0
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(246,72,56,0.07)",
-              }}
-            >
-              <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
-                <span className="font-medium text-white">{u.title}.</span>{" "}
-                <span className="text-white/55">{u.body}</span>{" "}
-                <span
-                  aria-hidden="true"
-                  className="text-white/40 transition-colors group-hover:text-white"
-                >
-                  →
-                </span>
-              </p>
-            </Link>
-          ))}
-        </div>
-
-        {/* The four deep-dive landers — full pages, one per use case. */}
-        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {USE_CASE_DEEP_DIVES.map((d) => (
-            <ThermalHover key={d.href}>
-              <Link
-                href={d.href}
-                className="group block rounded-[6px] border border-[var(--tw-border)] p-6 transition-colors hover:border-[#f64838]/40"
-              >
-                <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
-                  Deep dive
-                </span>
-                <h3 className="mt-2 font-medium text-base text-white tracking-[-0.025em]">
-                  {d.title}{" "}
-                  <span
-                    aria-hidden="true"
-                    className="text-white/40 transition-colors group-hover:text-[#f64838]"
-                  >
-                    →
-                  </span>
-                </h3>
-                <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                  {d.body}
-                </p>
-              </Link>
-            </ThermalHover>
-          ))}
-        </div>
-
-        <p className="mt-10 text-sm text-white/55 tracking-[-0.02em]">
-          Every journey here sends one of{" "}
-          <Link href="/emails" className="font-medium text-white">
-            13 React Email templates in the scaffold →
-          </Link>{" "}
-          <span className="text-white/30">·</span> copy-paste variants for all
-          of these live in the{" "}
-          <Link href="/recipes" className="font-medium text-white">
-            35-recipe cookbook →
-          </Link>
-        </p>
-      </Container>
-    </section>
-  );
-}
-
 /* ------------------------------------------------------------------ faq -- */
 
 const FAQ = [
@@ -4661,7 +4657,7 @@ export default async function HomePage({
       <PsManifesto />
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
-      <PsUseCases />
+      <PsStudioDemo />
       <PsFeatureIndex engineVersion={engineVersion} />
       {/* Feature deep-dive stack — video through timing, back to back. */}
       <PsVideo />
