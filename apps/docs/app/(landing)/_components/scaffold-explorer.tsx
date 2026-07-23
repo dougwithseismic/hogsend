@@ -285,7 +285,7 @@ export function ScaffoldExplorer({
   // The email templates and vendored skills start folded so the tree reads
   // at a glance; the count chip invites the click.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-    () => new Set(["hogsend/src/emails", ".claude/skills"]),
+    () => new Set([".claude/skills"]),
   );
   const tree = useMemo(() => buildTree(files), [files]);
   const activeFile = files.find((f) => f.path === active);

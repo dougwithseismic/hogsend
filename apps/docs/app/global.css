@@ -19,7 +19,7 @@
   --color-accent: #f64838;
   --color-accent-deep: #b8281c;
   --color-accent-tint: rgba(246, 72, 56, 0.15);
-  --color-ink: #050101; /* the one page background */
+  --color-ink: #030101; /* the one page background */
 
   /* Data-viz semantic tokens — scoped to the /growth-metrics calculators.
      The page chrome stays one-red-accent crimzon; these only colour live
