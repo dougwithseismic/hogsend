@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { inspectorClickIntent } from "./class-edit.js";
+import { ClassEditor, type ClassEditSession } from "./class-editor.js";
 
 /**
  * InspectorOverlay — the runtime half of the inspector (dev only).
@@ -8,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * location. Then:
  *   - click            → edit its text in place; Enter writes it back to source,
  *                        Esc cancels.
+ *   - cmd/ctrl-click   → edit a direct static Tailwind className.
  *   - shift-click      → open that file at the exact line in your editor.
  *
  * Editing is deterministic: on save the overlay sends the element's source
@@ -24,6 +27,8 @@ export type InspectorOverlayProps = {
   openEndpoint?: string;
   /** POST endpoint that writes an edit back to source. Default /api/devtools/edit. */
   editEndpoint?: string;
+  /** POST endpoint that reads/writes static className values. Default /api/devtools/style. */
+  styleEndpoint?: string;
 };
 
 type Stamp = { file: string; line: number; col: number };
@@ -110,19 +115,24 @@ function directRuns(el: HTMLElement): { runs: string[]; structure: string[] } {
 export function InspectorOverlay({
   openEndpoint,
   editEndpoint,
+  styleEndpoint,
 }: InspectorOverlayProps = {}) {
   const openUrl = openEndpoint ?? "/api/devtools/open";
   const editUrl = editEndpoint ?? "/api/devtools/edit";
+  const styleUrl = styleEndpoint ?? "/api/devtools/style";
 
   const [armed, setArmed] = useState(false);
   const [hit, setHit] = useState<Hit | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [classEditing, setClassEditing] = useState<ClassEditSession | null>(
+    null,
+  );
   const [status, setStatus] = useState<string | null>(null);
-  const editingRef = useRef<Editing | null>(null);
-  editingRef.current = editing;
+  const activeRef = useRef(false);
+  activeRef.current = Boolean(editing || classEditing);
 
   const disarm = useCallback(() => {
-    if (editingRef.current) return;
+    if (activeRef.current) return;
     setArmed(false);
     setHit(null);
   }, []);
@@ -145,7 +155,7 @@ export function InspectorOverlay({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Alt" && !editingRef.current) setArmed(true);
+      if (e.key === "Alt" && !activeRef.current) setArmed(true);
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === "Alt") disarm();
@@ -188,6 +198,23 @@ export function InspectorOverlay({
     }
     setHit(null);
     setEditing({ el, candidates, originalRuns: runs, structure });
+  }, []);
+
+  const beginClassEdit = useCallback((el: HTMLElement, target: Stamp) => {
+    setHit(null);
+    setClassEditing({ el, target });
+  }, []);
+
+  const finishClassEdit = useCallback((message?: string) => {
+    setClassEditing(null);
+    setArmed(false);
+    setHit(null);
+    if (!message) {
+      setStatus(null);
+      return;
+    }
+    setStatus(message);
+    setTimeout(() => setStatus(null), 2600);
   }, []);
 
   const finishEdit = useCallback((ed: Editing) => {
@@ -268,7 +295,7 @@ export function InspectorOverlay({
   );
 
   useEffect(() => {
-    if (!armed || editing) return;
+    if (!armed || editing || classEditing) return;
     const onMove = (e: MouseEvent) => {
       const el = e.target as Element | null;
       const found = el ? resolve(el) : null;
@@ -288,7 +315,9 @@ export function InspectorOverlay({
       if (!found || !first) return;
       e.preventDefault();
       e.stopPropagation();
-      if (e.shiftKey) openInEditor(first);
+      const intent = inspectorClickIntent(e);
+      if (intent === "open") openInEditor(first);
+      else if (intent === "class") beginClassEdit(found.el, first);
       else beginEdit(found.el, found.candidates);
     };
     document.addEventListener("mousemove", onMove, true);
@@ -297,7 +326,7 @@ export function InspectorOverlay({
       document.removeEventListener("mousemove", onMove, true);
       document.removeEventListener("click", onClick, true);
     };
-  }, [armed, editing, beginEdit, openInEditor]);
+  }, [armed, editing, classEditing, beginEdit, beginClassEdit, openInEditor]);
 
   useEffect(() => {
     if (!editing) return;
@@ -316,10 +345,21 @@ export function InspectorOverlay({
 
   return (
     <>
-      {armed && hit && !editing ? <Highlight hit={hit} /> : null}
+      {armed && hit && !editing && !classEditing ? (
+        <Highlight hit={hit} />
+      ) : null}
       {editing ? (
         <Badge
           text={`editing ${editing.candidates[0]?.file ?? ""} · ⏎ save · esc cancel`}
+        />
+      ) : null}
+      {classEditing ? (
+        <ClassEditor
+          key={`${classEditing.target.file}:${classEditing.target.line}:${classEditing.target.col}`}
+          el={classEditing.el}
+          target={classEditing.target}
+          endpoint={styleUrl}
+          onClose={finishClassEdit}
         />
       ) : null}
       {status ? <Badge text={status} tone="status" /> : null}
@@ -348,7 +388,7 @@ function Highlight({ hit }: { hit: Hit }) {
         }}
       />
       <Badge
-        text={`${first ? `${first.file}:${first.line}` : "?"} · click to edit · ⇧ open`}
+        text={`${first ? `${first.file}:${first.line}` : "?"} · click text · ⌘/ctrl click classes · ⇧ open`}
         top={Math.max(2, rect.top - 22)}
         left={rect.left}
       />
