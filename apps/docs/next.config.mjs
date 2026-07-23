@@ -183,5 +183,5 @@ const config = {
 
 // withInspector adds the dev-only source-stamping loader (no-op in production).
 export default withInspector(withMDX(config), {
-  include: ["/components/landing/"],
+  include: ["/apps/docs/"],
 });
