@@ -841,8 +841,8 @@ function PsProblem() {
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
         <p className="mt-20 max-w-[420px] text-white text-lg leading-[26px] tracking-[-0.025em]">
-          The lifecycle becomes part of the product, not a campaign bolted on
-          beside it.
+          Using Hogsend means that lifecycle marketing becomes part of the
+          product, not a campaign bolted on beside it.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-3">
           {PILLARS.map((p, i) => (
@@ -1567,7 +1567,7 @@ async function PsFlags() {
               Customize the whole journey with feature flags.
             </span>{" "}
             <span className="text-white/40">
-              Flip any part of your marketing on or off, anytime. No deploy.
+              Flip any part of your marketing on or off, anytime.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
@@ -1916,8 +1916,7 @@ async function PsEmailAnswers() {
           >
             <span className="text-white">The email answers back.</span>{" "}
             <span className="text-white/40">
-              A click is a typed event; the journey branches on it. Try it —
-              press a button in the email.
+              Send surveys, questions and buttons in your email.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
@@ -1966,10 +1965,9 @@ async function PsLinks() {
               DISPLAY,
             )}
           >
-            <span className="text-white">Print runs that report back.</span>{" "}
+            <span className="text-white">Tracked Links &amp; QR Codes.</span>{" "}
             <span className="text-white/40">
-              Mint a link, get a QR code, put it on anything. The scan is an
-              event.
+              Mint a link, get a QR code, put it on anything.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
@@ -2256,11 +2254,10 @@ function PsDiscord() {
             )}
           >
             <span className="text-white">
-              Your Discord is a lifecycle channel.
+              Your Discord is a lifecycle channel, too.
             </span>{" "}
             <span className="text-white/40">
-              One /link folds a member onto their contact — then journeys can DM
-              them.
+              Connect a Discord account to a user on your app.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
@@ -2467,8 +2464,8 @@ function PsSources() {
               People do more than click emails.
             </span>{" "}
             <span className="text-white/40">
-              Payments, sign-ups, support threads, SMS replies — all journey
-              triggers.
+              Payments, sign-ups, support threads, SMS replies — and more to
+              come.
             </span>
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
@@ -2901,8 +2898,7 @@ function PsGetStarted({ engineVersion }: { engineVersion?: string }) {
           >
             <span className="text-white">Start with one command.</span>{" "}
             <span className="text-white/40">
-              Eight questions, then the scaffolder writes the app, boots the
-              infra, and mints your keys.
+              pnpm dlx create-hogsend@latest .
               {engineVersion
                 ? ` Everything below ships with it, in v${engineVersion}.`
                 : " Everything below ships with it."}
@@ -2912,9 +2908,9 @@ function PsGetStarted({ engineVersion }: { engineVersion?: string }) {
             <span aria-hidden="true" className="text-[#23c489]">
               ❯
             </span>
-            pnpm create hogsend@latest
+            pnpm dlx create-hogsend@latest .
             <CopyButton
-              value="pnpm create hogsend@latest"
+              value="pnpm dlx create-hogsend@latest ."
               className="shrink-0 text-white/40 hover:text-white"
             />
           </div>
@@ -4141,9 +4137,7 @@ function PsUseCases() {
           <span className="text-white">
             The messages every product should send
           </span>{" "}
-          <span className="text-white/40">
-            — ten journeys ship in the scaffold.
-          </span>
+          <span className="text-white/40">— shipped by default.</span>
         </h2>
 
         {/* The event-fanning card idiom: tinted panels, lead + gray rest —
