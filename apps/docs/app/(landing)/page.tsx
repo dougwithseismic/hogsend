@@ -2919,8 +2919,7 @@ function PsGetStarted({ engineVersion }: { engineVersion?: string }) {
           <div className="mt-8 max-w-[860px]">
             <CliScaffoldDemo version={engineVersion} />
             <p className="mt-3 font-mono text-[11px] text-white/35">
-              The scaffolder&apos;s real output, prompt for prompt — from the
-              first question to a migrated database.
+              Run the scaffolder yourself: pnpm dlx create-hogsend@latest .
             </p>
           </div>
         </Reveal>
