@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const stampLoader = require("../../packages/inspector/loader/stamp-loader.cjs");
+const { withInspector } = await import("../../packages/inspector/src/next.ts");
 const docsRoot = fileURLToPath(new URL(".", import.meta.url));
 const workspaceRoot = path.resolve(docsRoot, "../..");
 const configSource = await readFile(
@@ -37,11 +38,25 @@ function stamp(relativePath) {
   );
 }
 
-test("stamps representative marketing TSX across apps/docs", () => {
+test("wires the source-stamping loader for TSX and JSX", () => {
+  const config = withInspector({}, { root: docsRoot, include });
+
+  for (const glob of ["*.tsx", "*.jsx"]) {
+    const rule = config.turbopack?.rules?.[glob];
+    assert.equal(rule?.loaders?.length, 1, `${glob} should use one loader`);
+    assert.deepEqual(rule.loaders[0].options, {
+      root: docsRoot,
+      include,
+    });
+  }
+});
+
+test("stamps representative marketing JSX across apps/docs", () => {
   for (const relativePath of [
     "apps/docs/app/(landing)/page.tsx",
     "apps/docs/app/(home)/pricing/page.tsx",
     "apps/docs/components/landing/site-nav.tsx",
+    "apps/docs/components/landing/example.jsx",
   ]) {
     assert.match(
       stamp(relativePath),
