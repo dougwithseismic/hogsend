@@ -42,6 +42,7 @@ import studioBuckets from "@/public/images/studio/09-buckets-audiences.png";
 import { AgentPromptLoop } from "./_components/agent-prompt-loop";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
+import { CliScaffoldDemo } from "./_components/cli-scaffold-demo";
 import {
   type ProviderValue,
   PsCodePicker,
@@ -2879,55 +2880,52 @@ function _PsHowItWorks() {
 
 /* ---------------------------------------------------------- feature index -- */
 
-/** Every entry hot-links to a section further down this page. */
-const FEATURE_INDEX: Array<{ label: string; href: string }> = [
-  { label: "Video events", href: "#video" },
-  { label: "Feature flags", href: "#flags" },
-  { label: "Contact groups", href: "#groups" },
-  { label: "In-email answers", href: "#email-answers" },
-  { label: "Links & QR", href: "#links" },
-  { label: "Discord", href: "#discord" },
-  { label: "Event plugins", href: "#sources" },
-  { label: "Impact experiments", href: "#experiments" },
-  { label: "Durable execution", href: "#hatchet" },
-];
+/* ------------------------------------------------------------ get set up -- */
 
-function PsFeatureIndex({ engineVersion }: { engineVersion?: string }) {
+/**
+ * Opens the feature deep-dive band (it replaced the old pill-index section):
+ * the create-hogsend setup replayed at full fidelity in a terminal — every
+ * prompt, spinner and bootstrap step is the scaffolder's real output.
+ */
+function PsGetStarted({ engineVersion }: { engineVersion?: string }) {
   return (
-    <section className="relative tw-section overflow-hidden">
-      <Container className="pt-20 pb-16 md:pt-24">
+    <section id="get-started" className="relative tw-section overflow-hidden">
+      <Container className="pt-20 pb-20 md:pt-24 md:pb-24">
         <Reveal>
-          <Eyebrow>Feature index</Eyebrow>
+          <Eyebrow>Get set up</Eyebrow>
           <h2
             className={cn(
               "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
               DISPLAY,
             )}
           >
-            <span className="text-white">
-              Here&apos;s everything that&apos;s in Hogsend today.
-            </span>{" "}
+            <span className="text-white">Start with one command.</span>{" "}
             <span className="text-white/40">
-              {engineVersion ? `All of it is in v${engineVersion}. ` : null}
-              Jump straight to a feature.
+              Eight questions, then the scaffolder writes the app, boots the
+              infra, and mints your keys.
+              {engineVersion
+                ? ` Everything below ships with it, in v${engineVersion}.`
+                : " Everything below ships with it."}
             </span>
           </h2>
-          <span
-            aria-hidden="true"
-            className="mt-8 inline-block animate-bounce font-mono text-[#f64838] text-2xl"
-          >
-            ↓
-          </span>
-          <div className="mt-6 flex max-w-[900px] flex-wrap gap-2">
-            {FEATURE_INDEX.map((f) => (
-              <a
-                key={f.href}
-                href={f.href}
-                className="rounded-full border border-[var(--tw-border)] bg-white/[0.05] px-3.5 py-2 font-mono text-[12px] text-white/60 transition-colors hover:border-[#f64838]/40 hover:text-white"
-              >
-                {f.label}
-              </a>
-            ))}
+          <div className="mt-6 inline-flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-2 pr-2 pl-4 font-mono text-[13px] text-white/75">
+            <span aria-hidden="true" className="text-[#23c489]">
+              ❯
+            </span>
+            pnpm create hogsend@latest
+            <CopyButton
+              value="pnpm create hogsend@latest"
+              className="shrink-0 text-white/40 hover:text-white"
+            />
+          </div>
+        </Reveal>
+        <Reveal delay={0.08}>
+          <div className="mt-8 max-w-[860px]">
+            <CliScaffoldDemo version={engineVersion} />
+            <p className="mt-3 font-mono text-[11px] text-white/35">
+              The scaffolder&apos;s real output, prompt for prompt — from the
+              first question to a migrated database.
+            </p>
           </div>
         </Reveal>
       </Container>
@@ -4662,8 +4660,9 @@ export default async function HomePage({
       {/* Temporarily hidden: <_PsHowItWorks /> */}
       <PsAgents />
       <PsUseCases />
-      <PsFeatureIndex engineVersion={engineVersion} />
-      {/* Feature deep-dive stack — video through timing, back to back. */}
+      {/* Feature deep-dive stack — opened by the setup replay, then video
+          through timing, back to back. */}
+      <PsGetStarted engineVersion={engineVersion} />
       <PsVideo />
       <PsFlags />
       <PsGroups />
