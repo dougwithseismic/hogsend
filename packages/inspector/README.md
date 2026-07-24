@@ -1,7 +1,7 @@
 # @hogsend/inspector
 
-Click any element in your running app to edit its static text in place or open
-its exact source line in your editor — dev-only, built for
+Click any element in your running app to edit its static text or Tailwind class
+list in place, or open its exact source line in your editor — dev-only, built for
 **Next.js + Turbopack + React 19**, where a rendered DOM node otherwise carries
 no path back to its source.
 
@@ -49,6 +49,13 @@ import { createEditHandler } from "@hogsend/inspector/server";
 export const POST = createEditHandler();
 ```
 
+```ts
+// app/api/devtools/style/route.ts
+import { createStyleHandler } from "@hogsend/inspector/server";
+
+export const POST = createStyleHandler();
+```
+
 ## Use
 
 Run your dev server, then **hold Option/Alt** and hover any stamped element —
@@ -56,12 +63,19 @@ it highlights with its source location.
 
 - **Click** static JSX text to edit it in place.
 - Press **Enter** to write the edit back to source, or **Escape** to cancel.
+- **Command-click** (macOS) or **Control-click** (Windows/Linux) to edit a
+  direct static `className="..."`. Existing compiled Tailwind utilities preview
+  immediately; newly introduced utilities appear after save and HMR.
+- In the class editor, press **Command/Control + Enter** to save or **Escape** to
+  cancel.
 - **Shift-click** to open the source line in your editor (`cursor` by default;
   set `HS_EDITOR` to override).
 
 Inline editing intentionally handles direct, static JSX text only. Text from
-expressions, MDX content, props, styles, classes, and structural changes should
-be changed after opening the source instead.
+expressions, MDX content, props, computed classes (`cn(...)`, conditionals, or
+template expressions), CSS selectors, and structural changes should be changed
+after opening the source instead. Class preview is disabled when runtime code
+has merged extra classes, so the editor cannot accidentally erase them.
 
 ## Safety
 

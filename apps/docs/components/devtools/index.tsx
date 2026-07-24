@@ -69,8 +69,8 @@ export function DevTools() {
 
   return (
     <>
-      {/* Alt-to-inspect click-to-source overlay. Dev only (the source stamps it
-          reads are only injected in dev), and inert until Alt is held. */}
+      {/* Alt-to-inspect text/class/source overlay. Dev only (the source stamps
+          it reads are only injected in dev), and inert until Alt is held. */}
       {IS_DEV ? <InspectorOverlay /> : null}
       {enabled ? <DevtoolsShell /> : null}
     </>

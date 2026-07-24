@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Click any element in your running app to edit its text in place or open its exact source line in your editor. Dev-only, Next.js + Turbopack.",
+  "description": "Click any element in your running app to edit its text or static Tailwind classes in place, or open its exact source line. Dev-only, Next.js + Turbopack.",
   "repository": {
     "type": "git",
     "url": "https://github.com/dougwithseismic/hogsend.git",
@@ -39,6 +39,7 @@
     "build": "tsup",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
+    "test": "node --no-warnings --experimental-strip-types --test test/*.test.mts",
     "clean": "rm -rf node_modules dist .turbo"
   },
   "dependencies": {

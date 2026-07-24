@@ -14,6 +14,9 @@ const configSource = await readFile(
   new URL("./next.config.mjs", import.meta.url),
   "utf8",
 );
+const packageJson = JSON.parse(
+  await readFile(new URL("./package.json", import.meta.url), "utf8"),
+);
 const includeBlock = configSource.match(
   /export default withInspector\([\s\S]*?include:\s*\[([^\]]*)\]/,
 );
@@ -49,6 +52,13 @@ test("wires the source-stamping loader for TSX and JSX", () => {
       include,
     });
   }
+});
+
+test("builds the ignored inspector dist before local docs development", () => {
+  assert.equal(
+    packageJson.scripts?.predev,
+    "pnpm --filter @hogsend/inspector build",
+  );
 });
 
 test("stamps representative marketing JSX across apps/docs", () => {

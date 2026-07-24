@@ -5,6 +5,7 @@
   "scripts": {
     "build": "next build",
     "postbuild": "node scripts/assemble-standalone.mjs",
+    "predev": "pnpm --filter @hogsend/inspector build",
     "dev": "next dev --port 3005",
     "start": "node .next/standalone/apps/docs/server.js",
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)",
