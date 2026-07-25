@@ -14,7 +14,7 @@ Ordered queue. Build top-down. See `DECISIONS.md` for locked global choices and 
 | 08 | [`contact.refined` outbound event](prds/08-contact-refined-outbound.md) | `[ ]` | 03 | Optional, cuttable — catalog entry across three hand-synced copies |
 | 09 | [`withDurableGate` primitive](prds/09-with-durable-gate.md) | `[x]` | 03 | **P0** — extract the positional-journal shape so a fifth bug of that class cannot be written |
 | 10 | [Test database isolation](prds/10-test-db-isolation.md) | `[x]` | — | **P0** — 150 test files pin DATABASE_URL to the shared main-checkout DB with no env escape |
-| 11 | [Bucket-emit provenance pin](prds/11-bucket-emit-provenance-pin.md) | `[ ]` | — | **P1, pre-existing** — every bucket transition mints a phantom contact for an anonymous-only visitor |
+| 11 | [Bucket-emit provenance pin](prds/11-bucket-emit-provenance-pin.md) | `[ ]` | — | **P1, pre-existing, [#608](https://github.com/dougwithseismic/hogsend/issues/608)** — every bucket transition mints a phantom contact for an anonymous-only visitor |
 
 ## Legend
 

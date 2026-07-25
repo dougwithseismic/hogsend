@@ -1,6 +1,7 @@
 # PRD 11 — Bucket transitions mint phantom contacts for anonymous visitors
 
-**Depends on:** — · **Status:** `[ ]` · **Priority: P1**
+**Depends on:** — · **Status:** `[ ]` · **Priority: P1** ·
+**Tracked as [#608](https://github.com/dougwithseismic/hogsend/issues/608)**
 
 ## Goal
 
