@@ -13,6 +13,7 @@ import { blueprintsRouter } from "./blueprints.js";
 import { bucketsRouter } from "./buckets.js";
 import { bulkRouter } from "./bulk.js";
 import { adminCampaignsRouter } from "./campaigns.js";
+import { configRouter } from "./config.js";
 import { adminConnectorsRouter } from "./connectors.js";
 import { contactsRouter } from "./contacts.js";
 import { adminConversionsRouter } from "./conversions.js";
@@ -74,6 +75,10 @@ adminRouter.route("/metrics", metricsRouter);
 adminRouter.route("/reporting", reportingRouter);
 adminRouter.route("/templates", templatesRouter);
 adminRouter.route("/settings", settingsRouter);
+// Literal "/config" cannot be shadowed here: the only router mounted at "/"
+// (bulkRouter) has no top-level param routes, and every other mount is a
+// distinct literal prefix.
+adminRouter.route("/config", configRouter);
 adminRouter.route("/suppressions", suppressionsRouter);
 adminRouter.route("/api-keys", apiKeysRouter);
 adminRouter.route("/webhooks", webhooksRouter);

@@ -9,6 +9,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { gte, sql } from "drizzle-orm";
 import type { AppEnv } from "../app.js";
 import { API_VERSION } from "../env.js";
+import { getBootDiagnostics } from "../lib/boot-diagnostics.js";
 import { getRedis } from "../lib/redis.js";
 import { getWorkerHeartbeat } from "../lib/worker-heartbeat.js";
 
@@ -51,6 +52,18 @@ const activitySchema = z.object({
   }),
 });
 
+// Boot-time config diagnostics, COUNT ONLY. This route is unauthenticated
+// (Railway probes it; `hogsend doctor` depends on that), and the diagnostic
+// messages name unset env vars, absent secrets and unauthenticated contact
+// sources — deployment reconnaissance that must not be public. The full text
+// lives behind the admin-guarded GET /v1/admin/config. Advisory like the
+// `activity` block: the count never participates in `status` — degrading a
+// misconfigured-but-alive deploy would fail Railway's healthcheck and convert
+// an advisory into an outage.
+const configSchema = z.object({
+  warnings: z.number(),
+});
+
 const healthResponseSchema = z.object({
   status: z.enum(["healthy", "degraded", "migration_pending"]),
   uptime: z.number(),
@@ -66,6 +79,7 @@ const healthResponseSchema = z.object({
     client: trackSchema,
   }),
   activity: activitySchema,
+  config: configSchema,
 });
 
 const healthRoute = createRoute({
@@ -270,6 +284,9 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
           },
         },
         activity,
+        // Read per-request, not cached at boot: some diagnostics record late
+        // (e.g. after an async provider prime settles).
+        config: { warnings: getBootDiagnostics().length },
       },
       200,
     );
