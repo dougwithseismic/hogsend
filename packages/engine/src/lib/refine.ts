@@ -55,14 +55,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * orchestration primitives only, exactly like `sendEmail()` and `sendSms()`.
  *
  * Replay-safety is two-layer. Layer 1 is Hatchet's durable `memo`, keyed by
- * `deriveJourneyKey({ kind: "refine", … })`, issued UNCONDITIONALLY whenever a
- * journey boundary exists — see the law spelled out on `runRefineChain`. Layer 2
- * is the `enrichment_lookups` unique index, which carries exactly-once on its
- * own outside a journey.
+ * `deriveJourneyKey({ kind: "refine", … })` over the CALLER'S ARGUMENTS ONLY and
+ * issued UNCONDITIONALLY whenever a journey boundary exists — see the law
+ * spelled out on `runRefineChain`. Layer 2 is the `enrichment_lookups` unique
+ * index, which carries exactly-once on its own outside a journey.
  *
- * It NEVER throws on a provider failure: a vendor 5xx writes an `error` ledger
- * row (which does not suppress a later retry) and returns
- * `{ status: "skipped", reason: "provider_error" }`.
+ * It NEVER throws. A vendor 5xx writes an `error` ledger row (which records the
+ * spend but does not suppress a later retry) and returns
+ * `{ status: "skipped", reason: "provider_error" }`; a failed ingest returns
+ * `{ status: "skipped", reason: "ingest_failed" }` rather than escaping into the
+ * journey run that called it.
  */
 export async function refineContact(
   opts: RefineContactOptions = {},
@@ -86,7 +88,9 @@ export async function refineContact(
     resolveTarget: (target) => resolveRefineTarget(db, target),
     findLedgerRow: async (input) => {
       const row = await findEnrichmentLookup({ db, ...input });
-      return row ? { status: row.status, expiresAt: row.expiresAt } : null;
+      return row
+        ? { status: row.status, expiresAt: row.expiresAt, traits: row.traits }
+        : null;
     },
     countLookupsSince: (input) =>
       countEnrichmentLookups({ db, since: input.since }),
@@ -120,7 +124,8 @@ export async function refineContact(
  * Resolve the refinement subject and everything the lookup needs from it: the
  * canonical key the ingest writes back under, the lookup key (email first, then
  * the contact's company domain), the vendor query's name/company hints, and the
- * `refined_*` traits already on the row (the `cached` payload).
+ * `refined_*` traits already on the row (what a cache hit compares against to
+ * decide whether this contact still needs the stored answer landed).
  *
  * An email with no contact row is still refinable — the ingest at the end of the
  * chain creates the contact — so a brand-new address is not a `no_lookup_key`.
@@ -146,9 +151,11 @@ async function resolveRefineTarget(
   const properties = row.properties ?? {};
   const resolvedEmail = row.email ?? email;
   // REPLAY SAFETY: every key here must be one this function does NOT write.
-  // The domain becomes the `lookupKey`, which becomes the memo `discriminant`,
-  // so a self-referential source shifts the positional journal — the same class
-  // of bug as issuing `memoize` conditionally, one level deeper.
+  // The domain becomes the `lookupKey`, which is the `enrichment_lookups`
+  // arbiter — Layer 2, the version-independent exactly-once backstop. (Layer 1,
+  // the memo key, is derived from the caller's arguments alone and is immune.)
+  // A self-referential source would make a replay derive a DIFFERENT ledger key,
+  // miss the row it just wrote, and charge the vendor a second time.
   //
   // `refined_company_domain` is deliberately EXCLUDED: `flattenTraits` writes it
   // (refine-traits.ts) from the vendor's canonical domain, which need not equal

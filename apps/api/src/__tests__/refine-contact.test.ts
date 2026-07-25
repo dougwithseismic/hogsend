@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 
 // DB-touching test. This worktree runs its OWN isolated stack (DECISIONS §4b) —
-// 5438/6383, schema at migration 0065 (`enrichment_lookups`). Never 5434: those
+// 5438/6383, schema at migration 0066 (`enrichment_lookups`). Never 5434: those
 // containers belong to the main checkout.
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
@@ -419,6 +419,16 @@ it("skips with no_lookup_key and zero spend when nothing resolves to an email or
   expect(providerCalls).toBe(0);
 });
 
+it("skips with no_lookup_key when the call names no subject at all", async () => {
+  // The PURE argument gate — the only thing allowed to short-circuit before the
+  // durable memo, because it reads nothing that can change between a run and
+  // its replay.
+  const result = await refineContact({});
+
+  expect(result).toEqual({ status: "skipped", reason: "no_lookup_key" });
+  expect(providerCalls).toBe(0);
+});
+
 it("refines a domain-only contact by its company domain", async () => {
   const userId = uid("domain-only");
   await db
@@ -475,4 +485,176 @@ it("derives the domain lookup key from externally-supplied properties only, neve
   // `refined_company_domain` to the precedence list in refine.ts and this fails.
   expect(rows).toHaveLength(1);
   expect(rows[0]?.lookupKind).toBe("domain");
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for the four defects the adversarial review confirmed
+// ---------------------------------------------------------------------------
+
+async function seedDomainContact(
+  label: string,
+  domain: string,
+): Promise<string> {
+  const userId = uid(label);
+  await db
+    .insert(contacts)
+    .values({ externalId: userId, properties: { company_domain: domain } })
+    .onConflictDoNothing();
+  return userId;
+}
+
+function registerFitBucket(bucketId: string): void {
+  setBucketRegistry(
+    buildBucketRegistry(
+      [
+        defineBucket({
+          meta: {
+            id: bucketId,
+            name: "GTM qualified",
+            enabled: true,
+            criteria: (b) => b.prop("refined_company_employees").gte(100),
+          },
+        }),
+      ],
+      "*",
+    ),
+  );
+}
+
+async function memberOf(userId: string, bucketId: string) {
+  return db.query.bucketMemberships.findFirst({
+    where: and(
+      eq(bucketMemberships.userId, userId),
+      eq(bucketMemberships.bucketId, bucketId),
+      eq(bucketMemberships.status, "active"),
+    ),
+  });
+}
+
+it("D2: a SECOND contact sharing the lookup key receives the paid traits and enters the fit bucket", async () => {
+  // The ledger is keyed by (provider, kind, key) with NO contact dimension, and
+  // a `domain` key is shared by every contact at that company. A cache hit must
+  // suppress the SPEND, never the outcome — before the fix contact B got
+  // `{ status: "cached", properties: {} }`, no ingest, no membership, and no
+  // error to tell anyone the loop had silently not closed.
+  const bucketId = uid("gtm-qualified-shared");
+  registerFitBucket(bucketId);
+
+  const domain = `${uid("shared")}.example`;
+  const a = await seedDomainContact("d2-a", domain);
+  const b = await seedDomainContact("d2-b", domain);
+
+  expect((await refineContact({ userId: a })).status).toBe("refined");
+  expect(providerCalls).toBe(1);
+  expect(await memberOf(a, bucketId)).toBeDefined();
+
+  const second = await refineContact({ userId: b });
+
+  expect(second.status).toBe("cached");
+  // AC 2 intact: zero spend, ledger row count unchanged.
+  expect(providerCalls).toBe(1);
+  expect(await ledgerRows(domain)).toHaveLength(1);
+  // ...and the loop closed for B too.
+  expect(second.properties).toMatchObject({
+    refined_company_employees: 250,
+    refined_company_name: "Acme",
+  });
+  const props = await contactProperties(b);
+  expect(props.refined_company_employees).toBe(250);
+  expect(await memberOf(b, bucketId)).toBeDefined();
+});
+
+it("D3: the cap counts LOOKUPS, so a force loop on ONE key cannot spend past it", async () => {
+  // `force` UPDATES the single row for its key rather than inserting, so a cap
+  // that counted ROWS counted distinct SUBJECTS — and the refresh path, the
+  // only way to re-spend inside the TTL, was the one path it never measured.
+  const { userId, email } = await seedContact("d3");
+  process.env.ENRICHMENT_MONTHLY_LOOKUPS = "2";
+
+  expect((await refineContact({ userId })).status).toBe("refined");
+  expect((await refineContact({ userId, force: true })).status).toBe("refined");
+  expect(providerCalls).toBe(2);
+
+  const capped = await refineContact({ userId, force: true });
+
+  expect(capped).toEqual({ status: "skipped", reason: "budget_exceeded" });
+  expect(providerCalls).toBe(2);
+
+  const rows = await ledgerRows(email);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.spendCount).toBe(2);
+});
+
+it("D4a: a provider outage on an ALREADY-refined key is counted and visible, so the cap still trips", async () => {
+  // The error write used to be `onConflictDoNothing`, so for any key that
+  // already had a row the failed lookup was recorded nowhere: an outage across
+  // a populated contact base billed without limit and moved no counter.
+  const { userId, email } = await seedContact("d4a");
+  process.env.ENRICHMENT_MONTHLY_LOOKUPS = "3";
+
+  expect((await refineContact({ userId })).status).toBe("refined");
+  const seeded = (await ledgerRows(email))[0];
+  expect(seeded?.status).toBe("found");
+
+  // Lapse the TTL so every later call reaches the vendor.
+  await db
+    .update(enrichmentLookups)
+    .set({ expiresAt: new Date(Date.now() - 1_000) })
+    .where(eq(enrichmentLookups.id, seeded?.id ?? ""));
+
+  respond = async () => {
+    throw new Error("vendor 503");
+  };
+
+  for (const _ of [1, 2]) {
+    expect(await refineContact({ userId })).toEqual({
+      status: "skipped",
+      reason: "provider_error",
+    });
+  }
+  expect(providerCalls).toBe(3);
+
+  // The 4th request is refused: three lookups left the building this month.
+  expect(await refineContact({ userId })).toEqual({
+    status: "skipped",
+    reason: "budget_exceeded",
+  });
+  expect(providerCalls).toBe(3);
+
+  const rows = await ledgerRows(email);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.spendCount).toBe(3);
+  expect(rows[0]?.lastErrorAt).not.toBeNull();
+  // The errors never clobbered the paid answer sitting in the row.
+  expect(rows[0]?.status).toBe("found");
+  expect(rows[0]?.traits).toMatchObject({ refined_company_employees: 250 });
+});
+
+it("D4b: a failed ingest returns a verdict instead of throwing, and the retry closes the loop for free", async () => {
+  // The ledger row is committed BEFORE the ingest, so an exception escaping
+  // here spent the money, killed the caller's journey run, and left the
+  // contact permanently mis-qualified behind an armed 90-day cache.
+  const bucketId = uid("gtm-qualified-ingest");
+  registerFitBucket(bucketId);
+  const { userId, email } = await seedContact("d4b");
+
+  enginePushSpy.mockRejectedValueOnce(new Error("hatchet unavailable"));
+
+  const failed = await refineContact({ userId });
+
+  expect(failed).toEqual({ status: "skipped", reason: "ingest_failed" });
+  expect(providerCalls).toBe(1);
+  const rows = await ledgerRows(email);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.status).toBe("found");
+  // The spend is auditable and the answer is kept — the loop just did not close.
+  expect(rows[0]?.traits).toMatchObject({ refined_company_employees: 250 });
+  expect(await memberOf(userId, bucketId)).toBeUndefined();
+
+  const retried = await refineContact({ userId });
+
+  expect(retried.status).toBe("cached");
+  // Free: the stored patch is re-landed from the ledger, no second vendor call.
+  expect(providerCalls).toBe(1);
+  expect(await memberOf(userId, bucketId)).toBeDefined();
 });

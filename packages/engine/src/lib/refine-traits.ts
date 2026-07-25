@@ -62,9 +62,9 @@ export const REFINED_TRAIT_PREFIX = "refined_";
 
 /**
  * The `refined_*` subset of an already-stored `contacts.properties` bag — what
- * `refineContact` hands back as the `properties` of a `cached` verdict (the
- * ledger stores the vendor's verbatim `raw`, not the normalized patch, so the
- * contact row is the authoritative record of what a prior lookup landed).
+ * a cache hit compares the ledger row's stored patch against, to tell "this
+ * contact already has the paid answer" apart from "another contact at the same
+ * domain paid for it and this one has never seen it".
  */
 export function pickRefinedTraits(
   properties: Record<string, unknown> | null | undefined,

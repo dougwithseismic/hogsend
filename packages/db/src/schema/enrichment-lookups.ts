@@ -1,5 +1,6 @@
 import {
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -49,6 +50,29 @@ export const enrichmentLookups = pgTable(
     // Provider's verbatim response, for debugging. Nullable so a deployment
     // can null it out for storage/privacy reasons without a schema change.
     raw: jsonb("raw").$type<Record<string, unknown>>(),
+    // The NORMALIZED `refined_*` patch the paid answer produced — the engine's
+    // `flattenTraits` output, verbatim. `raw` is vendor-shaped and cannot be
+    // re-flattened engine-side without the provider, so a cache HIT for a
+    // DIFFERENT contact than the one that paid (the shared-domain case) has no
+    // way to land the answer it already owns unless the patch itself is stored.
+    // Null on rows written before this column existed, and on `error` rows.
+    traits: jsonb("traits").$type<Record<string, unknown>>(),
+    // ---- Spend accounting (the budget cap counts LOOKUPS, not rows) --------
+    // The row is one-per-key by design (TTL + negative cache + exactly-once),
+    // so a `force` refresh UPDATES it rather than inserting. Counting rows
+    // therefore counts distinct SUBJECTS, not vendor calls, and a force loop on
+    // one key spends without ever moving the count. These two columns make the
+    // count exact: `spend_count` is the number of provider calls recorded for
+    // this key inside `spend_window`, and it RESETS to 1 whenever a call lands
+    // in a new window — so last month's attempts can never bleed into this
+    // month's budget.
+    spendWindow: timestamp("spend_window", { withTimezone: true }),
+    spendCount: integer("spend_count").notNull().default(0),
+    // Last provider throw for this key. An error must not clobber a live cached
+    // row (status/expires_at/raw stay put), but the attempt still left the
+    // building and must be visible + counted: an outage across an
+    // already-refined base is exactly when the cap has to hold.
+    lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
@@ -59,8 +83,10 @@ export const enrichmentLookups = pgTable(
       table.lookupKind,
       table.lookupKey,
     ),
-    // Serves the budget-period COUNT (filter on refined_at).
+    // Serves reporting/forensics over the ledger by time.
     index("enrichment_lookups_refined_at_idx").on(table.refinedAt),
+    // Serves the budget-period SUM (equality filter on spend_window).
+    index("enrichment_lookups_spend_window_idx").on(table.spendWindow),
     index("enrichment_lookups_contact_id_idx").on(table.contactId),
   ],
 );

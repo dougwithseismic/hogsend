@@ -150,9 +150,18 @@ Undefined source fields are omitted from the patch entirely.
    `status: "skipped", reason: "budget_exceeded"` and call the provider zero times, even with `force`.
 6. WHEN no active enrichment provider is registered the system SHALL return
    `status: "skipped", reason: "no_provider"` and SHALL NOT throw.
-7. WHEN the provider throws the system SHALL write a ledger row with `status: "error"`, return
+7. WHEN the provider throws the system SHALL record the attempt, return
    `status: "skipped", reason: "provider_error"`, and SHALL NOT throw. A subsequent call SHALL
    attempt the provider again.
+
+   **Recording differs by whether a paid answer already exists**, and this asymmetry is deliberate:
+   - No row for the key → write one with `status: "error"`, born-expired so it never suppresses a retry.
+   - A row already holding a paid answer → bump `spend_count` / `last_error_at` ONLY. `status`,
+     `expires_at`, `raw` and `traits` are left untouched, so a vendor outage during a `force` refresh
+     cannot destroy a live cached answer that was already paid for. An error is not a cache entry.
+
+   Either way the attempt counts against the budget (AC 5) — an outage that retries in a loop is
+   exactly when an uncapped spend hurts most.
 8. WHEN the provider returns a company employee count the system SHALL write
    `refined_company_employees` as a JSON number such that a bucket with
    `criteria: (b) => b.prop("refined_company_employees").gte(100)` matches.
