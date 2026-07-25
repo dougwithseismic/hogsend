@@ -21,6 +21,16 @@ export interface ResolvedActionContact {
   email: string | null;
   discordId: string | null;
   externalId: string | null;
+  /**
+   * Provenance (`contacts.source`) — the id of the origin that minted the
+   * contact ("api"/"posthog"/a Contact Source id like "clay"). Consulted by the
+   * cold-channel gate: a value naming a registered Contact Source classifies
+   * the contact as a cold prospect. OPTIONAL (additive) so pre-existing
+   * constructors of this public shape keep compiling; the engine's resolver
+   * always populates it, and an absent value is treated as "not a prospect"
+   * (fail open), matching the gate's posture.
+   */
+  source?: string | null;
   properties: Record<string, unknown>;
 }
 
@@ -84,7 +94,10 @@ export function defineConnectorAction<A, R>(
 /**
  * The verdict returned when the engine SKIPS a member-directed connector action
  * because the resolved recipient opted out — either the global master opt-out
- * (`unsubscribed_all`) or the per-connector channel list (`channel_unsubscribed`).
+ * (`unsubscribed_all`) or the per-connector channel list (`channel_unsubscribed`)
+ * — or because the recipient is a cold prospect (their `contacts.source` names a
+ * registered Contact Source) whose source posture blocks this connector's
+ * channel (`cold_channel_blocked`).
  *
  * A plain JSON-safe POJO so it is memo-recordable and replays VERBATIM through
  * both the Hatchet durable `memo` (Layer 1) AND the `connector_deliveries.result`
@@ -100,7 +113,7 @@ export function defineConnectorAction<A, R>(
  */
 export interface ConnectorActionSkipped {
   skipped: true;
-  reason: "unsubscribed_all" | "channel_unsubscribed";
+  reason: "unsubscribed_all" | "channel_unsubscribed" | "cold_channel_blocked";
   connectorId: string;
   action: string;
 }
