@@ -102,6 +102,17 @@ export const smsSendStatusEnum = pgEnum("sms_send_status", [
   "failed",
 ]);
 
+export const enrichmentLookupKindEnum = pgEnum("enrichment_lookup_kind", [
+  "email",
+  "domain",
+]);
+
+export const enrichmentLookupStatusEnum = pgEnum("enrichment_lookup_status", [
+  "found", // paid positive result — cached until expires_at
+  "not_found", // paid NEGATIVE result — suppresses re-spend until expires_at
+  "error", // NOT a paid result — must not suppress a retry
+]);
+
 export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
   "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
   // satisfied duplicate. A replay finding this re-drives the action (safer

@@ -456,6 +456,13 @@
       "when": 1784657548371,
       "tag": "0064_curly_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1784954701495,
+      "tag": "0065_chubby_archangel",
+      "breakpoints": true
     }
   ]
 }
