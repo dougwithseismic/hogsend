@@ -4,10 +4,10 @@ import type {
   EnrichmentResult,
 } from "@hogsend/core";
 import {
-  deriveJourneyKey,
-  getJourneyBoundary,
-  registerKey,
-} from "../journeys/journey-boundary.js";
+  type CallerRef,
+  callerRefFromArgs,
+  withDurableGate,
+} from "../journeys/with-durable-gate.js";
 import type {
   EnrichmentLookupKind,
   EnrichmentLookupStatus,
@@ -168,9 +168,12 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  *    memo is safe.
  *  - Step 1 (no active provider) is a boot-time config read — also genuinely
  *    replay-stable, also safe outside.
- *  - Then, UNCONDITIONALLY, whenever a journey boundary exists: derive the key
- *    from the CALLER'S ARGUMENTS ONLY, `registerKey`, and issue
- *    `boundary.memoize`. No condition guards that call.
+ *  - Then `withDurableGate` OWNS the rest of the shape structurally (it is this
+ *    function's former hand-rolled block, extracted): whenever a journey
+ *    boundary exists it UNCONDITIONALLY derives the key from the CALLER'S
+ *    ARGUMENTS ONLY (the branded `CallerRef` makes anything else a type
+ *    error), `registerKey`s it, and issues `boundary.memoize`. No condition
+ *    guards that call.
  *  - Steps 2-6 (resolve, ledger gate, budget cap, provider call, ledger write +
  *    ingest) ALL live INSIDE the memo closure, so EVERY verdict — including
  *    `no_lookup_key` — is recorded by the durable memo and replayed verbatim.
@@ -198,27 +201,14 @@ export async function runRefineChain(
     return { status: "skipped", reason: "no_provider" };
   }
 
-  const gate = (idempotencyKey?: string) =>
-    runGates({ deps, opts, provider, providerId, idempotencyKey });
-
-  const boundary = getJourneyBoundary();
-
-  // Outside a journey run there is no replay to defend against and no boundary
-  // to key from — run the gates directly (connector-actions.ts:342).
-  if (!boundary) return gate();
-
-  // UNCONDITIONAL from here: derive → register → memoize. Nothing between this
-  // comment and the `memoize` call may read the database or branch on one.
-  const site = opts.idempotencyLabel ?? boundary.currentLabel ?? callerRef;
-  const key = deriveJourneyKey({
-    kind: "refine",
-    anchor: boundary.runAnchor,
-    site,
-    discriminant: callerRef,
-  });
-  registerKey(boundary, key);
-
-  return boundary.memoize([key], () => gate(key));
+  // boundary resolution → key derivation → registerKey → memoize is owned by
+  // `withDurableGate`, which is the extraction of the block that used to live
+  // right here — the ordering is structural now, not this function's to write.
+  return withDurableGate(
+    { kind: "refine", callerRef, idempotencyLabel: opts.idempotencyLabel },
+    (idempotencyKey?: string) =>
+      runGates({ deps, opts, provider, providerId, idempotencyKey }),
+  );
 }
 
 /**
@@ -228,14 +218,14 @@ export async function runRefineChain(
  * journey authored, so it is identical on a run and its replay (Hatchet
  * re-derives task input from the recorded payload).
  */
-function refineCallerRef(opts: RefineContactOptions): string | undefined {
-  const contactId = opts.contactId?.trim();
+function refineCallerRef(opts: RefineContactOptions): CallerRef | undefined {
+  const contactId = callerRefFromArgs(opts.contactId);
   if (contactId) return contactId;
   // Mirrors `normalizeEmail` (contacts.ts) without importing the db layer into
   // what must stay a pure, database-free module.
-  const email = opts.email?.trim().toLowerCase();
+  const email = callerRefFromArgs(opts.email?.toLowerCase());
   if (email) return email;
-  return opts.userId?.trim() || undefined;
+  return callerRefFromArgs(opts.userId);
 }
 
 /**
