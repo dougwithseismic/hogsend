@@ -135,15 +135,20 @@ another agent — never point at them.
 
 ```bash
 docker compose up -d postgres redis     # reads ./.env → 5438 / 6383
-export DATABASE_URL='postgresql://growthhog:growthhog@localhost:5438/growthhog'
+export HOGSEND_TEST_DATABASE_URL='postgresql://growthhog:growthhog@localhost:5438/growthhog'
 export REDIS_URL='redis://localhost:6383'
 ```
 
-`apps/api/vitest.config.ts` hardcodes a *placeholder* `DATABASE_URL` (`…@localhost:5432/test`), and
-turbo's `test` task declares `passThroughEnv: ["DATABASE_URL","REDIS_URL"]`. So an exported
-`DATABASE_URL` overrides the placeholder and is what DB-backed suites actually use. Migrations are
-already applied in this worktree (schema at `0064_curly_peter_parker`); after PRD 02 adds a migration,
-re-run `DATABASE_URL=… pnpm db:migrate` from `packages/db`.
+**`HOGSEND_TEST_DATABASE_URL`, not `DATABASE_URL`.** Every file in `apps/api/src/__tests__/` ASSIGNS
+`process.env.DATABASE_URL` at module load, so an exported `DATABASE_URL` is overwritten and ignored.
+Until PRD 10 those assignments were unconditional and pinned to **5434 — the main checkout's shared
+database** — so a suite run from any worktree wrote to another session's data. PRD 10 made all 151
+respect the override; the default is deliberately unchanged, so anyone with nothing exported sees
+identical behaviour.
+
+Migrations for this worktree are applied through `0067`; after a PRD adds one, re-run
+`DATABASE_URL=… pnpm db:migrate` from `packages/db` (that command reads `DATABASE_URL` directly — it
+is not a test).
 
 ---
 
@@ -189,7 +194,7 @@ Each is a clean follow-up. None blocks this release.
 |---|---|
 | **Live Apollo API key** | **CLOSED 2026-07-25.** Key supplied and verified live (`POST /api/v1/people/match` → HTTP 200). Stored in the gitignored `.env` and `apps/api/.env` only; `apps/api/.env.example` carries a documented placeholder. The key appears in no tracked file and no commit — verified with `git check-ignore` and a history-wide `git grep`. PRDs still build against an injected `fetch` and a fake provider; the real key is for the PRD 07 smoke only. `ENRICHMENT_MONTHLY_LOOKUPS=50` locally so a test loop cannot burn the quota. |
 | **Running Postgres for `apps/api` tests** | `docker compose up -d` provides TimescaleDB on 5434. The vitest config injects test env vars. Available locally; not a blocker. |
-| **Publishing `@hogsend/plugin-apollo` to npm** | A brand-new `@hogsend/*` package's first publish must be manual — CI cannot create it. Out of scope for this run (no publishing). Note it for the release train. |
+| **Publishing `@hogsend/plugin-apollo` to npm** | Needs a changeset listing every engine-line package; CI then publishes it. The old manual-first-publish rule is DEAD (disproved by sms/plugin-twilio in 0.43.0 and attribution/plugin-meta-capi in 0.44.0). Out of scope for this run (no publishing). |
 
 ---
 

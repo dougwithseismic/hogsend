@@ -149,7 +149,14 @@ Not caused by this release. Flagged here because it materially weakens the evide
       exposure.
 - [ ] **`ENRICHMENT_MONTHLY_LOOKUPS` set deliberately per environment.** Default `0` is UNCAPPED;
       local is pinned to 50. An unset production deploy has no ceiling.
-- [ ] **First npm publish of `@hogsend/plugin-apollo` is manual** — CI cannot create a new package.
+- [ ] **`@hogsend/plugin-apollo` needs a changeset** so the release train picks it up. CI publishes
+      brand-new packages fine — the "first publish must be manual" rule is dead (disproved by
+      `sms`/`plugin-twilio` in 0.43.0 and `attribution`/`plugin-meta-capi` in 0.44.0, all
+      first-published by CI). `verify-published.mjs` backstops it. A fresh packument can 404
+      anonymously for ~15 min after a successful publish; probe the tarball, don't panic.
+- [ ] **The changeset must list EVERY engine-line package**, or `release-doctor` blocks the Version
+      PR silently (no PR appears at all). Check `gh run view --log | grep release-doctor` if it
+      doesn't show up.
 - [ ] **Migration 0065 on a populated database.** Additive and reviewed as safe, but not yet applied
       to anything with real row counts.
 

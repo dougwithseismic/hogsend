@@ -51,8 +51,8 @@ The reference `EnrichmentProvider`: a dumb wire that queries Apollo and normalis
 
 - **Do not commit the raw probe response as a fixture** — it contains a real person's contact data.
   Hand-author fixtures with the same SHAPE and synthetic values.
-- No npm publish in this run. A brand-new `@hogsend/*` package's first publish must be manual; that
-  is a release-train task, not a build task.
+- No npm publish in this run. CI publishes brand-new packages fine (the manual-first-publish rule is
+  dead); it just needs a changeset covering the whole engine line. Release-train task, not a build task.
 
 ## Acceptance criteria (EARS)
 
