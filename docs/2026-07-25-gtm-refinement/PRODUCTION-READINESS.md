@@ -42,16 +42,18 @@ is easy to get subtly wrong in a way every gate reports green.
 
 ## 1. Correctness — must all be closed
 
-- [~] **D1 (blocking)** — `memoize` issuance and key both derived from a live `contacts` read outside
-      the closure. Two reproduced variants: journal shift (run killed) and double vendor spend with
-      duplicate `contact.refined` ingest. *Fix in flight.*
-- [~] **D2 (blocking)** — a `cached` verdict returns the caller's own traits and writes nothing, so on
-      a shared (domain) key every contact after the first is silently starved: no traits, no ingest,
-      no bucket re-evaluation, no error. *Fix in flight.*
-- [~] **D3 (blocking)** — budget cap counts ledger ROWS while `force` upserts, so repeated `force`
-      spends without limit. The cap must count LOOKUPS. *Fix in flight.*
-- [~] **D4 (important)** — a provider error on an existing key records nothing (uncapped, invisible
-      outage retries); a failed `ingestEvent` throws after the paid row is committed. *Fix in flight.*
+What was wrong, all four found by adversarial review AFTER the code was committed on green gates:
+- **D1 (blocking)** — `memoize` issuance and key both derived from a live `contacts` read outside the
+  closure. Two reproduced variants: journal shift (run killed), and double vendor spend with a
+  duplicate `contact.refined` ingest.
+- **D2 (blocking)** — a `cached` verdict returned the caller's own traits and wrote nothing, so on a
+  shared (domain) key every contact after the first was silently starved: no traits, no ingest, no
+  bucket re-evaluation, no error.
+- **D3 (blocking)** — the budget cap counted ledger ROWS while `force` upserts in place, so a `force`
+  loop spent without limit.
+- **D4 (important)** — a provider error on an existing key recorded nothing (uncapped, invisible
+  outage retries), and a failed `ingestEvent` threw after the paid row was committed.
+
 - [x] **D1–D4 all closed** in `c9aed857`, and re-verified by REPRODUCTION rather than diff-reading:
       two independent advisors re-drove the real `refineContact` against the live DB and could not
       reproduce any of the four. Mutation evidence is the load-bearing part — restoring D1's old shape
