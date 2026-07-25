@@ -188,6 +188,8 @@ Powers [`refineContact()`](/docs/guides/refinement). Entirely opt-in: with no pr
 
 **Every lookup costs money.** The engine owns the spend controls rather than the provider: results — hits *and* misses — are cached in the `enrichment_lookups` ledger, and the monthly cap fails closed.
 
+**Install the provider package first — the key alone does nothing.** Run `pnpm add @hogsend/plugin-apollo` in your app, or scaffold with `create-hogsend --with apollo`. It must be a direct dependency of *your* app: the engine lists it under `optionalDependencies`, but your app bundles the engine, so the engine's lazy `import("@hogsend/plugin-apollo")` resolves against your `node_modules`, where an engine-only optional dependency is never linked. Set the key without the package and the boot log says exactly that. The same applies to `@hogsend/plugin-postmark` and `@hogsend/plugin-twilio`.
+
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
 | `APOLLO_API_KEY` | No | — | API, Worker | Apollo API key. Present, plus `@hogsend/plugin-apollo` installed, builds the preset provider. Absent means no enrichment provider is registered. |

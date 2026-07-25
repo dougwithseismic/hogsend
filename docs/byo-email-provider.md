@@ -926,6 +926,18 @@ still must set `EMAIL_PROVIDER=postmark` (or `email.defaultProvider: "postmark"`
 to make it the **active** provider — registering it alone never changes the
 default.
 
+First, install the package into your app — the token alone is not enough:
+
+```bash
+pnpm add @hogsend/plugin-postmark
+```
+
+It must be a DIRECT dependency of your app. The engine lists it under
+`optionalDependencies`, which puts it on disk but does not link it at your app's
+top level, and your app bundles the engine — so the engine's lazy
+`import("@hogsend/plugin-postmark")` resolves against YOUR `node_modules`. Set
+the token without the package and the boot log says so explicitly.
+
 1. **Env preset** — set `POSTMARK_SERVER_TOKEN` (+ optional
    `POSTMARK_MESSAGE_STREAM`, and `POSTMARK_WEBHOOK_USER` /
    `POSTMARK_WEBHOOK_PASS` for the HTTP-Basic webhook auth). The preset is built

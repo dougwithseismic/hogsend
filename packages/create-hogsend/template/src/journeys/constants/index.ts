@@ -18,6 +18,12 @@ export const Events = {
   FEATURE_USED: "feature.used",
   FEATURE_ACTIVATED: "feature.activated",
 
+  // Emitted when someone hands you a work email — a signup form, a waitlist,
+  // one curl to POST /v1/events. A single occurrence enters the
+  // `qualified-leads` bucket, whose enter reaction refines the contact
+  // (src/buckets/qualified-leads.ts).
+  LEAD_CAPTURED: "lead.captured",
+
   // Billing lifecycle — drives the bundled `trial-expiring` journey. Emit
   // `trial.started` from your signup/billing code (e.g. `hs.events.send`); the
   // journey waits out the trial and emails before it ends. `subscription.started`
@@ -70,7 +76,7 @@ export type EventName = (typeof Events)[keyof typeof Events];
  * (e.g. `powerUsers.entered`), which are literal-typed off the bucket's own id
  * and need no hand-maintained union. Kept for one release for back-compat.
  */
-export type BucketId = "power-users";
+export type BucketId = "power-users" | "qualified-leads";
 
 // Narrow-alias helpers — ONLY accept a registered BucketId, so a typo such as
 // `bucketEntered("power-uesrs")` is a compile error rather than a silently

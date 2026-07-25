@@ -51,6 +51,16 @@ export async function checkBucketMembership(opts: {
   logger: Logger;
   userId: string;
   userEmail: string | null;
+  /**
+   * The subject contact's resolved row id (`contacts.id`) — `ingestEvent` has
+   * already resolved the contact before calling us, so it threads the id here
+   * and we carry it into every `emitBucketTransition` as the ENGINE-INTERNAL
+   * provenance pin. Without it, a transition for a contact whose canonical key
+   * is its `anonymous_id` re-ingests a bare `userId` and mints a phantom
+   * `external_id` twin (issue #608). Optional: a caller without a resolved
+   * contact degrades to the pin-less emit.
+   */
+  contactId?: string;
   event: string;
   /**
    * D2: the event payload — candidate-narrowing ONLY. It NO LONGER participates
@@ -71,6 +81,7 @@ export async function checkBucketMembership(opts: {
     hatchet,
     logger,
     userId,
+    contactId,
     event,
     eventProperties,
     contactProperties: contactPropertiesPatch,
@@ -209,6 +220,7 @@ export async function checkBucketMembership(opts: {
         bucket,
         userId,
         userEmail,
+        contactId,
       });
       if (transition) transitions.push(transition);
     } else if (wasMember && isMember) {
@@ -227,6 +239,7 @@ export async function checkBucketMembership(opts: {
         active,
         userId,
         userEmail,
+        contactId,
       });
       if (transition) transitions.push(transition);
     }
@@ -244,8 +257,19 @@ async function handleJoin(opts: {
   bucket: BucketMeta;
   userId: string;
   userEmail: string | null;
+  /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
+  contactId?: string;
 }): Promise<BucketTransition | null> {
-  const { db, registry, hatchet, logger, bucket, userId, userEmail } = opts;
+  const {
+    db,
+    registry,
+    hatchet,
+    logger,
+    bucket,
+    userId,
+    userEmail,
+    contactId,
+  } = opts;
 
   // entryCount ordinal = 1 + count of ALL prior memberships (active + left) for
   // this (user, bucket) (Section 6.3 / 8.2). priorCount also drives the entryLimit
@@ -312,6 +336,10 @@ async function handleJoin(opts: {
       bucket,
       userId,
       userEmail,
+      // Pin the re-ingest to the already-resolved contact row so an
+      // anonymous-only contact's transition folds in instead of minting a
+      // phantom twin (issue #608).
+      contactId,
       epoch,
       source: "event",
     });
@@ -335,9 +363,20 @@ async function handleLeave(opts: {
   active: typeof bucketMemberships.$inferSelect;
   userId: string;
   userEmail: string | null;
+  /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
+  contactId?: string;
 }): Promise<BucketTransition | null> {
-  const { db, registry, hatchet, logger, bucket, active, userId, userEmail } =
-    opts;
+  const {
+    db,
+    registry,
+    hatchet,
+    logger,
+    bucket,
+    active,
+    userId,
+    userEmail,
+    contactId,
+  } = opts;
 
   // minDwell DEFERS (never silently drops) the leave (Section 6.3). We set a
   // pending-leave deadline on expiresAt = enteredAt + minDwell so the reconcile
@@ -401,6 +440,9 @@ async function handleLeave(opts: {
     bucket,
     userId,
     userEmail,
+    // Same provenance pin as the join emit — a leave re-ingests through the
+    // identical path and would mint the same phantom twin (issue #608).
+    contactId,
     epoch: flipped.entryCount,
     source: "event",
     reason: "criteria",

@@ -1,4 +1,9 @@
-import { SmsSendError } from "@hogsend/sms";
+// Deliberately the `/types` subpath, not the package root. This module is
+// inlined into the published `dist/` bundle (so Node can load it from inside
+// node_modules), and the root barrel re-exports `renderSmsToText`, which pulls
+// the whole react-email render stack in with it — 1.6 MB of dependency for one
+// error class. `@hogsend/sms/types` is type-only apart from `SmsSendError`.
+import { SmsSendError } from "@hogsend/sms/types";
 import type { Twilio } from "twilio";
 import type { SendSmsOptions, SmsSendResult } from "./types.js";
 

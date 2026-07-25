@@ -7,6 +7,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  OPTIONAL_PLUGINS,
+  type OptionalPluginId,
+  optionalPlugin,
+} from "./optional-plugins.js";
 import type { PackageManager, PosthogOptions } from "./prompts.js";
 import {
   ENGINE_VERSION,
@@ -23,6 +28,8 @@ export interface CopyOptions {
   packageManager: PackageManager;
   /** Emit `.claude/` (skills) + `CLAUDE.md`. Gated by the `--skills` prompt/flag. */
   skills: boolean;
+  /** Opt-in provider plugins to pin as dependencies (`--with` / multiselect). */
+  optionalPlugins?: OptionalPluginId[];
   /** Absolute dir of `file:` tarballs to rewrite @hogsend/* deps against. */
   tarballDir?: string;
 }
@@ -49,10 +56,20 @@ function rewritePackageManager(
   return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
-/** The tarball `file:` override map for every `@hogsend/<pkg>` dependency. */
+/**
+ * The tarball `file:` override map for every `@hogsend/<pkg>` dependency —
+ * scaffold defaults AND the opt-in plugins. The plugins are always pinned
+ * (selected or not) because the engine lists all three under
+ * `optionalDependencies`, so a tarball install would otherwise try to resolve
+ * the unpublished engine-line version from the registry.
+ */
 function tarballOverrides(tarballDir: string): Record<string, string> {
   const overrides: Record<string, string> = {};
-  for (const name of HOGSEND_PACKAGES) {
+  const names: string[] = [
+    ...HOGSEND_PACKAGES,
+    ...OPTIONAL_PLUGINS.map((p) => p.pkg.replace("@hogsend/", "")),
+  ];
+  for (const name of names) {
     overrides[`@hogsend/${name}`] =
       `file:${tarballDir}/hogsend-${name}-${ENGINE_VERSION}.tgz`;
   }
@@ -79,6 +96,58 @@ function rewriteTarballDeps(pkgJson: string, tarballDir: string): string {
     }
   }
   return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+/**
+ * Pin each selected opt-in plugin as a DIRECT dependency of the generated app,
+ * on the same `^<engine version>` line as the scaffold defaults. Direct is the
+ * whole point: the app bundles the engine, so the engine's runtime-assembled
+ * `import("@hogsend/plugin-<id>")` resolves against the APP's node_modules,
+ * where an engine-only `optionalDependency` is never linked (#611). Runs
+ * BEFORE the tarball rewrite so `--use-tarballs` covers these too. Keys are
+ * re-sorted so the injected deps land alphabetically like the template's.
+ */
+function addOptionalPluginDeps(
+  pkgJson: string,
+  plugins: OptionalPluginId[],
+): string {
+  const pkg = JSON.parse(pkgJson) as {
+    dependencies?: Record<string, string>;
+  };
+  const deps = pkg.dependencies ?? {};
+  for (const id of plugins) {
+    deps[optionalPlugin(id).pkg] = `^${ENGINE_VERSION}`;
+  }
+  pkg.dependencies = Object.fromEntries(
+    Object.entries(deps).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+/**
+ * Surface each selected plugin's credential block in the emitted `.env.example`
+ * (commented keys only — never a fake credential value). Skipped when the
+ * template already documents the credential (Apollo's block ships in the
+ * template), so a selection never duplicates it. Same timing as
+ * `applyDomainToEnv` — after `copyTemplate`, before install/bootstrap.
+ */
+export async function applyOptionalPluginsToEnv(
+  targetDir: string,
+  plugins: OptionalPluginId[],
+): Promise<void> {
+  if (plugins.length === 0) return;
+  const envPath = join(targetDir, RENAME_MAP["env.example"] ?? ".env.example");
+  let content = await readFile(envPath, "utf8");
+  for (const id of plugins) {
+    const { envKey, envBlock } = optionalPlugin(id);
+    // Match a settable `KEY=` line (live or commented), NOT a prose mention —
+    // the template's email-provider paragraph names POSTMARK_SERVER_TOKEN
+    // without offering a line to uncomment, and that must not suppress the
+    // block. Same line shape `setEnvLine` targets.
+    if (new RegExp(`^#?\\s*${envKey}=`, "m").test(content)) continue;
+    content = `${content.replace(/\n*$/, "\n")}\n${envBlock}\n`;
+  }
+  await writeFile(envPath, content);
 }
 
 /**
@@ -234,6 +303,9 @@ async function walk(
     content = applyTokens(content, opts.appName);
     if (renamed === "package.json") {
       content = rewritePackageManager(content, opts.packageManager);
+      if (opts.optionalPlugins?.length) {
+        content = addOptionalPluginDeps(content, opts.optionalPlugins);
+      }
       if (tarballDir) {
         content = rewriteTarballDeps(content, tarballDir);
       }

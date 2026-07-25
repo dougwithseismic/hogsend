@@ -346,6 +346,10 @@ async function reevalLeaves(opts: {
       id: bucketMemberships.id,
       userId: bucketMemberships.userId,
       userEmail: bucketMemberships.userEmail,
+      // Joined contact row → its id rides along as the ENGINE-INTERNAL
+      // provenance pin for the leave emit, so the re-ingest folds into the
+      // known row instead of minting a phantom `external_id` twin (issue #608).
+      contactId: contacts.id,
       entryCount: bucketMemberships.entryCount,
     })
     .from(bucketMemberships)
@@ -361,6 +365,13 @@ async function reevalLeaves(opts: {
 
   const leavers = activeMembers.filter((m) => !matcherSet.has(m.userId));
   if (leavers.length === 0) return 0;
+
+  // Membership key → contact row id for the emit's provenance pin. Keying by
+  // userId is safe: the partial-active unique index guarantees one active row
+  // per (user, bucket), so a flipped row maps to exactly one leaver.
+  const contactIdByUser = new Map(
+    leavers.map((m) => [m.userId, m.contactId] as const),
+  );
 
   let leftCount = 0;
   for (let i = 0; i < leavers.length; i += BATCH_SIZE) {
@@ -400,6 +411,9 @@ async function reevalLeaves(opts: {
         bucket,
         userId: row.userId,
         userEmail: row.userEmail,
+        // Provenance pin from the leaver's already-joined contact row, so the
+        // leave re-ingest folds into it instead of minting a twin (issue #608).
+        contactId: contactIdByUser.get(row.userId),
         epoch: row.entryCount,
         source: "backfill",
         reason: "criteria",

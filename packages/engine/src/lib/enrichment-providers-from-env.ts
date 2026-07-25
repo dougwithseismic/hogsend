@@ -1,5 +1,6 @@
 import type { EnrichmentProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
+import { loadOptionalPlugin } from "./load-optional-plugin.js";
 
 /**
  * `@hogsend/plugin-apollo` is an OPT-IN, deferred-publish package — an engine
@@ -18,49 +19,15 @@ type CreateApolloProvider = (cfg: { apiKey: string }) => EnrichmentProvider;
 
 const APOLLO_PACKAGE = ["@hogsend", "plugin-apollo"].join("/");
 
-/**
- * The guard around the dynamic import, extracted so it is testable against an
- * INJECTED unresolvable specifier (never against `@hogsend/plugin-apollo`
- * genuinely being absent — once that package lands in `optionalDependencies`,
- * an absence-based test would silently assert the opposite of what it means).
- *
- * Resolves to the named factory export, or null when the package cannot be
- * resolved / the export is missing — in which case `onMissing` fires (once,
- * since the module-scope call site runs once per process) and nothing throws:
- * a key set without the plugin installed degrades gracefully, and if the
- * provider was EXPLICITLY requested the container still throws its clear
- * "not registered" boot error.
- */
-export async function loadEnrichmentPluginFactory<T>(opts: {
-  specifier: string;
-  exportName: string;
-  onMissing?: (message: string) => void;
-}): Promise<T | null> {
-  try {
-    const mod = (await import(opts.specifier)) as Record<string, unknown>;
-    const factory = mod[opts.exportName];
-    if (typeof factory !== "function") {
-      throw new Error(`missing export "${opts.exportName}"`);
-    }
-    return factory as T;
-  } catch {
-    opts.onMissing?.(
-      `enrichment plugin "${opts.specifier}" is not installed — its env preset is skipped. ` +
-        `Install the package (pnpm add ${opts.specifier}) to enable it.`,
-    );
-    return null;
-  }
-}
-
 let createApolloProvider: CreateApolloProvider | null = null;
 if (process.env.APOLLO_API_KEY) {
-  createApolloProvider =
-    await loadEnrichmentPluginFactory<CreateApolloProvider>({
-      specifier: APOLLO_PACKAGE,
-      exportName: "createApolloProvider",
-      // Module scope ⇒ logs ONCE per process, and only when the key is set.
-      onMissing: (message) => console.warn(message),
-    });
+  createApolloProvider = await loadOptionalPlugin<CreateApolloProvider>({
+    specifier: APOLLO_PACKAGE,
+    exportName: "createApolloProvider",
+    enabledBy: "APOLLO_API_KEY is set",
+    // Module scope ⇒ logs ONCE per process, and only when the key is set.
+    onFailure: (message) => console.warn(message),
+  });
 }
 
 /**

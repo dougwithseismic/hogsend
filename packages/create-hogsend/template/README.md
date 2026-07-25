@@ -106,6 +106,37 @@ deps). Watch it in the Hatchet dashboard, or query `journey_states`.
 `GET /v1/health` should report `schema.engine.inSync:true` and
 `schema.client.inSync:true`.
 
+## See enrichment work
+
+Scaffolded with `--with apollo` and an `APOLLO_API_KEY` in `.env`? Send one
+event with your own work email:
+
+```bash
+curl -XPOST http://localhost:3002/v1/events \
+  -H "authorization: Bearer $HOGSEND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"name":"lead.captured","userId":"you-1","email":"you@yourcompany.com"}'
+```
+
+That lands you in the `qualified-leads` bucket, whose enter reaction calls
+`refineContact()`. Open Studio → Contacts → your contact: job title, company,
+employee count and industry are now properties on the row.
+
+Use a real work address. Enrichment vendors match on the domain, so
+`test@example.com` returns `not_found` — a correct answer that reads like a
+broken feature.
+
+Without a key this is inert: `refineContact()` returns
+`{ status: "skipped", reason: "no_provider" }`, the bucket still admits people,
+and nothing errors. Add the key later and it starts working, with no code
+change.
+
+Every lookup costs money. `ENRICHMENT_MONTHLY_LOOKUPS` defaults to `0`, which
+means uncapped — set it deliberately. Answers are cached for
+`ENRICHMENT_TTL_DAYS` (90) including misses, so you never pay twice for the
+same dead address. `src/buckets/qualified-leads.ts` is the whole
+implementation.
+
 ## Integrate from your app
 
 The data plane is the typed front door to this engine — call it from your own
@@ -158,7 +189,10 @@ send. Everything is **content**: edit, rename, or delete freely.
   and `test-onboarding` (the no-email smoke journey).
 - **Lists** (`src/lists/index.ts`): `product-updates` — the marketing template's
   `category` matches this list id, so a broadcast only reaches subscribers.
-- **Buckets** (`src/buckets/`): `power-users` — a real-time audience.
+- **Buckets** (`src/buckets/`): `power-users` — a real-time audience;
+  `qualified-leads` — the same primitive with an enter reaction that refines the
+  contact from an enrichment vendor (inert until you configure one; see
+  [See enrichment work](#see-enrichment-work)).
 - **A Journey Blueprint** — run `pnpm seed:example-blueprint` to add one JSON-
   authored companion to the `welcome` journey (same primitives, stored as data
   instead of code). Shows up in Studio → Journeys next to your code journeys.

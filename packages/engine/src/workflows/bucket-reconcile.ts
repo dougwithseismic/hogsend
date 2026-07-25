@@ -283,6 +283,13 @@ export const bucketExpiryTask = hatchet.durableTask({
       bucket,
       userId: input.userId,
       userEmail: input.userEmail,
+      // NO `contactId` provenance pin here (issue #608): this task has no
+      // contact row in scope, and the only channel that could carry one — the
+      // `bucket:arm-expiry` Hatchet event payload — is reachable from public
+      // ingest pushes, so an id smuggled through it would not be the
+      // unforgeable engine-internal provenance the pin requires. A value
+      // lookup here would re-implement exactly the resolution the pin exists
+      // to bypass. Degrades to the pre-pin resolve.
       epoch: flipped.entryCount,
       source: "reconcile",
       // Fast-expiry is a criteria re-confirm leave (Section 6.7).
@@ -292,6 +299,19 @@ export const bucketExpiryTask = hatchet.durableTask({
     return { status: "left", rowId: flipped.id };
   },
 });
+
+/**
+ * A member selected to leave: the membership's canonical string key plus the
+ * joined contact row's id — the ENGINE-INTERNAL provenance pin threaded into
+ * `emitBucketTransition` so the leave re-ingest folds into the known row
+ * instead of minting a phantom `external_id` twin (issue #608). Every leaver
+ * source query already joins `contacts` (the GDPR live-contact filter), so the
+ * id is free.
+ */
+interface BucketLeaver {
+  userId: string;
+  contactId: string;
+}
 
 /**
  * Set-based SHOULD-LEAVE for one time-based bucket → bulk CAS → RETURNING-gated
@@ -311,14 +331,14 @@ async function reconcileBucketLeaves(opts: {
 
   // A single-event/within/count criterion → set-based SHOULD-LEAVE query.
   if (criteria.type === "event") {
-    const leaverIds = await selectEventLeavers(db, bucket, criteria);
-    if (leaverIds.length === 0) return 0;
+    const leavers = await selectEventLeavers(db, bucket, criteria);
+    if (leavers.length === 0) return 0;
     return bulkLeave({
       db,
       logger,
       journeyRegistry,
       bucket,
-      userIds: leaverIds,
+      leavers,
       reason: "criteria",
     });
   }
@@ -338,7 +358,7 @@ async function selectEventLeavers(
   db: Database,
   bucket: BucketMeta,
   criteria: Extract<ConditionEval, { type: "event" }>,
-): Promise<string[]> {
+): Promise<BucketLeaver[]> {
   const cutoff = criteria.within
     ? new Date(Date.now() - durationToMs(criteria.within))
     : null;
@@ -372,10 +392,13 @@ async function selectEventLeavers(
     .groupBy(userEvents.userId)
     .as("counted");
 
-  // LEFT JOIN members → windowed counts. A missing/zero count is a 0.
+  // LEFT JOIN members → windowed counts. A missing/zero count is a 0. The
+  // contact row is already joined (GDPR filter), so its id rides along as the
+  // provenance pin for the leave emit (issue #608).
   const rows = await db
     .select({
       userId: members.userId,
+      contactId: contacts.id,
       cnt: sql<number>`coalesce(${counted.cnt}, 0)`,
     })
     .from(members)
@@ -385,7 +408,7 @@ async function selectEventLeavers(
 
   return rows
     .filter((r) => shouldLeaveByCount(criteria, Number(r.cnt)))
-    .map((r) => r.userId);
+    .map((r) => ({ userId: r.userId, contactId: r.contactId }));
 }
 
 /**
@@ -409,6 +432,9 @@ async function reconcileCompositeLeaves(opts: {
   const members = await db
     .select({
       userId: bucketMemberships.userId,
+      // Joined contact row → its id is the provenance pin for the leave emit
+      // (issue #608).
+      contactId: contacts.id,
       properties: contacts.properties,
     })
     .from(bucketMemberships)
@@ -424,7 +450,7 @@ async function reconcileCompositeLeaves(opts: {
     .orderBy(sql`${bucketMemberships.lastEvaluatedAt} asc nulls first`)
     .limit(BATCH_SIZE);
 
-  const leaverIds: string[] = [];
+  const leavers: BucketLeaver[] = [];
   const evaluatedIds: string[] = [];
   for (const member of members) {
     evaluatedIds.push(member.userId);
@@ -435,7 +461,9 @@ async function reconcileCompositeLeaves(opts: {
       condition: criteria,
       ctx: { db, userId: member.userId, journeyContext },
     });
-    if (!isMember) leaverIds.push(member.userId);
+    if (!isMember) {
+      leavers.push({ userId: member.userId, contactId: member.contactId });
+    }
   }
 
   // Bump lastEvaluatedAt for the whole chunk so the next tick advances the cursor
@@ -453,13 +481,13 @@ async function reconcileCompositeLeaves(opts: {
       );
   }
 
-  if (leaverIds.length === 0) return 0;
+  if (leavers.length === 0) return 0;
   return bulkLeave({
     db,
     logger,
     journeyRegistry,
     bucket,
-    userIds: leaverIds,
+    leavers,
     reason: "criteria",
   });
 }
@@ -481,7 +509,12 @@ async function reconcileBucketTtlLeaves(opts: {
   const { db, logger, journeyRegistry, bucket } = opts;
 
   const expired = await db
-    .select({ userId: bucketMemberships.userId })
+    .select({
+      userId: bucketMemberships.userId,
+      // Joined contact row → its id is the provenance pin for the leave emit
+      // (issue #608).
+      contactId: contacts.id,
+    })
     .from(bucketMemberships)
     .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
     .where(
@@ -501,7 +534,7 @@ async function reconcileBucketTtlLeaves(opts: {
     logger,
     journeyRegistry,
     bucket,
-    userIds: expired.map((r) => r.userId),
+    leavers: expired,
     reason: "maxDwell",
   });
 }
@@ -518,11 +551,18 @@ async function bulkLeave(opts: {
   logger: Logger;
   journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
   bucket: BucketMeta;
-  userIds: string[];
+  leavers: BucketLeaver[];
   /** Why these members leave — TTL passes "maxDwell", criteria passes "criteria". */
   reason: BucketLeaveReason;
 }): Promise<number> {
-  const { db, logger, journeyRegistry, bucket, userIds, reason } = opts;
+  const { db, logger, journeyRegistry, bucket, leavers, reason } = opts;
+  const userIds = leavers.map((l) => l.userId);
+  // Membership key → resolved contact row id, for the emit's provenance pin.
+  // Safe to key by userId: the partial-active unique index guarantees one
+  // active row per (user, bucket), so a flipped row maps to exactly one leaver.
+  const contactIdByUser = new Map(
+    leavers.map((l) => [l.userId, l.contactId] as const),
+  );
 
   const dwellMs = bucket.minDwell ? durationToMs(bucket.minDwell) : 0;
   const dwellCutoff = dwellMs > 0 ? new Date(Date.now() - dwellMs) : null;
@@ -565,6 +605,9 @@ async function bulkLeave(opts: {
       bucket,
       userId: row.userId,
       userEmail: row.userEmail,
+      // Provenance pin from the leaver's already-joined contact row, so the
+      // leave re-ingest folds into it instead of minting a twin (issue #608).
+      contactId: contactIdByUser.get(row.userId),
       epoch: row.entryCount,
       source: "reconcile",
       reason,
@@ -643,6 +686,9 @@ async function reconcileBucketDwell(opts: {
         id: bucketMemberships.id,
         userId: bucketMemberships.userId,
         userEmail: bucketMemberships.userEmail,
+        // Joined contact row → its id is the provenance pin for the dwell emit
+        // (issue #608).
+        contactId: contacts.id,
         entryCount: bucketMemberships.entryCount,
         anchor: sql<Date>`coalesce(${bucketMemberships.dwellAnchorAt}, ${bucketMemberships.enteredAt})`,
         dwellState: bucketMemberships.dwellState,
@@ -704,6 +750,9 @@ async function reconcileBucketDwell(opts: {
         bucket,
         userId: m.userId,
         userEmail: m.userEmail,
+        // Provenance pin from the candidate's already-joined contact row
+        // (issue #608).
+        contactId: m.contactId,
         epoch: m.entryCount,
         source: "reconcile",
         dwellLabel: label,
@@ -857,6 +906,11 @@ async function reconcileBucketJoins(opts: {
   const baseQuery = db
     .select({
       userId: contactKey,
+      // The candidate scan reads straight off `contacts`, so the row id rides
+      // along as the provenance pin for the join emit (issue #608) —
+      // load-bearing for exactly the null-external_id contacts this coalesce
+      // join exists to include.
+      contactId: contacts.id,
       email: contacts.email,
     })
     .from(contacts)
@@ -934,6 +988,7 @@ async function reconcileBucketJoins(opts: {
       bucket,
       userId: candidate.userId,
       userEmail: candidate.email ?? null,
+      contactId: candidate.contactId,
     });
     if (transitioned) joined += 1;
   }
@@ -1035,8 +1090,10 @@ async function reconcileJoinOne(opts: {
   bucket: BucketMeta;
   userId: string;
   userEmail: string | null;
+  /** Provenance pin for the join emit — see {@link BucketLeaver} (issue #608). */
+  contactId?: string;
 }): Promise<boolean> {
-  const { db, logger, journeyRegistry, bucket, userId } = opts;
+  const { db, logger, journeyRegistry, bucket, userId, contactId } = opts;
   // Normalized at the write site (audience-model.md wart #1) — the contact row
   // should already be normalized, but the membership keyspace must never
   // depend on that.
@@ -1081,6 +1138,8 @@ async function reconcileJoinOne(opts: {
       bucket,
       userId,
       userEmail,
+      // Provenance pin from the candidate scan's contact row (issue #608).
+      contactId,
       epoch,
       source: "reconcile",
     });

@@ -10,6 +10,11 @@ import {
   select,
   text,
 } from "@clack/prompts";
+import {
+  OPTIONAL_PLUGINS,
+  type OptionalPluginId,
+  parseWithFlag,
+} from "./optional-plugins.js";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -54,6 +59,13 @@ export interface CliOptions {
    */
   adminEmail?: string;
   adminPassword?: string;
+  /**
+   * Opt-in provider plugins (`--with` / the "Optional providers" multiselect).
+   * Each selected id pins `@hogsend/plugin-<id>` as a DIRECT dependency of the
+   * generated app and surfaces its credential block in `.env.example` — the
+   * engine's env preset does the rest (see src/optional-plugins.ts).
+   */
+  withPlugins: OptionalPluginId[];
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
 }
@@ -108,6 +120,10 @@ Options:
                              Omit it: one is generated + printed once at first
                              boot. NOTE: flag values can land in shell history —
                              prefer omitting outside CI/agent runs
+  --with <id[,id]>           Add an opt-in provider plugin (apollo, postmark,
+                             twilio) — repeatable or comma-separated. Pins
+                             @hogsend/plugin-<id> as a direct dependency and
+                             surfaces its credential block in .env.example
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -212,6 +228,7 @@ interface RawArgs {
     "no-posthog"?: boolean;
     "admin-email"?: string;
     "admin-password"?: string;
+    with?: string[];
     "use-tarballs"?: string;
     help?: boolean;
   };
@@ -240,6 +257,8 @@ function parse(argv: string[]): RawArgs {
       "no-posthog": { type: "boolean", default: false },
       "admin-email": { type: "string" },
       "admin-password": { type: "string" },
+      // Repeatable; each value may itself be a comma-separated id list.
+      with: { type: "string", multiple: true },
       "use-tarballs": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -329,6 +348,12 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       "--admin-password must be at least 8 characters (the app's STUDIO_ADMIN_PASSWORD validation would reject it at every boot).",
     );
   }
+  // Opt-in provider plugins from flags (validated up front; an unknown id
+  // throws naming the valid ones). A given --with also pre-answers the
+  // interactive "Optional providers" multiselect.
+  const withFromFlags =
+    values.with !== undefined ? parseWithFlag(values.with) : undefined;
+
   let posthog: PosthogOptions | undefined;
   if (values["posthog-key"] !== undefined) {
     const keyErr = validatePosthogKey(values["posthog-key"]);
@@ -383,6 +408,8 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       usingPosthog: posthog !== undefined || values.posthog === true,
       adminEmail,
       adminPassword,
+      // --yes / headless never prompts: only an explicit --with selects any.
+      withPlugins: withFromFlags ?? [],
       useTarballs: values["use-tarballs"],
     };
   }
@@ -464,6 +491,26 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     }
   }
 
+  // Optional providers: none pre-ticked — every one needs its own credential
+  // (and Resend + PostHog are already first-class defaults). Selecting one only
+  // pins the plugin package + surfaces its env block; the engine's env preset
+  // registers the provider once the credential is set.
+  let withPlugins = withFromFlags;
+  if (withPlugins === undefined) {
+    withPlugins = bail(
+      await multiselect({
+        message:
+          "Optional providers? (space to toggle — each activates via env once its credential is set)",
+        required: false,
+        options: OPTIONAL_PLUGINS.map((p) => ({
+          value: p.id,
+          label: p.label,
+          hint: p.hint,
+        })),
+      }),
+    );
+  }
+
   if (packageManager === undefined) {
     packageManager = bail(
       await select({
@@ -534,6 +581,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     // interactive admin flow; these flags exist for headless/agent runs.
     adminEmail,
     adminPassword,
+    withPlugins,
     useTarballs: values["use-tarballs"],
   };
 }

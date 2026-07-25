@@ -40,6 +40,17 @@ export async function emitBucketTransition(opts: {
   bucket: BucketMeta;
   userId: string;
   userEmail: string | null;
+  /**
+   * The subject contact's resolved row id (`contacts.id`) — the ENGINE-INTERNAL
+   * provenance pin, threaded into BOTH re-ingests below. `userId` here is the
+   * contact's CANONICAL key (`external_id ?? anonymous_id ?? id`), but the
+   * resolver treats a bare `userId` as an EXTERNAL key and never probes
+   * `anonymous_id` — so without the pin an anonymous-only contact gets a
+   * phantom `external_id` twin minted on every transition (issue #608).
+   * OPTIONAL: a producer that has no resolved contact row in scope degrades to
+   * the pin-less resolve (exactly the pre-pin behaviour).
+   */
+  contactId?: string;
   epoch: number;
   source?: BucketTransitionSource;
   /** Carried on a `left` transition's properties → `ctx.reason`. */
@@ -52,6 +63,12 @@ export async function emitBucketTransition(opts: {
    * absorbed by the `userEvents` dedup. Surfaced as `dwellCount`.
    */
   dwellOrdinal?: number;
+  /**
+   * Testing seam — the re-ingest fn (defaults to the real `ingestEvent`), so a
+   * unit test can assert the provenance pin rides BOTH re-ingests without a
+   * live database (the Section 14 pattern `checkBucketMembership` uses).
+   */
+  ingest?: typeof ingestEvent;
 }): Promise<void> {
   const {
     db,
@@ -62,11 +79,13 @@ export async function emitBucketTransition(opts: {
     bucket,
     userId,
     userEmail,
+    contactId,
     epoch,
     source = "event",
     reason,
     dwellLabel,
     dwellOrdinal,
+    ingest = ingestEvent,
   } = opts;
 
   // The dwell transition emits a labelled event so two dwell reactions on one
@@ -114,8 +133,10 @@ export async function emitBucketTransition(opts: {
 
   // Per-bucket alias — the recommended, narrowly-routed binding. The
   // deterministic idempotencyKey rides the userEvents dedup short-circuit as
-  // defense-in-depth (Section 6.3).
-  await ingestEvent({
+  // defense-in-depth (Section 6.3). `contactId` pins the resolver to the known
+  // row so an anonymous canonical key folds back in instead of minting a
+  // phantom `external_id` twin (issue #608).
+  await ingest({
     db,
     registry,
     hatchet,
@@ -124,6 +145,7 @@ export async function emitBucketTransition(opts: {
       event: eventName,
       userId,
       userEmail: userEmail ?? "",
+      contactId,
       eventProperties: properties,
       source: "bucket",
       idempotencyKey,
@@ -134,7 +156,7 @@ export async function emitBucketTransition(opts: {
   // recursion-guarded generic event is not written for nothing (Section 8.5).
   const genericEvent = `bucket:${kind}`;
   if (registry.getByTriggerEvent(genericEvent).length > 0) {
-    await ingestEvent({
+    await ingest({
       db,
       registry,
       hatchet,
@@ -143,6 +165,10 @@ export async function emitBucketTransition(opts: {
         event: genericEvent,
         userId,
         userEmail: userEmail ?? "",
+        // Same provenance pin as the alias emit above — dropping it on ONLY
+        // this leg would leave the twin-minting half-alive for generic-bound
+        // journeys (issue #608).
+        contactId,
         eventProperties: properties,
         source: "bucket",
         idempotencyKey: `bucket:${bucket.id}:${userId}:${kind}:${epoch}:generic`,

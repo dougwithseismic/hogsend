@@ -9,10 +9,12 @@ import color from "picocolors";
 import {
   applyAdminToEnv,
   applyDomainToEnv,
+  applyOptionalPluginsToEnv,
   applyPosthogToEnv,
   copyTemplate,
   emittedTopLevelNames,
 } from "./copy.js";
+import { optionalPlugin } from "./optional-plugins.js";
 import { binCmd, type CliOptions, resolveOptions } from "./prompts.js";
 import { ENGINE_VERSION } from "./template-manifest.js";
 
@@ -305,6 +307,7 @@ async function main(): Promise<void> {
       appName: opts.appName,
       packageManager: opts.packageManager,
       skills: opts.skills,
+      optionalPlugins: opts.withPlugins,
       tarballDir,
     });
     s.stop(`${color.green("✓")} Scaffolded ${color.cyan(label)}`);
@@ -316,8 +319,25 @@ async function main(): Promise<void> {
       appName: opts.appName,
       packageManager: opts.packageManager,
       skills: opts.skills,
+      optionalPlugins: opts.withPlugins,
       tarballDir,
     });
+  }
+
+  // Opt-in provider plugins: dependency pinning happened during copyTemplate;
+  // here we surface each credential block in .env.example. Same timing as the
+  // domain patch below — before install/bootstrap, so bootstrap's .env copy
+  // inherits the blocks.
+  if (opts.withPlugins.length > 0) {
+    await applyOptionalPluginsToEnv(targetDir, opts.withPlugins);
+    if (interactive) {
+      const pkgs = opts.withPlugins
+        .map((id) => optionalPlugin(id).pkg)
+        .join(", ");
+      log.step(
+        `${color.dim("Optional providers —")} ${pkgs} ${color.dim("pinned as dependencies; set the credential(s) in .env to activate")}`,
+      );
+    }
   }
 
   // Patch env.example BEFORE install/bootstrap so the bootstrap-copied .env

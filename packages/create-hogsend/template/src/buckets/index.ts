@@ -1,4 +1,5 @@
 import { powerUsers } from "./power-users.js";
+import { qualifiedLeads } from "./qualified-leads.js";
 
 /**
  * All defined buckets for this app. Passed to `createHogsendClient({ buckets })`
@@ -10,7 +11,7 @@ import { powerUsers } from "./power-users.js";
  * `powerUsers.entered` stays `"bucket:entered:power-users"`). A `DefinedBucket<Id>`
  * is still assignable to the base `DefinedBucket[]` the factories accept.
  */
-export const buckets = [powerUsers];
+export const buckets = [powerUsers, qualifiedLeads];
 
 // Re-export individual buckets for direct reference (tests, custom wiring).
-export { powerUsers };
+export { powerUsers, qualifiedLeads };

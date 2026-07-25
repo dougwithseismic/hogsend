@@ -279,6 +279,25 @@ Rules:
 - **Take `fetch` as an injectable option.** Every test then drives recorded
   fixtures through it, and the suite needs no network and no API key.
 - **Register in the engine's `optionalDependencies`**, never `dependencies`.
+- **Ship a built `dist/` and point the RUNTIME entry at it** — `main` and the
+  `default` export condition go to `dist/index.js`, `files` includes `dist`,
+  and the tsup config inlines every raw-source `@hogsend/*` dependency
+  (`noExternal`). `types` stays on `src/`, as everywhere else here.
+
+  This is the one class of `@hogsend` package that cannot ship raw `.ts`. Every
+  other package is inlined by the consumer's bundler; an opt-in plugin is
+  reached only through a guarded dynamic import whose specifier is assembled at
+  runtime, so no bundler can see it and Node loads it from `node_modules` —
+  where it refuses to strip types
+  (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`). The engine catches that and
+  the preset goes inert, so the symptom is a feature that silently does nothing
+  rather than an error. Postmark, Twilio and Apollo all shipped this way and
+  were unreachable in every bundled consumer (#611). `release-doctor` now
+  enforces it.
+- **The consumer must install the plugin directly.** The engine's
+  `optionalDependencies` entry gets it onto disk but does not link it at the
+  consumer's top level, and the consumer's bundle is where the import actually
+  resolves. Say so in your README and next to the credential in `env.example`.
 - Omit absent fields from the normalised result. Never map a vendor null into a
   written null (§4 rule 3).
 

@@ -15,16 +15,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEST="${1:?usage: pack-tarballs.sh <destination-dir>}"
 
 PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
+# Opt-in provider plugins (`create-hogsend --with <id>`). NOT scaffold defaults,
+# so deliberately a separate list — release-doctor asserts PACKAGES above stays
+# equal to HOGSEND_PACKAGES + template/_package.json.
+OPT_IN_PLUGINS=(plugin-apollo plugin-postmark plugin-twilio)
 
 mkdir -p "$DEST"
 
-# These three ship a built dist/ and must be built before packing or their
-# tarballs are empty. One batched invocation: workspace resolution is paid
-# once and pnpm parallelizes the independent builds.
+# These ship a built dist/ and must be built before packing or their tarballs
+# are empty (the opt-in plugins' runtime entry is dist/ since #611 — Node
+# refuses to type-strip raw .ts under node_modules). One batched invocation:
+# workspace resolution is paid once and pnpm parallelizes independent builds.
 pnpm --dir "$REPO_ROOT" --filter @hogsend/studio --filter @hogsend/cli \
-  --filter @hogsend/client build >/dev/null
+  --filter @hogsend/client --filter @hogsend/plugin-apollo \
+  --filter @hogsend/plugin-postmark --filter @hogsend/plugin-twilio \
+  build >/dev/null
 
-for pkg in "${PACKAGES[@]}"; do
+for pkg in "${PACKAGES[@]}" "${OPT_IN_PLUGINS[@]}"; do
   # `pnpm pack` works on private packages. Run with --dir on the package path:
   # `--filter ... pack` is a recursive run, which pnpm's `pack` rejects.
   pnpm --dir "$REPO_ROOT/packages/$pkg" pack --pack-destination "$DEST" >/dev/null

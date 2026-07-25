@@ -778,6 +778,11 @@ export async function ingestEvent(opts: {
       hatchet,
       logger,
       userId: resolvedKey,
+      // The resolved row id rides along as the ENGINE-INTERNAL provenance pin
+      // for the bucket transition re-ingests: `resolvedKey` may be the
+      // contact's `anonymous_id`, which a bare re-ingest would treat as an
+      // external key and mint a phantom twin for (issue #608).
+      contactId,
       userEmail: event.userEmail || null,
       event: event.event,
       eventProperties: event.eventProperties,

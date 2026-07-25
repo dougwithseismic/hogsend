@@ -15,6 +15,10 @@ PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
 PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
+# Opt-in provider plugins (`--with <id>`). NOT scaffold defaults — a separate
+# list because release-doctor asserts PACKAGES above equals HOGSEND_PACKAGES +
+# the template's @hogsend deps, and these three belong to neither.
+OPT_IN_PLUGINS=(plugin-apollo plugin-postmark plugin-twilio)
 
 TARBALLS=""
 APP_PARENT=""
@@ -30,6 +34,20 @@ fail() {
   echo "FAIL: $1" >&2
   exit 1
 }
+
+# macOS ships no `timeout(1)`. Without this, the boot smokes put "timeout:
+# command not found" in the log, `|| true` swallows it, and every negative
+# grep passes VACUOUSLY — the boot never ran. Fall back to gtimeout
+# (coreutils) or a perl alarm+exec guard (alarm survives exec) so the smokes
+# execute everywhere, not only on Linux CI.
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT=timeout
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT=gtimeout
+else
+  timeout_fallback() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+  TIMEOUT=timeout_fallback
+fi
 
 REPO_PACKAGE_MANAGER="$(node -p "require('$REPO_ROOT/package.json').packageManager")"
 EXPECTED_PNPM="${REPO_PACKAGE_MANAGER#pnpm@}"
@@ -104,6 +122,13 @@ for pkg in "${PACKAGES[@]}"; do
       tar_has "$tgz" 'package/src/' || fail "$tgz missing package/src/**"
       ;;
   esac
+done
+# The opt-in plugins ship a BUILT dist/ as their runtime entry — raw .ts under
+# node_modules dies on Node's type-stripping refusal, which is exactly how
+# #611 shipped. Assert the dist actually travelled.
+for pkg in "${OPT_IN_PLUGINS[@]}"; do
+  tgz="$(tarball_for "$pkg")"
+  tar_has "$tgz" 'package/dist/' || fail "$tgz missing package/dist/**"
 done
 echo "    packed: $(ls "$TARBALLS" | tr '\n' ' ')"
 
@@ -199,11 +224,14 @@ fi
 echo "    clean consumer imports + typechecks without scaffold React dependencies"
 
 # --- 3. scaffold into a clean /tmp dir ------------------------------------
-echo "==> [3/10] scaffold my-app"
+# The verified app carries `--with apollo` so the whole install → build → boot
+# chain proves an opt-in plugin is genuinely LOADABLE from a scaffolded app —
+# the #611 regression test (direct dependency + built dist runtime entry).
+echo "==> [3/10] scaffold my-app (--with apollo)"
 APP_PARENT="$(mktemp -d /tmp/hogsend-app.XXXXXX)"
 APPDIR="$APP_PARENT/my-app"
 (cd "$APP_PARENT" && node "$CLI" my-app --pm pnpm --no-install --no-git \
-  --use-tarballs "$TARBALLS")
+  --with apollo --use-tarballs "$TARBALLS")
 
 EXPECTED=(
   package.json src/index.ts src/worker.ts
@@ -214,6 +242,7 @@ EXPECTED=(
   src/agents/index.ts src/agents/onboarding-concierge.ts
   src/lib/user-context.ts
   src/buckets/index.ts src/buckets/power-users.ts
+  src/buckets/qualified-leads.ts src/buckets/qualified-leads.test.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
   src/destinations/index.ts
   src/workflows/index.ts src/workflows/backfill-example.ts
@@ -236,6 +265,10 @@ grep -q "\"packageManager\": \"$REPO_PACKAGE_MANAGER\"" "$APPDIR/package.json" \
   || fail "scaffold does not pin root packageManager ($REPO_PACKAGE_MANAGER)"
 grep -q 'file:.*hogsend-engine' "$APPDIR/package.json" \
   || fail "tarball file: dep not present in package.json"
+# --with apollo must pin the plugin as a DIRECT dependency (an engine-only
+# optionalDependency is never linked at the app's top level — the #611 gap).
+grep -q '"@hogsend/plugin-apollo": "file:' "$APPDIR/package.json" \
+  || fail "--with apollo did not add @hogsend/plugin-apollo to dependencies"
 # Scope past the copied skill bodies (.claude/), which legitimately document
 # {{ }} templating; CLAUDE.md sits at the app root and IS token-substituted, so
 # it stays covered by the residue check.
@@ -299,11 +332,13 @@ grep -q '^ENABLE_POSTHOG_DESTINATION=true$' <<<"$POSTHOG_ENV" \
   || fail "ENABLE_POSTHOG_DESTINATION not activated"
 grep -Eq '^POSTHOG_WEBHOOK_SECRET=[0-9a-f]{64}$' <<<"$POSTHOG_ENV" \
   || fail "POSTHOG_WEBHOOK_SECRET not minted (expected 64 hex chars)"
-# Without the PostHog flags, the env must be UNTOUCHED — the default scaffold
-# from step 3 keeps .env.example byte-identical to the template.
+# Without the PostHog flags, the env must be UNTOUCHED — the step-3 scaffold
+# keeps .env.example byte-identical to the template. (Its `--with apollo` is
+# env-invisible BY DESIGN: the template already documents APOLLO_API_KEY, so
+# the plugin's env append dedupes to a no-op.)
 diff -q "$APPDIR/.env.example" "$PKG_DIR/template/env.example" >/dev/null \
-  || fail "default scaffold .env.example drifted from template/env.example \
-(skipping PostHog must be a no-op)"
+  || fail "step-3 scaffold .env.example drifted from template/env.example \
+(skipping PostHog + selecting apollo must both be env no-ops)"
 echo "    --posthog-key env OK"
 
 # --- 3d. --admin-email/--admin-password/--posthog write the headless env ---
@@ -326,6 +361,24 @@ if grep -q '^POSTHOG_API_KEY=' <<<"$ADMIN_ENV"; then
 fi
 echo "    headless admin env OK"
 
+# --- 3d2. --with is repeatable + comma-separated, and surfaces env blocks ---
+echo "==> [3d2] scaffold (--with postmark,twilio) deps + env blocks"
+WITH_DIR="$APP_PARENT/with-plugins"
+(cd "$APP_PARENT" && node "$CLI" with-plugins --pm pnpm --no-install --no-git \
+  --no-skills --with postmark,twilio --use-tarballs "$TARBALLS")
+grep -q '"@hogsend/plugin-postmark": "file:' "$WITH_DIR/package.json" \
+  || fail "--with postmark,twilio did not add @hogsend/plugin-postmark"
+grep -q '"@hogsend/plugin-twilio": "file:' "$WITH_DIR/package.json" \
+  || fail "--with postmark,twilio did not add @hogsend/plugin-twilio"
+# Unlike apollo, these credentials are not in the template — the scaffold must
+# surface their commented blocks (keys only, never a placeholder value).
+WITH_ENV="$(cat "$WITH_DIR/.env.example")"
+grep -q '^# POSTMARK_SERVER_TOKEN=$' <<<"$WITH_ENV" \
+  || fail "--with postmark did not surface POSTMARK_SERVER_TOKEN in .env.example"
+grep -q '^# TWILIO_ACCOUNT_SID=$' <<<"$WITH_ENV" \
+  || fail "--with twilio did not surface TWILIO_ACCOUNT_SID in .env.example"
+echo "    --with deps + env blocks OK"
+
 # --- 3e. flag validation failures exit non-zero ----------------------------
 echo "==> [3e] invalid headless flag combos are rejected"
 expect_reject() {
@@ -341,6 +394,7 @@ expect_reject "--posthog with --no-posthog" bad-2 --posthog --no-posthog
 expect_reject "short --admin-password (engine min 8)" \
   bad-3 --admin-email a@b.com --admin-password short
 expect_reject "malformed --admin-email" bad-4 --admin-email not-an-email
+expect_reject "unknown --with id" bad-5 --with nonsense
 echo "    flag validation OK"
 
 # --- 4. install -----------------------------------------------------------
@@ -373,6 +427,23 @@ echo "==> [7/10] pnpm build (scaffolded app)"
 [ -f "$APPDIR/dist/index.js" ] || fail "dist/index.js not produced"
 [ -f "$APPDIR/dist/worker.js" ] || fail "dist/worker.js not produced"
 
+# --- 7b. opt-in plugin loads under plain node -----------------------------
+# Reproduce EXACTLY what the engine does at runtime: a dynamic import whose
+# specifier is assembled at runtime (invisible to tsc AND the bundler), so it
+# resolves from the scaffolded app's own node_modules. MUST be plain `node`,
+# not tsx — tsx transpiles node_modules and would have masked the raw-.ts
+# runtime entry that shipped #611.
+echo "==> [7b] plugin-apollo dynamic import under plain node"
+(cd "$APPDIR" && node --input-type=module -e '
+  const specifier = ["@hogsend", "plugin-apollo"].join("/");
+  const mod = await import(specifier);
+  if (typeof mod.createApolloProvider !== "function") {
+    console.error("createApolloProvider is not a function export");
+    process.exit(1);
+  }
+') || fail "plugin-apollo did not load under plain node from the scaffolded app"
+echo "    engine-style dynamic import resolves + exports the factory"
+
 # --- 8. boot smoke --------------------------------------------------------
 # The AI-SDK bundling bug ("Dynamic require of X is not supported") throws at
 # MODULE EVAL — before any DB/Redis connection — so a build-only smoke misses
@@ -384,12 +455,43 @@ echo "==> [7/10] pnpm build (scaffolded app)"
 echo "==> [8/10] boot smoke (node dist/index.js + dist/worker.js)"
 for entry in index worker; do
   log="/tmp/hogsend-boot-$entry.log"
-  (cd "$APPDIR" && timeout 8 node "dist/$entry.js" >"$log" 2>&1) || true
+  (cd "$APPDIR" && "$TIMEOUT" 8 node "dist/$entry.js" >"$log" 2>&1) || true
   if grep -qiE 'Dynamic require|is not supported|Cannot use import statement|SyntaxError|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM' "$log"; then
     echo "----- boot output ($entry) -----" >&2; cat "$log" >&2
     fail "dist/$entry.js failed at module eval — a CJS dep was bundled into ESM; add it to template/_package.json dependencies so tsup externalizes it"
   fi
   echo "    dist/$entry.js loads clean (no module-eval crash)"
+done
+
+# --- 8b. boot smoke with APOLLO_API_KEY set -------------------------------
+# The engine's guarded plugin import runs at module eval, gated on the key —
+# but only if env validation passes first, so dummy required env is supplied
+# (values never leave this harness). "is not installed" is the engine's
+# not-installed diagnostic: seeing it when the package IS a dependency of the
+# scaffold is precisely the #611 regression. The other loader diagnostics
+# ("failed to load", "does not export") are asserted absent too.
+echo "==> [8b] boot smoke with APOLLO_API_KEY (plugin preset must load)"
+for entry in index worker; do
+  log="/tmp/hogsend-boot-apollo-$entry.log"
+  (cd "$APPDIR" && "$TIMEOUT" 8 env \
+    APOLLO_API_KEY=dummy-apollo-key \
+    DATABASE_URL=postgresql://verify:verify@localhost:5434/verify \
+    BETTER_AUTH_SECRET=verify-scaffold-dummy-secret-32-chars-long \
+    HATCHET_CLIENT_TOKEN=dummy-hatchet-token \
+    node "dist/$entry.js" >"$log" 2>&1) || true
+  # Guard against a VACUOUS pass: if the dummy env above ever stops satisfying
+  # validation, module eval aborts before the plugin loader runs and the greps
+  # below prove nothing. Extend the env here if this trips after adding a
+  # required env var to the engine.
+  if grep -q 'Invalid environment variables' "$log"; then
+    echo "----- boot output ($entry) -----" >&2; cat "$log" >&2
+    fail "dist/$entry.js failed env validation under the harness dummy env — the plugin-load assertion never ran; add the new required var to this step"
+  fi
+  if grep -qE 'is not installed|IS installed but failed to load|does not export' "$log"; then
+    echo "----- boot output ($entry) -----" >&2; cat "$log" >&2
+    fail "dist/$entry.js could not load @hogsend/plugin-apollo at boot — the opt-in plugin is a dependency of the scaffold, so its env preset must resolve"
+  fi
+  echo "    dist/$entry.js boots without a plugin-load diagnostic"
 done
 
 # --- 9. lint --------------------------------------------------------------

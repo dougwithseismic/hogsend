@@ -13,7 +13,21 @@ existing deploy without SMS credentials is unaffected. Texting a contact is
 
 ## Setup
 
-Set the Twilio credentials plus a sender (a from-number OR a Messaging Service):
+Install the provider into your app first — credentials alone are not enough:
+
+```bash
+pnpm add @hogsend/plugin-twilio
+```
+
+It must be a DIRECT dependency of your app. The engine lists it under
+`optionalDependencies`, which puts it on disk but does not link it at your app's
+top level, and your app bundles the engine — so the engine's lazy
+`import("@hogsend/plugin-twilio")` resolves against YOUR `node_modules`. Set the
+credentials without the package and the boot log says so; the SMS service stays
+an inert stub and `sendSms` throws at the first send.
+
+Then set the Twilio credentials plus a sender (a from-number OR a Messaging
+Service):
 
 ```bash
 TWILIO_ACCOUNT_SID=ACxxxx…
