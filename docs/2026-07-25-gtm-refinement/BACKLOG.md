@@ -4,7 +4,7 @@ Ordered queue. Build top-down. See `DECISIONS.md` for locked global choices and 
 
 | # | PRD | Status | Depends on | Scope |
 |---|---|---|---|---|
-| 01 | [Enrichment provider contract + container wiring](prds/01-enrichment-provider-contract.md) | `[ ]` | — | New BYO-provider kind: core contract, registry, singleton, env preset, container resolution, `"refine"` key kind |
+| 01 | [Enrichment provider contract + container wiring](prds/01-enrichment-provider-contract.md) | `[x]` | — | New BYO-provider kind: core contract, registry, singleton, env preset, container resolution, `"refine"` key kind |
 | 02 | [Enrichment lookup ledger](prds/02-enrichment-lookup-ledger.md) | `[x]` | — | `enrichment_lookups` table + migration — TTL cache, negative cache, budget accounting, exactly-once |
 | 03 | [`refineContact()`](prds/03-refine-contact.md) | `[ ]` | 01, 02 | The one new public function: gate chain, trait mapping, write through `ingestEvent` |
 | 04 | [`@hogsend/plugin-apollo`](prds/04-plugin-apollo.md) | `[ ]` | 01 | Reference provider, fixture-driven, injectable `fetch` |

@@ -121,4 +121,37 @@ container constructed with a hand-rolled fake provider resolves it as active.
 
 ## Implementation Notes
 
-_(filled in during build)_
+Shipped in `3e75a281`, with the test-glob fix split out into `5c2157b0`.
+
+**Process note — the first delivery agent never ran its gates and never filed a report.** It left two
+Biome format errors and, more seriously, tests for only 3 of the 8 criteria. An Opus review panel
+(3 lenses, Fable adversarially verifying) found AC 2, 3, 4, 5 and 8 asserted by nothing. The
+implementation was correct, but unpinned: reviewers gave concrete mutations — reorder the three spread
+terms at `container.ts:1283-1285`, or drop the `!enrichmentExplicit` guard — that would pass every
+gate while silently inverting the contract PRD 03 builds on.
+
+**The missing tests were then written by Opus and mutation-tested**, which is the only reason we know
+they bite:
+- AC 2 — swapping the merge order in `container.ts` makes it fail. The two fakes are distinguishable
+  by a `raw` marker, so the assertion survives a future merge that clones rather than passes through.
+- AC 5 — the sole registered provider is `clay`, deliberately **not** `apollo`, so a regression to the
+  plain default fallback fails. Changing `count() === 1` to `=== 99` makes it fail.
+- AC 3 — asserts the throw *and* that the message names both the requested id and the registered ids.
+- AC 4 — asserts `enrichmentProvider === undefined`, not merely that construction didn't throw.
+- AC 8 — pins the exact `journeyRefine:<anchor>:<site>:<discriminant>` key and asserts distinctness
+  across all five kinds for identical inputs (set-size plus pairwise, so a failure names the
+  colliding kind).
+
+**Test placement:** AC 2–5 need a real container → `apps/api/src/__tests__/enrichment-container.test.ts`
+(vitest), modelled on `analytics-provider-boot.test.ts`. AC 8 is pure →
+`packages/engine/src/journeys/journey-boundary.test.ts` (node:test). That engine path is three levels
+deep and would have been silently skipped before `5c2157b0`.
+
+**Correctness detail worth keeping:** `ENRICHMENT_PROVIDER` is declared `z.string().optional()` with
+**no** zod default, so `env.ENRICHMENT_PROVIDER` is undefined unless actually set. That is what makes
+the explicit-vs-implicit distinction clean here — the analytics kind had to sniff raw `process.env`
+because `ANALYTICS_PROVIDER` carries a `.default("posthog")`.
+
+**Flake observed:** `turbo run test --concurrency=2` exited **143** (SIGTERM, the OOM signature) once
+in `@hogsend/api` with zero test failures in the log, then passed twice. Read a 143 as memory
+pressure, not a regression; drop to `--concurrency=1` if it recurs.

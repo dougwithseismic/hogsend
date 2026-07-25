@@ -103,7 +103,7 @@ This repo does **not** use one runner. Putting a vitest-style test in the engine
 | Package | Runner | Location | Command |
 |---|---|---|---|
 | `packages/core` | **vitest** | colocated `src/**/*.test.ts` (9 files) | `cd packages/core && pnpm test` |
-| `packages/engine` | **node:test via `tsx --test`** — NOT vitest | colocated `src/**/*.test.ts` (5 files) | `cd packages/engine && pnpm test` |
+| `packages/engine` | **node:test via `tsx --test`** — NOT vitest | colocated `src/**/*.test.ts` | `cd packages/engine && pnpm test` |
 | `packages/plugin-*` | **vitest** | `src/__tests__/**/*.test.ts` | `cd packages/plugin-x && pnpm test` |
 | `apps/api` | **vitest** | `src/__tests__/*.test.ts` (191 files) | `cd apps/api && pnpm test` |
 | `packages/db` | none | — | verified via migration + `check-types` |
@@ -111,6 +111,19 @@ This repo does **not** use one runner. Putting a vitest-style test in the engine
 Use `import { test } from "node:test"` and `node:assert` for engine tests — copy the shape of the
 nearest existing file (`packages/engine/src/lib/connector-actions.test.ts` is the closest analogue for
 this release, and is exactly where PRD 05's tests belong).
+
+**Fixed during this release — the engine test glob was silently one level deep.** The script was
+`tsx --test src/**/*.test.ts`, unquoted, so `sh` (not Node) expanded `**` as a single `*`. Only
+`src/<dir>/<file>.test.ts` matched: 7 test files existed on disk, 6 ran, and
+`src/routes/admin/impact-wire.test.ts` had **never executed** — its coverage was fictional and both
+`pnpm test` and the `turbo run test` gate reported green regardless. Now quoted
+(`tsx --test 'src/**/*.test.ts'`) so Node's runner expands `**` recursively. Count went 24 → 27, all
+passing. Any depth is now safe; before this fix, a test at `src/container.test.ts` would have been
+silently skipped.
+
+**Corollary for every task in this stack: a green gate is not evidence a new test ran.** Confirm the
+test COUNT increased, or re-run with `--force`. Turbo replays cached logs — including logs recorded
+before your test existed.
 
 **Anything needing a live database goes in `apps/api/src/__tests__/`**, not in the engine — that is
 the only suite wired to a real Postgres. Engine tests are pure/unit.
