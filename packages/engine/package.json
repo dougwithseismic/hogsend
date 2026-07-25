@@ -68,6 +68,7 @@
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
+    "@hogsend/plugin-apollo": "workspace:^",
     "@hogsend/plugin-postmark": "workspace:^",
     "@hogsend/plugin-twilio": "workspace:^"
   },
