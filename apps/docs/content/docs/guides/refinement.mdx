@@ -3,11 +3,11 @@ title: Refinement
 description: Pull person and company intelligence for a known contact and land it as contact properties, so a behaviour-derived bucket can be qualified by fit. One function, a spend ledger, and a scoring pattern that is plain TypeScript.
 ---
 
-Your product tells you what a contact **did**. Refinement tells you who they **are**.
+**GTM engineers, this one is for you.** Your product already tells you what a contact **did**: time on site, repeat visits, a trial. Refinement tells you who they **are**.
 
-`refineContact()` asks an enrichment provider about a contact you already know, and writes the answer back as flat `refined_*` contact properties. Because it writes through the ingestion pipeline, bucket membership re-evaluates the moment the traits land. So a bucket built from behaviour can immediately be narrowed by fit, and the pair of them becomes a ranked list of people worth a call.
+`refineContact()` asks an enrichment provider (Apollo, or whatever you plug in) about a contact you already know, and lands the answer on the contact's own **canonical** fields: `title`, `seniority`, `company`, `company_employees`, `company_industry`. It fills the gaps and never overwrites what you already set. Because it writes through the ingestion pipeline, bucket membership re-evaluates the instant the traits land.
 
-That is the whole feature. There is no new primitive to learn: buckets are still buckets, properties are still properties, and the score is a function you write.
+So a bucket built from behaviour is narrowed by fit the moment the company data arrives, and the two together become a ranked list of people worth a call. That is the whole feature. No new primitive to learn: buckets are still buckets, properties are still properties, and the score is a function you write.
 
 > Refinement is inert until you configure a provider. With no `APOLLO_API_KEY` (or another provider registered), `refineContact()` returns `{ status: "skipped", reason: "no_provider" }` and costs nothing. Existing apps are unaffected.
 
@@ -16,7 +16,7 @@ That is the whole feature. There is no new primitive to learn: buckets are still
 ```
 behaviour lands a contact in a bucket
   → bucket.on("enter") calls refineContact()
-  → refined_* traits land via ingestEvent
+  → canonical traits land via ingestEvent (fill-if-absent)
   → bucket membership re-evaluates immediately
   → your scoring function blends fit with behaviour
   → the score lands via ingestEvent
@@ -24,6 +24,10 @@ behaviour lands a contact in a bucket
 ```
 
 Each hop is something you already know how to write.
+
+### How it fits the rest
+
+The loop is not a silo. `refineContact()` emits a `contact.refined` event, and a qualifying score flips a `bucket.entered` one. Both are ordinary outbound events, so a `defineDestination` pushes your ranked list to a CRM for your reps, one destination away. The company it lands is the key to model that contact's whole account as a group and aim a lifecycle journey at the company's problems, not just the person's. Wire analytics and every step mirrors to PostHog. That is the inbound loop closed, in TypeScript you can read.
 
 ## Quick example
 
@@ -67,19 +71,22 @@ Usage alone is rarely intent. Pairing repeated key actions with a commercial sig
 
 ## What lands on the contact
 
-Thirteen flat, top-level properties:
+Eleven canonical, flat fact properties — the fields your contacts already carry — plus one nested `enrichment` object for provenance:
 
 ```
-refined_title              refined_company_name
-refined_seniority          refined_company_domain
-refined_department         refined_company_industry
-refined_linkedin_url       refined_company_employees   (number)
-refined_country            refined_company_revenue     (number)
-                           refined_company_country
-refined_at                 refined_provider
+title              company            (company name)
+seniority          company_domain
+department         company_industry
+linkedin_url       company_employees   (number)
+country            company_revenue     (number)
+                   company_country
+
+enrichment = { provider, at }          (provenance, nested)
 ```
 
-Query them like any other property:
+The facts land **fill-if-absent**: a value you already set from a first-party source is never overwritten, so a paid lookup only fills what was missing. The `enrichment` object records which provider answered and when — it is provenance, not a fact, so it nests under one key instead of cluttering the top level with two more.
+
+Query the facts like any other property:
 
 ```ts
 export const enterpriseFit = defineBucket({
@@ -89,17 +96,18 @@ export const enterpriseFit = defineBucket({
     enabled: true,
     criteria: (b) =>
       b.all(
-        b.prop("refined_company_employees").gte(200),
-        b.prop("refined_seniority").eq("vp"),
+        b.prop("company_employees").gte(200),
+        b.prop("seniority").eq("vp"),
       ),
   },
 });
 ```
 
-Two rules here have silent failure modes, so they are worth stating plainly:
+Three rules here have silent failure modes, so they are worth stating plainly:
 
-- **Keys are flat, never dotted.** Write `b.prop("refined_seniority")`. A dotted `b.prop("properties.refined_seniority")` resolves to nothing, so the condition is simply never true and nothing tells you.
+- **Facts are flat, never dotted.** Write `b.prop("seniority")`. A dotted `b.prop("company.industry")` resolves to nothing, so the condition is simply never true and nothing tells you. That is why the facts are flat: conditions read one top-level key, so provenance — which conditions never read — is the only thing that nests.
 - **Numbers must be real JSON numbers.** Conditions do no coercion, so the string `"250"` never matches `gte(100)`. The two numeric traits are written as numbers. If you add your own, keep them numeric.
+- **First-party data wins.** Refinement fills gaps, it does not correct you. If you want the vendor's value for a field, don't also set it yourself.
 
 ## Every return status
 
@@ -153,7 +161,7 @@ The score is plain TypeScript in your app. It is not an engine primitive and it 
 
 ```ts
 export function computeGtmScore(input: GtmScoreInput): number {
-  const fit = fitPoints(input);           // from refined_* traits
+  const fit = fitPoints(input);           // from the canonical fit traits
   const behaviour = behaviourPoints(input) * recencyFactor(input.daysSinceLastActivity);
   return Math.max(0, Math.min(100, fit + Math.round(behaviour)));
 }

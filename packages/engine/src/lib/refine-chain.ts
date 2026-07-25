@@ -12,7 +12,11 @@ import type {
   EnrichmentLookupKind,
   EnrichmentLookupStatus,
 } from "./enrichment-ledger.js";
-import { flattenTraits, REFINED_META_KEYS } from "./refine-traits.js";
+import {
+  canonicalizeStoredTraits,
+  ENRICHMENT_KEY,
+  flattenTraits,
+} from "./refine-traits.js";
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -42,7 +46,12 @@ export interface RefineContactResult {
    * | `provider_error` | `ingest_failed`.
    */
   reason?: string;
-  /** The `refined_*` patch — on `refined` AND on `cached`. */
+  /**
+   * The vendor's FULL canonical trait patch (facts + the nested `enrichment`
+   * provenance) — on `refined` AND on `cached`. This is what the vendor
+   * answered, NOT the fill-if-absent subset that actually landed on any one
+   * contact.
+   */
   properties?: Record<string, unknown>;
 }
 
@@ -58,8 +67,13 @@ export interface RefineTarget {
   firstName?: string;
   lastName?: string;
   company?: string;
-  /** The `refined_*` traits already on THIS contact. */
-  refinedProperties?: Record<string, unknown>;
+  /**
+   * The properties already on THIS contact's row, used by fill-if-absent to
+   * decide which vendor facts to keep (a fact the contact already holds from a
+   * first-party source is never overwritten). Absent for a brand-new email with
+   * no row yet — nothing to preserve, so every vendor fact lands.
+   */
+  existingProperties?: Record<string, unknown>;
 }
 
 /** The event the refinement pipeline emits through `ingestEvent`. */
@@ -71,6 +85,12 @@ export interface RefineIngestInput {
   contactId?: string;
   eventProperties: Record<string, unknown>;
   contactProperties: Record<string, unknown>;
+  /**
+   * Fact key NAMES to re-evaluate buckets for even when their value is not in
+   * `contactProperties` (fill-if-absent dropped it). Candidate-narrowing only —
+   * never written, never in value eval. See {@link reconcileTraits}.
+   */
+  touchProperties?: string[];
   idempotencyKey?: string;
 }
 
@@ -88,9 +108,10 @@ export interface RefineEmitInput {
   contactId?: string;
   /** The enrichment provider id that answered. */
   provider: string;
-  /** Sorted key NAMES of the `refined_*` patch. */
+  /** Sorted canonical FACT keys actually filled on this contact (never the
+   * nested `enrichment` provenance key). */
   traitKeys: string[];
-  /** The lookup instant — the same value the patch's `refined_at` carries. */
+  /** The lookup instant — the same value the patch's `enrichment.at` carries. */
   refinedAt: Date;
   /** Per-endpoint delivery dedupe — see {@link refineOutboundDedupeKey}. */
   dedupeKey: string;
@@ -100,7 +121,11 @@ export interface RefineEmitInput {
 export interface RefineLedgerRow {
   status: EnrichmentLookupStatus;
   expiresAt: Date;
-  /** The normalized `refined_*` patch the paid answer produced, if stored. */
+  /**
+   * The normalized canonical trait patch the paid answer produced, if stored —
+   * the vendor's FULL answer, so a cache hit can land it (fill-if-absent) on a
+   * DIFFERENT contact that shares the lookup key.
+   */
   traits?: Record<string, unknown> | null;
 }
 
@@ -403,10 +428,21 @@ async function runGates(args: {
     spendWindow: deps.budgetWindowStart(refinedAt),
   });
 
+  // Fill-if-absent: the vendor's facts fill only the canonical fields THIS
+  // contact does not already hold from a first-party source — a paid lookup
+  // never clobbers truer data the app already set — while every returned fact
+  // stays in the patch so the fit bucket re-evaluates. Computed here, per
+  // contact, against the row `resolveTarget` read.
+  const { landing, filled, touch } = reconcileTraits(
+    properties,
+    target.existingProperties,
+  );
+
   const landed = await landTraits({
     deps,
     target,
-    properties,
+    properties: landing,
+    touch,
     providerId,
     found: result.found,
     cached: false,
@@ -432,16 +468,14 @@ async function runGates(args: {
     ...(target.email ? { email: target.email } : {}),
     ...(target.contactId ? { contactId: target.contactId } : {}),
     provider: providerId,
-    // VENDOR facts only — `refined_at` / `refined_provider` are provenance and
-    // are dropped. Two reasons, both deliberate: the envelope already carries
-    // both as top-level `at` / `provider`, so keeping them here would say the
-    // same thing twice; and `flattenTraits` stamps them UNCONDITIONALLY, so a
-    // found-but-empty vendor answer would otherwise report two changed traits
-    // when nothing about the person changed. `traits: []` now says that
-    // honestly.
-    traitKeys: Object.keys(properties)
-      .filter((key) => !REFINED_META_KEYS.includes(key))
-      .sort(),
+    // The FACTS that actually landed on this contact — the fill-if-absent set
+    // minus the nested `enrichment` provenance key. Two deliberate consequences:
+    // the envelope already carries the provenance as top-level `at` / `provider`
+    // so keeping the `enrichment` key here would say it twice; and a fact the
+    // contact already held (not overwritten) is not reported as changed, so a
+    // subscriber hears only what genuinely changed — `traits: []` when the
+    // answer added nothing new.
+    traitKeys: [...filled].sort(),
     refinedAt,
     dedupeKey: refineOutboundDedupeKey({
       provider: providerId,
@@ -470,8 +504,10 @@ async function runGates(args: {
  * membership was never evaluated — which is precisely the state a failed ingest
  * leaves behind. That makes the retry after an `ingest_failed` free.
  *
- * Rows written before the `traits` column existed have nothing stored; those
- * fall back to the caller's own traits, which is exactly the old behaviour.
+ * The stored patch is the vendor's FULL answer, so fill-if-absent runs here too
+ * — the second contact at a company keeps its own first-party fields and only
+ * gains what it was missing. Rows written before the `traits` column existed
+ * have nothing stored and simply return `cached` with an empty patch.
  */
 async function landCachedTraits(args: {
   deps: RefineChainDeps;
@@ -481,15 +517,19 @@ async function landCachedTraits(args: {
   idempotencyKey?: string;
 }): Promise<RefineContactResult> {
   const { deps, target, row } = args;
-  const stored = row.traits ?? undefined;
+  // A row written by the pre-canonical release stores flat `refined_*` traits;
+  // translate them so a cache hit lands the canonical shape, not the old one.
+  const stored = row.traits ? canonicalizeStoredTraits(row.traits) : undefined;
   if (!stored) {
-    return { status: "cached", properties: target.refinedProperties ?? {} };
+    return { status: "cached", properties: {} };
   }
 
+  const { landing, touch } = reconcileTraits(stored, target.existingProperties);
   const landed = await landTraits({
     deps,
     target,
-    properties: stored,
+    properties: landing,
+    touch,
     providerId: args.providerId,
     found: true,
     cached: true,
@@ -517,6 +557,7 @@ async function landTraits(args: {
   deps: RefineChainDeps;
   target: RefineTarget;
   properties: Record<string, unknown>;
+  touch: string[];
   providerId: string;
   found: boolean;
   cached: boolean;
@@ -534,6 +575,7 @@ async function landTraits(args: {
         cached: args.cached,
       },
       contactProperties: args.properties,
+      ...(args.touch.length > 0 ? { touchProperties: args.touch } : {}),
       ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
     });
     return true;
@@ -545,6 +587,65 @@ async function landTraits(args: {
     });
     return false;
   }
+}
+
+/**
+ * Reconcile the vendor's patch with what the contact already holds — fill-if-
+ * absent, split into three outputs because "what to WRITE" and "what to
+ * re-evaluate buckets for" are different questions.
+ *
+ * A paid answer must never overwrite a first-party value the app set. The
+ * ATOMIC way to guarantee that is to leave the already-held keys OUT of the
+ * write patch entirely: `mergePropertiesSql` is additive (`existing || patch`),
+ * so a key absent from the patch is left exactly as the live row has it — no
+ * read-modify-write, no snapshot to go stale, no chance of reverting a value a
+ * concurrent identify wrote during the (slow) vendor call. `existingProperties`
+ * is a pre-call snapshot, so this MUST NOT write a value back from it.
+ *
+ * But dropping a key hides it from `checkBucketMembership`, which narrows its
+ * candidate buckets to the property NAMES present in the ingest — so a dropped
+ * fact would never re-evaluate its fit bucket, and a torn write (properties
+ * persisted, membership not yet formed) would never reconcile. So the dropped
+ * keys still travel, separately, as `touch`: names only, no values, fed to the
+ * bucket candidate-narrowing (never to value eval, which reads the live row).
+ *
+ * Returns:
+ *  - `landing`: the write patch — the `enrichment` provenance (always) plus only
+ *    the facts the contact was MISSING.
+ *  - `filled`: the fact keys actually taken from the vendor (drives the outbound
+ *    `traitKeys` — a subscriber hears only what genuinely changed).
+ *  - `touch`: EVERY fact key the vendor returned, so its bucket re-evaluates
+ *    even when the value was already present.
+ */
+function reconcileTraits(
+  patch: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+): { landing: Record<string, unknown>; filled: string[]; touch: string[] } {
+  const landing: Record<string, unknown> = {};
+  const filled: string[] = [];
+  const touch: string[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === ENRICHMENT_KEY) {
+      landing[key] = value;
+      continue;
+    }
+    touch.push(key);
+    if (hasValue(existing?.[key])) continue; // already held — preserve, atomically
+    landing[key] = value;
+    filled.push(key);
+  }
+  return { landing, filled, touch };
+}
+
+/**
+ * A property is "already set" for fill-if-absent when it holds a real value: not
+ * undefined, not null, not an empty / whitespace-only string. A numeric 0 or a
+ * `false` COUNTS as set — it is a value the app chose, not an absence.
+ */
+function hasValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  return true;
 }
 
 /**

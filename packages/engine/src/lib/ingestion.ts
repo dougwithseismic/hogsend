@@ -72,6 +72,14 @@ export interface IngestEvent {
   /** D2: → `contacts.properties` merge ONLY. */
   contactProperties?: Record<string, unknown>;
   /**
+   * Extra property NAMES to re-evaluate buckets for — candidate-narrowing ONLY,
+   * NOT written and NOT in value eval. Lets a producer whose write patch omits a
+   * key (e.g. refinement's fill-if-absent, which drops already-held facts so it
+   * never clobbers first-party data) still trigger a fit bucket that references
+   * that key. Off by default; only engine-internal callers set it.
+   */
+  touchProperties?: string[];
+  /**
    * The groupType→groupKey association map for this event — persisted on
    * `user_events.groups`, drives group membership (each group row is ensured +
    * a `group_memberships` row upserted for the resolved contact), and forwards
@@ -787,6 +795,9 @@ export async function ingestEvent(opts: {
       event: event.event,
       eventProperties: event.eventProperties,
       contactProperties: event.contactProperties ?? {},
+      ...(event.touchProperties
+        ? { touchProperties: event.touchProperties }
+        : {}),
     });
   } catch (err) {
     logger.warn("Bucket membership check failed", {

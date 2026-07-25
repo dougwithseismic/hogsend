@@ -37,8 +37,8 @@ behaviour
   → bucket("gtm-high-intent")
       ↓ .on("enter")
     refineContact()                                  ← the new part
-      ↓ ingestEvent({ contactProperties })
-    contacts.properties.refined_*
+      ↓ ingestEvent({ contactProperties })  (fill-if-absent)
+    contacts.properties.{company_employees, seniority, …} (canonical)
       ↓ re-runs checkBucketMembership synchronously
     score = plain TypeScript (fit x behaviour)
       ↓ ingestEvent({ contactProperties: { gtmScore } })
@@ -122,24 +122,27 @@ forget, so it surfaces in development rather than silently over-deduplicating.
 
 ## 4. Traits
 
-Every trait key is **flat and top-level**, prefixed `refined_`:
+Facts land on **canonical, flat, top-level** contact fields — the ones your
+contacts already carry. Provenance rides in one nested `enrichment` object:
 
 ```
-refined_title              refined_company_name
-refined_seniority          refined_company_domain
-refined_department         refined_company_industry
-refined_linkedin_url       refined_company_employees   (number)
-refined_country            refined_company_revenue     (number)
-                           refined_company_country
-refined_at (ISO string)    refined_provider
+title              company            (company name)
+seniority          company_domain
+department         company_industry
+linkedin_url       company_employees   (number)
+country            company_revenue     (number)
+                   company_country
+
+enrichment = { provider, at }          (provenance, nested)
 ```
 
-Three rules govern them, and each one has a silent failure mode:
+Four rules govern them, and each one has a silent failure mode:
 
 1. **Flat, never dotted.** `evaluatePropertyConditions` reads
-   `journeyContext[key]`. Author `b.prop("refined_seniority")`. A dotted
-   `b.prop("properties.refined_seniority")` resolves to nothing and the
-   condition is simply never true.
+   `journeyContext[key]`. Author `b.prop("seniority")`. A dotted
+   `b.prop("company.industry")` resolves to nothing and the condition is simply
+   never true. That is why the facts are flat and only the provenance — which
+   conditions never read — nests.
 2. **Real JSON numbers.** `conditions/property.ts` does no coercion, so the
    string `"250"` never matches `gte(100)`. The two numeric traits are written
    as numbers; if you add your own, keep them numeric.
@@ -147,6 +150,10 @@ Three rules govern them, and each one has a silent failure mode:
    wraps the patch in `jsonb_strip_nulls`, so writing `null` **deletes** an
    existing good value. A provider that returns a null LinkedIn URL must not
    erase one you already had.
+4. **Fill-if-absent — first-party data wins.** A vendor fact is written only
+   where the contact does not already hold that field, so a paid lookup fills
+   gaps but never overwrites truer data you set yourself. If you want the
+   vendor's value for a field, do not also set it first.
 
 ## 5. Cost control
 

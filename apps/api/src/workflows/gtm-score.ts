@@ -24,13 +24,13 @@ import { Events } from "../journeys/constants/index.js";
  * argument, not a side channel.
  */
 export interface GtmScoreInput {
-  /** `refined_seniority` — Apollo's vocabulary (owner/founder/c_suite/vp/…). */
+  /** `seniority` — Apollo's vocabulary (owner/founder/c_suite/vp/…). */
   refinedSeniority?: unknown;
-  /** `refined_company_employees` — MUST be a real JSON number to count. */
+  /** `company_employees` — MUST be a real JSON number to count. */
   refinedCompanyEmployees?: unknown;
-  /** `refined_company_industry`. */
+  /** `company_industry`. */
   refinedCompanyIndustry?: unknown;
-  /** `refined_company_domain` — presence alone is a weak fit signal. */
+  /** `company_domain` — presence alone is a weak fit signal. */
   refinedCompanyDomain?: unknown;
   /** Count of `key.action` in the behaviour window. */
   keyActions: number;
@@ -75,7 +75,7 @@ const TARGET_INDUSTRIES = new Set([
 /**
  * The weights, in one place so a reader can retune without reading the code.
  *
- * FIT — from the `refined_*` traits `refineContact()` landed. Max 50.
+ * FIT — from the canonical traits `refineContact()` landed. Max 50.
  *   seniority band            0 / 6 / 12 / 20
  *   company size band         0 / 4 / 8 / 12 / 15
  *   target industry           0 / 10
@@ -363,10 +363,10 @@ export const gtmScoreTask = hatchet.task({
           for (const row of rows) {
             const properties = row.properties ?? {};
             const gtmScore = computeGtmScore({
-              refinedSeniority: properties.refined_seniority,
-              refinedCompanyEmployees: properties.refined_company_employees,
-              refinedCompanyIndustry: properties.refined_company_industry,
-              refinedCompanyDomain: properties.refined_company_domain,
+              refinedSeniority: properties.seniority,
+              refinedCompanyEmployees: properties.company_employees,
+              refinedCompanyIndustry: properties.company_industry,
+              refinedCompanyDomain: properties.company_domain,
               keyActions: row.key_actions,
               featureUses: row.feature_uses,
               paidFeatureAttempts: row.paid_feature_attempts,

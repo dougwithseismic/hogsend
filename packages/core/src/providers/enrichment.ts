@@ -26,9 +26,10 @@ export interface EnrichmentQuery {
 
 /**
  * Vendor-neutral person intelligence. Every field optional — a provider fills
- * what its vendor returned and omits the rest. Field names are the flat,
- * top-level trait vocabulary the engine prefixes into `refined_*` contact
- * properties (dotted paths never resolve in bucket conditions).
+ * what its vendor returned and omits the rest. The engine maps these onto the
+ * flat, canonical top-level contact-property keys (`title`, `company`,
+ * `company_employees`, …) that buckets already segment on — dotted paths never
+ * resolve in bucket conditions, which is why the facts stay flat.
  */
 export interface EnrichedPerson {
   firstName?: string;
