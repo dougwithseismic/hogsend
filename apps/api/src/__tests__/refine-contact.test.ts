@@ -146,10 +146,18 @@ beforeEach(async () => {
     new EnrichmentProviderRegistry([fakeProvider]),
     fakeProvider,
   );
-  // The budget cap is a month-to-date COUNT over the WHOLE ledger; this file is
-  // the only suite that writes the table, so clearing it per test makes the cap
-  // deterministic.
-  await db.delete(enrichmentLookups);
+  // The budget cap is a month-to-date COUNT over the ledger, so the rows this
+  // file creates must not leak between its own tests.
+  //
+  // SCOPED, deliberately. An unscoped delete here is a whole-table wipe of the
+  // enrichment ledger, and this file's DATABASE_URL fallback is a LIVE stack.
+  // That ledger is the Layer-2 exactly-once backstop AND the month-to-date
+  // budget accounting, so wiping it silently uncaps vendor spend and destroys
+  // dedup — it already clobbered a live drill once. Every lookup key this file
+  // creates comes from `uid()`/`mail()`, so the RUN prefix scopes all of them.
+  await db
+    .delete(enrichmentLookups)
+    .where(like(enrichmentLookups.lookupKey, `${RUN}-%`));
 });
 
 afterEach(() => {
@@ -159,9 +167,17 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // Targeted cleanup — everything this file created is RUN-namespaced. (The
-  // ledger is cleared wholesale because this file is its only writer.)
-  await db.delete(enrichmentLookups);
+  // Targeted cleanup — everything this file created is RUN-namespaced.
+  //
+  // SCOPED, deliberately. An unscoped delete here is a whole-table wipe of the
+  // enrichment ledger, and this file's DATABASE_URL fallback is a LIVE stack.
+  // That ledger is the Layer-2 exactly-once backstop AND the month-to-date
+  // budget accounting, so wiping it silently uncaps vendor spend and destroys
+  // dedup — it already clobbered a live drill once. Every lookup key this file
+  // creates comes from `uid()`/`mail()`, so the RUN prefix scopes all of them.
+  await db
+    .delete(enrichmentLookups)
+    .where(like(enrichmentLookups.lookupKey, `${RUN}-%`));
   await db
     .delete(bucketMemberships)
     .where(like(bucketMemberships.bucketId, `${RUN}-%`));
