@@ -60,6 +60,10 @@ const activitySchema = z.object({
 // `activity` block: the count never participates in `status` — degrading a
 // misconfigured-but-alive deploy would fail Railway's healthcheck and convert
 // an advisory into an outage.
+//
+// The count is the MERGED API + worker view: the worker's collector rides
+// the Redis heartbeat payload (see lib/worker-heartbeat.ts for why), because
+// an API-only count misses the exact process #611's evidence lived on.
 const configSchema = z.object({
   warnings: z.number(),
 });
@@ -245,6 +249,21 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
         getRecentActivity(db),
       ]);
 
+    // Merged warning count, UNION-BY-CODE across processes. A union, not a
+    // sum: codes are stable identifiers of a problem, so the same code
+    // recorded by both processes (e.g. both booted without an email
+    // provider) is ONE problem — summing would double-count it. Worker
+    // entries arrive on the heartbeat payload read above (already raced
+    // against the deadline); a dead/stale heartbeat, unreachable Redis or
+    // malformed payload leaves `diagnostics` undefined and the count
+    // degrades to the API-only view — never an error. Read per-request, not
+    // cached at boot: some diagnostics record late (e.g. after an async
+    // provider prime settles), and the worker's set refreshes every write.
+    const warningCodes = new Set(getBootDiagnostics().map((d) => d.code));
+    for (const d of heartbeat.diagnostics ?? []) {
+      warningCodes.add(d.code);
+    }
+
     // `migration_pending` if EITHER track is behind. The engine track also gates
     // boot (fatal); the client track surfaces here non-fatally (client-owned).
     const inSync = engine.inSync && client.inSync;
@@ -284,9 +303,7 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
           },
         },
         activity,
-        // Read per-request, not cached at boot: some diagnostics record late
-        // (e.g. after an async provider prime settles).
-        config: { warnings: getBootDiagnostics().length },
+        config: { warnings: warningCodes.size },
       },
       200,
     );

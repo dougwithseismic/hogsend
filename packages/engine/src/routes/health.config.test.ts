@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { type AddressInfo, createServer } from "node:net";
+import { type AddressInfo, createServer, type Socket } from "node:net";
 import { after, before, test } from "node:test";
 import type { AppEnv } from "../app.js";
 import type { HogsendClient } from "../container.js";
@@ -42,19 +42,31 @@ const SENTINEL = {
 // through the module-level ioredis singleton (lib/redis.ts) — no injection
 // seam — so the only infra-free way to an honest "up" is answering the wire
 // protocol: INFO (ioredis' ready check), PING (the component probe), GET (the
-// worker heartbeat, answered "not set" → worker "down", which is
-// informational and never touches status).
+// worker heartbeat — answered with `heartbeatValue`, which the AC15 tests set
+// to a worker-published JSON payload; null → "not set" → worker "down",
+// which is informational and never touches status).
+let heartbeatValue: string | null = null;
+
+function bulk(s: string): string {
+  return `$${Buffer.byteLength(s)}\r\n${s}\r\n`;
+}
+
 function respReply(command: string): string {
-  if (command.includes("info")) {
-    const info = "redis_version:7.4.0\r\n";
-    return `$${Buffer.byteLength(info)}\r\n${info}\r\n`;
-  }
+  if (command.includes("info")) return bulk("redis_version:7.4.0\r\n");
   if (command.includes("ping")) return "+PONG\r\n";
-  if (command.includes("get")) return "$-1\r\n";
+  if (command.includes("get")) {
+    return heartbeatValue === null ? "$-1\r\n" : bulk(heartbeatValue);
+  }
   return "+OK\r\n";
 }
 
+// Live sockets are tracked so the Redis-unreachable test can sever them —
+// server.close() alone waits politely for open connections.
+const stubSockets = new Set<Socket>();
+
 const redisStub = createServer((socket) => {
+  stubSockets.add(socket);
+  socket.on("close", () => stubSockets.delete(socket));
   socket.on("data", (buf) => {
     // Each chunk carries one-or-more RESP command arrays
     // ("*N\r\n$len\r\narg…"); answer each in arrival order. Splitting on the
@@ -150,4 +162,114 @@ test("AC6: the serialized body carries the count and none of the text", async ()
     !raw.includes(SENTINEL.code),
     "diagnostic code leaked onto unauthenticated /v1/health",
   );
+});
+
+// ---- T7 / AC15: worker diagnostics ride the heartbeat ----------------------
+//
+// The collector is per-OS-process memory and only the API process serves
+// HTTP; worker-side credentials (TWILIO_*, APOLLO_API_KEY) record into a
+// collector nothing could read — #611's exact blind spot. The worker
+// publishes its collector on the Redis heartbeat payload; /v1/health must
+// MERGE it into the public count.
+
+const WORKER_ONLY = {
+  code: "test.worker-only-sentinel",
+  message: "worker-only diagnostic naming TEST_WORKER_SENTINEL_ENV_VAR",
+};
+
+test("AC15: /v1/health merges API + worker warnings union-by-code", async () => {
+  // Known-empty collector (safe here — own process, nothing below relies on
+  // module-scope loader recordings), then exactly one API-side entry.
+  clearBootDiagnostics();
+  recordBootDiagnostic(SENTINEL);
+
+  // The worker re-reports the SAME code (both processes detect the same
+  // misconfiguration) plus one worker-only code.
+  heartbeatValue = JSON.stringify({
+    lastSeenAt: "2026-07-25T12:00:00.000Z",
+    diagnostics: [
+      { code: SENTINEL.code, message: "worker copy of the shared problem" },
+      WORKER_ONLY,
+    ],
+  });
+
+  const res = await app.request("/");
+  assert.equal(res.status, 200);
+  const raw = await res.text();
+  const body = JSON.parse(raw);
+
+  // UNION by code, computed independently of the implementation: the shared
+  // code is ONE problem seen from two processes. A SUM would report 3 and
+  // must fail here; the honest merged count is 2.
+  const expectedUnion = new Set([
+    ...getBootDiagnostics().map((d) => d.code),
+    SENTINEL.code,
+    WORKER_ONLY.code,
+  ]);
+  assert.equal(body.config.warnings, expectedUnion.size);
+  assert.equal(body.config.warnings, 2);
+
+  // The JSON payload still carries the liveness contract.
+  assert.equal(body.components.worker.status, "up");
+  assert.equal(body.components.worker.lastSeenAt, "2026-07-25T12:00:00.000Z");
+
+  // AC6 extends to WORKER text: the merged COUNT is public, the merged
+  // DETAIL is admin-only. Worker messages must not leak onto this route.
+  assert.ok(
+    !raw.includes(WORKER_ONLY.message),
+    "worker diagnostic message leaked onto unauthenticated /v1/health",
+  );
+  assert.ok(
+    !raw.includes("TEST_WORKER_SENTINEL_ENV_VAR"),
+    "worker diagnostic env-var name leaked onto unauthenticated /v1/health",
+  );
+  assert.ok(
+    !raw.includes(WORKER_ONLY.code),
+    "worker diagnostic code leaked onto unauthenticated /v1/health",
+  );
+});
+
+test("AC15 degradation: absent heartbeat payload → API-only count", async () => {
+  heartbeatValue = null;
+  const res = await app.request("/");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.config.warnings, getBootDiagnostics().length);
+  assert.equal(body.components.worker.status, "down");
+});
+
+test("AC15 degradation: legacy bare-timestamp payload → liveness only, API-only count", async () => {
+  // A pre-diagnostics worker still writes the bare ISO string (mixed-version
+  // deploy window): liveness must keep working, count degrades to API-only.
+  heartbeatValue = "2026-07-25T09:00:00.000Z";
+  const res = await app.request("/");
+  const body = await res.json();
+  assert.equal(body.components.worker.status, "up");
+  assert.equal(body.components.worker.lastSeenAt, heartbeatValue);
+  assert.equal(body.config.warnings, getBootDiagnostics().length);
+});
+
+test("AC15 degradation: malformed heartbeat payload → API-only count, no throw", async () => {
+  heartbeatValue = '{"lastSeenAt": definitely broken';
+  const res = await app.request("/");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.config.warnings, getBootDiagnostics().length);
+});
+
+// LAST on purpose: it takes the stub down for good.
+test("AC15 degradation: Redis unreachable → API-only count, no throw", async () => {
+  const closed = new Promise<void>((resolve) => {
+    redisStub.close(() => resolve());
+  });
+  for (const s of stubSockets) {
+    s.destroy();
+  }
+  await closed;
+
+  const res = await app.request("/");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.config.warnings, getBootDiagnostics().length);
+  assert.equal(body.components.worker.status, "down");
 });
