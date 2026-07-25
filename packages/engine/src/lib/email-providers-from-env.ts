@@ -1,13 +1,13 @@
 import type { EmailProvider } from "@hogsend/core";
 import { createResendProvider } from "@hogsend/plugin-resend";
 import type { env as envSchema } from "../env.js";
+import { loadOptionalPlugin } from "./load-optional-plugin.js";
 
 /**
- * `@hogsend/plugin-postmark` is an OPT-IN, deferred-publish package: it is an
- * engine `optionalDependency`, NOT a hard one, and it is not on the npm registry
- * yet. So we MUST NOT statically import it — a static `import` would make the
- * package mandatory at engine load, and `npm install @hogsend/engine` would fail
- * with E404 on plugin-postmark for every consumer that doesn't have it.
+ * `@hogsend/plugin-postmark` is an OPT-IN package: an engine
+ * `optionalDependency`, NOT a hard one. So we MUST NOT statically import it — a
+ * static `import` would make the package mandatory at engine load for every
+ * consumer, including the ones that never send through Postmark.
  *
  * Instead we load it lazily, ONCE, behind a top-level guarded dynamic import:
  * the `import()` only fires when `POSTMARK_SERVER_TOKEN` is present (the same
@@ -34,17 +34,16 @@ const POSTMARK_PACKAGE = ["@hogsend", "plugin-postmark"].join("/");
 
 let createPostmarkProvider: CreatePostmarkProvider | null = null;
 if (process.env.POSTMARK_SERVER_TOKEN) {
-  try {
-    ({ createPostmarkProvider } = (await import(POSTMARK_PACKAGE)) as {
-      createPostmarkProvider: CreatePostmarkProvider;
-    });
-  } catch {
-    // The token is set but the opt-in package isn't installed. Leave the factory
-    // null — `emailProvidersFromEnv` skips the preset, and if Postmark was the
-    // resolved active provider the container throws a clear "not registered"
-    // error directing the operator to install `@hogsend/plugin-postmark`.
-    createPostmarkProvider = null;
-  }
+  // Previously a bare `catch {}` that swallowed the failure silently. If
+  // Postmark was the resolved active provider the container still threw its
+  // "not registered" boot error, but a deploy that merely set the token fell
+  // back to Resend with nothing in the logs to say why.
+  createPostmarkProvider = await loadOptionalPlugin<CreatePostmarkProvider>({
+    specifier: POSTMARK_PACKAGE,
+    exportName: "createPostmarkProvider",
+    enabledBy: "POSTMARK_SERVER_TOKEN is set",
+    onFailure: (message) => console.warn(message),
+  });
 }
 
 /**

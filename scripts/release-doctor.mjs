@@ -443,6 +443,51 @@ const checks = [
     },
   },
   {
+    // The engine's OPT-IN plugins (`optionalDependencies`) are reached ONLY
+    // through a guarded dynamic import with a runtime-assembled specifier, so
+    // no bundler can inline them — Node loads them from node_modules at run
+    // time. That makes them the ONE class of @hogsend package that cannot ship
+    // raw `.ts`: Node refuses to strip types under node_modules
+    // (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING), the engine catches it, and
+    // the preset goes silently inert. Shipped that way for three releases —
+    // Postmark, Twilio and Apollo were all unreachable in any bundled consumer
+    // while looking perfectly healthy (#611).
+    //
+    // `types` still points at raw `src/` (consumers type-check through source,
+    // as with every other package here); only the RUNTIME entry must be built.
+    name: "engine opt-in plugins ship a loadable dist (runtime entry is built JS, not raw .ts)",
+    fn: () => {
+      const optional = Object.keys(
+        readJson("packages/engine/package.json").optionalDependencies || {},
+      );
+      const offenders = [];
+      for (const name of optional) {
+        const dir = `packages/${name.replace("@hogsend/", "")}`;
+        let pkg;
+        try {
+          pkg = readJson(`${dir}/package.json`);
+        } catch {
+          continue; // not a workspace package; nothing to assert
+        }
+        const runtimeEntry =
+          typeof pkg.exports?.["."] === "string"
+            ? pkg.exports["."]
+            : pkg.exports?.["."]?.default || pkg.main;
+        if (/\.tsx?$/.test(runtimeEntry || "")) {
+          offenders.push(
+            `${pkg.name}: runtime entry "${runtimeEntry}" is raw TypeScript — Node cannot load it from node_modules`,
+          );
+        }
+        if (!(pkg.files || []).includes("dist")) {
+          offenders.push(
+            `${pkg.name}: "files" omits "dist" (built entry would not publish)`,
+          );
+        }
+      }
+      return offenders.length === 0 ? null : offenders.join("; ");
+    },
+  },
+  {
     name: "no duplicate migration numbers (parallel-PR collision)",
     fn: () => {
       const files = readdirSync(r("packages/db/drizzle")).filter((f) =>

@@ -118,13 +118,25 @@ Two rules here have silent failure modes, so they are worth stating plainly:
 
 `cached` means *this lookup key was already paid for*, not *this contact already has the answer*. The stored answer is landed on whichever contact asked. That is what makes a shared company domain worth caching: the first person at `acme.com` pays for the company data, and every colleague after them gets it free.
 
+## Install the provider package
+
+The key on its own does nothing. Install the provider into your app:
+
+```bash
+pnpm add @hogsend/plugin-apollo
+```
+
+It has to be a direct dependency of *your* app. The engine lists it under `optionalDependencies`, and that is not enough: your app bundles the engine, so the engine's lazy `import("@hogsend/plugin-apollo")` resolves against your `node_modules`, where an engine-only optional dependency is never linked.
+
+You do not need to import or wire anything. With the package installed and `APOLLO_API_KEY` set, the engine registers the provider itself. If you set the key without the package, the boot log tells you precisely that, and refinement stays inert.
+
 ## Spending money on purpose
 
 Every lookup costs. Four environment variables control it.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `APOLLO_API_KEY` | unset | Configures the Apollo provider. Without it, refinement is inert. |
+| `APOLLO_API_KEY` | unset | Configures the Apollo provider (with `@hogsend/plugin-apollo` installed). Without it, refinement is inert. |
 | `ENRICHMENT_PROVIDER` | `apollo` | Which registered provider is active. |
 | `ENRICHMENT_TTL_DAYS` | `90` | How long a cached answer (hit **or** miss) satisfies a lookup. |
 | `ENRICHMENT_MONTHLY_LOOKUPS` | `0` | Monthly cap on provider calls. **`0` means uncapped.** |

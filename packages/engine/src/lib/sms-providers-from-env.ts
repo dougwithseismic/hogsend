@@ -1,5 +1,6 @@
 import type { SmsProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
+import { loadOptionalPlugin } from "./load-optional-plugin.js";
 
 /**
  * `@hogsend/plugin-twilio` is an OPT-IN, deferred-publish package — an engine
@@ -25,17 +26,16 @@ const TWILIO_PACKAGE = ["@hogsend", "plugin-twilio"].join("/");
 
 let createTwilioProvider: CreateTwilioProvider | null = null;
 if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-  try {
-    ({ createTwilioProvider } = (await import(TWILIO_PACKAGE)) as {
-      createTwilioProvider: CreateTwilioProvider;
-    });
-  } catch {
-    // Credentials set but the opt-in package isn't installed. Leave the factory
-    // null — `smsProvidersFromEnv` skips the preset, and if Twilio was the
-    // resolved active provider the container throws a clear "not registered"
-    // error directing the operator to install `@hogsend/plugin-twilio`.
-    createTwilioProvider = null;
-  }
+  // Previously a bare `catch {}` that swallowed the failure with no log at all:
+  // a Twilio-configured deploy registered no provider, the container installed
+  // the inert throwing stub, and the first symptom was `sendSms` throwing at
+  // send time with nothing at boot to explain why. Report it where it happens.
+  createTwilioProvider = await loadOptionalPlugin<CreateTwilioProvider>({
+    specifier: TWILIO_PACKAGE,
+    exportName: "createTwilioProvider",
+    enabledBy: "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are set",
+    onFailure: (message) => console.warn(message),
+  });
 }
 
 /**

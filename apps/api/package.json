@@ -28,6 +28,7 @@
     "@hogsend/email": "workspace:^",
     "@hogsend/engine": "workspace:^",
     "@hogsend/mcp": "workspace:^",
+    "@hogsend/plugin-apollo": "workspace:^",
     "@hogsend/plugin-discord": "workspace:^",
     "@hogsend/plugin-posthog": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
