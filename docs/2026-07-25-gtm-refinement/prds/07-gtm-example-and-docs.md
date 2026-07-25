@@ -61,10 +61,32 @@ provider contract, `refineContact` semantics and every return status, the ledger
 the trait key rules, the scoring pattern, and the leaderboard query. Follow the house copy register —
 every line a fact, no marketing, no em dashes.
 
+## Harness gotchas — hit and solved during the 2026-07-25 runtime smoke
+
+The full loop HAS been driven end to end against real Apollo, real Postgres and a live hatchet-lite.
+It passes. Three traps cost real time; none is a product defect, all three silently produce a
+green-looking run that proves nothing:
+
+1. **`setBucketRegistry` must be called AFTER `createHogsendClient`.** The container builds its own
+   bucket registry from `opts.buckets` and calls `setBucketRegistry` itself, clobbering anything set
+   earlier. Set it first and membership silently never fills — no error, just zero rows.
+2. **`buildBucketRegistry(buckets, "*")` — the second argument is the enabled-buckets filter**
+   (`ENABLED_BUCKETS` semantics). Omit it and nothing is enabled, again silently.
+3. **`contacts.email` is UNIQUE.** Re-seeding a fixture contact with `onConflictDoNothing` is a
+   silent no-op, after which `refineContact({ userId })` resolves nothing and correctly returns
+   `no_lookup_key` — which reads like a refinement bug and is not one.
+
+Also: `ingestEvent` compensating-deletes the `user_events` row and **rethrows** if the Hatchet push
+fails, and the contact upsert plus bucket check both run after that point. So a live Hatchet is
+genuinely required for an end-to-end smoke — it cannot be stubbed away. For this worktree,
+hatchet-lite runs on 7081/8891 and a token is minted with:
+`docker exec <hatchet-lite> /hatchet-admin token create --name <n> --tenant-id <id> --config /config`
+(note `--config /config`, not `/app/config`; the tenant id is printed in the container logs at boot).
+
 ## Seams
 
-**A live Apollo API key** for the end-to-end smoke. The example and its tests run against the fake
-provider from PRD 03 without one.
+**A live Apollo API key** — CLOSED. Supplied and verified. The example and its tests still run against
+the fake provider from PRD 03, so the suite stays offline and deterministic.
 
 ## Done when
 

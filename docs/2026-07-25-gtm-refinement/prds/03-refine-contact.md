@@ -55,34 +55,60 @@ refineContact(opts: {
 ## Gate chain (fixed order)
 
 Copy the structure of `packages/engine/src/lib/connector-actions.ts:320-381` — read it before writing
-a line of this function. Two config/pure checks outside the memo, everything stateful inside it.
+a line of this function. Two checks outside the memo — one on the ARGUMENTS, one on boot config —
+and everything stateful, including resolving the contact, inside it.
 
-**Outside the memo** (pure/config reads — an early return here is safe because neither can change
-between a run and its replay):
+**Outside the memo** (an early return here is safe only because neither reads the database, so
+neither can change between a run and its replay):
 
-1. **Resolve** the contact and derive `lookupKey`: the email if present, else the company domain.
-   No resolvable key → `{ status: "skipped", reason: "no_lookup_key" }`, zero spend.
-2. **No active provider** → `{ status: "skipped", reason: "no_provider" }`, zero spend.
+0. **Pure argument check** — `opts.contactId`, `opts.email` and `opts.userId` all absent → there is
+   nothing to refine and nothing to key from: `{ status: "skipped", reason: "no_lookup_key" }`, zero
+   spend, zero queries.
+1. **No active provider** → `{ status: "skipped", reason: "no_provider" }`, zero spend.
 
-**Then, unconditionally** — before any live DB read — when a journey boundary exists: derive
+**Then, unconditionally** — before any live DB read — when a journey boundary exists: let
+`callerRef = opts.contactId ?? normalizeEmail(opts.email) ?? opts.userId`, derive
 `deriveJourneyKey({ kind: "refine", anchor: boundary.runAnchor, site: idempotencyLabel ??
-boundary.currentLabel ?? lookupKey, discriminant: lookupKey })`, call `registerKey(boundary, key)`,
+boundary.currentLabel ?? callerRef, discriminant: callerRef })`, call `registerKey(boundary, key)`,
 and issue `boundary.memoize([key], …)`. No condition may guard this call.
+
+`callerRef` is the caller's own AUTHORED argument, never a value resolved off `contacts`. Resolving
+the subject is a live read of a row that gains an email routinely — a form fill, an identify, a merge
+— and `refineContact` is the one function whose whole purpose is to be called after a wait. Keying on
+the resolved lookup key would let a domain→email upgrade mid-sleep re-key the memo AND the
+`enrichment_lookups` row, missing both defence layers and charging the vendor twice.
 
 **Inside the memo closure:**
 
+2. **Resolve** the contact and derive `lookupKey`: the email if present, else the company domain.
+   No resolvable key → `{ status: "skipped", reason: "no_lookup_key" }`, zero spend. This is a live
+   `contacts` read, so its verdict is memo-recorded and replayed verbatim like every other one.
 3. **Ledger check** (skipped when `force`) — a row whose `expiresAt` is in the future:
-   `status: "found"` → return `cached` with the stored properties; `status: "not_found"` → return
-   `not_found`. Both zero spend. A `status: "error"` row does **not** short-circuit.
-4. **Budget cap** — if `ENRICHMENT_MONTHLY_LOOKUPS > 0` and the count of ledger rows with
-   `refinedAt` inside the current calendar month is at or above it →
+   `status: "found"` → land the row's stored `traits` patch on the contact being asked about (through
+   `ingestEvent`, exactly as step 6 does) and return `cached` with that patch; `status: "not_found"`
+   → return `not_found`. Both zero spend. A `status: "error"` row does **not** short-circuit.
+   The ledger has no contact dimension and a `domain` key is shared by every contact at that company,
+   so "this key was already paid for" says nothing about whether THIS contact has the traits — the
+   cache suppresses the spend, never the outcome. (Rows written before the `traits` column existed
+   have nothing stored and fall back to the caller's own traits.)
+4. **Budget cap** — if `ENRICHMENT_MONTHLY_LOOKUPS > 0` and the number of provider LOOKUPS recorded
+   in the current calendar month is at or above it →
    `{ status: "skipped", reason: "budget_exceeded" }`. Fails closed. `force` does not bypass this.
-   (This is a month-to-date COUNT that legitimately changes between run and replay — which is exactly
-   why it must live inside the closure and be replayed verbatim.)
-5. **Provider call** — `provider.enrichPerson(query)`.
-6. **Write the ledger row, then `ingestEvent`,** in that order:
+   Count lookups, not rows: the ledger is one row per subject and a `force` refresh updates it in
+   place, so a row count would leave the refresh path — the only way to re-spend inside the TTL —
+   entirely unmeasured. `enrichment_lookups.spend_count` is bumped on EVERY provider call, errors
+   included, and resets when a call lands in a new window. (This is a month-to-date total that
+   legitimately changes between run and replay — which is exactly why it must live inside the closure
+   and be replayed verbatim.)
+5. **Provider call** — `provider.enrichPerson(query)`. A throw records the spend (`spend_count` +
+   `last_error_at`) WITHOUT clobbering any live cached answer, and returns
+   `{ status: "skipped", reason: "provider_error" }`.
+6. **Write the ledger row — with the normalized patch — then `ingestEvent`,** in that order:
    `ingestEvent({ event: "contact.refined", userId, eventProperties: { provider, found },
-   contactProperties: flattenTraits(result) })`.
+   contactProperties: flattenTraits(result) })`. A failed ingest is caught and returned as
+   `{ status: "skipped", reason: "ingest_failed" }`: the paid row is already committed, so letting
+   the exception escape would spend the money AND fail the journey run. The retry is free — it hits
+   step 3 and re-lands the stored patch.
 
 **With no boundary** (called from a webhook, a cron, or a test) the chain runs directly with no memo —
 mirror `connector-actions.ts:341` (`if (!boundary) return gate(doRun)`). Layer 2, the
