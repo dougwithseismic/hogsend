@@ -207,3 +207,19 @@ All 17 criteria hold, gates green per DECISIONS §4, and the T2/T3/T7 regression
 tests are mutation-verified per DECISIONS §5.
 
 ## Implementation Notes
+
+Shipped complete (T1–T7). Collector is a process-global `Map` (module-scope
+loaders record before any container exists); recording sites preserve every
+existing log line. `/v1/health` reports a union-by-code count of API + worker
+diagnostics (worker leg rides the Redis heartbeat, now a JSON payload on the
+same key/TTL; legacy bare-timestamp payloads still read as alive); detail is
+admin-only on `/v1/admin/config`. `hogsend doctor` renders the count always and
+the detail behind a double gate. T6 docs live in `apps/docs/content/docs/cli/
+doctor.mdx`.
+
+Post-review fix (`2bac4a0a`): the doctor detail-fetch gate originally keyed only
+on an explicit `--url`; a cwd `.env`'s `HOGSEND_API_URL` could redirect an
+ambient admin key to an attacker origin. Now gated on url/key source provenance
+(a `.env`-derived origin is treated as untrusted unless the key came from the
+same `.env`). Also corrected the `sms.no-sender` message to not over-claim an
+inert stub when a consumer supplies their own SMS provider.

@@ -205,3 +205,18 @@ green on the shipped tree, and the T1/T2/T5 mutation proofs are each reported
 with both the red and green outputs.
 
 ## Implementation Notes
+
+**T1 shipped** (`24e9b00a`): the `release-doctor` catch-gate for a swallowed
+dynamic `import()`, with the `hogsend:allow-swallow` opt-out.
+
+**T2/T3/T5/T6 descoped** to a lean load proof — see the decision note in
+`../BACKLOG.md`. Rather than a ~200-line generalized `verify-tarball-entries.mjs`
+over every dist package, we first confirmed the #611 class is already guarded
+three ways (the fix ships dist; a static `release-doctor` check forbids a raw
+`.ts` runtime entry; scaffold 7b load-proves apollo). The one real gap — 7b
+proved apollo only — is closed by `debda8f1`, which generalizes 7b to load-prove
+`postmark` and `twilio` too (install their local tarballs into the scaffolded
+app, import all three under plain node). Mutation-verified: a raw-`.ts` entry
+under `node_modules` throws `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`,
+failing 7b. The generalized verifier is deferred until a concrete bug in the
+non-plugin dist packages motivates its surface area.
