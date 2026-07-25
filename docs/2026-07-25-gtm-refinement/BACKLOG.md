@@ -10,7 +10,7 @@ Ordered queue. Build top-down. See `DECISIONS.md` for locked global choices and 
 | 04 | [`@hogsend/plugin-apollo`](prds/04-plugin-apollo.md) | `[x]` | 01 | Reference provider, fixture-driven, injectable `fetch` |
 | 05 | [Cold-channel gate enforcement](prds/05-cold-channel-gate.md) | `[x]` | — | Wire the declared-but-unused cold posture into `checkActionAudience` |
 | 06 | [Contact leaderboard](prds/06-contact-leaderboard.md) | `[x]` | — | GIN index + `orderBy`/`orderProperty` on admin contacts + Studio sortable column |
-| 07 | [GTM example, scoring recipe, docs](prds/07-gtm-example-and-docs.md) | `[ ]` | 03, 04, 06 | Working example buckets + nightly recompute + `docs/gtm.md` and the guide |
+| 07 | [GTM example, scoring recipe, docs](prds/07-gtm-example-and-docs.md) | `[x]` | 03, 04, 06 | Working example buckets + nightly recompute + `docs/gtm.md` and the guide |
 | 08 | [`contact.refined` outbound event](prds/08-contact-refined-outbound.md) | `[ ]` | 03 | Optional, cuttable — catalog entry across three hand-synced copies |
 | 09 | [`withDurableGate` primitive](prds/09-with-durable-gate.md) | `[x]` | 03 | **P0** — extract the positional-journal shape so a fifth bug of that class cannot be written |
 | 10 | [Test database isolation](prds/10-test-db-isolation.md) | `[x]` | — | **P0** — 150 test files pin DATABASE_URL to the shared main-checkout DB with no env escape |

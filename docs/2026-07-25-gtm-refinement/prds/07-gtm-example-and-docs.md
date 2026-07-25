@@ -95,4 +95,87 @@ running API + worker (see the verification section of the approved plan).
 
 ## Implementation Notes
 
-_(filled in during build)_
+Shipped in `4e280906` (example + scoring) and `0f67b8d9` (docs).
+
+**What landed**
+
+- `apps/api/src/buckets/gtm-high-intent.ts` — behavioural criteria (5+ key actions in 30 days AND a
+  commercial signal) with `.on("enter")` → `ctx.once("refine", …)` → `refineContact`.
+  `entryLimit: "once_per_period"` / `entryPeriod: days(30)` because every entry can spend a lookup;
+  30 days sits well inside the 90-day enrichment TTL, so a re-entry is a `cached` no-spend. The
+  cooldown bounds reaction RUNS; the ledger bounds the MONEY.
+- `apps/api/src/buckets/gtm-qualified.ts` — `b.prop("gtmScore").gte(20)`, deliberately not
+  `timeBased`.
+- `apps/api/src/workflows/gtm-score.ts` — `computeGtmScore` (pure) + `selectScoreBatch` (the SQL,
+  exported so tests drive the real query) + the nightly cron task.
+- `apps/api/src/journeys/constants/events.ts` — `GTM_SCORED: "gtm.scored"`, the carrier for the
+  score write.
+- `docs/gtm.md` + `apps/docs/content/docs/guides/refinement.mdx` (+ `meta.json` ordering). The guide
+  was rendered in the running docs app before commit, not just built.
+
+**Scoring shape** — FIT (max 50: seniority band, company-size band, target industry, known domain)
++ BEHAVIOUR (max 50, every axis capped so one loud signal cannot dominate) × a recency multiplier
+applied to the behaviour half only. Fit does not go stale on the same timescale as intent.
+`daysSinceLastActivity` is an ARGUMENT, never a clock read, which is what makes the function
+testable.
+
+**Batch termination** — `runBatchedBackfill` stops on a 0-return and otherwise assumes each batch
+shrinks the remaining set. A recompute shrinks nothing, so a naive `LIMIT n` re-selects the same
+page forever. A keyset cursor on `contacts.id` fixes it, and `runBatch` returns rows **SCANNED**,
+not rows written — returning rows-written would let a stretch of unchanged contacts return 0 and
+silently end the run early, skipping everything after them.
+
+### Three defects caught by review, all fixed before commit
+
+1. **Missing `contactId` provenance pin (blocking).** `user_key` is
+   `COALESCE(external_id, anonymous_id, id)`, but `resolveOrCreateContact` treats a bare `userId` as
+   an EXTERNAL key and never probes `anonymous_id`. An anonymous-only contact would have had a
+   phantom twin minted carrying the score while the real row stayed at `{}` — and because the real
+   row's score stayed absent, skip-unchanged never fired, so it would re-mint nightly forever
+   without converging. Reproduced live by two independent reviewers.
+2. **Self-feeding recency metric (blocking).** `MAX(occurred_at)` was unfiltered, so it counted
+   `gtm.scored` — the row this job writes. Every scored contact looked active as of its own last
+   scoring, resetting decay to 1.0 on the next run and inflating a score that had not moved. Now
+   filtered to the four events the score actually reads.
+3. **Day-scoped `idempotencyKey` (removed).** It looked like a retry guard and was a trap:
+   `ingestEvent` commits the property patch in step (1) but returns `stored: false` from the dedupe
+   in step (4), BEFORE `checkBucketMembership` in step (6). A score revisiting a same-day value
+   would land the number and skip the membership re-evaluation, leaving a contact reading 34 while
+   absent from `gtm-qualified` — with nothing to heal it, because a pure `prop` bucket is invisible
+   to the reconcile cron. The retry protection it reached for already comes from skip-unchanged: a
+   Hatchet retry rescans from a reset cursor and every already-written contact matches its stored
+   score.
+
+### A fourth defect, NOT fixed here
+
+The anon-only fix exposed a **pre-existing engine defect**: `emitBucketTransition` re-ingests every
+bucket transition with no `contactId` pin, so ANY bucket mints a phantom twin for an anonymous-only
+contact. `power-users`, `went-dormant` and `trial-expiring-soon` have the same exposure. Filed as
+**PRD 11** and as a GitHub issue; out of PRD 07's boundary and worth its own review surface (seven
+call sites across three files, including the reconcile cron and backfill, which are the paths that
+could mint at scale).
+
+`gtm-qualified-ingest.test.ts` carries a test named **`KNOWN DEFECT (PRD 11)`** that PINS the
+current buggy shape (`toHaveLength(2)`). It will FAIL when PRD 11 lands. That is deliberate — it
+gives the fix a target that cannot be forgotten.
+
+### Verification
+
+29 tests across three files, and every fix mutation-tested rather than assumed:
+
+| Mutation | Result |
+| --- | --- |
+| `gte(20)` → `gte(200)` | 2 tests fail |
+| weaken the jsonb `finiteNumber` guard | 1 test fails |
+| remove the recency `FILTER` | 1 test fails |
+| drop the `contactId` pin | 2 tests fail |
+
+Plus 139 passing across the nine bucket + GTM suites, no regressions.
+
+`selectScoreBatch` was extracted specifically so the SQL is reachable from a test. The subtle
+mistakes live in the query — the recency filter, the identity `COALESCE`, the cursor — and none of
+it is reachable through `computeGtmScore`.
+
+### Not done
+
+AC 5's Studio screenshot (deferred from PRD 06) still needs a Studio pass against a running app.
