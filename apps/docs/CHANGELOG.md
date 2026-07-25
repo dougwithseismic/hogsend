@@ -1,5 +1,14 @@
 # @hogsend/docs
 
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [b62877a]
+  - @hogsend/js@0.54.0
+  - @hogsend/react@0.54.0
+  - @hogsend/video@0.54.0
+
 ## 0.0.14
 
 ### Patch Changes
