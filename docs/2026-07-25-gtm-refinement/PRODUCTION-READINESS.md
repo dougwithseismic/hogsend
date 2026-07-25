@@ -52,9 +52,22 @@ is easy to get subtly wrong in a way every gate reports green.
       spends without limit. The cap must count LOOKUPS. *Fix in flight.*
 - [~] **D4 (important)** — a provider error on an existing key records nothing (uncapped, invisible
       outage retries); a failed `ingestEvent` throws after the paid row is committed. *Fix in flight.*
+- [x] **D1–D4 all closed** in `c9aed857`, and re-verified by REPRODUCTION rather than diff-reading:
+      two independent advisors re-drove the real `refineContact` against the live DB and could not
+      reproduce any of the four. Mutation evidence is the load-bearing part — restoring D1's old shape
+      fails 8 tests; reverting D3's counting fails its own. Engine 47→56, refine vitest 13→18, zero
+      regressions, no assertion deleted or loosened.
+      - D2's semantics were settled deliberately: **`cached` means "this lookup key was already paid
+        for", NOT "this contact already has the answer"**. A hit lands the stored patch on the contact
+        being asked about. That is what makes a shared domain key work, and what makes D4b's retry free.
 - [ ] **Concurrency** — two `refineContact` calls racing the same key in different processes. The
       unique index makes one lose; confirm the loser returns a sane verdict rather than a 23505 escape.
       Not yet tested at all.
+- [ ] **Degraded mode (pre-eviction engine)** — a domain→email upgrade can still double-charge, because
+      `memoize` falls through to a bare call and Layer 2 is subject-keyed rather than caller-keyed.
+      Same accepted gap class as `sendConnectorAction`. Eviction IS live on this stack
+      (hatchet-lite 0.84.0) so Layer 1 covers the normal path — but a deploy on an older engine does
+      not have that protection. Decide explicitly whether to support it or refuse to boot on it.
 
 ---
 
@@ -78,12 +91,44 @@ That is a real result and it is also a narrow one.
 
 ---
 
+## 2b. Test isolation is broken repo-wide — PRE-EXISTING, and it undermines every verification claim
+
+**150 of 151 files in `apps/api/src/__tests__/` do this, unconditionally:**
+
+```js
+process.env.DATABASE_URL = "postgresql://growthhog:growthhog@localhost:5434/growthhog";
+```
+
+No env escape. Port **5434 is the main checkout's database** — shared with whatever other agent or
+dev session is running. Only `refine-contact.test.ts` respects an override
+(`HOGSEND_TEST_DATABASE_URL`), because it was written during this release.
+
+Consequences, all real and all observed:
+- A full `apps/api` suite run from ANY worktree writes to the shared DB. The "1933 passed" figures
+  earlier in this release were partly against another agent's data.
+- Concurrent sessions flake each other. `admin-impact-global-control.test.ts` is the reliable victim:
+  its oracle enumerates ALL live contacts assuming no concurrent mutation, which cannot hold on a
+  shared database. It passes 5/5 in isolation and fails under concurrency — the failure looks like a
+  logic bug and is not one.
+- Worktree isolation, which exists precisely so parallel agents do not corrupt each other, is
+  defeated for the one thing most likely to write rows.
+
+- [ ] **Sweep all 151 files to `process.env.DATABASE_URL = process.env.HOGSEND_TEST_DATABASE_URL ?? <default>`.**
+      Mechanical, no behaviour change for anyone running the default. Do it when no other agent is
+      mid-edit in `apps/api` — it touches too many files to interleave safely.
+- [ ] Consider making the default port itself worktree-derived, so the failure mode is "cannot
+      connect" rather than "silently wrote to someone else's database".
+
+Not caused by this release. Flagged here because it materially weakens the evidence behind any
+"tests are green" claim made from a worktree, including several of mine.
+
 ## 3. Remaining scope
 
 - [ ] **PRD 04** — `@hogsend/plugin-apollo`. Build against the probed contract in the PRD (array
       `departments`, `primary_domain` not `website_url`, nullable person `linkedin_url`).
-- [ ] **PRD 05** — cold-channel gate. Independent; closes a declared-but-unwired safety gap that a
-      GTM release makes live.
+- [x] **PRD 05** — cold-channel gate, shipped in `825eb998`. Gate runs inside the existing memo
+      closure; the durable key derivation and memoize call are byte-identical. Mutation-verified
+      independently: inverting the posture check kills 3 tests.
 - [ ] **PRD 06** — leaderboard. Spec already corrected for the `jsonb_typeof` guard; without it a
       single non-numeric value 500s the endpoint and the documented index breaks ingest writes.
 - [ ] **PRD 07** — example + docs + the end-to-end smoke as a committed artifact rather than a
