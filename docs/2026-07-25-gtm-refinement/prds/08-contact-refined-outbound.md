@@ -1,6 +1,6 @@
 # PRD 08 — `contact.refined` outbound event (optional, cuttable)
 
-**Depends on:** PRD 03 · **Status:** `[ ]`
+**Depends on:** PRD 03 · **Status:** `[x]`
 
 ## Goal
 
@@ -54,4 +54,47 @@ in `BACKLOG.md`.
 
 ## Implementation Notes
 
-_(filled in during build)_
+Shipped in `11189192`. Not cut.
+
+**Catalogs** — all three carry `contact.refined`: `webhook-signing.ts` (source of truth),
+`packages/cli/src/commands/webhooks.ts`, `packages/client/src/types.ts`. AC 4's test compares them
+as FULL SETS rather than just asserting the new entry is present, so it catches every future drift
+rather than only this one.
+
+**Payload** — the contact key, the provider id, and the mapped trait NAMES. Not the values: the
+payload says what changed, and a subscriber that wants the values reads the contact.
+`REFINED_META_KEYS` names `refined_at`/`refined_provider` once so provenance can be told apart from
+vendor facts without re-listing them and drifting.
+
+**Emission point** — inside the gate closure, on the already-decided `refined` verdict, after every
+stateful step. It issues no durable call, so the journal is byte-identical with and without it
+(verified: the `memoize`/`registerKey`/`deriveJourneyKey` grep on the diff is empty, and the law
+harness asserts journal identity on every verdict). The dep is `void`-returning by contract, so an
+outbound problem can never slow or fail a refinement.
+
+**AC 2 coverage** — all EIGHT non-refined paths asserted in one table (`cached`, ledger `not_found`,
+live `not_found`, and all five `skipped` reasons), each with `assert.deepEqual(h.emits, [])`, plus a
+control on the same harness shape that DOES emit. Without the control the whole table could pass for
+a trivial reason.
+
+**The dedupe key needed the lookup instant, and that was a real find.** The first implementation
+derived it from the ledger triple `(provider, lookupKind, lookupKey)` alone. But `webhook_deliveries`
+carries a PERMANENT unique `(endpointId, dedupeKey)` index and nothing ever deletes a delivery row.
+So a contact refined today and re-refined in 90 days — TTL expired, vendor reports a new job title —
+would recompute a byte-identical key and the subscriber would **never be told**, which is precisely
+the event a CRM sync exists to receive. Same for any `force: true` refresh. The instant costs nothing
+on the re-drive side, because the re-drive is defended by the LEDGER GATE (a retry finds the row the
+first attempt wrote, returns `cached`, and never reaches the emit), not by the key.
+
+**Mutation-verified**, not assumed:
+
+| Mutation | Result |
+| --- | --- |
+| let `not_found` fall through to the emit | 1 test fails |
+| strip the instant from the dedupe key | 3 tests fail |
+
+Engine tests 83 → 94. Gates: lint clean (13 pre-existing warnings), check-types 50/50, build 27/27.
+
+**Consumer fallout, deliberate.** A 31st event broke two `apps/api` snapshots that hardcoded the
+catalog at 30 (`outbound-webhooks-signing.test.ts`, `impact-digest.test.ts`). Those tests exist to
+fail exactly here; the counts moved to 31 in the assertions AND in the test names.
