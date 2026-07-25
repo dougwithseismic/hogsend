@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 30-event catalog, in order", () => {
+  it("is exactly the 31-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -213,6 +213,9 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "contact.subscribed",
       // Global control group membership (impact plan §4.3).
       "contact.control_group",
+      // A refinement landed vendor traits (`refineContact`) — emitted ONLY on
+      // a genuine `status: "refined"`, never on a cache hit.
+      "contact.refined",
       "email.sent",
       "email.delivered",
       "email.opened",

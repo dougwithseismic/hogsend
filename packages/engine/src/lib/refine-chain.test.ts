@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { EnrichmentProvider, EnrichmentResult } from "@hogsend/core";
+import { assertUniformDurableJournal } from "../journeys/durable-law-harness.js";
 import {
   type JourneyBoundary,
   runWithJourneyBoundary,
@@ -9,7 +10,9 @@ import {
   type RefineChainDeps,
   type RefineContactOptions,
   type RefineContactResult,
+  type RefineEmitInput,
   type RefineTarget,
+  refineOutboundDedupeKey,
   runRefineChain,
 } from "./refine-chain.js";
 
@@ -66,7 +69,9 @@ interface FakeProvider {
   calls: () => number;
 }
 
-function fakeProvider(behaviour: "found" | "throw" = "found"): FakeProvider {
+function fakeProvider(
+  behaviour: "found" | "throw" | "miss" = "found",
+): FakeProvider {
   let calls = 0;
   const provider: EnrichmentProvider = {
     meta: { id: "fake", name: "Fake" },
@@ -74,6 +79,7 @@ function fakeProvider(behaviour: "found" | "throw" = "found"): FakeProvider {
     enrichPerson: async () => {
       calls += 1;
       if (behaviour === "throw") throw new Error("vendor 503");
+      if (behaviour === "miss") return { found: false, raw: null };
       return FOUND;
     },
   };
@@ -85,6 +91,8 @@ interface Harness {
   providerCalls: () => number;
   ledgerWrites: number;
   ingests: number;
+  /** Every outbound `contact.refined` emit, in order. */
+  emits: RefineEmitInput[];
 }
 
 function harness(overrides: {
@@ -104,7 +112,11 @@ function harness(overrides: {
   const fake = fakeProvider();
   const provider = overrides.provider ?? fake.provider;
   const providerCalls = overrides.providerCalls ?? fake.calls;
-  const state = { ledgerWrites: 0, ingests: 0 };
+  const state = {
+    ledgerWrites: 0,
+    ingests: 0,
+    emits: [] as RefineEmitInput[],
+  };
 
   const deps: RefineChainDeps = {
     provider,
@@ -134,6 +146,9 @@ function harness(overrides: {
       state.ingests += 1;
       if (overrides.ingest) await overrides.ingest();
     },
+    emitRefined: (input) => {
+      state.emits.push(input);
+    },
   };
 
   return {
@@ -144,6 +159,9 @@ function harness(overrides: {
     },
     get ingests() {
       return state.ingests;
+    },
+    get emits() {
+      return state.emits;
     },
   };
 }
@@ -533,4 +551,214 @@ test("D4b: the retry after a failed ingest re-lands the stored patch for FREE", 
   assert.deepEqual(result, { status: "cached", properties: stored });
   assert.equal(h.providerCalls(), 0);
   assert.equal(h.ingests, 1);
+});
+
+// ---------------------------------------------------------------------------
+// PRD 08 — the outbound `contact.refined` event
+// ---------------------------------------------------------------------------
+
+/**
+ * The sorted trait key names FOUND flattens to — NAMES, never values, and
+ * VENDOR facts only: `refined_at` / `refined_provider` are provenance, already
+ * carried as the envelope's `at` / `provider`, so they are not traits.
+ */
+const FOUND_TRAIT_KEYS = [
+  "refined_company_employees",
+  "refined_company_name",
+  "refined_seniority",
+  "refined_title",
+];
+
+/** NOW as the dedupe key serializes it. */
+const NOW_ISO = NOW.toISOString();
+
+test("AC 1: a `refined` verdict emits contact.refined with the contact key, provider id and trait NAMES", async () => {
+  const h = harness({});
+
+  const result = await runRefineChain(h.deps, SUBJECT);
+
+  assert.equal(result.status, "refined");
+  assert.equal(h.emits.length, 1);
+  assert.deepEqual(h.emits[0], {
+    userId: "u1",
+    email: "a@acme.com",
+    contactId: "c1",
+    provider: "fake",
+    traitKeys: FOUND_TRAIT_KEYS,
+    refinedAt: NOW,
+    dedupeKey: `refine:fake:email:a@acme.com:${NOW_ISO}`,
+  });
+
+  // The payload carries key NAMES, never the vendor's values: the event says
+  // what changed and a subscriber that wants the values reads the contact.
+  const emitted = h.emits[0] as RefineEmitInput;
+  assert.ok(!JSON.stringify(emitted.traitKeys).includes("CTO"));
+  assert.ok(!JSON.stringify(emitted.traitKeys).includes("Acme"));
+  // Provenance is NOT a trait — it rides as `provider` / `refinedAt` instead.
+  assert.ok(!emitted.traitKeys.includes("refined_at"));
+  assert.ok(!emitted.traitKeys.includes("refined_provider"));
+});
+
+test("AC 1: a found-but-empty vendor answer reports NO traits rather than two metadata keys", async () => {
+  // `flattenTraits` stamps refined_at/refined_provider unconditionally, so if
+  // provenance counted as a trait this payload would claim two changes for an
+  // answer that told us nothing about the person.
+  const empty: EnrichmentProvider = {
+    meta: { id: "fake", name: "Fake" },
+    capabilities: { personLookup: true, companyLookup: true },
+    enrichPerson: async () => ({ found: true, raw: {} }),
+  };
+  const h = harness({ provider: empty });
+
+  assert.equal((await runRefineChain(h.deps, SUBJECT)).status, "refined");
+  assert.deepEqual(h.emits[0]?.traitKeys, []);
+});
+
+test("AC 1: a domain-keyed refinement emits with the domain lookup in its dedupe key", async () => {
+  const h = harness({ domainOnly: true });
+
+  assert.equal((await runRefineChain(h.deps, SUBJECT)).status, "refined");
+  assert.equal(h.emits.length, 1);
+  assert.equal(h.emits[0]?.dedupeKey, `refine:fake:domain:acme.com:${NOW_ISO}`);
+  // No email on the subject — the key fields carry only what actually resolved.
+  assert.equal(h.emits[0]?.email, undefined);
+  assert.equal(h.emits[0]?.userId, "u1");
+});
+
+test("AC 2: `cached`, `not_found` and `skipped` emit NOTHING — a cache hit is not an event", async () => {
+  const cached = harness({
+    ledgerRow: unexpired("found", { refined_title: "CTO" }),
+  });
+  const notFoundCached = harness({ ledgerRow: unexpired("not_found") });
+  const notFoundLive = harness({ provider: fakeProvider("miss").provider });
+  const noLookupKey = harness({ target: null });
+  const noProvider = harness({});
+  noProvider.deps.provider = undefined;
+  noProvider.deps.providerId = undefined;
+  const budget = harness({ monthlyCap: 5, usedThisMonth: 5 });
+  const providerError = harness({ provider: fakeProvider("throw").provider });
+  const ingestFailed = harness({
+    ingest: async () => {
+      throw new Error("hatchet unavailable");
+    },
+  });
+
+  const cases: [string, Harness, string][] = [
+    ["cached", cached, "cached"],
+    ["not_found (ledger)", notFoundCached, "not_found"],
+    ["not_found (live)", notFoundLive, "not_found"],
+    ["skipped:no_lookup_key", noLookupKey, "skipped"],
+    ["skipped:no_provider", noProvider, "skipped"],
+    ["skipped:budget_exceeded", budget, "skipped"],
+    ["skipped:provider_error", providerError, "skipped"],
+    ["skipped:ingest_failed", ingestFailed, "skipped"],
+  ];
+
+  for (const [name, h, expected] of cases) {
+    const result = await runRefineChain(h.deps, SUBJECT);
+    assert.equal(result.status, expected, name);
+    assert.deepEqual(h.emits, [], `${name} must not emit contact.refined`);
+  }
+
+  // The control: the SAME harness shape on the genuine path does emit, so the
+  // assertions above are not passing for a trivial reason.
+  const refined = harness({});
+  assert.equal((await runRefineChain(refined.deps, SUBJECT)).status, "refined");
+  assert.equal(refined.emits.length, 1);
+});
+
+test("AC 3: re-driving the SAME answer recomputes the SAME dedupeKey, so the second delivery is absorbed", async () => {
+  // Two independent drives of the same logical refinement — a task retry, or a
+  // boundary-less re-run — landing the same answer at the same instant.
+  const first = harness({});
+  const second = harness({});
+  await runRefineChain(first.deps, SUBJECT);
+  await runRefineChain(second.deps, SUBJECT);
+
+  assert.equal(first.emits[0]?.dedupeKey, second.emits[0]?.dedupeKey);
+  assert.equal(
+    first.emits[0]?.dedupeKey,
+    refineOutboundDedupeKey({
+      provider: "fake",
+      lookupKind: "email",
+      lookupKey: "a@acme.com",
+      refinedAt: NOW,
+    }),
+  );
+
+  // A DIFFERENT subject is a different key — the dedupe never collapses two
+  // real refinements into one delivery.
+  const other = harness({
+    target: { contactId: "c2", userId: "u2", email: "b@acme.com" },
+  });
+  await runRefineChain(other.deps, { userId: "u2" });
+  assert.notEqual(other.emits[0]?.dedupeKey, first.emits[0]?.dedupeKey);
+});
+
+test("AC 3: a genuinely NEW lookup of the same subject is NOT absorbed — the TTL-refresh case", async () => {
+  // 90 days on, the TTL expires, the vendor is asked again and reports a new
+  // job title. `webhook_deliveries` has a PERMANENT unique (endpointId,
+  // dedupeKey) index and nothing ever deletes a delivery row, so a key made
+  // only of (provider, kind, key) would silence this refinement forever — the
+  // exact event a CRM sync subscriber exists to receive.
+  const LATER = new Date(NOW.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const today = harness({});
+  const ninetyDaysOn = harness({});
+  ninetyDaysOn.deps.now = () => LATER;
+
+  await runRefineChain(today.deps, SUBJECT);
+  await runRefineChain(ninetyDaysOn.deps, SUBJECT);
+
+  assert.notEqual(today.emits[0]?.dedupeKey, ninetyDaysOn.emits[0]?.dedupeKey);
+  assert.equal(
+    ninetyDaysOn.emits[0]?.dedupeKey,
+    `refine:fake:email:a@acme.com:${LATER.toISOString()}`,
+  );
+
+  // ...and the instant is serialized stably, not as a locale string.
+  assert.match(
+    today.emits[0]?.dedupeKey ?? "",
+    /:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+  );
+});
+
+test("AC 3: a re-drive never reaches the emit anyway — the LEDGER GATE returns `cached` first", async () => {
+  // The instant in the key costs nothing on the re-drive side, because the
+  // dedupe is not what defends a re-drive. Attempt 2 finds the row attempt 1
+  // wrote and returns `cached` (refine-chain.ts step 3), which has no emit at
+  // all — so a duplicate delivery needs a concurrent race, not a retry.
+  const redrive = harness({
+    ledgerRow: unexpired("found", { refined_title: "CTO" }),
+  });
+
+  assert.equal((await runRefineChain(redrive.deps, SUBJECT)).status, "cached");
+  assert.deepEqual(redrive.emits, []);
+});
+
+test("AC 11 holds WITH the emit: the durable journal is identical on every verdict", async () => {
+  // The emit sits on the already-decided `refined` verdict inside the gate
+  // closure and issues no durable call, so adding it may not move the journal.
+  const refined = harness({});
+  const cached = harness({ ledgerRow: unexpired("found", { a: 1 }) });
+  const notFound = harness({ ledgerRow: unexpired("not_found") });
+  const skipped = harness({ target: null });
+
+  const { results } = await assertUniformDurableJournal({
+    paths: {
+      refined: () => runRefineChain(refined.deps, SUBJECT),
+      cached: () => runRefineChain(cached.deps, SUBJECT),
+      not_found: () => runRefineChain(notFound.deps, SUBJECT),
+      skipped: () => runRefineChain(skipped.deps, SUBJECT),
+    },
+    expectedJournal: ['memoize:["journeyRefine:run-1:u1:u1"]'],
+  });
+
+  assert.equal(results.refined?.status, "refined");
+  assert.equal(results.cached?.status, "cached");
+  assert.equal(results.not_found?.status, "not_found");
+  assert.equal(results.skipped?.status, "skipped");
+  assert.equal(refined.emits.length, 1);
+  assert.equal(cached.emits.length, 0);
+  assert.equal(notFound.emits.length, 0);
+  assert.equal(skipped.emits.length, 0);
 });

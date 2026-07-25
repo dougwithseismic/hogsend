@@ -499,6 +499,7 @@ export type OutboundEventType =
   | "contact.unsubscribed"
   | "contact.subscribed"
   | "contact.control_group"
+  | "contact.refined"
   | "email.sent"
   | "email.delivered"
   | "email.opened"

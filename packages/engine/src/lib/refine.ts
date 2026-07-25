@@ -16,6 +16,7 @@ import {
 import { hatchet } from "./hatchet.js";
 import { ingestEvent } from "./ingestion.js";
 import { createLogger } from "./logger.js";
+import { emitOutbound } from "./outbound.js";
 import {
   REFINE_EVENT,
   type RefineChainDeps,
@@ -95,6 +96,26 @@ export async function refineContact(
     countLookupsSince: (input) =>
       countEnrichmentLookups({ db, since: input.since }),
     writeLedgerRow: (input) => upsertEnrichmentLookup({ db, ...input }),
+    // OUTBOUND `contact.refined` — fire-and-forget, exactly the `bucket.entered`
+    // shape (bucket-emit.ts). `emitOutbound` never throws; the `.catch` is
+    // defence-in-depth so a webhook problem can never fail a refinement.
+    emitRefined: (input) => {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "contact.refined",
+        dedupeKey: input.dedupeKey,
+        payload: {
+          userId: input.userId ?? null,
+          email: input.email ?? null,
+          contactId: input.contactId ?? null,
+          provider: input.provider,
+          traits: input.traitKeys,
+          at: input.refinedAt.toISOString(),
+        },
+      }).catch(logger.warn);
+    },
     ingest: async (input) => {
       await ingestEvent({
         db,

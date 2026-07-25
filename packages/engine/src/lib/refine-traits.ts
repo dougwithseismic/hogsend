@@ -61,6 +61,17 @@ export function flattenTraits(
 export const REFINED_TRAIT_PREFIX = "refined_";
 
 /**
+ * The two keys {@link flattenTraits} stamps that are PROVENANCE, not vendor
+ * facts. Named once here so a consumer of the patch (the `contact.refined`
+ * outbound payload) can tell "what the vendor told us" apart from "when, and
+ * who told us" without re-listing them and drifting.
+ */
+export const REFINED_META_KEYS: readonly string[] = [
+  "refined_at",
+  "refined_provider",
+];
+
+/**
  * The `refined_*` subset of an already-stored `contacts.properties` bag — what
  * a cache hit compares the ledger row's stored patch against, to tell "this
  * contact already has the paid answer" apart from "another contact at the same
