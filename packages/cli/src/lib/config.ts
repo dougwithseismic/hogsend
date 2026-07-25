@@ -21,6 +21,14 @@ export interface ResolvedConfig {
    * set, so a cwd `.env`'s HOGSEND_API_URL can't silently become their target.
    */
   urlExplicit: boolean;
+  /**
+   * True when `adminKey` came from an explicit `--admin-key` flag (vs env /
+   * .env). Mirrors `urlExplicit`, for the inverse hazard: commands that would
+   * send an ambiently-resolved admin key to a non-ambient target (e.g.
+   * `doctor`'s detail fetch against an explicit `--url` origin) must only do
+   * so when the user typed the key for this invocation.
+   */
+  adminKeyExplicit: boolean;
 }
 
 /** Global flags parsed off the front of any command's argv. */
@@ -173,5 +181,6 @@ export function resolveConfig(
     adminKey: adminKey && adminKey.length > 0 ? adminKey : undefined,
     dataKey: dataKey && dataKey.length > 0 ? dataKey : undefined,
     urlExplicit: flags.url !== undefined,
+    adminKeyExplicit: flags.adminKey !== undefined,
   };
 }
