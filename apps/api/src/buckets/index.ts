@@ -1,3 +1,5 @@
+import { gtmHighIntent } from "./gtm-high-intent.js";
+import { gtmQualified } from "./gtm-qualified.js";
 import { powerUsers } from "./power-users.js";
 import { trialExpiringSoon } from "./trial-expiring-soon.js";
 import { wentDormant } from "./went-dormant.js";
@@ -12,7 +14,23 @@ import { wentDormant } from "./went-dormant.js";
  * `wentDormant.left` stays `"bucket:left:went-dormant"`. A `DefinedBucket<Id>` is
  * still assignable to the base `DefinedBucket[]` that the factories accept.
  */
-export const buckets = [powerUsers, trialExpiringSoon, wentDormant];
+export const buckets = [
+  powerUsers,
+  trialExpiringSoon,
+  wentDormant,
+  // The GTM refinement loop: behaviour lands a contact in `gtm-high-intent`,
+  // whose enter reaction refines it; the nightly `gtm-score` workflow blends the
+  // refined fit traits with behaviour and writes `gtmScore` through
+  // `ingestEvent`, which flips `gtm-qualified`.
+  gtmHighIntent,
+  gtmQualified,
+];
 
 // Re-export individual buckets for direct reference (tests, custom wiring).
-export { powerUsers, trialExpiringSoon, wentDormant };
+export {
+  gtmHighIntent,
+  gtmQualified,
+  powerUsers,
+  trialExpiringSoon,
+  wentDormant,
+};

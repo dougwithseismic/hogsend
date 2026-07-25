@@ -32,6 +32,12 @@ export const Events = {
 
   TRIAL_STARTED: "trial.started",
 
+  // Emitted by the nightly `gtm-score` workflow when a contact's recomputed
+  // blended score CHANGED. It is the carrier for the `gtmScore` contact-property
+  // write — `ingestEvent` is the only write path that re-runs
+  // `checkBucketMembership`, so this event is what flips `gtm-qualified`.
+  GTM_SCORED: "gtm.scored",
+
   EMAIL_OPENED: "email.opened",
   EMAIL_LINK_CLICKED: "email.link_clicked",
 
