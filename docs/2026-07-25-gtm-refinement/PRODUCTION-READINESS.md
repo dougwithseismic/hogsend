@@ -93,8 +93,8 @@ That is a real result and it is also a narrow one.
       row shape and that a retry after an error actually re-attempts.
 - [ ] **TTL expiry.** Backdate a ledger row past `expiresAt` and confirm the vendor is re-asked.
       Currently only the cache-hit direction is proven.
-- [ ] **Bucket leave.** A contact whose refined trait drops below a bucket threshold. Only entry has
-      been demonstrated.
+- [x] **Bucket leave.** Covered by PRD 07's `gtm-qualified-ingest.test.ts` — a score of 40 enters,
+      a later score of 5 leaves, both through `ingestEvent` alone with no reconcile cron.
 
 ---
 
@@ -145,9 +145,16 @@ Not caused by this release. Flagged here because it materially weakens the evide
       sort + filter); without it a single non-numeric value in the jsonb bag 500s the endpoint. GIN
       index in migration `0067`. **Deferred: the Studio screenshot** — it needs a running app, which
       the tree now supports.
-- [ ] **PRD 07** — example + docs + the end-to-end smoke as a committed artifact rather than a
-      throwaway script.
-- [ ] **PRD 08** — `contact.refined` outbound. Cuttable.
+- [x] **PRD 07** — example + scoring workflow (`4e280906`) + docs (`0f67b8d9`). Review caught three
+      defects before commit — a missing `contactId` provenance pin, a self-feeding recency metric,
+      and a day-scoped `idempotencyKey` that skipped the bucket check — all four fixes
+      mutation-tested rather than assumed.
+- [ ] **PRD 08** — `contact.refined` outbound. In flight.
+- [ ] **PRD 11 / [#608](https://github.com/dougwithseismic/hogsend/issues/608)** — NOT this release.
+      Pre-existing: `emitBucketTransition` re-ingests with no `contactId` pin, so EVERY bucket mints
+      a phantom twin for an anonymous-only contact. Found and reproduced live during PRD 07's
+      review. A test in `gtm-qualified-ingest.test.ts` pins the current buggy shape so the fix has a
+      target that cannot be forgotten.
 
 ---
 
