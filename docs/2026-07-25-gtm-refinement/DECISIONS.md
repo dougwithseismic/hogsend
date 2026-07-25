@@ -187,7 +187,7 @@ Each is a clean follow-up. None blocks this release.
 
 | Seam | Status |
 |---|---|
-| **Live Apollo API key** | Required only for the final end-to-end smoke. Every PRD is built and tested against an injected `fetch` and a deterministic fake provider, so the whole stack goes green without it. Enumerate as a human ask at the end. |
+| **Live Apollo API key** | **CLOSED 2026-07-25.** Key supplied and verified live (`POST /api/v1/people/match` → HTTP 200). Stored in the gitignored `.env` and `apps/api/.env` only; `apps/api/.env.example` carries a documented placeholder. The key appears in no tracked file and no commit — verified with `git check-ignore` and a history-wide `git grep`. PRDs still build against an injected `fetch` and a fake provider; the real key is for the PRD 07 smoke only. `ENRICHMENT_MONTHLY_LOOKUPS=50` locally so a test loop cannot burn the quota. |
 | **Running Postgres for `apps/api` tests** | `docker compose up -d` provides TimescaleDB on 5434. The vitest config injects test env vars. Available locally; not a blocker. |
 | **Publishing `@hogsend/plugin-apollo` to npm** | A brand-new `@hogsend/*` package's first publish must be manual — CI cannot create it. Out of scope for this run (no publishing). Note it for the release train. |
 

@@ -19,9 +19,38 @@ The reference `EnrichmentProvider`: a dumb wire that queries Apollo and normalis
 - Added to `packages/engine/package.json` `optionalDependencies` (alongside `plugin-twilio` and
   `plugin-postmark`), never to `dependencies`.
 - Apollo's response shape must not leak past this package (DECISIONS §3.5).
-- **Verify the current Apollo API contract before implementing** — endpoint paths, auth header, and
-  response field names may have changed. Use WebFetch against Apollo's developer docs. Record what
-  you find in the fixtures and cite it in Implementation Notes. Do not implement from memory.
+- **The Apollo contract has been probed live (2026-07-25) — build against THIS, not from memory.**
+  One real call was made with the supplied key; do not re-probe casually, every call spends credit.
+
+  ```
+  POST https://api.apollo.io/api/v1/people/match
+  Headers: x-api-key: <key>          ← this auth mechanism is confirmed working (HTTP 200)
+           Content-Type: application/json
+  Body:    { "email": "..." }
+  Returns: { person, request_id }
+  ```
+
+  `person` fields: `first_name`, `last_name`, `title`, `seniority`, `departments`, `linkedin_url`,
+  `city`, `state`, `country`, `email`, `organization_id`.
+  Company data is **nested at `person.organization`**, not top-level: `name`, `website_url`,
+  `primary_domain`, `industry`, `estimated_num_employees`, `annual_revenue`, `city`, `country`,
+  `linkedin_url`.
+
+  **Three traps confirmed by the probe:**
+  1. **`departments` is an ARRAY**, not a string. `EnrichedPerson.department` is a single string —
+     map deliberately (first element) and document the choice. A naive assignment ships an array into
+     a jsonb string field and every `eq` condition against it silently fails.
+  2. **Company domain is `primary_domain`**, NOT `website_url`. `website_url` is a full URL and would
+     poison any domain-keyed lookup or future group association.
+  3. `person.linkedin_url` came back **null** while `organization.linkedin_url` was populated — the
+     two are independent, and null must be OMITTED from the patch, never written (DECISIONS §3 /
+     PRD 03: `jsonb_strip_nulls` turns a written null into a DELETE of an existing good value).
+
+  `estimated_num_employees` and `annual_revenue` both arrived as real JSON **numbers**, so AC 6's
+  coercion is a defensive guard rather than the common path — keep it, but do not assume strings.
+
+- **Do not commit the raw probe response as a fixture** — it contains a real person's contact data.
+  Hand-author fixtures with the same SHAPE and synthetic values.
 - No npm publish in this run. A brand-new `@hogsend/*` package's first publish must be manual; that
   is a release-train task, not a build task.
 
