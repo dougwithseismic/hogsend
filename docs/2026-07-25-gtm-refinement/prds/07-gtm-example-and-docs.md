@@ -1,0 +1,76 @@
+# PRD 07 — GTM example buckets, scoring recipe, docs
+
+**Depends on:** PRD 03, PRD 04, PRD 06 · **Status:** `[ ]`
+
+## Goal
+
+Make the loop real and teachable: a working example in `apps/api` that a reader can copy, plus the
+docs that explain refinement and the scoring pattern. This is where "Signals = a bucket you can rank"
+gets written down.
+
+## Locked decisions
+
+- The score is **plain TypeScript in the consumer app**, not an engine primitive. That is the wedge.
+- **Recompute, never increment** (DECISIONS §3.2). The scoring function is a pure function of current
+  contact state. Any example that does a read-modify-write increment is wrong and must not ship.
+- The nightly recompute **must write each score through `ingestEvent`**. `bucketReconcileTask`
+  deliberately skips non-time-based buckets, so a pure `gte` bucket is only ever evaluated from
+  ingest. Cost: one `user_events` row per scored contact per run. State this cost in the docs — do
+  not hide it.
+- The refine call sits in a **bucket enter reaction**, wrapped in `ctx.once` — a reaction handler runs
+  inside a replayable journey run.
+- Batched writes follow `examples/my-first-hogsend/src/workflows/backfill-example.ts`
+  (`FOR UPDATE SKIP LOCKED`).
+
+## Acceptance criteria (EARS)
+
+1. WHEN a contact enters `gtm-high-intent` the system SHALL call `refineContact()` exactly once per
+   entry, wrapped in `ctx.once`.
+2. WHEN the nightly scoring workflow runs the system SHALL recompute each contact's `gtmScore` as a
+   pure function of current state and write it via `ingestEvent`.
+3. WHEN a contact's recomputed `gtmScore` crosses 20 the contact SHALL enter `gtm-qualified` without
+   waiting for the reconcile cron.
+4. WHEN the scoring workflow runs twice with unchanged inputs the resulting `gtmScore` SHALL be
+   identical (deterministic, no clock- or RNG-derived term beyond an explicit decay input).
+5. WHEN the docs are read they SHALL state the per-contact `user_events` cost of the nightly
+   recompute, the flat-top-level-key rule, and the expression-index one-liner from PRD 06.
+
+## Tasks
+
+### T7.1 — Example buckets + reaction
+_Boundary:_ `apps/api` · _Depends:_ PRD 03
+
+`src/buckets/gtm-high-intent.ts` (behavioural criteria) with `.on("enter")` → `refineContact()` in
+`ctx.once`; `src/buckets/gtm-qualified.ts` with `criteria: (b) => b.prop("gtmScore").gte(20)`.
+Register both wherever the app's buckets are wired.
+
+### T7.2 — Nightly scoring workflow
+_Boundary:_ `apps/api` · _Depends:_ T7.1
+
+`src/workflows/gtm-score.ts` — `hatchet.task({ onCrons })`, batched, writing through `ingestEvent`.
+Export from `src/workflows/index.ts` and pass via `createWorker({ extraWorkflows })`.
+
+_Test:_ AC 2 and AC 4 against the scoring function directly (pure), plus an integration test for AC 3.
+
+### T7.3 — Docs
+_Boundary:_ `docs` + `apps/docs` · _Depends:_ T7.2
+
+`docs/gtm.md` (the engine-side reference, following `docs/byo-email-provider.md` as the canonical BYO
+template) and `apps/docs/content/docs/guides/refinement.mdx` (the consumer-facing guide). Cover: the
+provider contract, `refineContact` semantics and every return status, the ledger/TTL/budget model,
+the trait key rules, the scoring pattern, and the leaderboard query. Follow the house copy register —
+every line a fact, no marketing, no em dashes.
+
+## Seams
+
+**A live Apollo API key** for the end-to-end smoke. The example and its tests run against the fake
+provider from PRD 03 without one.
+
+## Done when
+
+Five acceptance criteria pass, gates green, and the full loop has been driven end to end against a
+running API + worker (see the verification section of the approved plan).
+
+## Implementation Notes
+
+_(filled in during build)_
