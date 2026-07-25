@@ -986,6 +986,16 @@ export type ContactListFilters = {
   dealStage?: string;
   /** Server cap is 100; the contacts table default stays 50. */
   limit?: number;
+  /**
+   * PRD 06 leaderboard: sort mode. `property` ranks by the NUMERIC value of
+   * `orderProperty` (server-side type guard — non-numeric values sort as
+   * null, last in both directions). Omitted = the pre-existing
+   * `lastSeenAt` desc.
+   */
+  orderBy?: "lastSeenAt" | "firstSeenAt" | "property";
+  /** Required when orderBy=property. Server-validated `[A-Za-z0-9_.-]{1,64}`. */
+  orderProperty?: string;
+  orderDir?: "asc" | "desc";
 };
 
 export function listContacts(filters: ContactListFilters = {}) {
@@ -1000,6 +1010,9 @@ export function listContacts(filters: ContactListFilters = {}) {
       minRevenue: filters.minRevenue,
       dealStage: filters.dealStage || undefined,
       limit: filters.limit ?? 50,
+      orderBy: filters.orderBy,
+      orderProperty: filters.orderProperty,
+      orderDir: filters.orderDir,
     },
   });
 }

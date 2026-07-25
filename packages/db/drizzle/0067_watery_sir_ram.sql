@@ -1,0 +1,1 @@
+CREATE INDEX "contacts_properties_gin_idx" ON "contacts" USING gin ("properties" jsonb_path_ops);

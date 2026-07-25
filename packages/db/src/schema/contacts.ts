@@ -111,5 +111,19 @@ export const contacts = pgTable(
     uniqueIndex("contacts_phone_unique_idx")
       .on(table.phone)
       .where(sql`phone IS NOT NULL AND deleted_at IS NULL`),
+    // PRD 06 — GIN over the whole properties document, `jsonb_path_ops`
+    // (containment is the only operator class it serves, and it indexes
+    // smaller/faster than the default `jsonb_ops`; same trade as
+    // user_events_valued_groups_idx). This accelerates CONTAINMENT filters
+    // (`properties @> '{...}'::jsonb`) ONLY — a GIN cannot serve ORDER BY, so
+    // the leaderboard's numeric property sort remains a sequential scan.
+    // That is acceptable at GTM volume (thousands of contacts), not at
+    // product-analytics volume; a deployment sorting hot on one key adds its
+    // own guarded expression index (see docs — it must reuse the same
+    // `jsonb_typeof(...) = 'number'` CASE guard, never a bare cast).
+    index("contacts_properties_gin_idx").using(
+      "gin",
+      table.properties.op("jsonb_path_ops"),
+    ),
   ],
 );
