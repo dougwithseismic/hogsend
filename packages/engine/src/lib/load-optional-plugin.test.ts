@@ -4,10 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { getBootDiagnostics } from "./boot-diagnostics.js";
 import {
   loadOptionalPlugin,
   type PluginLoadOutcome,
 } from "./load-optional-plugin.js";
+
+/**
+ * Look up a recorded boot diagnostic by exact code. Assertions here target
+ * SPECIFIC codes (or deltas), never absolute collector counts: the collector
+ * is process-global and `clearBootDiagnostics()` would permanently discard
+ * module-scope loader recordings (modules never re-evaluate), so a count
+ * assertion can pass or fail for reasons unrelated to what it claims.
+ */
+function diagnostic(code: string) {
+  return getBootDiagnostics().find((d) => d.code === code);
+}
 
 function collect() {
   const seen: Array<{ message: string; outcome: PluginLoadOutcome }> = [];
@@ -22,6 +34,9 @@ test("resolvable specifier → returns the named export, logs nothing", async ()
   // The control. Proves a null below comes from the specifier, not a broken
   // loader.
   const { seen, onFailure } = collect();
+  // Delta, not absolute count (see `diagnostic` above): a successful load must
+  // not add a diagnostic, but OTHER module-scope recordings may already exist.
+  const before = getBootDiagnostics().length;
   const factory = await loadOptionalPlugin<typeof import("node:path")["join"]>({
     specifier: "node:path",
     exportName: "join",
@@ -30,6 +45,7 @@ test("resolvable specifier → returns the named export, logs nothing", async ()
   });
   assert.equal(typeof factory, "function");
   assert.equal(seen.length, 0);
+  assert.equal(getBootDiagnostics().length, before);
 });
 
 test("absent package → not-installed, names the install command", async () => {
@@ -57,6 +73,14 @@ test("absent package → not-installed, names the install command", async () => 
   // optionalDependency is installed but never linked at the consumer's top
   // level, so a bundled app cannot resolve it.
   assert.match(seen[0]?.message ?? "", /DIRECT dependency/);
+  // AC2: the failure is also recorded as a boot diagnostic (the queryable
+  // second channel), coded by outcome + specifier and carrying the SAME
+  // message the operator saw on stdout.
+  const recorded = diagnostic(
+    "plugin.not-installed:@hogsend/plugin-test-does-not-exist",
+  );
+  assert.ok(recorded, "expected a plugin.not-installed boot diagnostic");
+  assert.equal(recorded.message, seen[0]?.message);
 });
 
 test("present but broken → load-failed, and does NOT say 'not installed'", async () => {
@@ -78,6 +102,14 @@ test("present but broken → load-failed, and does NOT say 'not installed'", asy
   assert.doesNotMatch(seen[0]?.message ?? "", /is not installed/);
   assert.match(seen[0]?.message ?? "", /boom on evaluate/);
   assert.match(seen[0]?.message ?? "", /packaging bug/);
+  // AC2: recorded under the load-failed (not not-installed) code — the two
+  // failure modes are different problems, and the diagnostic must keep them
+  // apart just like the log message does.
+  const recorded = diagnostic(
+    "plugin.load-failed:data:text/javascript,throw new Error('boom on evaluate')",
+  );
+  assert.ok(recorded, "expected a plugin.load-failed boot diagnostic");
+  assert.equal(recorded.message, seen[0]?.message);
 });
 
 test("a MISSING TRANSITIVE dep is not reported as the plugin being absent", async () => {
@@ -110,6 +142,12 @@ test("a MISSING TRANSITIVE dep is not reported as the plugin being absent", asyn
     assert.doesNotMatch(seen[0]?.message ?? "", /is not installed/);
     // The missing package must be named, or the operator learns nothing.
     assert.match(seen[0]?.message ?? "", /totally-not-a-real-package-xyz/);
+    // AC2: the code embeds the ACTUAL failing specifier (here a file URL), so
+    // two different broken plugins yield two diagnostics, never one.
+    assert.ok(
+      diagnostic(`plugin.load-failed:${pathToFileURL(file).href}`),
+      "expected the diagnostic code to carry this specifier",
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -130,4 +168,9 @@ test("resolvable but missing the named export → missing-export, flags version 
     /does not export "createApolloProvider"/,
   );
   assert.match(seen[0]?.message ?? "", /version/);
+  // AC2: the third loader outcome records too — every failure path, not just
+  // the import-throwing ones.
+  const recorded = diagnostic("plugin.missing-export:node:path");
+  assert.ok(recorded, "expected a plugin.missing-export boot diagnostic");
+  assert.equal(recorded.message, seen[0]?.message);
 });

@@ -1,5 +1,6 @@
 import type { SmsProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
+import { recordBootDiagnostic } from "./boot-diagnostics.js";
 import { loadOptionalPlugin } from "./load-optional-plugin.js";
 
 /**
@@ -71,6 +72,28 @@ function isPubliclyReachable(url: string): boolean {
 
 export function smsProvidersFromEnv(env: typeof envSchema): SmsProvider[] {
   const providers: SmsProvider[] = [];
+
+  // Creds-without-sender was the one FULLY silent skip in the env presets:
+  // the guard below deliberately skips the preset, the container then installs
+  // the inert throwing SMS stub, and the first symptom was `sendSms` throwing
+  // at send time with nothing at boot to explain why. Detect it here (keyed on
+  // the env actually passed, independent of whether the plugin loaded) and
+  // report on both channels — stdout warn + boot diagnostic.
+  if (
+    env.TWILIO_ACCOUNT_SID &&
+    env.TWILIO_AUTH_TOKEN &&
+    !env.SMS_FROM &&
+    !env.TWILIO_MESSAGING_SERVICE_SID
+  ) {
+    const message =
+      "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are set, but neither " +
+      "SMS_FROM nor TWILIO_MESSAGING_SERVICE_SID is — Twilio cannot send " +
+      "without a sender, so the preset is skipped and the SMS service boots " +
+      "as an inert stub (sendSms throws at send time). Set SMS_FROM (an " +
+      "E.164 number) or TWILIO_MESSAGING_SERVICE_SID.";
+    console.warn(message);
+    recordBootDiagnostic({ code: "sms.no-sender", message });
+  }
 
   if (
     env.TWILIO_ACCOUNT_SID &&
