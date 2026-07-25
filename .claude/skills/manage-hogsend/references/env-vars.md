@@ -29,6 +29,16 @@
 | `HATCHET_CLIENT_TOKEN` | - | Hatchet API token |
 | `POSTHOG_WEBHOOK_SECRET` | - | PostHog webhook verification |
 | `ENABLED_JOURNEYS` | `*` | Comma-separated journey IDs or `*` for all |
+| `APOLLO_API_KEY` | - | Enrichment provider key. Absent = `refineContact()` is inert |
+| `ENRICHMENT_PROVIDER` | `apollo` | Active enrichment provider id |
+| `ENRICHMENT_TTL_DAYS` | `90` | Lookup cache lifetime. Applies to misses too |
+| `ENRICHMENT_MONTHLY_LOOKUPS` | `0` | Monthly vendor-lookup cap. **`0` = UNCAPPED** |
+
+**Set `ENRICHMENT_MONTHLY_LOOKUPS` deliberately wherever `APOLLO_API_KEY` is
+set.** The default is uncapped, and every lookup costs money. A positive cap
+fails closed — refinement returns `skipped`/`budget_exceeded` rather than
+spending — so the failure mode is silent under-enrichment, which reads like "the
+feature does nothing" rather than an error. Alert on `budget_exceeded` if capped.
 
 ## Managing via CLI
 
