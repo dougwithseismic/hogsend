@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // Point at the real docker TimescaleDB (mirrors admin-templates.test.ts) — the
 // deny path scans the `user` table to confirm the recipient is not an operator.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 // A known operator inbox for the allow path. isOperatorAddress matches this via
 // env WITHOUT a DB lookup, so the allow assertions don't depend on seeded users.

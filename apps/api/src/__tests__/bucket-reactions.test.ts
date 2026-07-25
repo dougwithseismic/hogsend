@@ -13,6 +13,7 @@ import {
 // reaction filter tests (6/7/8) drive a reaction's durable `task.fn` against the
 // real DB (the enrollment guards write a `journeyStates` row before `run`).
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Dual mock: the reaction tasks are BUILT inside @hogsend/engine (which uses the

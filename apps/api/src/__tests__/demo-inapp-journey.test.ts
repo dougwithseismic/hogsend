@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // `DATABASE_URL`. Point it at the real 5434 test DB (mirrors feed-backend.test)
 // BEFORE importing the engine so the singleton hits the same database.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Hatchet is module-mocked — the demo run functions never reach a live engine.

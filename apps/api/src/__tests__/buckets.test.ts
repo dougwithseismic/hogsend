@@ -11,6 +11,7 @@ import {
 // DB-touching test: point at the real docker TimescaleDB (mirrors
 // admin-metrics.test.ts), overriding the vitest.config placeholder DATABASE_URL.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Mock Hatchet so the recursive `bucket:*` emission pushes to a spy instead of a

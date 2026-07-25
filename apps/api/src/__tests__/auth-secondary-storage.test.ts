@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The vitest config points DATABASE_URL at :5432; the migrated test DB lives at
 // :5434. Override before importing the engine (mirrors password-reset.test.ts).
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 vi.mock("../lib/hatchet.js", () => ({
@@ -30,9 +31,10 @@ const { createAuth, createHogsendClient, createRedisSecondaryStorage } =
 // rate-limit storage selection — the assertions never touch a query, just the
 // resolved config. Mirrors how the container builds auth.
 const { createDatabase } = await import("@hogsend/db");
-const { db } = createDatabase({
-  url: "postgresql://growthhog:growthhog@localhost:5434/growthhog",
-});
+// Follows the resolved DATABASE_URL rather than a hardcoded server. Harmless
+// either way — this DB is never connected, the assertions only read the resolved
+// auth config — but a stray 5434 here reads as intentional and invites a copy.
+const { db } = createDatabase({ url: process.env.DATABASE_URL as string });
 
 const baseAuthOpts = {
   db,

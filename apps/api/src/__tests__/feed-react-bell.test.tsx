@@ -53,6 +53,7 @@ import {
 // Same DB-singleton pinning as the JS feed integration test: `sendFeedItem` and
 // the route container must hit the same 5434 test DB.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 vi.mock("../lib/hatchet.js", () => ({

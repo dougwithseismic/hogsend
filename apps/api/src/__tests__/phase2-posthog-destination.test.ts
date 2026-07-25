@@ -17,6 +17,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // DB-touching test (the delivery task opens its OWN getDb() from process.env):
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Config-preserving Hatchet mock (mirrors outbound-webhooks-delivery.test.ts) so

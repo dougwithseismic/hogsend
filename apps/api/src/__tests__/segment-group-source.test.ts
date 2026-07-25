@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // (via identifyGroup) and the returned IngestEvent is ingested to create the
 // membership — point at the docker TimescaleDB, overriding the placeholder.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const { contacts, groupMemberships, groups, userEvents } = await import(

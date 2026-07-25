@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 // sms_sends/sms_suppressions rows, so point at the real docker TimescaleDB
 // BEFORE importing the engine — env is captured at module import time.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const { emailPreferences, smsSends, smsSuppressions } = await import(

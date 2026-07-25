@@ -8,6 +8,7 @@
  */
 
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";

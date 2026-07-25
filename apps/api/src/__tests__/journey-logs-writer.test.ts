@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // Run against the docker TimescaleDB (mirrors admin-journeys.test.ts). Set
 // BEFORE importing the engine so the DB singleton picks it up.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const {

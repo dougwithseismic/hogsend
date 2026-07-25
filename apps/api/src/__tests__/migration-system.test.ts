@@ -20,9 +20,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // This must run before `@hogsend/engine` (and its env validation) is imported,
 // so the engine is pulled in dynamically inside the health-endpoint test below.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const PG_SERVER = "postgresql://growthhog:growthhog@localhost:5434";
+// Derived from the RESOLVED DATABASE_URL, never hardcoded: this suite connects
+// as admin and runs `DROP DATABASE ... WITH (FORCE)` / `CREATE DATABASE` below.
+// A hardcoded server would ignore HOGSEND_TEST_DATABASE_URL and aim those at the
+// shared main-checkout Postgres, where two worktrees running this concurrently
+// would drop and recreate the SAME database and force-terminate each other's
+// connections mid-test.
+const PG_SERVER = (process.env.DATABASE_URL as string).replace(/\/[^/]*$/, "");
 const ADMIN_URL = `${PG_SERVER}/growthhog`;
 const TEST_DB = "hogsend_migrate_test";
 const TEST_URL = `${PG_SERVER}/${TEST_DB}`;

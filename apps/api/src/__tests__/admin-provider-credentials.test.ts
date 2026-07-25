@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // DB-touching test: point at the real docker TimescaleDB, overriding the
 // vitest.config placeholder DATABASE_URL (mirrors the other admin-route tests).
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Hatchet seam: these routes never enqueue tasks, but createHogsendClient

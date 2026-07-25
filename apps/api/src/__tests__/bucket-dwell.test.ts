@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 // bucket-reconcile.test.ts), overriding the vitest.config placeholder
 // DATABASE_URL.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Dual mock: the reconcile task + the desugared dwell reactions are BUILT inside
