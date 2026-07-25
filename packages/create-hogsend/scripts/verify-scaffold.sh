@@ -242,6 +242,7 @@ EXPECTED=(
   src/agents/index.ts src/agents/onboarding-concierge.ts
   src/lib/user-context.ts
   src/buckets/index.ts src/buckets/power-users.ts
+  src/buckets/qualified-leads.ts src/buckets/qualified-leads.test.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
   src/destinations/index.ts
   src/workflows/index.ts src/workflows/backfill-example.ts
