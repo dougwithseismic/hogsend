@@ -1,15 +1,34 @@
 ---
 title: hogsend doctor
-description: Probe a running Hogsend instance via GET /v1/health and report component status, schema state, and an overall verdict — no admin key required.
+description: Probe a running Hogsend instance via GET /v1/health and report component status, schema state, boot-time config warnings, and an overall verdict — no admin key required.
 ---
 
-`hogsend doctor` probes a running Hogsend instance via `GET /v1/health` and reports its health: component status (`database`, `redis`), the two-track schema state (engine + client), and an overall verdict.
+`hogsend doctor` probes a running Hogsend instance via `GET /v1/health` and reports its health: component status (`database`, `redis`), the two-track schema state (engine + client), any boot-time config warnings, and an overall verdict.
 
 ```bash
 hogsend doctor [--url <baseUrl>] [--admin-key <key>] [--json]
 ```
 
 The health route is unauthenticated, so `doctor` works **without an admin key**.
+
+## Config warnings
+
+At boot each process records a diagnostic for every misconfiguration it detects but can still run past — no email provider configured, Twilio credentials with no sender, an opt-in plugin that failed to load, a contact source with no secret, PostHog person-reads disabled, and so on. These are **advisory**: the instance runs, but a feature is silently inert.
+
+`GET /v1/health` exposes only a **count** — `config.warnings` — never the message text (the health route is unauthenticated). The count is the **merged API + worker view**: both processes record into their own per-process collector, the worker publishes its diagnostics on the Redis heartbeat, and `/v1/health` reports the union **by diagnostic code** (the same problem seen in both processes counts once). If Redis is down or the heartbeat is stale, the count degrades to API-only rather than erroring.
+
+The full messages live behind the admin-guarded `GET /v1/admin/config`, which lists every diagnostic with its `code`, `message`, and originating `process` (`api` or `worker`). `doctor` fetches that detail and prints it **only** when you pass `--admin-key` — see the gate below.
+
+Config warnings **never change the verdict or the exit code**. A healthy instance with warnings still resolves to `ok` and exits `0`; the warnings are surfaced for you to act on, not to fail a check.
+
+### Fetching detail safely
+
+`doctor` resolves the admin key ambiently (from the environment, then the cwd `.env`), so the detail fetch is **double-gated** to keep a possibly-production admin token off the wire toward the wrong origin:
+
+1. It calls `/v1/admin/config` only when `/v1/health` actually reported a `config` block with `warnings > 0` — an older engine has no such block, and sending the key toward a guaranteed 404 still exposes it.
+2. It sends an ambiently-resolved key only when the base URL was **not** overridden via `--url`. Point `doctor` at a different origin and only an **explicit** `--admin-key <key>` flag will authorize transmitting the header.
+
+Without `--admin-key`, `doctor` prints the warning count and how to see the detail.
 
 ## Verdict
 
@@ -31,11 +50,11 @@ The health route is unauthenticated, so `doctor` works **without an admin key**.
 | Option | Description |
 |---|---|
 | `--url <baseUrl>` | Target instance (default `HOGSEND_API_URL` / `.env` / `:3002`). |
-| `--admin-key <key>` | Unused by `doctor` (health is unauthenticated). |
-| `--json` | Emit machine-readable JSON only. |
+| `--admin-key <key>` | List config-warning detail via `GET /v1/admin/config`. The core verdict still needs no key. |
+| `--json` | Emit machine-readable JSON only (includes the warning count, and the detail array when fetched). |
 | `-h, --help` | Show this help. |
 
-The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details. Note that `doctor` ignores `--admin-key` because the health route requires no authentication.
+The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details. The core verdict needs no authentication; `--admin-key` only unlocks the config-warning **detail** fetch, subject to the origin gate above.
 
 ## Examples
 
@@ -43,4 +62,5 @@ The `--url`, `--admin-key`, and `--json` flags are the shared global flags handl
 hogsend doctor
 hogsend doctor --url https://api.example.com
 hogsend doctor --json
+hogsend doctor --admin-key "$HOGSEND_ADMIN_KEY"   # also list config-warning detail
 ```
