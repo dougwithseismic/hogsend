@@ -73,9 +73,9 @@ async function seedContact(label: string): Promise<string> {
 /**
  * An ANONYMOUS-ONLY contact: `anonymous_id` set, `external_id` NULL. This is the
  * ordinary shape for a browser-SDK visitor who has never identified, and it is
- * the shape that exposes the phantom-twin defect — every other fixture in this
- * file seeds an `externalId`, which is exactly why the bug survived the first
- * green run.
+ * the shape that exposed the phantom-twin defect (issue #608, fixed) — every
+ * other fixture in this file seeds an `externalId`, which is exactly why the
+ * bug survived the first green run.
  */
 async function seedAnonContact(label: string) {
   const anonymousId = uid(label);
@@ -212,7 +212,7 @@ it("scores an anonymous-only contact IN PLACE, on the real row", async () => {
 
   // A score BELOW the bar, deliberately: this test isolates the score write.
   // Crossing the bar would fire a bucket transition, which re-ingests through a
-  // separate engine path with its own (unfixed) defect — see the next test.
+  // separate engine path with its own pin (issue #608) — see the next test.
   await writeScore(anonymousId, 12, contactId);
 
   const real = await db.query.contacts.findFirst({
@@ -241,27 +241,20 @@ it("scores an anonymous-only contact IN PLACE, on the real row", async () => {
 });
 
 /**
- * KNOWN ENGINE DEFECT — pinned deliberately so the fix has a target and this
- * cannot be forgotten. NOT introduced by this release and NOT fixable inside
- * `apps/api`.
- *
- * `emitBucketTransition` (packages/engine/src/lib/bucket-emit.ts) re-ingests
+ * REGRESSION — engine issue #608. `emitBucketTransition` used to re-ingest
  * every bucket transition through `ingestEvent` with `userId` + `userEmail` and
  * NO `contactId` pin. For a contact whose canonical key is its `anonymous_id`,
- * the resolver treats that key as an EXTERNAL one, finds nothing, and mints a
- * phantom twin — so a browser visitor who has never identified gets a duplicate
- * contact row the moment they enter ANY bucket. `power-users`, `went-dormant`
- * and `trial-expiring-soon` have the same exposure; this is not a GTM problem.
- *
- * The fix is to thread the resolved contact id through the seven
+ * the resolver treats that key as an EXTERNAL one, finds nothing, and minted a
+ * phantom twin (`source: "bucket"`, `external_id` = the anonymous id) — a
+ * duplicate contact row the moment a never-identified browser visitor entered
+ * ANY bucket. The fix threads the already-resolved contact id through the
  * `emitBucketTransition` call sites in `check-membership`, `bucket-reconcile`
- * and `bucket-backfill`. That is an engine change with its own review surface,
- * tracked as PRD 11.
+ * and `bucket-backfill` as the engine-internal provenance pin.
  *
- * WHEN THAT LANDS, THIS TEST WILL FAIL. That is the point: change
- * `toHaveLength(2)` to `toHaveLength(1)` and delete this block.
+ * This test drives the real-time path end to end (score write → bucket entry →
+ * transition re-ingest) and asserts the transition FOLDS into the one real row.
  */
-it("KNOWN DEFECT (PRD 11): a bucket transition mints a phantom twin for an anonymous-only contact", async () => {
+it("a bucket transition folds into the anonymous-only contact — no phantom twin (#608)", async () => {
   const { anonymousId, contactId } = await seedAnonContact("anon-twin");
 
   // Crossing the bar fires `bucket:entered:gtm-qualified`, which re-ingests.
@@ -283,18 +276,16 @@ it("KNOWN DEFECT (PRD 11): a bucket transition mints a phantom twin for an anony
       ),
     );
 
-  expect(matching).toHaveLength(2);
-
-  // The real row is correct — the score write's pin did its job.
-  const real = matching.find((row) => row.id === contactId);
+  // Exactly ONE contact row survives the transition: the real one, un-mutated.
+  expect(matching).toHaveLength(1);
+  const real = matching[0];
+  expect(real?.id).toBe(contactId);
   expect(real?.properties?.gtmScore).toBe(30);
+  // The pin resolves by row id, so no synthetic `external_id` is stamped onto
+  // the contact as a side effect of the transition.
   expect(real?.externalId).toBeNull();
-
-  // The twin is empty and stamped `source: "bucket"`, which names its producer.
-  const twin = matching.find((row) => row.id !== contactId);
-  expect(twin?.source).toBe("bucket");
-  expect(twin?.externalId).toBe(anonymousId);
-  expect(twin?.properties?.gtmScore).toBeUndefined();
+  // And no `source: "bucket"` row exists — the phantom's former fingerprint.
+  expect(matching.some((row) => row.source === "bucket")).toBe(false);
 });
 
 it("an anonymous-only contact scored in place still enters gtm-qualified", async () => {
