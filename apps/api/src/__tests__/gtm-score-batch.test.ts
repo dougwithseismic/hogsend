@@ -1,10 +1,12 @@
 import { afterAll, expect, it, vi } from "vitest";
 
-// DB-touching test. This worktree runs its OWN isolated stack (DECISIONS §4b) —
-// 5438/6383. Never 5434: those containers belong to the main checkout.
+// DB-touching test. The DEFAULT below is the repo-wide one every file in this
+// directory shares, and it is what CI's service container listens on. Point a
+// worktree at its own stack by exporting HOGSEND_TEST_DATABASE_URL — never by
+// editing the default (DECISIONS §4b).
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
-  "postgresql://growthhog:growthhog@localhost:5438/growthhog";
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // `gtm-score.ts` defines a Hatchet task at module load; the client is mocked so
 // importing it needs no gRPC engine. Nothing here runs the task itself — only

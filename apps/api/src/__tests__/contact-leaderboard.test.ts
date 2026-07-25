@@ -12,12 +12,15 @@
 import type { HogsendClient } from "@hogsend/engine";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
-// DB-touching test. This worktree runs its OWN isolated stack (DECISIONS §4b)
-// — 5438/6383, schema at migration 0067 (`contacts_properties_gin_idx`).
-// Never 5434: those containers belong to the main checkout.
+// DB-touching test. The DEFAULT below is the repo-wide one every file in this
+// directory shares, and it is what CI's service container listens on
+// (.github/workflows/ci.yml). Point a worktree at its own stack by exporting
+// HOGSEND_TEST_DATABASE_URL — never by editing the default, which is how this
+// file once ended up green locally and broken in CI.
+// Needs schema at migration 0067 (`contacts_properties_gin_idx`).
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
-  "postgresql://growthhog:growthhog@localhost:5438/growthhog";
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 console.log(
   `[contact-leaderboard] resolved DATABASE_URL = ${process.env.DATABASE_URL}`,
 );
@@ -102,12 +105,21 @@ afterAll(async () => {
   await db.delete(contacts).where(like(contacts.externalId, `${RUN}-%`));
 });
 
-it("harness: hits the isolated worktree DB on 5438, never the main checkout's 5434", () => {
-  console.log(
-    `[contact-leaderboard] resolved DATABASE_URL = ${process.env.DATABASE_URL}`,
-  );
-  expect(process.env.DATABASE_URL).toContain(":5438/");
-  expect(process.env.DATABASE_URL).not.toContain(":5434");
+it("harness: honours HOGSEND_TEST_DATABASE_URL, and falls back to the repo default", () => {
+  // The invariant is the OVERRIDE, not any particular port. An earlier version
+  // of this test asserted `:5438/` — this worktree's port — which passed
+  // locally and failed in CI, where Postgres is on 5434 (.github/workflows/ci.yml).
+  // Pinning a port here re-creates the exact defect PRD 10 removed, just
+  // inverted: instead of forcing everyone onto one machine's database, it
+  // forces everyone onto one machine's port number.
+  const override = process.env.HOGSEND_TEST_DATABASE_URL;
+  if (override) {
+    expect(process.env.DATABASE_URL).toBe(override);
+  } else {
+    // The repo default, shared by every file in this directory and matched by
+    // the CI service container.
+    expect(process.env.DATABASE_URL).toContain(":5434/");
+  }
 });
 
 describe("ordering (AC 1, 4, 6)", () => {

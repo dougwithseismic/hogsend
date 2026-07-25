@@ -1,10 +1,12 @@
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
 
-// DB-touching test. This worktree runs its OWN isolated stack (DECISIONS §4b) —
-// 5438/6383. Never 5434: those containers belong to the main checkout.
+// DB-touching test. The DEFAULT below is the repo-wide one every file in this
+// directory shares, and it is what CI's service container listens on. Point a
+// worktree at its own stack by exporting HOGSEND_TEST_DATABASE_URL — never by
+// editing the default (DECISIONS §4b).
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
-  "postgresql://growthhog:growthhog@localhost:5438/growthhog";
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Mock Hatchet: `ingestEvent` pushes every event to Hatchet and rethrows on a
 // failed push. The spy stands in for a live gRPC engine.
