@@ -93,4 +93,37 @@ the D1 fix still fails (restore the old shape → tests fail).
 
 ## Implementation Notes
 
-_(filled in during build)_
+Shipped in `660a08a9`. Status `[x]`.
+
+**What landed**
+
+- `packages/engine/src/journeys/with-durable-gate.ts` — the primitive. Resolve boundary → no boundary
+  means run `gates()` directly and issue zero durable calls → otherwise derive key → `registerKey` →
+  `boundary.memoize([key], …)`, unconditionally, with nothing between the boundary check and the
+  memoize that reads a database or branches on one.
+- `packages/engine/src/journeys/durable-law-harness.ts` — the reusable version of the technique that
+  caught defect 4: drive any durable function through every return path with a recording boundary and
+  assert the durable-call journal is byte-identical. A return-value assertion cannot see this bug
+  class, which is exactly why four of them shipped green.
+- `packages/engine/src/lib/refine-chain.ts` — ported. 54 lines changed, no behaviour change; the
+  existing `refine-contact` vitest and `refine-chain` node:test suites pass **unmodified**, which was
+  the acceptance bar (AC 5).
+
+**How AC 4 was met — the branded type**
+
+`CallerRef = string & { readonly [CALLER_REF]: true }` where `CALLER_REF` is a module-private
+`declare const … : unique symbol`. No other module can name the symbol, so no other module can
+construct a `CallerRef` structurally. A bare `string` — including every string that arrives via
+`await` — fails to type-check at the call site.
+
+The honest limit: TypeScript cannot track *provenance* through data flow, so the type cannot prove a
+value came from an argument rather than a DB read. What it does instead is collapse the surface to
+**one sanctioned construction site** (`callerRefFromArgs`) plus a greppable `as CallerRef` cast. That
+converts "did the author obey a prose law?" — which review missed four times — into "is there a cast
+in this diff?", which review cannot miss. Documented as such on the type itself.
+
+**Deliberately not done here**
+
+`sendEmail`, `sendSms` and `sendConnectorAction` are NOT ported (locked decision). Each has its own
+subtleties and its own test surface; porting all four at once turns a safe extraction into a risky
+one. They remain hand-rolled and correct. That is the follow-up.

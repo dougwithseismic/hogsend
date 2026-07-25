@@ -24,19 +24,24 @@ The law is real and correct — `packages/engine/src/lib/feed.ts:152-165` states
 `sendConnectorAction`, now `refineContact`) re-derives the correct shape from scratch, and the shape
 is easy to get subtly wrong in a way every gate reports green.
 
-- [ ] **P0 — Extract the shape into one primitive.** A `withDurableGate({ boundary, kind, callerRef,
-      idempotencyLabel }, gates)` helper in `packages/engine/src/journeys/` that owns the whole
-      ordering: derive key from CALLER ARGUMENTS only → `registerKey` → `memoize` unconditionally →
-      run every stateful gate inside the closure → direct-run when there is no boundary. Port
-      `refineContact` to it first, then the other three helpers. Authors then cannot get the ordering
-      wrong, because the ordering is not theirs to write.
-- [ ] **P0 — Make the law testable, not just documented.** A shared test helper that drives any
-      durable helper through *every* return path with a recording boundary and asserts the durable
-      call journal is byte-identical. `refine-chain.test.ts`'s AC 11 test is the template; it is the
-      only reason defect 4 was catchable at all.
-- [ ] **P1 — A rule that outranks the prose:** no input to `deriveJourneyKey` may come from a DB read.
-      Encode it in the helper's type signature (`callerRef` accepts only values derived from the
-      options object), so violating it is a type error rather than a code-review catch.
+- [x] **P0 — Extract the shape into one primitive.** `withDurableGate` shipped in `660a08a9`
+      (`packages/engine/src/journeys/with-durable-gate.ts`). It owns the whole ordering: resolve
+      boundary → direct-run when there is none → derive key from caller arguments only → `registerKey`
+      → `memoize` unconditionally, with nothing between the boundary check and the memoize that reads
+      a database or branches on one. `refineContact` is ported; its suites pass **unmodified**, which
+      is what makes it an extraction rather than a rewrite.
+- [x] **P0 — Make the law testable, not just documented.** `durable-law-harness.ts` generalises the
+      AC 11 technique: drive any durable function through every return path with a recording boundary
+      and assert the durable-call journal is byte-identical. Every future durable helper gets it free.
+- [x] **P1 — A rule that outranks the prose.** `CallerRef` is a branded type over a module-private
+      `unique symbol`, so a bare `string` — including anything that arrives via `await` — is a
+      compile error at the call site. TypeScript cannot track provenance through data flow, so the
+      type does the achievable thing instead: it collapses construction to ONE sanctioned site
+      (`callerRefFromArgs`) plus a greppable cast. "Did the author obey a prose law?" (missed four
+      times) becomes "is there a cast in this diff?" (unmissable).
+- [ ] **Follow-up, not this release:** port `sendEmail`, `sendSms`, `sendConnectorAction` to the
+      primitive. Deliberately deferred — each has its own subtleties and test surface, and doing all
+      four at once turns a safe extraction into a risky one.
 
 ---
 
@@ -78,11 +83,11 @@ What was wrong, all four found by adversarial review AFTER the code was committe
 The 12/12 runtime smoke covered one contact, with an email, on the happy path, against real Apollo.
 That is a real result and it is also a narrow one.
 
-- [ ] **A real replay drill.** The single highest-value test we are missing, and it targets the exact
-      bug class that has now recurred four times. Enroll a journey → `refineContact` → `ctx.sleep` →
-      `docker kill` the worker mid-sleep → restart → assert the run resumes, the journal holds, and
-      the vendor is charged exactly once. Everything so far has been reasoned or stub-driven; nothing
-      has survived an actual Hatchet replay.
+- [x] **A real replay drill — PASSED.** Journey → `refineContact` → `ctx.sleep` → `kill -9` the
+      worker mid-sleep → restart → the run resumed, the journal held, and the vendor was charged
+      exactly once. Run twice: once against the fixed code, once against the D1 mutation, and the
+      mutation double-charged. That second run is the load-bearing half — a drill that only passes
+      proves the harness ran, not that it can detect the bug.
 - [ ] **The unhappy vendor paths, live.** `not_found` (an address Apollo does not know) and
       `provider_error` (deliberately invalid key → 401) against the real API, asserting the ledger
       row shape and that a retry after an error actually re-attempts.
@@ -115,9 +120,13 @@ Consequences, all real and all observed:
 - Worktree isolation, which exists precisely so parallel agents do not corrupt each other, is
   defeated for the one thing most likely to write rows.
 
-- [ ] **Sweep all 151 files to `process.env.DATABASE_URL = process.env.HOGSEND_TEST_DATABASE_URL ?? <default>`.**
-      Mechanical, no behaviour change for anyone running the default. Do it when no other agent is
-      mid-edit in `apps/api` — it touches too many files to interleave safely.
+- [x] **Swept — PRD 10, `39db62e0`.** All 151 files now read
+      `process.env.DATABASE_URL = process.env.HOGSEND_TEST_DATABASE_URL ?? <default>`. The default is
+      deliberately unchanged, so anyone with nothing exported sees identical behaviour. Two files the
+      mechanical pattern missed were fixed by hand, including one doing
+      `DROP DATABASE … WITH (FORCE)` against a hardcoded server.
+      After the sweep, a genuinely isolated full run gave **1949 passed / 3 skipped / 193 files / 0
+      failures** — the first figure in this release not contaminated by a shared database.
 - [ ] Consider making the default port itself worktree-derived, so the failure mode is "cannot
       connect" rather than "silently wrote to someone else's database".
 
@@ -126,13 +135,16 @@ Not caused by this release. Flagged here because it materially weakens the evide
 
 ## 3. Remaining scope
 
-- [ ] **PRD 04** — `@hogsend/plugin-apollo`. Build against the probed contract in the PRD (array
-      `departments`, `primary_domain` not `website_url`, nullable person `linkedin_url`).
+- [x] **PRD 04** — `@hogsend/plugin-apollo`, shipped in `e737b766`. Built against the probed contract
+      (array `departments` → first element, `primary_domain` not `website_url`, nulls omitted rather
+      than written). 17 tests, injectable `fetch`, no network and no API key needed to run them.
 - [x] **PRD 05** — cold-channel gate, shipped in `825eb998`. Gate runs inside the existing memo
       closure; the durable key derivation and memoize call are byte-identical. Mutation-verified
       independently: inverting the posture check kills 3 tests.
-- [ ] **PRD 06** — leaderboard. Spec already corrected for the `jsonb_typeof` guard; without it a
-      single non-numeric value 500s the endpoint and the documented index breaks ingest writes.
+- [x] **PRD 06** — leaderboard, shipped in `ae47d78e`. The `jsonb_typeof` guard is in (4 call sites,
+      sort + filter); without it a single non-numeric value in the jsonb bag 500s the endpoint. GIN
+      index in migration `0067`. **Deferred: the Studio screenshot** — it needs a running app, which
+      the tree now supports.
 - [ ] **PRD 07** — example + docs + the end-to-end smoke as a committed artifact rather than a
       throwaway script.
 - [ ] **PRD 08** — `contact.refined` outbound. Cuttable.
