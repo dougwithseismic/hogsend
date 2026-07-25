@@ -2,6 +2,7 @@ import { TOUCHPOINT_EVENTS } from "@hogsend/core";
 import { describe, expect, it } from "vitest";
 
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Core re-declares touchpoint event names as string literals (it cannot import

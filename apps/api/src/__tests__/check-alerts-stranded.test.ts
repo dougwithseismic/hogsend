@@ -5,6 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 // DATABASE_URL. `surfaceStrandedWaiting` is the exported test seam — invoked
 // directly with a real db + a spy logger so we can assert what it flags.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const { createDatabase, journeyStates } = await import("@hogsend/db");

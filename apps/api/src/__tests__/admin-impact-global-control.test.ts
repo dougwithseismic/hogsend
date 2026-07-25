@@ -2,6 +2,7 @@ import type { HogsendClient } from "@hogsend/engine";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 // GLOBAL_CONTROL_PERCENT / GLOBAL_CONTROL_SALT are read per-CALL by
 // globalControlPercent()/isGlobalControl() (lib/holdout.ts), so tests set

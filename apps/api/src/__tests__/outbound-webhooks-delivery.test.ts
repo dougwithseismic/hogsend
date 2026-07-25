@@ -12,6 +12,7 @@ import {
 // opens its OWN `getDb()` connection from process.env.DATABASE_URL), overriding
 // the vitest.config placeholder.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Delivery tunables are read at MODULE-IMPORT time inside `deliver-webhook.ts`

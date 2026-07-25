@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // events via the fire-and-forget emit spine, which inserts `webhook_deliveries`
 // rows against this connection — point at the docker TimescaleDB.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // The emit spine enqueues the MODULE-LEVEL `deliverWebhookTask` (built from the

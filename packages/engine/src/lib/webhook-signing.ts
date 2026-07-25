@@ -25,7 +25,7 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 30-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 31-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
  *
@@ -63,6 +63,10 @@ export const WEBHOOK_EVENT_TYPES = [
   // Global control group membership (impact plan §4.3) — emitted once per
   // contact key on the first withheld send.
   "contact.control_group",
+  // A refinement landed vendor traits on a contact (`refineContact`). Emitted
+  // ONLY on a genuine `status: "refined"` — never on `cached`, `not_found` or
+  // `skipped`. A cache hit spends nothing and is not an event.
+  "contact.refined",
   "email.sent",
   "email.delivered",
   "email.opened",

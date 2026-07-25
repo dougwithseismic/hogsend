@@ -182,6 +182,25 @@ These mirror the `*`-or-CSV contract: `*` registers everything, or pass a comma-
 | `ENABLED_LISTS` | No | `*` | API, Worker | Which [lists](/docs/guides/lists) are registered. `*` enables all lists in your `lists` array; or a comma-separated list of list IDs. Lists not listed are not registered. |
 | `BUCKET_RECONCILE_CRON` | No | `*/5 * * * *` | Worker | Cron expression for the engine-owned bucket reconciliation task — membership re-evaluation, time-based leaves, and dwell detection over the existing population. |
 
+### Enrichment
+
+Powers [`refineContact()`](/docs/guides/refinement). Entirely opt-in: with no provider configured, refinement is inert and returns `{ status: "skipped", reason: "no_provider" }` without throwing, so a deploy with no enrichment is a valid deploy.
+
+**Every lookup costs money.** The engine owns the spend controls rather than the provider: results — hits *and* misses — are cached in the `enrichment_lookups` ledger, and the monthly cap fails closed.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `APOLLO_API_KEY` | No | — | API, Worker | Apollo API key. Present, plus `@hogsend/plugin-apollo` installed, builds the preset provider. Absent means no enrichment provider is registered. |
+| `ENRICHMENT_PROVIDER` | No | `apollo` | API, Worker | Active provider id resolved from the registry. With exactly one provider registered and none requested, that one wins. An explicitly requested but unregistered id throws at boot. |
+| `ENRICHMENT_TTL_DAYS` | No | `90` | API, Worker | How long a ledger row satisfies a lookup before the vendor is asked again. Applies to **misses** too: a "not found" is a paid result and is negatively cached, so you do not pay for the same dead email twice. The expiry is materialised on write, so changing this later does not retroactively expire or extend existing rows. |
+| `ENRICHMENT_MONTHLY_LOOKUPS` | No | `0` (uncapped) | API, Worker | Hard monthly cap on vendor lookups. A positive cap **fails closed**: once exhausted, `refineContact()` returns `{ status: "skipped", reason: "budget_exceeded" }` rather than spending. Counts vendor **calls**, not ledger rows, so a `force: true` refresh loop cannot spend past it. |
+
+<Callout type="warn">
+**The default is uncapped.** That is the right default for a feature that is off until you configure it, and the wrong thing to leave in production by accident. Set `ENRICHMENT_MONTHLY_LOOKUPS` deliberately in every environment that has an API key.
+
+Note the failure mode when a cap is exhausted: refinement silently stops enriching. It looks like the feature does nothing rather than like an error. If you run capped, alert on `budget_exceeded`.
+</Callout>
+
 ### Infrastructure
 
 | Variable | Required | Default | Process | Description |
@@ -272,6 +291,7 @@ BETTER_AUTH_URL=https://api.yourdomain.com
 RESEND_FROM_EMAIL=noreply@yourdomain.com   # or EMAIL_FROM; "Name <addr>" works too
 STUDIO_ADMIN_EMAIL=you@yourdomain.com       # bootstraps the first Studio admin on a fresh DB
 ENABLED_JOURNEYS=*
+ENRICHMENT_MONTHLY_LOOKUPS=1000             # only if APOLLO_API_KEY is set; the default is UNCAPPED
 ```
 
 On Railway, `DATABASE_URL`, `REDIS_URL`, and `PORT` are auto-wired by linking the Postgres and Redis services. See [Deployment](/docs/operating/deployment).

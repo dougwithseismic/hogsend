@@ -31,7 +31,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test 'src/**/*.test.ts'",
     "lint": "biome check .",
     "clean": "rm -rf node_modules .turbo"
   },
@@ -68,6 +68,7 @@
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
+    "@hogsend/plugin-apollo": "workspace:^",
     "@hogsend/plugin-postmark": "workspace:^",
     "@hogsend/plugin-twilio": "workspace:^"
   },

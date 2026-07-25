@@ -12,6 +12,11 @@ import {
   registerKey,
 } from "../journeys/journey-boundary.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import {
+  defaultColdPosture,
+  isColdChannelAllowed,
+} from "../sources/define-contact-source.js";
+import { getContactSourceRegistry } from "../sources/registry.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 import { readRecipientPreferences } from "./recipient-preferences.js";
@@ -83,6 +88,7 @@ async function resolveContact(
       email: contacts.email,
       discordId: contacts.discordId,
       externalId: contacts.externalId,
+      source: contacts.source,
       properties: contacts.properties,
     })
     .from(contacts)
@@ -107,6 +113,7 @@ async function resolveContact(
     email: row.email ?? null,
     discordId: row.discordId ?? null,
     externalId: row.externalId ?? null,
+    source: row.source ?? null,
     properties: (row.properties ?? {}) as Record<string, unknown>,
   };
 }
@@ -127,6 +134,12 @@ async function resolveContact(
  *    wins. A candidate that resolves NO contact (a raw snowflake, a group-chat
  *    id, an unlinked ref) means there is NO preference surface to consult — the
  *    send is ALLOWED (null). Only once a contact is resolved do preferences gate.
+ *  - On a resolved contact the COLD-CHANNEL GATE runs first: when the
+ *    contact's `source` names a registered Contact Source (⇒ a cold prospect),
+ *    the source's resolved {@link ColdPosture} must allow this connector's
+ *    channel or the action skips with `cold_channel_blocked` (logged once at
+ *    info with the source id + blocked channel). Null/unregistered `source` ⇒
+ *    not a prospect ⇒ unaffected; a throwing posture lookup fails OPEN.
  *  - On a resolved contact we read the aggregated {@link readRecipientPreferences}
  *    keyed by its email + `externalId ?? id` (the SAME key form preference writes
  *    use), then: `unsubscribedAll` → skip `unsubscribed_all`; else channel
@@ -135,8 +148,13 @@ async function resolveContact(
  *
  * Deliberately does NOT consume `prefs.suppressed` — that is an email-transport
  * hard-bounce/complaint signal, irrelevant to a chat channel.
+ *
+ * Exported ONLY for unit tests (the engine suite is pure/unit and cannot drive
+ * the DB-backed `sendConnectorAction` path) — production callers go through
+ * {@link sendConnectorAction}, which runs this gate INSIDE the durable memo
+ * closure so the verdict replays verbatim.
  */
-async function checkActionAudience(
+export async function checkActionAudience(
   db: Database,
   resolveCachedContact: (ref: string) => Promise<ResolvedActionContact | null>,
   action: DefinedConnectorAction,
@@ -169,6 +187,42 @@ async function checkActionAudience(
     // No contact for this candidate → no preference surface → try the next; a
     // fully-unresolved recipient (raw id / group chat) falls through to allow.
     if (!contact) continue;
+
+    // COLD-CHANNEL GATE (PRD 05): a contact whose `source` names a registered
+    // Contact Source is a cold prospect; its source's resolved posture decides
+    // which channels may reach it before consent (default: email only). The
+    // connector's id IS the channel id. Checked BEFORE the preference read so a
+    // blocked prospect costs no extra round-trip. A null/unregistered `source`
+    // is not a prospect and is unaffected; a THROWING posture lookup fails
+    // OPEN (warn + fall through), matching this gate's failure posture.
+    try {
+      const sources = getContactSourceRegistry();
+      if (sources.isProspectSource(contact.source)) {
+        const posture =
+          sources.get(contact.source as string)?.coldPosture ??
+          defaultColdPosture();
+        if (!isColdChannelAllowed(posture, connectorId)) {
+          logger.info("connector action skipped: cold channel blocked", {
+            connectorId,
+            action: actionName,
+            source: contact.source,
+            channel: connectorId,
+          });
+          return {
+            skipped: true,
+            reason: "cold_channel_blocked",
+            connectorId,
+            action: actionName,
+          };
+        }
+      }
+    } catch (error) {
+      logger.warn("cold-channel gate threw; sending anyway", {
+        connectorId,
+        action: actionName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const prefs = await readRecipientPreferences(db, {
       email: contact.email,
@@ -327,11 +381,16 @@ export async function sendConnectorAction(
       input.args,
     );
     if (skip) {
-      logger.info("connector action skipped: recipient preferences", {
-        connectorId: input.connectorId,
-        action: input.action,
-        reason: skip.reason,
-      });
+      // A cold-channel skip already logged once (with the source id + blocked
+      // channel) inside checkActionAudience — don't log it a second time under
+      // the misleading "recipient preferences" banner.
+      if (skip.reason !== "cold_channel_blocked") {
+        logger.info("connector action skipped: recipient preferences", {
+          connectorId: input.connectorId,
+          action: input.action,
+          reason: skip.reason,
+        });
+      }
       return skip;
     }
     return run();

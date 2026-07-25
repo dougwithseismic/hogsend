@@ -121,6 +121,17 @@ Notes:
   the deployed instance with the `hogsend` CLI (`stats`, `contacts`,
   `journeys`). `hogsend doctor` hits the unauthenticated `/v1/health` and needs
   no key. See the hogsend-cli skill for how the CLI resolves the key.
+- **Enrichment spends real money, and the default cap is UNCAPPED.**
+  `APOLLO_API_KEY` (plus `@hogsend/plugin-apollo` installed) is what makes
+  `refineContact()` do anything; without it refinement is inert and returns
+  `skipped`/`no_provider` without throwing. Wherever you set that key, set
+  `ENRICHMENT_MONTHLY_LOOKUPS` too — it defaults to `0`, which means no ceiling.
+  A positive cap fails closed (`skipped`/`budget_exceeded`) rather than
+  spending, and it counts vendor CALLS rather than ledger rows, so a `force`
+  refresh loop cannot spend past it. `ENRICHMENT_TTL_DAYS` (default 90) caches
+  hits AND misses, so you never pay twice for the same dead address.
+  Watch the failure mode: an exhausted cap looks like "the feature does nothing"
+  rather than an error, so alert on `budget_exceeded` if you run capped.
 
 ## Service-by-service checklist
 

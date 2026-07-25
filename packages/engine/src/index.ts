@@ -477,6 +477,17 @@ export type {
   SendTrackedEmailOptions,
   TrackedSendResult,
 } from "./lib/email-service-types.js";
+// --- Enrichment provider registry (Refinement; container-held, keyed by meta.id) ---
+// The contract itself (EnrichmentProvider, defineEnrichmentProvider, …) is
+// re-exported via `export * from "@hogsend/core"` above.
+export { EnrichmentProviderRegistry } from "./lib/enrichment-provider-registry.js";
+export { enrichmentProvidersFromEnv } from "./lib/enrichment-providers-from-env.js";
+export {
+  getEnrichmentProvider,
+  getEnrichmentProviderRegistry,
+  resetEnrichmentProviders,
+  setEnrichmentProviders,
+} from "./lib/enrichment-registry-singleton.js";
 // --- Enrollment guards ---
 export { checkEmailPreferences } from "./lib/enrollment-guards.js";
 export {
@@ -649,6 +660,14 @@ export {
   getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
+// --- Refinement (`refineContact` — a STANDALONE import, never on `ctx`) ---
+export {
+  REFINE_EVENT,
+  type RefineContactOptions,
+  type RefineContactResult,
+  refineContact,
+} from "./lib/refine.js";
+export { flattenTraits } from "./lib/refine-traits.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
 // --- Revenue rollups (the event spine's value/currency columns) ---

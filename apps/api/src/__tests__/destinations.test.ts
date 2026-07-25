@@ -12,6 +12,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 // DB-touching test (the delivery task opens its OWN getDb() from process.env),
 // overriding the vitest.config placeholder — mirrors phase2-posthog-destination.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Config-preserving Hatchet mock (mirrors phase2-posthog-destination.test.ts):

@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   EmptyState,
@@ -33,6 +33,11 @@ export function ContactsView({
   const [minRevenueInput, setMinRevenueInput] = useState("");
   const [minRevenue, setMinRevenue] = useState<number | undefined>(undefined);
   const [dealStage, setDealStage] = useState("");
+  // PRD 06 leaderboard: a configurable property key ranks the list by that
+  // property's NUMERIC value (server-guarded — non-numeric sorts last).
+  const [scoreInput, setScoreInput] = useState("");
+  const [scoreProperty, setScoreProperty] = useState("");
+  const [scoreDir, setScoreDir] = useState<"asc" | "desc">("desc");
   const [selectedId, setSelectedId] = useState<string | null>(initialContactId);
 
   // The deployment's configured pipeline ladder drives the stage options.
@@ -54,14 +59,24 @@ export function ContactsView({
     const t = window.setTimeout(() => {
       setSearch(searchInput.trim());
       setMinRevenue(minRevenueInput ? Number(minRevenueInput) : undefined);
+      setScoreProperty(scoreInput.trim());
     }, 300);
     return () => window.clearTimeout(t);
-  }, [searchInput, minRevenueInput]);
+  }, [searchInput, minRevenueInput, scoreInput]);
 
   const filters = {
     search: search || undefined,
     minRevenue,
     dealStage: dealStage || undefined,
+    // With no score property set, no ordering params are sent — the server
+    // behaves exactly as before (lastSeenAt desc).
+    ...(scoreProperty
+      ? {
+          orderBy: "property" as const,
+          orderProperty: scoreProperty,
+          orderDir: scoreDir,
+        }
+      : {}),
   };
   const query = useQuery({
     queryKey: qk.contacts(filters),
@@ -113,6 +128,16 @@ export function ContactsView({
             ))}
           </Select>
         </div>
+        <Input
+          className="w-48"
+          placeholder="Rank by property (e.g. gtmScore)"
+          aria-label="Rank by property"
+          value={scoreInput}
+          onChange={(e) =>
+            setScoreInput(e.target.value.replace(/[^A-Za-z0-9_.-]/g, ""))
+          }
+          maxLength={64}
+        />
       </div>
 
       {query.isPending ? (
@@ -135,27 +160,57 @@ export function ContactsView({
               <TableRow>
                 <TableHead>Email</TableHead>
                 <TableHead>External ID</TableHead>
+                {scoreProperty ? (
+                  <TableHead className="text-right">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 transition-colors duration-200 hover:text-white"
+                      onClick={() =>
+                        setScoreDir((d) => (d === "desc" ? "asc" : "desc"))
+                      }
+                    >
+                      {scoreProperty}
+                      {scoreDir === "asc" ? (
+                        <ArrowUp className="h-3 w-3" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3" />
+                      )}
+                    </button>
+                  </TableHead>
+                ) : null}
                 <TableHead className="text-right">Last seen</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {contacts.map((contact) => (
-                <TableRow
-                  key={contact.id}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedId(contact.id)}
-                >
-                  <TableCell className="font-medium text-white">
-                    {contact.email ?? "—"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-white/70">
-                    {contact.externalId}
-                  </TableCell>
-                  <TableCell className="text-right text-white/60">
-                    {formatRelative(contact.lastSeenAt)}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {contacts.map((contact) => {
+                const score = scoreProperty
+                  ? contact.properties?.[scoreProperty]
+                  : undefined;
+                return (
+                  <TableRow
+                    key={contact.id}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedId(contact.id)}
+                  >
+                    <TableCell className="font-medium text-white">
+                      {contact.email ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-white/70">
+                      {contact.externalId}
+                    </TableCell>
+                    {scoreProperty ? (
+                      <TableCell className="text-right font-mono text-xs text-white/70">
+                        {/* Only real JSON numbers rank (the server's type
+                            guard); anything else sits in the unscored tail. */}
+                        {typeof score === "number" ? score : "—"}
+                      </TableCell>
+                    ) : null}
+                    <TableCell className="text-right text-white/60">
+                      {formatRelative(contact.lastSeenAt)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>

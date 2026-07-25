@@ -3,6 +3,7 @@ import { createHogsend, HogsendAPIError } from "@hogsend/js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Hatchet is module-mocked: a successful POST /v1/events still stores the event

@@ -177,6 +177,27 @@ export const env = createEnv({
     TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
     TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
     TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+    // --- Enrichment (provider-neutral, BYO enrichment provider) ---
+    // The active enrichment provider id the container resolves from the
+    // EnrichmentProviderRegistry. Absent → "apollo" when a provider is
+    // registered; with no provider configured, refinement is inert.
+    ENRICHMENT_PROVIDER: z.string().optional(),
+    // --- Apollo (default enrichment provider, opt-in) ---
+    // A preset provider is built only when the key is present (guarded dynamic
+    // import in enrichment-providers-from-env.ts — the plugin package stays an
+    // optionalDependency).
+    APOLLO_API_KEY: z.string().min(1).optional(),
+    // How long a ledger row (hit OR miss) satisfies a lookup before the vendor
+    // is asked again. Every lookup costs money — the TTL is the cache side of
+    // the enrichment_lookups ledger.
+    ENRICHMENT_TTL_DAYS: z.coerce.number().int().positive().default(90),
+    // Hard monthly budget cap on vendor lookups. 0 (default) = uncapped; a
+    // positive cap FAILS CLOSED when exhausted.
+    ENRICHMENT_MONTHLY_LOOKUPS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(0),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

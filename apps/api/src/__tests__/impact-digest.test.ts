@@ -12,6 +12,7 @@ import {
 // overriding the vitest.config placeholder DATABASE_URL. Must run before
 // the engine import below.
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 // Config-preserving Hatchet mock (mirrors outbound-webhooks-emit.test.ts).
@@ -176,9 +177,9 @@ const presetLogger = {
 };
 
 describe("impact.digest catalog membership", () => {
-  it("is a member of WEBHOOK_EVENT_TYPES (count 30)", () => {
+  it("is a member of WEBHOOK_EVENT_TYPES (count 31)", () => {
     expect(WEBHOOK_EVENT_TYPES).toContain("impact.digest");
-    expect(WEBHOOK_EVENT_TYPES).toHaveLength(30);
+    expect(WEBHOOK_EVENT_TYPES).toHaveLength(31);
   });
 });
 

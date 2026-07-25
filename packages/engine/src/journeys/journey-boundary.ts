@@ -222,7 +222,12 @@ export function supportsEviction(hatchetCtx: unknown): boolean {
 }
 
 /** The kind of side effect a key is derived for — keeps the namespaces apart. */
-export type JourneyKeyKind = "send" | "smsSend" | "trigger" | "connector";
+export type JourneyKeyKind =
+  | "send"
+  | "smsSend"
+  | "trigger"
+  | "connector"
+  | "refine";
 
 const KEY_PREFIX: Record<JourneyKeyKind, string> = {
   send: "journeySend",
@@ -232,6 +237,10 @@ const KEY_PREFIX: Record<JourneyKeyKind, string> = {
   smsSend: "journeySmsSend",
   trigger: "journeyTrigger",
   connector: "journeyConnector",
+  // Refinement lookups (`refineContact()`) get their own namespace for the
+  // same reason as smsSend — a refine + any other side effect under the same
+  // nearest wait label must never collide.
+  refine: "journeyRefine",
 };
 
 /**

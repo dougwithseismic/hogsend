@@ -65,22 +65,55 @@ const contactGroupSchema = z.object({
   joinedAt: z.string(),
 });
 
+/**
+ * PRD 06 — validation gate for a jsonb property key used in ordering or
+ * filtering. This is a REJECTION layer only: the key is additionally ALWAYS
+ * bound as a SQL parameter in the query builder (never interpolated), so the
+ * two layers are independent defences, not substitutes for each other.
+ */
+const PROPERTY_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+
 const listRoute = createRoute({
   method: "get",
   path: "/",
   tags: ["Admin"],
   summary: "List contacts",
   request: {
-    query: z.object({
-      limit: z.coerce.number().min(1).max(100).default(50),
-      offset: z.coerce.number().min(0).default(0),
-      search: z.string().optional(),
-      // Long-tail value filters (plan §4b.3): the "find my value customers"
-      // query surface.
-      minRevenue: z.coerce.number().optional(),
-      // Plain string: valid stages are the deployment's configured ladder.
-      dealStage: z.string().optional(),
-    }),
+    query: z
+      .object({
+        limit: z.coerce.number().min(1).max(100).default(50),
+        offset: z.coerce.number().min(0).default(0),
+        search: z.string().optional(),
+        // Long-tail value filters (plan §4b.3): the "find my value customers"
+        // query surface.
+        minRevenue: z.coerce.number().optional(),
+        // Plain string: valid stages are the deployment's configured ladder.
+        dealStage: z.string().optional(),
+        // Leaderboard surface (PRD 06): rank contacts by the NUMERIC value of
+        // a jsonb property ("who do I call today"). Defaults reproduce the
+        // pre-existing behaviour exactly (ORDER BY last_seen_at DESC).
+        orderBy: z
+          .enum(["lastSeenAt", "firstSeenAt", "property"])
+          .default("lastSeenAt"),
+        orderProperty: z.string().regex(PROPERTY_KEY_RE).optional(),
+        orderDir: z.enum(["asc", "desc"]).default("desc"),
+        // Numeric property filter: only contacts whose value at `propertyKey`
+        // is a real JSON number ≥ `propertyGte`. Composable with ordering.
+        propertyKey: z.string().regex(PROPERTY_KEY_RE).optional(),
+        propertyGte: z.coerce.number().optional(),
+      })
+      .refine(
+        (q) => q.orderBy !== "property" || q.orderProperty !== undefined,
+        {
+          message: "orderProperty is required when orderBy=property",
+        },
+      )
+      .refine(
+        (q) => q.propertyGte === undefined || q.propertyKey !== undefined,
+        {
+          message: "propertyKey is required when propertyGte is set",
+        },
+      ),
   },
   responses: {
     200: {
@@ -95,6 +128,16 @@ const listRoute = createRoute({
         },
       },
       description: "Paginated contact list",
+    },
+    400: {
+      content: {
+        "application/json": {
+          // zod-openapi's default validation hook shape (ZodError passthrough).
+          schema: z.object({ success: z.boolean() }).passthrough(),
+        },
+      },
+      description:
+        "Invalid query (bad property key, or orderBy=property without orderProperty)",
     },
   },
 });
@@ -246,10 +289,66 @@ const serializeContact = (row: typeof contacts.$inferSelect) =>
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
-    const { limit, offset, search, minRevenue, dealStage } =
-      c.req.valid("query");
+    const {
+      limit,
+      offset,
+      search,
+      minRevenue,
+      dealStage,
+      orderBy,
+      orderProperty,
+      orderDir,
+      propertyKey,
+      propertyGte,
+    } = c.req.valid("query");
 
     const searchFilter = search ? contactSearchFilter(search) : undefined;
+
+    // Type-guarded numeric read of a jsonb property (PRD 06 / DECISIONS §3.4).
+    // `contacts.properties` is untyped jsonb and `/v1/events` accepts arbitrary
+    // values, so a bare `(properties->>key)::numeric` raises Postgres 22P02 —
+    // and 500s the whole request — the first time ONE contact holds e.g. "n/a"
+    // at the key. Only real JSON numbers count; anything else yields NULL
+    // (sorted last, excluded by the ≥ filter). The key rides as a BOUND
+    // PARAMETER — never interpolated — with the regex validation above as a
+    // second, independent layer.
+    const numericProperty = (key: string) =>
+      sql`CASE WHEN jsonb_typeof(${contacts.properties} -> ${key}) = 'number' THEN (${contacts.properties} ->> ${key})::numeric END`;
+
+    // Filter applies only when both halves are present (the schema 400s a
+    // dangling propertyGte). A NULL from the guard fails the ≥ comparison, so
+    // non-numeric holders are excluded rather than erroring.
+    const propertyFilter =
+      propertyKey !== undefined && propertyGte !== undefined
+        ? sql`${numericProperty(propertyKey)} >= ${propertyGte}`
+        : undefined;
+
+    // NULLS LAST in BOTH directions so unscored (or non-numeric) contacts
+    // never top the list; last_seen_at breaks ties deterministically. The
+    // default path (`orderBy=lastSeenAt`, `orderDir=desc`) is byte-identical
+    // to the pre-PRD-06 hardcoded ORDER BY — existing callers see no change.
+    // NOTE: the GIN index on `properties` accelerates containment filters
+    // only; this ORDER BY is a sequential scan — fine at GTM volume
+    // (thousands of contacts), not at analytics volume.
+    const orderClauses =
+      orderBy === "property" && orderProperty !== undefined
+        ? [
+            orderDir === "asc"
+              ? sql`${numericProperty(orderProperty)} asc nulls last`
+              : sql`${numericProperty(orderProperty)} desc nulls last`,
+            desc(contacts.lastSeenAt),
+          ]
+        : orderBy === "firstSeenAt"
+          ? [
+              orderDir === "asc"
+                ? asc(contacts.firstSeenAt)
+                : desc(contacts.firstSeenAt),
+            ]
+          : [
+              orderDir === "asc"
+                ? asc(contacts.lastSeenAt)
+                : desc(contacts.lastSeenAt),
+            ];
 
     // Valued events are keyed by the contact's canonical event key
     // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
@@ -284,6 +383,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       ...(searchFilter ? [searchFilter] : []),
       ...(revenueFilter ? [revenueFilter] : []),
       ...(dealStageFilter ? [dealStageFilter] : []),
+      ...(propertyFilter ? [propertyFilter] : []),
     );
 
     const [rows, totalRows] = await Promise.all([
@@ -291,7 +391,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         .select()
         .from(contacts)
         .where(where)
-        .orderBy(desc(contacts.lastSeenAt))
+        .orderBy(...orderClauses)
         .limit(limit)
         .offset(offset),
       db.select({ count: count() }).from(contacts).where(where),

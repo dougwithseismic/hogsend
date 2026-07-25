@@ -18,6 +18,7 @@ export * from "./dead-letter-queue.js";
 export * from "./deals.js";
 export * from "./email-preferences.js";
 export * from "./email-sends.js";
+export * from "./enrichment-lookups.js";
 export * from "./enums.js";
 export * from "./feed-items.js";
 export * from "./flags.js";

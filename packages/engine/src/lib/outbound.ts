@@ -108,6 +108,33 @@ export interface OutboundPayloads {
     scope: "all" | "category";
     source: string;
   };
+  /**
+   * A refinement landed vendor traits on a contact (`refineContact`). Emitted
+   * ONLY on a genuine `status: "refined"` — never on `cached`, `not_found` or
+   * `skipped`, because a cache hit is a spend decision, not a change.
+   *
+   * `traits` carries the mapped trait KEY NAMES only — `["refined_title",
+   * "refined_company_domain"]` — never their values. That is deliberate: the
+   * payload says WHAT CHANGED, and a subscriber that wants the values reads
+   * the contact (`GET /v1/contacts`). So vendor-licensed person data never
+   * leaves the building inside a webhook body, and the envelope stays a fixed
+   * size whatever the provider returned.
+   *
+   * `userId` is the canonical contact key (`external_id ?? anonymous_id ??
+   * id`); `email` / `contactId` ride alongside so a subscriber can look the
+   * contact up by whichever key it holds.
+   */
+  "contact.refined": {
+    userId: string | null;
+    email: string | null;
+    contactId: string | null;
+    /** The enrichment provider id that answered. */
+    provider: string;
+    /** Mapped trait key NAMES, sorted. Values are deliberately absent. */
+    traits: string[];
+    /** ISO — the lookup instant (the same value as `refined_at`). */
+    at: string;
+  };
   "email.sent": {
     emailSendId: string;
     messageId: string;

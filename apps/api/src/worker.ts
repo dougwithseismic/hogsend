@@ -15,6 +15,7 @@ import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { smsTemplates } from "./sms/index.js";
+import { gtmScoreTask } from "./workflows/index.js";
 
 async function main() {
   const discordConnector = buildDiscordConnector();
@@ -51,7 +52,14 @@ async function main() {
     destinations: [discordDestination],
   });
   setDiscordDb(client.db, client.identity);
-  const worker = createWorker({ container: client, journeys, buckets });
+  const worker = createWorker({
+    container: client,
+    journeys,
+    buckets,
+    // Custom (consumer-owned) Hatchet tasks. `gtmScoreTask` carries its own
+    // `onCrons`, so registering it here is what schedules the nightly recompute.
+    extraWorkflows: [gtmScoreTask],
+  });
 
   async function shutdown(signal: string) {
     client.logger.info(`${signal} received, shutting down worker`);

@@ -8,6 +8,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 process.env.DATABASE_URL =
+  process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 // Route-level config for this file's container: env-flag-forced test mode.
 // (Service/mailer-level cases below inject their own fake env / fake

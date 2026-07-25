@@ -9,6 +9,7 @@ import type {
   DefinedFlag,
   DefinedFunnel,
   EmailProvider,
+  EnrichmentProvider,
   FunnelStageEntry,
   FxRateProvider,
   JourneySourceLocation,
@@ -100,6 +101,9 @@ import type {
   EmailService,
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
+import { EnrichmentProviderRegistry } from "./lib/enrichment-provider-registry.js";
+import { enrichmentProvidersFromEnv } from "./lib/enrichment-providers-from-env.js";
+import { setEnrichmentProviders } from "./lib/enrichment-registry-singleton.js";
 import { FlagRegistry, setFlagRegistry } from "./lib/flags-registry.js";
 import { FunnelRegistry } from "./lib/funnel-registry.js";
 import { createFxLens, type FxLens, fxProviderFromEnv } from "./lib/fx.js";
@@ -206,6 +210,18 @@ export interface HogsendClient {
    * Undefined when no SMS provider is configured.
    */
   smsProvider?: SmsProvider;
+  /**
+   * The container-held registry of enrichment providers, keyed by `meta.id` —
+   * the enrichment sibling of {@link smsProviders}. Empty when no enrichment
+   * provider is configured.
+   */
+  enrichmentProviders: EnrichmentProviderRegistry;
+  /**
+   * The single resolved active enrichment provider `refineContact()` looks up
+   * through. Undefined when no enrichment provider is configured — a deploy
+   * with no enrichment is a valid deploy (refinement stays inert).
+   */
+  enrichmentProvider?: EnrichmentProvider;
   /**
    * The container-held registry of CRM providers, keyed by `meta.id`. The
    * `POST /v1/webhooks/crm/:providerId` route resolves the verifying provider
@@ -443,6 +459,31 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * Enrichment (Refinement) is a first-class provider kind mirroring
+   * {@link email}/{@link sms}. The engine owns the cohesive refinement
+   * pipeline (ledger → TTL/negative cache → budget cap → ingest write), and
+   * the {@link EnrichmentProvider} (Apollo, Clay, …) is only the swappable
+   * vendor wire under it.
+   *
+   * - `provider` — a single enrichment provider. Merged LAST (after env
+   *   presets and `providers`), so it wins on id collision.
+   * - `providers` — register MANY providers into the
+   *   {@link EnrichmentProviderRegistry}.
+   * - `defaultProvider` — the active provider id `refineContact()` looks up
+   *   through. Resolves as `defaultProvider ?? ENRICHMENT_PROVIDER ?? "apollo"`.
+   *   If it names an unregistered provider, the container throws at boot.
+   *   When nothing is explicitly requested and exactly ONE provider is
+   *   registered, that one is used (the SMS DX rule).
+   *
+   * Omitting `enrichment` entirely (or configuring no provider) leaves
+   * refinement inert — a deploy with no enrichment is a valid deploy.
+   */
+  enrichment?: {
+    provider?: EnrichmentProvider;
+    providers?: EnrichmentProvider[];
+    defaultProvider?: string;
   };
   /**
    * The OPTIONAL base-currency FX lens (docs/groups.md §Base-currency lens).
@@ -1238,6 +1279,48 @@ export function createHogsendClient(
 
   setSmsService(smsService);
 
+  // --- Enrichment providers (Refinement; parallel to email/SMS above) -------
+  // Merge order mirrors email/SMS exactly: env presets FIRST, then
+  // `providers`, then the single `provider` LAST (last-writer-wins on
+  // `meta.id`). Resolve the active provider as
+  // `defaultProvider ?? ENRICHMENT_PROVIDER ?? "apollo"`, with the SMS DX
+  // rule (sole registered provider wins when nothing is explicitly requested)
+  // and the same "an EXPLICIT id that misses throws, zero-config boots inert"
+  // posture — refinement not being configured is a valid deploy.
+  const enrichmentProviders = new EnrichmentProviderRegistry([
+    ...enrichmentProvidersFromEnv(env),
+    ...(opts.enrichment?.providers ?? []),
+    ...(opts.enrichment?.provider ? [opts.enrichment.provider] : []),
+  ]);
+  const enrichmentActiveId =
+    opts.enrichment?.defaultProvider ?? env.ENRICHMENT_PROVIDER ?? "apollo";
+  const enrichmentExplicit = Boolean(
+    opts.enrichment?.defaultProvider ?? env.ENRICHMENT_PROVIDER,
+  );
+  let enrichmentProvider = enrichmentProviders.get(enrichmentActiveId);
+  if (
+    !enrichmentProvider &&
+    !enrichmentExplicit &&
+    enrichmentProviders.count() === 1
+  ) {
+    enrichmentProvider = enrichmentProviders.getAll()[0];
+  }
+  if (enrichmentExplicit && !enrichmentProvider) {
+    throw new Error(
+      `enrichment provider "${enrichmentActiveId}" is not registered (registered: ${
+        enrichmentProviders
+          .getAll()
+          .map((p) => p.meta.id)
+          .join(", ") || "none"
+      }). Set APOLLO_API_KEY (with @hogsend/plugin-apollo installed), or pass enrichment.provider.`,
+    );
+  }
+  // Process singleton: `refineContact()` (a standalone import, like
+  // sendEmail/sendSms) runs in journey tasks and crons with no client
+  // reference; both the API and worker call createHogsendClient, so the
+  // singleton is installed in both processes.
+  setEnrichmentProviders(enrichmentProviders, enrichmentProvider);
+
   // Wire better-auth's secondary storage to the SHARED engine Redis (the same
   // singleton backing the PostHog cache + worker heartbeat — never a second
   // pool). Passing `secondaryStorage` flips better-auth's rate-limit store from
@@ -1567,6 +1650,8 @@ export function createHogsendClient(
     smsService,
     smsProviders,
     smsProvider,
+    enrichmentProviders,
+    enrichmentProvider,
     crmProviders,
     funnels,
     flagRegistry,
