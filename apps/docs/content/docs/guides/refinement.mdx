@@ -1,0 +1,243 @@
+---
+title: Refinement
+description: Pull person and company intelligence for a known contact and land it as contact properties, so a behaviour-derived bucket can be qualified by fit. One function, a spend ledger, and a scoring pattern that is plain TypeScript.
+---
+
+Your product tells you what a contact **did**. Refinement tells you who they **are**.
+
+`refineContact()` asks an enrichment provider about a contact you already know, and writes the answer back as flat `refined_*` contact properties. Because it writes through the ingestion pipeline, bucket membership re-evaluates the moment the traits land. So a bucket built from behaviour can immediately be narrowed by fit, and the pair of them becomes a ranked list of people worth a call.
+
+That is the whole feature. There is no new primitive to learn: buckets are still buckets, properties are still properties, and the score is a function you write.
+
+> Refinement is inert until you configure a provider. With no `APOLLO_API_KEY` (or another provider registered), `refineContact()` returns `{ status: "skipped", reason: "no_provider" }` and costs nothing. Existing apps are unaffected.
+
+## The loop
+
+```
+behaviour lands a contact in a bucket
+  → bucket.on("enter") calls refineContact()
+  → refined_* traits land via ingestEvent
+  → bucket membership re-evaluates immediately
+  → your scoring function blends fit with behaviour
+  → the score lands via ingestEvent
+  → a score bucket flips, and you notify sales
+```
+
+Each hop is something you already know how to write.
+
+## Quick example
+
+```ts
+// src/buckets/gtm-high-intent.ts
+import { days } from "@hogsend/core";
+import { defineBucket, refineContact } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const gtmHighIntent = defineBucket({
+  meta: {
+    id: "gtm-high-intent",
+    name: "GTM high intent",
+    enabled: true,
+    timeBased: true,
+    // Every entry can spend a vendor lookup, so bound how often one contact
+    // can re-enter.
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    criteria: (b) =>
+      b.all(
+        b.event(Events.KEY_ACTION).within(days(30)).atLeast(5),
+        b.event(Events.PAID_FEATURE_ATTEMPTED).within(days(30)).atLeast(1),
+      ),
+  },
+}).on("enter", async (user, ctx) => {
+  const result = await ctx.once("refine", () =>
+    refineContact({ userId: user.id, email: user.email }),
+  );
+
+  // It never throws. A skip is a normal outcome, not an error.
+  if (result.status === "skipped") {
+    await ctx.checkpoint(`refine-skipped:${result.reason}`);
+  }
+});
+```
+
+Usage alone is rarely intent. Pairing repeated key actions with a commercial signal (someone hit a paywall, someone got a result worth a number) is what makes the bucket mean something a salesperson would act on.
+
+**Why a bucket reaction and not a journey?** A journey would need its own trigger event, its own entry guards, and its own copy of this bucket's criteria: three copies of one rule. The reaction inherits the bucket's membership decision, so the criteria live in exactly one place, and the enter transition is already the moment you mean. A reaction handler runs inside a real, replayable journey run, so `ctx.once` and every durable primitive behave exactly as they do in a hand-written journey.
+
+## What lands on the contact
+
+Thirteen flat, top-level properties:
+
+```
+refined_title              refined_company_name
+refined_seniority          refined_company_domain
+refined_department         refined_company_industry
+refined_linkedin_url       refined_company_employees   (number)
+refined_country            refined_company_revenue     (number)
+                           refined_company_country
+refined_at                 refined_provider
+```
+
+Query them like any other property:
+
+```ts
+export const enterpriseFit = defineBucket({
+  meta: {
+    id: "enterprise-fit",
+    name: "Enterprise fit",
+    enabled: true,
+    criteria: (b) =>
+      b.all(
+        b.prop("refined_company_employees").gte(200),
+        b.prop("refined_seniority").eq("vp"),
+      ),
+  },
+});
+```
+
+Two rules here have silent failure modes, so they are worth stating plainly:
+
+- **Keys are flat, never dotted.** Write `b.prop("refined_seniority")`. A dotted `b.prop("properties.refined_seniority")` resolves to nothing, so the condition is simply never true and nothing tells you.
+- **Numbers must be real JSON numbers.** Conditions do no coercion, so the string `"250"` never matches `gte(100)`. The two numeric traits are written as numbers. If you add your own, keep them numeric.
+
+## Every return status
+
+`refineContact()` never throws. A vendor outage will not take down the journey run that called it. Branch on the status instead.
+
+| `status` | `reason` | What happened |
+| --- | --- | --- |
+| `refined` | | A lookup was paid for and traits landed. |
+| `cached` | | This lookup key was already paid for. The stored answer landed on this contact. |
+| `not_found` | | The provider has no record. Cached, so you do not pay to ask twice. |
+| `skipped` | `no_lookup_key` | Nothing resolvable was passed. |
+| `skipped` | `no_provider` | No provider configured. |
+| `skipped` | `budget_exceeded` | Your monthly cap is exhausted. Fails closed. |
+| `skipped` | `provider_error` | The vendor threw. A later retry is still allowed. |
+| `skipped` | `ingest_failed` | Traits could not be written. Nothing landed. |
+
+`cached` means *this lookup key was already paid for*, not *this contact already has the answer*. The stored answer is landed on whichever contact asked. That is what makes a shared company domain worth caching: the first person at `acme.com` pays for the company data, and every colleague after them gets it free.
+
+## Spending money on purpose
+
+Every lookup costs. Four environment variables control it.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `APOLLO_API_KEY` | unset | Configures the Apollo provider. Without it, refinement is inert. |
+| `ENRICHMENT_PROVIDER` | `apollo` | Which registered provider is active. |
+| `ENRICHMENT_TTL_DAYS` | `90` | How long a cached answer (hit **or** miss) satisfies a lookup. |
+| `ENRICHMENT_MONTHLY_LOOKUPS` | `0` | Monthly cap on provider calls. **`0` means uncapped.** |
+
+**Set `ENRICHMENT_MONTHLY_LOOKUPS` deliberately in every environment.** The default is uncapped, which is the right default for a feature that is off until you configure it and the wrong one to leave in production by accident.
+
+Note the failure mode when a cap is exhausted: refinement silently stops enriching. It looks like the feature does nothing rather than like an error. If you run capped, alert on `budget_exceeded`.
+
+Everything is recorded in an `enrichment_lookups` ledger, one row per provider and lookup key, which serves as the cache, the negative cache, and the exactly-once guarantee at the same time. The cap counts provider **calls** rather than rows, so a `force: true` refresh loop cannot spend past it.
+
+## Scoring
+
+The score is plain TypeScript in your app. It is not an engine primitive and it is not a config screen, because scoring weights are business logic that changes weekly and a UI for them is a worse version of a function.
+
+```ts
+export function computeGtmScore(input: GtmScoreInput): number {
+  const fit = fitPoints(input);           // from refined_* traits
+  const behaviour = behaviourPoints(input) * recencyFactor(input.daysSinceLastActivity);
+  return Math.max(0, Math.min(100, fit + Math.round(behaviour)));
+}
+```
+
+Two rules make this work, and the first is not a matter of taste.
+
+### Recompute, never increment
+
+There is no SQL-side `+` in a property write. A read-modify-write increment silently loses every concurrent update, and nothing surfaces the loss.
+
+So make the score a pure function of current state. Same input, same number, forever. That dissolves the concurrency problem, makes decay trivial, and is replay-safe by construction. Pass recency in as an argument rather than reading the clock inside the function, or you cannot test it.
+
+### Write through `ingestEvent`
+
+`ingestEvent` is the only write path that re-runs bucket membership. A direct database update writes the property and moves nothing.
+
+This bites hardest on a pure property bucket:
+
+```ts
+export const gtmQualified = defineBucket({
+  meta: {
+    id: "gtm-qualified",
+    name: "GTM qualified",
+    enabled: true,
+    criteria: (b) => b.prop("gtmScore").gte(20),
+  },
+});
+```
+
+This bucket is **not** time-based, which is deliberate. The reconcile cron skips non-time-based buckets, so ingest is the only thing that will ever evaluate it. There is no backstop. Write the score any other way and this bucket freezes forever with no error to notice.
+
+**The honest cost: one `user_events` row per contact whose score changed, per run.** Skip contacts whose recomputed score equals the stored one and a stable base costs close to nothing. The rows you do pay for are unavoidable, because ingest is the only thing that moves membership.
+
+### Two traps in a nightly recompute
+
+If you batch the recompute across your whole contact base, two mistakes are easy to make and both look fine in testing.
+
+**Termination.** A recompute does not shrink its own work set. A scored contact still matches "every contact", so a naive `LIMIT 250` predicate re-selects the same first page forever. Use a keyset cursor on `contacts.id` and advance it to the last row you saw.
+
+**The self-feeding metric.** If the job writes an event and its recency input is an unfiltered `MAX(occurred_at)`, that write resets the contact's own recency and inflates the next run's decay multiplier. Filter the recency aggregate to the events the score actually reads. A metric that feeds a computation whose output resets that metric never settles.
+
+A complete, commented implementation ships in the scaffold at `src/workflows/gtm-score.ts`.
+
+## Ranking: who do I call today
+
+Enriching and scoring a contact still does not tell you who to call. That is what ordering is for.
+
+```
+GET /v1/admin/contacts?orderBy=property&orderProperty=gtmScore&orderDir=desc
+```
+
+Non-numeric and absent values sort last, so one junk value in one contact's property bag cannot take the endpoint down.
+
+For a large contacts table, add the expression index:
+
+```sql
+CREATE INDEX CONCURRENTLY contacts_gtm_score_idx
+  ON contacts (((properties ->> 'gtmScore')::numeric))
+  WHERE jsonb_typeof(properties -> 'gtmScore') = 'number';
+```
+
+The `WHERE` clause is not optional. Without it the expression is evaluated for every row, and the first contact whose `gtmScore` is not a number fails the cast and breaks every write to the contacts table.
+
+## Bringing your own provider
+
+Apollo is the reference, not a requirement. A provider is a dumb wire: it queries a vendor and normalises the response. Caching, budget, preferences and the database all stay in the engine.
+
+```ts
+import { defineEnrichmentProvider } from "@hogsend/core";
+
+export const createAcmeProvider = (opts: { apiKey: string; fetch?: typeof fetch }) =>
+  defineEnrichmentProvider({
+    meta: { id: "acme", name: "Acme Data" },
+    capabilities: { personLookup: true, companyLookup: true },
+    async enrichPerson(query) {
+      // Call the vendor, return a normalised EnrichmentResult.
+      // Omit absent fields; never map a vendor null into a written null.
+    },
+  });
+```
+
+Take `fetch` as an injectable option. Every test then drives recorded fixtures through it, so your suite needs no network and no API key.
+
+Mirror `packages/plugin-apollo` for the package shape. Its README documents the traps a real vendor contract holds: array-vs-string fields, a bare domain field next to a full-URL one, and independently nullable person and company links.
+
+## What refinement is not
+
+- Not a `defineSignal` primitive. A bucket already is one.
+- Not a `traits` primitive. Contact properties are it.
+- Not account rollup. Groups exist, but journeys stay person-scoped for now.
+- Not an outbound sender. Refinement writes properties; what you do with them is a journey.
+
+## Related
+
+- [Buckets](/docs/guides/buckets) for membership, reactions, and the criteria builder
+- [Conditions](/docs/guides/conditions) for the property operators
+- [Events](/docs/guides/events) for the ingestion pipeline the writes flow through
+- [Plugins](/docs/guides/plugins) for the provider package shape
