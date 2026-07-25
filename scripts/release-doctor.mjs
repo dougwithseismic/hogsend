@@ -33,7 +33,7 @@
  *
  * Pure node:fs, zero deps. Run from anywhere — paths resolve from the repo root.
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,6 +189,259 @@ function scanPackages(names, predicate) {
   return names.flatMap((n) =>
     predicate(readJson(`packages/${n}/package.json`)),
   );
+}
+
+/* ---- silent dynamic-import catch gate (#611) ---------------------------- */
+
+/** Keywords after which a `/` starts a regex literal, not division. */
+const KEYWORDS_BEFORE_REGEX = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "case",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "do",
+  "else",
+  "yield",
+  "await",
+  "throw",
+]);
+
+/**
+ * Replace the CONTENTS of comments, string/template literals and regex
+ * literals with spaces (newlines preserved, length unchanged) so the brace
+ * matching and keyword searches below only ever see real code — an `import(`
+ * inside a string, or a `}` inside a template, can never confuse the scan.
+ * Hand-rolled on purpose: release-doctor stays zero-dep, and the scan needs
+ * only statement-level fidelity (try/catch extents + an `import(` hit), not a
+ * full parse.
+ */
+function maskSource(text) {
+  const out = text.split("");
+  const n = text.length;
+  const blank = (idx) => {
+    if (out[idx] !== "\n") out[idx] = " ";
+  };
+  // Each entry is the `{`-depth of one template `${ ... }` hole we're inside.
+  const interp = [];
+  let inTemplate = false;
+  let last = ""; // previous significant code char (regex-vs-division heuristic)
+  let word = ""; // identifier/keyword being accumulated, for the same heuristic
+  let i = 0;
+  while (i < n) {
+    const c = text[i];
+    const d = text[i + 1];
+    if (inTemplate) {
+      if (c === "\\") {
+        blank(i);
+        if (i + 1 < n) blank(i + 1);
+        i += 2;
+      } else if (c === "`") {
+        inTemplate = false;
+        last = "`";
+        word = "";
+        i++;
+      } else if (c === "$" && d === "{") {
+        // `${` opens a code hole; keep both chars so its braces stay balanced.
+        interp.push(0);
+        inTemplate = false;
+        last = "{";
+        word = "";
+        i += 2;
+      } else {
+        blank(i);
+        i++;
+      }
+      continue;
+    }
+    if (c === "/" && d === "/") {
+      while (i < n && text[i] !== "\n") blank(i++);
+      continue;
+    }
+    if (c === "/" && d === "*") {
+      blank(i);
+      blank(i + 1);
+      i += 2;
+      while (i < n && !(text[i] === "*" && text[i + 1] === "/")) blank(i++);
+      if (i < n) {
+        blank(i);
+        blank(i + 1);
+        i += 2;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      i++;
+      while (i < n && text[i] !== c && text[i] !== "\n") {
+        if (text[i] === "\\" && i + 1 < n) {
+          blank(i);
+          blank(i + 1);
+          i += 2;
+        } else {
+          blank(i);
+          i += 1;
+        }
+      }
+      i++; // past the closing quote (or the newline of an unterminated string)
+      last = c;
+      word = "";
+      continue;
+    }
+    if (c === "`") {
+      inTemplate = true;
+      last = "";
+      word = "";
+      i++;
+      continue;
+    }
+    const regexCanFollow =
+      last === "" ||
+      (/[\w$]/.test(last)
+        ? KEYWORDS_BEFORE_REGEX.has(word)
+        : !")]".includes(last));
+    if (c === "/" && regexCanFollow) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < n && text[j] !== "\n") {
+        const ch = text[j];
+        if (ch === "\\") {
+          blank(j++);
+          if (j < n) blank(j++);
+          continue;
+        }
+        if (ch === "[") inClass = true;
+        else if (ch === "]") inClass = false;
+        else if (ch === "/" && !inClass) break;
+        blank(j++);
+      }
+      i = j + 1;
+      last = "/";
+      word = "";
+      continue;
+    }
+    if (c === "}" && interp.length) {
+      if (interp[interp.length - 1] === 0) {
+        // closes the `${ ... }` hole; back to template chars
+        interp.pop();
+        inTemplate = true;
+        i++;
+        continue;
+      }
+      interp[interp.length - 1]--;
+    } else if (c === "{" && interp.length) {
+      interp[interp.length - 1]++;
+    }
+    if (/[\w$]/.test(c)) {
+      // Start a new word after any non-word char; whitespace between a word
+      // and the next char keeps the word (so `return /x/` sees "return").
+      word = /[\w$]/.test(text[i - 1] || "") ? word + c : c;
+      last = c;
+    } else if (/\S/.test(c)) {
+      last = c;
+      word = "";
+    }
+    i++;
+  }
+  return out.join("");
+}
+
+/** Index of the `}` matching the `{` at `open` in masked source, or -1. */
+function matchBrace(masked, open) {
+  let depth = 0;
+  for (let i = open; i < masked.length; i++) {
+    if (masked[i] === "{") depth++;
+    else if (masked[i] === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Line numbers (1-based, at the `catch` keyword) of every catch clause that
+ * swallows a failed dynamic `import()`: the try body contains `import(...)`
+ * and the catch neither rethrows, nor uses its error binding (log / classify /
+ * report), nor carries the structured `// hogsend:allow-swallow <reason>`
+ * marker. A plain explanatory comment exempts NOTHING — see the check below.
+ */
+function scanSwallowedImportCatches(original) {
+  const masked = maskSource(original);
+  const offenders = [];
+  const tryRe = /\btry\s*\{/g;
+  let m = tryRe.exec(masked);
+  for (; m; m = tryRe.exec(masked)) {
+    const tryOpen = m.index + m[0].length - 1;
+    const tryClose = matchBrace(masked, tryOpen);
+    if (tryClose < 0) continue;
+    // Dynamic import in the try body? (`(?<![.\w$])` rejects `foo.import(`.)
+    if (!/(^|[^.\w$])import\s*\(/.test(masked.slice(tryOpen + 1, tryClose)))
+      continue;
+    const afterTry = masked.slice(tryClose + 1);
+    const catchKw = afterTry.match(/^\s*catch\b/);
+    if (!catchKw) continue; // try/finally — the failure propagates
+    let k = tryClose + 1 + catchKw[0].length;
+    let binding = null; // null = no binding (`catch {`)
+    const paren = masked.slice(k).match(/^\s*\(([^)]*)\)/);
+    if (paren) {
+      const id = paren[1].match(/[A-Za-z_$][\w$]*/);
+      // A destructured binding necessarily USES the error — treat as such.
+      binding = id ? id[0] : "__uses_error__";
+      k += paren[0].length;
+    }
+    const bodyOpenMatch = masked.slice(k).match(/^\s*\{/);
+    if (!bodyOpenMatch) continue;
+    const catchOpen = k + bodyOpenMatch[0].length - 1;
+    const catchClose = matchBrace(masked, catchOpen);
+    if (catchClose < 0) continue;
+    const body = masked.slice(catchOpen + 1, catchClose);
+    const rethrows = /\bthrow\b/.test(body);
+    const usesError =
+      binding === "__uses_error__" ||
+      (binding !== null && new RegExp(`\\b${binding}\\b`).test(body));
+    // The marker lives in a comment, so search the ORIGINAL text across the
+    // whole catch clause (from the `} catch` line through the `}` line).
+    const regionStart = original.lastIndexOf("\n", tryClose) + 1;
+    const regionEndNl = original.indexOf("\n", catchClose);
+    const region = original.slice(
+      regionStart,
+      regionEndNl === -1 ? original.length : regionEndNl,
+    );
+    const hasMarker = /hogsend:allow-swallow\s+\S/.test(region);
+    if (!rethrows && !usesError && !hasMarker) {
+      const catchIdx = tryClose + 1 + catchKw[0].indexOf("catch");
+      offenders.push(original.slice(0, catchIdx).split("\n").length);
+    }
+  }
+  return offenders;
+}
+
+/**
+ * Every first-party TypeScript/JavaScript source file: `packages/*\/src` and
+ * `apps/*\/src`, recursively, excluding `dist`, `node_modules` and any
+ * `template` dir (scaffold output, not first-party source — and the
+ * `src`-rooted walk already excludes `packages/create-hogsend/template/`).
+ */
+function firstPartySourceFiles() {
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(r(dir), { withFileTypes: true })) {
+      if (e.isDirectory()) {
+        if (["dist", "node_modules", "template"].includes(e.name)) continue;
+        walk(`${dir}/${e.name}`);
+      } else if (/\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(e.name)) {
+        files.push(`${dir}/${e.name}`);
+      }
+    }
+  };
+  for (const base of ["packages", "apps"]) {
+    for (const d of readdirSync(r(base), { withFileTypes: true })) {
+      if (d.isDirectory() && existsSync(r(`${base}/${d.name}/src`)))
+        walk(`${base}/${d.name}/src`);
+    }
+  }
+  return files;
 }
 
 /** Each check returns null when satisfied, or a precise violation string. */
@@ -485,6 +738,31 @@ const checks = [
         }
       }
       return offenders.length === 0 ? null : offenders.join("; ");
+    },
+  },
+  {
+    // The other half of #611: the load failure above was invisible because the
+    // guarded dynamic import's `catch` swallowed it behind four lines of
+    // confident, factually WRONG comment ("the opt-in package isn't
+    // installed" — it was installed, merely un-strippable). A guarded dynamic
+    // `import()` of an optional plugin is the ONE place in this codebase where
+    // a swallowed error means a silently-inert product rather than a handled
+    // edge case — three opt-in provider plugins were dead in every bundled
+    // consumer for three releases with nothing red anywhere. So: a `try`
+    // whose body contains a dynamic `import(...)` must have a `catch` that
+    // rethrows, or uses its error binding (classify / log / report), or
+    // carries the structured `// hogsend:allow-swallow <reason>` marker.
+    // A plain explanatory comment exempts NOTHING (that is exactly what
+    // shipped #611); the marker is distinct and greppable so every exemption
+    // is a deliberate, reviewable act.
+    name: "no catch swallows a failed dynamic import() (#611 gate)",
+    fn: () => {
+      const offenders = firstPartySourceFiles().flatMap((f) =>
+        scanSwallowedImportCatches(readText(f)).map((line) => `${f}:${line}`),
+      );
+      return offenders.length === 0
+        ? null
+        : `catch swallows a failed dynamic import() — rethrow, use the error binding (log/classify/report), or mark deliberately with \`// hogsend:allow-swallow <reason>\`: ${offenders.join(", ")}`;
     },
   },
   {
