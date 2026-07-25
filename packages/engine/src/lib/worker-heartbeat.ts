@@ -122,11 +122,9 @@ function parseHeartbeat(raw: string): WorkerHeartbeat {
     return { alive: true, lastSeenAt: raw };
   }
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) {
-      return { alive: true };
-    }
-    const { lastSeenAt, diagnostics } = parsed as {
+    // A text starting with `{` parses to a non-null object or JSON.parse throws
+    // (caught below), so no primitive/null guard is needed here.
+    const { lastSeenAt, diagnostics } = JSON.parse(raw) as {
       lastSeenAt?: unknown;
       diagnostics?: unknown;
     };

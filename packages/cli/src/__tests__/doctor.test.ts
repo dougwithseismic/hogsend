@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -97,9 +97,9 @@ interface Harness {
 /** An empty cwd so no stray `.env` participates in config resolution. */
 const emptyCwd = mkdtempSync(join(tmpdir(), "hogsend-doctor-test-"));
 
-function makeCtx(argv: string[]): Harness {
+function makeCtx(argv: string[], cwd: string = emptyCwd): Harness {
   const flags = parseGlobalFlags(argv);
-  const cfg = resolveConfig(flags, emptyCwd);
+  const cfg = resolveConfig(flags, cwd);
   const notes: Array<{ body: string; title?: string }> = [];
   const jsonDocs: unknown[] = [];
   const out: Output = {
@@ -216,6 +216,62 @@ describe("doctor config warnings", () => {
       expect(req.authorization).toBeNull();
     }
     expect(requests.map((r) => r.path)).not.toContain("/v1/admin/config");
+  });
+
+  it("never sends a shell-env key to a URL that came from an untrusted cwd .env", async () => {
+    // The credential-leak vector: a hostile checkout's .env redirects
+    // HOGSEND_API_URL at an attacker while the admin key lives in the shell env.
+    // No --url was ever passed, so the old urlExplicit-only gate would have sent
+    // the full-admin bearer to the attacker origin.
+    const hostileCwd = mkdtempSync(join(tmpdir(), "hogsend-doctor-hostile-"));
+    writeFileSync(
+      join(hostileCwd, ".env"),
+      "HOGSEND_API_URL=http://evil.example:9000\n",
+    );
+    vi.stubEnv("HOGSEND_ADMIN_KEY", "shell-secret");
+    // Delete the process-env URL so the .env's HOGSEND_API_URL wins resolution.
+    vi.stubEnv("HOGSEND_API_URL", undefined);
+    const { requests } = stubServer({
+      "/v1/health": () => json(healthBody({ warnings: 4 })),
+      "/v1/admin/config": () => json(detailBody),
+    });
+    const { ctx, notes } = makeCtx([], hostileCwd);
+
+    await doctorCommand.run(ctx);
+
+    // Count still renders; the key and detail are withheld.
+    expect(notes.map((n) => n.body).join("\n")).toContain("4 warnings");
+    expect(requests.length).toBeGreaterThan(0);
+    for (const req of requests) {
+      expect(req.authorization).toBeNull();
+    }
+    expect(requests.map((r) => r.path)).not.toContain("/v1/admin/config");
+  });
+
+  it("still sends when the key and URL come from the SAME .env (paired, trusted)", async () => {
+    // The legitimate happy path: the user's own project .env holds both the API
+    // URL and the admin key. They are co-sourced, so the detail fetch proceeds.
+    const projectCwd = mkdtempSync(join(tmpdir(), "hogsend-doctor-project-"));
+    writeFileSync(
+      join(projectCwd, ".env"),
+      "HOGSEND_API_URL=http://app.internal:3002\nHOGSEND_ADMIN_KEY=dotenv-secret\n",
+    );
+    // Delete BOTH process-env admin keys so the dotenv key is what resolves
+    // (the beforeEach stubs them to "", which would otherwise win the ?? chain).
+    vi.stubEnv("HOGSEND_ADMIN_KEY", undefined);
+    vi.stubEnv("ADMIN_API_KEY", undefined);
+    vi.stubEnv("HOGSEND_API_URL", undefined);
+    const { requests } = stubServer({
+      "/v1/health": () => json(healthBody({ warnings: 2 })),
+      "/v1/admin/config": () => json(detailBody),
+    });
+    const { ctx } = makeCtx([], projectCwd);
+
+    await doctorCommand.run(ctx);
+
+    const adminReq = requests.find((r) => r.path === "/v1/admin/config");
+    expect(adminReq?.authorization).toBe("Bearer dotenv-secret");
+    expect(adminReq?.origin).toBe("http://app.internal:3002");
   });
 
   it("sends an env-derived key when the target is the ambient (non---url) base URL", async () => {

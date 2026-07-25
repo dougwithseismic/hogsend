@@ -29,6 +29,21 @@ export interface ResolvedConfig {
    * so when the user typed the key for this invocation.
    */
   adminKeyExplicit: boolean;
+  /**
+   * True when `baseUrl` was resolved from the cwd `.env`'s `HOGSEND_API_URL`
+   * (i.e. no `--url` flag and no `HOGSEND_API_URL` in the process env). A cwd
+   * `.env` is the LEAST-trusted source — an untrusted checkout can ship one —
+   * so a command must not send a key from a MORE-trusted source (the shell env)
+   * to such an origin. See `adminKeyFromDotenv` and `doctor`'s send gate.
+   */
+  urlFromDotenv: boolean;
+  /**
+   * True when `adminKey` was resolved from the cwd `.env` (not a flag, not the
+   * process env). When BOTH the key and the URL come from the same `.env` they
+   * are paired and safe to use together; the hazard is a `.env`-derived URL
+   * paired with a shell-env key.
+   */
+  adminKeyFromDotenv: boolean;
 }
 
 /** Global flags parsed off the front of any command's argv. */
@@ -176,11 +191,26 @@ export function resolveConfig(
     dotenv.HOGSEND_DATA_KEY ??
     dotenv.HOGSEND_API_KEY;
 
+  // Source provenance for the send gate below. The URL is `.env`-derived only
+  // when neither a flag nor the process env supplied it; the admin key likewise.
+  const urlFromDotenv =
+    flags.url === undefined &&
+    process.env.HOGSEND_API_URL === undefined &&
+    dotenv.HOGSEND_API_URL !== undefined;
+  const adminKeyFromDotenv =
+    flags.adminKey === undefined &&
+    process.env.HOGSEND_ADMIN_KEY === undefined &&
+    process.env.ADMIN_API_KEY === undefined &&
+    (dotenv.HOGSEND_ADMIN_KEY !== undefined ||
+      dotenv.ADMIN_API_KEY !== undefined);
+
   return {
     baseUrl: baseUrlRaw.replace(/\/+$/, ""),
     adminKey: adminKey && adminKey.length > 0 ? adminKey : undefined,
     dataKey: dataKey && dataKey.length > 0 ? dataKey : undefined,
     urlExplicit: flags.url !== undefined,
     adminKeyExplicit: flags.adminKey !== undefined,
+    urlFromDotenv,
+    adminKeyFromDotenv,
   };
 }

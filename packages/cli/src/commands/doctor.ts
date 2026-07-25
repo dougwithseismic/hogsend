@@ -256,16 +256,22 @@ async function run(ctx: CommandContext): Promise<void> {
   //  1. Only fetch when /v1/health actually reported a `config` block with a
   //     non-zero count — an older engine has no such route, and sending the
   //     key toward a guaranteed 404 still puts it on the wire.
-  //  2. Only send an env/.env-derived key when the base URL was NOT
-  //     explicitly overridden via --url (the `urlExplicit` rule — see
-  //     lib/config.ts). An explicit --admin-key flag always authorizes: the
-  //     user typed it for this invocation.
+  //  2. Only send an ambiently-resolved key to an origin at least as trusted as
+  //     the key. Block it when the base URL was overridden via --url (the
+  //     `urlExplicit` rule), AND when the URL came from the cwd `.env` while the
+  //     key did NOT (`urlFromDotenv && !adminKeyFromDotenv`) — an untrusted
+  //     checkout's `.env` could point HOGSEND_API_URL at an attacker and
+  //     exfiltrate a shell-env admin key. A key + URL from the SAME `.env` are
+  //     paired and fine; an explicit --admin-key flag always authorizes.
   //
   // Warnings are advisory: fetched or not, they never move verdict/exit code.
   const { cfg } = ctx.http;
   const warningCount = health.config?.warnings;
   const keySendAllowed =
-    cfg.adminKeyExplicit || (cfg.adminKey !== undefined && !cfg.urlExplicit);
+    cfg.adminKeyExplicit ||
+    (cfg.adminKey !== undefined &&
+      !cfg.urlExplicit &&
+      !(cfg.urlFromDotenv && !cfg.adminKeyFromDotenv));
   let detail: ConfigWarning[] | null = null;
   let detailError: string | null = null;
   if (warningCount !== undefined && warningCount > 0 && keySendAllowed) {

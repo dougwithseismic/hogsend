@@ -121,18 +121,7 @@ export async function loadOptionalPlugin<T>(opts: {
   // this loader is the one seam an injected specifier can drive through all
   // three outcomes. The code bakes in outcome + specifier so two broken
   // plugins (or two outcomes) yield two entries, never a silent dedupe.
-  const record = (outcome: PluginLoadOutcome, message: string) => {
-    recordBootDiagnostic({
-      code: `plugin.${outcome}:${specifier}`,
-      message,
-    });
-  };
-
-  let mod: Record<string, unknown>;
-  try {
-    mod = (await import(specifier)) as Record<string, unknown>;
-  } catch (error) {
-    const outcome = classify(error, specifier);
+  const fail = (outcome: PluginLoadOutcome, error?: unknown): null => {
     const message = messageFor({
       specifier,
       exportName,
@@ -140,23 +129,20 @@ export async function loadOptionalPlugin<T>(opts: {
       outcome,
       error,
     });
-    record(outcome, message);
+    recordBootDiagnostic({ code: `plugin.${outcome}:${specifier}`, message });
     onFailure?.(message, outcome);
     return null;
+  };
+
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import(specifier)) as Record<string, unknown>;
+  } catch (error) {
+    return fail(classify(error, specifier), error);
   }
 
   const factory = mod[exportName];
-  if (typeof factory !== "function") {
-    const message = messageFor({
-      specifier,
-      exportName,
-      enabledBy,
-      outcome: "missing-export",
-    });
-    record("missing-export", message);
-    onFailure?.(message, "missing-export");
-    return null;
-  }
+  if (typeof factory !== "function") return fail("missing-export");
 
   return factory as T;
 }
