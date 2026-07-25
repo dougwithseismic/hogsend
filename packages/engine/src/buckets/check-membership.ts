@@ -72,6 +72,14 @@ export async function checkBucketMembership(opts: {
    * the very first event after a property change evaluates correctly (risk 7).
    */
   contactProperties?: Record<string, unknown>;
+  /**
+   * Extra property NAMES for candidate-narrowing ONLY — never overlaid on the
+   * contact row for value eval. A producer whose write patch omits a key it
+   * nonetheless changed (refinement's fill-if-absent drops already-held facts to
+   * avoid clobbering first-party data) lists those names here so their fit
+   * buckets are still re-checked against live contact state.
+   */
+  touchProperties?: string[];
   /** Optional override; defaults to the process bucket-registry singleton. */
   bucketRegistry?: ReturnType<typeof getBucketRegistrySingleton>;
 }): Promise<BucketTransition[]> {
@@ -85,6 +93,7 @@ export async function checkBucketMembership(opts: {
     event,
     eventProperties,
     contactProperties: contactPropertiesPatch,
+    touchProperties,
   } = opts;
   // The caller's email comes verbatim from the raw event payload — normalize
   // ONCE here so the membership row, the emitted bucket:* transition events,
@@ -118,6 +127,10 @@ export async function checkBucketMembership(opts: {
   for (const key of [
     ...Object.keys(eventProperties ?? {}),
     ...Object.keys(contactPropertiesPatch ?? {}),
+    // Names-only touches (e.g. refinement's fill-if-absent dropped facts) surface
+    // a fit bucket here so it is re-checked against live contact state below,
+    // even though the value is not in this ingest's write patch.
+    ...(touchProperties ?? []),
   ]) {
     for (const bucket of bucketRegistry.getByReferencedProperty(key)) {
       candidateMap.set(bucket.id, bucket);

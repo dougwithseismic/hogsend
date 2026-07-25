@@ -190,7 +190,7 @@ afterAll(async () => {
 // Acceptance criteria
 // ---------------------------------------------------------------------------
 
-it("AC 1: a first lookup returns refined, writes ONE found ledger row, and merges the refined_* keys", async () => {
+it("AC 1: a first lookup returns refined, writes ONE found ledger row, and merges the canonical keys", async () => {
   const { userId, email } = await seedContact("ac1");
 
   const result = await refineContact({ userId });
@@ -207,20 +207,22 @@ it("AC 1: a first lookup returns refined, writes ONE found ledger row, and merge
 
   const props = await contactProperties(userId);
   expect(props).toMatchObject({
-    refined_title: "VP of Engineering",
-    refined_seniority: "vp",
-    refined_department: "engineering",
-    refined_linkedin_url: "https://linkedin.com/in/refine",
-    refined_country: "US",
-    refined_company_name: "Acme",
-    refined_company_domain: "acme.com",
-    refined_company_industry: "software",
-    refined_company_employees: 250,
-    refined_company_revenue: 12_000_000,
-    refined_company_country: "US",
-    refined_provider: "fake-enrich",
+    title: "VP of Engineering",
+    seniority: "vp",
+    department: "engineering",
+    linkedin_url: "https://linkedin.com/in/refine",
+    country: "US",
+    company: "Acme",
+    company_domain: "acme.com",
+    company_industry: "software",
+    company_employees: 250,
+    company_revenue: 12_000_000,
+    company_country: "US",
   });
-  expect(typeof props.refined_at).toBe("string");
+  // Provenance rides under one nested object, never as flat sibling keys.
+  const enrichment = props.enrichment as { provider?: string; at?: string };
+  expect(enrichment.provider).toBe("fake-enrich");
+  expect(typeof enrichment.at).toBe("string");
 });
 
 it("AC 2: a second lookup inside the TTL returns cached with ZERO provider calls and no new ledger row", async () => {
@@ -237,8 +239,8 @@ it("AC 2: a second lookup inside the TTL returns cached with ZERO provider calls
   expect(await ledgerRows(email)).toHaveLength(1);
   // The cached verdict hands back the traits the first lookup landed.
   expect(second.properties).toMatchObject({
-    refined_title: "VP of Engineering",
-    refined_company_employees: 250,
+    title: "VP of Engineering",
+    company_employees: 250,
   });
 });
 
@@ -359,7 +361,7 @@ it("AC 8 + AC 10: the employee count lands as a JSON NUMBER and flips a gte buck
             id: bucketId,
             name: "GTM qualified",
             enabled: true,
-            criteria: (b) => b.prop("refined_company_employees").gte(100),
+            criteria: (b) => b.prop("company_employees").gte(100),
           },
         }),
       ],
@@ -384,8 +386,8 @@ it("AC 8 + AC 10: the employee count lands as a JSON NUMBER and flips a gte buck
 
   // AC 8 — a real JSON number survives the jsonb round-trip.
   const props = await contactProperties(userId);
-  expect(typeof props.refined_company_employees).toBe("number");
-  expect(props.refined_company_employees).toBe(250);
+  expect(typeof props.company_employees).toBe("number");
+  expect(props.company_employees).toBe(250);
 
   // AC 10 — the write went through `ingestEvent`, so bucket membership was
   // re-evaluated synchronously. `resolveOrCreateContact` alone would not have
@@ -407,7 +409,7 @@ it("AC 8 + AC 10: the employee count lands as a JSON NUMBER and flips a gte buck
 
 it("AC 9: an absent result field is omitted from the patch, leaving a stored value intact", async () => {
   const { userId } = await seedContact("ac9", {
-    refined_title: "Previously known title",
+    title: "Previously known title",
     plan: "pro",
   });
   respond = async () => ({
@@ -419,15 +421,40 @@ it("AC 9: an absent result field is omitted from the patch, leaving a stored val
 
   const result = await refineContact({ userId });
   expect(result.status).toBe("refined");
-  expect(result.properties).not.toHaveProperty("refined_title");
+  expect(result.properties).not.toHaveProperty("title");
 
   const props = await contactProperties(userId);
   // Untouched, NOT deleted: a null would have been stripped by
   // `jsonb_strip_nulls` and taken the key with it.
-  expect(props.refined_title).toBe("Previously known title");
-  expect(props.refined_seniority).toBe("director");
+  expect(props.title).toBe("Previously known title");
+  expect(props.seniority).toBe("director");
   expect(props.plan).toBe("pro");
-  expect(props).not.toHaveProperty("refined_company_name");
+  expect(props).not.toHaveProperty("company");
+});
+
+it("fill-if-absent: a vendor fact never overwrites a first-party value, but fills the gaps", async () => {
+  // The contact already knows its own title + company (first-party truth). A
+  // paid vendor answer that DISAGREES must not clobber them — it only fills the
+  // fields the contact was missing, and always records provenance.
+  const { userId } = await seedContact("fill", {
+    title: "First-party CTO",
+    company: "First-party Co",
+  });
+
+  const result = await refineContact({ userId });
+  expect(result.status).toBe("refined");
+
+  const props = await contactProperties(userId);
+  // First-party values survive verbatim, even though the vendor sent different
+  // ones (`title: "VP of Engineering"`, `company: "Acme"`).
+  expect(props.title).toBe("First-party CTO");
+  expect(props.company).toBe("First-party Co");
+  // ...and the gaps the contact did NOT have are filled from the vendor.
+  expect(props.seniority).toBe("vp");
+  expect(props.company_employees).toBe(250);
+  expect((props.enrichment as { provider?: string }).provider).toBe(
+    "fake-enrich",
+  );
 });
 
 it("skips with no_lookup_key and zero spend when nothing resolves to an email or domain", async () => {
@@ -468,17 +495,19 @@ it("refines a domain-only contact by its company domain", async () => {
   expect(rows).toHaveLength(1);
 });
 
-it("derives the domain lookup key from externally-supplied properties only, never from refined_company_domain", async () => {
+it("keys the domain lookup by an externally-supplied domain over the refinement-written company_domain", async () => {
   // REPLAY SAFETY REGRESSION. The domain becomes the `lookupKey`, which becomes
-  // the memo `discriminant`. `refineContact` itself writes
-  // `refined_company_domain` (from the vendor's canonical domain, which need not
-  // equal the one we looked up by), so if that key were a resolution source the
-  // memo key would differ between a run and its replay — a positional-journal
-  // shift, the same defect class as a conditional `memoize`.
+  // the memo `discriminant`. `refineContact` itself writes `company_domain`
+  // (from the vendor's canonical domain, which need not equal the one we looked
+  // up by), so if it OUTRANKED an externally-supplied domain the memo key would
+  // differ between a run and its replay — a positional-journal shift, the same
+  // defect class as a conditional `memoize`.
   //
-  // This contact is the exact shape that triggers it: no email, no
-  // `company_domain`/`companyDomain`, a plain `domain`, and a
-  // `refined_company_domain` left by an earlier refinement that DISAGREES.
+  // The fix is ORDERING: `refine.ts` reads `companyDomain` → `domain` →
+  // `company_domain`, so the refinement-written key is only ever the pick when
+  // nothing external is present (and fill-if-absent then leaves it untouched, so
+  // it is stable). This contact is the shape that would trip a wrong order: a
+  // plain `domain` plus a DISAGREEING `company_domain`.
   const userId = uid("domain-replay");
   const original = `${uid("orig")}.example`;
   await db
@@ -487,7 +516,7 @@ it("derives the domain lookup key from externally-supplied properties only, neve
       externalId: userId,
       properties: {
         domain: original,
-        refined_company_domain: `${uid("vendor")}.example`,
+        company_domain: `${uid("vendor")}.example`,
       },
     })
     .onConflictDoNothing();
@@ -499,8 +528,8 @@ it("derives the domain lookup key from externally-supplied properties only, neve
     .select()
     .from(enrichmentLookups)
     .where(eq(enrichmentLookups.lookupKey, original));
-  // Keyed by the contact's own `domain`, NOT the vendor-written value. Restore
-  // `refined_company_domain` to the precedence list in refine.ts and this fails.
+  // Keyed by the contact's own `domain`, NOT the vendor-written value. Move
+  // `company_domain` BEFORE `domain` in refine.ts's precedence and this fails.
   expect(rows).toHaveLength(1);
   expect(rows[0]?.lookupKind).toBe("domain");
 });
@@ -530,7 +559,7 @@ function registerFitBucket(bucketId: string): void {
             id: bucketId,
             name: "GTM qualified",
             enabled: true,
-            criteria: (b) => b.prop("refined_company_employees").gte(100),
+            criteria: (b) => b.prop("company_employees").gte(100),
           },
         }),
       ],
@@ -574,12 +603,32 @@ it("D2: a SECOND contact sharing the lookup key receives the paid traits and ent
   expect(await ledgerRows(domain)).toHaveLength(1);
   // ...and the loop closed for B too.
   expect(second.properties).toMatchObject({
-    refined_company_employees: 250,
-    refined_company_name: "Acme",
+    company_employees: 250,
+    company: "Acme",
   });
   const props = await contactProperties(b);
-  expect(props.refined_company_employees).toBe(250);
+  expect(props.company_employees).toBe(250);
   expect(await memberOf(b, bucketId)).toBeDefined();
+});
+
+it("touch: an already-held fit fact still enters the bucket (write is dropped, touch re-evaluates)", async () => {
+  // The torn-write / already-held case. The contact carries a first-party
+  // `company_employees` but was never evaluated against the fit bucket. The
+  // vendor returns the same number, so fill-if-absent writes NOTHING for it —
+  // membership can only form if the touch channel re-evaluates the bucket.
+  const bucketId = uid("gtm-qualified-touch");
+  registerFitBucket(bucketId);
+  const { userId } = await seedContact("touch", { company_employees: 250 });
+  expect(await memberOf(userId, bucketId)).toBeUndefined();
+
+  const result = await refineContact({ userId });
+  expect(result.status).toBe("refined");
+
+  const props = await contactProperties(userId);
+  // The first-party value is untouched (never entered the write patch)...
+  expect(props.company_employees).toBe(250);
+  // ...and the bucket re-evaluated against live state via the touch channel.
+  expect(await memberOf(userId, bucketId)).toBeDefined();
 });
 
 it("D3: the cap counts LOOKUPS, so a force loop on ONE key cannot spend past it", async () => {
@@ -645,7 +694,7 @@ it("D4a: a provider outage on an ALREADY-refined key is counted and visible, so 
   expect(rows[0]?.lastErrorAt).not.toBeNull();
   // The errors never clobbered the paid answer sitting in the row.
   expect(rows[0]?.status).toBe("found");
-  expect(rows[0]?.traits).toMatchObject({ refined_company_employees: 250 });
+  expect(rows[0]?.traits).toMatchObject({ company_employees: 250 });
 });
 
 it("D4b: a failed ingest returns a verdict instead of throwing, and the retry closes the loop for free", async () => {
@@ -666,7 +715,7 @@ it("D4b: a failed ingest returns a verdict instead of throwing, and the retry cl
   expect(rows).toHaveLength(1);
   expect(rows[0]?.status).toBe("found");
   // The spend is auditable and the answer is kept — the loop just did not close.
-  expect(rows[0]?.traits).toMatchObject({ refined_company_employees: 250 });
+  expect(rows[0]?.traits).toMatchObject({ company_employees: 250 });
   expect(await memberOf(userId, bucketId)).toBeUndefined();
 
   const retried = await refineContact({ userId });

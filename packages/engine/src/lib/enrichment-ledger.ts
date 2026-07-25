@@ -22,7 +22,7 @@ export interface EnrichmentLookupRow {
   refinedAt: Date;
   expiresAt: Date;
   raw: Record<string, unknown> | null;
-  /** The normalized `refined_*` patch the paid answer produced. */
+  /** The normalized canonical trait patch the paid answer produced. */
   traits: Record<string, unknown> | null;
   spendWindow: Date | null;
   spendCount: number;
