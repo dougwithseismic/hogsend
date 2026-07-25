@@ -660,6 +660,14 @@ export {
   getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
+// --- Refinement (`refineContact` — a STANDALONE import, never on `ctx`) ---
+export {
+  REFINE_EVENT,
+  type RefineContactOptions,
+  type RefineContactResult,
+  refineContact,
+} from "./lib/refine.js";
+export { flattenTraits } from "./lib/refine-traits.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
 // --- Revenue rollups (the event spine's value/currency columns) ---
