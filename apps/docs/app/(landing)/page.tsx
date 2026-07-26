@@ -27,7 +27,7 @@ import {
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { ManifestoVideo } from "@/components/hogsend/manifesto-video";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
-import { StackCard } from "@/components/landing/stack-card";
+import { StackDeck } from "@/components/landing/stack-deck";
 import { cn } from "@/lib/cn";
 import { getEngineVersion } from "@/lib/engine-version";
 import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
@@ -4659,32 +4659,27 @@ export default async function HomePage({
           bottom reaches the viewport and the next slides up over it. The
           relative wrapper bounds the pinning to the deck. */}
       <PsGetStarted engineVersion={engineVersion} />
-      <div className="relative">
-        <StackCard>
-          <PsVideo />
-        </StackCard>
-        <StackCard>
-          <PsFlags />
-        </StackCard>
-        <StackCard>
-          <PsGroups />
-        </StackCard>
-        <StackCard>
-          <PsEmailAnswers />
-        </StackCard>
-        <StackCard>
-          <PsLinks />
-        </StackCard>
-        <StackCard>
-          <PsDiscord />
-        </StackCard>
-        <StackCard>
-          <PsSources />
-        </StackCard>
-        <StackCard>
-          <PsImpact />
-        </StackCard>
-      </div>
+      <StackDeck
+        labels={[
+          "Video",
+          "Feature flags",
+          "Groups",
+          "Email answers",
+          "Links",
+          "Discord",
+          "Impact",
+          "Event plugins",
+        ]}
+      >
+        <PsVideo />
+        <PsFlags />
+        <PsGroups />
+        <PsEmailAnswers />
+        <PsLinks />
+        <PsDiscord />
+        <PsImpact />
+        <PsSources />
+      </StackDeck>
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
