@@ -22,11 +22,11 @@ import { SITE_URL, WITHSEISMIC_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Hogsend — Lifecycle automation in TypeScript",
+    default: "Hogsend — The growth stack for teams that code",
     template: "%s — Hogsend",
   },
   description:
-    "Lifecycle automation in TypeScript for product-led teams. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
+    "A TypeScript framework for growth teams that code. Identify and enrich the people on your product, react to their events, message them where they are, and measure what moved — with or without PostHog.",
   keywords: [
     "lifecycle automation framework",
     "product-led growth",

@@ -85,10 +85,10 @@ import { WordReveal } from "./_components/word-reveal";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Lifecycle automation in TypeScript",
+    absolute: "Hogsend — The growth stack for teams that code",
   },
   description:
-    "Lifecycle automation in TypeScript for growth engineering teams and their agents. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
+    "A TypeScript framework for growth teams that code. Identify and enrich the people on your product, react to their events, message them where they are, and measure what moved — with or without PostHog.",
   alternates: { canonical: "/" },
   keywords: [
     "lifecycle automation framework",
@@ -650,7 +650,7 @@ function PsProofStrip() {
     <div className="border-[#f6483833] border-b">
       <Container className="flex flex-col gap-3 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3">
         <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
-          Open Source
+          Source-available
         </span>
         <Link
           href={NPM_URL}
@@ -4524,7 +4524,7 @@ function PsFooter() {
         <div>
           <InkLogo light />
           <p className="mt-6 text-sm text-white/60 tracking-[-0.02em]">
-            Lifecycle automation, in code
+            The growth stack for teams that code
           </p>
           <p className="mt-2 text-sm text-white/40 tracking-[-0.02em]">
             © 2026 Hogsend. All rights reserved.
