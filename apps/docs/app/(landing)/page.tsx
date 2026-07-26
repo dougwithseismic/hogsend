@@ -571,7 +571,19 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 function PsProductDemo() {
   return (
     <section className="relative overflow-hidden tw-section">
-      <Container className="pt-20 text-center">
+      {/* The twilight atmosphere is the whole section's background — smoke
+          and halftone rise behind the headline and fade out toward the top,
+          so the band has no hard upper seam. The horizon glows stay anchored
+          to the bottom strip below. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,transparent_0%,rgba(0,0,0,0.5)_34%,black_68%)]"
+      >
+        <ThermalLayer strength={0.3} />
+        <HalftoneOverlay className="opacity-45" />
+      </div>
+
+      <Container className="relative pt-20 text-center">
         <Eyebrow>Try it live</Eyebrow>
         <h2
           className={cn(
@@ -592,9 +604,6 @@ function PsProductDemo() {
           Doug loves (halftone dots + a glow that reads warm against the
           purple ground), swapped in for the old hard-red planet. */}
       <div className="relative mt-12 h-[300px] md:h-[340px]">
-        {/* Thermal smoke bed under the horizon glow. */}
-        <ThermalLayer strength={0.3} />
-        <HalftoneOverlay className="opacity-45" />
         <div
           aria-hidden="true"
           className="absolute inset-0 mix-blend-screen"
