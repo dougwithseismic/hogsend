@@ -4660,15 +4660,15 @@ export default async function HomePage({
           relative wrapper bounds the pinning to the deck. */}
       <PsGetStarted engineVersion={engineVersion} />
       <StackDeck
-        labels={[
-          "Video",
-          "Feature flags",
-          "Groups",
-          "Email answers",
-          "Links",
-          "Discord",
-          "Impact",
-          "Event plugins",
+        cards={[
+          { label: "Video", anchor: "video" },
+          { label: "Feature flags", anchor: "flags" },
+          { label: "Groups", anchor: "groups" },
+          { label: "Email answers", anchor: "email-answers" },
+          { label: "Links", anchor: "links" },
+          { label: "Discord", anchor: "discord" },
+          { label: "Impact", anchor: "experiments" },
+          { label: "Event plugins", anchor: "sources" },
         ]}
       >
         <PsVideo />

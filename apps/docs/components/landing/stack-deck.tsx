@@ -17,14 +17,21 @@ import { cn } from "@/lib/cn";
  * bookkeeping is needed; the deck wrapper is `relative` to bound how long a
  * covered card stays pinned.
  */
+export type StackDeckCard = {
+  /** Label for the corner counter chip ("01 / 08 — Video"). */
+  label: string;
+  /** Section id the chip links to (rendered as `#anchor`). */
+  anchor?: string;
+};
+
 export function StackDeck({
   children,
-  labels,
+  cards,
   className,
 }: {
   children: ReactNode;
-  /** Optional per-card labels for the corner counter chip ("01 / 08 — Video"). */
-  labels?: string[];
+  /** Optional per-card chip config, index-matched to children. */
+  cards?: StackDeckCard[];
   className?: string;
 }) {
   const deckRef = useRef<HTMLDivElement>(null);
@@ -66,8 +73,14 @@ export function StackDeck({
               Math.max(0, (vh - next.getBoundingClientRect().top) / vh),
             )
           : 0;
-        inner.style.transform = `translateY(${(progress * -28).toFixed(1)}px) scale(${(1 - progress * 0.045).toFixed(4)})`;
-        veil.style.opacity = (progress * 0.6).toFixed(3);
+        // Clear the transform entirely at rest so untouched cards are not
+        // promoted to their own (huge) compositor layers — permanent layers
+        // this size cause ghost-frame glitches while scrolling fast.
+        inner.style.transform =
+          progress > 0
+            ? `translateY(${(progress * -28).toFixed(1)}px) scale(${(1 - progress * 0.045).toFixed(4)})`
+            : "";
+        veil.style.opacity = progress > 0 ? (progress * 0.6).toFixed(3) : "0";
       }
     };
 
@@ -107,7 +120,12 @@ export function StackDeck({
           // leave a gap below its bottom edge where the previous pinned card
           // shows through. Every card fills the viewport it covers; short
           // content centers vertically in the ink.
-          className="sticky flex min-h-screen flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-ink shadow-[0_-40px_80px_-24px_rgba(0,0,0,0.8)]"
+          // isolate: each card is its own stacking context so no z-indexed
+          // element inside a section can paint across card boundaries. The
+          // inline background doubles the bg-ink utility so the card stays
+          // opaque even if the token ever fails to resolve.
+          className="sticky isolate flex min-h-screen flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-ink shadow-[0_-40px_80px_-24px_rgba(0,0,0,0.8)]"
+          style={{ backgroundColor: "#050101" }}
         >
           {/* Leading-edge hairline glow — sells the card seam as it slides over. */}
           <div
@@ -117,17 +135,22 @@ export function StackDeck({
           <div
             data-stack-inner
             className="flex w-full grow flex-col justify-center"
-            style={{ transformOrigin: "50% 100%", willChange: "transform" }}
+            style={{ transformOrigin: "50% 100%" }}
           >
-            {labels?.[index] ? (
-              <div className="pointer-events-none absolute top-6 right-6 z-10 hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 font-mono text-[11px] text-white/40 uppercase tracking-[0.12em] md:flex">
+            {cards?.[index] ? (
+              <a
+                href={
+                  cards[index].anchor ? `#${cards[index].anchor}` : undefined
+                }
+                className="absolute top-6 right-6 z-10 hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 font-mono text-[11px] text-white/40 uppercase tracking-[0.12em] transition-colors hover:border-white/25 hover:text-white/80 md:flex"
+              >
                 <span className="text-white/60">
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <span>/ {total}</span>
                 <span aria-hidden="true">—</span>
-                <span>{labels[index]}</span>
-              </div>
+                <span>{cards[index].label}</span>
+              </a>
             ) : null}
             {child}
           </div>
