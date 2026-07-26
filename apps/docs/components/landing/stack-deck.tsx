@@ -103,7 +103,11 @@ export function StackDeck({
           // biome-ignore lint/suspicious/noArrayIndexKey: static section order, never reordered
           key={index}
           data-stack-card
-          className="sticky overflow-hidden rounded-t-3xl border-t border-white/10 bg-ink shadow-[0_-40px_80px_-24px_rgba(0,0,0,0.8)]"
+          // min-h-screen: a card shorter than the viewport would otherwise
+          // leave a gap below its bottom edge where the previous pinned card
+          // shows through. Every card fills the viewport it covers; short
+          // content centers vertically in the ink.
+          className="sticky flex min-h-screen flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-ink shadow-[0_-40px_80px_-24px_rgba(0,0,0,0.8)]"
         >
           {/* Leading-edge hairline glow — sells the card seam as it slides over. */}
           <div
@@ -112,6 +116,7 @@ export function StackDeck({
           />
           <div
             data-stack-inner
+            className="flex w-full grow flex-col justify-center"
             style={{ transformOrigin: "50% 100%", willChange: "transform" }}
           >
             {labels?.[index] ? (
