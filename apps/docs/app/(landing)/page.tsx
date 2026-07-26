@@ -2604,9 +2604,8 @@ function PsElephant() {
             <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
               Workflows is genuinely good. It lives in the PostHog UI your team
               already has open, consumes the events you already capture, and
-              needs nothing deployed. If you're a PostHog team — or about to
-              become one — it will cover a lot of your early automation, and you
-              should let it.
+              needs nothing deployed. And it isn't either/or — both run off the
+              same PostHog events. Hogsend amplifies everything PostHog does.
             </p>
           </div>
         </Reveal>
@@ -2666,9 +2665,9 @@ function PsElephant() {
           <p className="max-w-[640px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
             They scratch different itches. If you want a drag-and-drop editor,
             Workflows has you covered — you're here because you'd rather build
-            marketing in, as a developer or a product-first engineering team.
-            And it isn't either/or: both run off the same PostHog events, so use
-            each where it fits. Hogsend amplifies everything PostHog does.
+            marketing in, as a developer or a product-first engineering team. If
+            you're a PostHog team, or about to become one, use each where it
+            fits.
           </p>
           <Btn href="/docs/compare/posthog-workflows" variant="outline">
             Read the full comparison
@@ -4133,7 +4132,7 @@ function PsUseCases() {
           )}
         >
           <span className="text-white">
-            The messages every product should send
+            The journeys every product should run
           </span>{" "}
           <span className="text-white/40">— shipped by default.</span>
         </h2>
