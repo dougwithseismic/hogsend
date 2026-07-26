@@ -27,6 +27,7 @@ import {
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { ManifestoVideo } from "@/components/hogsend/manifesto-video";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
+import { StackCard } from "@/components/landing/stack-card";
 import { cn } from "@/lib/cn";
 import { getEngineVersion } from "@/lib/engine-version";
 import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
@@ -864,15 +865,16 @@ function PsProblem() {
 
 /* ------------------------------------------------------------ manifesto -- */
 
-/** The "why now" manifesto quote — a big centered display statement, two-tone
- * (white lede → faint body), mirroring the use-case ProblemStatement block. */
+/** The value band — a big centered display statement, two-tone (white lede →
+ * faint body), continuing the hero's claim: one inbound stream, responses in
+ * git, Studio to watch it all. */
 function PsManifesto() {
   return (
     <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
-          <Eyebrow className="mb-8">Why now</Eyebrow>
+          <Eyebrow className="mb-8">One stream, one repo</Eyebrow>
           <p
             className={cn(
               "mx-auto max-w-[920px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
@@ -880,12 +882,13 @@ function PsManifesto() {
             )}
           >
             <span className="text-white">
-              Go-to-market is an engineering discipline now, and “Marketing
-              Engineer” isn’t a dirty word. It’s the job.
+              All of your inbound becomes one event stream, and everything you
+              do with it lives in git.
             </span>{" "}
             <span className="text-white/40">
-              Hogsend is built upon a decade of product-led growth consulting,
-              handed to the scrappy teams who build it in code.
+              Journeys, flags, and segments are TypeScript — reviewed in PRs,
+              tested, versioned, and shipped like the rest of your product.
+              Studio shows every send, wait, and branch as it runs.
             </span>
           </p>
         </Reveal>
@@ -4652,16 +4655,36 @@ export default async function HomePage({
       <PsAgents />
       <PsUseCases />
       {/* Feature deep-dive stack — opened by the setup replay, then video
-          through timing, back to back. */}
+          through timing as a scroll-stacking deck: each card pins when its
+          bottom reaches the viewport and the next slides up over it. The
+          relative wrapper bounds the pinning to the deck. */}
       <PsGetStarted engineVersion={engineVersion} />
-      <PsVideo />
-      <PsFlags />
-      <PsGroups />
-      <PsEmailAnswers />
-      <PsLinks />
-      <PsDiscord />
-      <PsSources />
-      <PsImpact />
+      <div className="relative">
+        <StackCard>
+          <PsVideo />
+        </StackCard>
+        <StackCard>
+          <PsFlags />
+        </StackCard>
+        <StackCard>
+          <PsGroups />
+        </StackCard>
+        <StackCard>
+          <PsEmailAnswers />
+        </StackCard>
+        <StackCard>
+          <PsLinks />
+        </StackCard>
+        <StackCard>
+          <PsDiscord />
+        </StackCard>
+        <StackCard>
+          <PsSources />
+        </StackCard>
+        <StackCard>
+          <PsImpact />
+        </StackCard>
+      </div>
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />
