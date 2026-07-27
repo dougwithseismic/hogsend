@@ -882,7 +882,30 @@ function PsManifesto() {
   return (
     <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
-      <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
+      {/* Full-bleed thermal horizon under the system map's channel fan-out —
+          the closing-CTA treatment (crimzon glow + smoke + halftone riding
+          where it glows), edge to edge and BEHIND the content column. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[560px]"
+        style={{
+          maskImage:
+            "linear-gradient(180deg, transparent 0%, black 55%, black 100%)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, transparent 0%, black 55%, black 100%)",
+        }}
+      >
+        <div
+          className="absolute inset-0 mix-blend-screen"
+          style={{
+            background:
+              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.30) 0%, rgba(246,72,56,0.10) 45%, transparent 78%)",
+          }}
+        />
+        <ThermalLayer strength={0.22} />
+        <HalftoneOverlay className="opacity-40" />
+      </div>
+      <Container className="relative z-10 pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
           <Eyebrow className="mb-8">One stream, one repo</Eyebrow>
           <p
@@ -902,9 +925,7 @@ function PsManifesto() {
             </span>
           </p>
         </Reveal>
-        <Reveal delay={0.15}>
-          <SystemMap className="mt-16 md:mt-20" />
-        </Reveal>
+        <SystemMap className="mt-16 md:mt-20" />
       </Container>
     </section>
   );

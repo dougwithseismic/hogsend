@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { HalftoneOverlay, ThermalLayer } from "@/components/ds/thermal";
+import { ThermalHover } from "@/components/ds/thermal";
 import { cn } from "@/lib/cn";
 
 /* ==========================================================================
@@ -159,46 +159,62 @@ function NodeChip({
 
 /* --------------------------------------------------------- stream head -- */
 
+/** The crimzon-triangle window title mark from the hero/closing-CTA chrome. */
+function TitleMark() {
+  return (
+    <svg
+      width="9"
+      height="8"
+      viewBox="0 0 9 8"
+      aria-hidden="true"
+      className="shrink-0 text-[#f64838]"
+    >
+      <path d="M4.5 0L9 8H0z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function StreamCard() {
   return (
-    <div
-      data-map="stream"
-      className="relative mx-auto w-full max-w-[460px] rounded-xl border border-[#f6483833] bg-[#120607]/80 shadow-[0_0_60px_rgba(246,72,56,0.07)]"
-    >
-      <div className="flex items-center justify-between border-[var(--tw-border)] border-b px-4 py-3">
-        <span className="flex items-center gap-2">
-          <span className="ps-pulse size-1.5 rounded-full bg-[#f64838]" />
-          <span className="font-medium text-[13px] text-white tracking-[-0.02em]">
-            Hogsend engine — one event stream
-          </span>
-        </span>
-        <span className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-          in your repo
-        </span>
-      </div>
+    <ThermalHover rounded="rounded-xl" className="mx-auto w-full max-w-[460px]">
       <div
-        className="relative h-[118px] overflow-hidden px-4"
-        style={{
-          maskImage:
-            "linear-gradient(180deg, transparent 0%, black 22%, black 78%, transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(180deg, transparent 0%, black 22%, black 78%, transparent 100%)",
-        }}
+        data-map="stream"
+        className="relative overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg"
       >
-        <div className="ps-map-ticker py-2">
-          {[...STREAM_EVENTS, ...STREAM_EVENTS].map(([event, via], i) => (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: static doubled list
-              key={i}
-              className="flex items-center justify-between gap-3 py-[3px] font-mono text-[11px]"
-            >
-              <span className="truncate text-white/80">{event}</span>
-              <span className="shrink-0 text-white/35">via {via}</span>
-            </div>
-          ))}
+        <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+          <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+            <TitleMark />
+            hogsend engine — one event stream
+          </span>
+          <span className="flex items-center gap-2 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+            <span className="ps-pulse size-1.5 rounded-full bg-[#f64838]" />
+            in your repo
+          </span>
+        </div>
+        <div
+          className="relative h-[118px] overflow-hidden px-4"
+          style={{
+            maskImage:
+              "linear-gradient(180deg, transparent 0%, black 22%, black 78%, transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(180deg, transparent 0%, black 22%, black 78%, transparent 100%)",
+          }}
+        >
+          <div className="ps-map-ticker py-2">
+            {[...STREAM_EVENTS, ...STREAM_EVENTS].map(([event, via], i) => (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: static doubled list
+                key={i}
+                className="flex items-center justify-between gap-3 py-[3px] font-mono text-[11px]"
+              >
+                <span className="truncate text-white/80">{event}</span>
+                <span className="shrink-0 text-white/35">via {via}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+    </ThermalHover>
   );
 }
 
@@ -227,14 +243,17 @@ function PanelFrame({
       <p className="mb-3 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
         {eyebrow}
       </p>
-      <div className="rounded-xl border border-[var(--tw-border)] bg-white/[0.03]">
-        <div className="border-[var(--tw-border)] border-b px-4 py-2.5">
-          <span className="font-mono text-[11px] text-white/45 tracking-[-0.01em]">
-            {caption}
-          </span>
+      <ThermalHover rounded="rounded-xl">
+        <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
+          <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
+            <TitleMark />
+            <span className="font-mono text-[11px] text-white/40 tracking-[-0.01em]">
+              {caption}
+            </span>
+          </div>
+          <div className="px-4 py-4">{children}</div>
         </div>
-        <div className="px-4 py-4">{children}</div>
-      </div>
+      </ThermalHover>
     </div>
   );
 }
@@ -614,8 +633,6 @@ export function SystemMap({ className }: { className?: string }) {
 
       {/* ---------------------------------------------- engine panels -- */}
       <div className="relative">
-        {/* Thermal bed under the engine internals, dialed way down. */}
-        <ThermalLayer strength={0.1} />
         <div className="relative z-10 grid grid-cols-1 items-center gap-y-12 lg:grid-cols-2 lg:gap-x-40 lg:gap-y-16">
           <JourneysPanel />
           <div className="hidden lg:block" />
@@ -646,44 +663,23 @@ export function SystemMap({ className }: { className?: string }) {
       <MobileSpine />
       <div aria-hidden="true" className="hidden h-24 lg:block" />
 
-      {/* -------------------------------------------- channels, out -- */}
-      <div className="relative">
-        {/* The closing-CTA horizon treatment: crimzon glow + thermal smoke
-            + halftone dots riding where it glows. */}
-        <div
-          aria-hidden="true"
-          className="-inset-x-24 -bottom-24 pointer-events-none absolute top-[-140px] mix-blend-screen"
-          style={{
-            background:
-              "radial-gradient(70% 80% at 50% 100%, rgba(246,72,56,0.26) 0%, rgba(246,72,56,0.08) 45%, transparent 75%)",
-          }}
-        />
-        <div
-          className="-inset-x-24 -bottom-24 absolute top-[-140px]"
-          style={{
-            maskImage:
-              "radial-gradient(75% 85% at 50% 62%, black 35%, transparent 98%)",
-            WebkitMaskImage:
-              "radial-gradient(75% 85% at 50% 62%, black 35%, transparent 98%)",
-          }}
-        >
-          <ThermalLayer strength={0.22} />
-          <HalftoneOverlay className="opacity-40" />
-        </div>
-        <div className="relative z-10">
-          <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-            Reach them where they are
-          </p>
-          <div className="mx-auto flex max-w-[900px] flex-wrap justify-center gap-2.5">
-            {CHANNELS.map((node, i) => (
-              <NodeChip
-                key={node.label}
-                node={node}
-                side="channel"
-                flashDelay={CHANNEL_DELAYS[i] + FAN_TRAVEL - 0.2}
-              />
-            ))}
-          </div>
+      {/* ------------------------------------------------ channels, out --
+          The thermal-halftone horizon behind this zone is painted full-bleed
+          at the SECTION level (PsManifesto) so it reaches the viewport
+          edges — only content lives here. */}
+      <div className="relative z-10">
+        <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+          Reach them where they are
+        </p>
+        <div className="mx-auto flex max-w-[900px] flex-wrap justify-center gap-2.5">
+          {CHANNELS.map((node, i) => (
+            <NodeChip
+              key={node.label}
+              node={node}
+              side="channel"
+              flashDelay={CHANNEL_DELAYS[i] + FAN_TRAVEL - 0.2}
+            />
+          ))}
         </div>
       </div>
 
