@@ -145,3 +145,27 @@ All ACs pass, gates green, and a fixture PostHog person with three distinct_ids 
 to exactly one contact across two consecutive resolution calls with no phantom writes.
 
 ## Implementation Notes
+
+**Shipped 2026-07-27** across `ff7853fd`, `0ab883bf`, `b9be3e6d`, `efcc18f0`.
+
+- **T00.1 extended `crm_links`** (`provider: "posthog"`) rather than adding a table: it is
+  already provider-agnostic, FK-based, and re-pointed loser to survivor during a contact
+  merge, so mapping rows survive a merge for free. The `import_jobs` cursor column was
+  hoisted here so PRD 06 can ship before PRD 02. **PRD 02 must not add it again.**
+- **T00.2 keys on the person `uuid`, not `results[0].id`.** Verified against PostHog's docs:
+  the numeric `id` is a Postgres row PK that appears on no query-shaped surface, while the
+  uuid is generated deterministically (UUIDv5 over team + distinct_id) and is what HogQL
+  exposes as `person_id`. Keying on the PK would have missed on every cohort pull and
+  re-resolved every tick.
+- **`getPerson` returns a discriminated `found`/`absent`/`failed`.** Review caught it
+  collapsing a 429 into "no such person", which is the §2.6 conflation that produces mass
+  unenrollment downstream. `getPersonProperties` keeps its original signature and
+  soft-fail-to-`{}` contract, locked by regression tests.
+- **T00.4 fixed a bug it introduced.** Moving to the canonical coalesce key made anonymous
+  contacts visible but allowed an unordered `limit(1)` to return a soft-deleted merge loser,
+  since the dead row keeps its identity keys and the survivor inherits a copy. The predicate
+  is now the named, exported `liveContactByCanonicalKey`, so tests assert on the row set
+  rather than on heap order. The first attempt at this guard failed only 1 run in 3 under
+  mutation; it now fails 3 of 3.
+- Four tests were proven vacuous by mutation during review and rewritten, including one
+  named for the alias fallback that passed with the entire alias query replaced by `[]`.
