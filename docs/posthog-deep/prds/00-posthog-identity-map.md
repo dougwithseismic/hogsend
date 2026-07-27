@@ -1,6 +1,6 @@
 # PRD 00 — `posthog-identity-map`
 
-**Depends on:** nothing. **Status:** `[ ]`
+**Depends on:** nothing. **Status:** `[x]` SHIPPED 2026-07-27
 
 ## Goal
 
