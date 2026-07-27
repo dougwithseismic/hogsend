@@ -5,6 +5,7 @@ import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { requirePublishableOrIngest } from "../middleware/publishable-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
 import { adminRouter } from "./admin/index.js";
+import { bucketsRouter } from "./buckets/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
 import { registerConnectorRoutes } from "./connectors/index.js";
 import { contactsRouter } from "./contacts/index.js";
@@ -131,7 +132,13 @@ export function registerRoutes(
   // browser (pk_) key never touches `/v1/groups`; it associates groups ONLY by
   // attaching a `groups` map to an ingested event on the publishable
   // `/v1/events` route (association-only, no property write).
-  for (const base of ["/emails", "/campaigns", "/groups"]) {
+  //
+  // `/buckets` (manual bucket membership) inherits that boundary VERBATIM.
+  // Membership drives `bucket:entered:<id>` / `bucket:left:<id>` straight into
+  // journeys, so a browser key must never be able to enroll or eject anyone
+  // (PRD 01 AC 9). Reads are operator data too, so the whole prefix is
+  // secret-only — the browser has no bucket surface at all.
+  for (const base of ["/emails", "/campaigns", "/groups", "/buckets"]) {
     v1.use(base, requireApiKey, requireScope("ingest"));
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
@@ -156,6 +163,7 @@ export function registerRoutes(
   v1.route("/lists", listsRouter);
   v1.route("/campaigns", campaignsRouter);
   v1.route("/groups", groupsRouter);
+  v1.route("/buckets", bucketsRouter);
 
   app.route("/v1", v1);
 

@@ -1309,8 +1309,8 @@ describe("absence-join inference inputs (completeness #4 / STEP 4-5)", () => {
   });
 });
 
-describe('kind:"manual" guard (Phase 1 #7)', () => {
-  it("rejects a manual bucket at registration with the v1 message", () => {
+describe('kind:"manual" registration', () => {
+  it("registers a manual bucket, and keeps it out of POPULATED criteria indexes", () => {
     const manual = defineBucket({
       meta: {
         id: `${RUN}-manual-bucket`,
@@ -1320,13 +1320,28 @@ describe('kind:"manual" guard (Phase 1 #7)', () => {
       },
     });
     const registry = new BucketRegistry();
-    expect(() => registry.register(manual.meta)).toThrow(
-      /not implemented in v1/,
-    );
-    expect(registry.has(manual.meta.id)).toBe(false);
+    // Register the criteria-driven buckets FIRST so both inverted indexes are
+    // non-empty. Asserting emptiness against a registry holding only the manual
+    // bucket would pass no matter what register() did with it.
+    registry.register(propBucket.meta);
+    registry.register(eventBucket.meta);
+
+    expect(() => registry.register(manual.meta)).not.toThrow();
+    expect(registry.has(manual.meta.id)).toBe(true);
+    // Criteria-driven real-time evaluation must never pick it up: the indexes
+    // hold EXACTLY the criteria-driven buckets. Registration order is
+    // deterministic (insertion-ordered arrays), so the equality is stable.
+    // getByReferencedEvent concatenates the degenerate wildcard list, so a
+    // manual bucket leaking into the wildcard fails this assertion too.
+    expect(
+      registry.getByReferencedEvent(SIGNUP_EVENT).map((b) => b.id),
+    ).toEqual([EVENT_BUCKET_ID]);
+    expect(registry.getByReferencedProperty("plan").map((b) => b.id)).toEqual([
+      PROP_BUCKET_ID,
+    ]);
   });
 
-  it("rejects a manual bucket even when it declares criteria", () => {
+  it("rejects a manual bucket that declares criteria", () => {
     const manual = defineBucket({
       meta: {
         id: `${RUN}-manual-with-criteria`,
@@ -1338,11 +1353,12 @@ describe('kind:"manual" guard (Phase 1 #7)', () => {
     });
     const registry = new BucketRegistry();
     expect(() => registry.register(manual.meta)).toThrow(
-      /not implemented in v1/,
+      /must not declare `criteria`/,
     );
+    expect(registry.has(manual.meta.id)).toBe(false);
   });
 
-  it("rejects a manual bucket through buildBucketRegistry too", () => {
+  it("registers a manual bucket through buildBucketRegistry too", () => {
     const manual = defineBucket({
       meta: {
         id: `${RUN}-manual-build`,
@@ -1351,9 +1367,8 @@ describe('kind:"manual" guard (Phase 1 #7)', () => {
         kind: "manual",
       },
     });
-    expect(() => buildBucketRegistry([manual], "*")).toThrow(
-      /not implemented in v1/,
-    );
+    const registry = buildBucketRegistry([manual], "*");
+    expect(registry.has(manual.meta.id)).toBe(true);
   });
 
   it("dynamic buckets are unaffected by the manual guard", () => {
