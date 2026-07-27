@@ -336,7 +336,7 @@ function JourneysVisual() {
     },
   ];
   return (
-    <PanelCard caption="src/journeys/onboarding.ts — a durable run">
+    <PanelCard caption="a durable run — survives deploys">
       <div className="flex flex-col">
         {steps.map((s, i) => (
           <div
@@ -536,6 +536,14 @@ const ENGINE_STEPS = [
 /** How long each moment holds before the band advances itself (ms). */
 const STEP_DWELL = 6000;
 
+/** ENGINE_CODE grouped per moment, each file keeping its flat index into
+ *  the server-highlighted `code` panes (index-matched to ENGINE_CODE). */
+const FILES_BY_STEP = ENGINE_STEPS.map((s) =>
+  ENGINE_CODE.map((f, flat) => ({ ...f, flat })).filter(
+    (f) => f.step === s.key,
+  ),
+);
+
 /** The engine band — a STATION in the diagram, not a scroll stage.
  *
  *  All four moments stay readable at once as selector cards, so the whole
@@ -550,24 +558,32 @@ const STEP_DWELL = 6000;
  *  layers — the StackDeck law). */
 function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
   const [step, setStep] = useState(0);
+  const [file, setFile] = useState(0); // index within the step's files
   const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
     if (!active || pinned) return;
     // Never swap the open file on someone who asked motion to stop.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const id = window.setInterval(
-      () => setStep((s) => (s + 1) % ENGINE_STEPS.length),
-      STEP_DWELL,
-    );
+    const id = window.setInterval(() => {
+      setStep((s) => (s + 1) % ENGINE_STEPS.length);
+      setFile(0);
+    }, STEP_DWELL);
     return () => window.clearInterval(id);
   }, [active, pinned]);
 
   /** Clicking anything pins the band — the reader is driving now. */
   const pick = (i: number) => {
     setStep(i);
+    setFile(0);
     setPinned(true);
   };
+  const pickFile = (i: number) => {
+    setFile(i);
+    setPinned(true);
+  };
+
+  const stepFiles = FILES_BY_STEP[step] ?? [];
 
   return (
     <div className="relative z-30">
@@ -643,16 +659,17 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                   hogsend — your repo
                 </span>
               </div>
-              {/* File tabs — the four engine moments ARE files. */}
+              {/* File tabs — the ACTIVE moment's files. Each moment opens as
+                  a folder of real files, not one snippet. */}
               <div className="flex flex-wrap items-center gap-1.5 border-white/[0.07] border-b px-3 py-2.5">
-                {ENGINE_CODE.map((f, i) => (
+                {stepFiles.map((f, i) => (
                   <button
                     key={f.key}
                     type="button"
-                    onClick={() => pick(i)}
+                    onClick={() => pickFile(i)}
                     className={cn(
                       "shrink-0 cursor-pointer rounded-full border px-3 py-1 font-mono text-[10.5px] transition-colors duration-300",
-                      i === step
+                      i === file
                         ? "border-[#f64838]/40 bg-[#f64838]/[0.12] text-white"
                         : "border-white/[0.08] text-white/50 hover:border-white/20 hover:text-white/80",
                     )}
@@ -661,36 +678,52 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                   </button>
                 ))}
               </div>
-              {/* Editor body: code, with the live preview DOCKED beside it —
-                  floating it over the code covered the lines it illustrates. */}
-              <div className="relative h-[452px]">
-                {ENGINE_STEPS.map((s, i) => (
-                  <div
-                    key={s.key}
-                    className={cn(
-                      "absolute inset-0 flex transition-opacity duration-500",
-                      i === step
-                        ? "opacity-100"
-                        : "pointer-events-none opacity-0",
-                    )}
-                    aria-hidden={i !== step}
-                  >
-                    <div
-                      className="min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-4"
-                      style={{
-                        maskImage:
-                          "linear-gradient(180deg, black 84%, transparent 100%)",
-                        WebkitMaskImage:
-                          "linear-gradient(180deg, black 84%, transparent 100%)",
-                      }}
-                    >
-                      {code?.[i] ?? null}
-                    </div>
-                    <div className="flex w-[300px] shrink-0 items-center overflow-hidden border-white/[0.07] border-l bg-white/[0.015] p-3.5">
-                      {s.visual}
-                    </div>
-                  </div>
-                ))}
+              {/* Editor body: the open file's code — SCROLLABLE, nothing
+                  truncated — with the right rail talking through what's
+                  actually happening: the moment's live preview on top, the
+                  file's narration beneath it. */}
+              <div className="relative h-[496px]">
+                {ENGINE_STEPS.map((s, si) =>
+                  (FILES_BY_STEP[si] ?? []).map((f, fi) => {
+                    const isOpen = si === step && fi === file;
+                    return (
+                      <div
+                        key={f.key}
+                        className={cn(
+                          "absolute inset-0 flex transition-opacity duration-500",
+                          isOpen
+                            ? "opacity-100"
+                            : "pointer-events-none opacity-0",
+                        )}
+                        aria-hidden={!isOpen}
+                      >
+                        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [scrollbar-color:rgba(255,255,255,0.15)_transparent] [scrollbar-width:thin]">
+                          {code?.[f.flat] ?? null}
+                        </div>
+                        <div className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain border-white/[0.07] border-l bg-white/[0.015] p-3.5 [scrollbar-color:rgba(255,255,255,0.15)_transparent] [scrollbar-width:thin]">
+                          {s.visual}
+                          <div>
+                            <p className="mb-2.5 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+                              What's actually happening
+                            </p>
+                            <ol className="flex flex-col gap-2.5">
+                              {f.notes.map((note, ni) => (
+                                <li key={note} className="flex gap-2.5">
+                                  <span className="mt-[3px] inline-flex size-[15px] shrink-0 items-center justify-center rounded-full bg-white/[0.06] font-mono text-[9px] text-white/50">
+                                    {ni + 1}
+                                  </span>
+                                  <span className="text-[12px] text-white/60 leading-[18px] tracking-[-0.01em]">
+                                    {note}
+                                  </span>
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }),
+                )}
               </div>
             </div>
           </ThermalHover>
