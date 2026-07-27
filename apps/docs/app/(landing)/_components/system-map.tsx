@@ -604,7 +604,7 @@ const ENGINE_STEPS = [
     key: "measure",
     eyebrow: "Measure",
     title: "Know who just showed up",
-    body: "Every source lands in one stream. Apollo fills the contact where your own data has gaps, and buckets sort people into live lanes as they behave.",
+    body: "A signup lands and the picture fills in on its own: who they are, the company behind them, and which lane they're in — trial, active, gone quiet.",
     visual: <EnrichmentVisual />,
   },
   {
@@ -618,14 +618,14 @@ const ENGINE_STEPS = [
     key: "prove",
     eyebrow: "Prove",
     title: "Proof, not vibes",
-    body: "Split the message inside the journey, exit anyone who converts, and read every arm against a holdout that never got the message.",
+    body: "Answers the question other tools dodge: did the emails actually make money? Some people are held out, everyone else is read against them, and revenue is credited touch by touch.",
     visual: <ConversionsVisual />,
   },
   {
     key: "steer",
     eyebrow: "Steer",
     title: "Drive it from one screen",
-    body: "Broadcast to a live bucket, flip a flag that gates a branch, and watch every run, send, and deal in Studio — the live demo is one click below.",
+    body: "Studio is mission control: every journey run, every send, every deal in the pipeline. Send a broadcast, flip a flag, and see what each touch was worth.",
     visual: <DealsVisual />,
   },
 ];

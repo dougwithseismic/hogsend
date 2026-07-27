@@ -2,13 +2,15 @@
  *  The engine files behind the system map's IDE stage.
  *
  *  Every snippet is the real authoring API (defineJourney, ctx.digest,
- *  ctx.waitForEvent, refineContact, ctx.variant, holdout/goal,
- *  defineWebhookSource, defineBucket + typed transition refs) trimmed to
- *  fit one editor pane — the same shapes the dogfood app ships.
+ *  ctx.waitForEvent, refineContact, ctx.variant, holdout/goal, groups,
+ *  defineWebhookSource, defineBucket + typed transition refs, campaigns,
+ *  flags, MCP) trimmed to fit one editor pane — the same shapes the
+ *  dogfood app ships.
  *
- *  Files are grouped per engine moment via `step` (matches ENGINE_STEPS
- *  keys in system-map.tsx). `notes` is the right-rail narration — what is
- *  actually happening, line by line, every line a checkable fact.
+ *  Files are grouped per pillar via `step` (matches ENGINE_STEPS keys in
+ *  system-map.tsx). `notes` is the right-rail narration — documentation
+ *  voice: plain sentences a non-engineer can read, every one a checkable
+ *  fact.
  * ========================================================================== */
 
 export type EngineCodeFile = {
@@ -24,6 +26,142 @@ export type EngineCodeFile = {
 };
 
 export const ENGINE_CODE: EngineCodeFile[] = [
+  /* ------------------------------------------------------------- measure -- */
+  {
+    key: "high-fit",
+    step: "measure",
+    file: "journeys/high-fit-welcome.ts",
+    lang: "ts",
+    source: `import { refineContact } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const highFitWelcome = defineJourney({
+  meta: {
+    id: "high-fit-welcome",
+    trigger: { event: "user.signed_up" },
+  },
+  run: async (user, ctx) => {
+    // Apollo fills title, company, size — only where your
+    // own data has gaps. Cached, budget-capped, never throws.
+    const { status, properties } = await refineContact({
+      userId: user.id,
+      email: user.email,
+    });
+
+    const bigTeam = (properties?.company_employees ?? 0) >= 50;
+
+    await sendEmail({
+      to: user.email,
+      template: bigTeam ? "team-welcome" : "welcome",
+    });
+  },
+});`,
+    notes: [
+      "The moment someone signs up, enrichment looks them up: job title, company, company size.",
+      "It only fills the blanks — anything you already know about a person is never overwritten.",
+      "Lookups are cached and budget-capped, and a failed lookup never breaks the journey.",
+      "So the very first email can already tell a 50-person team apart from a solo founder.",
+    ],
+  },
+  {
+    key: "lead-form",
+    step: "measure",
+    file: "webhook-sources/lead-form.ts",
+    lang: "ts",
+    source: `import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+// Any form vendor's webhook becomes a source —
+// Heyflow, Webflow, Framer, or your own backend.
+export const leadForm = defineWebhookSource({
+  meta: { id: "lead-form", name: "Lead form" },
+  auth: {
+    header: "x-lead-form-secret",
+    envKey: "LEAD_FORM_WEBHOOK_SECRET",
+    type: "match",
+  },
+  schema: z
+    .object({
+      email: z.string().email(),
+      name: z.string().optional(),
+      value: z.number().finite().optional(),
+    })
+    .catchall(z.unknown()),
+  async transform(payload) {
+    return {
+      event: "lead.submitted",
+      userEmail: payload.email,
+      properties: payload,
+    };
+  },
+});`,
+    notes: [
+      "Any tool that can send a webhook — a form builder, your billing system, anything — becomes a source with one small file like this.",
+      "The payload is checked against a schema first, so junk never reaches your data.",
+      "The event it produces joins the same stream as everything else — and can start journeys on its own.",
+    ],
+  },
+  {
+    key: "accounts",
+    step: "measure",
+    file: "lib/accounts.ts",
+    lang: "ts",
+    source: `import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_API_URL!,
+  apiKey: process.env.HOGSEND_DATA_KEY!,
+});
+
+// The company behind the person — properties live
+// on the account, not just the contact.
+await hs.groups.identify({
+  groupType: "company",
+  groupKey: "acme.dev",
+  displayName: "Acme",
+  properties: { plan: "scale", seats: 14 },
+});
+
+await hs.groups.addMember({
+  groupType: "company",
+  groupKey: "acme.dev",
+  contactId: contact.id,
+  role: "admin",
+});`,
+    notes: [
+      "Groups track the company behind the person — things like plan and seat count live on the account itself.",
+      "Add people to the group and their activity rolls up to the account.",
+      "If PostHog is connected, all of it forwards as group analytics automatically. Without it, groups still work on their own.",
+    ],
+  },
+  {
+    key: "went-dormant",
+    step: "measure",
+    file: "buckets/went-dormant.ts",
+    lang: "ts",
+    source: `import { days, defineBucket } from "@hogsend/engine";
+
+// The segment behind the winback journey — going dormant
+// IS the trigger.
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        b.event("app.active").exists(),
+        b.event("app.active").within(days(7)).notExists(),
+      ),
+  },
+});`,
+    notes: [
+      "This file describes who counts as dormant: they were active once, and have been silent for a week.",
+      "Membership updates itself as events arrive — there's no nightly job and no stale list.",
+      "Falling in, or climbing back out, fires an event that other code can react to.",
+    ],
+  },
+
   /* --------------------------------------------------------------- react -- */
   {
     key: "onboarding",
@@ -56,10 +194,45 @@ export const onboarding = defineJourney({
   },
 });`,
     notes: [
-      "user.signed_up fires and the journey enrolls this user — once, ever. The entry limit is engine-enforced.",
-      "The welcome email renders from a React template that lives in this same repo.",
-      "ctx.waitForEvent parks the run for up to 3 days. The wait is durable — deploys, restarts, and crashes don't lose it.",
-      "The branch is plain TypeScript: nudge the stalled, congratulate the activated.",
+      "Someone signs up and this journey picks them up. It runs once per person — the engine makes sure of that.",
+      "The welcome email is a React component living in this same repo, right next to this file.",
+      "Then it waits up to three days for them to create a project. The wait is durable — deploys, restarts, and crashes don't lose their place.",
+      "One plain if/else decides the next email: a nudge if they stalled, a congratulations if they got there.",
+    ],
+  },
+  {
+    key: "welcome-template",
+    step: "react",
+    file: "emails/welcome.tsx",
+    lang: "tsx",
+    source: `import { Layout } from "./_components/layout";
+import { Body, Button, Title } from "./_components/ui";
+import type { WelcomeEmailProps } from "./types";
+
+export default function WelcomeEmail({
+  name = "there",
+  setupUrl,
+  unsubscribeUrl,
+}: WelcomeEmailProps) {
+  return (
+    <Layout
+      preview="You're in — here's the fastest path to a first win."
+      eyebrow="Welcome"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>Welcome, {name}</Title>
+      <Body>
+        Your workspace is ready. The fastest way to see value
+        is to send one event and watch a journey pick it up.
+      </Body>
+      <Button href={setupUrl}>Send your first event</Button>
+    </Layout>
+  );
+}`,
+    notes: [
+      "Emails are React components — you build them the same way you build the rest of your product.",
+      "Props are typed, so a journey passing the wrong data fails the build, not the send.",
+      "The same component previews in Studio and renders to HTML at send time.",
     ],
   },
   {
@@ -120,10 +293,10 @@ export const nps = defineJourney({
   },
 });`,
     notes: [
-      "The survey's score buttons are semantic links — a click fires a real nps.submitted event carrying the score. No form, no webhook glue.",
-      "ctx.waitForEvent reads the answer straight off the click and the journey branches on it.",
-      "No answer in 3 days → one reminder. The distinct idempotencyLabel keeps a worker replay from ever double-sending.",
-      "A 6-or-below triggers nps.detractor — a separate save journey enrolls from that event.",
+      "Two weeks in, the survey goes out. The 0–10 buttons are just links — clicking one fires a real event with the score attached.",
+      "The journey waits for that click and reads the score straight off it. No form to build, no webhook to wire.",
+      "No answer after three days? One reminder. The label on each send means a crashed worker can never send it twice.",
+      "A low score hands the person to a separate save journey — automatically.",
     ],
   },
   {
@@ -168,86 +341,40 @@ export const weeklyDigest = defineJourney({
   },
 });`,
     notes: [
-      "The first feature.used enrolls the user; every one that lands during the 7-day window is absorbed by ctx.digest instead of sending again.",
-      "A busy week becomes ONE email, not one per action.",
-      "After the week-long window the journey re-checks consent before sending — unsubscribes mid-window are honored.",
-      "The grouping is Object.groupBy — the digest collects the window, the batching logic is yours.",
+      "Someone uses a feature and the journey starts collecting. Everything they do for the next seven days folds into one email instead of seven.",
+      "Before sending, it re-checks they're still subscribed — a week is a long time.",
+      "The summary itself is plain TypeScript: group the week's events however you like.",
     ],
   },
-
-  /* ------------------------------------------------------------- measure -- */
   {
-    key: "high-fit",
-    step: "measure",
-    file: "journeys/high-fit-welcome.ts",
+    key: "bucket-winback",
+    step: "react",
+    file: "journeys/winback.ts",
     lang: "ts",
-    source: `import { refineContact } from "@hogsend/engine";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
+import { wentDormant } from "../buckets/went-dormant";
 
-export const highFitWelcome = defineJourney({
+// Bucket → journey composition: falling into the
+// bucket starts the sequence, leaving it ends it.
+export const winback = defineJourney({
   meta: {
-    id: "high-fit-welcome",
-    trigger: { event: "user.signed_up" },
+    id: "winback",
+    trigger: { event: wentDormant.entered },
+    // The moment they act again they leave the
+    // bucket — and this run exits cleanly.
+    exitOn: [{ event: wentDormant.left }],
   },
   run: async (user, ctx) => {
-    // Apollo fills title, company, size — only where your
-    // own data has gaps. Cached, budget-capped, never throws.
-    const { status, properties } = await refineContact({
-      userId: user.id,
-      email: user.email,
-    });
-
-    const bigTeam = (properties?.company_employees ?? 0) >= 50;
-
     await sendEmail({
       to: user.email,
-      template: bigTeam ? "team-welcome" : "welcome",
+      template: "reactivation-checkin",
     });
   },
 });`,
     notes: [
-      "refineContact asks Apollo for title, company, and size the moment the contact appears.",
-      "Fill-if-absent: it only writes fields your own data hasn't filled. Nothing you know gets overwritten.",
-      "Lookups are cached and budget-capped, and the call never throws mid-journey.",
-      "The very first email already branches on company size — a 50-person team gets the team pitch.",
-    ],
-  },
-  {
-    key: "lead-form",
-    step: "measure",
-    file: "webhook-sources/lead-form.ts",
-    lang: "ts",
-    source: `import { defineWebhookSource } from "@hogsend/engine";
-import { z } from "zod";
-
-// Any form vendor's webhook becomes a source —
-// Heyflow, Webflow, Framer, or your own backend.
-export const leadForm = defineWebhookSource({
-  meta: { id: "lead-form", name: "Lead form" },
-  auth: {
-    header: "x-lead-form-secret",
-    envKey: "LEAD_FORM_WEBHOOK_SECRET",
-    type: "match",
-  },
-  schema: z
-    .object({
-      email: z.string().email(),
-      name: z.string().optional(),
-      value: z.number().finite().optional(),
-    })
-    .catchall(z.unknown()),
-  async transform(payload) {
-    return {
-      event: "lead.submitted",
-      userEmail: payload.email,
-      properties: payload,
-    };
-  },
-});`,
-    notes: [
-      "Any service that can POST a webhook becomes a source: authenticated by a shared-secret header, validated with Zod, transformed in one function.",
-      "The returned event enters the same stream as everything else — it can enroll journeys directly.",
-      "The contact record upserts from the payload, so a lead form fills the CRM side too.",
+      "This journey starts the moment someone falls into the dormant lane — the bucket itself is the trigger, and a typo'd bucket name fails the build.",
+      "If they come back, they leave the bucket and the journey ends itself — even mid-wait.",
+      "No scheduler, no segment sync: the lane movement is the automation.",
     ],
   },
 
@@ -282,10 +409,10 @@ export const welcomeExperiment = defineJourney({
   },
 });`,
     notes: [
-      "ctx.variant deals each user a deterministic arm — a pure hash, no RNG, no clock.",
-      "The arm is recorded on first pass and replayed verbatim, so a redeploy never flips someone's experience mid-journey.",
-      "exitOn pulls anyone who converts out instantly, even mid-sequence.",
-      "Arms read against each other in the conversion readout — no external experiment tool.",
+      "Half of new signups get one version, half get the other — decided per person, no external A/B tool.",
+      "The split is stable: a redeploy or crash can never flip which version someone is in.",
+      "The moment someone subscribes, they leave the experiment — no more test emails mid-checkout.",
+      "The results read side by side in Studio, with revenue attached.",
     ],
   },
   {
@@ -325,70 +452,10 @@ export const winback = defineJourney({
   },
 });`,
     notes: [
-      "holdout: 15% of eligible users never get the message — the control group is built into the journey, not bolted on.",
-      "goal: \"revenue\" scopes credit to money. Lift is the arm's revenue against the holdout's, not opens or clicks.",
-      'Under 10 conversions the verdict stays "collecting" — small cohorts ship flagged, never as a fake percentage.',
-      "once_per_period caps re-entry: a user can only be worked once every 60 days.",
-    ],
-  },
-
-  /* --------------------------------------------------------------- steer -- */
-  {
-    key: "went-dormant",
-    step: "measure",
-    file: "buckets/went-dormant.ts",
-    lang: "ts",
-    source: `import { days, defineBucket } from "@hogsend/engine";
-
-// The segment behind the winback journey — going dormant
-// IS the trigger.
-export const wentDormant = defineBucket({
-  meta: {
-    id: "went-dormant",
-    enabled: true,
-    timeBased: true,
-    criteria: (b) =>
-      b.all(
-        b.event("app.active").exists(),
-        b.event("app.active").within(days(7)).notExists(),
-      ),
-  },
-});`,
-    notes: [
-      "Declarative criteria: was active at some point, silent for the last 7 days.",
-      "Membership recomputes as events arrive — no nightly sync job, no stale lists.",
-      "Entering and leaving each emit a typed transition event other code can react to.",
-    ],
-  },
-  {
-    key: "bucket-winback",
-    step: "react",
-    file: "journeys/winback.ts",
-    lang: "ts",
-    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
-import { wentDormant } from "../buckets/went-dormant";
-
-// Bucket → journey composition: falling into the
-// bucket starts the sequence, leaving it ends it.
-export const winback = defineJourney({
-  meta: {
-    id: "winback",
-    trigger: { event: wentDormant.entered },
-    // The moment they act again they leave the
-    // bucket — and this run exits cleanly.
-    exitOn: [{ event: wentDormant.left }],
-  },
-  run: async (user, ctx) => {
-    await sendEmail({
-      to: user.email,
-      template: "reactivation-checkin",
-    });
-  },
-});`,
-    notes: [
-      "wentDormant.entered is the bucket's typed transition ref — the journey triggers off the bucket itself, and a typo'd id is a compile error.",
-      "The user acts again → they leave the bucket → exitOn ends the sequence cleanly, even mid-wait.",
-      "No scheduler, no saved segment sync: the lane movement IS the automation.",
+      "15% of eligible people never get the emails. That's the control group — built in, one line.",
+      "The goal is revenue, so the comparison is money made, not emails opened.",
+      "Too few conversions to trust? Studio says “collecting” instead of showing you a fake percentage.",
+      "And nobody gets worked more than once every 60 days.",
     ],
   },
 
@@ -415,10 +482,10 @@ const { campaignId, status } = await hs.campaigns.send({
   sendAt: "2026-08-01T09:00:00Z",  // omit to send now
 });`,
     notes: [
-      "campaigns.send takes a list or a LIVE bucket — the audience is whoever is in the lane when it fires.",
-      "The template is typed against your registry — wrong props fail the build, not the send.",
-      "sendAt schedules the run in the worker; omit it to send now.",
-      "The sends land in the same stream, so opens, clicks, and revenue attribute like any journey touch.",
+      "A broadcast is a one-off send you drive by hand — to a list, or to a live bucket like “went dormant”.",
+      "The audience is whoever is in the lane at send time, not a stale export.",
+      "The template and its props are typed — a mistake fails the build, not the send.",
+      "Schedule it with a date, or leave it off to send now. Either way it lands in the same stream and earns revenue credit like everything else.",
     ],
   },
   {
@@ -438,9 +505,32 @@ export const newCheckout = defineFlag({
 // In React — the same shape as PostHog's hook:
 // const enabled = useFlag("new-checkout-flow");`,
     notes: [
-      "defineFlag puts the flag in your repo — typed, reviewed in PRs, deployed with your code.",
-      "useFlag reads it in React with the same shape as PostHog's hook.",
-      "One flag can gate an email, a page, or a whole journey branch.",
+      "Feature flags live in the repo, next to the journeys and pages they gate.",
+      "In React they read exactly like PostHog's hook — one line.",
+      "One flag can gate an email, a page, or a whole branch of a journey.",
+    ],
+  },
+  {
+    key: "mcp",
+    step: "steer",
+    file: ".mcp.json",
+    lang: "json",
+    source: `{
+  "mcpServers": {
+    "hogsend": {
+      "command": "npx",
+      "args": ["-y", "@hogsend/mcp"],
+      "env": {
+        "HOGSEND_API_URL": "https://api.your-instance.com",
+        "HOGSEND_ADMIN_KEY": "hsk_…"
+      }
+    }
+  }
+}`,
+    notes: [
+      "Point your coding agent at the engine and it can operate it: draft journey blueprints, pull reports, inspect what's running.",
+      "Risky actions stay operator-gated — an agent can prepare a test send, but a human approves it.",
+      "Works over stdio here, or hosted at /v1/mcp — Claude, Cursor, anything that speaks MCP.",
     ],
   },
 ];
