@@ -882,28 +882,37 @@ function PsManifesto() {
   return (
     <section className="relative tw-section overflow-hidden">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
-      {/* Full-bleed thermal horizon under the system map's channel fan-out —
-          the closing-CTA treatment (crimzon glow + smoke + halftone riding
-          where it glows), edge to edge and BEHIND the content column. */}
+      {/* Slow full-bleed aurora drifting behind the whole system map —
+          two blurred colour fields on transform-only loops. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[560px]"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="ps-aurora-a absolute top-[15%] left-[-10%] h-[55vw] w-[55vw] rounded-full" />
+        <div className="ps-aurora-b absolute right-[-12%] bottom-[8%] h-[48vw] w-[48vw] rounded-full" />
+      </div>
+      {/* Full-bleed thermal horizon under the system map's channel fan-out —
+          the closing-CTA treatment, dialed WAY down so the channel chips and
+          captions stay readable over it. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[520px]"
         style={{
           maskImage:
-            "linear-gradient(180deg, transparent 0%, black 55%, black 100%)",
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
           WebkitMaskImage:
-            "linear-gradient(180deg, transparent 0%, black 55%, black 100%)",
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
         }}
       >
         <div
           className="absolute inset-0 mix-blend-screen"
           style={{
             background:
-              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.30) 0%, rgba(246,72,56,0.10) 45%, transparent 78%)",
+              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.22) 0%, rgba(246,72,56,0.07) 45%, transparent 78%)",
           }}
         />
-        <ThermalLayer strength={0.22} />
-        <HalftoneOverlay className="opacity-40" />
+        <ThermalLayer strength={0.12} />
+        <HalftoneOverlay className="opacity-[0.13]" size={9} />
       </div>
       <Container className="relative z-10 pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">

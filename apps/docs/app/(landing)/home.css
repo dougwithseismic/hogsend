@@ -497,3 +497,52 @@
     display: none;
   }
 }
+
+/* System-map aurora: two blurred colour fields drifting on transform-only
+   loops behind the whole band — the "shader" without a shader. */
+@keyframes ps-aurora-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12vw, -6vh, 0) scale(1.25);
+  }
+}
+@keyframes ps-aurora-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.15);
+  }
+  50% {
+    transform: translate3d(-10vw, -10vh, 0) scale(0.95);
+  }
+}
+.ps-aurora-a {
+  background: radial-gradient(
+    circle at center,
+    rgba(246, 72, 56, 0.14) 0%,
+    rgba(190, 100, 255, 0.06) 45%,
+    transparent 70%
+  );
+  filter: blur(60px);
+  mix-blend-mode: screen;
+  animation: ps-aurora-drift-a 46s ease-in-out infinite;
+}
+.ps-aurora-b {
+  background: radial-gradient(
+    circle at center,
+    rgba(150, 90, 255, 0.1) 0%,
+    rgba(246, 72, 56, 0.07) 50%,
+    transparent 72%
+  );
+  filter: blur(70px);
+  mix-blend-mode: screen;
+  animation: ps-aurora-drift-b 38s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-aurora-a,
+  .ps-aurora-b {
+    animation: none;
+  }
+}

@@ -16,64 +16,109 @@ import { cn } from "@/lib/cn";
  *  story that makes the claim literal.
  *
  *  Sources converge DOWN into one stream (the engine card's live ticker);
- *  the stream runs as a spine through four live panels — a durable journey
- *  run, Apollo enrichment filling a contact, a conversion readout, and the
- *  buckets board — then fans out to the channels Hogsend actually ships,
- *  over the thermal-halftone horizon the page closes on.
+ *  the stream then runs as a BUNDLE of strands — some behind the content,
+ *  some in front, for depth — through a sticky stage where the four engine
+ *  moments (journeys, enrichment, conversions, buckets) swap as you scroll,
+ *  each paired with a plain-language line. The bundle gathers at an outlet
+ *  and fans out to the channels Hogsend actually ships.
  *
- *  Pulse dots ride measured bezier paths on a shared 8s clock; a channel
- *  chip flashes when its dot arrives. Everything is CSS keyframes + SMIL
- *  animateMotion — no rAF loop. The overlay SVG is measured from the real
- *  node positions (ResizeObserver) so paths stay anchored at any width;
- *  below lg the overlay hides and dashed spines connect the stacked zones.
- *  Under prefers-reduced-motion everything renders in its settled state
- *  (see home.css, .ps-map rules).
+ *  Pulse dots ride measured bezier paths (SMIL animateMotion, no rAF except
+ *  the one throttled scroll handler driving the sticky stage). Node chips
+ *  carry hover/focus tooltips. Below lg everything stacks and the overlay
+ *  hides. Under prefers-reduced-motion motion settles (home.css .ps-map).
  * ========================================================================== */
 
-const CYCLE = 8; // seconds — one shared clock for dots, flashes, steps
+const CYCLE = 8; // seconds — one shared clock for emission dots + flashes
 
 type MapNode = {
   label: string;
   sub: string;
+  /** Plain-language tooltip shown on hover/focus. */
+  tip: string;
   mark?: string; // /images/logos/<file> silhouette
   icon?: ReactNode;
 };
 
 const SOURCES: MapNode[] = [
-  { label: "PostHog", sub: "product analytics", mark: "posthog.svg" },
+  {
+    label: "PostHog",
+    sub: "product analytics",
+    tip: "Events you already capture in PostHog enroll journeys directly — no export pipeline to build.",
+    mark: "posthog.svg",
+  },
   {
     label: "Your code",
     sub: "hogsend.capture()",
+    tip: "One SDK call from your backend or browser. Anything that happens in your product can start a journey.",
     icon: <Code2 className="size-4" strokeWidth={1.5} />,
   },
-  { label: "Segment", sub: "CDP forwarding", mark: "segment.svg" },
-  { label: "Stripe", sub: "billing webhooks", mark: "stripe.svg" },
-  { label: "Intercom & Fin", sub: "support events", mark: "intercom.svg" },
+  {
+    label: "Segment",
+    sub: "CDP forwarding",
+    tip: "Point a Segment destination at Hogsend and your existing tracking plan flows straight in.",
+    mark: "segment.svg",
+  },
+  {
+    label: "Stripe",
+    sub: "billing webhooks",
+    tip: "Trials, payments, and failed invoices arrive as events — dunning and upgrade journeys react on their own.",
+    mark: "stripe.svg",
+  },
+  {
+    label: "Intercom & Fin",
+    sub: "support events",
+    tip: "Support conversations become lifecycle signals — a rough week of tickets can pause the upsell.",
+    mark: "intercom.svg",
+  },
   {
     label: "Video player",
     sub: "watch-depth signals",
+    tip: "The Hogsend player reports how deep people actually watch — milestones fire once, scrubbing can't inflate them.",
     icon: <Play className="size-4" strokeWidth={1.5} />,
   },
   {
     label: "Webhook sources",
     sub: "any service, one transform",
+    tip: "Any service that can POST a webhook becomes a source with one transform function.",
     icon: <Webhook className="size-4" strokeWidth={1.5} />,
   },
 ];
 
 const CHANNELS: MapNode[] = [
-  { label: "Email", sub: "Resend or Postmark", mark: "resend.svg" },
-  { label: "SMS", sub: "Twilio", mark: "twilio.svg" },
+  {
+    label: "Email",
+    sub: "Resend or Postmark",
+    tip: "Sends go through your own provider account with first-party open and click tracking.",
+    mark: "resend.svg",
+  },
+  {
+    label: "SMS",
+    sub: "Twilio",
+    tip: "Text where email won't land — with STOP handling and consent built in.",
+    mark: "twilio.svg",
+  },
   {
     label: "In-app",
     sub: "feed & bell",
+    tip: "A notification feed and bell inside your product, driven by the same journeys.",
     icon: <Bell className="size-4" strokeWidth={1.5} />,
   },
-  { label: "Discord", sub: "DMs & channels", mark: "discord.svg" },
-  { label: "Telegram", sub: "bot messages", mark: "telegram.svg" },
+  {
+    label: "Discord",
+    sub: "DMs & channels",
+    tip: "DM a member or post to a channel as a journey step — great for communities and courses.",
+    mark: "discord.svg",
+  },
+  {
+    label: "Telegram",
+    sub: "bot messages",
+    tip: "Your bot messages users as a journey step, same code as every other channel.",
+    mark: "telegram.svg",
+  },
   {
     label: "Webhooks",
     sub: "your CRM & warehouse",
+    tip: "Every event and send can be forwarded, signed, to your CRM, warehouse, or anything with a URL.",
     icon: <Webhook className="size-4" strokeWidth={1.5} />,
   },
 ];
@@ -92,12 +137,15 @@ const STREAM_EVENTS: Array<[event: string, via: string]> = [
   ["sms.link_clicked", "tracking"],
 ];
 
-/* Per-source emission times and per-channel departure times on the shared
-   clock. Arrival flash = departure + travel. */
 const SOURCE_DELAYS = [0, 1.15, 2.3, 3.45, 4.6, 5.75, 6.9];
 const CHANNEL_DELAYS = [1.2, 2.5, 3.8, 5.1, 6.4, 7.7];
 const CONVERGE_TRAVEL = 1.8;
 const FAN_TRAVEL = 1.8;
+
+/** Strand bundle through the engine zone: mid-bulge offsets in px, split
+ *  between the back layer (behind content) and the front layer (over it). */
+const BACK_STRANDS = [-150, -55, 0, 70];
+const FRONT_STRANDS = [-100, 130];
 
 /** A brand SVG painted as a flat silhouette via CSS mask (inherits color). */
 function Mark({ file }: { file: string }) {
@@ -130,29 +178,41 @@ function NodeChip({
   flashDelay?: number;
 }) {
   return (
-    <div
-      data-map={side}
-      className={cn(
-        "flex items-center gap-2.5 rounded-lg border border-[var(--tw-border)] bg-[var(--tw-card)] px-3 py-2",
-        side === "channel" && "ps-map-arrive",
-      )}
-      style={
-        flashDelay !== undefined
-          ? { animationDelay: `${flashDelay}s` }
-          : undefined
-      }
-    >
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
-        {node.mark ? <Mark file={node.mark} /> : node.icon}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate font-medium text-[13px] text-white tracking-[-0.02em]">
-          {node.label}
+    <div className="group relative">
+      <div
+        data-map={side}
+        tabIndex={0}
+        className={cn(
+          "flex items-center gap-2.5 rounded-lg border border-[var(--tw-border)] bg-[var(--tw-card)] px-3 py-2 outline-none focus-visible:border-white/40",
+          side === "channel" && "ps-map-arrive",
+        )}
+        style={
+          flashDelay !== undefined
+            ? { animationDelay: `${flashDelay}s` }
+            : undefined
+        }
+      >
+        <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
+          {node.mark ? <Mark file={node.mark} /> : node.icon}
         </span>
-        <span className="block truncate text-[11px] text-white/45 tracking-[-0.01em]">
-          {node.sub}
+        <span className="min-w-0">
+          <span className="block truncate font-medium text-[13px] text-white tracking-[-0.02em]">
+            {node.label}
+          </span>
+          <span className="block truncate text-[11px] text-white/45 tracking-[-0.01em]">
+            {node.sub}
+          </span>
         </span>
-      </span>
+      </div>
+      {/* Tooltip — plain language, above the chip. */}
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-[240px] -translate-x-1/2 rounded-lg border border-white/15 bg-[#0a0606] px-3 py-2.5 text-left opacity-0 shadow-lg transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100"
+      >
+        <p className="text-[12px] text-white/75 leading-[18px] tracking-[-0.01em]">
+          {node.tip}
+        </p>
+      </div>
     </div>
   );
 }
@@ -220,46 +280,30 @@ function StreamCard() {
 
 /* -------------------------------------------------------- engine panels -- */
 
-function PanelFrame({
-  eyebrow,
+function PanelCard({
   caption,
-  side,
   children,
 }: {
-  eyebrow: string;
   caption: string;
-  side: "left" | "right";
   children: ReactNode;
 }) {
   return (
-    <div
-      data-map="panel"
-      data-side={side}
-      className={cn(
-        "w-full max-w-[430px]",
-        side === "left" ? "lg:justify-self-end" : "lg:justify-self-start",
-      )}
-    >
-      <p className="mb-3 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-        {eyebrow}
-      </p>
-      <ThermalHover rounded="rounded-xl">
-        <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
-          <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
-            <TitleMark />
-            <span className="font-mono text-[11px] text-white/40 tracking-[-0.01em]">
-              {caption}
-            </span>
-          </div>
-          <div className="px-4 py-4">{children}</div>
+    <ThermalHover rounded="rounded-xl">
+      <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
+        <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
+          <TitleMark />
+          <span className="font-mono text-[11px] text-white/40 tracking-[-0.01em]">
+            {caption}
+          </span>
         </div>
-      </ThermalHover>
-    </div>
+        <div className="px-4 py-4">{children}</div>
+      </div>
+    </ThermalHover>
   );
 }
 
 /** A durable journey run — the trace idiom, steps lighting in sequence. */
-function JourneysPanel() {
+function JourneysVisual() {
   const steps = [
     { kind: "trigger", label: "user.signup", note: "trigger" },
     { kind: "send", label: "welcome-quickstart", note: "sendEmail" },
@@ -275,11 +319,7 @@ function JourneysPanel() {
     },
   ];
   return (
-    <PanelFrame
-      eyebrow="Journeys"
-      caption="src/journeys/onboarding.ts — a durable run"
-      side="left"
-    >
+    <PanelCard caption="src/journeys/onboarding.ts — a durable run">
       <div className="flex flex-col">
         {steps.map((s, i) => (
           <div
@@ -311,23 +351,19 @@ function JourneysPanel() {
           </div>
         ))}
       </div>
-    </PanelFrame>
+    </PanelCard>
   );
 }
 
 /** Apollo enrichment — empty contact fields filling in, fill-if-absent. */
-function EnrichmentPanel() {
+function EnrichmentVisual() {
   const fields: Array<[label: string, value: string]> = [
     ["company", "Acme Inc"],
     ["role", "Head of Growth"],
     ["company size", "51–200"],
   ];
   return (
-    <PanelFrame
-      eyebrow="Enrichment"
-      caption="contact — jamie@acme.dev"
-      side="right"
-    >
+    <PanelCard caption="contact — jamie@acme.dev">
       <div className="flex flex-col gap-2.5">
         {fields.map(([label, value], i) => (
           <div
@@ -358,12 +394,12 @@ function EnrichmentPanel() {
       <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
         fill-if-absent — your own data always wins
       </p>
-    </PanelFrame>
+    </PanelCard>
   );
 }
 
 /** Conversion & attribution readout — arms vs holdout, credit scoped. */
-function ConversionsPanel() {
+function ConversionsVisual() {
   const rows: Array<[label: string, pct: number, tone: string]> = [
     ["subject-a", 4.1, "bg-white/35"],
     ["subject-b", 5.6, "bg-[#f64838]"],
@@ -371,11 +407,7 @@ function ConversionsPanel() {
   ];
   const max = 6;
   return (
-    <PanelFrame
-      eyebrow="Conversions"
-      caption="trial-conversion — 30d click window"
-      side="left"
-    >
+    <PanelCard caption="trial-conversion — 30d click window">
       <div className="flex flex-col gap-3">
         {rows.map(([label, pct, tone], i) => (
           <div key={label} className="font-mono text-[12px]">
@@ -398,23 +430,19 @@ function ConversionsPanel() {
       <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
         credit scoped to the journey · lift vs holdout +3.3pp
       </p>
-    </PanelFrame>
+    </PanelCard>
   );
 }
 
 /** The buckets board — lifecycle lanes, a contact moving between them. */
-function BucketsPanel() {
+function BucketsVisual() {
   const lanes: Array<{ name: string; cards: string[] }> = [
     { name: "trial", cards: ["sam@", "lee@"] },
     { name: "active", cards: ["kai@"] },
     { name: "dormant", cards: ["mia@"] },
   ];
   return (
-    <PanelFrame
-      eyebrow="Buckets"
-      caption="src/buckets/went-dormant.ts"
-      side="right"
-    >
+    <PanelCard caption="src/buckets/went-dormant.ts">
       <div className="grid grid-cols-3 gap-2">
         {lanes.map((lane, li) => (
           <div
@@ -451,7 +479,148 @@ function BucketsPanel() {
       <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
         entering dormant triggers the win-back journey
       </p>
-    </PanelFrame>
+    </PanelCard>
+  );
+}
+
+/* ---------------------------------------------------- sticky engine stage -- */
+
+const ENGINE_STEPS = [
+  {
+    key: "journeys",
+    eyebrow: "Journeys",
+    title: "Follow up like a person would",
+    body: "Someone signs up, goes quiet, or hits a limit — a journey picks them up, waits days if it has to, and carries on exactly where it left off through any deploy.",
+    visual: <JourneysVisual />,
+  },
+  {
+    key: "enrichment",
+    eyebrow: "Enrichment",
+    title: "Know who just showed up",
+    body: "Apollo fills in company, role, and size the moment a contact appears — but only where your own data has gaps. Nothing you know gets overwritten.",
+    visual: <EnrichmentVisual />,
+  },
+  {
+    key: "conversions",
+    eyebrow: "Conversions",
+    title: "Proof, not vibes",
+    body: "Every journey reports the conversions it actually caused, measured against a holdout that never got the message.",
+    visual: <ConversionsVisual />,
+  },
+  {
+    key: "buckets",
+    eyebrow: "Buckets",
+    title: "Lanes that move themselves",
+    body: "Contacts sort into lifecycle lanes as they behave. Falling into dormant is itself a trigger — the win-back journey starts on its own.",
+    visual: <BucketsVisual />,
+  },
+];
+
+/** Desktop: a sticky stage where the four engine moments crossfade as you
+ *  scroll. One rAF-throttled scroll handler picks the active step; the swap
+ *  itself is a CSS transition (no per-frame styling, no persistent layers —
+ *  the StackDeck law). */
+function StickyEngineStage() {
+  const zoneRef = useRef<HTMLDivElement>(null);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const zone = zoneRef.current;
+    if (!zone) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const rect = zone.getBoundingClientRect();
+      const span = rect.height - window.innerHeight;
+      if (span <= 0) return;
+      const progress = Math.min(1, Math.max(0, -rect.top / span));
+      setStep(
+        Math.min(
+          ENGINE_STEPS.length - 1,
+          Math.floor(progress * ENGINE_STEPS.length),
+        ),
+      );
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={zoneRef}
+      className="relative hidden lg:block"
+      style={{ height: `${ENGINE_STEPS.length * 85}vh` }}
+    >
+      <div className="sticky top-0 flex h-screen items-center">
+        <div className="grid w-full grid-cols-2 items-center gap-x-24">
+          {/* Copy column — the plain-language read on the active step. */}
+          <div className="relative z-10 justify-self-end">
+            <div className="relative w-full max-w-[400px]">
+              {ENGINE_STEPS.map((s, i) => (
+                <div
+                  key={s.key}
+                  className={cn(
+                    "col-start-1 row-start-1 transition-all duration-500",
+                    i === step
+                      ? "translate-y-0 opacity-100"
+                      : "pointer-events-none absolute inset-0 translate-y-3 opacity-0",
+                  )}
+                  aria-hidden={i !== step}
+                >
+                  <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+                    {s.eyebrow}
+                  </p>
+                  <h3 className="mt-3 font-medium text-[22px] text-white leading-[28px] tracking-[-0.02em]">
+                    {s.title}
+                  </h3>
+                  <p className="mt-3 text-[15px] text-white/60 leading-[23px] tracking-[-0.02em]">
+                    {s.body}
+                  </p>
+                </div>
+              ))}
+              {/* Step markers double as a progress read. */}
+              <div className="mt-8 flex items-center gap-2">
+                {ENGINE_STEPS.map((s, i) => (
+                  <span
+                    key={s.key}
+                    className={cn(
+                      "h-1 rounded-full transition-all duration-500",
+                      i === step ? "w-6 bg-[#f64838]" : "w-2.5 bg-white/15",
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* Visual column — the live panel for the active step. */}
+          <div className="relative z-10 w-full max-w-[440px]">
+            {ENGINE_STEPS.map((s, i) => (
+              <div
+                key={s.key}
+                className={cn(
+                  "transition-all duration-500",
+                  i === step
+                    ? "translate-y-0 opacity-100"
+                    : "pointer-events-none absolute inset-x-0 top-1/2 -translate-y-[calc(50%-12px)] opacity-0",
+                )}
+                aria-hidden={i !== step}
+              >
+                {s.visual}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -461,8 +630,8 @@ type Geometry = {
   w: number;
   h: number;
   converge: string[];
-  spine: string;
-  taps: string[];
+  back: string[];
+  front: string[];
   fan: string[];
 };
 
@@ -474,12 +643,17 @@ function vBezier(a: { x: number; y: number }, b: { x: number; y: number }) {
   )}, ${r(b.x)} ${r(b.y)}`;
 }
 
-function hBezier(a: { x: number; y: number }, b: { x: number; y: number }) {
-  const dx = b.x - a.x;
+/** Long strand from a to b bulging `mid` px sideways through the middle. */
+function strand(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  mid: number,
+) {
   const r = (n: number) => Math.round(n * 10) / 10;
-  return `M ${r(a.x)} ${r(a.y)} C ${r(a.x + dx * 0.5)} ${r(a.y)}, ${r(
-    b.x - dx * 0.5,
-  )} ${r(b.y)}, ${r(b.x)} ${r(b.y)}`;
+  const third = (b.y - a.y) / 3;
+  return `M ${r(a.x)} ${r(a.y)} C ${r(a.x + mid)} ${r(a.y + third)}, ${r(
+    b.x + mid,
+  )} ${r(b.y - third)}, ${r(b.x)} ${r(b.y)}`;
 }
 
 function useMapGeometry(ref: React.RefObject<HTMLDivElement | null>) {
@@ -490,7 +664,6 @@ function useMapGeometry(ref: React.RefObject<HTMLDivElement | null>) {
     if (!el) return;
 
     const measure = () => {
-      // The overlay only exists at lg and up; skip while stacked.
       if (window.innerWidth < 1024) {
         setGeom(null);
         return;
@@ -508,18 +681,15 @@ function useMapGeometry(ref: React.RefObject<HTMLDivElement | null>) {
       const sr = stream.getBoundingClientRect();
       const or = outlet.getBoundingClientRect();
       const inlet = rel(sr.left + sr.width / 2, sr.top);
-      const spineTop = rel(sr.left + sr.width / 2, sr.bottom);
-      const spineEnd = rel(or.left + or.width / 2, or.top + or.height / 2);
+      const bundleTop = rel(sr.left + sr.width / 2, sr.bottom);
+      const bundleEnd = rel(or.left + or.width / 2, or.top + or.height / 2);
 
       const sources = el.querySelectorAll('[data-map="source"]');
-      const panels = el.querySelectorAll('[data-map="panel"]');
       const channels = el.querySelectorAll('[data-map="channel"]');
 
       setGeom({
         w: box.width,
         h: box.height,
-        // Gather like a river: sources land on the inlet with a small
-        // horizontal spread instead of a single hard point.
         converge: [...sources].map((s, i) => {
           const r = s.getBoundingClientRect();
           return vBezier(rel(r.left + r.width / 2, r.bottom), {
@@ -527,18 +697,11 @@ function useMapGeometry(ref: React.RefObject<HTMLDivElement | null>) {
             y: inlet.y,
           });
         }),
-        spine: `M ${spineTop.x} ${spineTop.y} L ${spineEnd.x} ${spineEnd.y}`,
-        taps: [...panels].map((p) => {
-          const r = p.getBoundingClientRect();
-          const side = (p as HTMLElement).dataset.side;
-          const midY = r.top + r.height / 2 - box.top;
-          const edgeX =
-            side === "left" ? r.right - box.left : r.left - box.left;
-          return hBezier({ x: spineTop.x, y: midY }, { x: edgeX, y: midY });
-        }),
+        back: BACK_STRANDS.map((mid) => strand(bundleTop, bundleEnd, mid)),
+        front: FRONT_STRANDS.map((mid) => strand(bundleTop, bundleEnd, mid)),
         fan: [...channels].map((c) => {
           const r = c.getBoundingClientRect();
-          return vBezier(spineEnd, rel(r.left + r.width / 2, r.top));
+          return vBezier(bundleEnd, rel(r.left + r.width / 2, r.top));
         }),
       });
     };
@@ -578,6 +741,75 @@ function TravelDot({
   );
 }
 
+/** A dot that rides a strand continuously — no blink window needed. */
+function StrandDot({
+  path,
+  dur,
+  begin,
+  r = 2.5,
+}: {
+  path: string;
+  dur: number;
+  begin: number;
+  r?: number;
+}) {
+  return (
+    <g className="ps-map-dot-solid">
+      <circle r={r} fill="#f64838">
+        <animateMotion
+          dur={`${dur}s`}
+          begin={`${begin}s`}
+          repeatCount="indefinite"
+          calcMode="linear"
+          path={path}
+        />
+      </circle>
+    </g>
+  );
+}
+
+function OverlaySvg({
+  geom,
+  paths,
+  dots,
+  className,
+  strokeOpacity,
+}: {
+  geom: Geometry;
+  paths: string[];
+  dots: ReactNode;
+  className?: string;
+  strokeOpacity: number;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute inset-0 hidden lg:block",
+        className,
+      )}
+      width={geom.w}
+      height={geom.h}
+      viewBox={`0 0 ${geom.w} ${geom.h}`}
+      fill="none"
+    >
+      {paths.map((d, i) => (
+        <path
+          // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
+          key={i}
+          d={d}
+          pathLength={1}
+          className="ps-map-path"
+          stroke={`rgba(255,255,255,${strokeOpacity})`}
+          strokeWidth={1}
+          style={{ animationDelay: `${i * 0.05}s` }}
+        />
+      ))}
+      {dots}
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------- component -- */
 
 export function SystemMap({ className }: { className?: string }) {
@@ -608,6 +840,50 @@ export function SystemMap({ className }: { className?: string }) {
       ref={mapRef}
       className={cn("ps-map relative", active && "is-active", className)}
     >
+      {/* Depth layer BEHIND the content: converge, back strands, fan. */}
+      {geom ? (
+        <OverlaySvg
+          geom={geom}
+          className="z-0"
+          strokeOpacity={0.16}
+          paths={[...geom.converge, ...geom.back, ...geom.fan]}
+          dots={
+            active ? (
+              <g className="ps-map-dots">
+                {geom.converge.map((d, i) => (
+                  <TravelDot
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
+                    key={`c${i}`}
+                    path={d}
+                    begin={SOURCE_DELAYS[i] ?? 0}
+                    travel={CONVERGE_TRAVEL}
+                  />
+                ))}
+                {geom.back.map((d, i) => (
+                  <StrandDot
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
+                    key={`b${i}`}
+                    path={d}
+                    dur={5.5 + i * 0.9}
+                    begin={-i * 2.1}
+                    r={2}
+                  />
+                ))}
+                {geom.fan.map((d, i) => (
+                  <TravelDot
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
+                    key={`f${i}`}
+                    path={d}
+                    begin={CHANNEL_DELAYS[i] ?? 0}
+                    travel={FAN_TRAVEL}
+                  />
+                ))}
+              </g>
+            ) : null
+          }
+        />
+      ) : null}
+
       {/* ------------------------------------------------ sources, in -- */}
       <div className="relative z-10">
         <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
@@ -629,24 +905,29 @@ export function SystemMap({ className }: { className?: string }) {
       </div>
 
       <MobileSpine />
-      <div aria-hidden="true" className="hidden h-20 lg:block" />
 
-      {/* ---------------------------------------------- engine panels -- */}
-      <div className="relative">
-        <div className="relative z-10 grid grid-cols-1 items-center gap-y-12 lg:grid-cols-2 lg:gap-x-40 lg:gap-y-16">
-          <JourneysPanel />
-          <div className="hidden lg:block" />
-          <div className="hidden lg:block" />
-          <EnrichmentPanel />
-          <ConversionsPanel />
-          <div className="hidden lg:block" />
-          <div className="hidden lg:block" />
-          <BucketsPanel />
-        </div>
+      {/* ---------------------------------------------- engine moments -- */}
+      <StickyEngineStage />
+      {/* Mobile: the same four moments stacked with their copy. */}
+      <div className="flex flex-col gap-12 lg:hidden">
+        {ENGINE_STEPS.map((s) => (
+          <div key={s.key}>
+            <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+              {s.eyebrow}
+            </p>
+            <h3 className="mt-2 font-medium text-[19px] text-white leading-[25px] tracking-[-0.02em]">
+              {s.title}
+            </h3>
+            <p className="mt-2 mb-5 text-[14px] text-white/60 leading-[21px] tracking-[-0.02em]">
+              {s.body}
+            </p>
+            {s.visual}
+          </div>
+        ))}
       </div>
 
       <MobileSpine />
-      <div aria-hidden="true" className="hidden h-20 lg:block" />
+      <div aria-hidden="true" className="hidden h-16 lg:block" />
 
       {/* Also reading the stream — the rest of the engine, named. */}
       <p className="relative z-10 text-center font-mono text-[11px] text-white/40 tracking-[-0.01em]">
@@ -663,10 +944,7 @@ export function SystemMap({ className }: { className?: string }) {
       <MobileSpine />
       <div aria-hidden="true" className="hidden h-24 lg:block" />
 
-      {/* ------------------------------------------------ channels, out --
-          The thermal-halftone horizon behind this zone is painted full-bleed
-          at the SECTION level (PsManifesto) so it reaches the viewport
-          edges — only content lives here. */}
+      {/* ------------------------------------------------ channels, out -- */}
       <div className="relative z-10">
         <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
           Reach them where they are
@@ -683,67 +961,31 @@ export function SystemMap({ className }: { className?: string }) {
         </div>
       </div>
 
-      {/* -------------------------------------------- measured overlay -- */}
+      {/* Depth layer IN FRONT of the content: two faint strands passing
+          over the stage — kept quiet so copy stays readable. */}
       {geom ? (
-        <svg
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-[5] hidden lg:block"
-          width={geom.w}
-          height={geom.h}
-          viewBox={`0 0 ${geom.w} ${geom.h}`}
-          fill="none"
-        >
-          {[...geom.converge, geom.spine, ...geom.taps, ...geom.fan].map(
-            (d, i) => (
-              <path
-                // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
-                key={i}
-                d={d}
-                pathLength={1}
-                className="ps-map-path"
-                stroke="rgba(255,255,255,0.18)"
-                strokeWidth={1}
-                style={{ animationDelay: `${i * 0.05}s` }}
-              />
-            ),
-          )}
-          {active && (
-            <g className="ps-map-dots">
-              {geom.converge.map((d, i) => (
-                <TravelDot
-                  // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
-                  key={`c${i}`}
-                  path={d}
-                  begin={SOURCE_DELAYS[i] ?? 0}
-                  travel={CONVERGE_TRAVEL}
-                />
-              ))}
-              {/* The spine carries a steady pulse train — always moving. */}
-              {[0, 1, 2].map((i) => (
-                <g key={`s${i}`} className="ps-map-dot-solid">
-                  <circle r={2.5} fill="#f64838">
-                    <animateMotion
-                      dur="4s"
-                      begin={`${(-4 / 3) * i}s`}
-                      repeatCount="indefinite"
-                      calcMode="linear"
-                      path={geom.spine}
-                    />
-                  </circle>
-                </g>
-              ))}
-              {geom.fan.map((d, i) => (
-                <TravelDot
-                  // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
-                  key={`f${i}`}
-                  path={d}
-                  begin={CHANNEL_DELAYS[i] ?? 0}
-                  travel={FAN_TRAVEL}
-                />
-              ))}
-            </g>
-          )}
-        </svg>
+        <OverlaySvg
+          geom={geom}
+          className="z-20"
+          strokeOpacity={0.07}
+          paths={geom.front}
+          dots={
+            active ? (
+              <g className="ps-map-dots">
+                {geom.front.map((d, i) => (
+                  <StrandDot
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional geometry
+                    key={`fs${i}`}
+                    path={d}
+                    dur={7 + i * 1.3}
+                    begin={-i * 3.4}
+                    r={1.8}
+                  />
+                ))}
+              </g>
+            ) : null
+          }
+        />
       ) : null}
     </div>
   );
