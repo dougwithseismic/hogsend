@@ -20,6 +20,7 @@ import {
   computeExpiresAt,
   computeMaxDwellAt,
   countPriorMemberships,
+  minDwellDeadline,
 } from "./membership-epoch.js";
 import { getBucketRegistrySingleton } from "./registry-singleton.js";
 
@@ -421,12 +422,10 @@ async function handleLeave(opts: {
   // minDwell DEFERS (never silently drops) the leave (Section 6.3). We set a
   // pending-leave deadline on expiresAt = enteredAt + minDwell so the reconcile
   // cron / fastExpiry timer re-checks after the dwell window and emits the leave
-  // via the CAS path. We do NOT emit now.
-  if (withinMinDwell(active, bucket)) {
-    const deadline = new Date(
-      active.enteredAt.getTime() +
-        durationToMs(bucket.minDwell as NonNullable<BucketMeta["minDwell"]>),
-    );
+  // via the CAS path. We do NOT emit now. The window math is shared with the
+  // explicit membership-mutation seam (`minDwellDeadline`).
+  const deadline = minDwellDeadline(active, bucket);
+  if (deadline) {
     await db
       .update(bucketMemberships)
       .set({ expiresAt: deadline, lastEvaluatedAt: new Date() })
@@ -545,16 +544,6 @@ export async function shouldEmitJoin(opts: {
     default:
       return true;
   }
-}
-
-/** True while the active membership is still inside its minDwell window. */
-function withinMinDwell(
-  active: typeof bucketMemberships.$inferSelect,
-  bucket: BucketMeta,
-): boolean {
-  if (!bucket.minDwell) return false;
-  const elapsed = Date.now() - active.enteredAt.getTime();
-  return elapsed < durationToMs(bucket.minDwell);
 }
 
 /**
