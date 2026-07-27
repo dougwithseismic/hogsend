@@ -95,6 +95,25 @@ export function computeMaxDwellAt(bucket: BucketMeta): Date | null {
 }
 
 /**
+ * The `minDwell` deferred-leave deadline, or null when the leave may proceed
+ * NOW (no `minDwell` configured, or the window has already elapsed).
+ *
+ * `minDwell` DEFERS a leave, it never drops it: the caller writes this deadline
+ * onto `expiresAt` so the reconcile cron / fastExpiry timer re-checks after the
+ * dwell window and emits the leave then. Shared by the real-time leave
+ * (`check-membership.ts`) and the explicit membership-mutation seam
+ * (`membership.ts`) so the two writers can never disagree on the window.
+ */
+export function minDwellDeadline(
+  active: { enteredAt: Date },
+  bucket: BucketMeta,
+): Date | null {
+  if (!bucket.minDwell) return null;
+  const deadline = active.enteredAt.getTime() + durationToMs(bucket.minDwell);
+  return Date.now() < deadline ? new Date(deadline) : null;
+}
+
+/**
  * The shared windowed event-count operator comparison kernel (`gt/gte/lt/lte/eq`).
  * Returns the boolean of `count <operator> value`, or null for an unrecognized
  * operator so each caller keeps its own default (the leave/match wrappers below).

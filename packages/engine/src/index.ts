@@ -91,6 +91,20 @@ export {
   defineBucket,
 } from "./buckets/define-bucket.js";
 export {
+  addBucketMember,
+  type BucketMembershipDeps,
+  BucketMembershipError,
+  type BucketMembershipErrorCode,
+  type BucketMembershipResult,
+  type BucketMembershipVerdict,
+  PENDING_LEAVE_KEY,
+  type PendingBucketLeave,
+  readPendingLeave,
+  removeBucketMember,
+  type SeedBucketMembersResult,
+  seedBucketMembers,
+} from "./buckets/membership.js";
+export {
   buildBucketRegistry,
   collectBucketReactionJourneys,
   selectBucketReactionTasks,
