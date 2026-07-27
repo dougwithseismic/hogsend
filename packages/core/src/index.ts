@@ -57,6 +57,10 @@ export {
 } from "./leads.js";
 export * from "./providers/index.js";
 export {
+  createRateLimitedFetch,
+  type RateLimitedFetchOptions,
+} from "./rate-limited-fetch.js";
+export {
   BucketRegistry,
   collectEventNames,
   collectPropertyNames,
