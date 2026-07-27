@@ -573,7 +573,7 @@ function StickyEngineStage({ code }: { code?: ReactNode[] }) {
       <div className="sticky top-0 flex h-screen items-center">
         <div className="grid w-full grid-cols-[minmax(280px,340px)_1fr] items-center gap-x-14 xl:gap-x-20">
           {/* Copy column — the plain-language read on the active step. */}
-          <div className="relative z-10">
+          <div className="relative z-30">
             <div className="relative w-full">
               {ENGINE_STEPS.map((s, i) => (
                 <div
@@ -619,7 +619,7 @@ function StickyEngineStage({ code }: { code?: ReactNode[] }) {
 
           {/* The persistent IDE window: tab rail + code pane + floating
               live preview. Only the pane contents swap. */}
-          <div className="relative z-10 w-full max-w-[720px]">
+          <div className="relative z-30 w-full max-w-[720px]">
             <ThermalHover rounded="rounded-xl">
               <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
                 {/* Title bar — matches the hero agent-session window. */}
@@ -984,7 +984,9 @@ export function SystemMap({
       <div aria-hidden="true" className="hidden h-24 lg:block" />
 
       {/* ------------------------------------------------- the stream -- */}
-      <div className="relative z-10">
+      {/* z-30: the hero cards sit ABOVE even the front depth strands —
+          lines may cross the map, never the main windows. */}
+      <div className="relative z-30">
         <StreamCard />
       </div>
 
