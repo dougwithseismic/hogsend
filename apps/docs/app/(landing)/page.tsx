@@ -932,8 +932,7 @@ function PsManifesto() {
               Steer it all from Studio.
             </span>{" "}
             <span className="text-white/40">
-              One event stream in your repo — journeys, flags, and segments
-              reviewed in PRs and shipped like the rest of your product, watched
+              Review and ship marketing like the rest of your product, watched
               live as every send, wait, and branch runs.
             </span>
           </p>
