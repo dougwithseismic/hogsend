@@ -527,9 +527,9 @@ function StickyEngineStage() {
   useEffect(() => {
     const zone = zoneRef.current;
     if (!zone) return;
-    let raf = 0;
+    // No rAF throttle: the handler is one getBoundingClientRect and a
+    // setState that React already no-ops when the index is unchanged.
     const update = () => {
-      raf = 0;
       const rect = zone.getBoundingClientRect();
       const span = rect.height - window.innerHeight;
       if (span <= 0) return;
@@ -541,16 +541,12 @@ function StickyEngineStage() {
         ),
       );
     };
-    const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(update);
-    };
     update();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
     return () => {
-      if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
     };
   }, []);
 

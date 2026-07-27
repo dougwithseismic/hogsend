@@ -880,7 +880,10 @@ function PsProblem() {
  * git, Studio to watch it all. */
 function PsManifesto() {
   return (
-    <section className="relative tw-section overflow-hidden">
+    // overflow-CLIP, not hidden: an overflow-hidden ancestor becomes the
+    // scrollport for position:sticky and silently kills the map's pinned
+    // engine stage. clip clips the same without creating a scroll container.
+    <section className="relative tw-section overflow-clip">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       {/* Slow full-bleed aurora drifting behind the whole system map —
           two blurred colour fields on transform-only loops. */}
