@@ -1,6 +1,6 @@
 # PRD 01 — `manual-bucket-membership`
 
-**Depends on:** nothing. **Status:** `[ ]`
+**Depends on:** nothing. **Status:** `[x]` SHIPPED 2026-07-27
 
 ## Goal
 
@@ -164,3 +164,35 @@ register manual bucket → add member via the route → journey triggered by
 `bucket:entered:<id>` enrolls → remove member → `bucket:left:<id>` emitted.
 
 ## Implementation Notes
+
+**Shipped 2026-07-27** across `6fa594e5`, `00d166dd`, `cd2a9579`, `b3a5efd4`, `2946c853`.
+
+Three bugs review caught that a naive build would have shipped:
+
+- **A re-add did not disarm a pending deferred leave.** add, remove inside the minDwell
+  window (defers, arms `expiresAt`), re-add: the `already-active` branch returned without
+  clearing the deadline, so the cron later force-left a current member and emitted a
+  spurious `bucket:left`. Reproduced against the real DB. Mutating the disarm turns 2 tests
+  red.
+- **The criteria-independent reconcile passes joined contacts on `external_id`**, so an
+  anonymous-only member could be added successfully and then be invisible to maxDwell TTL
+  leaves, dwell reactions, and deferred-leave resolution. **Second instance of this bug class
+  on this branch** — the first was `check-membership.ts` in `efcc18f0`. Both now use the
+  exported `liveContactByCanonicalKey`. Mutating it back turns 6 tests red.
+- **`emit: false` was ignored on the defer branch**, which silently breaks the seed contract
+  that stops PRD 02 mass-emitting on first bind.
+
+The registry's `kind === "manual"` clause in the index skip was **deleted, not tested**: the
+schema makes manual-with-criteria unreachable, so `!criteria` alone already skips it and no
+assertion could ever fail on the clause. An unreachable branch is dead code, not
+defence-in-depth.
+
+**Known gap, carried to PRD 02.** The maxDwell TTL pass runs before the pending-leave pass
+and its selector does not exclude rows carrying a silent (`emit: false`) pending leave, so a
+bucket with BOTH `maxDwell` and `minDwell` can emit a `bucket:left` for a leave that was
+requested silently. Narrow (needs all three conditions) but it is an `emit: false` contract
+violation, and `emit: false` is what protects the seed path. Fix when PRD 02 wires seeding.
+
+**Also flagged, not fixed:** `check-membership.ts:155` carries the same now-redundant
+`kind !== "manual"` clause that was deleted from the registry. Do not "cover" it with a test
+that cannot fail.

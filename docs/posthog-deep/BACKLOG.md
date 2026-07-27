@@ -21,7 +21,7 @@ Small and standalone — whichever of 02/05/06 lands first pulls it forward.
 | # | PRD | Status | Depends on | Scope |
 |---|-----|--------|-----------|-------|
 | 00 | [posthog-identity-map](prds/00-posthog-identity-map.md) | `[x]` | — | Give a PostHog `person_id` a mapped-alias home so every downstream feature has a stable, idempotent PostHog↔Hogsend key |
-| 01 | [manual-bucket-membership](prds/01-manual-bucket-membership.md) | `[ ]` | — | Unlock `BucketMeta.kind: "manual"` end-to-end plus a guarded membership-write path. Standalone engine capability, no PostHog code |
+| 01 | [manual-bucket-membership](prds/01-manual-bucket-membership.md) | `[x]` | — | Unlock `BucketMeta.kind: "manual"` end-to-end plus a guarded membership-write path. Standalone engine capability, no PostHog code |
 | 02 | [posthog-cohort-sync](prds/02-posthog-cohort-sync.md) | `[ ]` | P0, 00, 01 (**T01.3 hard**) | Poll PostHog cohorts, diff on `person_id`, drive joins/leaves through PRD 01's `addBucketMember`/`removeBucketMember`. Seeds without emitting. Ships **with** PRD 03 |
 | 03 | [cohort-loop-guard](prds/03-cohort-loop-guard.md) | `[ ]` | 02 (T02.1, T02.2, T02.4) | Make the property-writeback feedback loop structurally impossible. Provenance registry, enforced at binding activation + every tick — **not at boot**. Ships in the same release as 02 |
 | 04 | [cohort-trigger-sugar](prds/04-cohort-trigger-sugar.md) | `[ ]` | 02 | `defineJourney({ trigger: { cohort: "..." } })` desugaring, fail-closed at boot |
