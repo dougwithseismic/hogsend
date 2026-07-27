@@ -617,15 +617,15 @@ const ENGINE_STEPS = [
   {
     key: "prove",
     eyebrow: "Prove",
-    title: "Proof, not vibes",
-    body: "Answers the question other tools dodge: did the emails actually make money? Some people are held out, everyone else is read against them, and revenue is credited touch by touch.",
+    title: "Measure the impact",
+    body: "Answers the questions that drive growth. Every journey, campaign, and event is tracked against revenue conversions with multi-touch attribution & holdouts.",
     visual: <ConversionsVisual />,
   },
   {
     key: "steer",
     eyebrow: "Steer",
-    title: "Drive it from one screen",
-    body: "Studio is mission control: every journey run, every send, every deal in the pipeline. Send a broadcast, flip a flag, and see what each touch was worth.",
+    title: "Drive from where you work",
+    body: "Use the CLI, MCP, and Studio to drive your growth strategy and implementation from any terminal, agent, or browser.",
     visual: <DealsVisual />,
   },
 ];
@@ -635,6 +635,7 @@ const ENGINE_STEPS = [
 const FILE_VISUALS: Record<string, ReactNode> = {
   "went-dormant": <BucketsVisual />,
   "bucket-winback": <BucketsVisual />,
+  funnel: <DealsVisual />,
 };
 
 /** How long each moment holds before the band advances itself (ms). */
@@ -1207,15 +1208,15 @@ export function SystemMap({
               {[
                 {
                   label: "Journeys",
-                  line: "runs parked on waits, branches taken — as it happens",
+                  line: "Visual flowcharts, live stats, experiments and conversions for every line of code.",
                 },
                 {
                   label: "Impact",
-                  line: "the +111.8% causal readout above is this demo's",
+                  line: "Understand how your automations and experiments are driving growth with a best-in-class attribution engine.",
                 },
                 {
                   label: "Deals",
-                  line: "the pipeline every touch feeds",
+                  line: "Design powerful pipelines and GTM functions powered by the same events you collect.",
                 },
               ].map((cell) => (
                 <div key={cell.label} className="px-4 py-3.5">

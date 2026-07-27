@@ -459,6 +459,39 @@ export const winback = defineJourney({
     ],
   },
 
+  {
+    key: "funnel",
+    step: "prove",
+    file: "funnels.ts",
+    lang: "ts",
+    source: `import { defineFunnel } from "@hogsend/engine";
+
+// The path to revenue, written as the events
+// you already send. No query builder.
+export const trialFunnel = defineFunnel({
+  id: "trial",
+  name: "Trial to paid",
+  stages: [
+    { id: "signed_up", on: "user.signed_up" },
+    { id: "activated", on: "project.created" },
+    { id: "trial_started", on: "trial.started" },
+    {
+      id: "subscribed",
+      on: "subscription.created",
+      milestone: "won",
+    },
+  ],
+  // Only ever closes a deal that was actually open.
+  lostOn: "trial.expired",
+});`,
+    notes: [
+      "The path to revenue, written as events you already send: sign up, activate, start a trial, subscribe.",
+      "Deals move stage when their event fires. Browser events can't forge a move — only trusted server sources count by default.",
+      "subscription.created is the money stage — that's what the revenue readouts count as won.",
+      "An expiring trial marks the deal lost, but only a deal that was actually open.",
+    ],
+  },
+
   /* --------------------------------------------------------------- steer -- */
   {
     key: "broadcast",
