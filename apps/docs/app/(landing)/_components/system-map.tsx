@@ -261,7 +261,7 @@ function StreamCard() {
         <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
           <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
             <TitleMark />
-            hogsend engine — one event stream
+            hogsend engine
           </span>
           <span className="flex items-center gap-2 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
             <span className="ps-pulse size-1.5 rounded-full bg-[#f64838]" />
@@ -761,7 +761,7 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                   <span className="size-2.5 rounded-full bg-white/[0.12]" />
                 </div>
                 <span className="font-mono text-[11px] text-white/40 tracking-wide">
-                  hogsend — your repo
+                  hogsend — pnpm dlx create-hogsend@latest my-app
                 </span>
               </div>
               {/* File tabs — the ACTIVE moment's files. Each moment opens as
