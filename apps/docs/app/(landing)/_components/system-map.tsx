@@ -1128,7 +1128,7 @@ export function SystemMap({
           {/* The whole card is the click — it opens the LIVE demo Studio,
               UTM-tagged so the arrival lands in our own attribution. */}
           <a
-            href="https://demo.hogsend.com/studio?utm_source=hogsend.com&utm_medium=landing&utm_campaign=how-it-works&utm_content=steer-station"
+            href="https://demo.hogsend.com/?utm_source=hogsend.com&utm_medium=landing&utm_campaign=how-it-works&utm_content=steer-station"
             target="_blank"
             rel="noopener"
             className="group/studio block overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl transition-colors duration-300 hover:border-white/25"
