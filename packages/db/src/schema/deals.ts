@@ -75,19 +75,31 @@ export const deals = pgTable(
 );
 
 /**
- * External-id alias map: which CRM record corresponds to which Hogsend
- * contact/deal. The canonical-key lesson from the research: own an internal
- * key, treat every external system's id as a mapped alias — identity survives
- * a CRM swap. Rows are minted on `pushLead` and on the first identity-bearing
+ * External-id alias map: which external record corresponds to which Hogsend
+ * contact. The canonical-key lesson from the research: own an internal key,
+ * treat every external system's id as a mapped alias — identity survives a CRM
+ * swap. CRM rows are minted on `pushLead` and on the first identity-bearing
  * inbound event.
+ *
+ * The table is keyed on `(provider, kind, external_id)` and every reader
+ * filters on all three, so non-CRM providers co-tenant safely — the PostHog
+ * person map lives here under {@link POSTHOG_PERSON_LINK} rather than in a
+ * table of its own. That reuse is what makes the mapping merge-safe for free:
+ * `contact_id` is an FK, and `mergeContacts` already re-points every
+ * `crm_links` row loser→survivor.
  */
 export const crmLinks = pgTable(
   "crm_links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     provider: text("provider").notNull(),
-    /** What the external id names: a CRM contact or a CRM deal. */
-    kind: text("kind", { enum: ["contact", "deal"] }).notNull(),
+    /**
+     * What the external id names: a CRM contact, a CRM deal, or an analytics
+     * `person` (PostHog's `person_id`). `person` is deliberately its own value
+     * rather than reusing `contact` — CRM lookups key on `contact`/`deal`, so a
+     * distinct value keeps analytics rows out of every CRM read.
+     */
+    kind: text("kind", { enum: ["contact", "deal", "person"] }).notNull(),
     externalId: text("external_id").notNull(),
     contactId: uuid("contact_id")
       .notNull()
@@ -105,6 +117,25 @@ export const crmLinks = pgTable(
     index("crm_links_contact_idx").on(table.contactId),
   ],
 );
+
+/**
+ * The `(provider, kind)` pair every PostHog person mapping is written under:
+ * `external_id` carries PostHog's `person_id`, `contact_id` the Hogsend
+ * contact it resolved to.
+ *
+ * A PostHog person is a MAPPED ALIAS, never an identity `Kind` — it does not
+ * touch the resolver's identity columns (`external_id`/`email`/`anonymous_id`/
+ * `discord_id`), so it cannot participate in the string-key value-fold class
+ * fixed in 0.36.1. A PostHog person has many distinct_ids under one
+ * `person_id`; `person_id` is the only stable key, so it is what gets mapped.
+ *
+ * Spread it into the insert/lookup so the pair is never hand-typed:
+ * `db.insert(crmLinks).values({ ...POSTHOG_PERSON_LINK, externalId, contactId })`.
+ */
+export const POSTHOG_PERSON_LINK = {
+  provider: "posthog",
+  kind: "person",
+} as const;
 
 /**
  * Reconciliation-poll cursors, one row per provider. `cursor` is
