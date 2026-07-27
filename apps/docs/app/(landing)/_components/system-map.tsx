@@ -658,7 +658,15 @@ export function SystemMap({ className }: { className?: string }) {
               "radial-gradient(70% 80% at 50% 100%, rgba(246,72,56,0.26) 0%, rgba(246,72,56,0.08) 45%, transparent 75%)",
           }}
         />
-        <div className="-inset-x-24 -bottom-24 absolute top-[-140px]">
+        <div
+          className="-inset-x-24 -bottom-24 absolute top-[-140px]"
+          style={{
+            maskImage:
+              "radial-gradient(75% 85% at 50% 62%, black 35%, transparent 98%)",
+            WebkitMaskImage:
+              "radial-gradient(75% 85% at 50% 62%, black 35%, transparent 98%)",
+          }}
+        >
           <ThermalLayer strength={0.22} />
           <HalftoneOverlay className="opacity-40" />
         </div>
