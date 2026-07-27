@@ -464,11 +464,31 @@
   animation: ps-map-ticker-scroll 16s linear infinite;
 }
 
+/* The engine band's own clock — how long the open moment holds. Duration is
+   set inline so the bar and the advance interval can't drift apart. */
+@keyframes ps-map-dwell-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+.ps-map-dwell {
+  width: 0%;
+  animation: ps-map-dwell-fill linear forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ps-map-path {
     animation: none;
     stroke-dasharray: none;
     stroke-dashoffset: 0;
+  }
+  /* No self-advance cue when motion is off — the moment reads as chosen. */
+  .ps-map .ps-map-dwell {
+    animation: none;
+    width: 100%;
   }
   .ps-map.is-active .ps-map-path,
   .ps-map .ps-map-arrive,

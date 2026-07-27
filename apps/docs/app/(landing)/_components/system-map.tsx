@@ -13,20 +13,21 @@ import { cn } from "@/lib/cn";
 import { ENGINE_CODE } from "./system-map-code";
 
 /* ==========================================================================
- *  The system map for the "One stream, one repo" band — a vertical scroll
- *  story that makes the claim literal.
+ *  The system map for the "One stream, one repo" band — one continuous
+ *  diagram that makes the claim literal. It does NOT hijack the scroll:
+ *  the page scrolls normally and the diagram animates on its own clock.
  *
  *  Sources converge DOWN into one stream (the engine card's live ticker);
  *  the stream then runs as a BUNDLE of strands — some behind the content,
- *  some in front, for depth — through a sticky stage where the four engine
- *  moments (journeys, enrichment, conversions, buckets) swap as you scroll,
- *  each paired with a plain-language line. The bundle gathers at an outlet
+ *  some in front, for depth — through the engine band, where the four
+ *  moments (journeys, enrichment, conversions, buckets) all read at once and
+ *  the open one shows its real file. The bundle gathers at an outlet
  *  and fans out to the channels Hogsend actually ships.
  *
  *  Pulse dots ride measured bezier paths (SMIL animateMotion, no rAF except
- *  the one throttled scroll handler driving the sticky stage). Node chips
- *  carry hover/focus tooltips. Below lg everything stacks and the overlay
- *  hides. Under prefers-reduced-motion motion settles (home.css .ps-map).
+ *  no scroll handlers at all). Node chips carry hover/focus tooltips. Below
+ *  lg everything stacks and the overlay hides. Under prefers-reduced-motion
+ *  motion settles and the band stops advancing (home.css .ps-map).
  * ========================================================================== */
 
 const CYCLE = 8; // seconds — one shared clock for emission dots + flashes
@@ -522,184 +523,174 @@ const ENGINE_STEPS = [
   },
 ];
 
-/** Desktop: a sticky stage where the four engine moments play inside ONE
- *  persistent IDE window — the chrome, tab rail, and preview slot never
- *  move, only the open file and its live preview swap. That persistence is
- *  what keeps the step change calm. One direct scroll listener picks the
- *  active step (a rect read + an index compare — React no-ops unchanged
- *  setState); the swap itself is a CSS transition (no per-frame styling,
- *  no persistent layers — the StackDeck law). Tabs are clickable and jump
- *  the scroll to that step's slice of the zone. */
-function StickyEngineStage({ code }: { code?: ReactNode[] }) {
-  const zoneRef = useRef<HTMLDivElement>(null);
+/** How long each moment holds before the band advances itself (ms). */
+const STEP_DWELL = 6000;
+
+/** The engine band — a STATION in the diagram, not a scroll stage.
+ *
+ *  All four moments stay readable at once as selector cards, so the whole
+ *  engine reads at a glance; the IDE window below opens the active moment's
+ *  real file with its live preview docked alongside. It advances on its own
+ *  clock while the map is in view and pins to whatever you click, so nothing
+ *  here hijacks the scroll — the diagram is the diagram, and the page
+ *  scrolls the way every other page does.
+ *
+ *  Only the open file and its preview swap; the chrome never moves. The swap
+ *  is a CSS transition (no per-frame styling, no persistent compositor
+ *  layers — the StackDeck law). */
+function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
   const [step, setStep] = useState(0);
+  const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
-    const zone = zoneRef.current;
-    if (!zone) return;
-    const update = () => {
-      const rect = zone.getBoundingClientRect();
-      const span = rect.height - window.innerHeight;
-      if (span <= 0) return;
-      const progress = Math.min(1, Math.max(0, -rect.top / span));
-      setStep(
-        Math.min(
-          ENGINE_STEPS.length - 1,
-          Math.floor(progress * ENGINE_STEPS.length),
-        ),
-      );
-    };
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, []);
+    if (!active || pinned) return;
+    // Never swap the open file on someone who asked motion to stop.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const id = window.setInterval(
+      () => setStep((s) => (s + 1) % ENGINE_STEPS.length),
+      STEP_DWELL,
+    );
+    return () => window.clearInterval(id);
+  }, [active, pinned]);
 
-  const jumpTo = (i: number) => {
-    const zone = zoneRef.current;
-    if (!zone) return;
-    const top = zone.getBoundingClientRect().top + window.scrollY;
-    const span = zone.offsetHeight - window.innerHeight;
-    window.scrollTo({
-      top: top + (span * (i + 0.5)) / ENGINE_STEPS.length,
-      behavior: "smooth",
-    });
+  /** Clicking anything pins the band — the reader is driving now. */
+  const pick = (i: number) => {
+    setStep(i);
+    setPinned(true);
   };
 
   return (
-    <div
-      ref={zoneRef}
-      className="relative hidden lg:block"
-      style={{ height: `${ENGINE_STEPS.length * 120}vh` }}
-    >
-      <div className="sticky top-0 flex h-screen items-center">
-        <div className="grid w-full grid-cols-[minmax(280px,340px)_1fr] items-center gap-x-14 xl:gap-x-20">
-          {/* Copy column — the plain-language read on the active step. */}
-          <div className="relative z-30">
-            <div className="relative w-full">
-              {ENGINE_STEPS.map((s, i) => (
-                <div
-                  key={s.key}
+    <div className="relative z-30">
+      {/* The four moments, all legible at once. */}
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        {ENGINE_STEPS.map((s, i) => (
+          <button
+            key={s.key}
+            type="button"
+            aria-pressed={i === step}
+            onClick={() => pick(i)}
+            className={cn(
+              "relative overflow-hidden rounded-lg border px-4 py-3.5 text-left outline-none backdrop-blur-md transition-colors duration-300 focus-visible:border-white/40",
+              i === step
+                ? "border-[#f6483866] bg-[#150f16]/85"
+                : "border-[var(--tw-border)] bg-[#120e1b]/60 hover:border-white/20",
+            )}
+          >
+            <span
+              className={cn(
+                "flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors duration-300",
+                i === step ? "text-[#f64838]" : "text-white/40",
+              )}
+            >
+              {i === step ? <TitleMark /> : null}
+              {s.eyebrow}
+            </span>
+            <span className="mt-2 block font-medium text-[15px] text-white leading-[20px] tracking-[-0.02em]">
+              {s.title}
+            </span>
+            <span className="mt-1.5 block text-[12.5px] text-white/55 leading-[18px] tracking-[-0.01em]">
+              {s.body}
+            </span>
+            {/* Dwell bar — shows the band's own clock, gone once pinned. */}
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-0 bottom-0 h-px bg-white/[0.07]"
+            >
+              {i === step ? (
+                <span
+                  key={`${s.key}-${pinned}`}
                   className={cn(
-                    "transition-all duration-500",
-                    i === step
-                      ? "translate-y-0 opacity-100"
-                      : "pointer-events-none absolute inset-0 translate-y-3 opacity-0",
+                    "block h-full bg-[#f64838]",
+                    pinned ? "w-full" : "ps-map-dwell",
                   )}
-                  aria-hidden={i !== step}
-                >
-                  <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-                    {s.eyebrow}
-                  </p>
-                  <h3 className="mt-3 font-medium text-[24px] text-white leading-[30px] tracking-[-0.02em]">
-                    {s.title}
-                  </h3>
-                  <p className="mt-3 text-[15px] text-white/60 leading-[23px] tracking-[-0.02em]">
-                    {s.body}
-                  </p>
+                  style={
+                    pinned
+                      ? undefined
+                      : { animationDuration: `${STEP_DWELL}ms` }
+                  }
+                />
+              ) : null}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* The moment, open as a real file. */}
+      <div className="mt-4 flex justify-center">
+        <div className="relative w-full max-w-[1000px]">
+          <ThermalHover rounded="rounded-xl">
+            <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
+              {/* Title bar — matches the hero agent-session window. */}
+              <div className="flex items-center gap-3 border-white/10 border-b px-4 py-2.5">
+                <div aria-hidden="true" className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
                 </div>
-              ))}
-              {/* Step markers double as navigation. */}
-              <div className="mt-8 flex items-center gap-2">
-                {ENGINE_STEPS.map((s, i) => (
+                <span className="font-mono text-[11px] text-white/40 tracking-wide">
+                  hogsend — your repo
+                </span>
+              </div>
+              {/* File tabs — the four engine moments ARE files. */}
+              <div className="flex items-center gap-1 overflow-x-auto border-white/10 border-b px-2 pt-1.5">
+                {ENGINE_CODE.map((f, i) => (
                   <button
-                    key={s.key}
+                    key={f.key}
                     type="button"
-                    aria-label={`Go to ${s.eyebrow}`}
-                    onClick={() => jumpTo(i)}
+                    onClick={() => pick(i)}
                     className={cn(
-                      "h-1 rounded-full transition-all duration-500",
+                      "relative shrink-0 rounded-t-md px-3 py-2 font-mono text-[11px] transition-colors duration-300",
                       i === step
-                        ? "w-6 bg-[#f64838]"
-                        : "w-2.5 bg-white/15 hover:bg-white/30",
+                        ? "bg-white/[0.05] text-white"
+                        : "text-white/40 hover:text-white/70",
                     )}
-                  />
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {i === step && <TitleMark />}
+                      {f.file}
+                    </span>
+                    <span
+                      className={cn(
+                        "absolute inset-x-0 bottom-0 h-px transition-opacity duration-300",
+                        i === step ? "bg-[#f64838] opacity-100" : "opacity-0",
+                      )}
+                    />
+                  </button>
+                ))}
+              </div>
+              {/* Editor body: code, with the live preview DOCKED beside it —
+                  floating it over the code covered the lines it illustrates. */}
+              <div className="relative h-[540px] lg:h-[452px]">
+                {ENGINE_STEPS.map((s, i) => (
+                  <div
+                    key={s.key}
+                    className={cn(
+                      "absolute inset-0 flex flex-col transition-opacity duration-500 lg:flex-row",
+                      i === step
+                        ? "opacity-100"
+                        : "pointer-events-none opacity-0",
+                    )}
+                    aria-hidden={i !== step}
+                  >
+                    <div
+                      className="min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-3 text-[11.5px]"
+                      style={{
+                        maskImage:
+                          "linear-gradient(180deg, black 84%, transparent 100%)",
+                        WebkitMaskImage:
+                          "linear-gradient(180deg, black 84%, transparent 100%)",
+                      }}
+                    >
+                      {code?.[i] ?? null}
+                    </div>
+                    <div className="flex h-[212px] shrink-0 items-center overflow-hidden border-white/10 border-t bg-white/[0.015] p-3.5 lg:h-auto lg:w-[320px] lg:border-t-0 lg:border-l">
+                      {s.visual}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
-          </div>
-
-          {/* The persistent IDE window: tab rail + code pane + floating
-              live preview. Only the pane contents swap. */}
-          <div className="relative z-30 w-full max-w-[780px]">
-            <ThermalHover rounded="rounded-xl">
-              <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
-                {/* Title bar — matches the hero agent-session window. */}
-                <div className="flex items-center gap-3 border-white/10 border-b px-4 py-2.5">
-                  <div aria-hidden="true" className="flex items-center gap-1.5">
-                    <span className="size-2.5 rounded-full bg-white/15" />
-                    <span className="size-2.5 rounded-full bg-white/15" />
-                    <span className="size-2.5 rounded-full bg-white/15" />
-                  </div>
-                  <span className="font-mono text-[11px] text-white/40 tracking-wide">
-                    hogsend — your repo
-                  </span>
-                </div>
-                {/* File tabs — the four engine moments ARE files. */}
-                <div className="flex items-center gap-1 overflow-x-auto border-white/10 border-b px-2 pt-1.5">
-                  {ENGINE_CODE.map((f, i) => (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => jumpTo(i)}
-                      className={cn(
-                        "relative shrink-0 rounded-t-md px-3 py-2 font-mono text-[11px] transition-colors duration-300",
-                        i === step
-                          ? "bg-white/[0.05] text-white"
-                          : "text-white/40 hover:text-white/70",
-                      )}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        {i === step && <TitleMark />}
-                        {f.file}
-                      </span>
-                      <span
-                        className={cn(
-                          "absolute inset-x-0 bottom-0 h-px transition-opacity duration-300",
-                          i === step ? "bg-[#f64838] opacity-100" : "opacity-0",
-                        )}
-                      />
-                    </button>
-                  ))}
-                </div>
-                {/* Editor body: code pane on the left, the live preview
-                    DOCKED in a right rail — floating it over the code was
-                    covering the very lines it illustrates. */}
-                <div className="relative h-[470px]">
-                  {ENGINE_STEPS.map((s, i) => (
-                    <div
-                      key={s.key}
-                      className={cn(
-                        "absolute inset-0 flex transition-opacity duration-500",
-                        i === step
-                          ? "opacity-100"
-                          : "pointer-events-none opacity-0",
-                      )}
-                      aria-hidden={i !== step}
-                    >
-                      <div
-                        className="min-w-0 flex-1 overflow-hidden px-4 py-3 text-[12px]"
-                        style={{
-                          maskImage:
-                            "linear-gradient(180deg, black 84%, transparent 100%)",
-                          WebkitMaskImage:
-                            "linear-gradient(180deg, black 84%, transparent 100%)",
-                        }}
-                      >
-                        {code?.[i] ?? null}
-                      </div>
-                      <div className="flex w-[248px] shrink-0 items-center border-white/10 border-l bg-white/[0.015] p-3.5">
-                        {s.visual}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </ThermalHover>
-          </div>
+          </ThermalHover>
         </div>
       </div>
     </div>
@@ -999,37 +990,8 @@ export function SystemMap({
       <MobileSpine />
 
       {/* ---------------------------------------------- engine moments -- */}
-      <StickyEngineStage code={code} />
-      {/* Mobile: the same four moments stacked — copy, code, live visual. */}
-      <div className="flex flex-col gap-14 lg:hidden">
-        {ENGINE_STEPS.map((s, i) => (
-          <div key={s.key}>
-            <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-              {s.eyebrow}
-            </p>
-            <h3 className="mt-2 font-medium text-[19px] text-white leading-[25px] tracking-[-0.02em]">
-              {s.title}
-            </h3>
-            <p className="mt-2 mb-5 text-[14px] text-white/60 leading-[21px] tracking-[-0.02em]">
-              {s.body}
-            </p>
-            {code?.[i] ? (
-              <div className="mb-4 overflow-hidden rounded-xl border border-white/15 bg-[#0a0606]">
-                <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
-                  <TitleMark />
-                  <span className="font-mono text-[11px] text-white/40">
-                    {ENGINE_CODE[i]?.file}
-                  </span>
-                </div>
-                <div className="overflow-x-auto px-4 py-3 text-[12px]">
-                  {code[i]}
-                </div>
-              </div>
-            ) : null}
-            {s.visual}
-          </div>
-        ))}
-      </div>
+      <div aria-hidden="true" className="hidden h-16 lg:block" />
+      <EngineBand code={code} active={active} />
 
       <MobileSpine />
       <div aria-hidden="true" className="hidden h-16 lg:block" />
