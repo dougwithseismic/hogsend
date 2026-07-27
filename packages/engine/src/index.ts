@@ -631,6 +631,12 @@ export {
 } from "./lib/outbound.js";
 export { isE164, normalizePhone } from "./lib/phone.js";
 export { getPostHog } from "./lib/posthog.js";
+// --- PostHog person ↔ contact (find-only lookup + creating resolve) ---
+export {
+  lookupPostHogPerson,
+  type PostHogPersonRef,
+  resolvePostHogPerson,
+} from "./lib/posthog-person.js";
 // --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
 export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
 // --- Recipient preferences (shared aggregated read across email/feed/connectors) ---
