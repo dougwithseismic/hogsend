@@ -394,7 +394,12 @@ export {
   verifyConnectorState,
 } from "./lib/connector-state.js";
 // --- Contacts identity (resolve/create — used by connector member-link) ---
-export { resolveOrCreateContact } from "./lib/contacts.js";
+// `resolveContactNoCreate` is the refuse-on-miss sibling (D1): same resolution,
+// but pure observation never mints a `contacts` row.
+export {
+  resolveContactNoCreate,
+  resolveOrCreateContact,
+} from "./lib/contacts.js";
 // --- Conversion dispatch (plan §5.2): destinations registry + delivery ---
 export {
   ConversionDestinationRegistry,
@@ -564,6 +569,7 @@ export {
   type IngestEvent,
   type IngestResult,
   ingestEvent,
+  ingestTransformResult,
 } from "./lib/ingestion.js";
 // --- Reconciled journey-lift helper (impact experiments D4.1) — the ONE
 // implementation of the causal cohort math, shared by /lift (2a), /impact

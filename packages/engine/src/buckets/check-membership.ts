@@ -61,6 +61,18 @@ export async function checkBucketMembership(opts: {
    * contact degrades to the pin-less emit.
    */
   contactId?: string;
+  /**
+   * D1 creation guard, INHERITED from the originating ingest and forwarded into
+   * every `emitBucketTransition` (and from there into both of its re-ingests).
+   * `ingestEvent` passes `false` exactly when its own resolve REFUSED, i.e.
+   * when there is no `contactId` to pin with — because the alternative,
+   * degrading the pin to `contactId ?? undefined`, makes the transition
+   * re-ingest treat the anon canonical key as an EXTERNAL key and mint an
+   * `external_id = <anonId>` phantom twin (issue #608 from the other side).
+   * Bucket evaluation itself is UNAFFECTED: `bucket_memberships` is text-keyed
+   * with no contact FK, so a contactless subject is still a first-class member.
+   */
+  allowCreate?: boolean;
   event: string;
   /**
    * D2: the event payload — candidate-narrowing ONLY. It NO LONGER participates
@@ -90,6 +102,7 @@ export async function checkBucketMembership(opts: {
     logger,
     userId,
     contactId,
+    allowCreate,
     event,
     eventProperties,
     contactProperties: contactPropertiesPatch,
@@ -234,6 +247,7 @@ export async function checkBucketMembership(opts: {
         userId,
         userEmail,
         contactId,
+        allowCreate,
       });
       if (transition) transitions.push(transition);
     } else if (wasMember && isMember) {
@@ -253,6 +267,7 @@ export async function checkBucketMembership(opts: {
         userId,
         userEmail,
         contactId,
+        allowCreate,
       });
       if (transition) transitions.push(transition);
     }
@@ -272,6 +287,8 @@ async function handleJoin(opts: {
   userEmail: string | null;
   /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
   contactId?: string;
+  /** Inherited creation guard for the emit — see `checkBucketMembership`. */
+  allowCreate?: boolean;
 }): Promise<BucketTransition | null> {
   const {
     db,
@@ -282,6 +299,7 @@ async function handleJoin(opts: {
     userId,
     userEmail,
     contactId,
+    allowCreate,
   } = opts;
 
   // entryCount ordinal = 1 + count of ALL prior memberships (active + left) for
@@ -351,8 +369,10 @@ async function handleJoin(opts: {
       userEmail,
       // Pin the re-ingest to the already-resolved contact row so an
       // anonymous-only contact's transition folds in instead of minting a
-      // phantom twin (issue #608).
+      // phantom twin (issue #608). With no row to pin to, the originating
+      // ingest's refusal is inherited instead — never a degraded pin.
       contactId,
+      allowCreate,
       epoch,
       source: "event",
     });
@@ -378,6 +398,8 @@ async function handleLeave(opts: {
   userEmail: string | null;
   /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
   contactId?: string;
+  /** Inherited creation guard for the emit — see `checkBucketMembership`. */
+  allowCreate?: boolean;
 }): Promise<BucketTransition | null> {
   const {
     db,
@@ -389,6 +411,7 @@ async function handleLeave(opts: {
     userId,
     userEmail,
     contactId,
+    allowCreate,
   } = opts;
 
   // minDwell DEFERS (never silently drops) the leave (Section 6.3). We set a
@@ -453,9 +476,11 @@ async function handleLeave(opts: {
     bucket,
     userId,
     userEmail,
-    // Same provenance pin as the join emit — a leave re-ingests through the
-    // identical path and would mint the same phantom twin (issue #608).
+    // Same provenance pin (and same inherited refusal) as the join emit — a
+    // leave re-ingests through the identical path and would mint the same
+    // phantom twin (issue #608).
     contactId,
+    allowCreate,
     epoch: flipped.entryCount,
     source: "event",
     reason: "criteria",

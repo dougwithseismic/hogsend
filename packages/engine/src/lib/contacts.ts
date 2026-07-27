@@ -499,24 +499,13 @@ export function contactKeySql() {
 }
 
 /**
- * THE resolver (D1). Transactional. Resolves any combination of identity keys
- * (external_id / email / anonymous_id, in any subset — incl. anon-only or
- * email-only) to a single canonical `contacts` row, handling three cases:
- *
- *   - create        — no existing row owns any provided key.
- *   - fill-in-link  — exactly one row matches; missing keys are filled and a
- *                     `'promote'` alias is recorded for each newly-attached key.
- *   - collide-MERGE — 2-3 distinct rows match; a survivor is chosen (SURVIVOR
- *                     RULE) and the losers are re-pointed across all 5 tables,
- *                     folded, soft-deleted, and aliased (9-step order).
- *
- * INSERT RACE strategy: a `pg_advisory_xact_lock(hashtext(kind||value))` is taken
- * per provided key at the TOP of the tx (before any SELECT). Two concurrent
- * resolves for the same key serialize on the lock, so the second sees the first's
- * insert and links/merges instead of racing a duplicate row. The lock is held
- * until the tx commits/rolls back (xact-scoped) — no manual unlock.
+ * The identity keys + options EVERY resolve entry point accepts. Named (rather
+ * than inline) so {@link resolveOrCreateContact} and {@link
+ * resolveContactNoCreate} declare one option shape over one implementation
+ * ({@link resolveContactShared}) and can never drift apart. Purely an
+ * extraction — the exported parameter type is structurally unchanged.
  */
-export async function resolveOrCreateContact(opts: {
+interface ResolveContactOptions {
   db: Database;
   userId?: string;
   email?: string;
@@ -561,36 +550,65 @@ export async function resolveOrCreateContact(opts: {
   source?: string;
   /** Timestamp paired with {@link source}; defaults to now() at create time. */
   sourcedAt?: Date;
-}): Promise<{
-  id: string;
-  /**
-   * The contact's canonical text user_id key AFTER this resolve
-   * (`external_id ?? anonymous_id ?? id`), i.e. {@link contactKey} of the final
-   * row — for a merge, the SURVIVOR's key. Lets callers (ingestEvent) key the
-   * history tables without a second read-back of the contact row.
-   */
+}
+
+/**
+ * The shared implementation's result. Identical to
+ * {@link resolveOrCreateContact}'s (documented there) EXCEPT that `id` is
+ * nullable: the refusal arm returns `null`. The two exported entry points
+ * re-narrow it — `resolveOrCreateContact` back to `string`, so its published
+ * type never widens (D3).
+ */
+interface ResolveContactSharedResult {
+  id: string | null;
   resolvedKey: string;
   created: boolean;
   linked: boolean;
   merged: boolean;
-  /**
-   * SAFE-to-absorb loser keys (§5.3 MF-2): the anonymous/uuid keys the resolver
-   * folded INTO `resolvedKey` this call — populated only on a collide-MERGE or a
-   * canonical-key flip that absorbed an anon/uuid key. Callers fan these out via
-   * `mergeAnalyticsIdentities({ distinctId: resolvedKey, alias: <key> })`. An
-   * `external_id` is NEVER listed here (it carried an identified PostHog person;
-   * aliasing it is the merge PostHog refuses — R2/R4); it surfaces in
-   * {@link mergedIdentifiedKeys} instead. Empty/absent ⇒ nothing to stitch.
-   */
   mergedKeys?: string[];
-  /**
-   * Loser keys MF-2 could NOT safely absorb — already-identified `external_id`s
-   * (and the superseded `external_id` on a key flip). These are the known
-   * steady-state twin residual (§10, OQ-1); callers log them as
-   * `identity.merge.residual_twin` for observability. Never aliased.
-   */
   mergedIdentifiedKeys?: string[];
-}> {
+}
+
+/**
+ * THE resolver (D1). Transactional. Resolves any combination of identity keys
+ * (external_id / email / anonymous_id, in any subset — incl. anon-only or
+ * email-only) to a single canonical `contacts` row, handling three cases:
+ *
+ *   - create        — no existing row owns any provided key.
+ *   - fill-in-link  — exactly one row matches; missing keys are filled and a
+ *                     `'promote'` alias is recorded for each newly-attached key.
+ *   - collide-MERGE — 2-3 distinct rows match; a survivor is chosen (SURVIVOR
+ *                     RULE) and the losers are re-pointed across all 5 tables,
+ *                     folded, soft-deleted, and aliased (9-step order).
+ *
+ * …plus a fourth arm reachable ONLY through {@link resolveContactNoCreate}:
+ *
+ *   - refuse        — no existing row owns any provided key AND the caller
+ *                     passed `refuseCreateWithKey`. Returns `id: null` and mints
+ *                     nothing (D1: a contact is minted by identity, not by
+ *                     observation).
+ *
+ * INSERT RACE strategy: a `pg_advisory_xact_lock(hashtext(kind||value))` is taken
+ * per provided key at the TOP of the tx (before any SELECT). Two concurrent
+ * resolves for the same key serialize on the lock, so the second sees the first's
+ * insert and links/merges instead of racing a duplicate row. The lock is held
+ * until the tx commits/rolls back (xact-scoped) — no manual unlock.
+ */
+async function resolveContactShared(
+  opts: ResolveContactOptions & {
+    /**
+     * REFUSAL key (D1/D8). When set, the create arm does not insert — it returns
+     * `{ id: null, resolvedKey: <this key> }`. The caller
+     * ({@link resolveContactNoCreate}) is responsible for supplying the key the
+     * create arm WOULD have made canonical, which is why refusal is legal only
+     * when the highest-precedence supplied key is `userId` or `anonymousId`:
+     * `contactKey = external_id ?? anonymous_id ?? id`, so for any other shape
+     * the canonical key is a freshly-minted row uuid that refusal cannot
+     * reproduce. Absent ⇒ the historic create-on-miss behavior, unchanged.
+     */
+    refuseCreateWithKey?: string;
+  },
+): Promise<ResolveContactSharedResult> {
   const { db, contactProperties } = opts;
   const userId = opts.userId?.trim() || undefined;
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
@@ -660,6 +678,20 @@ export async function resolveOrCreateContact(opts: {
 
     // --- CASE: create (no existing row) ---
     if (candidates.length === 0) {
+      // --- ARM: refuse (D1) --- Observation is not identity: a caller that
+      // opted out of minting gets `id: null` and the key it supplied, and NO
+      // `contacts` row is written. The event still stores under this key
+      // (D2) — and a later identify ADOPTS that history through the create
+      // arm's repoint below, so nothing is orphaned by the refusal.
+      if (opts.refuseCreateWithKey !== undefined) {
+        return {
+          id: null,
+          resolvedKey: opts.refuseCreateWithKey,
+          created: false,
+          linked: false,
+          merged: false,
+        };
+      }
       const inserted = await tx
         .insert(contacts)
         .values({
@@ -677,12 +709,38 @@ export async function resolveOrCreateContact(opts: {
         .returning();
       const createdRow = inserted[0];
       if (!createdRow) throw new Error("Contact insert returned no row");
+
+      // HISTORY ADOPTION (D2). Once observation stops minting a row, a later
+      // identify no longer finds an anon contact to fill-in-link — it lands
+      // HERE, in the create arm, which historically had no repoint. Everything
+      // already keyed on the anon id (user_events, journey_states,
+      // bucket_memberships, email_sends, email_preferences — incl. an
+      // unsubscribe) would be silently orphaned under a key no contact owns.
+      //
+      // So: when the brand-new row's canonical key (`external_id ??
+      // anonymous_id ?? id`) is NOT the supplied `anonymousId`, the anon key was
+      // just superseded — re-point its history exactly as `fillInLink` does on a
+      // key flip. Only ever FROM `anonymousId`: an email/discord-shaped key is
+      // never canonical, so it never keyed history and must never be repointed.
+      const createdKey = contactKey(createdRow);
+      let mergedKeys: string[] | undefined;
+      if (anonymousId && anonymousId !== createdKey) {
+        await repointOwnHistory(tx, anonymousId, createdKey, createdRow);
+        // §5.3 emission point 2 (canonical-key flip): report the absorbed anon
+        // key so `ingestEvent` still fires `mergeAnalyticsIdentities({ reason:
+        // "key_flip" })` — otherwise the DB history is adopted but the PostHog
+        // anon→known stitch stays broken. Safe to alias by construction (an
+        // anonymous key never identified a person — MF-2).
+        mergedKeys = [anonymousId];
+      }
+
       return {
         id: createdRow.id,
-        resolvedKey: contactKey(createdRow),
+        resolvedKey: createdKey,
         created: true,
         linked: false,
         merged: false,
+        mergedKeys,
       };
     }
 
@@ -747,6 +805,114 @@ export async function resolveOrCreateContact(opts: {
       mergedIdentifiedKeys,
     };
   });
+}
+
+/**
+ * THE resolver (D1) — create-on-miss. A thin entry point over
+ * {@link resolveContactShared} (see there for the create / fill-in-link /
+ * collide-MERGE arms and the INSERT-race lock strategy). Behavior and published
+ * type are unchanged by the extraction: `id` is a plain `string`, never `null`,
+ * because this entry point never passes `refuseCreateWithKey` — the refusal arm
+ * is unreachable from here. That matters concretely (D3): three sites annotate
+ * on `Awaited<ReturnType<typeof resolveOrCreateContact>>`, one of them the
+ * published `IdentityService.linkContact`, so widening `id` here would ripple
+ * into the semver surface. Callers that want the refusal reach for
+ * {@link resolveContactNoCreate} instead.
+ */
+export async function resolveOrCreateContact(
+  opts: ResolveContactOptions,
+): Promise<{
+  id: string;
+  /**
+   * The contact's canonical text user_id key AFTER this resolve
+   * (`external_id ?? anonymous_id ?? id`), i.e. {@link contactKey} of the final
+   * row — for a merge, the SURVIVOR's key. Lets callers (ingestEvent) key the
+   * history tables without a second read-back of the contact row.
+   */
+  resolvedKey: string;
+  created: boolean;
+  linked: boolean;
+  merged: boolean;
+  /**
+   * SAFE-to-absorb loser keys (§5.3 MF-2): the anonymous/uuid keys the resolver
+   * folded INTO `resolvedKey` this call — populated only on a collide-MERGE or a
+   * canonical-key flip that absorbed an anon/uuid key. Callers fan these out via
+   * `mergeAnalyticsIdentities({ distinctId: resolvedKey, alias: <key> })`. An
+   * `external_id` is NEVER listed here (it carried an identified PostHog person;
+   * aliasing it is the merge PostHog refuses — R2/R4); it surfaces in
+   * {@link mergedIdentifiedKeys} instead. Empty/absent ⇒ nothing to stitch.
+   */
+  mergedKeys?: string[];
+  /**
+   * Loser keys MF-2 could NOT safely absorb — already-identified `external_id`s
+   * (and the superseded `external_id` on a key flip). These are the known
+   * steady-state twin residual (§10, OQ-1); callers log them as
+   * `identity.merge.residual_twin` for observability. Never aliased.
+   */
+  mergedIdentifiedKeys?: string[];
+}> {
+  const resolved = await resolveContactShared(opts);
+  if (resolved.id === null) {
+    // Unreachable: `refuseCreateWithKey` is never set on this path, so every
+    // arm either resolves a row or inserts one. Narrows `id` without a cast.
+    throw new Error("resolveOrCreateContact resolved to no contact");
+  }
+  return { ...resolved, id: resolved.id };
+}
+
+/**
+ * THE resolver's refuse-on-miss sibling (D1/D3). Same implementation, same
+ * fill-in-link and collide-MERGE behavior — the ONLY difference is that a miss
+ * returns `{ id: null }` instead of minting a `contacts` row. Use it wherever a
+ * write is pure OBSERVATION (an unidentified browser, a chat-gateway presence
+ * ping): seeing traffic is not grounds for a CRM row, and the event still
+ * stores under `resolvedKey` (D2), so journey routing, exit checks and
+ * analytics mirroring are untouched.
+ *
+ * PRECONDITION (D8) — THROWS unless the highest-precedence supplied key is
+ * `userId` or `anonymousId`. The canonical key is
+ * `contactKey = external_id ?? anonymous_id ?? id`, so `email` and `discord_id`
+ * are NEVER canonical: for an email-only / discord-only call today's code keys
+ * history on the freshly-minted row's uuid, which a refusal cannot reproduce and
+ * for which no repoint path back exists. Refusal there would strand history, so
+ * the shape is rejected as a misuse rather than silently mis-keyed.
+ *
+ * The refusal key is exactly what the create arm would have made canonical for
+ * the two permitted shapes (`userId ?? anonymousId`), so a refused call and a
+ * creating one agree on `resolvedKey` byte-for-byte.
+ */
+export async function resolveContactNoCreate(
+  opts: ResolveContactOptions,
+): Promise<{
+  /** `null` ⇒ REFUSED: no live contact owned any supplied key, and none was
+   * minted. Otherwise the resolved (linked/merged) contact's id. */
+  id: string | null;
+  /** As {@link resolveOrCreateContact}; on a refusal, the supplied key. */
+  resolvedKey: string;
+  /** Always false — this entry point never mints. */
+  created: false;
+  linked: boolean;
+  merged: boolean;
+  mergedKeys?: string[];
+  mergedIdentifiedKeys?: string[];
+}> {
+  // Mirror the shared body's normalization so the precondition reads the same
+  // keys resolution will (a whitespace-only `userId` is not a supplied key).
+  const userId = opts.userId?.trim() || undefined;
+  const anonymousId = opts.anonymousId?.trim() || undefined;
+  const refuseCreateWithKey = userId ?? anonymousId;
+  if (!refuseCreateWithKey) {
+    throw new Error(
+      "resolveContactNoCreate requires userId or anonymousId as the " +
+        "highest-precedence key (D8): email/discordId are never canonical, so " +
+        "a refusal there would key history on a row uuid that was never minted",
+    );
+  }
+
+  const resolved = await resolveContactShared({ ...opts, refuseCreateWithKey });
+  // Structurally always false (the create arm is refused above); pinned in the
+  // type so callers can't branch on a create this entry point cannot perform.
+  return { ...resolved, created: false };
 }
 
 interface ResolveCtx {

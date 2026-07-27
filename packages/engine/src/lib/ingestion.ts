@@ -29,6 +29,7 @@ import {
 import { recordAttributionCredits } from "./attribution.js";
 import {
   ContactProvenanceLostError,
+  resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./contacts.js";
 import {
@@ -112,6 +113,19 @@ export interface IngestEvent {
   source?: string;
 }
 
+/**
+ * The shape `ingestEvent` reads a resolve through, whichever entry point
+ * produced it: `resolveOrCreateContact`'s result widened at `id` ONLY, so
+ * `resolveContactNoCreate`'s refusal (`id: null`) is assignable while the
+ * published create-on-miss return type never widens (D3 — three sites annotate
+ * on `Awaited<ReturnType<typeof resolveOrCreateContact>>`, one of them the
+ * exported `IdentityService.linkContact`).
+ */
+type ResolvedIdentity = Omit<
+  Awaited<ReturnType<typeof resolveOrCreateContact>>,
+  "id"
+> & { id: string | null };
+
 export interface ExitResult {
   journeyId: string;
   stateId: string;
@@ -149,6 +163,14 @@ export async function ingestTransformResult(opts: {
   logger: Logger;
   source: string;
   analytics?: AnalyticsProvider;
+  /**
+   * D1 creation guard, forwarded VERBATIM to every element (see
+   * {@link ingestEvent}). A PER-CALL parameter that defaults to `true` — never
+   * a default flip: `routes/webhooks/sources.ts` shares this helper, and a
+   * webhook source is a server-side caller that legitimately mints contacts.
+   * Only a caller that knows its events are pure OBSERVATION passes `false`.
+   */
+  allowCreate?: boolean;
 }): Promise<{ ingested: number; exits: number }> {
   const { result, db, registry, hatchet, logger, source, analytics } = opts;
   if (!result) return { ingested: 0, exits: 0 };
@@ -176,6 +198,7 @@ export async function ingestTransformResult(opts: {
         logger,
         event: { ...event, source },
         analytics,
+        allowCreate: opts.allowCreate,
       });
       ingested++;
       exits += r.exits.length;
@@ -310,6 +333,25 @@ export async function ingestEvent(opts: {
    * their behavior is unchanged.
    */
   restrictToAnonymous?: boolean;
+  /**
+   * D1 CREATION GUARD. Defaults to `true` (create-on-miss — every existing
+   * caller is byte-for-byte unchanged). `false` resolves the identity WITHOUT
+   * minting a `contacts` row: seeing traffic from an unidentified browser is
+   * not grounds for a CRM row. Set by callers whose write is pure OBSERVATION.
+   *
+   * A refusal is NOT an error and loses NO observation (D2): the event still
+   * stores in `user_events` under the same canonical key, the Hatchet push and
+   * `checkExits` still run, and buckets are still evaluated. What a refused
+   * ingest skips is exactly the work that needs a `contacts` row: group
+   * association, and — because `conversions.contact_id` / `deals.contact_id` /
+   * `funnel_progress.contact_id` are `.notNull()` FKs with no degraded write
+   * available — conversions, attribution credits, and funnel progress (D9).
+   *
+   * PRECONDITION (D8, inherited from `resolveContactNoCreate`): THROWS unless
+   * the event's highest-precedence key is `userId` or `anonymousId`. An
+   * email-only / discordId-only event has no stable refusal key.
+   */
+  allowCreate?: boolean;
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event, analytics, eventMirror } = opts;
 
@@ -320,9 +362,9 @@ export async function ingestEvent(opts: {
   // `contacts.properties` (D2 split) and returns BOTH the canonical contact id
   // AND its resolved string key (external_id ?? anonymous_id ?? contact.id —
   // risk 1/6), so no second read-back of the contact row is needed.
-  let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>>;
+  let resolved: ResolvedIdentity;
   try {
-    resolved = await resolveOrCreateContact({
+    const resolveArgs = {
       db,
       userId: event.userId,
       email: event.userEmail || undefined,
@@ -338,7 +380,17 @@ export async function ingestEvent(opts: {
       // Contact Source ("clay"/"attio") or "api"/"posthog"/…; only stamped when
       // the contact is created (or first fill-in-linked) with no prior source.
       source: event.source,
-    });
+    };
+    // D1: BRANCH between the two sibling entry points rather than passing a flag
+    // down into one. Two reasons, both load-bearing. (a) `resolveOrCreateContact`
+    // must keep `id: string` in its published type (D3), so the refusal lives in
+    // a separate function — not an overload, which widens it. (b) A `boolean`
+    // VARIABLE cannot select an overload/conditional signature (TS2769), so the
+    // branch has to be here, at the one site that knows the literal.
+    resolved =
+      opts.allowCreate === false
+        ? await resolveContactNoCreate(resolveArgs)
+        : await resolveOrCreateContact(resolveArgs);
   } catch (err) {
     // Provenance pin pointed at a hard-deleted/unfollowable subject: drop the
     // internal re-emit (do NOT value-fall-back — that could mint the very twin
@@ -357,6 +409,10 @@ export async function ingestEvent(opts: {
     }
     throw err;
   }
+  // `contactId` is NULL exactly when the resolve REFUSED (allowCreate: false and
+  // no live row owned any supplied key). `resolvedKey` is always a real string —
+  // that is the whole point of D8 — so every history table below keys the same
+  // way it always did; only the eight contact-row consumers change shape.
   const {
     id: contactId,
     resolvedKey,
@@ -461,7 +517,10 @@ export async function ingestEvent(opts: {
         survivorKey: resolvedKey,
         loserKeys: mergedKeys,
         reason: merged ? "collide_merge" : "key_flip",
-        contactId,
+        // Sites 3/4: `contactId` is an OPTIONAL observability field on both, so
+        // a refusal degrades to `undefined`. Unreachable in practice — a merge
+        // or key flip means a row matched, which means nothing was refused.
+        contactId: contactId ?? undefined,
         logger,
       });
     }
@@ -469,7 +528,7 @@ export async function ingestEvent(opts: {
       logResidualTwins({
         survivorKey: resolvedKey,
         identifiedLoserKeys: mergedIdentifiedKeys,
-        contactId,
+        contactId: contactId ?? undefined,
         logger,
       });
     }
@@ -529,7 +588,15 @@ export async function ingestEvent(opts: {
   // path has NO idempotency key, so a thrown error + ingest retry would
   // DOUBLE-insert the event) — a group-write hiccup must never fail an
   // already-stored event.
-  if (event.groups && Object.keys(event.groups).length > 0) {
+  // Site 1: SKIPPED on a refusal. `group_memberships.contact_id` is a uuid FK to
+  // a row that does not exist, so there is no association to make — an anonymous
+  // browser event's `groups` map is association-only anyway, and the property
+  // writes it can never perform are secret-key-only.
+  if (
+    contactId !== null &&
+    event.groups &&
+    Object.keys(event.groups).length > 0
+  ) {
     try {
       await associateGroups({ db, contactId, groups: event.groups });
     } catch (err) {
@@ -570,7 +637,13 @@ export async function ingestEvent(opts: {
       // enrolling on this event can re-emit for the SAME subject by row id
       // (folds, never mints a twin). Additive/optional — consumers ignoring it
       // are unaffected.
-      contactId,
+      //
+      // Site 2 — the ONE consumer the compiler cannot catch, because the push
+      // payload is an untyped JSON envelope. On a refusal the key is OMITTED
+      // ENTIRELY: a JSON `null` down the journey wire is NOT the same as absent
+      // (`execute-journey-run` falls back to `contact?.id` only for a missing
+      // key), and it would ride into every durable input the run replays from.
+      ...(contactId !== null ? { contactId } : {}),
       // The event's group association map (groupType → groupKey), so a
       // group-scoped wait can match on membership straight off the wire.
       // Always present ({} when the event carries none) so downstream CEL
@@ -655,7 +728,16 @@ export async function ingestEvent(opts: {
 
   // (5c) Conversion-point evaluation (plan §5.1) — the unique
   // (definition, event) index makes any replay a no-op.
-  if (insertedRow && hookEvent) {
+  //
+  // Site 5 — SKIPPED WHOLE on a refusal (D9). `conversions.contact_id` is
+  // `.notNull().references(contacts.id)` and `packages/db` is out of boundary,
+  // so no degraded write exists; the conversion, its ad-platform dispatches
+  // (which key on `conversionEventId({ contactId, … })`) and its attribution
+  // credits all go together. Consequence, stated plainly: an anonymous event
+  // that fires a revenue conversion today stops firing under a refusal — which
+  // is why a browser event carrying `value` is treated as an identity assertion
+  // upstream and keeps creating (PRD 02 site 1).
+  if (insertedRow && hookEvent && contactId !== null) {
     try {
       const fired = await evaluateConversionsAtIngest({
         db,
@@ -724,7 +806,11 @@ export async function ingestEvent(opts: {
   // money events it mints (`deal.quoted`/`deal.sold`) recurse through
   // ingestEvent, bounded at define time: `deal.`/`funnel.`/`crm.` events
   // cannot be stage triggers.
-  if (insertedRow && hookEvent) {
+  //
+  // Sites 6 + 7 — SKIPPED on a refusal (D9), same reasoning as site 5:
+  // `deals.contact_id` (the mover's target) and `funnel_progress.contact_id`
+  // (the reporting projection's unique key) are both `.notNull()` FKs.
+  if (insertedRow && hookEvent && contactId !== null) {
     const funnelRegistry = getCrmSyncConfig()?.funnels;
     if (funnelRegistry) {
       try {
@@ -786,11 +872,25 @@ export async function ingestEvent(opts: {
       hatchet,
       logger,
       userId: resolvedKey,
-      // The resolved row id rides along as the ENGINE-INTERNAL provenance pin
-      // for the bucket transition re-ingests: `resolvedKey` may be the
-      // contact's `anonymous_id`, which a bare re-ingest would treat as an
-      // external key and mint a phantom twin for (issue #608).
-      contactId,
+      // Site 8 — the one consumer that must NOT skip. `bucket_memberships` is
+      // text-keyed on the canonical key with no contact FK, so an anon key stays
+      // fully eligible for event/count buckets and D2 holds: observation is
+      // never lost.
+      //
+      // What it must ALSO not do is degrade the pin to `contactId ?? undefined`.
+      // That compiles (the param is `contactId?: string`) and looks like the
+      // obvious null-guard, but it re-opens issue #608 from the other side:
+      // `emitBucketTransition` would re-ingest `bucket:entered:<id>` with
+      // `userId = <anon id>`, `findByKey` misses on `external_id`, and the CREATE
+      // arm mints a row with `external_id = <anonId>, email NULL` — a ghost
+      // strictly WORSE than the one being removed, because
+      // `collidesWithIdentified` then returns true for it and
+      // `resolveFeedRecipient` starts 403-ing the visitor out of their own bell.
+      //
+      // So the refusal is INHERITED instead: pass the pin when there is a row,
+      // and `allowCreate: false` when there is not, forwarded into BOTH of
+      // `emitBucketTransition`'s re-ingests.
+      ...(contactId !== null ? { contactId } : { allowCreate: false }),
       userEmail: event.userEmail || null,
       event: event.event,
       eventProperties: event.eventProperties,
