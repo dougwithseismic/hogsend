@@ -21,7 +21,7 @@ export const ENGINE_CODE: EngineCodeFile[] = [
     file: "onboarding.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
+import { defineJourney, sendEmail } from "@hogsend/engine";
 
 export const onboarding = defineJourney({
   meta: {
@@ -51,10 +51,13 @@ export const onboarding = defineJourney({
     file: "high-fit-welcome.ts",
     lang: "ts",
     source: `import { refineContact } from "@hogsend/engine";
-import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
+import { defineJourney, sendEmail } from "@hogsend/engine";
 
 export const highFitWelcome = defineJourney({
-  meta: { id: "high-fit-welcome", trigger: { event: "user.signed_up" } },
+  meta: {
+    id: "high-fit-welcome",
+    trigger: { event: "user.signed_up" },
+  },
   run: async (user, ctx) => {
     // Apollo fills title, company, size — only where your
     // own data has gaps. Cached, budget-capped, never throws.
@@ -76,7 +79,7 @@ export const highFitWelcome = defineJourney({
     key: "conversions",
     file: "welcome-experiment.ts",
     lang: "ts",
-    source: `import { defineJourney, sendEmail } from "@hogsend/engine/journeys";
+    source: `import { defineJourney, sendEmail } from "@hogsend/engine";
 
 // Subject-line A/B without an external experiment tool.
 export const welcomeExperiment = defineJourney({
@@ -89,7 +92,10 @@ export const welcomeExperiment = defineJourney({
   run: async (user, ctx) => {
     // Deterministic per user — recorded on first pass,
     // replayed verbatim across redeploys. No RNG, no drift.
-    const arm = await ctx.variant("subject", ["subject-a", "subject-b"]);
+    const arm = await ctx.variant("subject", [
+      "subject-a",
+      "subject-b",
+    ]);
 
     await sendEmail({
       to: user.email,

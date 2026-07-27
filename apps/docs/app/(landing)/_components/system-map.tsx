@@ -79,7 +79,7 @@ const SOURCES: MapNode[] = [
   },
   {
     label: "Webhook sources",
-    sub: "any service, one transform",
+    sub: "one transform",
     tip: "Any service that can POST a webhook becomes a source with one transform function.",
     icon: <Webhook className="size-4" strokeWidth={1.5} />,
   },
@@ -118,7 +118,7 @@ const CHANNELS: MapNode[] = [
   },
   {
     label: "Webhooks",
-    sub: "your CRM & warehouse",
+    sub: "CRM & warehouse",
     tip: "Every event and send can be forwarded, signed, to your CRM, warehouse, or anything with a URL.",
     icon: <Webhook className="size-4" strokeWidth={1.5} />,
   },
@@ -179,12 +179,17 @@ function NodeChip({
   flashDelay?: number;
 }) {
   return (
-    <div className="group relative">
-      <div
+    // lg:flex-1 — every node keeps ONE rail. Stacked (not side-by-side) so
+    // seven sources fit a single row: a second row would sit on top of the
+    // first row's converge lines and read as unconnected.
+    <div className="group relative lg:min-w-0 lg:flex-1">
+      {/* A button, not a div: the tooltip is the affordance, so the chip has
+          to be reachable by keyboard as well as hover. */}
+      <button
+        type="button"
         data-map={side}
-        tabIndex={0}
         className={cn(
-          "flex items-center gap-2.5 rounded-lg border border-[var(--tw-border)] bg-[#120e1b]/75 px-3 py-2 outline-none backdrop-blur-md focus-visible:border-white/40",
+          "flex w-full cursor-default flex-col gap-2 rounded-lg border border-[var(--tw-border)] bg-[#120e1b]/75 px-3 py-2.5 text-left outline-none backdrop-blur-md focus-visible:border-white/40",
           side === "channel" && "ps-map-arrive",
         )}
         style={
@@ -193,7 +198,7 @@ function NodeChip({
             : undefined
         }
       >
-        <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
+        <span className="inline-flex size-7 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
           {node.mark ? <Mark file={node.mark} /> : node.icon}
         </span>
         <span className="min-w-0">
@@ -204,7 +209,7 @@ function NodeChip({
             {node.sub}
           </span>
         </span>
-      </div>
+      </button>
       {/* Tooltip — plain language, above the chip. */}
       <div
         role="tooltip"
@@ -619,7 +624,7 @@ function StickyEngineStage({ code }: { code?: ReactNode[] }) {
 
           {/* The persistent IDE window: tab rail + code pane + floating
               live preview. Only the pane contents swap. */}
-          <div className="relative z-30 w-full max-w-[720px]">
+          <div className="relative z-30 w-full max-w-[780px]">
             <ThermalHover rounded="rounded-xl">
               <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
                 {/* Title bar — matches the hero agent-session window. */}
@@ -660,14 +665,15 @@ function StickyEngineStage({ code }: { code?: ReactNode[] }) {
                     </button>
                   ))}
                 </div>
-                {/* Editor body: code pane with the live preview floating
-                    bottom-right, scaffold-explorer style. */}
+                {/* Editor body: code pane on the left, the live preview
+                    DOCKED in a right rail — floating it over the code was
+                    covering the very lines it illustrates. */}
                 <div className="relative h-[470px]">
                   {ENGINE_STEPS.map((s, i) => (
                     <div
                       key={s.key}
                       className={cn(
-                        "absolute inset-0 transition-opacity duration-500",
+                        "absolute inset-0 flex transition-opacity duration-500",
                         i === step
                           ? "opacity-100"
                           : "pointer-events-none opacity-0",
@@ -675,17 +681,17 @@ function StickyEngineStage({ code }: { code?: ReactNode[] }) {
                       aria-hidden={i !== step}
                     >
                       <div
-                        className="h-full overflow-hidden px-4 py-3 text-[12.5px]"
+                        className="min-w-0 flex-1 overflow-hidden px-4 py-3 text-[12px]"
                         style={{
                           maskImage:
-                            "linear-gradient(180deg, black 82%, transparent 100%)",
+                            "linear-gradient(180deg, black 84%, transparent 100%)",
                           WebkitMaskImage:
-                            "linear-gradient(180deg, black 82%, transparent 100%)",
+                            "linear-gradient(180deg, black 84%, transparent 100%)",
                         }}
                       >
                         {code?.[i] ?? null}
                       </div>
-                      <div className="absolute right-4 bottom-4 w-[320px]">
+                      <div className="flex w-[248px] shrink-0 items-center border-white/10 border-l bg-white/[0.015] p-3.5">
                         {s.visual}
                       </div>
                     </div>
@@ -973,7 +979,7 @@ export function SystemMap({
         <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
           Everything in
         </p>
-        <div className="mx-auto flex max-w-[900px] flex-wrap justify-center gap-2.5">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:flex lg:flex-nowrap">
           {SOURCES.map((node) => (
             <NodeChip key={node.label} node={node} side="source" />
           ))}
@@ -1045,10 +1051,13 @@ export function SystemMap({
 
       {/* ------------------------------------------------ channels, out -- */}
       <div className="relative z-10">
-        <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
-          Reach them where they are
+        {/* Sits inside the fan — the pill keeps the strands off the words. */}
+        <p className="mb-4 text-center">
+          <span className="inline-block rounded-full border border-white/10 bg-[#0b0710]/85 px-3 py-1 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em] backdrop-blur-md">
+            Reach them where they are
+          </span>
         </p>
-        <div className="mx-auto flex max-w-[900px] flex-wrap justify-center gap-2.5">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:flex lg:flex-nowrap">
           {CHANNELS.map((node, i) => (
             <NodeChip
               key={node.label}

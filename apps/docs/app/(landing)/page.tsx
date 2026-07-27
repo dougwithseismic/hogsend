@@ -945,7 +945,7 @@ function PsManifesto() {
               key={f.key}
               code={f.source}
               lang={f.lang}
-              className="text-[12.5px] leading-[19px]"
+              className="text-[11.5px] leading-[18px]"
             />
           ))}
         />
