@@ -543,38 +543,99 @@ function BucketsVisual() {
   );
 }
 
+/** The Studio deals board — the pipeline every touch feeds, stage lanes
+ *  with fractional-credit values (illustrative deals, real product shape). */
+function DealsVisual() {
+  const lanes: Array<{ name: string; cards: Array<[string, string]> }> = [
+    {
+      name: "qualified",
+      cards: [
+        ["Acme", "$4.2k"],
+        ["Kite", "$1.8k"],
+      ],
+    },
+    { name: "proposal", cards: [["Nova", "$6.5k"]] },
+    { name: "won", cards: [["Rove", "$3.1k"]] },
+  ];
+  return (
+    <PanelCard caption="studio — deals">
+      <div className="grid grid-cols-3 gap-2">
+        {lanes.map((lane) => (
+          <div
+            key={lane.name}
+            className="rounded-lg border border-[var(--tw-border)] bg-white/[0.02] p-2"
+          >
+            <p className="mb-2 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+              {lane.name}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {lane.cards.map(([name, value]) => (
+                <div
+                  key={name}
+                  className={cn(
+                    "rounded-md border px-2 py-1.5 font-mono text-[11px]",
+                    lane.name === "won"
+                      ? "border-[#f6483855] bg-[#f64838]/[0.06] text-white/85"
+                      : "border-[var(--tw-border)] bg-white/[0.04] text-white/70",
+                  )}
+                >
+                  {name}
+                  <span className="float-right text-white/45">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
+        every email, SMS, and DM on the deal's timeline
+      </p>
+    </PanelCard>
+  );
+}
+
 /* ---------------------------------------------------- sticky engine stage -- */
 
+/* The four cards ARE the four pillars — Measure, React, Prove, Steer.
+ * Each opens a folder of real files; the features (journeys, enrichment,
+ * conversions, buckets, broadcasts, flags) live INSIDE the pillars. */
 const ENGINE_STEPS = [
   {
-    key: "journeys",
-    eyebrow: "Journeys",
+    key: "measure",
+    eyebrow: "Measure",
+    title: "Know who just showed up",
+    body: "Every source lands in one stream. Apollo fills the contact where your own data has gaps, and buckets sort people into live lanes as they behave.",
+    visual: <EnrichmentVisual />,
+  },
+  {
+    key: "react",
+    eyebrow: "React",
     title: "Follow up like a person would",
     body: "Someone signs up, goes quiet, or hits a limit — a journey picks them up, waits days if it has to, and carries on exactly where it left off through any deploy.",
     visual: <JourneysVisual />,
   },
   {
-    key: "enrichment",
-    eyebrow: "Enrichment",
-    title: "Know who just showed up",
-    body: "Apollo fills in company, role, and size the moment a contact appears — but only where your own data has gaps. Nothing you know gets overwritten.",
-    visual: <EnrichmentVisual />,
-  },
-  {
-    key: "conversions",
-    eyebrow: "Conversions",
+    key: "prove",
+    eyebrow: "Prove",
     title: "Proof, not vibes",
     body: "Split the message inside the journey, exit anyone who converts, and read every arm against a holdout that never got the message.",
     visual: <ConversionsVisual />,
   },
   {
-    key: "buckets",
-    eyebrow: "Buckets",
-    title: "Lanes that move themselves",
-    body: "Contacts sort into lifecycle lanes as they behave. Falling into dormant is itself a trigger — the win-back journey starts on its own.",
-    visual: <BucketsVisual />,
+    key: "steer",
+    eyebrow: "Steer",
+    title: "Drive it from one screen",
+    body: "Broadcast to a live bucket, flip a flag that gates a branch, and watch every run, send, and deal in Studio — the live demo is one click below.",
+    visual: <DealsVisual />,
   },
 ];
+
+/** Files whose story outgrows their pillar's default preview — the bucket
+ *  files keep the lanes board wherever they appear. */
+const FILE_VISUALS: Record<string, ReactNode> = {
+  "went-dormant": <BucketsVisual />,
+  "bucket-winback": <BucketsVisual />,
+};
 
 /** How long each moment holds before the band advances itself (ms). */
 const STEP_DWELL = 6000;
@@ -744,7 +805,7 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                           {code?.[f.flat] ?? null}
                         </div>
                         <div className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain border-white/[0.07] border-l bg-white/[0.015] p-3.5 [scrollbar-color:rgba(255,255,255,0.15)_transparent] [scrollbar-width:thin]">
-                          {s.visual}
+                          {FILE_VISUALS[f.key] ?? s.visual}
                           <div>
                             <p className="mb-2.5 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
                               What's actually happening
@@ -1079,7 +1140,7 @@ export function SystemMap({
 
       {/* Also reading the stream — the rest of the engine, named. */}
       <p className="relative z-10 text-center font-mono text-[11px] text-white/40 tracking-[-0.01em]">
-        also reading the stream: groups · flags · broadcasts
+        also reading the stream: groups · destinations · agents & MCP
       </p>
 
       <div className="relative z-10 mt-6 flex justify-center">

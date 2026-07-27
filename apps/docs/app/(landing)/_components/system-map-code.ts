@@ -14,7 +14,7 @@
 export type EngineCodeFile = {
   key: string;
   /** ENGINE_STEPS key this file belongs to. */
-  step: "journeys" | "enrichment" | "conversions" | "buckets";
+  step: "measure" | "react" | "prove" | "steer";
   /** Editor tab label. */
   file: string;
   lang: string;
@@ -24,10 +24,10 @@ export type EngineCodeFile = {
 };
 
 export const ENGINE_CODE: EngineCodeFile[] = [
-  /* ------------------------------------------------------------ journeys -- */
+  /* --------------------------------------------------------------- react -- */
   {
     key: "onboarding",
-    step: "journeys",
+    step: "react",
     file: "journeys/onboarding.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
@@ -64,7 +64,7 @@ export const onboarding = defineJourney({
   },
   {
     key: "nps",
-    step: "journeys",
+    step: "react",
     file: "journeys/nps.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
@@ -128,7 +128,7 @@ export const nps = defineJourney({
   },
   {
     key: "digest",
-    step: "journeys",
+    step: "react",
     file: "journeys/weekly-digest.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
@@ -175,10 +175,10 @@ export const weeklyDigest = defineJourney({
     ],
   },
 
-  /* ---------------------------------------------------------- enrichment -- */
+  /* ------------------------------------------------------------- measure -- */
   {
     key: "high-fit",
-    step: "enrichment",
+    step: "measure",
     file: "journeys/high-fit-welcome.ts",
     lang: "ts",
     source: `import { refineContact } from "@hogsend/engine";
@@ -214,7 +214,7 @@ export const highFitWelcome = defineJourney({
   },
   {
     key: "lead-form",
-    step: "enrichment",
+    step: "measure",
     file: "webhook-sources/lead-form.ts",
     lang: "ts",
     source: `import { defineWebhookSource } from "@hogsend/engine";
@@ -251,10 +251,10 @@ export const leadForm = defineWebhookSource({
     ],
   },
 
-  /* --------------------------------------------------------- conversions -- */
+  /* --------------------------------------------------------------- prove -- */
   {
     key: "experiment",
-    step: "conversions",
+    step: "prove",
     file: "journeys/welcome-experiment.ts",
     lang: "ts",
     source: `import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -290,7 +290,7 @@ export const welcomeExperiment = defineJourney({
   },
   {
     key: "holdout",
-    step: "conversions",
+    step: "prove",
     file: "journeys/winback-holdout.ts",
     lang: "ts",
     source: `import { days } from "@hogsend/core";
@@ -332,10 +332,10 @@ export const winback = defineJourney({
     ],
   },
 
-  /* ------------------------------------------------------------- buckets -- */
+  /* --------------------------------------------------------------- steer -- */
   {
     key: "went-dormant",
-    step: "buckets",
+    step: "measure",
     file: "buckets/went-dormant.ts",
     lang: "ts",
     source: `import { days, defineBucket } from "@hogsend/engine";
@@ -362,7 +362,7 @@ export const wentDormant = defineBucket({
   },
   {
     key: "bucket-winback",
-    step: "buckets",
+    step: "react",
     file: "journeys/winback.ts",
     lang: "ts",
     source: `import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -389,6 +389,58 @@ export const winback = defineJourney({
       "wentDormant.entered is the bucket's typed transition ref — the journey triggers off the bucket itself, and a typo'd id is a compile error.",
       "The user acts again → they leave the bucket → exitOn ends the sequence cleanly, even mid-wait.",
       "No scheduler, no saved segment sync: the lane movement IS the automation.",
+    ],
+  },
+
+  /* --------------------------------------------------------------- steer -- */
+  {
+    key: "broadcast",
+    step: "steer",
+    file: "scripts/launch.ts",
+    lang: "ts",
+    source: `import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_API_URL!,
+  apiKey: process.env.HOGSEND_DATA_KEY!,
+});
+
+// A one-off send you drive by hand — to a list,
+// or to a LIVE bucket.
+const { campaignId, status } = await hs.campaigns.send({
+  name: "March launch",
+  list: "product-updates",         // or a live bucket
+  template: "launch-announcement", // typed vs your registry
+  props: { feature: "Flags" },
+  sendAt: "2026-08-01T09:00:00Z",  // omit to send now
+});`,
+    notes: [
+      "campaigns.send takes a list or a LIVE bucket — the audience is whoever is in the lane when it fires.",
+      "The template is typed against your registry — wrong props fail the build, not the send.",
+      "sendAt schedules the run in the worker; omit it to send now.",
+      "The sends land in the same stream, so opens, clicks, and revenue attribute like any journey touch.",
+    ],
+  },
+  {
+    key: "flags",
+    step: "steer",
+    file: "flags.ts",
+    lang: "ts",
+    source: `import { defineFlag } from "@hogsend/engine";
+
+// Flags live in your repo — typed, reviewed, deployed.
+export const newCheckout = defineFlag({
+  key: "new-checkout-flow",
+  name: "New checkout flow",
+  type: "boolean",
+});
+
+// In React — the same shape as PostHog's hook:
+// const enabled = useFlag("new-checkout-flow");`,
+    notes: [
+      "defineFlag puts the flag in your repo — typed, reviewed in PRs, deployed with your code.",
+      "useFlag reads it in React with the same shape as PostHog's hook.",
+      "One flag can gate an email, a page, or a whole journey branch.",
     ],
   },
 ];
