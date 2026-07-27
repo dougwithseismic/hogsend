@@ -912,7 +912,7 @@ function PsManifesto() {
           className="absolute inset-0 mix-blend-screen"
           style={{
             background:
-              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.22) 0%, rgba(246,72,56,0.07) 45%, transparent 78%)",
+              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.15) 0%, rgba(255,150,90,0.06) 45%, transparent 78%)",
           }}
         />
         <ThermalLayer strength={0.12} />
@@ -945,7 +945,7 @@ function PsManifesto() {
               key={f.key}
               code={f.source}
               lang={f.lang}
-              className="text-[11.5px] leading-[18px]"
+              className="text-[12.5px] leading-[1.65]"
             />
           ))}
         />

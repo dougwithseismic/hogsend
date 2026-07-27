@@ -180,41 +180,45 @@ function NodeChip({
   flashDelay?: number;
 }) {
   return (
-    // lg:flex-1 — every node keeps ONE rail. Stacked (not side-by-side) so
+    // flex-1 — every node keeps ONE rail. Stacked (not side-by-side) so
     // seven sources fit a single row: a second row would sit on top of the
     // first row's converge lines and read as unconnected.
-    <div className="group relative lg:min-w-0 lg:flex-1">
+    <div className="group relative min-w-0 flex-1">
       {/* A button, not a div: the tooltip is the affordance, so the chip has
-          to be reachable by keyboard as well as hover. */}
-      <button
-        type="button"
-        data-map={side}
-        className={cn(
-          "flex w-full cursor-default flex-col gap-2 rounded-lg border border-[var(--tw-border)] bg-[#120e1b]/75 px-3 py-2.5 text-left outline-none backdrop-blur-md focus-visible:border-white/40",
-          side === "channel" && "ps-map-arrive",
-        )}
-        style={
-          flashDelay !== undefined
-            ? { animationDelay: `${flashDelay}s` }
-            : undefined
-        }
-      >
-        <span className="inline-flex size-7 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
-          {node.mark ? <Mark file={node.mark} /> : node.icon}
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate font-medium text-[13px] text-white tracking-[-0.02em]">
-            {node.label}
+          to be reachable by keyboard as well as hover. Every surface in the
+          map wears the same cursor edge-glow — it was the tell that some
+          cards were "real" and others weren't. */}
+      <ThermalHover rounded="rounded-lg">
+        <button
+          type="button"
+          data-map={side}
+          className={cn(
+            "flex w-full cursor-default flex-col gap-2 rounded-lg border border-[var(--tw-border)] bg-[#0d0d11]/80 px-3 py-2.5 text-left outline-none backdrop-blur-md focus-visible:border-white/40",
+            side === "channel" && "ps-map-arrive",
+          )}
+          style={
+            flashDelay !== undefined
+              ? { animationDelay: `${flashDelay}s` }
+              : undefined
+          }
+        >
+          <span className="inline-flex size-7 items-center justify-center rounded-md bg-white/[0.05] text-white/70">
+            {node.mark ? <Mark file={node.mark} /> : node.icon}
           </span>
-          <span className="block truncate text-[11px] text-white/45 tracking-[-0.01em]">
-            {node.sub}
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-[13px] text-white tracking-[-0.02em]">
+              {node.label}
+            </span>
+            <span className="block truncate text-[11px] text-white/45 tracking-[-0.01em]">
+              {node.sub}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+      </ThermalHover>
       {/* Tooltip — plain language, above the chip. */}
       <div
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-[240px] -translate-x-1/2 rounded-lg border border-white/15 bg-[#0a0606] px-3 py-2.5 text-left opacity-0 shadow-lg transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-[240px] -translate-x-1/2 rounded-lg border border-white/15 bg-[#0d0d11] px-3 py-2.5 text-left opacity-0 shadow-lg transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100"
       >
         <p className="text-[12px] text-white/75 leading-[18px] tracking-[-0.01em]">
           {node.tip}
@@ -226,18 +230,24 @@ function NodeChip({
 
 /* --------------------------------------------------------- stream head -- */
 
-/** The crimzon-triangle window title mark from the hero/closing-CTA chrome. */
+/** The window title mark — the Hogsend boar, not a generic triangle. */
 function TitleMark() {
+  const url = "url(/images/logos/hogsend-boar.svg)";
   return (
-    <svg
-      width="9"
-      height="8"
-      viewBox="0 0 9 8"
+    <span
       aria-hidden="true"
-      className="shrink-0 text-[#f64838]"
-    >
-      <path d="M4.5 0L9 8H0z" fill="currentColor" />
-    </svg>
+      className="inline-block h-[9px] w-[16px] shrink-0 bg-[#f64838]"
+      style={{
+        WebkitMaskImage: url,
+        maskImage: url,
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+        WebkitMaskSize: "contain",
+        maskSize: "contain",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+      }}
+    />
   );
 }
 
@@ -246,7 +256,7 @@ function StreamCard() {
     <ThermalHover rounded="rounded-xl" className="mx-auto w-full max-w-[460px]">
       <div
         data-map="stream"
-        className="relative overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg"
+        className="relative overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl"
       >
         <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
           <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
@@ -296,8 +306,8 @@ function PanelCard({
 }) {
   return (
     <ThermalHover rounded="rounded-xl">
-      <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
-        <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
+      <div className="overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl">
+        <div className="flex items-center gap-2 border-white/[0.07] border-b px-4 py-3">
           <TitleMark />
           <span className="font-mono text-[11px] text-white/40 tracking-[-0.01em]">
             {caption}
@@ -562,110 +572,103 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
   return (
     <div className="relative z-30">
       {/* The four moments, all legible at once. */}
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-4 gap-2.5">
         {ENGINE_STEPS.map((s, i) => (
-          <button
-            key={s.key}
-            type="button"
-            aria-pressed={i === step}
-            onClick={() => pick(i)}
-            className={cn(
-              "relative overflow-hidden rounded-lg border px-4 py-3.5 text-left outline-none backdrop-blur-md transition-colors duration-300 focus-visible:border-white/40",
-              i === step
-                ? "border-[#f6483866] bg-[#150f16]/85"
-                : "border-[var(--tw-border)] bg-[#120e1b]/60 hover:border-white/20",
-            )}
-          >
-            <span
+          <ThermalHover key={s.key} className="h-full" rounded="rounded-lg">
+            <button
+              type="button"
+              aria-pressed={i === step}
+              onClick={() => pick(i)}
               className={cn(
-                "flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors duration-300",
-                i === step ? "text-[#f64838]" : "text-white/40",
+                "h-full",
+                "relative overflow-hidden rounded-lg border px-4 py-3.5 text-left outline-none backdrop-blur-md transition-colors duration-300 focus-visible:border-white/40",
+                i === step
+                  ? "border-[#f6483866] bg-[#111116]/90"
+                  : "border-[var(--tw-border)] bg-[#0d0d11]/65 hover:border-white/20",
               )}
             >
-              {i === step ? <TitleMark /> : null}
-              {s.eyebrow}
-            </span>
-            <span className="mt-2 block font-medium text-[15px] text-white leading-[20px] tracking-[-0.02em]">
-              {s.title}
-            </span>
-            <span className="mt-1.5 block text-[12.5px] text-white/55 leading-[18px] tracking-[-0.01em]">
-              {s.body}
-            </span>
-            {/* Dwell bar — shows the band's own clock, gone once pinned. */}
-            <span
-              aria-hidden="true"
-              className="absolute inset-x-0 bottom-0 h-px bg-white/[0.07]"
-            >
-              {i === step ? (
-                <span
-                  key={`${s.key}-${pinned}`}
-                  className={cn(
-                    "block h-full bg-[#f64838]",
-                    pinned ? "w-full" : "ps-map-dwell",
-                  )}
-                  style={
-                    pinned
-                      ? undefined
-                      : { animationDuration: `${STEP_DWELL}ms` }
-                  }
-                />
-              ) : null}
-            </span>
-          </button>
+              <span
+                className={cn(
+                  "flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors duration-300",
+                  i === step ? "text-[#f64838]" : "text-white/40",
+                )}
+              >
+                {i === step ? <TitleMark /> : null}
+                {s.eyebrow}
+              </span>
+              <span className="mt-2 block font-medium text-[15px] text-white leading-[20px] tracking-[-0.02em]">
+                {s.title}
+              </span>
+              <span className="mt-1.5 block text-[12.5px] text-white/55 leading-[18px] tracking-[-0.01em]">
+                {s.body}
+              </span>
+              {/* Dwell bar — shows the band's own clock, gone once pinned. */}
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-0 bottom-0 h-px bg-white/[0.07]"
+              >
+                {i === step ? (
+                  <span
+                    key={`${s.key}-${pinned}`}
+                    className={cn(
+                      "block h-full bg-[#f64838]",
+                      pinned ? "w-full" : "ps-map-dwell",
+                    )}
+                    style={
+                      pinned
+                        ? undefined
+                        : { animationDuration: `${STEP_DWELL}ms` }
+                    }
+                  />
+                ) : null}
+              </span>
+            </button>
+          </ThermalHover>
         ))}
       </div>
 
       {/* The moment, open as a real file. */}
       <div className="mt-4 flex justify-center">
-        <div className="relative w-full max-w-[1000px]">
+        <div className="relative w-full">
           <ThermalHover rounded="rounded-xl">
-            <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
+            <div className="overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl">
               {/* Title bar — matches the hero agent-session window. */}
-              <div className="flex items-center gap-3 border-white/10 border-b px-4 py-2.5">
+              <div className="flex items-center gap-3 border-white/[0.07] border-b px-4 py-3">
                 <div aria-hidden="true" className="flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
-                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/[0.12]" />
+                  <span className="size-2.5 rounded-full bg-white/[0.12]" />
+                  <span className="size-2.5 rounded-full bg-white/[0.12]" />
                 </div>
                 <span className="font-mono text-[11px] text-white/40 tracking-wide">
                   hogsend — your repo
                 </span>
               </div>
               {/* File tabs — the four engine moments ARE files. */}
-              <div className="flex items-center gap-1 overflow-x-auto border-white/10 border-b px-2 pt-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 border-white/[0.07] border-b px-3 py-2.5">
                 {ENGINE_CODE.map((f, i) => (
                   <button
                     key={f.key}
                     type="button"
                     onClick={() => pick(i)}
                     className={cn(
-                      "relative shrink-0 rounded-t-md px-3 py-2 font-mono text-[11px] transition-colors duration-300",
+                      "shrink-0 cursor-pointer rounded-full border px-3 py-1 font-mono text-[10.5px] transition-colors duration-300",
                       i === step
-                        ? "bg-white/[0.05] text-white"
-                        : "text-white/40 hover:text-white/70",
+                        ? "border-[#f64838]/40 bg-[#f64838]/[0.12] text-white"
+                        : "border-white/[0.08] text-white/50 hover:border-white/20 hover:text-white/80",
                     )}
                   >
-                    <span className="flex items-center gap-1.5">
-                      {i === step && <TitleMark />}
-                      {f.file}
-                    </span>
-                    <span
-                      className={cn(
-                        "absolute inset-x-0 bottom-0 h-px transition-opacity duration-300",
-                        i === step ? "bg-[#f64838] opacity-100" : "opacity-0",
-                      )}
-                    />
+                    {f.file}
                   </button>
                 ))}
               </div>
               {/* Editor body: code, with the live preview DOCKED beside it —
                   floating it over the code covered the lines it illustrates. */}
-              <div className="relative h-[540px] lg:h-[452px]">
+              <div className="relative h-[452px]">
                 {ENGINE_STEPS.map((s, i) => (
                   <div
                     key={s.key}
                     className={cn(
-                      "absolute inset-0 flex flex-col transition-opacity duration-500 lg:flex-row",
+                      "absolute inset-0 flex transition-opacity duration-500",
                       i === step
                         ? "opacity-100"
                         : "pointer-events-none opacity-0",
@@ -673,7 +676,7 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                     aria-hidden={i !== step}
                   >
                     <div
-                      className="min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-3 text-[11.5px]"
+                      className="min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-4"
                       style={{
                         maskImage:
                           "linear-gradient(180deg, black 84%, transparent 100%)",
@@ -683,7 +686,7 @@ function EngineBand({ code, active }: { code?: ReactNode[]; active: boolean }) {
                     >
                       {code?.[i] ?? null}
                     </div>
-                    <div className="flex h-[212px] shrink-0 items-center overflow-hidden border-white/10 border-t bg-white/[0.015] p-3.5 lg:h-auto lg:w-[320px] lg:border-t-0 lg:border-l">
+                    <div className="flex w-[300px] shrink-0 items-center overflow-hidden border-white/[0.07] border-l bg-white/[0.015] p-3.5">
                       {s.visual}
                     </div>
                   </div>
@@ -919,7 +922,13 @@ export function SystemMap({
   return (
     <div
       ref={mapRef}
-      className={cn("ps-map relative", active && "is-active", className)}
+      className={cn(
+        // Desktop only. Seven rails, a bundle, and a fan-out need width;
+        // the stacked mobile version was worse than not showing it at all.
+        "ps-map relative hidden lg:block",
+        active && "is-active",
+        className,
+      )}
     >
       {/* Depth layer BEHIND the content: converge, back strands, fan. */}
       {geom ? (
@@ -970,14 +979,13 @@ export function SystemMap({
         <p className="mb-4 text-center font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
           Everything in
         </p>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:flex lg:flex-nowrap">
+        <div className="flex flex-nowrap gap-2.5">
           {SOURCES.map((node) => (
             <NodeChip key={node.label} node={node} side="source" />
           ))}
         </div>
       </div>
 
-      <MobileSpine />
       <div aria-hidden="true" className="hidden h-24 lg:block" />
 
       {/* ------------------------------------------------- the stream -- */}
@@ -987,13 +995,10 @@ export function SystemMap({
         <StreamCard />
       </div>
 
-      <MobileSpine />
-
       {/* ---------------------------------------------- engine moments -- */}
       <div aria-hidden="true" className="hidden h-16 lg:block" />
       <EngineBand code={code} active={active} />
 
-      <MobileSpine />
       <div aria-hidden="true" className="hidden h-16 lg:block" />
 
       {/* Also reading the stream — the rest of the engine, named. */}
@@ -1008,18 +1013,17 @@ export function SystemMap({
         />
       </div>
 
-      <MobileSpine />
       <div aria-hidden="true" className="hidden h-24 lg:block" />
 
       {/* ------------------------------------------------ channels, out -- */}
       <div className="relative z-10">
         {/* Sits inside the fan — the pill keeps the strands off the words. */}
         <p className="mb-4 text-center">
-          <span className="inline-block rounded-full border border-white/10 bg-[#0b0710]/85 px-3 py-1 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em] backdrop-blur-md">
+          <span className="inline-block rounded-full border border-white/10 bg-[#0d0d11]/85 px-3 py-1 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em] backdrop-blur-md">
             Reach them where they are
           </span>
         </p>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:flex lg:flex-nowrap">
+        <div className="flex flex-nowrap gap-2.5">
           {CHANNELS.map((node, i) => (
             <NodeChip
               key={node.label}
@@ -1057,27 +1061,6 @@ export function SystemMap({
           }
         />
       ) : null}
-    </div>
-  );
-}
-
-function MobileSpine() {
-  return (
-    <div className="flex justify-center py-2 lg:hidden">
-      <svg
-        aria-hidden="true"
-        width="2"
-        height="44"
-        viewBox="0 0 2 44"
-        className="overflow-visible"
-      >
-        <path
-          d="M1 0 V44"
-          className="ps-dash"
-          stroke="rgba(255,255,255,0.25)"
-          strokeWidth="1.5"
-        />
-      </svg>
     </div>
   );
 }
