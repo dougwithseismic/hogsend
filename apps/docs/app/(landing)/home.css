@@ -272,3 +272,108 @@
     transparent 70%
   );
 }
+
+/* System map ("One stream, one repo"): measured source→engine→channel paths
+   draw in on first view; crimzon pulse dots ride them on a shared 8s clock;
+   a channel chip flashes when its dot lands; the engine ticker is the one
+   merged stream. Transform/opacity/stroke only — no rAF. */
+@keyframes ps-map-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.ps-map-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.ps-map.is-active .ps-map-path {
+  animation: ps-map-draw 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Dot visibility window matches the animateMotion travel leg (first ~30% of
+   the cycle), so a dot never sits parked at the path end. */
+@keyframes ps-map-dot-blink {
+  0% {
+    opacity: 0;
+  }
+  2%,
+  26% {
+    opacity: 1;
+  }
+  31%,
+  100% {
+    opacity: 0;
+  }
+}
+.ps-map-dot {
+  opacity: 0;
+  animation: ps-map-dot-blink 8s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(246, 72, 56, 0.9));
+}
+
+/* Arrival flash on a channel chip — a brief crimzon border lift. */
+@keyframes ps-map-arrive-flash {
+  0%,
+  100% {
+    border-color: var(--tw-border);
+    box-shadow: none;
+  }
+  3% {
+    border-color: rgba(246, 72, 56, 0.55);
+    box-shadow: 0 0 18px rgba(246, 72, 56, 0.16);
+  }
+  14% {
+    border-color: var(--tw-border);
+    box-shadow: none;
+  }
+}
+.ps-map .ps-map-arrive {
+  animation: ps-map-arrive-flash 8s linear infinite;
+}
+
+/* Engine capability chips take turns lighting as the stream passes. */
+@keyframes ps-map-chip-glow {
+  0%,
+  100% {
+    border-color: var(--tw-border);
+    color: rgba(255, 255, 255, 0.6);
+  }
+  4% {
+    border-color: rgba(246, 72, 56, 0.45);
+    color: rgba(255, 255, 255, 0.92);
+  }
+  16% {
+    border-color: var(--tw-border);
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+.ps-map .ps-map-chip {
+  animation: ps-map-chip-glow 8s linear infinite;
+}
+
+/* The one stream — a seamless vertical ticker (list is doubled in JSX). */
+@keyframes ps-map-ticker-scroll {
+  to {
+    transform: translateY(-50%);
+  }
+}
+.ps-map-ticker {
+  animation: ps-map-ticker-scroll 16s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-map-path {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  .ps-map.is-active .ps-map-path,
+  .ps-map .ps-map-arrive,
+  .ps-map .ps-map-chip,
+  .ps-map-ticker {
+    animation: none;
+  }
+  .ps-map-dots {
+    display: none;
+  }
+}

@@ -63,6 +63,7 @@ import { ScaffoldExplorer } from "./_components/scaffold-explorer";
 import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { glossaryTransformer } from "./_components/scaffold-glossary";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
+import { SystemMap } from "./_components/system-map";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
 import { WordReveal } from "./_components/word-reveal";
@@ -900,6 +901,9 @@ function PsManifesto() {
               Studio shows every send, wait, and branch as it runs.
             </span>
           </p>
+        </Reveal>
+        <Reveal delay={0.15}>
+          <SystemMap className="mt-16 md:mt-20" />
         </Reveal>
       </Container>
     </section>
