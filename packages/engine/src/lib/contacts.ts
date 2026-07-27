@@ -11,7 +11,16 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  type SQLWrapper,
+  sql,
+} from "drizzle-orm";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -511,8 +520,13 @@ export function contactKeySql() {
  * happened to return: heap order is not a guarantee, so a test that reaches the
  * predicate only through the read's downstream effect catches a dropped
  * live-filter by luck, not by construction.
+ *
+ * `userId` accepts a COLUMN (any `SQLWrapper`) as well as a literal string, so
+ * the set-based reconcile passes can use it as their `innerJoin` ON clause
+ * (`bucket_memberships.user_id`) instead of hand-rolling the coalesce — the
+ * exact duplication that let an anonymous-only member slip past three passes.
  */
-export function liveContactByCanonicalKey(userId: string) {
+export function liveContactByCanonicalKey(userId: string | SQLWrapper) {
   return and(eq(contactKeySql(), userId), isNull(contacts.deletedAt));
 }
 
