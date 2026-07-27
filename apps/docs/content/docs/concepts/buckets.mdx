@@ -148,12 +148,12 @@ Inclusion and exclusion live in the same tree — a `neq` or an event `check: "n
 
 ## Dynamic vs manual
 
-Every bucket today is **dynamic** (the default): membership is recomputed from `criteria` automatically. You write the predicate; the engine maintains the set — joins and most leaves inline as events arrive, time-based leaves via the reconcile cron.
+A **dynamic** bucket (the default) recomputes membership from `criteria` automatically. You write the predicate; the engine maintains the set — joins and most leaves inline as events arrive, time-based leaves via the reconcile cron.
 
-The `kind` discriminator also declares `"manual"`, but that mode is **not implemented in v1** — a bucket with `kind: "manual"` is **rejected loudly at registration** rather than accepted as a set that can never gain members. The forward-compat plan is a bucket whose membership is changed only by explicit API call or import (a hand-curated beta cohort, a list imported from elsewhere). Until then, every bucket needs a `criteria` predicate.
+A bucket declared `kind: "manual"` registers like any other, and carries the same membership-age knobs — `entryLimit`, `entryPeriod`, `minDwell`, `maxDwell`. What it does not have is a predicate: it is never recomputed, never backfilled, and never re-evaluated when an event arrives. Its membership changes only when something explicitly adds or removes a member — `POST /v1/buckets/:id/members` and `DELETE /v1/buckets/:id/members/:userId`, the secret-key data plane. That covers a hand-curated beta cohort, a CSV import, or an audience an external system owns. Everything downstream is unchanged: joins emit `bucket:entered:<id>` subject to `entryLimit`, leaves emit `bucket:left:<id>` subject to `minDwell`, `maxDwell` still force-leaves on the reconcile cron, and journeys bound to those events don't know or care which kind produced them.
 
 <Callout type="warn">
-  `kind: "manual"` throws at registration in v1: *"`kind:"manual"` buckets are not implemented in v1; use a dynamic bucket (`kind:"dynamic"` with `criteria`) instead."* Don't reach for it yet — express the set as a dynamic `criteria` predicate.
+  A manual bucket must not declare `criteria` — that combination is rejected at registration. Nothing would ever evaluate the predicate, so the bucket would silently behave as if it were absent. Pick one: `kind: "dynamic"` with `criteria`, or `kind: "manual"` with the membership write path.
 </Callout>
 
 ## Real-time, where PostHog's cohorts can't be
