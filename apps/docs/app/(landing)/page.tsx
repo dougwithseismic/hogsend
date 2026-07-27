@@ -63,6 +63,8 @@ import { ScaffoldExplorer } from "./_components/scaffold-explorer";
 import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { glossaryTransformer } from "./_components/scaffold-glossary";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
+import { SystemMap } from "./_components/system-map";
+import { ENGINE_CODE } from "./_components/system-map-code";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
 import { WordReveal } from "./_components/word-reveal";
@@ -792,9 +794,9 @@ function PsProblem() {
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-              Onboarding stalls. Trials cool off. Payments fail. Customers go
-              quiet. Hogsend turns each leak into a response your product can
-              ship.
+              Hogsend turns each leak into a response your product can ship.
+              Built for code-first teams that need a best-in-class growth
+              engine.
             </p>
             <div className="mt-6 flex items-center gap-6 opacity-80 grayscale">
               <BrandLogo
@@ -879,28 +881,74 @@ function PsProblem() {
  * git, Studio to watch it all. */
 function PsManifesto() {
   return (
-    <section className="relative tw-section overflow-hidden">
+    // overflow-CLIP, not hidden: an overflow-hidden ancestor becomes the
+    // scrollport for position:sticky and silently kills the map's pinned
+    // engine stage. clip clips the same without creating a scroll container.
+    <section className="relative tw-section overflow-clip">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
-      <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
+      {/* Slow full-bleed aurora drifting behind the whole system map —
+          two blurred colour fields on transform-only loops. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="ps-aurora-a absolute top-[15%] left-[-10%] h-[55vw] w-[55vw] rounded-full" />
+        <div className="ps-aurora-b absolute right-[-12%] bottom-[8%] h-[48vw] w-[48vw] rounded-full" />
+      </div>
+      {/* Full-bleed thermal horizon under the system map's channel fan-out —
+          the closing-CTA treatment, dialed WAY down so the channel chips and
+          captions stay readable over it. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[520px]"
+        style={{
+          maskImage:
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
+        }}
+      >
+        <div
+          className="absolute inset-0 mix-blend-screen"
+          style={{
+            background:
+              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.15) 0%, rgba(255,150,90,0.06) 45%, transparent 78%)",
+          }}
+        />
+        <ThermalLayer strength={0.12} />
+        <HalftoneOverlay className="opacity-[0.13]" size={9} />
+      </div>
+      <Container className="relative z-10 pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
-          <Eyebrow className="mb-8">One stream, one repo</Eyebrow>
+          <Eyebrow className="mb-8">How it works</Eyebrow>
           <p
             className={cn(
-              "mx-auto max-w-[920px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
+              "mx-auto max-w-[960px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
               DISPLAY,
             )}
           >
             <span className="text-white">
-              All of your inbound becomes one event stream, and everything you
-              do with it lives in git.
+              Measure everything. React in TypeScript. Prove what moved revenue.
+              Steer it all from Studio.
             </span>{" "}
             <span className="text-white/40">
-              Journeys, flags, and segments are TypeScript — reviewed in PRs,
-              tested, versioned, and shipped like the rest of your product.
-              Studio shows every send, wait, and branch as it runs.
+              One event stream in your repo — journeys, flags, and segments
+              reviewed in PRs and shipped like the rest of your product, watched
+              live as every send, wait, and branch runs.
             </span>
           </p>
         </Reveal>
+        <SystemMap
+          className="mt-16 md:mt-20"
+          code={ENGINE_CODE.map((f) => (
+            <CodeHighlight
+              key={f.key}
+              code={f.source}
+              lang={f.lang}
+              className="text-[12.5px] leading-[1.65]"
+            />
+          ))}
+        />
       </Container>
     </section>
   );
