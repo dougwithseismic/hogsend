@@ -64,6 +64,7 @@ import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { glossaryTransformer } from "./_components/scaffold-glossary";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
 import { SystemMap } from "./_components/system-map";
+import { ENGINE_CODE } from "./_components/system-map-code";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
 import { WordReveal } from "./_components/word-reveal";
@@ -937,7 +938,17 @@ function PsManifesto() {
             </span>
           </p>
         </Reveal>
-        <SystemMap className="mt-16 md:mt-20" />
+        <SystemMap
+          className="mt-16 md:mt-20"
+          code={ENGINE_CODE.map((f) => (
+            <CodeHighlight
+              key={f.key}
+              code={f.source}
+              lang={f.lang}
+              className="text-[12.5px] leading-[19px]"
+            />
+          ))}
+        />
       </Container>
     </section>
   );

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { ThermalHover } from "@/components/ds/thermal";
 import { cn } from "@/lib/cn";
+import { ENGINE_CODE } from "./system-map-code";
 
 /* ==========================================================================
  *  The system map for the "One stream, one repo" band — a vertical scroll
@@ -183,7 +184,7 @@ function NodeChip({
         data-map={side}
         tabIndex={0}
         className={cn(
-          "flex items-center gap-2.5 rounded-lg border border-[var(--tw-border)] bg-[var(--tw-card)] px-3 py-2 outline-none focus-visible:border-white/40",
+          "flex items-center gap-2.5 rounded-lg border border-[var(--tw-border)] bg-[#120e1b]/75 px-3 py-2 outline-none backdrop-blur-md focus-visible:border-white/40",
           side === "channel" && "ps-map-arrive",
         )}
         style={
@@ -305,8 +306,8 @@ function PanelCard({
 /** A durable journey run — the trace idiom, steps lighting in sequence. */
 function JourneysVisual() {
   const steps = [
-    { kind: "trigger", label: "user.signup", note: "trigger" },
-    { kind: "send", label: "welcome-quickstart", note: "sendEmail" },
+    { kind: "trigger", label: "user.signed_up", note: "trigger" },
+    { kind: "send", label: "welcome", note: "sendEmail" },
     {
       kind: "wait",
       label: "project.created — 3d timeout",
@@ -314,7 +315,7 @@ function JourneysVisual() {
     },
     {
       kind: "branch",
-      label: "timedOut ? nudge : feature-highlight",
+      label: "timedOut ? activation-nudge : first-win",
       note: "branch on the answer",
     },
   ];
@@ -504,7 +505,7 @@ const ENGINE_STEPS = [
     key: "conversions",
     eyebrow: "Conversions",
     title: "Proof, not vibes",
-    body: "Every journey reports the conversions it actually caused, measured against a holdout that never got the message.",
+    body: "Split the message inside the journey, exit anyone who converts, and read every arm against a holdout that never got the message.",
     visual: <ConversionsVisual />,
   },
   {
@@ -516,19 +517,21 @@ const ENGINE_STEPS = [
   },
 ];
 
-/** Desktop: a sticky stage where the four engine moments crossfade as you
- *  scroll. One rAF-throttled scroll handler picks the active step; the swap
- *  itself is a CSS transition (no per-frame styling, no persistent layers —
- *  the StackDeck law). */
-function StickyEngineStage() {
+/** Desktop: a sticky stage where the four engine moments play inside ONE
+ *  persistent IDE window — the chrome, tab rail, and preview slot never
+ *  move, only the open file and its live preview swap. That persistence is
+ *  what keeps the step change calm. One direct scroll listener picks the
+ *  active step (a rect read + an index compare — React no-ops unchanged
+ *  setState); the swap itself is a CSS transition (no per-frame styling,
+ *  no persistent layers — the StackDeck law). Tabs are clickable and jump
+ *  the scroll to that step's slice of the zone. */
+function StickyEngineStage({ code }: { code?: ReactNode[] }) {
   const zoneRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
     const zone = zoneRef.current;
     if (!zone) return;
-    // No rAF throttle: the handler is one getBoundingClientRect and a
-    // setState that React already no-ops when the index is unchanged.
     const update = () => {
       const rect = zone.getBoundingClientRect();
       const span = rect.height - window.innerHeight;
@@ -550,22 +553,33 @@ function StickyEngineStage() {
     };
   }, []);
 
+  const jumpTo = (i: number) => {
+    const zone = zoneRef.current;
+    if (!zone) return;
+    const top = zone.getBoundingClientRect().top + window.scrollY;
+    const span = zone.offsetHeight - window.innerHeight;
+    window.scrollTo({
+      top: top + (span * (i + 0.5)) / ENGINE_STEPS.length,
+      behavior: "smooth",
+    });
+  };
+
   return (
     <div
       ref={zoneRef}
       className="relative hidden lg:block"
-      style={{ height: `${ENGINE_STEPS.length * 85}vh` }}
+      style={{ height: `${ENGINE_STEPS.length * 120}vh` }}
     >
       <div className="sticky top-0 flex h-screen items-center">
-        <div className="grid w-full grid-cols-2 items-center gap-x-24">
+        <div className="grid w-full grid-cols-[minmax(280px,340px)_1fr] items-center gap-x-14 xl:gap-x-20">
           {/* Copy column — the plain-language read on the active step. */}
-          <div className="relative z-10 justify-self-end">
-            <div className="relative w-full max-w-[400px]">
+          <div className="relative z-10">
+            <div className="relative w-full">
               {ENGINE_STEPS.map((s, i) => (
                 <div
                   key={s.key}
                   className={cn(
-                    "col-start-1 row-start-1 transition-all duration-500",
+                    "transition-all duration-500",
                     i === step
                       ? "translate-y-0 opacity-100"
                       : "pointer-events-none absolute inset-0 translate-y-3 opacity-0",
@@ -575,7 +589,7 @@ function StickyEngineStage() {
                   <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
                     {s.eyebrow}
                   </p>
-                  <h3 className="mt-3 font-medium text-[22px] text-white leading-[28px] tracking-[-0.02em]">
+                  <h3 className="mt-3 font-medium text-[24px] text-white leading-[30px] tracking-[-0.02em]">
                     {s.title}
                   </h3>
                   <p className="mt-3 text-[15px] text-white/60 leading-[23px] tracking-[-0.02em]">
@@ -583,36 +597,102 @@ function StickyEngineStage() {
                   </p>
                 </div>
               ))}
-              {/* Step markers double as a progress read. */}
+              {/* Step markers double as navigation. */}
               <div className="mt-8 flex items-center gap-2">
                 {ENGINE_STEPS.map((s, i) => (
-                  <span
+                  <button
                     key={s.key}
+                    type="button"
+                    aria-label={`Go to ${s.eyebrow}`}
+                    onClick={() => jumpTo(i)}
                     className={cn(
                       "h-1 rounded-full transition-all duration-500",
-                      i === step ? "w-6 bg-[#f64838]" : "w-2.5 bg-white/15",
+                      i === step
+                        ? "w-6 bg-[#f64838]"
+                        : "w-2.5 bg-white/15 hover:bg-white/30",
                     )}
                   />
                 ))}
               </div>
             </div>
           </div>
-          {/* Visual column — the live panel for the active step. */}
-          <div className="relative z-10 w-full max-w-[440px]">
-            {ENGINE_STEPS.map((s, i) => (
-              <div
-                key={s.key}
-                className={cn(
-                  "transition-all duration-500",
-                  i === step
-                    ? "translate-y-0 opacity-100"
-                    : "pointer-events-none absolute inset-x-0 top-1/2 -translate-y-[calc(50%-12px)] opacity-0",
-                )}
-                aria-hidden={i !== step}
-              >
-                {s.visual}
+
+          {/* The persistent IDE window: tab rail + code pane + floating
+              live preview. Only the pane contents swap. */}
+          <div className="relative z-10 w-full max-w-[720px]">
+            <ThermalHover rounded="rounded-xl">
+              <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-lg">
+                {/* Title bar — matches the hero agent-session window. */}
+                <div className="flex items-center gap-3 border-white/10 border-b px-4 py-2.5">
+                  <div aria-hidden="true" className="flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full bg-white/15" />
+                    <span className="size-2.5 rounded-full bg-white/15" />
+                    <span className="size-2.5 rounded-full bg-white/15" />
+                  </div>
+                  <span className="font-mono text-[11px] text-white/40 tracking-wide">
+                    hogsend — your repo
+                  </span>
+                </div>
+                {/* File tabs — the four engine moments ARE files. */}
+                <div className="flex items-center gap-1 overflow-x-auto border-white/10 border-b px-2 pt-1.5">
+                  {ENGINE_CODE.map((f, i) => (
+                    <button
+                      key={f.key}
+                      type="button"
+                      onClick={() => jumpTo(i)}
+                      className={cn(
+                        "relative shrink-0 rounded-t-md px-3 py-2 font-mono text-[11px] transition-colors duration-300",
+                        i === step
+                          ? "bg-white/[0.05] text-white"
+                          : "text-white/40 hover:text-white/70",
+                      )}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {i === step && <TitleMark />}
+                        {f.file}
+                      </span>
+                      <span
+                        className={cn(
+                          "absolute inset-x-0 bottom-0 h-px transition-opacity duration-300",
+                          i === step ? "bg-[#f64838] opacity-100" : "opacity-0",
+                        )}
+                      />
+                    </button>
+                  ))}
+                </div>
+                {/* Editor body: code pane with the live preview floating
+                    bottom-right, scaffold-explorer style. */}
+                <div className="relative h-[470px]">
+                  {ENGINE_STEPS.map((s, i) => (
+                    <div
+                      key={s.key}
+                      className={cn(
+                        "absolute inset-0 transition-opacity duration-500",
+                        i === step
+                          ? "opacity-100"
+                          : "pointer-events-none opacity-0",
+                      )}
+                      aria-hidden={i !== step}
+                    >
+                      <div
+                        className="h-full overflow-hidden px-4 py-3 text-[12.5px]"
+                        style={{
+                          maskImage:
+                            "linear-gradient(180deg, black 82%, transparent 100%)",
+                          WebkitMaskImage:
+                            "linear-gradient(180deg, black 82%, transparent 100%)",
+                        }}
+                      >
+                        {code?.[i] ?? null}
+                      </div>
+                      <div className="absolute right-4 bottom-4 w-[320px]">
+                        {s.visual}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            </ThermalHover>
           </div>
         </div>
       </div>
@@ -808,7 +888,15 @@ function OverlaySvg({
 
 /* ------------------------------------------------------------- component -- */
 
-export function SystemMap({ className }: { className?: string }) {
+export function SystemMap({
+  className,
+  code,
+}: {
+  className?: string;
+  /** Server-highlighted code panes, index-matched to ENGINE_STEPS /
+   *  ENGINE_CODE (rendered by the page with CodeHighlight). */
+  code?: ReactNode[];
+}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(false);
 
@@ -903,10 +991,10 @@ export function SystemMap({ className }: { className?: string }) {
       <MobileSpine />
 
       {/* ---------------------------------------------- engine moments -- */}
-      <StickyEngineStage />
-      {/* Mobile: the same four moments stacked with their copy. */}
-      <div className="flex flex-col gap-12 lg:hidden">
-        {ENGINE_STEPS.map((s) => (
+      <StickyEngineStage code={code} />
+      {/* Mobile: the same four moments stacked — copy, code, live visual. */}
+      <div className="flex flex-col gap-14 lg:hidden">
+        {ENGINE_STEPS.map((s, i) => (
           <div key={s.key}>
             <p className="font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
               {s.eyebrow}
@@ -917,6 +1005,19 @@ export function SystemMap({ className }: { className?: string }) {
             <p className="mt-2 mb-5 text-[14px] text-white/60 leading-[21px] tracking-[-0.02em]">
               {s.body}
             </p>
+            {code?.[i] ? (
+              <div className="mb-4 overflow-hidden rounded-xl border border-white/15 bg-[#0a0606]">
+                <div className="flex items-center gap-2 border-white/10 border-b px-4 py-2.5">
+                  <TitleMark />
+                  <span className="font-mono text-[11px] text-white/40">
+                    {ENGINE_CODE[i]?.file}
+                  </span>
+                </div>
+                <div className="overflow-x-auto px-4 py-3 text-[12px]">
+                  {code[i]}
+                </div>
+              </div>
+            ) : null}
             {s.visual}
           </div>
         ))}
