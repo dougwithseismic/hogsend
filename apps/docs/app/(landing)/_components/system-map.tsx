@@ -408,35 +408,67 @@ function EnrichmentVisual() {
           </div>
         ))}
       </div>
-      <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
+      <div className="mt-4 flex flex-col gap-1.5 border-[var(--tw-border)] border-t pt-3 font-mono text-[11.5px]">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-white/45">group</span>
+          <span className="text-white/85">
+            company: acme.dev
+            <span className="text-white/40"> · 4 contacts</span>
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-white/45">bucket</span>
+          <span className="text-white/85">
+            high-fit
+            <span className="text-white/40"> → welcome journey</span>
+          </span>
+        </div>
+      </div>
+      <p className="mt-3 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
         fill-if-absent — your own data always wins
       </p>
     </PanelCard>
   );
 }
 
-/** Conversion & attribution readout — arms vs holdout, credit scoped. */
+/** The Studio Impact readout — the demo instance's real numbers: causal
+ *  lift vs the built-in holdout, then fractional revenue credit per
+ *  template (demo.hogsend.com, welcome journey, 90d). */
 function ConversionsVisual() {
-  const rows: Array<[label: string, pct: number, tone: string]> = [
-    ["subject-a", 4.1, "bg-white/35"],
-    ["subject-b", 5.6, "bg-[#f64838]"],
-    ["holdout", 2.3, "bg-white/15"],
+  const cohorts: Array<
+    [label: string, detail: string, pct: number, tone: string]
+  > = [
+    ["entered (85%)", "660 contacts", 46.8, "bg-[#f64838]"],
+    ["held out (15%)", "95 contacts", 22.1, "bg-white/25"],
   ];
-  const max = 6;
+  const revenue: Array<[template: string, value: string]> = [
+    ["activation-nudge", "$12,370"],
+    ["activation-connect-repo", "$11,357"],
+    ["welcome", "$7,899"],
+  ];
   return (
-    <PanelCard caption="trial-conversion — 30d click window">
-      <div className="flex flex-col gap-3">
-        {rows.map(([label, pct, tone], i) => (
-          <div key={label} className="font-mono text-[12px]">
+    <PanelCard caption="impact — goal: credits-purchased · 90d">
+      <p className="font-mono text-[12px]">
+        <span className="rounded bg-[#f64838]/[0.12] px-1.5 py-0.5 text-[#f64838]">
+          causal +111.8%
+        </span>{" "}
+        <span className="text-white/60">· 100% win probability</span>
+      </p>
+      <div className="mt-3 flex flex-col gap-2.5">
+        {cohorts.map(([label, detail, pct, tone], i) => (
+          <div key={label} className="font-mono text-[11.5px]">
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/60">{label}</span>
-              <span className="text-white/85">{pct}%</span>
+              <span className="text-white/85">
+                <span className="text-white/40">{detail} · </span>
+                {pct}%
+              </span>
             </div>
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className={cn("ps-map-grow h-full rounded-full", tone)}
                 style={{
-                  width: `${(pct / max) * 100}%`,
+                  width: `${(pct / 50) * 100}%`,
                   animationDelay: `${0.2 + i * 0.15}s`,
                 }}
               />
@@ -444,9 +476,20 @@ function ConversionsVisual() {
           </div>
         ))}
       </div>
-      <p className="mt-4 border-[var(--tw-border)] border-t pt-3 font-mono text-[11px] text-white/40">
-        credit scoped to the journey · lift vs holdout +3.3pp
-      </p>
+      <div className="mt-3.5 border-[var(--tw-border)] border-t pt-3">
+        <p className="mb-2 font-mono text-[10px] text-white/40 uppercase tracking-[0.08em]">
+          Attributed revenue · blended, fractional
+        </p>
+        {revenue.map(([template, value]) => (
+          <div
+            key={template}
+            className="flex items-center justify-between gap-3 py-[2px] font-mono text-[11.5px]"
+          >
+            <span className="truncate text-white/60">{template}</span>
+            <span className="shrink-0 text-white/85">{value}</span>
+          </div>
+        ))}
+      </div>
     </PanelCard>
   );
 }
@@ -1066,6 +1109,66 @@ export function SystemMap({
             />
           ))}
         </div>
+      </div>
+
+      {/* ------------------------------------------------ steer: studio -- */}
+      {/* The cockpit closes the loop: everything above — stream, engine
+          moments, channels — is watched and driven from one screen. */}
+      <div aria-hidden="true" className="hidden h-16 lg:block" />
+      <div className="relative z-30">
+        <p className="mb-4 text-center">
+          <span className="inline-block rounded-full border border-white/10 bg-[#0d0d11]/85 px-3 py-1 font-mono text-[10px] text-white/45 uppercase tracking-[0.08em] backdrop-blur-md">
+            Steer it from Studio
+          </span>
+        </p>
+        <ThermalHover
+          rounded="rounded-xl"
+          className="mx-auto w-full max-w-[720px]"
+        >
+          {/* The whole card is the click — it opens the LIVE demo Studio,
+              UTM-tagged so the arrival lands in our own attribution. */}
+          <a
+            href="https://demo.hogsend.com/studio?utm_source=hogsend.com&utm_medium=landing&utm_campaign=how-it-works&utm_content=steer-station"
+            target="_blank"
+            rel="noopener"
+            className="group/studio block overflow-hidden rounded-xl border border-white/[0.09] bg-[#0d0d11] shadow-2xl transition-colors duration-300 hover:border-white/25"
+          >
+            <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+              <span className="inline-flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+                <TitleMark />
+                studio — a live instance
+              </span>
+              <span className="font-mono text-[10px] text-white/50 uppercase tracking-[0.08em] transition-colors duration-300 group-hover/studio:text-white">
+                open demo.hogsend.com →
+              </span>
+            </div>
+            <div className="grid grid-cols-3 divide-x divide-white/[0.07]">
+              {[
+                {
+                  label: "Journeys",
+                  line: "runs parked on waits, branches taken — as it happens",
+                },
+                {
+                  label: "Impact",
+                  line: "the +111.8% causal readout above is this demo's",
+                },
+                {
+                  label: "Deals",
+                  line: "the pipeline every touch feeds",
+                },
+              ].map((cell) => (
+                <div key={cell.label} className="px-4 py-3.5">
+                  <p className="font-medium text-[12.5px] text-white tracking-[-0.02em]">
+                    {cell.label}
+                  </p>
+                  <p className="mt-1 text-[11px] text-white/45 leading-[15px] tracking-[-0.01em]">
+                    {cell.line}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </a>
+        </ThermalHover>
       </div>
 
       {/* Depth layer IN FRONT of the content: two faint strands passing

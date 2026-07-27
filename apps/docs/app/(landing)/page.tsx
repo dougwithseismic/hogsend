@@ -794,9 +794,9 @@ function PsProblem() {
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-              Onboarding stalls. Trials cool off. Payments fail. Customers go
-              quiet. Hogsend turns each leak into a response your product can
-              ship.
+              Hogsend turns each leak into a response your product can ship.
+              Built for code-first teams that need a best-in-class growth
+              engine.
             </p>
             <div className="mt-6 flex items-center gap-6 opacity-80 grayscale">
               <BrandLogo
@@ -920,21 +920,21 @@ function PsManifesto() {
       </div>
       <Container className="relative z-10 pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
-          <Eyebrow className="mb-8">One stream, one repo</Eyebrow>
+          <Eyebrow className="mb-8">How it works</Eyebrow>
           <p
             className={cn(
-              "mx-auto max-w-[920px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
+              "mx-auto max-w-[960px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
               DISPLAY,
             )}
           >
             <span className="text-white">
-              All of your inbound becomes one event stream, and everything you
-              do with it lives in git.
+              Measure everything. React in TypeScript. Prove what moved revenue.
+              Steer it all from Studio.
             </span>{" "}
             <span className="text-white/40">
-              Journeys, flags, and segments are TypeScript — reviewed in PRs,
-              tested, versioned, and shipped like the rest of your product.
-              Studio shows every send, wait, and branch as it runs.
+              One event stream in your repo — journeys, flags, and segments
+              reviewed in PRs and shipped like the rest of your product, watched
+              live as every send, wait, and branch runs.
             </span>
           </p>
         </Reveal>
