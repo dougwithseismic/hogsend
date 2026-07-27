@@ -365,10 +365,21 @@ Verbatim commands, run per task. Turbo fan-out OOMs on CI without a concurrency 
 
 ```
 pnpm exec turbo run check-types --concurrency=2
-pnpm exec turbo run lint --concurrency=2
+pnpm lint
 pnpm exec turbo run test --concurrency=2
 pnpm exec turbo run build --concurrency=2
 ```
+
+**Note on `lint`:** there is no turbo `lint` task in this repo — `turbo run lint` fails with
+"Could not find task 'lint' in project". The root `pnpm lint` (`biome check .`) is the real
+gate. Corrected 2026-07-27 after wave 1 reported it.
+
+**Known pre-existing local test failures**, not caused by this work and not to be chased by
+delivery agents: `@hogsend/api` fails 3 files with `relation "enrichment_lookups" does not
+exist` (a stale local test DB needing `cd packages/db && pnpm db:migrate`), and
+`gtm-score-batch`'s keyset-walk test depends on local `contacts` table size.
+`campaigns-dataplane` has a timing-sensitive flake that passes in isolation. Verify any new
+failure against a stashed clean tree before attributing it to a change.
 
 Plus, per task: a real check of the affected surface, not just green tests. A wrong test
 certifies rather than fails — mutation-test any guard written for a shipped bug.
