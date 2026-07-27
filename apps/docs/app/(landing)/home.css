@@ -331,24 +331,127 @@
   animation: ps-map-arrive-flash 8s linear infinite;
 }
 
-/* Engine capability chips take turns lighting as the stream passes. */
-@keyframes ps-map-chip-glow {
+/* Spine pulse train — always moving, so no blink window needed. */
+.ps-map-dot-solid {
+  filter: drop-shadow(0 0 4px rgba(246, 72, 56, 0.9));
+}
+
+/* Journey trace steps light in sequence on the shared clock. */
+@keyframes ps-map-step-light {
   0%,
   100% {
-    border-color: var(--tw-border);
-    color: rgba(255, 255, 255, 0.6);
+    opacity: 0.5;
   }
-  4% {
-    border-color: rgba(246, 72, 56, 0.45);
-    color: rgba(255, 255, 255, 0.92);
+  6%,
+  24% {
+    opacity: 1;
   }
-  16% {
-    border-color: var(--tw-border);
-    color: rgba(255, 255, 255, 0.6);
+  34% {
+    opacity: 0.5;
   }
 }
-.ps-map .ps-map-chip {
-  animation: ps-map-chip-glow 8s linear infinite;
+.ps-map .ps-map-step {
+  opacity: 0.5;
+  animation: ps-map-step-light 8s linear infinite;
+}
+
+/* Apollo enrichment: the em-dash swaps for the found value, holds, resets.
+   Negative delays in JSX keep the loop mid-cycle from first paint. */
+@keyframes ps-map-fill-show {
+  0%,
+  8% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  13%,
+  86% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  93%,
+  100% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.ps-map .ps-map-fill {
+  opacity: 0;
+  animation: ps-map-fill-show 14s ease-out infinite;
+}
+@keyframes ps-map-fill-hide {
+  0%,
+  8% {
+    opacity: 1;
+  }
+  13%,
+  86% {
+    opacity: 0;
+  }
+  93%,
+  100% {
+    opacity: 1;
+  }
+}
+.ps-map .ps-map-fill-out {
+  animation: ps-map-fill-hide 14s ease-out infinite;
+}
+
+/* Conversion bars grow in once the map is on screen. */
+@keyframes ps-map-grow-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.ps-map-grow {
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.ps-map.is-active .ps-map-grow {
+  animation: ps-map-grow-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Buckets board: jo@ leaves `active` and lands in `dormant` on a slow loop. */
+@keyframes ps-map-card-leave {
+  0%,
+  38% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  48%,
+  88% {
+    opacity: 0.15;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ps-map .ps-map-card-out {
+  animation: ps-map-card-leave 12s ease-in-out infinite;
+}
+@keyframes ps-map-card-land {
+  0%,
+  42% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  52%,
+  90% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.ps-map .ps-map-card-in {
+  opacity: 0;
+  animation: ps-map-card-land 12s ease-in-out infinite;
 }
 
 /* The one stream — a seamless vertical ticker (list is doubled in JSX). */
@@ -369,9 +472,26 @@
   }
   .ps-map.is-active .ps-map-path,
   .ps-map .ps-map-arrive,
-  .ps-map .ps-map-chip,
+  .ps-map .ps-map-step,
+  .ps-map .ps-map-fill,
+  .ps-map .ps-map-fill-out,
+  .ps-map .ps-map-card-out,
+  .ps-map .ps-map-card-in,
+  .ps-map.is-active .ps-map-grow,
   .ps-map-ticker {
     animation: none;
+  }
+  /* Settle every loop in its "answered" state. */
+  .ps-map .ps-map-step,
+  .ps-map .ps-map-fill,
+  .ps-map .ps-map-card-in {
+    opacity: 1;
+  }
+  .ps-map .ps-map-fill-out {
+    opacity: 0;
+  }
+  .ps-map-grow {
+    transform: scaleX(1);
   }
   .ps-map-dots {
     display: none;
