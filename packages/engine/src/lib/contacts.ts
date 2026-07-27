@@ -499,6 +499,24 @@ export function contactKeySql() {
 }
 
 /**
+ * The row predicate every canonical-key contact read joins on: the LIVE row
+ * whose {@link contactKeySql} is `userId`.
+ *
+ * The `deleted_at IS NULL` half is load-bearing and NOT implied by the key — a
+ * soft-deleted merge loser RETAINS its identity keys ({@link mergeContacts}
+ * frees them from the partial-unique indexes rather than nulling them) and the
+ * survivor inherits a copy, so the dead row and the live one coalesce to the
+ * SAME key. Named and exported (via `@hogsend/engine/testing`) so a test can
+ * assert the row SET this matches rather than whatever an unordered `limit(1)`
+ * happened to return: heap order is not a guarantee, so a test that reaches the
+ * predicate only through the read's downstream effect catches a dropped
+ * live-filter by luck, not by construction.
+ */
+export function liveContactByCanonicalKey(userId: string) {
+  return and(eq(contactKeySql(), userId), isNull(contacts.deletedAt));
+}
+
+/**
  * THE resolver (D1). Transactional. Resolves any combination of identity keys
  * (external_id / email / anonymous_id, in any subset — incl. anon-only or
  * email-only) to a single canonical `contacts` row, handling three cases:

@@ -10,6 +10,7 @@ export {
   registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
+export { liveContactByCanonicalKey } from "./lib/contacts.js";
 export {
   type EnrollmentPolicyFacts,
   type EnrollmentPolicyResult,

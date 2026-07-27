@@ -9,7 +9,11 @@ import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { normalizeEmailOrNull } from "../lib/contacts.js";
+import {
+  contactKeySql,
+  liveContactByCanonicalKey,
+  normalizeEmailOrNull,
+} from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -161,6 +165,13 @@ export async function checkBucketMembership(opts: {
   // `ingestEvent` already awaited `resolveOrCreateContact` before us, so the row
   // exists by the resolved key; the patch overlay still covers the read-after-
   // write gap on a contact's very first event (risk 7).
+  //
+  // The read keys on the CANONICAL key — coalesce(external_id, anonymous_id,
+  // id::text) — the same expression `userId` was minted from (contactKey), NOT
+  // `external_id` alone. An anonymous-keyed or email-only contact has a NULL
+  // external_id, so the narrow lookup missed it and evaluated every property
+  // criterion against EMPTY stored state: such a contact could never join a
+  // property bucket. Matches the join in bucket-reconcile / bucket-backfill.
   const needsContactState = candidates.some(
     (bucket) =>
       bucket.criteria != null &&
@@ -170,18 +181,34 @@ export async function checkBucketMembership(opts: {
   let storedContactProps: Record<string, unknown> = {};
   let contactDeleted = false;
   if (needsContactState) {
+    // LIVE rows only. A merge loser is soft-deleted but RETAINS its identity
+    // keys — `mergeContacts` frees them from the partial-unique indexes (which
+    // are `WHERE deleted_at IS NULL`) rather than nulling them, then copies them
+    // onto the survivor. Dead loser and live survivor therefore COALESCE to the
+    // SAME canonical key, and an unordered `limit(1)` could hand back the dead
+    // one — evaluating the survivor against the loser's stale properties, or
+    // (via the GDPR short-circuit below) skipping bucket evaluation for a live
+    // contact entirely. Matches the `isNull(contacts.deletedAt)` every sibling
+    // coalesce lookup in bucket-reconcile / bucket-backfill already carries.
     const [contact] = await db
-      .select({
-        properties: contacts.properties,
-        deletedAt: contacts.deletedAt,
-      })
+      .select({ properties: contacts.properties })
       .from(contacts)
-      .where(eq(contacts.externalId, userId))
+      .where(liveContactByCanonicalKey(userId))
       .limit(1);
     if (contact) {
       storedContactProps =
         (contact.properties as Record<string, unknown> | null) ?? {};
-      contactDeleted = contact.deletedAt != null;
+    } else {
+      // No LIVE row owns this key — but a soft-deleted (erased) one may. Section
+      // 8.6 says never (re-)evaluate or emit for it, so probe explicitly instead
+      // of falling through to an empty-property evaluation that an
+      // event-criteria bucket in the same candidate set would happily join.
+      const [erased] = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contactKeySql(), userId), isNotNull(contacts.deletedAt)))
+        .limit(1);
+      contactDeleted = erased != null;
     }
   }
 

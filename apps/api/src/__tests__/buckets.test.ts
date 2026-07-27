@@ -53,7 +53,7 @@ vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
 vi.mock("../lib/hatchet.js", () => hatchetMock());
 
 const { bucketMemberships, contacts, userEvents } = await import("@hogsend/db");
-const { and, desc, eq, sql } = await import("drizzle-orm");
+const { and, desc, eq, inArray, sql } = await import("drizzle-orm");
 const {
   BucketRegistry,
   JourneyRegistry,
@@ -67,6 +67,10 @@ const {
   setBucketRegistry,
 } = await import("@hogsend/engine");
 const { bucketMetaSchema } = await import("@hogsend/core");
+// The PRODUCTION predicate behind the canonical-key contact read (T00.4's
+// live-row leg), imported rather than restated so the assertion below pins the
+// engine's own filter and not a copy of it.
+const { liveContactByCanonicalKey } = await import("@hogsend/engine/testing");
 
 const container = createHogsendClient();
 const { db, logger } = container;
@@ -414,8 +418,15 @@ afterAll(async () => {
       .delete(bucketMemberships)
       .where(eq(bucketMemberships.bucketId, bucketId));
   }
-  // userEvents + contacts are namespaced by the RUN prefix in userId / event.
-  // (Best-effort — leftover RUN-prefixed rows are harmless and self-isolating.)
+  // The T00.4 rows are the ones the namespace sweep cannot reach (no
+  // external_id, or a key deliberately shared with a soft-deleted twin), so
+  // they are deleted by the ids we recorded.
+  if (insertedContactIds.length > 0) {
+    await db.delete(contacts).where(inArray(contacts.id, insertedContactIds));
+  }
+  // userEvents + the seedContact rows are namespaced by the RUN prefix in
+  // userId / event. (Best-effort — leftover RUN-prefixed rows are harmless and
+  // self-isolating.)
 });
 
 // ===========================================================================
@@ -1499,5 +1510,218 @@ describe("journeyMetaSchema reaction-field round-trip (Test 13b)", () => {
       label: `after-${24 * 7 * 60 * 60 * 1000}`,
       after: 24 * 7 * 60 * 60 * 1000,
     });
+  });
+});
+
+// ===========================================================================
+// T00.4 — contact state is read on the CANONICAL key, not external_id
+//
+// `ingestEvent` threads `contactKey(contact)` = coalesce(external_id,
+// anonymous_id, id::text) into `checkBucketMembership`, but the property-eval
+// contact read keyed on `contacts.external_id` alone. Every anonymous-keyed and
+// every email-only contact therefore evaluated against EMPTY stored properties,
+// so a property-criteria bucket could never see them (the prerequisite for
+// anonymous cohort members). These tests pin the read to the same coalesce the
+// key was minted from.
+// ===========================================================================
+
+/**
+ * Every row {@link insertContact} created, so `afterAll` can delete them by id.
+ * These rows are NOT all RUN-namespaced (a merge-loser pair deliberately shares
+ * one key) and several carry no external_id at all, so the file's namespace
+ * sweep cannot reach them — untracked they accumulate ~10 `contacts` rows per
+ * run, and local table size is what the gtm-score-batch keyset test is sensitive
+ * to.
+ */
+const insertedContactIds: string[] = [];
+
+/** Insert a contact row with explicit identity columns; returns its uuid id. */
+async function insertContact(values: {
+  externalId?: string | null;
+  anonymousId?: string | null;
+  email?: string | null;
+  properties: Record<string, unknown>;
+  /** Set to soft-delete the row at insert (merge loser / GDPR erasure). */
+  deletedAt?: Date | null;
+}): Promise<string> {
+  const [row] = await db
+    .insert(contacts)
+    .values({
+      externalId: values.externalId ?? null,
+      anonymousId: values.anonymousId ?? null,
+      email: values.email ?? null,
+      properties: values.properties,
+      deletedAt: values.deletedAt ?? null,
+    })
+    .returning({ id: contacts.id });
+  if (!row) throw new Error("contact insert returned no row");
+  insertedContactIds.push(row.id);
+  return row.id;
+}
+
+describe("canonical-key contact read (T00.4)", () => {
+  it("evaluates property criteria for an ANONYMOUS-keyed contact", async () => {
+    const anonId = uid("anon-keyed");
+    await insertContact({ anonymousId: anonId, properties: { plan: "pro" } });
+
+    // The canonical key of an external_id-less contact IS its anonymous_id —
+    // exactly what ingestEvent passes as userId.
+    const transitions = await check({
+      userId: anonId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toContainEqual({
+      bucketId: PROP_BUCKET_ID,
+      transition: "entered",
+    });
+    expect(await activeRow(anonId, PROP_BUCKET_ID)).toBeDefined();
+  });
+
+  it("evaluates property criteria for an EMAIL-ONLY contact (uuid key)", async () => {
+    const id = await insertContact({
+      email: `${uid("email-only")}@example.com`,
+      properties: { plan: "pro" },
+    });
+
+    // No external_id, no anonymous_id → the canonical key is the uuid id, which
+    // needs the ::text cast to survive the coalesce.
+    const transitions = await check({
+      userId: id,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toContainEqual({
+      bucketId: PROP_BUCKET_ID,
+      transition: "entered",
+    });
+  });
+
+  it("is UNCHANGED for an externally-keyed contact", async () => {
+    const userId = uid("ext-keyed-unchanged");
+    await seedContact(userId, { plan: "pro" });
+
+    const transitions = await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toContainEqual({
+      bucketId: PROP_BUCKET_ID,
+      transition: "entered",
+    });
+    expect(await activeRow(userId, PROP_BUCKET_ID)).toBeDefined();
+  });
+
+  it("does NOT match an externally-keyed contact by its anonymous_id", async () => {
+    const extId = uid("ext-wins");
+    const shadowAnonId = uid("ext-wins-anon");
+    await insertContact({
+      externalId: extId,
+      anonymousId: shadowAnonId,
+      properties: { plan: "pro" },
+    });
+
+    // coalesce precedence mirrors contactKey(): external_id wins, so the row is
+    // NOT reachable under its anonymous_id. A naive OR-across-identity-columns
+    // lookup would wrongly join here.
+    const transitions = await check({
+      userId: shadowAnonId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(transitions).not.toContainEqual({
+      bucketId: PROP_BUCKET_ID,
+      transition: "entered",
+    });
+    expect(await activeRow(shadowAnonId, PROP_BUCKET_ID)).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Live-row predicate. Broadening the read to the canonical key widened the
+  // match set from "one live external_id" to "every row that coalesces here" —
+  // and a soft-deleted MERGE LOSER retains its identity keys (mergeContacts
+  // frees them from the partial-unique indexes, it does not null them) while the
+  // survivor inherits a copy. Both rows coalesce to the same key, so the read
+  // MUST filter to live rows or an unordered limit(1) can answer with the dead
+  // one.
+  // -------------------------------------------------------------------------
+
+  it("matches ONLY the live survivor when a soft-deleted loser shares the key", async () => {
+    const anonId = uid("merge-anon");
+    // The standard anon+email merge outcome: the loser is soft-deleted but KEEPS
+    // anonymous_id, and the survivor (email-only, so external_id stays NULL → its
+    // canonical key IS that anonymous_id) gets a copy. Both rows coalesce to
+    // `anonId`; only `deleted_at IS NULL` tells them apart.
+    const loser = await insertContact({
+      anonymousId: anonId,
+      properties: { plan: "free" },
+      deletedAt: new Date(),
+    });
+    const survivor = await insertContact({
+      anonymousId: anonId,
+      email: `${uid("merge-survivor")}@example.com`,
+      properties: { plan: "pro" },
+    });
+
+    // Assert on the ROW SET the engine's predicate matches, not on a downstream
+    // transition. The production read is `.limit(1)` with no ORDER BY, so an
+    // unguarded version returns whichever of the two rows the heap scan reaches
+    // first — and heap order is NOT stable (free-space reuse from earlier
+    // deletes means insert order does not fix ctid order). A behavioural
+    // assertion therefore only catches a dropped live-filter when the toss goes
+    // the wrong way. Running the predicate itself without the `limit(1)` removes
+    // the toss: drop `isNull(deletedAt)` and this set is [loser, survivor] every
+    // time, whatever the scan order.
+    const matched = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(liveContactByCanonicalKey(anonId));
+    expect(matched.map((r) => r.id).sort()).toEqual([survivor]);
+    expect(matched.map((r) => r.id)).not.toContain(loser);
+
+    // …and the survivor's state — not the loser's stale `plan: "free"` — is what
+    // the bucket evaluates. (This leg pins the behaviour; the set assertion
+    // above is the one that fails deterministically under mutation.)
+    const transitions = await check({
+      userId: anonId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+    expect(transitions).toContainEqual({
+      bucketId: PROP_BUCKET_ID,
+      transition: "entered",
+    });
+    expect(await activeRow(anonId, PROP_BUCKET_ID)).toBeDefined();
+  });
+
+  it("still short-circuits when ONLY a soft-deleted row owns the key", async () => {
+    const anonId = uid("erased-anon");
+    await insertContact({
+      anonymousId: anonId,
+      properties: { plan: "pro" },
+      deletedAt: new Date(),
+    });
+    // An event-criteria bucket joins off userEvents alone, so an erased contact
+    // that fell through to an empty-property evaluation would still be bucketed
+    // (Section 8.6 violation). The live-row read must not lose that guard.
+    await db
+      .insert(userEvents)
+      .values({ userId: anonId, event: SIGNUP_EVENT, properties: {} });
+
+    const transitions = await check({
+      userId: anonId,
+      event: SIGNUP_EVENT,
+      // plan makes the property bucket a candidate too, so the contact read runs.
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toEqual([]);
+    expect(await activeRow(anonId, EVENT_BUCKET_ID)).toBeUndefined();
+    expect(await activeRow(anonId, PROP_BUCKET_ID)).toBeUndefined();
   });
 });
