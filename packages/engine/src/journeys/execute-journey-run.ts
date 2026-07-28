@@ -15,6 +15,7 @@ import {
 import { and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { blueprintGraphLock } from "../lib/blueprint-lock.js";
+import { ALL_IDENTITY_KINDS } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
@@ -424,14 +425,22 @@ export async function executeJourneyRun(
                 registry: getJourneyRegistrySingleton(),
                 hatchet,
                 logger,
-                // Refuse ONLY when nothing was resolved AND nothing is
-                // asserted. An `userEmail` is a durable identity the caller
-                // asserted (D1), so refusing it would change behavior for
-                // identified users; anonymous runs carry `""` here
+                // PRD 06 T4 (L5 row 26): an engine-internal lifecycle emit is
+                // a FULLY trusted caller (L4) — full `trustedKinds`, never a
+                // clamp. It inherits exactly ONE thing from the verdict: the
+                // `create` leg. Refuse ONLY when nothing was resolved AND
+                // nothing is asserted. A `userEmail` is a durable identity the
+                // caller asserted (D1), so refusing it would change behavior
+                // for identified users; anonymous runs carry `""` here
                 // (`ingestEvent` pushes `userEmail ?? ""`), correctly falsy.
-                ...(subjectContactId || userEmail
-                  ? {}
-                  : { allowCreate: false }),
+                policy: {
+                  create:
+                    subjectContactId || userEmail
+                      ? "on-miss"
+                      : "refuse-on-miss",
+                  allowMerge: "any",
+                  trustedKinds: ALL_IDENTITY_KINDS,
+                },
                 event: {
                   event: "journey.heldout",
                   userId,

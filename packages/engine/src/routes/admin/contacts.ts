@@ -8,6 +8,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
+  ALL_IDENTITY_KINDS,
   contactSearchFilter,
   deleteIdentityAliasesForContact,
   identifiedContactFilter,
@@ -524,6 +525,14 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       userId: body.externalId,
       email: body.email,
       contactProperties: body.properties,
+      // PRD 06 T4 (L5 row 14): an admin create asserts identity — the body
+      // carries `externalId`/`email` ONLY, so the narrow `trustedKinds` is the
+      // honest statement; create-on-miss, no clamp. Enforced by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     const created = await resolveContact({ db, id });
@@ -576,6 +585,15 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         email: body.email ?? current.email ?? undefined,
         anonymousId: current.anonymousId ?? undefined,
         contactProperties: body.properties,
+        // PRD 06 T4 (L5 row 15): an admin update re-supplies the row's OWN
+        // identity keys (externalId/anonymousId/email) to ride the
+        // fill-in-link path — an admin may assert any kind, so the full grant
+        // is the honest statement; create-on-miss, no clamp. Enforced by T5.
+        policy: {
+          create: "on-miss",
+          allowMerge: "any",
+          trustedKinds: ALL_IDENTITY_KINDS,
+        },
       });
     } else {
       // Degenerate contact with no identity keys (resolver requires >=1 key):

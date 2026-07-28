@@ -172,8 +172,30 @@ export async function ingestTransformResult(opts: {
    * Only a caller that knows its events are pure OBSERVATION passes `false`.
    */
   allowCreate?: boolean;
+  /**
+   * Explicit caller trust (PRD 06 T4, L5 row 28), forwarded VERBATIM to every
+   * element's {@link ingestEvent} — including its `create` leg, so a
+   * transform-sourced refusal is never silently lost. This helper is a
+   * PASS-THROUGH, not a trust boundary: the caller of `ingestTransformResult`
+   * IS the caller of the resolve, so the whole declaration travels, not just
+   * one leg. Mutually exclusive with the legacy `allowCreate` field —
+   * supplying both shapes throws (no precedence rule exists). Absent ⇒ the
+   * legacy field (or its default) applies unchanged.
+   */
+  policy?: ResolvePolicy;
 }): Promise<{ ingested: number; exits: number }> {
   const { result, db, registry, hatchet, logger, source, analytics } = opts;
+  // PRD 06: EITHER trust shape, never both — enforced HERE, before the loop.
+  // `ingestEvent` would throw the same complaint per element, but this
+  // helper's per-element error isolation would swallow that into a warn and
+  // return `{ ingested: 0 }`, silently converting a caller bug into "no
+  // events". A misdeclared trust shape must fail loudly instead.
+  if (opts.policy && opts.allowCreate !== undefined) {
+    throw new Error(
+      "ingestTransformResult: pass either `policy` or the legacy " +
+        "`allowCreate`, never both — no precedence rule exists",
+    );
+  }
   if (!result) return { ingested: 0, exits: 0 };
   const events = Array.isArray(result) ? result : [result];
   let ingested = 0;
@@ -199,7 +221,11 @@ export async function ingestTransformResult(opts: {
         logger,
         event: { ...event, source },
         analytics,
+        // Exactly one of these is ever set (the mix threw above); an
+        // explicit-`undefined` sibling key does not trip `ingestEvent`'s own
+        // mutual-exclusion guard (it checks `!== undefined`).
         allowCreate: opts.allowCreate,
+        policy: opts.policy,
       });
       ingested++;
       exits += r.exits.length;

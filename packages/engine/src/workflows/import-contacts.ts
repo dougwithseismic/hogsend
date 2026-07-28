@@ -130,6 +130,16 @@ export const importContactsTask = hatchet.task({
             userId: row.externalId,
             email: row.email,
             contactProperties: row.properties,
+            // PRD 06 T4 (L5 row 21): an operator import asserts identity by
+            // externalId/email only (the key guard above rejects rows with
+            // neither; `phone` attaches OUTSIDE the resolver, below) — so
+            // create-on-miss, no clamp, and the narrow `trustedKinds` is the
+            // honest statement. Enforced by T5.
+            policy: {
+              create: "on-miss",
+              allowMerge: "any",
+              trustedKinds: ["external", "email"],
+            },
           }).then(async (result) => {
             await attachPhone(db, result.id, row.phone);
             return { index: i + idx, ok: true };

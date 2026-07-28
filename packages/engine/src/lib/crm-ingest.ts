@@ -89,6 +89,15 @@ export async function ingestCrmStageEvents(opts: {
         const resolved = await resolveOrCreateContact({
           db,
           email: event.email,
+          // PRD 06 T4 (L5 row 20): a CRM webhook asserts identity by email
+          // only, so create-on-miss (a named CRM contact is an assertion, not
+          // observation), no clamp, and the narrow `trustedKinds` is the
+          // honest statement of what this caller supplies. Enforced by T5.
+          policy: {
+            create: "on-miss",
+            allowMerge: "any",
+            trustedKinds: ["email"],
+          },
         });
         contactId = resolved.id;
         canonicalKey = resolved.resolvedKey;

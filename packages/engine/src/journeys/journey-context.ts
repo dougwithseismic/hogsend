@@ -47,6 +47,7 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { ALL_IDENTITY_KINDS } from "../lib/contacts.js";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { countRecentSends } from "../lib/frequency-cap.js";
 import { toSleepDuration } from "../lib/hatchet-duration.js";
@@ -1315,7 +1316,16 @@ export function createJourneyContext(
           registry,
           hatchet,
           logger,
-          ...(assertsIdentity ? {} : { allowCreate: false }),
+          // PRD 06 T4 (L5 row 25): an engine-internal re-emit is a FULLY
+          // trusted caller regardless of what authenticated the originating
+          // request (L4) — full `trustedKinds`, never a clamp. The ONE thing
+          // it inherits from the verdict above is the `create` leg, keyed off
+          // the same `assertsIdentity` derivation as before.
+          policy: {
+            create: assertsIdentity ? "on-miss" : "refuse-on-miss",
+            allowMerge: "any",
+            trustedKinds: ALL_IDENTITY_KINDS,
+          },
           event: {
             event,
             userId: targetUserId,

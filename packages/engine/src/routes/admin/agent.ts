@@ -21,6 +21,7 @@ import { effectiveTier } from "../../lib/agent/risk.js";
 import { buildAgentSystemPrompt } from "../../lib/agent/system-prompt.js";
 import { buildAgentTools } from "../../lib/agent/tools.js";
 import {
+  ALL_IDENTITY_KINDS,
   resolveContact,
   resolveOrCreateContact,
   softDeleteContact,
@@ -297,6 +298,15 @@ agentRouter.post("/confirm", async (c) => {
           db,
           userId: args.userId as string | undefined,
           email: args.email as string | undefined,
+          // PRD 06 T4 (L5 row 16): the subscribe/unsubscribe tool takes an
+          // email/userId only (the 400 above rejects neither-key calls), so
+          // the narrow `trustedKinds` is the honest statement; create-on-miss,
+          // no clamp. Enforced by T5.
+          policy: {
+            create: "on-miss",
+            allowMerge: "any",
+            trustedKinds: ["external", "email"],
+          },
         });
         try {
           await applyListMembership({
@@ -327,6 +337,14 @@ agentRouter.post("/confirm", async (c) => {
           email: args.email as string | undefined,
           anonymousId: args.anonymousId as string | undefined,
           contactProperties: (args.properties ?? {}) as Record<string, unknown>,
+          // PRD 06 T4 (L5 row 17): an admin-agent upsert may assert any kind
+          // (the tool accepts userId/email/anonymousId) — full grant,
+          // create-on-miss, no clamp. Enforced by T5.
+          policy: {
+            create: "on-miss",
+            allowMerge: "any",
+            trustedKinds: ALL_IDENTITY_KINDS,
+          },
         });
         break;
 
@@ -339,6 +357,14 @@ agentRouter.post("/confirm", async (c) => {
           email: (args.email as string) ?? current.email ?? undefined,
           anonymousId: current.anonymousId ?? undefined,
           contactProperties: (args.properties ?? {}) as Record<string, unknown>,
+          // PRD 06 T4 (L5 row 18): the update tool re-supplies the row's OWN
+          // keys to ride the fill-in-link path (mirrors the admin update
+          // route) — full grant, create-on-miss, no clamp. Enforced by T5.
+          policy: {
+            create: "on-miss",
+            allowMerge: "any",
+            trustedKinds: ALL_IDENTITY_KINDS,
+          },
         });
         break;
       }

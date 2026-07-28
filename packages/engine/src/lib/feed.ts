@@ -7,6 +7,8 @@ import {
 import { IN_APP_LIST_ID } from "../lists/channels.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import {
+  ALL_IDENTITY_KINDS,
+  type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,
   resolveRecipient,
@@ -180,11 +182,23 @@ export async function sendFeedItem(
     !recipient.email?.trim() &&
     !recipient.userId?.trim() &&
     !!recipient.anonymousId?.trim();
+  // PRD 06 T4 (L5 rows 10-11): trust is DECLARED by this caller. A feed send
+  // is a journey/server-side write, never a browser assertion, so it declares
+  // full server trust — `allowMerge: "any"` (no clamp) and all four kinds.
+  // Only the `create` leg varies, keyed off the SAME `refusable` verdict that
+  // selects the entry point below, so the policy and the entry point can
+  // never disagree (each entry point throws on a mismatched `create`).
+  const policy: ResolvePolicy = {
+    create: refusable ? "refuse-on-miss" : "on-miss",
+    allowMerge: "any",
+    trustedKinds: ALL_IDENTITY_KINDS,
+  };
   const resolveOpts = {
     db,
     userId: recipient.userId,
     email: recipient.email,
     anonymousId: recipient.anonymousId,
+    policy,
   };
   const { id: contactId, resolvedKey } = refusable
     ? await resolveContactNoCreate(resolveOpts)
