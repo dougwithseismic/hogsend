@@ -11,7 +11,17 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -261,6 +271,56 @@ export function contactSearchFilter(search: string) {
     ilike(contacts.anonymousId, `%${search}%`),
     ilike(contacts.discordId, `%${search}%`),
   );
+}
+
+/**
+ * "Has this person EVER identified?" — the single display predicate behind
+ * `GET /v1/admin/contacts?identity=…` and Studio's identified-only default.
+ *
+ * FOUR columns, not two. `external_id` and `email` are the obvious pair, but
+ * `contacts.discord_id` and `contacts.phone` are documented in the schema as
+ * RESOLVABLE identity keys, NOT properties (`schema/contacts.ts:34-53`), each
+ * carrying its own live partial-unique index. A Discord-linked community
+ * member and an SMS-only subscriber have both identified; dropping either leg
+ * makes a real customer vanish from the default list. `anonymous_id` is
+ * deliberately absent — it is exactly what this predicate exists to exclude.
+ *
+ * The complement is `not(identifiedContactFilter())`, and it is EXACT: every
+ * operand is `IS NOT NULL`, which never yields NULL, so three-valued logic
+ * cannot swallow a row under the negation. Hence
+ * `total(identified) + total(anonymous) === total(all)`, and the rare keyless
+ * row (no identity column at all — the engine already handles those by uuid)
+ * lands in `anonymous`, which is the truthful bucket for it.
+ *
+ * FUTURE (PRD 02/03) — the swap is this function body and nothing else:
+ *
+ * ```ts
+ * or(
+ *   sql`exists (select 1 from contact_aliases ca
+ *               where ca.contact_id = ${contacts.id} and ca.alias_kind <> 'anonymous')`,
+ *   isNotNull(contacts.phone),
+ * )
+ * ```
+ *
+ * Two ordering rules govern it. (1) It is correct only AFTER PRD 02's alias
+ * backfill is verified — today `contact_aliases` is written only on
+ * merge/promote, so the `EXISTS` would read as "never identified" for almost
+ * everyone and empty the list. (2) The `phone` leg SURVIVES the swap: PRD 02
+ * deliberately excludes phone from both the backfill and the dual-write
+ * (phone is not yet a merge-participating `Kind`), so a phone-only contact has
+ * no non-anonymous alias row. That leg retires only when phone joins the
+ * identity table.
+ */
+export function identifiedContactFilter(): SQL {
+  // `or()` is typed `SQL | undefined` because it tolerates undefined operands.
+  // All four here are statically present, so the result is never undefined —
+  // the assertion narrows the type, it does not assert anything at runtime.
+  return or(
+    isNotNull(contacts.externalId),
+    isNotNull(contacts.email),
+    isNotNull(contacts.discordId),
+    isNotNull(contacts.phone),
+  ) as SQL;
 }
 
 /**

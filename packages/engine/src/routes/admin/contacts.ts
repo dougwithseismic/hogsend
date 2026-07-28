@@ -5,10 +5,11 @@ import {
   groups,
 } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   contactSearchFilter,
+  identifiedContactFilter,
   resolveContact,
   resolveOrCreateContact,
   serializeContact as serializeContactRow,
@@ -78,12 +79,33 @@ const listRoute = createRoute({
   path: "/",
   tags: ["Admin"],
   summary: "List contacts",
+  description:
+    "Paginated contact list. `identity` narrows the list by whether the " +
+    "contact has EVER identified — i.e. holds an `externalId`, `email`, " +
+    "`discordId` or `phone` (`anonymousId` alone does not count). It " +
+    "defaults to `all`, so existing callers (`hogsend contacts list`, the " +
+    "Studio contact picker) are unaffected; only Studio's contacts screen " +
+    "opts in to `identified`. `identified` and `anonymous` are exact " +
+    "complements under the same other filters, and `total` reflects the " +
+    "filter.",
   request: {
     query: z
       .object({
         limit: z.coerce.number().min(1).max(100).default(50),
         offset: z.coerce.number().min(0).default(0),
         search: z.string().optional(),
+        /**
+         * Display filter (PRD 01) over "has this person ever identified?".
+         *
+         * The default is `all` ON PURPOSE and must stay that way: two
+         * consumers other than Studio's contacts list call this route and
+         * neither should silently change — the published `hogsend contacts
+         * list` CLI (output is scripted against) and Studio's contact
+         * picker (an anonymous contact is a legitimate pick when a journey
+         * or test is aimed at an anon key). Flipping this default is an
+         * API behaviour change, not a display tweak.
+         */
+        identity: z.enum(["all", "identified", "anonymous"]).default("all"),
         // Long-tail value filters (plan §4b.3): the "find my value customers"
         // query surface.
         minRevenue: z.coerce.number().optional(),
@@ -293,6 +315,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       limit,
       offset,
       search,
+      identity,
       minRevenue,
       dealStage,
       orderBy,
@@ -378,8 +401,20 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         )`
       : undefined;
 
+    // PRD 01 — one conjunct, one predicate (`identifiedContactFilter`), so
+    // `identified` and `anonymous` stay exact complements. It rides the SAME
+    // `where` as every other filter below, which is what keeps the page query
+    // and the `count()` in lockstep.
+    const identityFilter =
+      identity === "identified"
+        ? identifiedContactFilter()
+        : identity === "anonymous"
+          ? not(identifiedContactFilter())
+          : undefined;
+
     const where = and(
       isNull(contacts.deletedAt),
+      ...(identityFilter ? [identityFilter] : []),
       ...(searchFilter ? [searchFilter] : []),
       ...(revenueFilter ? [revenueFilter] : []),
       ...(dealStageFilter ? [dealStageFilter] : []),

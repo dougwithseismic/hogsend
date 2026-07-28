@@ -396,7 +396,10 @@ export {
 // --- Contacts identity (resolve/create — used by connector member-link) ---
 // `resolveContactNoCreate` is the refuse-on-miss sibling (D1): same resolution,
 // but pure observation never mints a `contacts` row.
+// `identifiedContactFilter` is the read-side counterpart (PRD 01): the single
+// "has this person ever identified?" predicate behind `?identity=`.
 export {
+  identifiedContactFilter,
   resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./lib/contacts.js";

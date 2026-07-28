@@ -980,6 +980,13 @@ export type ContactPreferences = {
 
 export type ContactListFilters = {
   search?: string;
+  /**
+   * PRD 01 display filter: has this contact EVER identified (holds an
+   * `externalId`, `email`, `discordId` or `phone`)? The SERVER defaults to
+   * `all` — only the contacts screen opts in to `identified`, which is what
+   * keeps `hogsend contacts list` and the contact picker unchanged.
+   */
+  identity?: "all" | "identified" | "anonymous";
   /** Long-tail value filter: sum of the contact's valued events ≥ this. */
   minRevenue?: number;
   /** Has a deal currently in this canonical stage. */
@@ -1007,6 +1014,7 @@ export function listContacts(filters: ContactListFilters = {}) {
   }>("/v1/admin/contacts", {
     query: {
       search: filters.search || undefined,
+      identity: filters.identity,
       minRevenue: filters.minRevenue,
       dealStage: filters.dealStage || undefined,
       limit: filters.limit ?? 50,
