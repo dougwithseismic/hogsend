@@ -115,7 +115,9 @@ event a member emits when they surface in your server — so the summon can
 land the moment they appear, as in the
 [quiet-members recipe](/docs/recipes/re-engage-quiet-discord-members).
 Presence is an activity stream, not an online-status lookup: you can act
-when someone shows up, not check who's online.
+when someone shows up, not check who's online. It is also opt-in: the
+gateway worker leaves the `GUILD_PRESENCES` intent out of its default
+bitfield, so this variant needs you to ask for the presence feed first.
 
 ## How you'll know
 

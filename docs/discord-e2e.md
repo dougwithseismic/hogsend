@@ -33,6 +33,11 @@ The four mapped dispatches and the event name each becomes:
 | member joins the server | `GUILD_MEMBER_ADD`    | `discord.member_joined`   |
 | member comes online     | `PRESENCE_UPDATE`     | `discord.presence_active` |
 
+`PRESENCE_UPDATE` is the odd one out: the worker does not request
+`GUILD_PRESENCES` by default, so the dispatch never arrives and the last row
+stays dormant unless you pass an explicit `intents` bitfield. The rest of this
+runbook uses a message as the worked example.
+
 ---
 
 ## Two legs, two fidelities
@@ -106,9 +111,10 @@ https://discord.com/developers/applications → **New Application**.
 Collect these four values (they map 1:1 to `apps/api/.env.discord.example`):
 
 - **Bot** tab → **Reset Token** → `DISCORD_BOT_TOKEN`.
-  On the same tab, enable the three **Privileged Gateway Intents**:
-  **SERVER MEMBERS**, **MESSAGE CONTENT**, **PRESENCE**. If any is off,
+  On the same tab, enable the two **Privileged Gateway Intents** the worker
+  requests: **SERVER MEMBERS** and **MESSAGE CONTENT**. If either is off,
   `login()` rejects with a disallowed-intents error and the worker exits.
+  Leave **PRESENCE** off: `GUILD_PRESENCES` is not in the default bitfield.
 - **OAuth2** tab → **Client ID** (= the General Information **Application ID**)
   → `DISCORD_APPLICATION_ID`.
 - **OAuth2** tab → **Client Secret** (Reset Secret to reveal) →
@@ -268,7 +274,7 @@ discord gateway worker connected
 ```
 
 If you instead see a disallowed-intents rejection, go back to the Bot tab and
-toggle on SERVER MEMBERS / MESSAGE CONTENT / PRESENCE.
+toggle on SERVER MEMBERS / MESSAGE CONTENT.
 
 **Invite the bot to your server** so it can see events. Two options: open the
 server-minted one-click install URL from
@@ -292,7 +298,10 @@ In your Discord server, in a channel the bot can see, do any of:
 - **post a message** → `discord.message_sent`
 - **add a reaction** to a message → `discord.reaction_added`
 - **have someone join** the server → `discord.member_joined`
-- **come online** (presence) → `discord.presence_active`
+
+Coming online does **not** work as a check: `discord.presence_active` needs
+`GUILD_PRESENCES`, which the worker does not request by default. Post a message
+instead.
 
 Watch the chain light up:
 

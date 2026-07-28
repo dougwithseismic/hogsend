@@ -1,6 +1,6 @@
 ---
 title: Discord
-description: Turn a Discord server into a Hogsend event source — messages, reactions, joins, and presence flow in as discord.* events over an inline Gateway socket inside the Hatchet worker, contacts link their email with a /link command that emails a one-click confirm link, and an outbound destination posts lifecycle events to a channel.
+description: Turn a Discord server into a Hogsend event source — messages, reactions, and joins flow in as discord.* events over an inline Gateway socket inside the Hatchet worker (presence is opt-in), contacts link their email with a /link command that emails a one-click confirm link, and an outbound destination posts lifecycle events to a channel.
 ---
 
 `@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It ships two parts under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs **inline inside the existing Hatchet worker** — gated by a Redis **leader lease** so exactly one replica holds it per bot token — and feeds `transform → ingestEvent` **in process**. There is no separate Discord worker and no HTTP ingress hop on the default path.
@@ -11,9 +11,9 @@ description: Turn a Discord server into a Hogsend event source — messages, rea
 
 ## What it does
 
-**In** — four Discord Gateway dispatches become `discord.*` events. Each runs through the same [ingestion pipeline](/docs/data-api/events) as PostHog and the REST API: stored in `user_events`, routed to matching journeys, exit-checked, and upserted onto a contact.
+**In** — three Discord Gateway dispatches become `discord.*` events out of the box, and a fourth (presence) is opt-in. Each runs through the same [ingestion pipeline](/docs/data-api/events) as PostHog and the REST API: stored in `user_events`, routed to matching journeys, exit-checked, and upserted onto a contact.
 
-- `discord.message_sent`, `discord.reaction_added`, `discord.member_joined`, `discord.presence_active` — see [Events](#events) for the full mapping.
+- `discord.message_sent`, `discord.reaction_added`, `discord.member_joined` — see [Events](#events) for the full mapping. `discord.presence_active` needs the `GUILD_PRESENCES` intent, which is [not requested by default](#presence-is-opt-in).
 - A contact gains a `discord_id` identity and a `contacts.properties.discord` metadata object.
 
 **Out** — `discordDestination` posts one Discord-markdown line per lifecycle event to a channel (incoming webhook preferred, bot-REST as the alt) on the durable outbound spine. See [Outbound](#outbound-the-destination) and the [Destinations guide](/docs/guides/destinations). Journeys can also send to Discord directly with `sendConnectorAction(...)` — see [Outbound actions](#outbound-actions-from-a-journey).
@@ -23,7 +23,7 @@ description: Turn a Discord server into a Hogsend event source — messages, rea
 The Gateway socket runs **inline inside the Hatchet worker** — the same process that already executes your journey tasks. There is no separate Discord service, and no shared ingress secret on the default path.
 
 ```
-real Discord activity (message / reaction / join / presence)
+real Discord activity (message / reaction / join)
   → discord.js Gateway socket   (INLINE in the Hatchet worker, leader replica only)
   → in-process: connector.transform(dispatch)  →  ingestEvent(...)
   → user_events row + contact upsert (discord_id key + properties.discord) + journey routing
@@ -61,9 +61,11 @@ The eight steps below are the canonical order. Every value, route, env name, and
 
 In the [Discord Developer Portal](https://discord.com/developers/applications), click **New Application**. Each self-hosted deploy runs its own single-tenant Discord app.
 
-### 2. Add a bot and toggle the three privileged intents
+### 2. Add a bot and toggle the two privileged intents
 
-On the **Bot** tab, click **Reset Token** (this value is `DISCORD_BOT_TOKEN`). On the same tab, enable the three **Privileged Gateway Intents**: **Message Content**, **Server Members**, **Presence**. Toggle all three **before** the worker gets the token: if any is off, `discord.js` `login()` rejects with a disallowed-intents error and the inline runtime fails to start (it releases the lease so another replica or a fixed redeploy re-races cleanly).
+On the **Bot** tab, click **Reset Token** (this value is `DISCORD_BOT_TOKEN`). On the same tab, enable the two **Privileged Gateway Intents** the worker requests: **Message Content** and **Server Members**. Toggle both **before** the worker gets the token: if either is off, `discord.js` `login()` rejects with a disallowed-intents error and the inline runtime fails to start (it releases the lease so another replica or a fixed redeploy re-races cleanly).
+
+Leave the third toggle, **Presence**, off. `createDiscordGatewayWorker` does not put `GUILD_PRESENCES` in its default bitfield, so enabling it in the portal alone changes nothing: see [Presence is opt-in](#presence-is-opt-in).
 
 ### 3. Collect four values from the portal
 
@@ -376,7 +378,7 @@ curl -s "https://api.example.com/v1/admin/connectors/discord/connect-info" \
 `workerOnline: true` ⇒ a lease-holder owns the socket. Then post a message in a channel the bot can see and confirm a `discord.message_sent` row lands in `user_events`.
 
 <Callout type="info">
-  The runtime refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 2 first. On a failed start the runtime releases the lease, so another replica (or a fixed redeploy) re-races cleanly.
+  The runtime refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the two intents in step 2 first. On a failed start the runtime releases the lease, so another replica (or a fixed redeploy) re-races cleanly.
 </Callout>
 
 To explicitly **disable** the inline runtime (e.g. you run the standalone hatch instead), set `ENABLE_CONNECTOR_RUNTIMES=false` on the worker (the env is a literal enum — `"false"` actually disables it).
@@ -447,6 +449,8 @@ The four Discord Gateway dispatches and their Hogsend event names:
 | `MESSAGE_REACTION_ADD` | `discord.reaction_added` |
 | `GUILD_MEMBER_ADD` | `discord.member_joined` |
 | `PRESENCE_UPDATE` | `discord.presence_active` |
+
+The first three arrive out of the box. `PRESENCE_UPDATE` does not: see [Presence is opt-in](#presence-is-opt-in).
 
 Noise is dropped (the transform returns `null`): bot, webhook, and system messages; bot members; and `offline` / absent presence. Each event carries a deterministic `idempotencyKey` (`discord:msg:…`, `discord:react:…`, `discord:join:…`, `discord:presence:…`), so the at-least-once Gateway (RESUME replays) dedupes on `user_events.idempotencyKey` rather than re-firing your journeys.
 
@@ -554,7 +558,71 @@ The inbound socket has no inbound network surface to authenticate — it dials D
 
 ### Privileged intents & ToS
 
-The four events require three privileged Gateway intents: `MESSAGE_CONTENT`, `GUILD_MEMBERS`, and `GUILD_PRESENCES`. These are a self-serve portal toggle under 10,000 users / 100 guilds — no Discord review or verification at that scale. This is **Discord policy, not code behavior**. Each self-hosted deploy runs its **own** Discord app (single-tenant).
+The three default events require two privileged Gateway intents: `MESSAGE_CONTENT` and `GUILD_MEMBERS`. The fourth, `discord.presence_active`, requires a third (`GUILD_PRESENCES`) that the worker does not request by default. All three are a self-serve portal toggle under 10,000 users / 100 guilds — no Discord review or verification at that scale. This is **Discord policy, not code behavior**. Each self-hosted deploy runs its **own** Discord app (single-tenant).
+
+### Presence is opt-in
+
+`createDiscordGatewayWorker` leaves `GUILD_PRESENCES` out of its default intents bitfield, so `PRESENCE_UPDATE` never reaches the socket and `discord.presence_active` never fires. Presence was the highest-volume, lowest-value feed on the gateway: every member flipping offline to online produced an ingest keyed on nothing but a snowflake.
+
+The transform arm is untouched, so the intent is the only switch. To opt back in, toggle **Presence** in the portal **and** pass an explicit bitfield. The shape depends on which host runs the socket. On [the standalone host](#legacy-the-standalone-worker-path) (`CONNECTOR_RUNTIME_HOST=standalone`), the worker keeps the HTTP ingress hop, so it takes a real `apiPublicUrl` + `ingressSecret` and no `poster`:
+
+```ts title="standalone host (CONNECTOR_RUNTIME_HOST=standalone)"
+createDiscordGatewayWorker({
+  botToken,
+  apiPublicUrl,
+  ingressSecret,
+  intents:
+    DISCORD_INTENTS.GUILDS |
+    DISCORD_INTENTS.GUILD_MEMBERS |
+    DISCORD_INTENTS.GUILD_MESSAGES |
+    DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
+    DISCORD_INTENTS.MESSAGE_CONTENT |
+    DISCORD_INTENTS.GUILD_PRESENCES,
+});
+```
+
+On the default worker-hosted runtime there is no ingress hop, and `createDiscordRuntime` does not forward an `intents` option, so a deploy that wants presence supplies its own `ConnectorRuntime` around `createDiscordGatewayWorker`. Mirror what `createDiscordRuntime` does, adding the intent:
+
+```ts title="src/worker.ts (worker-hosted, presence on)"
+import { type ConnectorRuntimeDeps, createWorker } from "@hogsend/engine";
+import { DISCORD_INTENTS } from "@hogsend/plugin-discord";
+import { createDiscordGatewayWorker } from "@hogsend/plugin-discord/gateway";
+
+function discordWithPresence(deps: ConnectorRuntimeDeps) {
+  const botToken = process.env.DISCORD_BOT_TOKEN;
+  if (!botToken) return null; // engine skips Discord, holds no lease
+
+  const socket = createDiscordGatewayWorker({
+    botToken,
+    // Unused inline: the poster below replaces the HTTP ingress hop.
+    apiPublicUrl: "",
+    ingressSecret: "",
+    poster: async ({ dispatchType, data }) => deps.ingest(dispatchType, data),
+    onGuildObserved: (guildId) => deps.onMetadata({ guildId }),
+    intents:
+      DISCORD_INTENTS.GUILDS |
+      DISCORD_INTENTS.GUILD_MEMBERS |
+      DISCORD_INTENTS.GUILD_MESSAGES |
+      DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
+      DISCORD_INTENTS.MESSAGE_CONTENT |
+      DISCORD_INTENTS.GUILD_PRESENCES,
+  });
+
+  return {
+    start: () => socket.start(),
+    stop: () => socket.stop(),
+    getMetadata: () => ({ intents: socket.getIntents() }),
+  };
+}
+
+const worker = createWorker({
+  container: client,
+  journeys,
+  connectorRuntimes: { discord: discordWithPresence },
+});
+```
+
+The custom runtime **must** pass `poster`: without it `forwardDispatch` falls back to the legacy HTTP POST to `/v1/connectors/discord/ingress`, which 401s on a worker-hosted deploy that correctly leaves `CONNECTOR_INGRESS_SECRET` unset, so every dispatch is dropped silently.
 
 Discord's terms still bind regardless of the toggle: no ML-training on message content, a public privacy policy, user opt-out and deletion, and data minimization. Hogsend stores **derived signals** — `last_seen`, counts, metadata — not raw message bodies.
 
