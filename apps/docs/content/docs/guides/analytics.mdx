@@ -1,0 +1,141 @@
+---
+title: The analytics API
+description: getAnalytics() — the vendor-neutral accessor journeys reach for. What each method does, when it returns undefined, which calls are replay-safe, and how to migrate off getPostHog().
+---
+
+Journeys, workflows and route handlers reach the analytics wire through one
+accessor:
+
+```ts
+import { getAnalytics } from "@hogsend/engine";
+
+await getAnalytics()?.setPersonProperties({
+  distinctId: user.id,
+  set: { activated: true },
+});
+```
+
+That is the whole entry point. It returns the **active**
+`AnalyticsProvider` — the vendor-neutral contract from `@hogsend/core` — or
+`undefined` when the deployment has none configured.
+
+<Callout type="warn">
+  `getPostHog()` **has been removed** from `@hogsend/engine`. There is no shim
+  and no re-export alias: the import fails to compile, on purpose. See
+  [Migrating from `getPostHog`](#migrating-from-getposthog) below.
+</Callout>
+
+## Why an accessor and not a PostHog client
+
+The engine's position is that PostHog is an optional plugin and never
+load-bearing. An accessor named after one vendor contradicts that in the one
+place it is most visible — the public API — and it also lied in practice:
+swapping the `analytics` option on `createHogsendClient` did not change what a
+PostHog-shaped singleton handed back.
+
+`getAnalytics()` returns whatever provider the container resolved, so swapping
+`analytics` actually swaps what your journeys get. Vendor-**named** exports
+still exist for vendor-**specific** work (`lookupPostHogPerson`,
+`EXPECTED_POSTHOG_SCOPES`, `seedPostHogDestination`) — those name PostHog
+because they *are* PostHog. This one is the general-purpose wire.
+
+## The optional chain is not defensive style
+
+Always call it as `getAnalytics()?.…`. The `?.` is load-bearing, not habit:
+
+- **No provider configured** — a deployment with no `POSTHOG_API_KEY` (and no
+  other provider) resolves nothing. Every feature degrades to a documented
+  no-op rather than throwing.
+- **No container in this process yet.** The value is installed by
+  `createHogsendClient`, so it reads `undefined` until one has been built **in
+  the same process**. The API and worker both build one at boot, so journeys,
+  workflows and handlers are always covered. A standalone script that never
+  builds a container is not — and will capture into the void, silently.
+
+If you are writing a one-off script and want analytics, build a container
+first.
+
+## Surface
+
+| Method | Shape | Notes |
+|---|---|---|
+| `capture` | `{ distinctId, event, properties?, groups? }` → `void` | Fire-and-forget. `groups` forwards as `$groups` on providers with group analytics; ignored by those without. |
+| `setPersonProperties` | `{ distinctId, set?, setOnce?, unset? }` → `Promise<void>` | `set` overwrites, `setOnce` writes only if absent, `unset` REMOVES keys. |
+| `getPersonProperties` | `(distinctId)` → `Promise<Record<string, unknown>>` | Soft-fails to `{}` when person reads are unavailable. |
+| `groupIdentify?` | `{ groupType, groupKey, properties? }` → `void` | Optional. Absent on providers without group analytics. |
+| `shutdown?` | `()` → `Promise<void>` | Flush a buffered capture queue. Call on graceful shutdown. |
+| `meta` / `capabilities` | — | Who the provider is, and what it can actually do. |
+
+### Check `capabilities`, don't assume
+
+```ts
+const analytics = getAnalytics();
+if (analytics?.capabilities.personReads) {
+  const props = await analytics.getPersonProperties(user.id);
+}
+```
+
+`personReads` in particular is commonly **false** on a working install: PostHog's
+project key (`phc_…`) is write-only by their design, so reads need a personal
+API key as well. Without it `getPersonProperties` soft-fails to `{}` and the
+engine's fallbacks take over — see
+[Analytics access & identity](/docs/guides/analytics-access) for the two-credential
+model and why it exists.
+
+`unset` deserves a note: it removes the key rather than writing `false`. That
+matters because "key = false" and "key is not set" are different cohort
+predicates in most analytics tools, and only one of them means *not a member*.
+
+## Replay safety
+
+Journeys are durable tasks that replay from the top on a worker crash, OOM or
+redeploy. That makes the two write calls behave very differently:
+
+- **`setPersonProperties` is replay-safe.** It is a `$set` upsert, so re-running
+  it lands the same state. Prefer a **recorded** timestamp (the matched event's
+  `occurredAt` from `ctx.waitForEvent`) over `new Date()`, which drifts on replay.
+- **`capture` is NOT idempotent.** A replay emits the event again. Avoid it
+  inside journeys; if you need a journey-visible event, use `ctx.trigger()`,
+  which the engine keys for exactly-once delivery across a replay.
+
+Note that `setPersonProperties` returns a promise while the old `identify()` did
+not. Inside a durable task, an **unawaited** promise can be abandoned when the
+run completes, silently losing the write — so `await` it. The cost is that a
+slow provider extends the run and a rejecting one fails the enrollment, which is
+usually the trade you want for a write worth making at all.
+
+## Migrating from `getPostHog`
+
+Most call sites are a rename:
+
+```ts
+// before
+getPostHog()?.shutdown();
+getPostHog()?.getPersonProperties(user.id);
+
+// after
+getAnalytics()?.shutdown?.();
+getAnalytics()?.getPersonProperties(user.id);
+```
+
+`identify` is the one that changes shape — positional arguments become a single
+options object, and the property bag moves under `set`:
+
+```ts
+// before
+getPostHog()?.identify(user.id, { nps_score: score });
+
+// after
+await getAnalytics()?.setPersonProperties({
+  distinctId: user.id,
+  set: { nps_score: score },
+});
+```
+
+`isFeatureEnabled` was **dropped**, not migrated. It had no live call sites and
+the legacy adapter already discarded it. For flags, see
+[Feature flags](/docs/flags) — Hogsend's own flag system does not route
+through the analytics provider.
+
+The break is a compile error by design. A deprecated shim would have turned a
+build failure into "analytics quietly stopped working", discovered weeks later.

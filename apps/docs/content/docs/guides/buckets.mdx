@@ -177,7 +177,25 @@ Each mutation returns `{ emitted, epoch, verdict }`, so a caller can tell "wrote
 
 Pass `emit: false` on the add to materialize an existing population **without** firing transitions into live journeys (verdict `seeded`) — the same rule backfill applies to dynamic buckets. Use it for the initial import; use the default for live changes.
 
-Mutating a bucket that is not `kind: "manual"` is refused with a 409: its membership is owned by its criteria, and an explicit write would be reverted by the next evaluation.
+Mutating a bucket that is not `kind: "manual"` is refused with a 409: its membership is owned by its criteria, and an explicit write would be reverted by the next evaluation. A **disabled** bucket is refused with a 409 too — `enabled: false` is the operator's kill switch, and accepting a write would emit `bucket:entered:<id>` into live journeys from a bucket that is supposed to be off.
+
+**Bulk seeding** additionally skips any `userId` no **live** contact owns — one erased or merged away. Such a row would be invisible to every sweep (they all join live contacts), so it would sit `active` forever with no path out, inflating bucket size and membership stats. Skipped rather than thrown, because one stale id in a 40k import must not abort the other 39,999, and the count comes back as `skippedNoContact` so you can tell "seeded nothing because everyone was already a member" from "seeded nothing because every id was dead".
+
+<Callout type="warn">
+  The single-member `POST` does **not** yet apply that check: it will write a
+  row and emit for a `userId` with no live contact. Gate on the contact
+  existing before you call it. Making the endpoint refuse is a behavioural
+  change that first needs a decision on erased-versus-not-yet-created, since
+  lazy contact creation by ingest is a legitimate flow.
+</Callout>
+
+### What happens to a deferred leave
+
+A leave inside `minDwell` is recorded as a pending intent on the row, carrying both its deadline **and** the caller's `emit` choice, and the reconcile cron resolves it. Three consequences worth knowing:
+
+- Removing `minDwell` from the bucket afterwards, or disabling the bucket, does **not** strand the member. The pass keys on the pending intent, not on the bucket's current config. A disabled bucket still *finishes* work accepted while it was enabled — with the emit suppressed, because a kill switch stops a bucket discovering new work, not from completing what it already accepted.
+- Re-adding the member before the deadline **disarms** the deferral, and the cron will not later flip a member you have re-added.
+- If the member also hits `maxDwell` in the meantime, the deferred leave still wins the reason: you get `reason: "manual"` (an operator removed them; `minDwell` merely delayed it), not `reason: "maxDwell"`. A leave that was suppressed with `emit: false` stays silent even then.
 
 ## Membership criteria
 
