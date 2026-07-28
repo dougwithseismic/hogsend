@@ -18,7 +18,7 @@ export const userEvents = pgTable(
     organizationId: text("organization_id"),
     userId: text("user_id").notNull(),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
     contactId: uuid("contact_id"),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
@@ -67,5 +67,16 @@ export const userEvents = pgTable(
       table.occurredAt,
     ),
     uniqueIndex("user_events_idempotency_key_idx").on(table.idempotencyKey),
+    // PRD 04 D2 — PARTIAL btree on the owning contact. Partial because the
+    // column is 100% NULL when the migration runs (so the build is a heap scan
+    // with zero index writes, the cheapest possible version of an expensive
+    // statement), it stays small through the additive era, and it permanently
+    // excludes the rows that legitimately have no contact. It still serves the
+    // `WHERE contact_id = $1` probes the merge repoint issues: the planner can
+    // prove `contact_id = $1` implies `contact_id IS NOT NULL`, so the
+    // predicate is not a barrier (asserted by an EXPLAIN test, not assumed).
+    index("user_events_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );

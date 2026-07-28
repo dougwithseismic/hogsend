@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   jsonb,
@@ -31,7 +32,7 @@ export const emailSends = pgTable(
     userId: text("user_id"),
     userEmail: text("user_email"),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
     contactId: uuid("contact_id"),
     templateKey: text("template_key"),
     messageId: text("message_id"),
@@ -89,5 +90,10 @@ export const emailSends = pgTable(
     // Idempotency dedup for POST /v1/emails (NULLs are distinct in Postgres, so
     // unkeyed journey/system sends never collide).
     uniqueIndex("email_sends_idempotency_key_idx").on(table.idempotencyKey),
+    // PRD 04 D2 — PARTIAL btree on the owning contact; see the twin on
+    // user_events for why the predicate is not a barrier to `contact_id = $1`.
+    index("email_sends_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );
