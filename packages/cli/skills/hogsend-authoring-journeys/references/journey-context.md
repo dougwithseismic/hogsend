@@ -258,8 +258,11 @@ orchestration:
   `POSTHOG_PERSONAL_API_KEY` (the project key is write-only by PostHog's design)
   and soft-fail to `{}` without it.
 
-  There is no `getPostHog()`. It was removed from the engine's public API — the
-  engine names no vendor in its surface. Reaching for it is a compile error.
+  There is no `getPostHog()`. It was removed from the engine's public API —
+  the wire every journey reaches for is vendor-neutral. Reaching for it is a
+  compile error. (Vendor-NAMED exports still exist for vendor-SPECIFIC work,
+  e.g. `lookupPostHogPerson` — those name PostHog because they are PostHog.
+  `getAnalytics()` is the one you want for capture and person writes.)
 - **SMS / feed / connector actions** — plain functions from
   `@hogsend/engine/journeys`, never on `ctx`.
 - There is **no `ctx.db`, no `ctx.sendEmail`, no `ctx.hatchet`** surfaced to

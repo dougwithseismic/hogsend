@@ -4,7 +4,7 @@
 
 > **This PRD was built, reviewed, and then reverted off `feat/posthog-deep-integration`.**
 > The implementation lives on the local branch **`parked/posthog-cohort-sync`**, commit
-> range **`b2ada111..1d7d91db`**. Of those seven, the first — `b2ada111`, the
+> range **`b2ada111^..1d7d91db`**. Of those seven, the first — `b2ada111`, the
 > `liveContactByCanonicalKey` widening — was cherry-picked forward and is on the working
 > branch as `25b8674f`, because PRD 00 depends on it. The cohort-specific work is
 > therefore `3d851442..1d7d91db`, and a resumption starts there. Nothing else from this

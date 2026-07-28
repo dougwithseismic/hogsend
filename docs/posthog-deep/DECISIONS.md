@@ -430,7 +430,7 @@ exists only to guard a loop that PRD 02 closes.
 **Where the work is, stated plainly so it can be recovered.** Work that cannot be found
 again has been deleted, whatever the doc says.
 
-- Branch **`parked/posthog-cohort-sync`**, seven commits, `b2ada111..1d7d91db`.
+- Branch **`parked/posthog-cohort-sync`**, seven commits, `b2ada111^..1d7d91db`.
 - The **first** of those seven, `b2ada111` (`refactor(engine): let
   liveContactByCanonicalKey take a column`), was cherry-picked forward and is on the
   working branch as `25b8674f`, because PRD 00 depends on it. So the cohort-specific work
@@ -468,20 +468,56 @@ to fix the cohort binding's magic number. With the cohort bet parked it has zero
 consumers, and building a vendor-source abstraction with no vendors behind it is
 speculative machinery.
 
-## 9. A declared reference is passed as the object, never as a name
+## 9. A declared reference crosses a seam carrying its declaration's type
 
 This is the durable design rule the episode produced. It outlives PostHog, it is not
 scoped to this initiative, and it is the lasting output of the review that parked the
 stack.
 
-**A reference to something declared in the consumer's own repo is passed as the typed
-object, never as an unchecked name.** The consumer authored the thing; the type system can
-see it; passing a bare string throws that away and converts a compile error into a runtime
-wrong answer.
+**A reference to something declared in the consumer's own repo crosses a seam typed as
+that declaration's own type — never as a bare `string`.** The consumer authored the
+thing; the type system can see it; accepting an unchecked name throws that away and
+converts a compile error into a runtime wrong answer.
 
-**And this applies to READ paths as much as WRITE paths.** That asymmetry is the
-recurring defect class found here: sends were narrowed against a registry while the
-corresponding history reads took bare strings. A typo therefore compiled, and quietly
-returned a wrong answer instead of erroring — a "this user has not received that email"
-that is indistinguishable from the truth, on a code path whose entire job is to decide
-whether to send again.
+Object-ness is NOT the mechanism, and an earlier phrasing of this rule ("passed as the
+typed object") was wrong on its own evidence — half the sweep that produced it does not
+pass objects. `ctx.history.email({ template })` still takes a string; what changed is
+that the string is typed as the registry's key union instead of `string`. The three
+legal forms are therefore:
+
+1. **The object itself** — `trigger: { bucket }`, where the reference is the value.
+2. **A field off the object** — `exitOn: [{ event: wentDormant.left }]`, where the
+   literal type (`` `bucket:left:${Id}` ``) survives the field access.
+3. **A registry-keyed union** — `template: EmailTemplateKey`, where the name is a
+   string whose TYPE is narrowed to the declared keys.
+
+All three make a rename or a typo a build failure, which is the only property that
+actually matters.
+
+**This applies to READ paths as much as WRITE paths.** That asymmetry is the recurring
+defect class found here: sends were narrowed against a registry while the corresponding
+history reads took bare strings. A typo therefore compiled, and quietly returned a wrong
+answer instead of erroring — a "this user has not received that email" that is
+indistinguishable from the truth, on a code path whose entire job is to decide whether to
+send again.
+
+### Where the rule does not apply
+
+Stating the boundary is part of the rule. Without it, the first person to hit a
+legitimate exception finds the codebase not following its own law and concludes the law
+is aspirational.
+
+- **Open-world names.** `trigger.event`, `ctx.waitForEvent({ event })` and
+  `ctx.trigger({ event })` name events emitted by browser SDKs, webhooks and third-party
+  systems. Nothing in the consumer's repo declares them, so they stay `string`
+  permanently. The bucket fix works only because bucket events have a typed prefix
+  grammar (`bucket:entered:<id>`); general events have no such grammar, and the SAME
+  field legitimately carries both owned and foreign names.
+- **Serialization boundaries.** Stored `JourneyMeta`, blueprints, Studio-authored
+  journeys, `ENABLED_JOURNEYS`, MCP/agent input. A type cannot survive a round trip
+  through JSON or a database column. The sanctioned form there is **fail-closed runtime
+  validation**: `ENABLED_JOURNEYS` rejects unknown journey ids at worker boot rather than
+  silently enabling nothing, and that is the pattern to copy.
+- **Cross-package edges where the narrowing would invert layering.** Achievable, but it
+  costs a carrier type (see `EmailTemplateKeyCarrier`). Pay it where the blast radius
+  justifies it; do not cargo-cult the machinery into every package.

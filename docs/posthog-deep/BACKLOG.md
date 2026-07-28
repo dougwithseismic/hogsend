@@ -5,7 +5,7 @@ Ordered queue. Build top-down; dependencies come first.
 **Status as of 2026-07-28: the cohort chain is parked and PRD 04 is cut.** P0, PRD 00 and
 PRD 01 shipped and stay on `feat/posthog-deep-integration`. PRD 02's implementation was
 reverted off the branch and lives only on **`parked/posthog-cohort-sync`**
-(`b2ada111..1d7d91db`). PRD 03 is blocked behind it. Reasoning is in `DECISIONS.md` §8;
+(`b2ada111^..1d7d91db`). PRD 03 is blocked behind it. Reasoning is in `DECISIONS.md` §8;
 the design rule the review produced is §9. Nothing below 02 in the queue that depends on
 the cohort chain is startable; 05, 06 and 08 do not depend on it and are.
 
@@ -29,7 +29,7 @@ Small and standalone — whichever of 02/05/06 lands first pulls it forward.
 |---|-----|--------|-----------|-------|
 | 00 | [posthog-identity-map](prds/00-posthog-identity-map.md) | `[x]` | — | Give a PostHog `person_id` a mapped-alias home so every downstream feature has a stable, idempotent PostHog↔Hogsend key |
 | 01 | [manual-bucket-membership](prds/01-manual-bucket-membership.md) | `[x]` | — | Unlock `BucketMeta.kind: "manual"` end-to-end plus a guarded membership-write path. Standalone engine capability, no PostHog code |
-| 02 | [posthog-cohort-sync](prds/02-posthog-cohort-sync.md) | `[~]` | P0, 00, 01 (**T01.3 hard**) | **PARKED 2026-07-28.** Built, reviewed, reverted off the branch; lives on `parked/posthog-cohort-sync` (`b2ada111..1d7d91db`). Poll PostHog cohorts, diff on `person_id`, drive joins/leaves through PRD 01's `addBucketMember`/`removeBucketMember` |
+| 02 | [posthog-cohort-sync](prds/02-posthog-cohort-sync.md) | `[~]` | P0, 00, 01 (**T01.3 hard**) | **PARKED 2026-07-28.** Built, reviewed, reverted off the branch; lives on `parked/posthog-cohort-sync` (`b2ada111^..1d7d91db`). Poll PostHog cohorts, diff on `person_id`, drive joins/leaves through PRD 01's `addBucketMember`/`removeBucketMember` |
 | 03 | [cohort-loop-guard](prds/03-cohort-loop-guard.md) | `[~]` | 02 (T02.1, T02.2, T02.4) | **BLOCKED by 02's parking.** Nothing to guard until the cohort import exists. Provenance registry, enforced at binding activation + every tick — **not at boot** |
 | 04 | [cohort-trigger-sugar](prds/04-cohort-trigger-sugar.md) | `[-]` | 02 | **CUT 2026-07-28**, not deferred. `trigger: { cohort: "..." }` desugaring. The magic string that started the review; the cohort trigger is not shipping |
 | 05 | [posthog-codegen](prds/05-posthog-codegen.md) | `[ ]` | P0 (credentials only otherwise) | `hogsend posthog generate` → committed `.d.ts` for event names, properties, cohort ids, flag keys; `--check` for drift |

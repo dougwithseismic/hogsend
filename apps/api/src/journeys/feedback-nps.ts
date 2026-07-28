@@ -89,6 +89,12 @@ export const feedbackNps = defineJourney({
     // engine); otherwise omit the timestamp entirely (the provider stamps its
     // own ingest time) rather than write a `new Date()` that would drift on
     // replay.
+    // Awaited on purpose, unlike the fire-and-forget `identify()` this replaced:
+    // `setPersonProperties` returns a promise, and an unawaited one inside a
+    // durable task can be abandoned when the run completes, silently losing the
+    // write. The cost is that a slow provider extends the run, and a rejecting
+    // one fails the enrollment where the old form could not — acceptable here
+    // because the score is the whole point of the journey.
     await getAnalytics()?.setPersonProperties({
       distinctId: user.id,
       set: {

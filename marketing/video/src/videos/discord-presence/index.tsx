@@ -61,7 +61,7 @@ const SPEC: ClipSpec = {
     // 2. Identify the person + set discord_id, sent to PostHog.
     {
       kind: "fanout",
-      label: "identify",
+      label: "person props",
       events: ["distinct_id", "discord_id"],
       dest: "PostHog",
       logo: "posthog.svg",
