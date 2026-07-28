@@ -66,3 +66,15 @@ EARS green (route-handler tests + component tests where cheap); gates green; ful
 dashboard walked in the real browser and screenshotted.
 
 ## Implementation Notes
+Shipped in 4 commits (auth+screens / create-org+dashboard / members+settings /
+legal+docs+polish); 205 tests on close. Notables: cookie prefix `hscloud`;
+`autoSignIn:false` with client-side sign-in after OTP (user lands authed, one hop);
+org-creation is `auth.api.createOrganization` + `OrgService.create` with a compensating
+Better Auth org delete on service failure (tested); members/invites/roles ride the
+Better Auth org plugin natively (invite links via the EmailSender seam, log transport in
+dev); sole-owner account deletion = org suspended-for-deletion + sign-out (hard delete is
+PRD 12); /terms + /privacy public DRAFT stubs; api-docs documents /api/health + the
+/api/auth/* mount. Dev seed: `seed:dev` inserts cell `us-dev-1`. Vitest is serialized
+(fileParallelism:false) — parallel files raced shared-DB fixtures under turbo; ALSO
+overlapping test runs (agent gate + orchestrator gate) against one DB produce mass
+transient failures — gate runs must not overlap.
