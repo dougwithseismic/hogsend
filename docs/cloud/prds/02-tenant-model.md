@@ -8,8 +8,12 @@ encrypted provider keys, and audit events. Pure data + logic — no UI, no subst
 ## Locked decisions (this PRD)
 - Tables (all tenant tables `organization_id NOT NULL` + FK, timestamps, soft-delete only
   where stated):
+  - `cells` — shared-infra region cells (DECISIONS §2): `region`, `sharedClusterDsn`
+    (encrypted), `sharedHatchetUrl`, `accepting`, `maxTenants`. Seeded by ops, read by
+    signup + provisioner. NOT org-scoped.
   - `organizations` mirror table keyed by Better Auth org id (region `us|eu`, plan
-    `trial|self_serve|dedicated`, `suspended_at`, `trial_ends_at`).
+    `trial|self_serve|dedicated`, `cell_id` FK nullable — null for dedicated,
+    `suspended_at`, `trial_ends_at`).
   - `environments` — `(organization_id, name)` unique; `kind: production|staging|test`;
     exactly one `production` per org enforced in service layer.
   - `stacks` — 1:1 with environment (unique FK); `status` enum:

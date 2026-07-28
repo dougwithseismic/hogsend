@@ -11,9 +11,10 @@ environments/stacks. All working-app essentials exist and are designed.
   prefix — see auth-cookie-namespace lesson). Session → active org via the org plugin.
 - Signup flow: account → verify OTP → create org (name, region, plan pick with trial
   default) → dashboard. `OrgService.create` from PRD 02 is the only org-creation path.
-- **Region gating**: `eu` is selectable only with the dedicated plan (DECISIONS §2); the
-  UI disables EU otherwise with "EU region requires Dedicated", and `OrgService.create`
-  rejects `eu` + non-dedicated with a typed error.
+- **Region gating** (DECISIONS §2 cells): the picker offers regions with an `accepting`
+  cell for shared-tier plans, any region for dedicated. `OrgService.create` rejects a
+  shared-tier org in a region with no accepting cell with a typed error, and assigns
+  `cell_id` on success.
 - OTP email delivery: console/log transport in dev, Resend transport behind
   `CLOUD_RESEND_API_KEY` (our own key, not a tenant's). Feature-flag real sending.
 - Dashboard shell: nav (Environments, Usage, Settings), org switcher, stack status chips
@@ -28,8 +29,8 @@ environments/stacks. All working-app essentials exist and are designed.
 - WHEN a visitor completes signup + OTP + org creation, the system SHALL create the Better
   Auth user/org AND the PRD-02 trio (org mirror, production environment, `requested`
   stack), and land them on the dashboard showing that stack.
-- WHEN org creation is attempted with region `eu` and a non-dedicated plan, the system
-  SHALL reject with a typed error and create nothing.
+- WHEN org creation is attempted on a shared-tier plan in a region with no accepting
+  cell, the system SHALL reject with a typed error and create nothing.
 - WHEN an unauthenticated request hits any dashboard route, the system SHALL redirect to
   login.
 - WHEN a member is invited by email, the system SHALL create an invitation acceptable via

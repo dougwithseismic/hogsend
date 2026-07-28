@@ -24,9 +24,14 @@ customer's — we are not an ESP), per-tenant database isolation, eject-to-self-
 | Self-serve | $49/mo | shared (rung 1) | 100k events + 10k emails /mo | 2 (prod + 1) |
 | Dedicated | $149/mo | private Postgres + private Hatchet (rung 0) | 1M events + 100k emails /mo | 4 |
 
-- Dedicated additionally gets: custom tracking domain (`customDomainCreate`), EU region choice.
-  **EU is dedicated-only** — rung-1 shared infra is US; trial/self-serve orgs are region `us`
-  and the signup UI disables EU with "EU region requires Dedicated".
+- Dedicated additionally gets: custom tracking domain (`customDomainCreate`) and any-region
+  choice always.
+- **Shared infra is organized into region CELLS** (first-class `cells` rows: region, shared
+  cluster DSN, shared Hatchet URL, `accepting` flag). Shared-tier orgs attach to a cell;
+  the signup region picker offers exactly the regions with an accepting cell. Launch config:
+  one US cell; adding EU self-serve later = provision an EU cell (~$30–60/mo fixed) and flip
+  it `accepting` — an ops action, never a code change. A region with no accepting cell is
+  selectable only with the dedicated plan.
 - Overages **soft-block at ingest** (429 with clear error + dashboard banner), never data loss
   for already-accepted events. Mechanism: a small engine feature this wave —
   `HOGSEND_INGEST_SUSPENDED=true` makes `/v1/events` return 429 with a documented error body
@@ -58,9 +63,9 @@ customer's — we are not an ESP), per-tenant database isolation, eject-to-self-
   dev) and `RailwaySubstrate` (GraphQL v2 `backboard.railway.com/graphql/v2`, retry with
   backoff — `templateDeployV2` has known intermittent 400s). Business logic never imports
   Railway types.
-- **Railway topology (rung 1)** — one central **shared project** holds: shared Postgres
-  cluster (tenant DBs created via SQL `CREATE DATABASE`/`CREATE ROLE`), shared Hatchet-Lite
-  (pinned v0.84.0) + its Postgres. One **Railway project per organization** holds that org's
+- **Railway topology (rung 1)** — one **shared project per region cell** holds: shared
+  Postgres cluster (tenant DBs created via SQL `CREATE DATABASE`/`CREATE ROLE`), shared
+  Hatchet-Lite (pinned v0.84.0) + its Postgres. Launch = one US cell. One **Railway project per organization** holds that org's
   per-environment services: tiny Redis + `api` + `worker` per stack. Per-tenant Hatchet
   isolation via a per-stack Hatchet tenant + token (minted headlessly, the
   `hogsend hatchet token` flow) + `HATCHET_CLIENT_NAMESPACE=<stackId>`.

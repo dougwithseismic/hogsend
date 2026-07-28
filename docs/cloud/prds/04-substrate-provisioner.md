@@ -31,11 +31,13 @@ seam.
   5) on 400/429/5xx; org project created lazily on first stack; rung-1 spec: Redis + api +
   worker services in the org project, `railwayConfigFile` pattern per existing tomls.
 - **TenantDbService** — `CREATE DATABASE`/`CREATE ROLE` (random strong password) on the
-  shared cluster via `CLOUD_SHARED_PG_ADMIN_URL`; revoke public; DSN returned for stack
-  env. Idempotent (IF NOT EXISTS semantics via catalog checks).
+  org's **cell** cluster (admin DSN from the PRD 02 `cells` row; local dev seeds one cell
+  pointing at compose PG); revoke public; DSN returned for stack env with a SMALL pool
+  (`?pool_max=3`-style params — per-tenant stacks must not hold fat pools against a
+  shared cluster). Idempotent (IF NOT EXISTS semantics via catalog checks).
 - **HatchetTenantService** — port the headless register-or-login → ensure-tenant →
-  create-token flow (reference: `hogsend hatchet token` in @hogsend/cli) against
-  `CLOUD_SHARED_HATCHET_URL`; returns token; namespace = stack id.
+  create-token flow (reference: `hogsend hatchet token` in @hogsend/cli) against the
+  cell's Hatchet URL; returns token; namespace = stack id.
 - **Provision is enqueued at creation** — the API layer enqueues `provision-stack` via
   the cloud Hatchet client immediately after the PRD 02 trio commits (org signup AND
   later environment creation). No operator action required.
