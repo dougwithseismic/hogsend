@@ -852,11 +852,15 @@ describe("membership email normalization", () => {
       .insert(userEvents)
       .values({ userId, event: SIGNUP_EVENT, properties: {} });
 
+    // RUN-namespaced like every other identity in this file. A literal address
+    // would be the ONE value stable across runs, so run 2 would resolve to run
+    // 1's contact and write the membership under run 1's user key — the test
+    // then passes exactly once per fresh database and is red forever after.
     const transitions = await check({
       userId,
       event: SIGNUP_EVENT,
       // The shape ingestEvent forwards verbatim from a raw payload.
-      userEmail: "  Mixed.Case+Tag@Example.COM  ",
+      userEmail: `  Mixed.Case+${RUN}@Example.COM  `,
     });
 
     expect(
@@ -865,7 +869,7 @@ describe("membership email normalization", () => {
       ),
     ).toHaveLength(1);
     const row = await activeRow(userId, EVENT_BUCKET_ID);
-    expect(row?.userEmail).toBe("mixed.case+tag@example.com");
+    expect(row?.userEmail).toBe(`mixed.case+${RUN}@example.com`);
   });
 });
 
