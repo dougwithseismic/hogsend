@@ -34,6 +34,16 @@ const DEV_CLOUD_ENCRYPTION_SECRET =
 export const DEV_CLOUD_AUTH_SECRET =
   "dev-only-insecure-cloud-auth-secret-change-me";
 
+/**
+ * DEV/TEST ONLY — the credentials the repo's docker-compose `hatchet-lite`
+ * seeds (`docker-compose.yml`). They exist so a fresh clone can mint a tenant
+ * Hatchet token against local infrastructure with no setup; production
+ * withholds them (see the schema below) so a deploy must supply the real cell
+ * admin account.
+ */
+const DEV_HATCHET_ADMIN_EMAIL = "admin@example.com";
+const DEV_HATCHET_ADMIN_PASSWORD = "Admin123!!";
+
 /** The dev origin the Next app listens on (`next dev -p 3004`). */
 export const DEFAULT_CLOUD_PUBLIC_URL = "http://localhost:3004";
 
@@ -86,6 +96,19 @@ export const env = createEnv({
     // to build a Railway substrate without it (PRD 04 EARS — never silently
     // fake).
     CLOUD_RAILWAY_TOKEN: z.string().min(1).optional(),
+    // The account the provisioner logs into on a CELL's Hatchet to mint each
+    // tenant's token (`services/hatchet-tenant.ts`). Dev/test default to
+    // hatchet-lite's seeded admin so a fresh clone provisions with no setup;
+    // production WITHHOLDS the default and leaves the pair OPTIONAL, because a
+    // control plane may run with no cell Hatchet at all — `mintToken` is the
+    // one that fails closed, at the point of use, with a message naming these
+    // vars.
+    CLOUD_HATCHET_ADMIN_EMAIL: isDevOrTest
+      ? z.string().min(1).default(DEV_HATCHET_ADMIN_EMAIL)
+      : z.string().min(1).optional(),
+    CLOUD_HATCHET_ADMIN_PASSWORD: isDevOrTest
+      ? z.string().min(1).default(DEV_HATCHET_ADMIN_PASSWORD)
+      : z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

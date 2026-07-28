@@ -12,7 +12,9 @@ dedicated private-Postgres topologies — PRD 11's dedicated provision must pers
 metering-reachable DSN) and upserts `usage_counters`. Ingest soft-block = the
 `HOGSEND_INGEST_SUSPENDED=true → /v1/events 429` engine flag per DECISIONS §2 — this
 PRD's boundary explicitly includes that small `packages/engine` change (flag + 429 body +
-tests), driven via `SubstrateProvider.setEnv` + redeploy. Dashboard Usage page (dataviz skill for charts); overage banners; trial-expiry
+tests), driven via `SubstrateProvider.setEnv` + redeploy. Same engine change batch adds
+`DATABASE_POOL_MAX` (read by `createDatabase` — PRD 04 found DSN pool params are silently
+ignored; tenant stacks on shared cells need max 3, not the hardcoded 10). Dashboard Usage page (dataviz skill for charts); overage banners; trial-expiry
 lifecycle (suspend stack, keep data 30 days).
 
 Key invariants: no plan enforcement bypass via API; metering reads never write tenant DBs;
