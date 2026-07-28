@@ -13,6 +13,20 @@ This is the only PRD in the stack that writes to the two largest tables in the s
 sized around that: the column add is metadata-only, the index is empty at creation time, and the
 data movement is a chunked, resumable Hatchet job — never a migration.
 
+## Advisory corrections (applied 2026-07-28, re-anchored against `e9c7c10f`)
+
+A senior pass re-derived this PRD against the post-02/03 code. **D8's 15 write sites verified exact —
+all fifteen, remarkably — and 02/03 added no new insert sites into the five tables.** Five
+corrections:
+
+| # | Severity | Correction |
+| --- | --- | --- |
+| C1 | major | **`lookupContactIdByKey` becomes alias-aware, restricted to kinds `external`/`anonymous`** (mirroring backfill pass 2's restriction; `resolveViaAlias` is the existing precedent). D6 already flagged its column-only lookup as a rare staleness leak. Post-03 it is a COMMON one: any second-device anonymous id that reaches a dual-write site as a bare key string lives ONLY in `contact_aliases`, so a column-only lookup permanently NULLs it. That is F3's silent-permanent-data-loss shape, and on `email_preferences` it means mail to someone who unsubscribed. One extra indexed probe closes it at write time instead of leaning on the reconcile sweep |
+| C2 | minor | **D4 pass 2's cost claim is stale by orders of magnitude.** "Bounded by the alias table (65 rows on the dev DB), so it costs nothing" predates PRD 02 — the backfill plus dual-write now populate roughly one alias row per identity column per live contact (tens of thousands on dev). Pass 2 is still needed (a uuid-canonical email-only contact has no external/anonymous alias, so pass 1's coalesce does not subsume it) and still an indexed join UPDATE, but rewrite the bound |
+| C3 | minor | **Add D8 row 16:** `apps/api/scripts/smoke.ts:97` inserts `emailSends` and is missing from the table. Dev script; leaving `contact_id` NULL is harmless, but the census claimed exhaustiveness |
+| C4 | minor | **T5/T6 have a fresher precedent than `bucket-backfill.ts`:** PRD 02 shipped `workflows/identity-alias-backfill.ts` (import_jobs progress, chunked, resumable, boot-enqueued, FK-race retry) plus `routes/admin/identity.ts`, whose parity route IS T6's invariant-probe pattern already shipped. Model on these |
+| C5 | minor | The D8 reproduce grep must also match `insert(schema.userEvents)` — the seed files use the `schema.` prefix, so a bare `insert(userEvents)` grep misses rows 14-15 |
+
 ## Locked decisions
 
 ### D1 — Column shape: `contact_id uuid`, nullable, **no FK in this PRD**
@@ -590,7 +604,7 @@ Ordered cheapest-first; nothing here needs a snapshot restore, because nothing r
   ```
   pnpm lint
   pnpm exec turbo run check-types --concurrency=2
-  cd apps/api && HOGSEND_TEST_DATABASE_URL=postgresql://growthhog:growthhog@localhost:5434/ghost_clean pnpm exec vitest run
+  cd apps/api && HOGSEND_TEST_DATABASE_URL=postgresql://growthhog:growthhog@localhost:5434/prd06_test pnpm exec vitest run
   cd packages/engine && pnpm test
   ```
 - CI's migration job passes all four legs (drift, fresh apply, idempotent re-apply, upgrade from the

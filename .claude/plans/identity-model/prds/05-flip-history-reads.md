@@ -6,9 +6,35 @@ Move every read of the five string-keyed history tables off `<table>.user_id` an
 `contact_id` uuid FK that PRD 04 added, backfilled and dual-writes. This is the commitment step: once
 reads are on the FK, the canonical key string stops being load-bearing, `repointOwnHistory`'s
 five-table string rewrite becomes dead, and the provenance guard that exists only because strings
-collide across namespaces (`keysAnotherContact`, `contacts.ts:106`) can be deleted — replaced by a
-`WHERE contact_id IS NULL` predicate that cannot steal by construction. Reads and deletions are
-separate tasks; nothing here drops a column (that is PRD 07).
+collide across namespaces (`keysAnotherContact`) **collapses to its attach role** — its
+adoption-gating half is replaced by a `WHERE contact_id IS NULL` predicate that cannot steal by
+construction, while the attach half survives because aliases and the analytics stitch stay
+string-keyed forever (D6). Reads and deletions are separate tasks; nothing here drops a column
+(that is PRD 07).
+
+## Advisory corrections (applied 2026-07-28, re-anchored against `e9c7c10f`)
+
+A senior pass re-derived this PRD against the post-02/03 code. **The 159-site total reproduces
+exactly and 02/03 added or removed zero sites** — but the bookkeeping under it had six errors, and
+one decision was outright wrong.
+
+| # | Severity | Correction |
+| --- | --- | --- |
+| C1 | **blocking** | **D6/T9's deletion of `keysAnotherContact` is withdrawn.** It would re-open a live hole (a refused claim skips the `contact_aliases` INSERT, and post-02 aliases ARE resolution) and would go red on three committed PRD 03 tests. The originally chosen proof-gate could not have caught it. See D6 |
+| C2 | major | D7 is CLOSED, not open — PRD 03 already made the alias insert self-reporting and deleted `anonAliasAlreadyHeld`. T9's item 4 is moot |
+| C3 | major | D8 is **twelve** sites, not eleven — `bucket-reconcile.ts:424` joins an aliased subquery and is invisible to the textual census |
+| C4 | minor | `lib/journey-lift.ts` has three drizzle `journeyStates.userId` sites (`:67`, `:78`, `:79`) missing from the batch table; only its raw-SQL hit was counted. Assign to T8 → T8 becomes 8 sites |
+| C5 | minor | Two batch labels miscount their own rows: T6 says 14 but its rows sum 15; T7 says 22 but its rows sum 24. `demo-seed` is 4 sites, not 5 → T10 = 9. With C4 applied the batches now sum to **130 exactly**, fully reconciled against the drizzle total |
+| C6 | minor | The "−3" in the raw count is NOT schema self-references — it is `.next/standalone` build-artifact copies of two docs files. Add `--exclude-dir=.next` to the reproduce command and fix the explanation |
+| C7 | minor | `routes/admin/contacts.ts` moved (PRD 01 grew the file): raw `:364→:388`, email-preferences `:425→:461` |
+| C8 | minor | Every heavy-fixture test this PRD adds (T3's arbiter tests, T4's anon→register→enroll, T6's unsubscribe flow) MUST run-namespace every identity value and scope its assertions to that namespace, and the suite must pass twice against a reused database. Same law as PRD 06 T2, same reason: these fixtures seed colliding rows deliberately, so a state-poisoned run passes for the wrong reason |
+
+`contacts.ts` anchors throughout are taken at `e9c7c10f` and **must be re-derived at build time** —
+PRD 06 shifts that file again by roughly 60 lines. Every other file's anchors were verified current.
+
+F1 (the `NULLS DISTINCT` arbiter trap) was re-verified end to end against the current schema and is
+**unchanged**: the partial unique indexes, the enrollment upsert target, the preferences arbiter and
+PG18's default all still hold, and the contactless test is still specified first.
 
 ## Measured surface (reproduce before starting)
 
@@ -173,33 +199,70 @@ Adoption stamps `contact_id` without touching `user_id`, so two rows keyed `A` a
 part of the flip's correctness, not cosmetic, and they can only be created after a preflight proves
 zero violations. That preflight is T3 and it may find real duplicates in production.
 
-### D6 — `keysAnotherContact` is deleted because `contact_id IS NULL` subsumes it, not because the risk went away.
+### D6 — `keysAnotherContact` COLLAPSES to its attach role. It is NOT deleted. *(Respecced 2026-07-28 — the original decision was wrong and is recorded below so the reasoning is not repeated.)*
 
-`keysAnotherContact` (`contacts.ts:106-131`) exists because a caller can name someone else's canonical
-key as their own `anonymousId` and have that person's rows moved (`contacts.ts:811`, `:1070`,
-`:1177`). Once the target predicate is `WHERE contact_id IS NULL`, a victim's rows are unreachable —
-PRD 04's backfill and dual-write mean an identified person's rows already carry their `contact_id`,
-so the UPDATE matches zero of them. The guard becomes a redundant SELECT on a hot path.
+**The original decision, now withdrawn:** delete `keysAnotherContact` entirely once the target
+predicate is `WHERE contact_id IS NULL`, on the argument that a victim's rows already carry their own
+`contact_id` so the UPDATE matches zero of them, making the guard a redundant SELECT on a hot path.
+Proof-gate was `contacts-no-create.test.ts:584` + `:642` staying green.
 
-**The proof of this claim is that `contacts-no-create.test.ts:584` and `:642` stay green with the
-guard deleted.** If they go red, the deletion is wrong and the guard stays. Do not delete on argument.
+**Why that is wrong.** The argument is sound for the ADOPTION half and false for the ATTACH half, and
+PRDs 02/03 moved the attach half from incidental to load-bearing:
 
-### D7 — `anonAliasAlreadyHeld` is deleted only if PRD 03 has made the alias insert self-reporting.
+1. **The call structure the decision described no longer exists.** PRD 03 replaced the three scattered
+   call sites with ONE direct call in the create arm plus a single choke-point, `claimIdentityKey`,
+   invoked from both `fillInLink` and `mergeContacts`. The `foreignAnonKey` local is gone (now a
+   `foreignMemo` map). There is nothing shaped like "its three call sites" left to delete.
+2. **A refused claim skips the `contact_aliases` INSERT, and post-02 aliases ARE resolution.**
+   `findByKey` probes aliases FIRST. Delete the gate and a caller holding a legitimate token for their
+   own `userId` can claim `(anonymous, <victim's canonical key>)` onto their own contact. The
+   `contact_id IS NULL` predicate protects the victim's EXISTING rows — it does nothing about the
+   alias. Every FUTURE resolve presenting that value under the anonymous kind now lands on the
+   attacker.
+3. **Worse, the claim enters `mergedKeys`,** so `mergeAnalyticsIdentities` aliases the victim's key
+   into the attacker's PostHog person. **D3 proves the FK can never subsume this:** the analytics
+   stitch stays keyed on canonical-key STRINGS forever, so a string-collision guard on claims
+   necessarily outlives string-keyed history.
+4. **The deletion would go red on PRD 03's own committed suite** — `contacts-many-keys.test.ts:148`
+   ("a victim's external_id named as anonymousId is not claimed, aliased, or adopted"), `:191`
+   (external arm) and `:470` (merge arm) pin the attach refusal directly. **The originally chosen
+   proof-gate could not have caught this**: `contacts-no-create.test.ts:584`/`:642` assert adoption
+   outcomes only, so they would have stayed green while the attach hazard shipped. That is the
+   vacuous-green failure mode from house memory — a gate that certifies rather than tests.
 
-`anonAliasAlreadyHeld` (`contacts.ts:139-154`, called at `:1095`) is an idempotence guard, not a
-correctness one: without it a browser that identifies on every page load re-reports `mergedKeys` and
-re-fires the PostHog stitch forever. The repoint half becomes naturally idempotent under D4 (the
-second run matches zero rows). The `mergedKeys` half does not. The clean replacement is to report only
-when the alias INSERT actually inserted — `onConflictDoNothing().returning()` and check length — but
-PRD 03 ("many keys per person") owns that insert. **If PRD 03 has not made it self-reporting, keep
-`anonAliasAlreadyHeld` and say so in Implementation Notes.** `contacts-no-create.test.ts:666`
-("claims a second device's anon id ONCE, not on every resolve") is the gate.
+**What T9 actually deletes:** the guard's ADOPTION-gating role (genuinely subsumed by
+`WHERE contact_id IS NULL`) and the five `user_id` string rewrites. The guard itself survives inside
+`claimIdentityKey` as the attach + `mergedKeys`-report guard. The create arm's direct call survives
+for the same report reason — a foreign anon id must not enter `mergedKeys` there either.
 
-### D8 — The eleven identity-JOIN sites change result sets. Preserve today's, file the widening.
+**New proof-gate:** `contacts-many-keys.test.ts:148`, `:191`, `:470` green **with the string rewrites
+deleted**, plus `contacts-no-create.test.ts:584`/`:642`. Do not delete on argument.
+
+### D7 — RESOLVED by PRD 03. Nothing to decide. *(Closed 2026-07-28.)*
+
+`anonAliasAlreadyHeld` no longer exists — PRD 03 deleted it and replaced it with exactly the
+self-reporting insert this decision asked for: `claimIdentityKey`'s
+`onConflictDoNothing().returning()` classifies each claim as `"claimed"` or `"held"`, so first-claim
+detection is the unique index rather than a probe. A browser identifying on every page load
+re-reports no merge, structurally. The gate test
+(`contacts-no-create.test.ts:666`, "claims a second device's anon id ONCE, not on every resolve")
+exists and passes. T9's corresponding deletion item is moot.
+
+### D8 — The twelve identity-JOIN sites change result sets. Preserve today's, file the widening.
 
 `eq(contacts.externalId, <t>.userId)` appears at `buckets/bucket-access.ts:77,101,149,160`,
 `workflows/bucket-reconcile.ts:459,537,715`, `workflows/bucket-backfill.ts:356,489`,
-`workflows/send-campaign.ts:984`, `routes/admin/events.ts:79`. Replacing it with
+`workflows/send-campaign.ts:984`, `routes/admin/events.ts:79`, **and
+`workflows/bucket-reconcile.ts:424`**. The twelfth was invisible to both censuses because it joins an
+ALIASED SUBQUERY over `bucketMemberships` (`eq(contacts.externalId, members.userId)`), so the textual
+pattern sees `members.userId` rather than `bucketMemberships.userId` — a reminder that a grep-derived
+census under-reports exactly where the query is most indirect. It carries the same
+drop-email-only-contacts semantics as the other eleven and belongs in T5's scope.
+
+Not in this class, and correctly excluded: the other `eq(contacts.externalId, <var>)` hits
+(`check-membership.ts:192`, `bucket-reconcile.ts:1095`, `timezone.ts:122`,
+`execute-journey-run.ts:415,565`, `refine.ts:245`, `connector-actions.ts:100`) are value-probes
+resolving a runtime key to a contact, not history-table joins. Replacing it with
 `eq(contacts.id, <t>.contactId)` is **not** behaviour-preserving: today the join drops every row whose
 owner has no `external_id`. An email-only contact's canonical key is its row uuid
 (`contactKey`, `contacts.ts:557`), so its bucket memberships are invisible to `bucket.count()`
@@ -502,24 +565,36 @@ _Boundary:_ `packages/engine` · _Depends:_ T4, T5, T6, T7, T8
 
 Only after every read is off `user_id`:
 
-1. `repointOwnHistory` (`contacts.ts:1755`) drops its five `user_id` rewrites, keeping the `contact_id`
-   stamps. Rename it `adoptOrphanHistory` in the same commit — the name is now a lie.
-2. `keysAnotherContact` (`contacts.ts:106-131`) deleted, plus its three call sites `:811`, `:1070`,
-   `:1177` and the `foreignAnonKey` local (D6).
-3. The create-arm adoption block (`contacts.ts:800-828`) and the fill-in-link adoption block
-   (`:1170-1181`) collapse into a single call to `adoptOrphanHistory`, because the "did the canonical
-   key flip" test that distinguished them is meaningless when nothing is keyed on the canonical key.
-   This is the deletion that removes the class of bug PRD 06 in the ghost-contacts stack existed to fix.
-4. `anonAliasAlreadyHeld` (`contacts.ts:139`) — deleted **only** if D7's condition holds.
-5. `mergedKeys` / `mergedIdentifiedKeys` — **kept** (D3).
-6. `contactKeySql()` (`contacts.ts:568`) — check its remaining callers after T5; if the bucket
-   workflows were its only consumers it dies here too.
+> **Re-anchor before building.** PRD 06 shifts `lib/contacts.ts` again (~+60 lines) after these
+> anchors were taken. Every `contacts.ts` line in this task must be re-derived at build time; the
+> other files are 06-inert (06 touches routes + the resolver top, T9 touches the resolver bottom).
 
-**Tested by:** the whole `contacts-no-create.test.ts` suite staying green with each deletion, one
-commit per deletion so a bisect names the culprit. Mutation proof for #2: with `keysAnotherContact`
-gone, the two theft tests (`:584`, `:642`) must still pass; then temporarily remove the
-`contact_id IS NULL` predicate and confirm they go red. If they stay green, the tests are vacuous and
-must be strengthened before the deletion ships.
+1. `repointOwnHistory` drops its five `user_id` rewrites, keeping the `contact_id` stamps. Rename it
+   `adoptOrphanHistory` in the same commit — the name is now a lie. It has **four** call sites (the
+   create arm, the fill-in-link canonical flip, the fill-in-link adoption loop, and the merge arm),
+   not three; the "five" elsewhere in this PRD is the count of TABLES it rewrites, which is a
+   different number that happens to be adjacent.
+2. `keysAnotherContact` — **NOT deleted.** Its adoption-gating role goes; the guard itself survives
+   inside `claimIdentityKey` as the attach + `mergedKeys`-report guard, and the create arm's direct
+   call survives for the report reason. See D6, which was respecced after the original deletion was
+   shown to re-open a live hole and to go red on three committed PRD 03 tests.
+3. The create-arm adoption block and the fill-in-link adoption collapse into `adoptOrphanHistory`,
+   because the "did the canonical key flip" test that distinguished them is meaningless when nothing
+   is keyed on the canonical key. **Note the post-03 shape:** the fill-in-link adoption is now a LOOP
+   over `claimed` anonymous keys (multi-device), so the collapse is per-claimed-key, not a single
+   call. This is the deletion that removes the class of bug #621 existed to fix.
+4. `anonAliasAlreadyHeld` — already gone; PRD 03 deleted it (D7, closed).
+5. `mergedKeys` / `mergedIdentifiedKeys` — **kept** (D3).
+6. `contactKeySql()` — has exactly four consumers, all in the two bucket workflow files, which T5
+   flips. It dies here, as hoped.
+
+**Tested by:** one commit per deletion so a bisect names the culprit, with
+`contacts-no-create.test.ts` AND `contacts-many-keys.test.ts` green throughout. Mutation proof for
+the adoption-gating removal: with the string rewrites gone, the attach tests
+(`contacts-many-keys.test.ts:148`, `:191`, `:470`) and the adoption tests
+(`contacts-no-create.test.ts:584`, `:642`) must all still pass; then temporarily remove the
+`contact_id IS NULL` predicate and confirm the adoption pair goes red. If they stay green the tests
+are vacuous and must be strengthened before the deletion ships.
 
 ### T10 — tail: seeds, smoke, docs strings
 _Boundary:_ `packages/db` + `apps/api` + `apps/docs` · _Depends:_ T9
@@ -590,7 +665,7 @@ the string key stale, so a reverted binary reads exactly what it wrote.
 - `grep -rn "\.userId" packages/engine/src/lib/enrollment-guards.ts packages/engine/src/buckets/`
   returns only write sites.
 - The full gate set from DECISIONS §5 is green, including
-  `cd apps/api && HOGSEND_TEST_DATABASE_URL=…/ghost_clean pnpm exec vitest run`.
+  `cd apps/api && HOGSEND_TEST_DATABASE_URL=…/prd06_test pnpm exec vitest run`.
 - `contacts-no-create.test.ts` is green in full, with the mechanism assertions rewritten per the table
   below and the outcome assertions untouched.
 - `EXPLAIN` on the four hottest flipped reads shows an index scan.
@@ -607,7 +682,7 @@ the string key stale, so a reverted binary reads exactly what it wrote.
 | `throws when the highest-precedence supplied key is discordId (D8)` | `:175` | ditto |
 | `accepts email alongside a higher-precedence userId` | `:186` | ditto |
 | `leaves resolveOrCreateContact creating on a miss` | `:253` | ditto |
-| `refuses to adopt history keyed on another live contact (fill-in-link arm)` | `:584` | **The D6 gate.** Green after `keysAnotherContact` is deleted = the NULL predicate really subsumes it |
+| `refuses to adopt history keyed on another live contact (fill-in-link arm)` | `:584` | **Half the D6 gate.** Green after the ADOPTION-gating role is removed = the NULL predicate really subsumes that half. It says nothing about attach — pair it with `contacts-many-keys.test.ts:148/:191/:470`, which pin the half that survives (D6, C1) |
 | `refuses the same theft on the create arm` | `:642` | Same, for the other arm |
 | `claims a second device's anon id ONCE, not on every resolve` | `:666` | **The D7 gate** |
 | `does not repoint when the anon id IS the new canonical key` | `:384` | Still meaningful: nothing to adopt when the key is already canonical |
