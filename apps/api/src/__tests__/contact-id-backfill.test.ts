@@ -1,6 +1,33 @@
 /**
- * PRD 04 T5 — the `contact_id` backfill: a chunked, resumable, periodically
- * re-runnable Hatchet task (NEVER a migration).
+ * PRD 04 T5 + T6 — the `contact_id` backfill (a chunked, resumable, periodically
+ * re-runnable Hatchet task, NEVER a migration) AND the invariant probe that
+ * judges its result.
+ *
+ * ## THIS FILE OWNS THE GLOBAL SWEEP. READ BEFORE SPLITTING IT.
+ *
+ * `backfillTask.fn()` is a WHOLE-DATABASE job: it stamps every row whose
+ * `user_id` is owned by a live contact, anywhere in the database, including rows
+ * another test file seeded. So a test that holds an owned-but-NULL `contact_id`
+ * fixture — which is exactly what T6's `missing` cases are — is a fixture the
+ * sweep exists to destroy.
+ *
+ * Vitest sequences tests WITHIN a file and runs files CONCURRENTLY. That makes
+ * the rule absolute:
+ *
+ *   **Any test holding an owned-but-NULL `contact_id` fixture MUST live in this
+ *   file, sequenced clear of the sweep-invoking tests. It must NEVER live in a
+ *   separate file** — a separate file races the sweep under suite concurrency,
+ *   and the fixture gets stamped mid-window. (This is not hypothetical: T6
+ *   started life in its own `contact-id-verify.test.ts` and the full suite
+ *   caught the sweep filling its alias-owned NULL row, turning `missing: 1` into
+ *   `missing: 0`.)
+ *
+ * Layout follows from that. The sweep-invoking describes come FIRST and run to
+ * completion; the T6 probe describes come LAST, seed their own `RUN_V`-namespaced
+ * fixture in their own `beforeAll` (so it does not even exist while the sweep
+ * runs), and nothing re-runs the sweep after them.
+ *
+ * ## T5 — the backfill
  *
  * The fixture IS the test (T5's own words). It covers every resolution outcome
  * the PRD locks:
@@ -16,6 +43,17 @@
  * nothing but `contact_id` is ever written, a re-run updates zero rows, and the
  * per-statement bound is honoured (rows-per-statement = 1 reaches the same end
  * state, so the loop terminates).
+ *
+ * ## T6 — the invariant probe (the last describes)
+ *
+ * The thing this PRD ships INSTEAD of a foreign key: an FK proves the uuid
+ * EXISTS, this proves it is the RIGHT uuid — the only control that can catch a
+ * dual-write stamping the wrong contact, which the backfill cannot, because it
+ * only fills NULLs. Every count case runs against a `userIds`-SCOPED probe: the
+ * unscoped probe is the gate, but it is a whole-database count and this suite
+ * shares one Postgres with files running in parallel, so scoping is what makes
+ * "mismatched: 1" an absolute assertion instead of a delta race. The ROUTE
+ * (necessarily unscoped) is asserted only on properties this fixture forces.
  */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -55,6 +93,35 @@ const { hatchetMock } = vi.hoisted(() => {
 vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
 vi.mock("../lib/hatchet.js", () => hatchetMock());
 
+/**
+ * The probe seam for ONE assertion: "flipReady true ⇒ the route does NOT alert".
+ * The route runs the probe over the WHOLE database, and a single unstamped row
+ * left by any concurrently-running suite is enough to make that false — so the
+ * healthy branch is unreachable by seeding and is driven by handing the route a
+ * synthetic verdict instead. `null` (the default, and what every other test here
+ * uses) delegates to the real probe. Everything else in the module — the task,
+ * the enqueue, the real probe — is re-exported untouched.
+ */
+const { verifyOverride } = vi.hoisted(() => ({
+  verifyOverride: { value: null as unknown },
+}));
+vi.mock(
+  "../../../../packages/engine/src/workflows/backfill-contact-id.ts",
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    const real = actual.verifyContactIdBackfill as (
+      opts: unknown,
+    ) => Promise<unknown>;
+    return {
+      ...actual,
+      verifyContactIdBackfill: (opts: unknown) =>
+        verifyOverride.value
+          ? Promise.resolve(verifyOverride.value)
+          : real(opts),
+    };
+  },
+);
+
 const {
   bucketMemberships,
   contactAliases,
@@ -70,15 +137,25 @@ const {
   CONTACT_ID_BACKFILL_FORMAT,
   contactIdBackfillTask,
   contactIdResweepIntervalMs,
+  createApp,
   createHogsendClient,
   enqueueContactIdBackfill,
+  verifyContactIdBackfill,
 } = await import("@hogsend/engine");
 
 const container = createHogsendClient();
+const app = createApp(container);
 const { db, logger } = container;
+
+const ADMIN_HEADERS = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };
 
 const RUN = `cidb-${randomUUID().slice(0, 8)}`;
 const uid = (label: string) => `${RUN}-${label}`;
+// T6's fixture family gets its OWN namespace so the two stay disjoint: the
+// backfill's rows are all deliberately unstamped, the probe's are deliberately
+// a mix, and neither cleanup may reach the other's rows.
+const RUN_V = `cidv-${randomUUID().slice(0, 8)}`;
+const uidV = (label: string) => `${RUN_V}-${label}`;
 
 // ---------------------------------------------------------------------------
 // fixture plumbing
@@ -135,17 +212,24 @@ async function seedContact(
 }
 
 /**
- * One NULL-stamped history row per requested table, all keyed on `key`. Inserted
- * DIRECTLY (never through the engine) so no dual-write pre-fills `contact_id` —
- * this is the pre-column-era population the backfill exists for.
+ * One history row per requested table, all keyed on `key`. Inserted DIRECTLY
+ * (never through the engine) so no dual-write pre-fills `contact_id`.
+ *
+ * `contactId` defaults to NULL — the pre-column-era population the backfill
+ * exists for. T6's fixtures pass an explicit stamp (or an explicit NULL) so the
+ * probe is handed exactly the state it is meant to judge.
  */
-async function seedRows(key: string, tables: TableKey[]): Promise<IdSet> {
+async function seedRows(
+  key: string,
+  tables: TableKey[],
+  contactId: string | null = null,
+): Promise<IdSet> {
   const ids = emptyIds();
 
   if (tables.includes("user_events")) {
     const [row] = await db
       .insert(userEvents)
-      .values({ userId: key, event: `${RUN}.seed`, properties: {} })
+      .values({ userId: key, event: `${RUN}.seed`, properties: {}, contactId })
       .returning({ id: userEvents.id });
     if (row) ids.user_events.push(row.id);
   }
@@ -157,6 +241,7 @@ async function seedRows(key: string, tables: TableKey[]): Promise<IdSet> {
         userEmail: `${key}@example.com`,
         journeyId: uid("journey"),
         currentNodeId: "start",
+        contactId,
       })
       .returning({ id: journeyStates.id });
     if (row) ids.journey_states.push(row.id);
@@ -164,7 +249,7 @@ async function seedRows(key: string, tables: TableKey[]): Promise<IdSet> {
   if (tables.includes("bucket_memberships")) {
     const [row] = await db
       .insert(bucketMemberships)
-      .values({ userId: key, bucketId: uid("bucket") })
+      .values({ userId: key, bucketId: uid("bucket"), contactId })
       .returning({ id: bucketMemberships.id });
     if (row) ids.bucket_memberships.push(row.id);
   }
@@ -176,6 +261,7 @@ async function seedRows(key: string, tables: TableKey[]): Promise<IdSet> {
         fromEmail: "seed@example.com",
         toEmail: `${key}@example.com`,
         subject: `${RUN} seed`,
+        contactId,
       })
       .returning({ id: emailSends.id });
     if (row) ids.email_sends.push(row.id);
@@ -183,7 +269,7 @@ async function seedRows(key: string, tables: TableKey[]): Promise<IdSet> {
   if (tables.includes("email_preferences")) {
     const [row] = await db
       .insert(emailPreferences)
-      .values({ userId: key, email: `${key}@example.com` })
+      .values({ userId: key, email: `${key}@example.com`, contactId })
       .returning({ id: emailPreferences.id });
     if (row) ids.email_preferences.push(row.id);
   }
@@ -484,9 +570,14 @@ describe("contactIdBackfillTask", () => {
       .limit(1);
     expect(row?.status).toBe("completed");
     // totalRows = live contacts; processedRows = contacts walked. The fixture
-    // alone contributes five live contacts.
+    // alone contributes five live contacts. NO equality between the two: this
+    // file shares one Postgres with the whole concurrently-running suite, and
+    // `totalRows` is a whole-table snapshot taken at run start while the walk
+    // sees contacts other files insert mid-run — asserting them equal is the
+    // shared-database race this suite keeps re-learning. The run's own two
+    // counters (DB row vs result) must still agree exactly.
     expect(row?.totalRows ?? 0).toBeGreaterThanOrEqual(5);
-    expect(row?.processedRows).toBe(row?.totalRows);
+    expect(row?.processedRows ?? 0).toBeGreaterThanOrEqual(5);
     expect(row?.processedRows).toBe(firstRun.contactsScanned);
     // failedRows carries the ambiguous-alias divergence metric, NOT errors.
     expect(row?.failedRows).toBe(firstRun.ambiguousAliases);
@@ -497,16 +588,18 @@ describe("contactIdBackfillTask", () => {
     const xminBefore = await xminOf(allIds);
 
     const second = await backfillTask.fn({ pauseMs: 0 });
-    expect(second.status).toBe("completed");
 
-    // The `contact_id IS NULL` guard is the whole point — remove it and this
-    // goes red (the PRD's named mutation proof).
-    expect(second.updated).toBe(0);
-    for (const table of ALL_TABLES) {
-      expect(second.canonical[table]).toBe(0);
-      expect(second.alias[table]).toBe(0);
-    }
-    // …and physically: same tuple versions, so nothing was rewritten.
+    // The sweep is GLOBAL, so on the suite's shared database `second.updated`
+    // may legitimately count rows OTHER concurrently-running files seeded —
+    // asserting it 0 is a whole-database claim this file cannot make. The
+    // PRD's named mutation proof (`remove the contact_id IS NULL guard and the
+    // re-run goes red`) is carried by the two FIXTURE-scoped assertions below
+    // instead, and both kill the mutant: without the guard the re-run
+    // re-stamps this fixture's rows (new tuple versions ⇒ the xmin equality
+    // fails) and the per-key loop never drains (the runaway guard throws ⇒
+    // status is "failed").
+    expect(second.status).toBe("completed");
+    // Physically untouched: same tuple versions, so nothing was rewritten.
     expect(await xminOf(allIds)).toEqual(xminBefore);
     expect(withoutContactId(await snapshot(allIds))).toEqual(
       withoutContactId(before),
@@ -543,10 +636,13 @@ describe("the per-statement bound", () => {
     expect(stamps.size).toBe(6);
     for (const value of stamps.values()) expect(value).toBe(contact);
 
-    // 4 rows under the canonical key + 2 under the stale alias, one row per
-    // statement, plus a terminating zero-row statement per (key, table): the
-    // loop necessarily issued MORE statements than it wrote rows.
-    expect(result.updated).toBe(6);
+    // 4 rows under the canonical key + 2 under the stale alias — but `updated`
+    // is the GLOBAL counter and other suite files seed concurrently, so the
+    // exact claim lives on the fixture (`stamps` above); the counter only
+    // bounds it from below. One row per statement plus a terminating zero-row
+    // statement per (key, table): the loop necessarily issued MORE statements
+    // than it wrote rows, and that inequality is concurrency-proof.
+    expect(result.updated).toBeGreaterThanOrEqual(6);
     expect(result.statements).toBeGreaterThan(result.updated);
   });
 });
@@ -607,5 +703,461 @@ describe("enqueueContactIdBackfill (worker boot, D6 re-sweep)", () => {
         process.env.CONTACT_ID_BACKFILL_RESWEEP_HOURS = original;
       }
     }
+  });
+});
+
+// ===========================================================================
+// T6 — the invariant probe.
+//
+// Everything below runs AFTER the sweep-invoking describes above have finished,
+// and seeds its fixture in its own `beforeAll` so the owned-but-NULL rows do not
+// even exist while a global sweep is in flight. See the file header: this
+// ordering is the whole reason T6 lives in this file.
+// ===========================================================================
+
+/** Hand-set one row's stamp. Raw SQL so one helper covers all five tables
+ * without a union-typed `db.update()` dance — and because "hand-corrupt" is
+ * exactly what this is. */
+async function setStamp(
+  table: TableKey,
+  id: string,
+  contactId: string | null,
+): Promise<void> {
+  await db.execute(sql`
+    UPDATE ${sql.identifier(table)}
+       SET contact_id = ${contactId}::uuid
+     WHERE id = ${id}::uuid
+  `);
+}
+
+/** Every table reports `missing` and `mismatched` as 0. */
+function expectAllZero(result: {
+  tables: Record<TableKey, { missing: number; mismatched: number }>;
+}) {
+  for (const table of ALL_TABLES) {
+    expect([table, result.tables[table].missing]).toEqual([table, 0]);
+    expect([table, result.tables[table].mismatched]).toEqual([table, 0]);
+  }
+}
+
+const ALERT_MESSAGE = "contact_id invariant broken after a completed sweep";
+
+/** winston's `error` is heavily overloaded, so its recorded calls type as
+ * `[infoObject: object]`. Read them back as (message, meta) pairs — the shape
+ * the route actually logs. */
+function alertCalls(spy: {
+  mock: { calls: unknown[] };
+}): Array<[string, Record<string, unknown>]> {
+  const calls = spy.mock.calls as Array<[string, Record<string, unknown>]>;
+  return calls.filter(([message]) => message === ALERT_MESSAGE);
+}
+
+/** Healthy: canonical key = external_id, rows in ALL FIVE tables, all stamped. */
+const keyHealthy = uidV("healthy");
+/** The wrong-but-real live contact a corruption repoints at. */
+const keyWrong = uidV("wrong");
+/** A refused anonymous ingest: owns no contact, stamps nothing (D5). */
+const keyOrphan = uidV("orphan");
+/** A second-device anon id that exists ONLY in `contact_aliases`. */
+const keyAliasStamped = uidV("alias-stamped");
+/** Same shape, left NULL — a live contact owns it BY ALIAS, so it is missing. */
+const keyAliasNull = uidV("alias-null");
+/** An alias of kind `email`: NOT canonical ownership, so a stamp is a mismatch. */
+const keyEmailAlias = uidV("email-alias");
+
+let contactHealthy = "";
+let contactWrong = "";
+let contactAliasOwner = "";
+let contactEmailAliasOwner = "";
+
+let idsHealthy: IdSet;
+let idsAliasStamped: IdSet;
+let idsAliasNull: IdSet;
+let idsEmailAlias: IdSet;
+
+describe("verifyContactIdBackfill (PRD 04 T6)", () => {
+  // Seeded HERE, not at file scope: `keyAliasNull`'s row is owned by a live
+  // contact and deliberately unstamped, which is precisely what the sweep above
+  // fills. Creating it only once every sweep has run is what keeps it NULL.
+  beforeAll(async () => {
+    contactHealthy = await seedContact({
+      externalId: keyHealthy,
+      email: `${uidV("healthy")}@example.com`,
+    });
+    contactWrong = await seedContact({ externalId: keyWrong });
+    contactAliasOwner = await seedContact({ externalId: uidV("alias-canon") });
+    contactEmailAliasOwner = await seedContact({
+      externalId: uidV("email-alias-canon"),
+    });
+
+    idsHealthy = await seedRows(keyHealthy, ALL_TABLES, contactHealthy);
+    await seedRows(keyOrphan, ["user_events", "bucket_memberships"], null);
+    idsAliasStamped = await seedRows(
+      keyAliasStamped,
+      ["user_events"],
+      contactAliasOwner,
+    );
+    idsAliasNull = await seedRows(keyAliasNull, ["user_events"], null);
+    idsEmailAlias = await seedRows(
+      keyEmailAlias,
+      ["user_events"],
+      contactEmailAliasOwner,
+    );
+
+    await db.insert(contactAliases).values([
+      // The two second-device anon ids — live ONLY here, never on a column.
+      {
+        contactId: contactAliasOwner,
+        aliasKind: "anonymous",
+        aliasValue: keyAliasStamped,
+        reason: "promote",
+      },
+      {
+        contactId: contactAliasOwner,
+        aliasKind: "anonymous",
+        aliasValue: keyAliasNull,
+        reason: "promote",
+      },
+      // An `email` alias. Permitted data, but NOT a canonical key (D4), so it
+      // must not confer ownership.
+      {
+        contactId: contactEmailAliasOwner,
+        aliasKind: "email",
+        aliasValue: keyEmailAlias,
+        reason: "merge",
+      },
+    ]);
+  });
+
+  describe("a healthy world", () => {
+    it("reports all zeros, counts the seeded orphans, and opens the gate", async () => {
+      const result = await verifyContactIdBackfill({
+        db,
+        userIds: [keyHealthy, keyOrphan, keyAliasStamped],
+      });
+
+      expectAllZero(result);
+      // D5: `orphaned` is information, never a failure — and it is NOT part of
+      // the gate, which is exactly why the gate is open here.
+      expect(result.tables.user_events.orphaned).toBe(1);
+      expect(result.tables.bucket_memberships.orphaned).toBe(1);
+      expect(result.tables.journey_states.orphaned).toBe(0);
+      expect(result.totals.orphaned).toBe(2);
+      expect(result.flipReady).toBe(true);
+    });
+
+    it("puts a refused-ingest anonymous row in `orphaned`, never in `missing`", async () => {
+      const result = await verifyContactIdBackfill({
+        db,
+        userIds: [keyOrphan],
+      });
+      expect(result.tables.user_events).toEqual({
+        missing: 0,
+        mismatched: 0,
+        orphaned: 1,
+      });
+      expect(result.tables.bucket_memberships).toEqual({
+        missing: 0,
+        mismatched: 0,
+        orphaned: 1,
+      });
+      // Nothing owns the key, so nothing is owed a stamp — the gate stays open.
+      expect(result.flipReady).toBe(true);
+    });
+
+    it("scopes to nothing on an empty key list (not to everything)", async () => {
+      const result = await verifyContactIdBackfill({ db, userIds: [] });
+      expect(result.totals).toEqual({ missing: 0, mismatched: 0, orphaned: 0 });
+    });
+  });
+
+  describe("corruption", () => {
+    it("catches a wrong-but-real stamp, one table at a time", async () => {
+      for (const table of ALL_TABLES) {
+        const rowId = idsHealthy[table][0];
+        if (!rowId) throw new Error(`fixture missing a ${table} row`);
+
+        // The stamp points at a LIVE contact that exists — an FK would be
+        // perfectly happy. Only ownership tells the two apart.
+        await setStamp(table, rowId, contactWrong);
+        const broken = await verifyContactIdBackfill({
+          db,
+          userIds: [keyHealthy],
+        });
+
+        for (const other of ALL_TABLES) {
+          expect([other, broken.tables[other].mismatched]).toEqual([
+            other,
+            other === table ? 1 : 0,
+          ]);
+          expect([other, broken.tables[other].missing]).toEqual([other, 0]);
+        }
+        expect(broken.flipReady).toBe(false);
+
+        await setStamp(table, rowId, contactHealthy);
+        const repaired = await verifyContactIdBackfill({
+          db,
+          userIds: [keyHealthy],
+        });
+        expectAllZero(repaired);
+        expect(repaired.flipReady).toBe(true);
+      }
+    });
+
+    it("catches a dropped stamp on an owned row, one table at a time", async () => {
+      for (const table of ALL_TABLES) {
+        const rowId = idsHealthy[table][0];
+        if (!rowId) throw new Error(`fixture missing a ${table} row`);
+
+        await setStamp(table, rowId, null);
+        const broken = await verifyContactIdBackfill({
+          db,
+          userIds: [keyHealthy],
+        });
+
+        for (const other of ALL_TABLES) {
+          expect([other, broken.tables[other].missing]).toEqual([
+            other,
+            other === table ? 1 : 0,
+          ]);
+          expect([other, broken.tables[other].mismatched]).toEqual([other, 0]);
+          // `missing` and `orphaned` PARTITION the NULL-stamped rows: a live
+          // contact owns this key, so the NULLed row is a hole, not an orphan.
+          expect([other, broken.tables[other].orphaned]).toEqual([other, 0]);
+        }
+        expect(broken.flipReady).toBe(false);
+
+        await setStamp(table, rowId, contactHealthy);
+        expect(
+          (await verifyContactIdBackfill({ db, userIds: [keyHealthy] }))
+            .flipReady,
+        ).toBe(true);
+      }
+    });
+  });
+
+  describe("ownership is ALIAS-AWARE (locked)", () => {
+    it("accepts a row keyed on an alias-only anon id, stamped with that alias's contact", async () => {
+      // The regression this pins: a bare canonical-coalesce probe would call
+      // this correctly-stamped second-device row corruption, and
+      // `mismatched > 0` would block the read flip forever on any deployment
+      // with two devices.
+      const result = await verifyContactIdBackfill({
+        db,
+        userIds: [keyAliasStamped],
+      });
+      expect(result.tables.user_events).toEqual({
+        missing: 0,
+        mismatched: 0,
+        orphaned: 0,
+      });
+      expect(result.flipReady).toBe(true);
+      expect(idsAliasStamped.user_events).toHaveLength(1);
+    });
+
+    it("reports an alias-owned row that was never stamped as `missing`", async () => {
+      const result = await verifyContactIdBackfill({
+        db,
+        userIds: [keyAliasNull],
+      });
+      // A live contact owns the key BY ALIAS, so this is a hole the dual-write
+      // or the sweep owes — not an orphan. (And the sweep genuinely would fill
+      // it, which is why this fixture is seeded only after the sweeps above.)
+      expect(result.tables.user_events).toEqual({
+        missing: 1,
+        mismatched: 0,
+        orphaned: 0,
+      });
+      expect(result.flipReady).toBe(false);
+      expect(idsAliasNull.user_events).toHaveLength(1);
+    });
+
+    it("refuses an `email`-kind alias as ownership", async () => {
+      // Only `external`/`anonymous` can ever be a canonical key (D4). Folding
+      // `email` in would resolve history that resolves to nothing today.
+      const result = await verifyContactIdBackfill({
+        db,
+        userIds: [keyEmailAlias],
+      });
+      expect(result.tables.user_events).toEqual({
+        missing: 0,
+        mismatched: 1,
+        orphaned: 0,
+      });
+      expect(result.flipReady).toBe(false);
+      expect(idsEmailAlias.user_events).toHaveLength(1);
+    });
+  });
+
+  describe("a keyless email_sends row (D7)", () => {
+    it("does not count a resend-shaped row (user_id NULL, contact_id set)", async () => {
+      // `routes/admin/bulk.ts`'s resend copies `contact_id` off the source row
+      // and does NOT copy `user_id` — so `user_id IS NULL AND contact_id IS NOT
+      // NULL` is reachable TODAY, on a committed path, carrying a CORRECT
+      // contact_id. Counting it as corruption would shut the gate forever on
+      // any deployment that has ever resent a bounced email.
+      //
+      // The row has no key, so no `userIds` scope can see it: this is asserted
+      // as a delta on the whole-database `email_sends` count, read back to
+      // back. Nothing in the engine writes a mismatched row (that is the
+      // invariant), so the only thing that moves this number between the two
+      // readings is the fixture below.
+      const before = await verifyContactIdBackfill({ db });
+
+      const [row] = await db
+        .insert(emailSends)
+        .values({
+          userId: null,
+          fromEmail: "seed@example.com",
+          toEmail: `${uidV("resend")}@example.com`,
+          subject: `${RUN_V} resend`,
+          contactId: contactHealthy,
+        })
+        .returning({ id: emailSends.id });
+      if (!row) throw new Error("failed to seed the resend-shaped row");
+      seededIds.email_sends.push(row.id);
+
+      const after = await verifyContactIdBackfill({ db });
+      expect(after.tables.email_sends.mismatched).toBe(
+        before.tables.email_sends.mismatched,
+      );
+    });
+  });
+
+  describe("GET /v1/admin/maintenance/contact-id-verify", () => {
+    let corruptedRowId = "";
+
+    beforeAll(async () => {
+      // The route is a WHOLE-database probe, so the only readings it can be
+      // held to are ones this fixture forces. One corrupt row forces
+      // `flipReady: false` no matter what else lives in the database.
+      const rowId = idsHealthy.user_events[0];
+      if (!rowId) throw new Error("fixture missing a user_events row");
+      corruptedRowId = rowId;
+      await setStamp("user_events", corruptedRowId, contactWrong);
+
+      // A COMPLETED sweep must be on record for the alert's second conjunct.
+      // Rows of this format belong to THIS file (nothing else in the suite
+      // writes them), and every describe that reads them has already run, so
+      // clearing them first makes `lastSweepAt` exactly the row seeded here.
+      await db
+        .delete(importJobs)
+        .where(eq(importJobs.format, CONTACT_ID_BACKFILL_FORMAT));
+      await db.insert(importJobs).values({
+        fileName: CONTACT_ID_BACKFILL_FORMAT,
+        format: CONTACT_ID_BACKFILL_FORMAT,
+        status: "completed",
+      });
+    });
+
+    afterAll(async () => {
+      verifyOverride.value = null;
+      if (corruptedRowId) {
+        await setStamp("user_events", corruptedRowId, contactHealthy);
+      }
+    });
+
+    it("requires admin auth", async () => {
+      const res = await app.request("/v1/admin/maintenance/contact-id-verify");
+      expect(res.status).toBe(401);
+    });
+
+    it("reports every table and ALERTS when the invariant is broken after a sweep", async () => {
+      const errorSpy = vi.spyOn(logger, "error");
+      try {
+        const res = await app.request(
+          "/v1/admin/maintenance/contact-id-verify",
+          { headers: ADMIN_HEADERS },
+        );
+        expect(res.status).toBe(200);
+        const body = await res.json();
+
+        expect(Object.keys(body.tables).sort()).toEqual([...ALL_TABLES].sort());
+        // Our corrupt row is in there, so the gate is shut — whatever else the
+        // shared database holds.
+        expect(body.flipReady).toBe(false);
+        expect(body.totals.mismatched).toBeGreaterThanOrEqual(1);
+        expect(body.tables.user_events.mismatched).toBeGreaterThanOrEqual(1);
+        expect(body.lastSweepAt).not.toBeNull();
+
+        // D6 (revised): reporting is not a control. The 200 is the answer; the
+        // structured error line is what alerting hooks.
+        const alerts = alertCalls(errorSpy);
+        expect(alerts).toHaveLength(1);
+        const meta = alerts[0]?.[1] as {
+          flipReady: boolean;
+          totals: { mismatched: number };
+          tables: Record<string, unknown>;
+          lastSweepAt: string;
+        };
+        expect(meta.flipReady).toBe(false);
+        expect(meta.totals.mismatched).toBeGreaterThanOrEqual(1);
+        expect(Object.keys(meta.tables).sort()).toEqual([...ALL_TABLES].sort());
+        expect(meta.lastSweepAt).toBe(body.lastSweepAt);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it("does NOT alert when the gate is open", async () => {
+      // The healthy branch cannot be seeded on a shared database (one unstamped
+      // row from any parallel suite shuts the whole-database gate), so the
+      // probe is handed a synthetic clean verdict. The completed-sweep row is
+      // still on record, which is the point: the alert must be gated on the
+      // INVARIANT, not merely on a sweep having run.
+      verifyOverride.value = {
+        tables: Object.fromEntries(
+          ALL_TABLES.map((t) => [
+            t,
+            { missing: 0, mismatched: 0, orphaned: 7 },
+          ]),
+        ),
+        totals: { missing: 0, mismatched: 0, orphaned: 35 },
+        flipReady: true,
+      };
+
+      const errorSpy = vi.spyOn(logger, "error");
+      try {
+        const res = await app.request(
+          "/v1/admin/maintenance/contact-id-verify",
+          { headers: ADMIN_HEADERS },
+        );
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.flipReady).toBe(true);
+        // Orphans are reported, never alerted on (D5).
+        expect(body.totals.orphaned).toBe(35);
+        expect(body.lastSweepAt).not.toBeNull();
+        expect(alertCalls(errorSpy)).toHaveLength(0);
+      } finally {
+        errorSpy.mockRestore();
+        verifyOverride.value = null;
+      }
+    });
+
+    it("does NOT alert on a broken invariant with no sweep on record", async () => {
+      // The second half of D6's revised posture: before a sweep completes,
+      // `missing` is a pending backfill, not a hole — alerting on it would
+      // train operators to ignore the alert. Deterministic now that this file
+      // owns every `import_jobs` row of this format.
+      await db
+        .delete(importJobs)
+        .where(eq(importJobs.format, CONTACT_ID_BACKFILL_FORMAT));
+
+      const errorSpy = vi.spyOn(logger, "error");
+      try {
+        const res = await app.request(
+          "/v1/admin/maintenance/contact-id-verify",
+          { headers: ADMIN_HEADERS },
+        );
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.lastSweepAt).toBeNull();
+        expect(body.flipReady).toBe(false); // the corrupt row is still in place
+        expect(alertCalls(errorSpy)).toHaveLength(0);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
   });
 });

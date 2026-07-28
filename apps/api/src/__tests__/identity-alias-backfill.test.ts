@@ -354,9 +354,9 @@ describe("admin identity routes", () => {
   });
 
   it("GET /v1/admin/identity/alias-parity classifies diverged / dead / alias-only", async () => {
-    // Manufacture one row of each class under a kind unlikely to collide with
-    // concurrent suites, then assert on the DELTA (the endpoint is a global
-    // count over a shared table).
+    // Manufacture one row of each class, then assert LOWER BOUNDS after
+    // seeding (the endpoint is a global count over a shared table — see the
+    // comment at the assertions).
     const before = await app.request("/v1/admin/identity/alias-parity", {
       headers: ADMIN_HEADERS,
     });
@@ -367,11 +367,6 @@ describe("admin identity routes", () => {
       aliasDead: number;
       aliasOnly: number;
     }>;
-    const beforeDiscord = beforeKinds.find((k) => k.kind === "discord") ?? {
-      diverged: 0,
-      aliasDead: 0,
-      aliasOnly: 0,
-    };
 
     // diverged: alias → live A, column → live B, same (kind, value).
     const a = await seedContact({ email: `${RUN}-parity-a@example.com` });
@@ -410,8 +405,17 @@ describe("admin identity routes", () => {
     const afterDiscord = afterKinds.find((k) => k.kind === "discord");
     expect(afterDiscord).toBeDefined();
     if (!afterDiscord) throw new Error("unreachable");
-    expect(afterDiscord.diverged - beforeDiscord.diverged).toBe(1);
-    expect(afterDiscord.aliasDead - beforeDiscord.aliasDead).toBe(1);
-    expect(afterDiscord.aliasOnly - beforeDiscord.aliasOnly).toBe(1);
+    // LOWER BOUNDS, not before/after deltas: the parity counts are
+    // whole-database, and this file shares one Postgres with the concurrently
+    // running suite — another file's cleanup can cascade-delete its own
+    // discord aliases between the two reads, collapsing an exact delta to 0
+    // (observed under full-suite concurrency, 2026-07-28). The three seeded
+    // rows are RUN-namespaced so nothing else can remove them; each is
+    // guaranteed to be classified in its bucket at read time, and a broken
+    // classifier still reads 0 on any database without a coincident
+    // same-bucket row from another file.
+    expect(afterDiscord.diverged).toBeGreaterThanOrEqual(1);
+    expect(afterDiscord.aliasDead).toBeGreaterThanOrEqual(1);
+    expect(afterDiscord.aliasOnly).toBeGreaterThanOrEqual(1);
   });
 });
