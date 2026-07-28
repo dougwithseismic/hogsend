@@ -118,6 +118,14 @@ export const bucketReconcileTask = hatchet.task({
       if (!timeBased && !bucket.maxDwell && !hasDwell) continue;
 
       try {
+        // ONE-SHOT COHORT CLAIM — the first-tick guard for the join-key fix.
+        // Until this bucket has been claimed, its previously-invisible members
+        // (canonical key != external_id) carry age clocks that ran unwatched,
+        // so every age-driven emission is due AT ONCE. Reset those clocks
+        // instead of firing the backlog, then skip this bucket for this tick so
+        // no pass can act on a cohort mid-reset. The next tick is normal.
+        if (await claimCoalesceCohort({ db, logger, bucket })) continue;
+
         if (timeBased) {
           reconciled += await reconcileBucketLeaves({
             db,
@@ -421,7 +429,7 @@ async function selectEventLeavers(
     })
     .from(members)
     .leftJoin(counted, eq(members.userId, counted.userId))
-    .innerJoin(contacts, eq(contacts.externalId, members.userId))
+    .innerJoin(contacts, eq(contactKeySql(), members.userId))
     .where(isNull(contacts.deletedAt));
 
   return rows
@@ -456,7 +464,7 @@ async function reconcileCompositeLeaves(opts: {
       properties: contacts.properties,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+    .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
@@ -534,7 +542,7 @@ async function reconcileBucketTtlLeaves(opts: {
       contactId: contacts.id,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+    .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
@@ -664,6 +672,105 @@ async function bulkLeave(opts: {
  * `floor((sweepInstant - anchor) / offsetMs)` (gap-stable, NOT a fire count). For
  * `after` the ordinal is always 1 (one-shot).
  */
+/**
+ * ONE-SHOT COHORT CLAIM — the first-tick guard for the join-key correction.
+ *
+ * The leave/dwell passes used to join `contacts.external_id`, while memberships
+ * key on the canonical `external_id ?? anonymous_id ?? id`. Every member whose
+ * contact carries a NULL `external_id` (email-only, keyed on its uuid;
+ * anonymous, keyed on its `anonymous_id`) was therefore enrollable — the join
+ * path has always scanned on the coalesce key — but never left, never
+ * dwell-fired, never re-evaluated. Their membership-age clocks ran unwatched,
+ * frequently for months.
+ *
+ * Correcting the join makes that whole cohort due AT ONCE. A dwell reaction is
+ * a full journey (same `(user, ctx)` shape as a journey `run`), so it can
+ * `sendEmail` — the first tick would otherwise deliver a backlog of months-old
+ * lifecycle mail to real recipients, which is worse than the bug being fixed.
+ *
+ * So the first tick RESETS the cohort's age clocks to now instead: the dwell
+ * anchor moves to this instant, dwell stamps clear, and a `maxDwell` TTL is
+ * re-armed a full window out. Nothing is emitted and nothing is silently
+ * swallowed — every age-driven emission still happens, just on an honest
+ * schedule measured from the moment the cron could first see the member.
+ *
+ * Deliberately NOT deferred: criteria-driven leaves. Those evaluate against
+ * present-day events and properties, so they are timely rather than stale, and
+ * suppressing them would hold members in a bucket they no longer match.
+ *
+ * Returns `true` ONLY when rows were actually reset — the caller then SKIPS
+ * this bucket's passes for this tick so nothing acts on a cohort mid-reset.
+ * An EMPTY cohort (the overwhelmingly common case: no email-only or anonymous
+ * members, and every deployment that never had any) returns `false` and the
+ * tick proceeds normally, so this guard costs nothing where it protects
+ * nothing. Either way the claim is recorded on
+ * `bucket_configs.coalesceClaimedAt` and never runs again for this bucket:
+ * once the join is correct, no member can become stranded, so a member
+ * enrolled later starts its age clocks under a cron that can already see it.
+ */
+async function claimCoalesceCohort(opts: {
+  db: Database;
+  logger: Logger;
+  bucket: BucketMeta;
+}): Promise<boolean> {
+  const { db, logger, bucket } = opts;
+
+  const config = await db.query.bucketConfigs.findFirst({
+    where: eq(bucketConfigs.bucketId, bucket.id),
+  });
+  if (config?.coalesceClaimedAt != null) return false;
+
+  const now = new Date();
+  const maxDwellMs = bucket.maxDwell ? durationToMs(bucket.maxDwell) : null;
+
+  // The cohort is exactly "resolves by the canonical key, but NOT by
+  // external_id" — the set the old join could not see. A correlated EXISTS
+  // keeps this a single UPDATE; the columns mirror the age clocks the
+  // dwell/TTL passes read (`coalesce(dwellAnchorAt, enteredAt)` and
+  // `maxDwellAt`).
+  const claimed = await db
+    .update(bucketMemberships)
+    .set({
+      dwellAnchorAt: now,
+      dwellState: {},
+      ...(maxDwellMs != null
+        ? { maxDwellAt: new Date(now.getTime() + maxDwellMs) }
+        : {}),
+      lastEvaluatedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(bucketMemberships.bucketId, bucket.id),
+        eq(bucketMemberships.status, "active"),
+        isNull(bucketMemberships.deletedAt),
+        sql`exists (
+          select 1 from contacts c
+          where coalesce(c.external_id, c.anonymous_id, c.id::text) = ${bucketMemberships.userId}
+            and c.deleted_at is null
+            and c.external_id is null
+        )`,
+      ),
+    )
+    .returning({ id: bucketMemberships.id });
+
+  await db
+    .insert(bucketConfigs)
+    .values({ bucketId: bucket.id, coalesceClaimedAt: now })
+    .onConflictDoUpdate({
+      target: bucketConfigs.bucketId,
+      set: { coalesceClaimedAt: now, updatedAt: now },
+    });
+
+  if (claimed.length === 0) return false;
+
+  logger.info("Bucket coalesce-key cohort claimed — age clocks reset", {
+    bucketId: bucket.id,
+    memberships: claimed.length,
+  });
+  return true;
+}
+
 async function reconcileBucketDwell(opts: {
   db: Database;
   logger: Logger;
@@ -712,7 +819,7 @@ async function reconcileBucketDwell(opts: {
         dwellState: bucketMemberships.dwellState,
       })
       .from(bucketMemberships)
-      .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+      .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
       .where(
         and(
           eq(bucketMemberships.bucketId, bucket.id),

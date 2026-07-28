@@ -3,7 +3,6 @@
 "@hogsend/cli": minor
 "@hogsend/client": minor
 "@hogsend/core": minor
-"@hogsend/db": minor
 "@hogsend/email": minor
 "hogsend": minor
 "@hogsend/js": minor
