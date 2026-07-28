@@ -19,14 +19,22 @@ import {
   sessionIdentity,
   capture as trackEvent,
 } from "@/lib/analytics";
+import {
+  authClient,
+  signIn,
+  signOut,
+  updateUser,
+  useSession,
+} from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
 import { DISCORD_INVITE_URL } from "@/lib/site";
 import { isHogsendConfigured } from "./config";
 
-/** localStorage keys — `hs-demo-name` is also read by the site banner greeting,
- * so keep writing it. `hs-demo-email` doubles as the "already signed up" flag. */
+/** The site banner greeting (components/landing/banner-ticker.tsx) reads this
+ * key, so the sign-up keeps writing it. There is no `hs-demo-email` flag any
+ * more: the gate below is a real Better Auth session, not a value this browser
+ * wrote to itself. */
 const NAME_KEY = "hs-demo-name";
-const EMAIL_KEY = "hs-demo-email";
 
 /**
  * The three demo actions. `event` MUST match a registered demo journey trigger
@@ -66,6 +74,12 @@ const STEPS = [
 const FIELD_CLASS =
   "h-10 w-full rounded-[10px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white transition-colors placeholder:text-white/30 focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
+/** The white CTA shared by the email step and the code step. */
+const CTA_CLASS =
+  "group inline-flex h-11 w-full select-none items-center justify-center gap-2 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-sm transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-60";
+
+type Pending = null | "code" | "resend" | "verify";
+
 function GatedFallback() {
   return (
     <Card className="my-8 p-6">
@@ -99,56 +113,96 @@ export function TryItDemo({ codePanel }: { codePanel?: ReactNode }) {
 }
 
 function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
-  const { client, capture } = useHogsend();
-  const { refetch, metadata } = useHogsendFeed();
+  const { client, capture, userId, isIdentified } = useHogsend();
+  const { refetch: refetchFeed, metadata } = useHogsendFeed();
+  // The gate. A signed-in visitor is engine-identified by HogsendDocsProvider
+  // (session → /api/hogsend-token → identify + feed token), so "can this
+  // person fire the demo" is exactly "is there a session".
+  const {
+    data: session,
+    isPending: sessionPending,
+    refetch: refetchSession,
+  } = useSession();
+  const signedIn = Boolean(session);
+  // The session is resolved client-side, so the server has no idea whether
+  // anyone is signed in. Rendering the sign-in form on the server and the
+  // "checking" placeholder on the client (or vice versa) is a hydration
+  // mismatch, which makes React throw the subtree away and re-render it. Pin
+  // BOTH the server pass and the first client pass to the placeholder by
+  // treating "not yet mounted" as "still checking"; the real branch is picked
+  // once the effect below has run and hydration is done.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const checkingSession = !mounted || sessionPending;
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [consent, setConsent] = useState(false);
-  const [signedUp, setSignedUp] = useState(false);
+  const [code, setCode] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [productNotes, setProductNotes] = useState(false);
+  const [formStep, setFormStep] = useState<"email" | "code">("email");
+  const [pending, setPending] = useState<Pending>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
   const [anonId, setAnonId] = useState("");
-  const [step, setStep] = useState(-1);
+  const [narration, setNarration] = useState(-1);
   const [firing, setFiring] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Move focus across the form ↔ identified swap so keyboard / SR users keep
-  // their place. Driven by an explicit request set in submit/reset (NOT a
-  // `signedUp` effect), so the hydrate restore of a return visitor never steals
-  // focus on load.
+  const address = email.trim().toLowerCase();
+  // The account name wins over whatever is typed in the (optional) field: a
+  // returning visitor never sees the field, and we must not let a stale local
+  // value shadow the name the journey will greet them by.
+  const accountName = (session?.user.name ?? "").trim();
+  const effectiveName = accountName || name.trim();
+
+  // Move focus across the form ↔ signed-in swap so keyboard / SR users keep
+  // their place. Driven by an explicit request set in the handlers (NOT a
+  // `signedIn` effect), so restoring an already-signed-in visitor on load never
+  // steals focus. The request SURVIVES renders where the target isn't mounted
+  // yet: the swap is now async (the session atom refetches after verify), so
+  // the identified paragraph lands a render or two after the request.
   const identifiedRef = useRef<HTMLParagraphElement | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
-  const pendingFocus = useRef<"identified" | "form" | null>(null);
+  const codeRef = useRef<HTMLInputElement | null>(null);
+  const pendingFocus = useRef<"identified" | "form" | "code" | null>(null);
   useEffect(() => {
-    if (pendingFocus.current === "identified") identifiedRef.current?.focus();
-    else if (pendingFocus.current === "form") emailRef.current?.focus();
+    const want = pendingFocus.current;
+    if (!want) return;
+    const el =
+      want === "identified"
+        ? identifiedRef.current
+        : want === "form"
+          ? emailRef.current
+          : codeRef.current;
+    if (!el) return;
+    el.focus();
     pendingFocus.current = null;
   });
 
-  // Hydrate display-only + persisted values client-side (avoids SSR mismatch;
-  // localStorage is read only in the browser). A return visitor who already
-  // signed up is restored straight to the identified state with the buttons
-  // live; name pre-fills regardless.
+  // Resend cooldown ticker.
   useEffect(() => {
-    setAnonId(client.getDistinctId());
+    if (cooldown <= 0) return;
+    const t = window.setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [cooldown]);
+
+  // Display-only, resolved client-side (avoids an SSR mismatch — the anon id
+  // lives in browser storage). `userId` is the reactive identity slice, so
+  // signing in swaps the chip from the browser's anon id to the canonical
+  // contact key without a remount.
+  useEffect(() => {
+    setAnonId(userId ?? client.getDistinctId());
+  }, [client, userId]);
+
+  useEffect(() => {
     try {
       const savedName = window.localStorage.getItem(NAME_KEY);
       if (savedName) setName(savedName);
-      const savedEmail = window.localStorage.getItem(EMAIL_KEY);
-      if (savedEmail) {
-        setEmail(savedEmail);
-        setConsent(true);
-        setSignedUp(true);
-      }
     } catch {
       // Private mode / storage blocked — start fresh, no pre-fill.
     }
-  }, [client]);
-
-  // In-session state only while typing: the name is PII, so it reaches
-  // localStorage exclusively at signup (submitSignup below), where the
-  // consent checkbox rides the same submit.
-  function onName(value: string) {
-    setName(value);
-  }
+  }, []);
 
   function copyAnon() {
     if (!anonId) return;
@@ -164,124 +218,227 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
   }
 
   /**
-   * Tell the engine who just signed up. Best-effort and fire-and-forget: the
-   * demo gate is client-side (localStorage), so a failure here must never
-   * block the unlock below.
-   *
-   * It goes through a server route because a `pk_` publishable key is
-   * structurally anon-only — the engine 403s an asserted email without a
-   * server-minted userToken. `/api/demo-identity` forwards `docs.demo_signup`
-   * under the secret ingest key with the email as the identity arm; the event
-   * name is deliberately one no journey listens to, so no welcome email fires
-   * (unlike `/api/subscribe`'s `docs.subscribed`).
-   *
-   * The browser anon id rides in that body as an INERT event property, never
-   * as an identity arm. The feed's recipient resolver treats a raw anon id as
-   * sufficient to READ that contact's feed, so folding a client-supplied one
-   * from an unauthenticated request carrying an unverified email would hand
-   * out a capability, not just create a junk row. The browser id is attached
-   * to a contact only by the email-verified cold-connect confirm link the
-   * recipient clicks in their own inbox.
+   * Record the sign-up consent server-side, keyed to the EMAIL — the exact
+   * call the /sign-in form makes, deliberately the SAME path rather than a
+   * second one. Fired at REQUEST time (before the code is verified) so it is
+   * device-independent and never depends on the later feed-token mint.
+   * Fire-and-forget so it never delays the code.
    */
-  function recordSignup(signupEmail: string, firstName: string) {
-    // Already folded: a signed-in docs visitor got a userToken carrying
-    // { email, userId, firstName } from /api/hogsend-token, so this contact
-    // already has the email. Nothing to add.
-    if (client.isIdentified()) return;
-    // `getAttributionFields()` is the public accessor for the @hogsend/js
-    // anon id (there is no `getAnonymousId()` on the client), and it returns
-    // the id even when no attribution has been captured. NOT
-    // `getDistinctId()` — for an identified visitor that is the canonical
-    // engine userId, which must not ride as an anon id.
-    const hsAnonId = client.getAttributionFields().hs_anonymous_id;
-    void fetch("/api/demo-identity", {
+  function recordConsent() {
+    const typedName = name.trim();
+    void fetch("/api/subscribe", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        email: signupEmail,
-        ...(firstName ? { name: firstName } : {}),
-        ...(hsAnonId ? { hsAnonId } : {}),
+        email: address,
+        // The route writes this to `contactProperties.firstName`, so the
+        // welcome journey can greet by name. Without it the name reaches the
+        // contact only via the later token mint, which a visitor who never
+        // returns to the page never triggers.
+        ...(typedName ? { firstName: typedName } : {}),
+        termsAccepted: true,
+        productNotes,
       }),
       keepalive: true,
-    }).catch(() => {
-      // Network/route failure — swallowed on purpose, see above.
-    });
+    }).catch(() => {});
   }
 
-  // The sign-up: a CONSENTED identify on both sides. PostHog gets the person
-  // (email + name as $set person properties under the stable distinct id),
-  // the engine gets the contact via recordSignup above, and localStorage
-  // holds the gate. The in-app feed stays keyed to the same anon id, so the
-  // bell keeps working either way.
-  function submitSignup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (signedUp) return;
-    const normalizedEmail = email.trim().toLowerCase();
-    const trimmedName = name.trim();
-    // Native `required` + type="email" gate the form; re-check defensively.
-    if (!normalizedEmail || !consent) return;
+  /**
+   * better-auth's client returns `{ data, error }` for an HTTP error but
+   * REJECTS on a transport failure (offline, DNS, abort) — `betterFetch` awaits
+   * `fetch` unwrapped and the client registers no catch-all. An unguarded
+   * `await` would therefore leave `pending` set forever, and every control here
+   * is disabled on `pending !== null`, so the form would go silently dead with
+   * no error and the demo locked. Hence try/catch with the release in `finally`
+   * on all three calls that cross the network.
+   */
+  async function sendCode(mode: "code" | "resend") {
+    setPending(mode);
+    setError(null);
+    try {
+      const res = await authClient.emailOtp.sendVerificationOtp({
+        email: address,
+        type: "sign-in",
+      });
+      if (res.error) {
+        setError("Couldn't send the code. Check the address and try again.");
+        return;
+      }
+      setFormStep("code");
+      setCode("");
+      setCooldown(30);
+      pendingFocus.current = "code";
+    } catch {
+      setError("Couldn't reach the server. Check your connection and retry.");
+    } finally {
+      setPending(null);
+    }
+  }
 
-    // Read the PostHog anon id ONCE before grantConsent can rotate it, then
-    // identify under it with the consented person properties — a self-alias
-    // that only attaches email/name (no merge, no email send). No-ops cleanly
-    // when analytics is off, so the demo still unlocks.
+  async function onEmailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    // Native `required` + type="email" gate the form; re-check defensively.
+    if (!termsAccepted || !address) return;
+    recordConsent();
+    await sendCode("code");
+  }
+
+  /**
+   * Verify the code. `emailOTP` runs with `disableSignUp: false`, so a first
+   * sign-in CREATES the account — this is the real registration, not a local
+   * flag. Everything after the success branch is post-sign-up bookkeeping.
+   */
+  async function verify(value: string) {
+    setPending("verify");
+    setError(null);
+    let res: Awaited<ReturnType<typeof signIn.emailOtp>>;
+    try {
+      res = await signIn.emailOtp({ email: address, otp: value });
+    } catch {
+      setPending(null);
+      setError("Couldn't reach the server. Check your connection and retry.");
+      return;
+    }
+    if (res.error) {
+      setPending(null);
+      setCode("");
+      setError("That code didn't match. Check it, or send a new one.");
+      return;
+    }
+
+    const typedName = name.trim();
+    // Only fill a gap: an existing account keeps the name it already has
+    // (Better Auth's create hook may already have reused one from Hogsend).
+    if (typedName && !(res.data?.user.name ?? "").trim()) {
+      await updateUser({ name: typedName }).catch(() => {});
+    }
+    if (typedName) {
+      try {
+        window.localStorage.setItem(NAME_KEY, typedName);
+      } catch {
+        // Best-effort — only the banner greeting depends on it.
+      }
+    }
+
+    // Consented PostHog identify: read the anon distinct id BEFORE
+    // grantConsent can rotate it, then identify under that same id — a
+    // self-alias that only attaches email/name. No-ops when analytics is off.
     const distinctId = getDistinctId();
     if (distinctId) {
       grantConsent(distinctId, {
-        email: normalizedEmail,
-        ...(trimmedName ? { name: trimmedName } : {}),
+        email: address,
+        ...(typedName ? { name: typedName } : {}),
       });
     }
-    sessionIdentity.email = normalizedEmail;
-    recordSignup(normalizedEmail, trimmedName);
-    trackEvent(AnalyticsEvent.CAPTURE_SUBMITTED, { placement: "live-demo" });
+    sessionIdentity.email = address;
+    trackEvent(AnalyticsEvent.CAPTURE_SUBMITTED, {
+      placement: "live-demo",
+      product_notes: productNotes,
+    });
 
-    try {
-      window.localStorage.setItem(EMAIL_KEY, normalizedEmail);
-      if (trimmedName) window.localStorage.setItem(NAME_KEY, trimmedName);
-    } catch {
-      // Best-effort persistence — the identify still holds for this session.
-    }
     pendingFocus.current = "identified";
-    setSignedUp(true);
+    // NO navigation — this demo is embedded mid-page and a reload would
+    // destroy it. `signIn.emailOtp` flips better-auth's session signal on a
+    // ~10ms timer, so the session is still stale here; refetch to pull the new
+    // one into every `useSession()` consumer (this gate AND the provider that
+    // mints the feed token) in place.
+    // The sign-in already succeeded, so a failure to refresh must not strand
+    // the visitor: better-auth's own ~10ms session signal still lands and flips
+    // the gate a beat later.
+    try {
+      await refetchSession();
+    } catch {
+      // Ignored on purpose — see above.
+    } finally {
+      setPending(null);
+      setCode("");
+    }
   }
 
-  function resetSignup() {
-    pendingFocus.current = "form";
-    setSignedUp(false);
-    setEmail("");
-    setConsent(false);
+  function onCodeChange(raw: string) {
+    const digits = raw.replace(/\D/g, "").slice(0, 6);
+    setCode(digits);
+    if (digits.length === 6 && pending === null) {
+      void verify(digits);
+    }
+  }
+
+  /**
+   * The gate is a session now, so "use a different email" has to be a real
+   * sign-out (it ends the shared `.hogsend.com` session, hence the explicit
+   * label). `/sign-out` is on better-auth's own signal matcher, but refetch
+   * anyway so the swap back to the form doesn't wait on that timer.
+   */
+  async function endSession() {
+    setPending(null);
+    setError(null);
     try {
-      window.localStorage.removeItem(EMAIL_KEY);
+      await signOut();
+      await refetchSession();
     } catch {
-      // Best-effort.
+      // A dropped sign-out leaves the session alive; say so rather than
+      // resetting the form to a state that contradicts it.
+      setError("Couldn't sign you out. Check your connection and retry.");
+      return;
+    }
+    setFormStep("email");
+    setEmail("");
+    setCode("");
+    setTermsAccepted(false);
+    setProductNotes(false);
+    setNarration(-1);
+    pendingFocus.current = "form";
+  }
+
+  /**
+   * The gate opens on the SESSION, but the engine identity lands one
+   * `/api/hogsend-token` round trip later. Firing inside that window keys the
+   * event — and the feed item the journey publishes off it — to the browser's
+   * anonymous id, while the bell re-keys to the contact as soon as the token
+   * arrives, so that notification would never show up. `feed_items` are not
+   * repointed by an identify the way events and journey state are, so this is
+   * a lost message rather than a delayed one.
+   *
+   * Wait for identity, but never BLOCK the demo on it: when the token endpoint
+   * is unconfigured or down, `isIdentified()` never turns true, and firing
+   * anonymously still demonstrates the whole loop. Read off `client` rather
+   * than the `isIdentified` render slice, which is stale inside this closure.
+   */
+  async function awaitIdentity(): Promise<void> {
+    const deadline = Date.now() + 1500;
+    while (!client.isIdentified() && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
     }
   }
 
   async function fire(event: string) {
-    if (!signedUp || firing !== null) return;
+    if (!signedIn || firing !== null) return;
     setFiring(event);
-    setStep(0);
+    setNarration(0);
     try {
+      await awaitIdentity();
       // 1) capture the first-party event, carrying the name as a property
-      await capture(event, name ? { name } : {});
-      setStep(1);
+      await capture(event, effectiveName ? { name: effectiveName } : {});
+      setNarration(1);
       // 2) flush so it hits the engine immediately (capture is batched)
       await client.flush();
-      setStep(2);
+      setNarration(2);
       // 3) give the journey a beat to insert the feed item, then refetch so the
       //    bell badge updates instantly (the poll backstops it regardless)
       await new Promise((resolve) => window.setTimeout(resolve, 900));
-      setStep(3);
-      await refetch();
+      setNarration(3);
+      await refetchFeed();
     } catch {
       // A transient network failure must not brick the demo — reset the
       // narration and re-enable the buttons via `finally`.
-      setStep(-1);
+      setNarration(-1);
     } finally {
       setFiring(null);
     }
   }
+
+  const canSubmit = pending === null && termsAccepted;
+  const idLabel = isIdentified ? "id" : "anon";
 
   return (
     <div className="relative my-8 not-prose">
@@ -305,52 +462,68 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
               <span className="kicker block">Live demo</span>
               <PillBadge>
                 <Bell className="size-3.5" strokeWidth={1.5} />
-                {signedUp ? "Signed up — fire away" : "Sign up, then fire it"}
+                {signedIn ? "Signed in — fire away" : "Sign in, then fire it"}
               </PillBadge>
             </div>
             <h3 className="font-display text-white text-2xl tracking-[-0.02em]">
               Fire it. Watch your bell.
             </h3>
             <p className="mt-1.5 text-sm text-white/55 leading-6">
-              Sign up below, then fire a real lifecycle event. A journey turns
-              it into a notification in the bell ↗ in the top nav — your feed
-              stays anonymous, this session.
+              Sign in below. A 6-digit code arrives by email; first time
+              through, that creates your account. Then fire a real lifecycle
+              event: a journey turns it into a notification in the bell ↗ in the
+              top nav, on the contact behind that account.
             </p>
           </div>
 
-          {/* zone 2 — sign-up gate (identity) */}
+          {/* zone 2 — sign-in gate (identity) */}
           <div className="border-white/[0.08] border-b p-6">
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={copyAnon}
                 className="group inline-flex min-w-0 items-center gap-2 font-mono text-[11px] text-white/40 tracking-wide transition-colors hover:text-white/70"
-                title="Copy your anonymous id"
+                title={
+                  isIdentified
+                    ? "Copy your contact id"
+                    : "Copy your anonymous id"
+                }
               >
-                <span className="truncate">
-                  {anonId ? `anon: ${anonId}` : "anon: …"}
-                </span>
+                <span className="truncate">{`${idLabel}: ${anonId || "…"}`}</span>
                 {copied ? (
                   <Check className="size-3 shrink-0 text-good" />
                 ) : (
                   <Copy className="size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
                 )}
               </button>
-              <TagPill accent={signedUp}>
-                {signedUp ? "signed up" : "not signed up"}
+              <TagPill accent={signedIn}>
+                {signedIn ? "signed in" : "not signed in"}
               </TagPill>
             </div>
 
-            {signedUp ? (
+            {checkingSession ? (
+              // FIRST in the chain, so the server pass and the first client
+              // pass always agree (see `checkingSession` above).
+              <p
+                className="mt-4 text-[13px] text-white/40 leading-6"
+                role="status"
+                aria-live="polite"
+              >
+                Checking your session…
+              </p>
+            ) : signedIn ? (
               <div className="mt-4" role="status" aria-live="polite">
                 <p
                   ref={identifiedRef}
                   tabIndex={-1}
                   className="text-[13px] text-white/70 leading-6 outline-none"
                 >
-                  Signed up as{" "}
-                  <span className="font-medium text-white">{email}</span>. The
-                  buttons below now fire real lifecycle journeys onto your feed.
+                  Signed in as{" "}
+                  <span className="font-medium text-white">
+                    {session?.user.email}
+                  </span>
+                  . The buttons below now fire real lifecycle journeys onto your
+                  feed.
                 </p>
                 <p className="mt-3 text-[12px] text-white/40 leading-5">
                   The same identity graph reaches across channels: when a{" "}
@@ -369,15 +542,86 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                 </p>
                 <button
                   type="button"
-                  onClick={resetSignup}
+                  onClick={endSession}
                   className="mt-3 text-[12px] text-white/35 underline underline-offset-2 transition-colors hover:text-white/60"
                 >
-                  Use a different email
+                  Sign out and use a different email
                 </button>
+              </div>
+            ) : formStep === "code" ? (
+              <div className="mt-4 flex flex-col gap-3">
+                <p
+                  className="text-[13px] text-white/55 leading-6"
+                  role="status"
+                  aria-live="polite"
+                >
+                  We sent a 6-digit code to{" "}
+                  <span className="font-medium text-white">{address}</span>.
+                  Enter it below.
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (code.length === 6) void verify(code);
+                  }}
+                  className="flex flex-col gap-3"
+                >
+                  <input
+                    ref={codeRef}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => onCodeChange(e.target.value)}
+                    placeholder="000000"
+                    aria-label="Sign-in code"
+                    className="h-12 w-full rounded-[10px] border border-white/[0.08] bg-white/[0.04] text-center font-mono text-white text-xl tracking-[0.4em] transition-colors placeholder:text-white/20 focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={pending !== null || code.length !== 6}
+                    className={CTA_CLASS}
+                  >
+                    {pending === "verify" ? "Verifying…" : "Verify and sign in"}
+                  </button>
+                </form>
+
+                {error ? (
+                  <p className="text-[12px] text-accent leading-5" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-white/40">
+                  <button
+                    type="button"
+                    onClick={() => sendCode("resend")}
+                    disabled={pending !== null || cooldown > 0}
+                    className="underline underline-offset-2 transition-colors hover:text-white/70 disabled:no-underline disabled:opacity-60"
+                  >
+                    {cooldown > 0
+                      ? `Resend code in ${cooldown}s`
+                      : pending === "resend"
+                        ? "Sending…"
+                        : "Resend code"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormStep("email");
+                      setCode("");
+                      setError(null);
+                      pendingFocus.current = "form";
+                    }}
+                    className="underline underline-offset-2 transition-colors hover:text-white/70"
+                  >
+                    Use a different email
+                  </button>
+                </div>
               </div>
             ) : (
               <form
-                onSubmit={submitSignup}
+                onSubmit={onEmailSubmit}
                 className="mt-4 flex flex-col gap-3"
               >
                 <div>
@@ -394,10 +638,11 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                     id="hs-demo-name"
                     type="text"
                     value={name}
-                    onChange={(e) => onName(e.target.value)}
+                    onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Doug"
                     autoComplete="given-name"
                     maxLength={80}
+                    disabled={pending !== null}
                     className={cn("mt-1.5", FIELD_CLASS)}
                   />
                 </div>
@@ -409,7 +654,7 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                   >
                     Email{" "}
                     <span className="text-white/30">
-                      (for this demo — no email is sent)
+                      (we email you a 6-digit code)
                     </span>
                   </label>
                   <input
@@ -421,27 +666,31 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
                     autoComplete="email"
+                    disabled={pending !== null}
                     className={cn("mt-1.5", FIELD_CLASS)}
                   />
                 </div>
 
-                {/* The checkbox's <label> wraps only plain text (no interactive
+                {/* Each checkbox's <label> wraps only plain text (no interactive
                     descendants); the legal links sit OUTSIDE it as siblings so
-                    each stays an unambiguous, independently-clickable target. */}
+                    each stays an unambiguous, independently-clickable target.
+                    `aria-label` carries the full sentence the links interrupt,
+                    so the control still announces what it commits you to. */}
                 <div className="flex items-start gap-2.5 text-[12px] text-white/50 leading-5">
                   <input
-                    id="hs-demo-consent"
+                    id="hs-demo-terms"
                     type="checkbox"
                     required
-                    checked={consent}
-                    onChange={(e) => setConsent(e.target.checked)}
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    disabled={pending !== null}
+                    aria-label="I agree to the terms and privacy policy"
                     className="mt-0.5 size-3.5 shrink-0 accent-accent"
                   />
                   <span>
-                    <label htmlFor="hs-demo-consent" className="cursor-pointer">
-                      I agree to identify myself for this demo
+                    <label htmlFor="hs-demo-terms" className="cursor-pointer">
+                      I agree to the
                     </label>{" "}
-                    under the{" "}
                     <Link
                       href="/terms"
                       className="underline underline-offset-2 transition-colors hover:text-white/70"
@@ -455,37 +704,61 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                     >
                       privacy policy
                     </Link>
-                    .
+                    . The welcome journey arrives by email.
                   </span>
+                </div>
+
+                <div className="flex items-start gap-2.5 text-[12px] text-white/50 leading-5">
+                  <input
+                    id="hs-demo-notes"
+                    type="checkbox"
+                    checked={productNotes}
+                    onChange={(e) => setProductNotes(e.target.checked)}
+                    disabled={pending !== null}
+                    className="mt-0.5 size-3.5 shrink-0 accent-accent"
+                  />
+                  <label htmlFor="hs-demo-notes" className="cursor-pointer">
+                    Send me product notes when something ships. Optional —
+                    unsubscribe is one click either way.
+                  </label>
                 </div>
 
                 <button
                   type="submit"
-                  className="group inline-flex h-11 w-full select-none items-center justify-center gap-2 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-sm transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                  disabled={!canSubmit}
+                  className={CTA_CLASS}
                 >
-                  Sign up to fire it
+                  {pending === "code"
+                    ? "Sending code…"
+                    : "Email me a sign-in code"}
                   <ArrowRight
                     aria-hidden="true"
                     className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5"
                     strokeWidth={2}
                   />
                 </button>
+
+                {error ? (
+                  <p className="text-[12px] text-accent leading-5" role="alert">
+                    {error}
+                  </p>
+                ) : null}
               </form>
             )}
           </div>
 
-          {/* zone 3 — action row (gated until signed up) */}
+          {/* zone 3 — action row (gated until signed in) */}
           <div className="flex flex-col gap-2 border-white/[0.08] border-b p-6">
-            {signedUp ? null : (
+            {signedIn ? null : (
               <p className="mb-1 text-[12px] text-white/40 leading-5">
-                Sign up above to fire real lifecycle messages.
+                Sign in above to fire real lifecycle messages.
               </p>
             )}
             {ACTIONS.map((action) => (
               <button
                 key={action.event}
                 type="button"
-                disabled={firing !== null || !signedUp}
+                disabled={firing !== null || !signedIn}
                 onClick={() => fire(action.event)}
                 className={cn(
                   "group inline-flex h-12 items-center justify-between gap-2 rounded-[10px] border px-4 text-left text-sm transition-colors",
@@ -497,7 +770,7 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                   <span className="font-medium">{action.label}</span>
                   <span className="truncate font-mono text-[11px] text-white/35">
                     capture("{action.event}"
-                    {name ? `, { name: "${name}" }` : ""})
+                    {effectiveName ? `, { name: "${effectiveName}" }` : ""})
                   </span>
                 </span>
                 <ArrowRight
@@ -513,8 +786,8 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
           <div className="p-6" role="status" aria-live="polite">
             <ol className="flex flex-col gap-2.5">
               {STEPS.map((text, i) => {
-                const active = step === i;
-                const done = step > i;
+                const active = narration === i;
+                const done = narration > i;
                 return (
                   <li key={text} className="flex items-start gap-3">
                     <TagPill
@@ -560,9 +833,9 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
           {codePanel}
           <p className="mt-3 text-[12px] text-white/40 leading-5">
             This is the journey that drops the notification into your bell. It
-            reads your name off the event and personalizes the title — your
-            in-app feed stays keyed to one id end to end, so the bell works
-            whether or not you signed up.
+            reads your name off the event and personalizes the title — it lands
+            on the contact behind your account, the same one the bell reads, so
+            the item is waiting for you on any device you sign in from.
           </p>
         </div>
       </div>

@@ -1,13 +1,13 @@
 ---
 title: Try it live
-description: "Fire a first-party event from this page and watch a journey drop a notification into the bell in the top nav — same anonymous identity, no login."
+description: "Sign in with a 6-digit code, fire a first-party event from this page, and watch a journey drop a notification into the bell in the top nav."
 ---
 
 import { CodeWindow } from "../../../components/ds/code-window";
 import { TryItDemo } from "../../../components/hogsend/try-it-demo";
 import { JOURNEY_SRC } from "../../../components/hogsend/demo-journey-src";
 
-This is the same `@hogsend/js` + `@hogsend/react` you just installed, running on these docs. You are an **anonymous visitor** — no login, no identify call. The bell in the top-right is **your** feed. Fire an event below and watch a journey reach it.
+This is the same `@hogsend/js` + `@hogsend/react` you just installed, running on these docs. Sign in with a 6-digit code (the first one creates your account) and the bell in the top-right becomes **your** feed. Fire an event below and watch a journey reach it.
 
 {/* CodeWindow is an async RSC (server-side Shiki); render it here on the server
     and pass it into the client TryItDemo as a prop, never construct it inside
@@ -20,9 +20,11 @@ This is the same `@hogsend/js` + `@hogsend/react` you just installed, running on
 
 ## What just happened
 
-Nothing on this page is faked. The button called `client.capture("demo.welcome", { name })`. That `POST`ed a first-party event (`source: "inapp"`) carrying your anonymous id. The engine resolved it to a canonical contact key, a journey triggered on `demo.welcome`, read your name off the event, and called `sendFeedItem({ recipient: { anonymousId: <your key> } })` — which published to the exact feed the bell polls.
+Nothing on this page is faked. The button called `client.capture("demo.welcome", { name })`. That `POST`ed a first-party event (`source: "inapp"`) carrying your contact key. The engine resolved it, a journey triggered on `demo.welcome`, read your name off the event, and called `sendFeedItem({ recipient: { anonymousId: <your key> } })` — which published to the exact feed the bell polls.
 
-The round-trip uses **one identity the whole way**. The browser never identified itself: a `pk_` publishable key has no user token, so `client.getDistinctId()` stays the anonymous id and `userId` stays `null`. Personalization rides as an event property, not an identify call — the journey reads `user.properties.name` and writes it into the notification title.
+The round-trip uses **one identity the whole way**, and signing in is what makes that identity yours rather than this browser's. A `pk_` publishable key cannot assert who you are, so the browser gets a **server-minted `userToken`**: your session calls `/api/hogsend-token`, which folds `{ email, userId }` onto your contact and signs a token for it. `client.getDistinctId()` then returns that canonical contact key, and every capture on this page carries it.
+
+Which means the bell follows the account, not the device — sign in on your phone and the same feed is there. It also works backwards: whatever you did on this page **before** you signed in was recorded against this browser's anonymous id, and identifying adopts that history onto your contact rather than stranding it. Personalization still rides as an event property, so the journey reads `user.properties.name` and writes it into the notification title.
 
 The item carries an `actionUrl`, so clicking the row emits `inapp.item_clicked` — another first-party event, one a journey can trigger on. The loop closes on itself.
 

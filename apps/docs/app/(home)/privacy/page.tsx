@@ -41,7 +41,7 @@ const SECTIONS: PolicySection[] = [
     paragraphs: [
       "Until you allow storage, this site writes nothing to your browser. If you decline, we store exactly one value — your decision — so we don't ask again.",
       "If you allow storage, three things appear, all first-party: your decision (hs_consent, localStorage), a PostHog analytics id (localStorage plus a cookie on .hogsend.com so the id survives across our subdomains), and a Hogsend id for the in-page notification demo (hs_anon_id, localStorage). None of them are readable by anyone but us.",
-      "If you sign up, we additionally remember that you did (hs-demo-email and hs-demo-name, localStorage) so the site doesn't ask you to sign up twice.",
+      "If you sign up, that creates an account, and a first-party sign-in cookie on .hogsend.com keeps you signed in across our sites — that cookie is what the live demo checks, so it doesn't ask you to sign up twice. We also keep your first name for the greeting in the header (hs-demo-name, localStorage) and, if you signed up from a landing form, the address you used (hs-demo-email, localStorage).",
       "You can withdraw at any time via “Cookie settings” in the footer — withdrawal deletes the stored ids on the spot and the site goes back to cookieless.",
     ],
   },
