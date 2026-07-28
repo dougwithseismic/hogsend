@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/plugin-apollo",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "type": "module",
   "license": "MIT",
   "description": "Apollo.io EnrichmentProvider for Hogsend: person + company lookup via people/match, normalized to the vendor-neutral EnrichmentResult.",
