@@ -12,8 +12,14 @@
 /** One structured log record. Serialized as a single JSON line on stdout. */
 export interface WorkerLogLine {
   service: "cloud-worker";
-  event: "boot" | "heartbeat" | "shutdown";
+  event: "boot" | "heartbeat" | "shutdown" | "tasks";
   [key: string]: unknown;
+}
+
+/** The minimal shape this runtime needs from a registered Hatchet worker. */
+export interface HatchetWorkerHandle {
+  start(): Promise<unknown>;
+  stop(): Promise<unknown>;
 }
 
 export interface WorkerConfig {
@@ -24,6 +30,21 @@ export interface WorkerConfig {
   heartbeatMs: number;
   /** Log sink. Defaults to a JSON line on stdout. */
   log: (line: WorkerLogLine) => void;
+  /**
+   * Whether the control plane's Hatchet is configured. When true the worker
+   * registers the `provision-stack` task; when false it idles (dev under the
+   * fake substrate, where the in-process queue covers provisioning).
+   */
+  hatchetConfigured: boolean;
+  /**
+   * The substrate this deploy provisions against. Anything but `fake` makes a
+   * missing Hatchet a BOOT FAILURE (PRD 04): a control plane that would
+   * provision real infrastructure from a web request is worse than one that
+   * refuses to start.
+   */
+  substrate: string;
+  /** Builds + starts the Hatchet worker. Injected so tests need no engine. */
+  startHatchetWorker: () => Promise<HatchetWorkerHandle>;
 }
 
 export interface WorkerHandle {
@@ -47,10 +68,21 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
   const log = config.log ?? defaultLog;
   const nodeEnv = config.nodeEnv ?? "development";
   const heartbeatMs = config.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const hatchetConfigured = config.hatchetConfigured ?? false;
+  const substrate = config.substrate ?? "fake";
 
   if (!config.databaseUrl || config.databaseUrl.trim() === "") {
     throw new Error(
       "cloud-worker: CLOUD_DATABASE_URL is required and must not be empty",
+    );
+  }
+
+  // Fail CLOSED. Under a real substrate the durable queue IS the provisioner;
+  // without it nothing would ever pick a `requested` stack up, and the control
+  // plane would look healthy while provisioning silently never happened.
+  if (!hatchetConfigured && substrate !== "fake") {
+    throw new Error(
+      `cloud-worker: CLOUD_SUBSTRATE=${substrate} requires CLOUD_HATCHET_CLIENT_TOKEN (provisioning must be durable)`,
     );
   }
 
@@ -62,9 +94,31 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
     node: process.version,
     pid: process.pid,
     heartbeatMs,
-    // Task registration lands with PRD 04; the count makes the gap explicit.
-    tasks: 0,
+    // 1 = `provision-stack`. Zero means "no Hatchet configured, this worker is
+    // idling" — the gap is explicit rather than implied.
+    tasks: hatchetConfigured ? 1 : 0,
   });
+
+  let hatchetWorker: HatchetWorkerHandle | undefined;
+  const registration: Promise<void> =
+    hatchetConfigured && config.startHatchetWorker
+      ? config
+          .startHatchetWorker()
+          .then((worker) => {
+            hatchetWorker = worker;
+            log({ service: "cloud-worker", event: "tasks", registered: 1 });
+          })
+          .catch((error) => {
+            // Registration happens after boot (the gRPC handshake is async), so
+            // a failure has to be LOUD here or it would be invisible.
+            log({
+              service: "cloud-worker",
+              event: "tasks",
+              registered: 0,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+      : Promise.resolve();
 
   // Unref'd would let an idle process exit; the interval is what holds the
   // event loop open until a signal arrives.
@@ -86,7 +140,10 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
       if (!running) return;
       running = false;
       clearInterval(timer);
-      // Where a future task registry's `worker.stop()` await goes.
+      // Await registration first: stopping a worker that is still handshaking
+      // would leave the connection open behind us.
+      await registration;
+      await hatchetWorker?.stop();
       log({
         service: "cloud-worker",
         event: "shutdown",

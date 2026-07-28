@@ -109,6 +109,24 @@ export const env = createEnv({
     CLOUD_HATCHET_ADMIN_PASSWORD: isDevOrTest
       ? z.string().min(1).default(DEV_HATCHET_ADMIN_PASSWORD)
       : z.string().min(1).optional(),
+    // The CONTROL PLANE's own Hatchet client (namespace `cloud`), distinct from
+    // both the tenant tokens this app mints and the engine's
+    // HATCHET_CLIENT_*. OPTIONAL here, enforced at the point of use: the
+    // provisioning queue falls back to an in-process runner ONLY under the fake
+    // substrate (`pipeline/enqueue.ts`), and the worker refuses to boot without
+    // a token when the substrate is real — a control plane that silently ran
+    // provisioning inside a web request would lose every in-flight stack on the
+    // next deploy.
+    CLOUD_HATCHET_CLIENT_TOKEN: z.string().min(1).optional(),
+    CLOUD_HATCHET_CLIENT_HOST_PORT: z.string().min(1).default("localhost:7077"),
+    CLOUD_HATCHET_CLIENT_TLS_STRATEGY: z
+      .enum(["none", "tls", "mtls"])
+      .default("none"),
+    // The stock scaffold image tag a freshly provisioned stack boots on
+    // (`hogsend-default:<engine-version>`, PRD 04 "Initial deploy source").
+    // Recorded on the stack row at provision time, so a later bump does not
+    // rewrite what an existing stack is actually running.
+    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.56.0"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

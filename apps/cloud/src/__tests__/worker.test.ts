@@ -106,6 +106,64 @@ describe("startWorker", () => {
     ).toThrow(/CLOUD_DATABASE_URL/);
   });
 
+  it("registers the provisioning task when Hatchet is configured", async () => {
+    const { lines, log } = collector();
+    let stopped = false;
+    const worker = startWorker({
+      databaseUrl: TEST_URL,
+      nodeEnv: "test",
+      log,
+      hatchetConfigured: true,
+      substrate: "fake",
+      startHatchetWorker: async () => ({
+        async start() {},
+        async stop() {
+          stopped = true;
+        },
+      }),
+    });
+
+    // The boot line counts `provision-stack`; zero would mean an idle worker.
+    expect(lines[0]).toMatchObject({ event: "boot", tasks: 1 });
+
+    await worker.stop();
+    expect(stopped).toBe(true);
+    expect(lines.some((line) => line.event === "tasks")).toBe(true);
+  });
+
+  it("reports zero tasks and never builds a worker without a Hatchet token", async () => {
+    const { lines, log } = collector();
+    let built = false;
+    const worker = startWorker({
+      databaseUrl: TEST_URL,
+      nodeEnv: "test",
+      log,
+      hatchetConfigured: false,
+      substrate: "fake",
+      startHatchetWorker: async () => {
+        built = true;
+        return { async start() {}, async stop() {} };
+      },
+    });
+
+    expect(lines[0]).toMatchObject({ event: "boot", tasks: 0 });
+    expect(built).toBe(false);
+    await worker.stop();
+  });
+
+  it("fails closed when a real substrate has no Hatchet token", () => {
+    // The EARS: never silently fake, and never provision from a web request.
+    expect(() =>
+      startWorker({
+        databaseUrl: TEST_URL,
+        nodeEnv: "production",
+        log: () => {},
+        hatchetConfigured: false,
+        substrate: "railway",
+      }),
+    ).toThrow(/CLOUD_HATCHET_CLIENT_TOKEN/);
+  });
+
   it("does not register process signal handlers itself", () => {
     // Signal wiring belongs to the entry point (src/worker.ts); a library
     // function that grabs SIGTERM would fight its host.

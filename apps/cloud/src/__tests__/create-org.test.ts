@@ -38,6 +38,19 @@ const spySender: EmailSender = {
 const auth = createCloudAuth({ emailSender: spySender });
 const orgService = new OrgService(db);
 
+/**
+ * Provisioning is INJECTED here rather than left to the default. This suite's
+ * cell carries a deliberately unusable DSN, so letting the real queue run would
+ * prove nothing about signup and would leave stacks parked in `error`; what
+ * signup owes is the enqueue itself (PRD 04 EARS), and that is what the spy
+ * records.
+ */
+const enqueued: string[] = [];
+const enqueueProvision = async (stackId: string): Promise<void> => {
+  enqueued.push(stackId);
+};
+const deps = { auth, orgService, enqueueProvision };
+
 /** A `cookie` header carrying a real signed-in session. */
 async function signIn(): Promise<Headers> {
   const response = await auth.api.signInEmail({
@@ -101,7 +114,7 @@ describe("provisionOrganization", () => {
 
     const result = await provisionOrganization(
       { name: `${ORG_PREFIX} Trio`, region: "us", plan: "trial", headers },
-      { auth, orgService },
+      deps,
     );
 
     // Better Auth's side: the organization and the caller's membership.
@@ -147,13 +160,17 @@ describe("provisionOrganization", () => {
     // The new organization is what the session now looks at.
     const session = await auth.api.getSession({ headers });
     expect(session?.session.activeOrganizationId).toBe(result.organizationId);
+
+    // PRD 04 EARS: provisioning is enqueued for the new stack, with no
+    // operator action and AFTER the trio committed.
+    expect(enqueued).toContain(result.stackId);
   });
 
   it("suffixes the slug when the base one is taken", async () => {
     const headers = await signIn();
     const result = await provisionOrganization(
       { name: `${ORG_PREFIX} Trio`, region: "us", headers },
-      { auth, orgService },
+      deps,
     );
     expect(result.slug).toMatch(/^createorgtest-trio-[0-9a-f]{6}$/);
   });
@@ -167,7 +184,7 @@ describe("provisionOrganization", () => {
     await expect(
       provisionOrganization(
         { name: `${ORG_PREFIX} Refused`, region: "eu", plan: "trial", headers },
-        { auth, orgService },
+        deps,
       ),
     ).rejects.toBeInstanceOf(IllegalRegionError);
 

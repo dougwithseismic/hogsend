@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { enqueueProvision as defaultEnqueueProvision } from "../pipeline/enqueue";
 import type { CloudPlan, CloudRegion, OrgService } from "../services/orgs";
 import { orgService as defaultOrgService } from "../services/orgs";
 import type { CloudAuth } from "./auth";
@@ -37,6 +38,11 @@ export interface ProvisionOrganizationInput {
 export interface ProvisionOrganizationDeps {
   auth?: CloudAuth;
   orgService?: OrgService;
+  /**
+   * How the new stack's provisioning is queued. Injected so a test can assert
+   * the enqueue happened without running infrastructure work.
+   */
+  enqueueProvision?: (stackId: string) => Promise<unknown>;
 }
 
 export interface ProvisionOrganizationResult {
@@ -126,6 +132,7 @@ export async function provisionOrganization(
 ): Promise<ProvisionOrganizationResult> {
   const auth = deps.auth ?? defaultAuth;
   const orgService = deps.orgService ?? defaultOrgService;
+  const enqueue = deps.enqueueProvision ?? defaultEnqueueProvision;
   const { headers, region, plan = "trial" } = input;
   const name = input.name.trim();
 
@@ -143,6 +150,20 @@ export async function provisionOrganization(
       plan,
       actor: session.user.id,
     });
+
+    // PRD 04 EARS: "WHEN an organization is created, the system SHALL enqueue
+    // provisioning without operator action." AFTER the trio commits, and
+    // best-effort: the signup has succeeded by now, and a queue that is
+    // momentarily unreachable is an operator retry, not a failed signup that
+    // rolls back the user's organization.
+    try {
+      await enqueue(trio.stack.id);
+    } catch (error) {
+      console.error(
+        `[cloud] Could not enqueue provisioning for stack ${trio.stack.id}:`,
+        error,
+      );
+    }
 
     return {
       organizationId: created.id,

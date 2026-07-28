@@ -52,6 +52,32 @@ export const stacks = cloud.table(
     hatchetNamespace: text("hatchet_namespace"),
     /** Database name on the cell's shared cluster. */
     dbName: text("db_name"),
+    /**
+     * The tenant DSN issued by `TenantDbService.create`, ENCRYPTED at rest
+     * (`lib/crypto.ts`, same envelope as provider keys).
+     *
+     * It is persisted at FIRST create because a repeated create reports
+     * `alreadyExists` with NO dsn — the password is unknowable a second time.
+     * Without this column a replayed provisioning step would have to rotate the
+     * credential out from under a stack that is already running on it.
+     */
+    dbDsnEncrypted: text("db_dsn_encrypted"),
+    /**
+     * The stack's Hatchet API token, ENCRYPTED at rest. Hatchet tokens are
+     * write-once (unreadable after minting), so the persisted copy is the ONLY
+     * one; its presence is also what makes the mint step skippable on a replay.
+     */
+    hatchetTokenEncrypted: text("hatchet_token_encrypted"),
+    /**
+     * Control-plane-generated secrets for this stack, as an ENCRYPTED JSON
+     * object — today `{ betterAuthSecret }`.
+     *
+     * One column rather than one per secret: these are values the control plane
+     * MINTS (not credentials a tenant supplies), they are always written and
+     * read together by `set-env`, and a new one must not need a migration. The
+     * decrypted shape is validated in `pipeline/provision.ts`.
+     */
+    stackSecretsEncrypted: text("stack_secrets_encrypted"),
     region: cloudRegionEnum("region").notNull(),
     ...timestamps,
   },
