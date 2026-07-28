@@ -36,6 +36,15 @@ its anonymous id. That attachment does not move the canonical key, so the old
 key-flip test never fired and the anonymous history stayed orphaned behind a
 contact that looked correctly linked.
 
+Adoption only ever moves rows the anonymous key actually owns. Identity
+resolution probes the *anonymous* namespace, so a value that is another
+contact's canonical key (its `external_id`, or its row id when it has neither
+key) misses every probe while still keying all of that contact's rows. Both
+adopting arms therefore prove the key names nobody else before repointing;
+a caller naming someone else's canonical key as their own `anonymousId` gets a
+normal resolve and no history movement. Attaching a key and adopting one are
+separate acts, and only adoption is gated.
+
 The same arm now also handles a person signing in from a **second device**.
 `contacts.anonymous_id` holds exactly one id, so once the first device has
 claimed it, the second device's id used to be dropped entirely — not stored, not

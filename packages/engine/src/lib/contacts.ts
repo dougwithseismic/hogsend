@@ -85,6 +85,77 @@ export async function collidesWithIdentified(
 }
 
 /**
+ * True when some OTHER live contact's canonical key (`external_id ??
+ * anonymous_id ?? id`) is exactly `value` — i.e. `value` already keys that
+ * person's string-keyed history.
+ *
+ * This is the precondition for ADOPTING history, and it is strictly stronger
+ * than "no contact resolved by this anonymous key". Resolution probes the
+ * ANONYMOUS namespace (`contacts.anonymous_id` + anonymous aliases), so a value
+ * that is another contact's `external_id` — or, for a contact with neither key,
+ * its row uuid — misses every probe while still keying all of that contact's
+ * rows. Adopting on a resolution miss alone therefore lets a caller name
+ * someone else's canonical key as their own `anonymousId` and have that
+ * person's events, journey states, bucket memberships and sends repointed onto
+ * the caller's contact.
+ *
+ * ATTACHING a key (writing the column / recording an alias) is not the same act
+ * as ADOPTING one: attaching adds a resolution edge, adoption MOVES rows. Only
+ * adoption is gated on this.
+ */
+async function keysAnotherContact(
+  tx: Tx,
+  value: string,
+  selfId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({
+      id: contacts.id,
+      externalId: contacts.externalId,
+      anonymousId: contacts.anonymousId,
+    })
+    .from(contacts)
+    .where(
+      and(
+        or(
+          eq(contacts.externalId, value),
+          eq(contacts.anonymousId, value),
+          // A contact with neither key is keyed on its row uuid, and that key
+          // leaves the system (Hatchet payloads, hs_t tokens), so it is guessable
+          // in a way a browser-local anon id is not.
+          ...(UUID_REGEX.test(value) ? [eq(contacts.id, value)] : []),
+        ),
+        isNull(contacts.deletedAt),
+      ),
+    );
+  for (const r of rows) {
+    if (r.id === selfId) continue;
+    if ((r.externalId ?? r.anonymousId ?? r.id) === value) return true;
+  }
+  return false;
+}
+
+/** True when this contact already holds `value` as an anonymous alias. */
+async function anonAliasAlreadyHeld(
+  tx: Tx,
+  value: string,
+  contactId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ contactId: contactAliases.contactId })
+    .from(contactAliases)
+    .where(
+      and(
+        eq(contactAliases.aliasKind, "anonymous"),
+        eq(contactAliases.aliasValue, value),
+        eq(contactAliases.contactId, contactId),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Thrown by {@link resolveOrCreateContact}'s engine-internal `contactId` pin when
  * the pinned subject row no longer exists and no merge-alias chain leads to a live
  * survivor (the subject was hard-deleted). The internal re-emit is then dropped
@@ -722,9 +793,18 @@ async function resolveContactShared(
       // just superseded — re-point its history exactly as `fillInLink` does on a
       // key flip. Only ever FROM `anonymousId`: an email/discord-shaped key is
       // never canonical, so it never keyed history and must never be repointed.
+      //
+      // Gated on `keysAnotherContact`: resolution missed this value in the
+      // ANONYMOUS namespace, which does not mean nobody owns it. If it is some
+      // other live contact's canonical key, those rows are theirs and adopting
+      // them here would hand one person's history to another.
       const createdKey = contactKey(createdRow);
       let mergedKeys: string[] | undefined;
-      if (anonymousId && anonymousId !== createdKey) {
+      if (
+        anonymousId &&
+        anonymousId !== createdKey &&
+        !(await keysAnotherContact(tx, anonymousId, createdRow.id))
+      ) {
         await repointOwnHistory(tx, anonymousId, createdKey, createdRow);
         // §5.3 emission point 2 (canonical-key flip): report the absorbed anon
         // key so `ingestEvent` still fires `mergeAnalyticsIdentities({ reason:
@@ -974,21 +1054,38 @@ async function fillInLink(
     set.discordId = ctx.discordId;
     promoted.push({ kind: "discord", value: ctx.discordId });
   }
+  // Does the incoming anon id already key SOMEONE ELSE's history? Resolution
+  // only probed the anonymous namespace, so a miss does not answer this. One
+  // query, reused by both arms below.
+  const foreignAnonKey =
+    ctx.anonymousId != null &&
+    (await keysAnotherContact(tx, ctx.anonymousId, row.id));
+
   // The anon id this call claims for the row — into the column when it is free,
   // otherwise as an alias. A person browses from more than one device, but
   // `contacts.anonymous_id` holds exactly one; `contact_aliases` is the
   // multi-key table, and `findByKey` already falls back to it, so a second
-  // device's id resolves back here once recorded. Reaching fillInLink at all
-  // means this id matched no live contact, so claiming it cannot steal one (and
-  // the alias insert is `onConflictDoNothing`, so a concurrent claim loses
-  // gracefully rather than throwing).
+  // device's id resolves back here once recorded.
   let claimedAnonymousId: string | undefined;
   if (ctx.anonymousId && !row.anonymousId) {
+    // Column write + alias are pre-existing behaviour and stay unconditional;
+    // only the ADOPTION below is gated, since only adoption moves rows.
     set.anonymousId = ctx.anonymousId;
     nextAnonymousId = ctx.anonymousId;
     promoted.push({ kind: "anonymous", value: ctx.anonymousId });
     claimedAnonymousId = ctx.anonymousId;
-  } else if (ctx.anonymousId && ctx.anonymousId !== row.anonymousId) {
+  } else if (
+    ctx.anonymousId &&
+    ctx.anonymousId !== row.anonymousId &&
+    // Never mint a resolution edge to a key that names someone else.
+    !foreignAnonKey &&
+    // IDEMPOTENCE. The column keeps the FIRST device's id, so this arm's
+    // condition stays true forever for every later device. Without this check a
+    // browser that identifies on each page load would re-alias, re-repoint and
+    // — the part that actually escapes — re-report `mergedKeys` on every single
+    // load, firing the analytics anon-to-known stitch over and over.
+    !(await anonAliasAlreadyHeld(tx, ctx.anonymousId, row.id))
+  ) {
     promoted.push({ kind: "anonymous", value: ctx.anonymousId });
     claimedAnonymousId = ctx.anonymousId;
   }
@@ -1056,16 +1153,18 @@ async function fillInLink(
   // device, so the id from a second one is claimed as an alias above, and its
   // pre-sign-in history is adopted here.
   //
-  // Reachability note: this shape carries a `userId`, so `restrictToAnonymous`
-  // is false by construction (it requires `!userId`) — the caller has already
-  // proven the identified arm with a verified `userToken`. Attaching someone
-  // else's anon id therefore requires knowing their browser-local id, the same
-  // precondition that already grants feed reads under it; adoption widens what
-  // that buys but opens no new door.
+  // Gated on `foreignAnonKey`. This shape carries a `userId`, so
+  // `restrictToAnonymous` is false by construction (it requires `!userId`) and
+  // neither publishable clamp fires — the ONLY thing standing between a caller
+  // and someone else's rows is the provenance check. A `userToken` proves which
+  // account the caller is; it says nothing about which `anonymousId` they may
+  // name, and a canonical key is a far weaker secret than a browser-local id
+  // (it is frequently a sequential or public account id).
   if (
     claimedAnonymousId &&
     claimedAnonymousId !== newKey &&
-    claimedAnonymousId !== oldKey
+    claimedAnonymousId !== oldKey &&
+    !foreignAnonKey
   ) {
     await repointOwnHistory(tx, claimedAnonymousId, newKey, updatedRow);
     // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;

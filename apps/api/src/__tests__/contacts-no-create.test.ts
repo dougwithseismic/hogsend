@@ -73,6 +73,12 @@ const T4_LAPTOP_ANON = `${RUN}-t4-laptop`;
 const T4_PHONE_ANON = `${RUN}-t4-phone`;
 const T4_USER = `${RUN}-t4-user`;
 
+// ---- T5 history-theft case (adoption provenance) ----
+const T5_VICTIM_USER = `${RUN}-t5-victim`;
+const T5_ATTACKER_USER = `${RUN}-t5-attacker`;
+const T5_ATTACKER_ANON = `${RUN}-t5-attacker-anon`;
+const T5_FRESH_USER = `${RUN}-t5-fresh`;
+
 const createdContactIds: string[] = [];
 
 /** Live (non-soft-deleted) contacts owning any of the given anon/external keys. */
@@ -108,6 +114,10 @@ afterAll(async () => {
     T4_LAPTOP_ANON,
     T4_PHONE_ANON,
     T4_USER,
+    T5_VICTIM_USER,
+    T5_ATTACKER_USER,
+    T5_ATTACKER_ANON,
+    T5_FRESH_USER,
     ...createdContactIds,
   ];
   await db.delete(userEvents).where(inArray(userEvents.userId, keys));
@@ -551,5 +561,129 @@ describe("second-device anon id", () => {
     });
     expect(relookup.created).toBe(false);
     expect(relookup.id).toBe(laptop.id);
+  });
+});
+
+// ===========================================================================
+// T5 — history adoption must PROVE the anon key is unowned before moving rows.
+//
+// Identity resolution probes the ANONYMOUS namespace only (`contacts.
+// anonymous_id` plus anonymous aliases). A value that is another contact's
+// `external_id` — or the row uuid of a contact with neither key — therefore
+// misses every probe while still keying every one of that contact's rows.
+//
+// So "no contact resolved by this anonymous id" does NOT mean "nobody owns
+// this key", and adopting on a resolution miss alone lets a caller name someone
+// else's canonical key as their own `anonymousId` and have that person's
+// events, journey states, memberships and sends repointed onto their contact.
+// A user token proves WHICH ACCOUNT the caller is; it says nothing about which
+// anonymousId they may claim, and the publishable clamp does not fire on a
+// shape carrying a userId. Both arms that adopt are gated.
+// ===========================================================================
+describe("history adoption provenance", () => {
+  it("refuses to adopt history keyed on another live contact (fill-in-link arm)", async () => {
+    // The victim: an identified contact whose canonical key is its external_id,
+    // so its history is keyed on that string.
+    const victim = await resolveOrCreateContact({
+      db,
+      userId: T5_VICTIM_USER,
+    });
+    createdContactIds.push(victim.id);
+    await db
+      .insert(userEvents)
+      .values({ userId: T5_VICTIM_USER, event: "victim.private" });
+
+    // The attacker: a real signed-in contact of their own.
+    const attacker = await resolveOrCreateContact({
+      db,
+      userId: T5_ATTACKER_USER,
+      anonymousId: T5_ATTACKER_ANON,
+    });
+    createdContactIds.push(attacker.id);
+
+    // The attack: assert your OWN userId (a token would authorize exactly this)
+    // while naming the VICTIM'S canonical key as your anonymousId.
+    const attempt = await resolveOrCreateContact({
+      db,
+      userId: T5_ATTACKER_USER,
+      anonymousId: T5_VICTIM_USER,
+    });
+    expect(attempt.id).toBe(attacker.id);
+
+    // The victim's history must not have moved.
+    const stillVictims = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T5_VICTIM_USER));
+    expect(stillVictims).toHaveLength(1);
+    const stolen = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T5_ATTACKER_USER));
+    expect(stolen).toHaveLength(0);
+
+    // And no merge may be reported, or the analytics graph aliases the victim's
+    // key onto the attacker even though the rows stayed put.
+    expect(attempt.mergedKeys ?? []).not.toContain(T5_VICTIM_USER);
+
+    // Nor may the victim's key become a resolution edge to the attacker.
+    const aliased = await db
+      .select({ contactId: contactAliases.contactId })
+      .from(contactAliases)
+      .where(
+        and(
+          eq(contactAliases.aliasKind, "anonymous"),
+          eq(contactAliases.aliasValue, T5_VICTIM_USER),
+        ),
+      );
+    expect(aliased.map((a) => a.contactId)).not.toContain(attacker.id);
+  });
+
+  it("refuses the same theft on the create arm", async () => {
+    // Same victim key, but now the claimant has no contact yet, so the resolve
+    // takes the CREATE arm — which adopts too, and needs the same proof.
+    const created = await resolveOrCreateContact({
+      db,
+      userId: T5_FRESH_USER,
+      anonymousId: T5_VICTIM_USER,
+    });
+    createdContactIds.push(created.id);
+    expect(created.created).toBe(true);
+
+    const stillVictims = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T5_VICTIM_USER));
+    expect(stillVictims).toHaveLength(1);
+    const stolen = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T5_FRESH_USER));
+    expect(stolen).toHaveLength(0);
+    expect(created.mergedKeys ?? []).not.toContain(T5_VICTIM_USER);
+  });
+
+  it("claims a second device's anon id ONCE, not on every resolve", async () => {
+    // The column keeps the FIRST device's id, so the second-device arm's
+    // condition stays true forever. Re-reporting `mergedKeys` on every page
+    // load would re-fire the analytics anon-to-known stitch indefinitely.
+    const repeat = await resolveOrCreateContact({
+      db,
+      userId: T4_USER,
+      anonymousId: T4_PHONE_ANON,
+    });
+    expect(repeat.mergedKeys).toBeUndefined();
+
+    // Exactly one alias row for that value — the claim did not duplicate.
+    const aliases = await db
+      .select({ id: contactAliases.id })
+      .from(contactAliases)
+      .where(
+        and(
+          eq(contactAliases.aliasKind, "anonymous"),
+          eq(contactAliases.aliasValue, T4_PHONE_ANON),
+        ),
+      );
+    expect(aliases).toHaveLength(1);
   });
 });
