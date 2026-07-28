@@ -83,6 +83,9 @@ function serializeMember(row: typeof bucketMemberships.$inferSelect) {
 /**
  * Map the service's refusal onto a status:
  *  - `bucket_not_found`  → 404, the bucket is not in the registry at all.
+ *  - `bucket_disabled`   → 409, the bucket exists and is manual but is switched
+ *                          off; every other writer skips it, so a write here
+ *                          would emit transitions from a bucket that is off.
  *  - `bucket_not_manual` → 409, the bucket exists but its membership is owned
  *    by its criteria; an explicit write would be silently reverted by the next
  *    evaluation, so it fails loudly instead of pretending to succeed.

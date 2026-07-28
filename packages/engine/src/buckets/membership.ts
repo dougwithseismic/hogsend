@@ -44,7 +44,8 @@ import { getBucketRegistrySingleton } from "./registry-singleton.js";
 /** Why a mutation was refused. Mapped to an HTTP status by the route layer. */
 export type BucketMembershipErrorCode =
   | "bucket_not_found"
-  | "bucket_not_manual";
+  | "bucket_not_manual"
+  | "bucket_disabled";
 
 export class BucketMembershipError extends Error {
   readonly code: BucketMembershipErrorCode;
@@ -54,7 +55,9 @@ export class BucketMembershipError extends Error {
     super(
       code === "bucket_not_found"
         ? `Bucket "${bucketId}" is not registered.`
-        : `Bucket "${bucketId}" is not kind:"manual"; its membership is owned by its criteria and must not be mutated explicitly.`,
+        : code === "bucket_disabled"
+          ? `Bucket "${bucketId}" is disabled. \`enabled: false\` is the operator's kill switch: every other membership writer skips the bucket entirely, so accepting a write here would emit bucket transitions into live journeys from a bucket that is supposed to be off.`
+          : `Bucket "${bucketId}" is not kind:"manual"; its membership is owned by its criteria and must not be mutated explicitly.`,
     );
     this.name = "BucketMembershipError";
     this.code = code;
@@ -193,6 +196,13 @@ function resolveManualBucket(
   }
   if ((bucket.kind ?? "dynamic") !== "manual") {
     throw new BucketMembershipError("bucket_not_manual", bucketId);
+  }
+  // Every other membership writer iterates `getEnabled()`. Without this the
+  // members route would write a row and emit `bucket:entered:<id>` into live
+  // journeys for a bucket the operator had switched off — a kill switch with a
+  // hole in it is worse than no kill switch, because it reads as working.
+  if (bucket.enabled === false) {
+    throw new BucketMembershipError("bucket_disabled", bucketId);
   }
   return bucket;
 }

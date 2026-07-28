@@ -115,14 +115,32 @@ const dynamicBucket = defineBucket({
   },
 });
 
+const DISABLED_ID = `${RUN}-disabled`;
+const disabledBucket = defineBucket({
+  meta: {
+    id: DISABLED_ID,
+    name: "Disabled manual",
+    enabled: false,
+    kind: "manual",
+  },
+});
+
 const TEST_BUCKETS = [
   plainBucket,
   ttlBucket,
   onceBucket,
   minDwellBucket,
   dynamicBucket,
+  disabledBucket,
 ];
-const ALL_BUCKET_IDS = [PLAIN_ID, TTL_ID, ONCE_ID, DWELL_ID, DYNAMIC_ID];
+const ALL_BUCKET_IDS = [
+  PLAIN_ID,
+  TTL_ID,
+  ONCE_ID,
+  DWELL_ID,
+  DYNAMIC_ID,
+  DISABLED_ID,
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -372,6 +390,19 @@ describe("addBucketMember", () => {
       addBucketMember({ ...deps, bucketId: DYNAMIC_ID, userId }),
     ).rejects.toMatchObject({ code: "bucket_not_manual" });
     expect(await rows(userId, DYNAMIC_ID)).toHaveLength(0);
+  });
+
+  // `enabled: false` is the operator's kill switch. Every other membership
+  // writer iterates getEnabled(), so a write accepted here would emit
+  // `bucket:entered:<id>` into live journeys from a bucket that is switched off.
+  it("refuses a disabled manual bucket", async () => {
+    const userId = uid("add-disabled");
+    await seedContact(userId);
+
+    await expect(
+      addBucketMember({ ...deps, bucketId: DISABLED_ID, userId }),
+    ).rejects.toMatchObject({ code: "bucket_disabled" });
+    expect(await rows(userId, DISABLED_ID)).toHaveLength(0);
   });
 
   it("refuses an unregistered bucket", async () => {
