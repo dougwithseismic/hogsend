@@ -1673,6 +1673,37 @@ async function mergeContacts(
       .set({ contactId: survivor.id })
       .where(eq(crmLinks.contactId, loser.id));
 
+    // (vi-b-hist) the five HISTORY tables' `contact_id` re-point (PRD 04 T3).
+    // Same shape and same reasoning as the deals/crm_links repoints above: a
+    // uuid column the string-key rewrites never touch, and no unique index
+    // involves `contact_id`, so plain UPDATEs suffice (no fold needed — unlike
+    // the (vi)/(vi-c) folds, which exist only to respect a unique index).
+    // Deliberately lands AHEAD of the dual-write that populates the column
+    // (PRD 04 D9/D10): while every row is still NULL this is a pure no-op, and
+    // the moment the dual-write starts, merges are already correct. Shipped in
+    // the other order, every merge in between would strand history rows
+    // pointing at a soft-deleted loser contact.
+    await tx
+      .update(userEvents)
+      .set({ contactId: survivor.id })
+      .where(eq(userEvents.contactId, loser.id));
+    await tx
+      .update(journeyStates)
+      .set({ contactId: survivor.id })
+      .where(eq(journeyStates.contactId, loser.id));
+    await tx
+      .update(bucketMemberships)
+      .set({ contactId: survivor.id })
+      .where(eq(bucketMemberships.contactId, loser.id));
+    await tx
+      .update(emailSends)
+      .set({ contactId: survivor.id })
+      .where(eq(emailSends.contactId, loser.id));
+    await tx
+      .update(emailPreferences)
+      .set({ contactId: survivor.id })
+      .where(eq(emailPreferences.contactId, loser.id));
+
     // (vi-c) group_memberships FOLD: another contact_id uuid FK the key
     // rewrites never touch. The loser is SOFT-deleted, so `onDelete: cascade`
     // never fires — without this the loser's memberships are stranded on a dead
