@@ -27,6 +27,21 @@ corrections:
 | C4 | minor | **T5/T6 have a fresher precedent than `bucket-backfill.ts`:** PRD 02 shipped `workflows/identity-alias-backfill.ts` (import_jobs progress, chunked, resumable, boot-enqueued, FK-race retry) plus `routes/admin/identity.ts`, whose parity route IS T6's invariant-probe pattern already shipped. Model on these |
 | C5 | minor | The D8 reproduce grep must also match `insert(schema.userEvents)` — the seed files use the `schema.` prefix, so a bare `insert(userEvents)` grep misses rows 14-15 |
 
+## Re-anchoring (2026-07-28, wave-2 start, against post-0.57.0 main `1e2e7b0d`)
+
+Census re-derived after #624–#628 merged: **21 insert statements, 16 sites, zero new, zero missing** —
+wave 1 added no writes into the five tables. Raw-SQL grep: zero hits; every insert is Drizzle
+`.insert()`. Drifted anchors: `ingestion.ts` inserts now `:523`/`:547`; `check-membership.ts` insert
+`:338`; `bucket-reconcile.ts` insert `:1233`; `contacts.ts` now 2,655 lines — `mergeContacts` `:1592`
+with the deals/crm_links repoint at `:1668-1674` (group memberships now fold via
+`foldGroupMemberships`, called `:1682`, defined `:2059`); `repointOwnHistory` `:2188`; `contactKey`
+`:792` / `contactKeySql` `:803`; `insertEnrollment` def `:126`, sole caller `:508`,
+`subjectContactId` `:409`. **T4e narrative correction:** `routes/lists/index.ts` gained a
+`resolveOrCreateContact` step at `:509` returning `{ contactId }` BEFORE `resolveRecipient` (`:530`);
+the `upsertEmailPreference` call is `:539` and can take that `contactId` directly — no lookup needed
+on that path (the PRD's "from `resolveRecipient`" provenance is stale). `email_preferences`'s leading
+`user_id` probe index is a `uniqueIndex` on `(user_id, email)` — still serves D3's backfill probe.
+
 ## Locked decisions
 
 ### D1 — Column shape: `contact_id uuid`, nullable, **no FK in this PRD**
@@ -272,7 +287,7 @@ Inserts (grep `insert(<table>)` across `packages` + `apps`, excluding `__tests__
 | 1 | `lib/ingestion.ts:465` (idempotent insert) | `contactId` already in scope from `:412` | **zero** — no extra query |
 | 2 | `lib/ingestion.ts:489` (plain insert) | same | **zero** |
 | 3 | `journeys/execute-journey-run.ts:169` / `:179` (`insertEnrollment`) | new optional `contactId` opt, fed `input.contactId ?? lookup(userId)` | 1 indexed SELECT per *fresh* enrollment |
-| 4 | `journeys/execute-journey-run.ts:358` (held-out row) | `subjectContactId`, already computed at `:409-417` | zero |
+| 4 | `journeys/execute-journey-run.ts:358` (held-out row) | own D6-wrapped `resolveEnrollmentContactId` — `input.contactId` when pushed, else `lookupContactIdByKey` (T4 build correction: the `subjectContactId` compute at `:409-417` runs AFTER this insert, inside the `journey.heldout` re-emit try/catch, so "reuse at zero cost" was unimplementable without a control-flow change DECISIONS §4 forbids here) | zero with a pushed pin; 1–2 indexed probes once-ever per (user, journey) without one |
 | 5 | `buckets/check-membership.ts:320` | `contactId` already a documented param (`:56-63`) | zero |
 | 6 | `workflows/bucket-reconcile.ts:1126` | `contactId` already a param of `reconcileJoinOne` (`:1111`) | zero |
 | 7 | `workflows/bucket-backfill.ts:306` | add `id: contacts.id` to the existing `chunkContacts` select at `:231-235` (already keyed by `contactKeySql()`) | zero |
@@ -499,27 +514,53 @@ re-run test goes red.
 ### T6 — the invariant probe
 _Boundary:_ `packages/engine` · _Depends:_ T5
 
-A `verifyContactIdBackfill({ db })` returning per-table `{ missing, mismatched, orphaned }`:
+A `verifyContactIdBackfill({ db })` returning per-table `{ missing, mismatched, orphaned }`.
+
+**Ownership is ALIAS-AWARE (T4 review correction).** The probes as first specced tested
+ownership with the bare canonical coalesce only. Post-03 that predicate is WRONG: a
+second-device anonymous id lives ONLY in `contact_aliases`, the dual-write deliberately
+resolves it (C1), and a bare-coalesce `mismatched` probe would then flag every such
+correctly-stamped row as corruption — a false alarm that would block the PRD 05 gate
+forever on any deployment with a second device. "Contact `c` owns key `k`" means:
+`coalesce(c.external_id, c.anonymous_id, c.id::text) = k` **OR** an alias row
+`(contact_id = c.id, alias_value = k, alias_kind IN ('external','anonymous'))` exists.
 
 ```sql
--- missing: a live contact owns the key, but contact_id is NULL
+-- missing: a live contact owns the key (canonical OR alias), but contact_id is NULL
 SELECT count(*) FROM <t> t
-  JOIN contacts c
-    ON coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id
- WHERE c.deleted_at IS NULL AND t.contact_id IS NULL;
+ WHERE t.contact_id IS NULL
+   AND EXISTS (SELECT 1 FROM contacts c
+                WHERE c.deleted_at IS NULL
+                  AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id)
+    OR t.contact_id IS NULL
+   AND EXISTS (SELECT 1 FROM contact_aliases a JOIN contacts c ON c.id = a.contact_id
+                WHERE c.deleted_at IS NULL AND a.alias_value = t.user_id
+                  AND a.alias_kind IN ('external','anonymous'));
 
--- mismatched: contact_id points somewhere that does not own the key
+-- mismatched: contact_id points somewhere that owns the key NEITHER canonically NOR by alias
 SELECT count(*) FROM <t> t
   JOIN contacts c ON c.id = t.contact_id
- WHERE coalesce(c.external_id, c.anonymous_id, c.id::text) IS DISTINCT FROM t.user_id;
+ WHERE coalesce(c.external_id, c.anonymous_id, c.id::text) IS DISTINCT FROM t.user_id
+   AND NOT EXISTS (SELECT 1 FROM contact_aliases a
+                    WHERE a.contact_id = c.id
+                      AND a.alias_value = t.user_id
+                      AND a.alias_kind IN ('external','anonymous'));
 
--- orphaned (expected, reported not failed): no contact owns the key
+-- orphaned (expected, reported not failed): no live contact owns the key either way
 SELECT count(*) FROM <t> t
  WHERE t.contact_id IS NULL
    AND NOT EXISTS (SELECT 1 FROM contacts c
                     WHERE c.deleted_at IS NULL
-                      AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id);
+                      AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id)
+   AND NOT EXISTS (SELECT 1 FROM contact_aliases a JOIN contacts c ON c.id = a.contact_id
+                    WHERE c.deleted_at IS NULL AND a.alias_value = t.user_id
+                      AND a.alias_kind IN ('external','anonymous'));
 ```
+
+(Exact SQL shape is T6's to settle — the `missing` OR-of-EXISTS above needs parenthesising
+when implemented; what is LOCKED is the alias-aware ownership definition and that T6's test
+fixture must include an alias-only-keyed row asserted to land in NEITHER `missing` (when
+stamped) NOR `mismatched`.)
 
 Surfaced on the existing admin readiness surface (`routes/admin/readiness.ts`). `missing` and
 `mismatched` must be zero to enter PRD 05; `orphaned` is expected and non-zero by D5 — the probe
@@ -621,3 +662,55 @@ Ordered cheapest-first; nothing here needs a snapshot restore, because nothing r
   `pnpm changeset:engine-line`.
 
 ## Implementation Notes
+
+**Shipped 2026-07-28, wave 2, all six tasks.** T1 released alone as **0.58.0** (PR #630,
+migration `0069_sour_wildside`, exactly five metadata-only ADD COLUMNs) — the two-release split
+D2 demands, so operators can pre-create the indexes concurrently against the running column-only
+release. T2–T6 ship together in the follow-up PR (migration `0070_confused_mindworm`,
+`CREATE INDEX IF NOT EXISTS` hand-edited per the house pattern; the changeset body carries the
+five `CONCURRENTLY` statements verbatim plus the invalid-index-after-failed-CONCURRENTLY drop
+instruction).
+
+**Where the build deviated from the spec, and why:**
+
+- **T4b held-out row** — its own D6-wrapped resolve, NOT a `subjectContactId` reuse: the compute
+  sits AFTER the insert, inside the `journey.heldout` re-emit's try/catch; hoisting it would
+  change which failures skip the re-emit (D8 row 4 corrected in place above).
+- **T4 review round added a pin-liveness guard** (`resolveEnrollmentContactId`): the ingest-time
+  `input.contactId` crosses an unbounded Hatchet queue delay, and a merge in that window would
+  stamp a soft-deleted loser — permanently, since the backfill fills only NULLs. The pin is now
+  validated against a live contact row and falls through to the alias-aware probe (which resolves
+  the re-aliased key to the survivor). Mutation-verified: unguarding it turns exactly the two
+  stale-pin tests red.
+- **T6 ownership is alias-aware** (locked mid-build after the T4 review panel caught it): the
+  bare canonical-coalesce probes would have counted every correctly-stamped second-device row as
+  `mismatched`, blocking the PRD 05 gate forever on any deployment with a multi-device user.
+- **T6 does NOT count `user_id IS NULL, contact_id IS NOT NULL` email_sends rows as mismatched**
+  — investigated against the committed code: the admin resend path copies `contact_id` off the
+  source row while (pre-existing gap, filed not fixed) not copying `userId`, so the shape is
+  reachable today with a CORRECT stamp. Cost stated in the probe comment: an address-resolving
+  D7 violator on that one path is invisible to the probe.
+- **T6 `mismatched` does not require the pointed-at contact to be live**: a GDPR-deleted contact
+  whose key still matches is consistent data. Merge regressions are still caught because a merge
+  rewrites `user_id` to the survivor's key, so a stranded row mismatches on the key.
+- **T5 is a periodic reconcile sweep** per the revised D6 (`CONTACT_ID_BACKFILL_RESWEEP_HOURS`,
+  default 24h), with a runaway guard (5,000 statements per key), pause-only-after-writes pacing,
+  and pass 2 keyset-paginated over alias values that resolve unambiguously AND are not already a
+  live canonical key. Both-kinds-disagree values are skipped, counted (`ambiguousAliases`,
+  surfaced as `import_jobs.failedRows`) and sampled into the log.
+
+**Mutation proofs run by the orchestrator** (all conclusive, all restored): T2 index drop → 3
+red; T3 delete one repoint UPDATE → exactly that table red; T4 unguard the pin → the two
+stale-pin tests red; T5 remove the NULL guard → 4 red incl. the named re-run test; T6 remove the
+alias ownership leg → the alias-acceptance + healthy-world tests red.
+
+**Follow-ups filed, deliberately not fixed here:** (1) `contactIdBackfillTask.fn` creates a
+`createDatabase` pool per invocation and never closes it — the EXACT pattern of the two shipped
+backfill tasks (`bucket-backfill.ts:84`, `identity-alias-backfill.ts:333`), so it went in
+matching precedent; the trio deserves one shared fix (a `getDb()`-style handle or an explicit
+`end()`), and the local symptom (Postgres `53300` connection exhaustion during heavy test
+cadence, container restart required) is worth remembering. (2) demo-seed NULL stamps (D8 row 15,
+already filed in Risks). (3) resend-path `userId` gap (T4d, pre-existing).
+
+**Test infrastructure:** wave-2 test DB is `prd04_test` (fresh-created, migrated 0000→0070); the
+`prd06_test` DB from wave 1 was left poisoned by its mutation runs and was not reused.

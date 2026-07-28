@@ -224,3 +224,81 @@ client's own tables) couples the two tracks. Guidance:
 - `migration_pending` is set when **either** track is behind. The engine track
   additionally asserts at boot and refuses to serve if behind, turning silent
   breakage into a clear, actionable error; the client track only surfaces here.
+
+---
+
+## Per-release notes
+
+Operator steps that apply to a specific upgrade. Newest first.
+
+### 0.59.0 — `contact_id` on the five history tables
+
+`user_events`, `journey_states`, `bucket_memberships`, `email_sends` and
+`email_preferences` each carry a nullable `contact_id uuid`. It is **pure
+bookkeeping this release: nothing reads it.** Every query still resolves history
+through `user_id`, and dropping the column would be behaviourally invisible. It
+exists so a later release can flip reads onto a verified column instead of a
+string key.
+
+The change is deliberately split across two releases, per rule 2:
+
+- **0.58.0 added the five columns** (metadata-only `ADD COLUMN`, no rewrite).
+- **0.59.0 adds the five partial indexes and starts writing the column** — the
+  dual-write at every insert site, the merge repoint, and the backfill.
+
+**Escape hatch for a large `user_events`.** The index build runs inside the
+migration transaction and takes a `SHARE` lock (blocking writes) under a
+15-minute statement timeout, so on a big table it can time out and roll the
+whole deploy back. `CREATE INDEX CONCURRENTLY` cannot be used from a migration
+(the runner wraps all migrations in one transaction; `CONCURRENTLY` is rejected
+inside one, `25001`). Build the five indexes yourself, online, **against 0.58.0**
+— it has the columns but not the indexes — using the `CREATE INDEX CONCURRENTLY
+IF NOT EXISTS` statements in the 0.59.0 release notes. The migration's own
+statements are `CREATE INDEX IF NOT EXISTS`, so it then finds them and no-ops.
+Deployments where a brief write block is acceptable need to do nothing.
+
+**The backfill is a periodic reconcile sweep, not a one-shot.** The worker
+enqueues `identity-contact-id-backfill` at boot and again whenever the newest
+completed sweep is older than `CONTACT_ID_BACKFILL_RESWEEP_HOURS` (default
+`24`; a missing, non-numeric or non-positive value falls back to 24 rather than
+disabling the sweep). It walks live contacts, stamps rows keyed on each
+contact's canonical key, then fills rows keyed on a stale key that only
+`contact_aliases` resolves. Chunked, paced and idempotent — every UPDATE is
+guarded by `contact_id IS NULL`, so a steady-state re-sweep writes nothing. It
+is periodic rather than one-shot because the dual-write is best-effort by
+design (a bookkeeping resolve may never fail the send/ingest it rides on), so a
+miss needs a later sweep to still exist. Force one now with:
+
+```
+POST /v1/admin/maintenance/backfill-contact-id
+```
+
+Optional body `{ contactsPerChunk, rowsPerStatement, pauseMs }` overrides the
+pacing. The rule that matters: keep any single UPDATE under ~1 second and
+~10,000 row locks. Note the backfill only fills NULLs — **it is not a repair
+tool**, and will leave a wrong non-NULL value in place.
+
+**Verify before trusting the column:**
+
+```
+GET /v1/admin/maintenance/contact-id-verify
+```
+
+Per table it reports three counts:
+
+| Count | Meaning | Acceptable? |
+| --- | --- | --- |
+| `missing` | A live contact owns the row's `user_id` — canonically **or** via an `external`/`anonymous` `contact_aliases` row — but `contact_id` is NULL | **No.** After a completed sweep this is a hole in the backfill or the dual-write |
+| `mismatched` | `contact_id` points at a contact that owns that `user_id` neither way (including a pointer at no contact at all) | **No.** This is corruption; the fix is a targeted corrective job, never a re-run of the sweep |
+| `orphaned` | `contact_id` is NULL and no live contact owns the key — a refused anonymous ingest, a keyless raw send | **Yes, forever.** Reported as information, never a failure |
+
+`flipReady` is true iff every table reports `missing = mismatched = 0`. **That
+is the gate for the next release's read flip** — do not upgrade into the release
+that reads `contact_id` until this endpoint reports `flipReady: true` against a
+completed sweep. Judge it only once `lastSweepAt` is non-null; before a sweep
+finishes, `missing` is just pending backfill. When the invariant is broken and a
+sweep has already completed, the endpoint also emits a structured `error` log
+line (`contact_id invariant broken after a completed sweep`) — hook alerting to
+that, because after the flip a growing `missing` is live data loss.
+
+The probe is a full-table scan by nature. Call it on demand, not on a timer.

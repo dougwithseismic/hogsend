@@ -1673,6 +1673,37 @@ async function mergeContacts(
       .set({ contactId: survivor.id })
       .where(eq(crmLinks.contactId, loser.id));
 
+    // (vi-b-hist) the five HISTORY tables' `contact_id` re-point (PRD 04 T3).
+    // Same shape and same reasoning as the deals/crm_links repoints above: a
+    // uuid column the string-key rewrites never touch, and no unique index
+    // involves `contact_id`, so plain UPDATEs suffice (no fold needed — unlike
+    // the (vi)/(vi-c) folds, which exist only to respect a unique index).
+    // Deliberately lands AHEAD of the dual-write that populates the column
+    // (PRD 04 D9/D10): while every row is still NULL this is a pure no-op, and
+    // the moment the dual-write starts, merges are already correct. Shipped in
+    // the other order, every merge in between would strand history rows
+    // pointing at a soft-deleted loser contact.
+    await tx
+      .update(userEvents)
+      .set({ contactId: survivor.id })
+      .where(eq(userEvents.contactId, loser.id));
+    await tx
+      .update(journeyStates)
+      .set({ contactId: survivor.id })
+      .where(eq(journeyStates.contactId, loser.id));
+    await tx
+      .update(bucketMemberships)
+      .set({ contactId: survivor.id })
+      .where(eq(bucketMemberships.contactId, loser.id));
+    await tx
+      .update(emailSends)
+      .set({ contactId: survivor.id })
+      .where(eq(emailSends.contactId, loser.id));
+    await tx
+      .update(emailPreferences)
+      .set({ contactId: survivor.id })
+      .where(eq(emailPreferences.contactId, loser.id));
+
     // (vi-c) group_memberships FOLD: another contact_id uuid FK the key
     // rewrites never touch. The loser is SOFT-deleted, so `onDelete: cascade`
     // never fires — without this the loser's memberships are stranded on a dead
@@ -2622,6 +2653,89 @@ export async function resolveRecipient(opts: {
     externalId: row.externalId,
     contactId: row.id,
   };
+}
+
+/**
+ * Resolve the live contact that OWNS a canonical history key, for the PRD 04
+ * `contact_id` DUAL-WRITE and nothing else.
+ *
+ * WHAT IT IS FOR. Every history row (`user_events`, `journey_states`,
+ * `bucket_memberships`, `email_sends`, `email_preferences`) is stored under a
+ * canonical STRING key (`external_id ?? anonymous_id ?? id`). The dual-write
+ * stamps the owning `contacts.id` alongside it at insert time, so this must
+ * resolve EXACTLY the key the row is stored under — no widening, no minting.
+ * A miss is a legal, expected `null`: the column is nullable bookkeeping and a
+ * later backfill fills what this could not see. Callers wrap it per D6 (a
+ * bookkeeping resolve may never fail the operation it rides on).
+ *
+ * WHY ALIAS-AWARE. Since PRD 03 a second device's anonymous id can live ONLY in
+ * `contact_aliases` (the contact row already carries a different
+ * `anonymous_id`), so a column-only probe would stamp NULL for that visitor
+ * FOREVER — the backfill reads the same columns and would miss it too. The
+ * alias probe is restricted to kinds `external`/`anonymous` because those are
+ * the only kinds a CANONICAL key can be: folding in an `email`/`discord` alias
+ * would resolve history that today resolves to nothing, which is a read-shape
+ * change smuggled in through a write. When both kinds carry the value,
+ * `external` wins — mirroring the canonical-key precedence `external_id ??
+ * anonymous_id` so the answer is deterministic rather than index-order luck.
+ *
+ * WHY NOT {@link findByKey}. That one takes a `(kind, value)` pair, probes
+ * aliases FIRST across every kind, and carries a uuid-as-external fallback with
+ * merge/mint semantics attached — resolution for a WRITE that may change the
+ * identity graph. This is a read-only ownership question about one already-fixed
+ * string, so it stays a separate, narrower probe.
+ */
+export async function lookupContactIdByKey(
+  db: Database,
+  key: string,
+): Promise<string | null> {
+  const value = key?.trim();
+  if (!value) return null;
+
+  // (1) COLUMN probe — one statement over the three indexed identity columns a
+  // canonical key can occupy (Postgres serves the OR as a BitmapOr). The uuid
+  // leg is REGEX-GUARDED rather than cast (`id::text = $1`): a bare cast is
+  // unindexed AND an unguarded `id = $1` throws 22P02 on a non-uuid key.
+  const direct = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      and(
+        isNull(contacts.deletedAt),
+        or(
+          eq(contacts.externalId, value),
+          eq(contacts.anonymousId, value),
+          UUID_REGEX.test(value) ? eq(contacts.id, value) : undefined,
+        ),
+      ),
+    )
+    .limit(1);
+  if (direct[0]) return direct[0].id;
+
+  // (2) ALIAS probe — only reached on a column miss. `deleted_at IS NULL` lives
+  // INSIDE the join (the live-target rule, as in `findByKey`): an alias whose
+  // target is soft-deleted must produce NO row rather than stamp a tombstone.
+  const viaAlias = await db
+    .select({ id: contacts.id })
+    .from(contactAliases)
+    .innerJoin(
+      contacts,
+      and(
+        eq(contacts.id, contactAliases.contactId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(contactAliases.aliasValue, value),
+        inArray(contactAliases.aliasKind, ["external", "anonymous"]),
+      ),
+    )
+    .orderBy(
+      sql`case when ${contactAliases.aliasKind} = 'external' then 0 else 1 end`,
+    )
+    .limit(1);
+  return viaAlias[0]?.id ?? null;
 }
 
 /** Alias-aware lookup helper (mirrors findByKey's alias probe but on the

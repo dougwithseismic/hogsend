@@ -1,6 +1,6 @@
 import { emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { resolveContact, serializePrefs } from "../../lib/contacts.js";
 
@@ -133,6 +133,10 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
       .values({
         userId: contact.externalId ?? contact.id,
         email: contact.email,
+        // PRD 04 dual-write: this handler resolved the contact one statement
+        // ago, so the owning id is in hand — zero queries, no D6 wrapper needed
+        // (there is no new call that could throw).
+        contactId: contact.id,
         unsubscribedAll: body.unsubscribedAll ?? false,
         suppressed: body.suppressed ?? false,
         categories: body.categories ?? {},
@@ -140,6 +144,10 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
       .onConflictDoUpdate({
         target: [emailPreferences.userId, emailPreferences.email],
         set: {
+          // Fill-if-known, never null-out — the same conflict arm
+          // `upsertEmailPreference` uses, so the two writers to this table
+          // cannot disagree about whether a stamp may be erased.
+          contactId: sql`coalesce(excluded.contact_id, ${emailPreferences.contactId})`,
           ...(body.unsubscribedAll !== undefined
             ? { unsubscribedAll: body.unsubscribedAll }
             : {}),

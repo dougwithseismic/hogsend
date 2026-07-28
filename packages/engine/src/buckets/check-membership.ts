@@ -346,6 +346,12 @@ async function handleJoin(opts: {
       expiresAt,
       maxDwellAt,
       lastEvaluatedAt: new Date(),
+      // PRD 04 dual-write. `contactId` is already a documented param of this
+      // function (`ingestEvent` resolved the subject before calling us), so this
+      // is ZERO new queries and has no failure mode to wrap: `undefined` — a
+      // pin-less caller or a refused resolve — stamps NULL and the join is
+      // recorded exactly as before (memberships are text-keyed, no contact FK).
+      contactId: contactId ?? null,
     })
     .onConflictDoNothing()
     .returning({ id: bucketMemberships.id });

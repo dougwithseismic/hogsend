@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -17,7 +19,7 @@ export const emailPreferences = pgTable(
     userId: text("user_id").notNull(),
     email: text("email").notNull(),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
     contactId: uuid("contact_id"),
     unsubscribedAll: boolean("unsubscribed_all").notNull().default(false),
     suppressed: boolean("suppressed").notNull().default(false),
@@ -34,5 +36,10 @@ export const emailPreferences = pgTable(
       table.userId,
       table.email,
     ),
+    // PRD 04 D2 — PARTIAL btree on the owning contact; see the twin on
+    // user_events for why the predicate is not a barrier to `contact_id = $1`.
+    index("email_preferences_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );

@@ -916,6 +916,22 @@ export {
   createWorker,
   type Worker,
 } from "./worker.js";
+// --- History contact_id backfill (PRD 04): periodic reconcile sweep + enqueue,
+// --- plus T6's invariant probe (`flipReady` = the read-flip entry gate) ---
+export {
+  CONTACT_ID_BACKFILL_FORMAT,
+  type ContactIdBackfillCounts,
+  type ContactIdBackfillInput,
+  type ContactIdBackfillResult,
+  type ContactIdBackfillTable,
+  type ContactIdVerifyCounts,
+  type ContactIdVerifyResult,
+  contactIdBackfillTask,
+  contactIdResweepIntervalMs,
+  enqueueContactIdBackfill,
+  runContactIdBackfill,
+  verifyContactIdBackfill,
+} from "./workflows/backfill-contact-id.js";
 export {
   type BucketBackfillInput,
   bucketBackfillTask,

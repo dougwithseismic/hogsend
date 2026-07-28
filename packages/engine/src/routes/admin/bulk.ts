@@ -488,6 +488,10 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
         toEmail: email.toEmail,
         subject: email.subject,
         category: email.category,
+        // PRD 04 dual-write: copied verbatim off the source row (the full row
+        // is already selected above) — zero queries, and a resend of a send
+        // that stamped NULL correctly stays NULL rather than resolving anew.
+        contactId: email.contactId,
         status: "queued",
       })
       .returning();

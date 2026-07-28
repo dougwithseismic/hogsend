@@ -19,6 +19,10 @@ import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
 import { startWorkerHeartbeat } from "./lib/worker-heartbeat.js";
 import {
+  contactIdBackfillTask,
+  enqueueContactIdBackfill,
+} from "./workflows/backfill-contact-id.js";
+import {
   bucketBackfillTask,
   enqueueBucketBackfills,
 } from "./workflows/bucket-backfill.js";
@@ -137,6 +141,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     bucketReconcileTask,
     bucketBackfillTask,
     identityAliasBackfillTask,
+    contactIdBackfillTask,
     crmReconcileTask,
     dispatchConversionTask,
     ...journeyTasks,
@@ -242,6 +247,21 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       logger: container.logger,
     }).catch((err) => {
       container.logger.warn("Identity alias backfill enqueue (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // PRD 04 T5: fill the five history tables' `contact_id` for rows the
+    // dual-write never saw. Unlike the alias backfill this is a PERIODIC
+    // reconcile sweep (D6) — the enqueue re-fires once the newest completed
+    // sweep is older than CONTACT_ID_BACKFILL_RESWEEP_HOURS (default 24h),
+    // because the dual-write is best-effort and a miss is otherwise permanent.
+    // Cheap by construction: every UPDATE is guarded by `contact_id IS NULL`.
+    enqueueContactIdBackfill({
+      db: container.db,
+      logger: container.logger,
+    }).catch((err) => {
+      container.logger.warn("Contact-id backfill enqueue (boot) failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     });

@@ -20,7 +20,7 @@ export const journeyStates = pgTable(
     userId: text("user_id").notNull(),
     userEmail: text("user_email").notNull(),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
     contactId: uuid("contact_id"),
     journeyId: text("journey_id").notNull(),
     currentNodeId: text("current_node_id").notNull(),
@@ -82,5 +82,10 @@ export const journeyStates = pgTable(
     // Time-windowed activity counts (GET /v1/health) range-scan on updatedAt —
     // without this the healthcheck seq-scans the whole table on every hit.
     index("journey_states_updated_at_idx").on(table.updatedAt),
+    // PRD 04 D2 — PARTIAL btree on the owning contact; see the twin on
+    // user_events for why the predicate is not a barrier to `contact_id = $1`.
+    index("journey_states_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );
