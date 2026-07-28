@@ -163,15 +163,56 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
       });
   }
 
-  // The sign-up: a CONSENTED identify, done entirely client-side. We do NOT
-  // POST the email to the engine here — a `pk_` publishable key is structurally
-  // anon-only (the engine 403s any asserted email/userId without a server-minted
-  // userToken), and the server-side subscribe path would fire a real welcome
-  // email. Instead we record the consented person on PostHog (email + name as
-  // $set person properties under the stable distinct id) and persist locally.
-  // The in-app feed stays keyed to the same anon id, so the bell keeps working.
-  // NB: the consented email lives in PostHog (analytics) only, NOT the engine
-  // contact — this is an analytics identify + a UX gate, not engine identity.
+  /**
+   * Tell the engine who just signed up. Best-effort and fire-and-forget: the
+   * demo gate is client-side (localStorage), so a failure here must never
+   * block the unlock below.
+   *
+   * It goes through a server route because a `pk_` publishable key is
+   * structurally anon-only — the engine 403s an asserted email without a
+   * server-minted userToken. `/api/demo-identity` forwards `docs.demo_signup`
+   * under the secret ingest key with the email as the identity arm; the event
+   * name is deliberately one no journey listens to, so no welcome email fires
+   * (unlike `/api/subscribe`'s `docs.subscribed`).
+   *
+   * The browser anon id rides in that body as an INERT event property, never
+   * as an identity arm. The feed's recipient resolver treats a raw anon id as
+   * sufficient to READ that contact's feed, so folding a client-supplied one
+   * from an unauthenticated request carrying an unverified email would hand
+   * out a capability, not just create a junk row. The browser id is attached
+   * to a contact only by the email-verified cold-connect confirm link the
+   * recipient clicks in their own inbox.
+   */
+  function recordSignup(signupEmail: string, firstName: string) {
+    // Already folded: a signed-in docs visitor got a userToken carrying
+    // { email, userId, firstName } from /api/hogsend-token, so this contact
+    // already has the email. Nothing to add.
+    if (client.isIdentified()) return;
+    // `getAttributionFields()` is the public accessor for the @hogsend/js
+    // anon id (there is no `getAnonymousId()` on the client), and it returns
+    // the id even when no attribution has been captured. NOT
+    // `getDistinctId()` — for an identified visitor that is the canonical
+    // engine userId, which must not ride as an anon id.
+    const hsAnonId = client.getAttributionFields().hs_anonymous_id;
+    void fetch("/api/demo-identity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: signupEmail,
+        ...(firstName ? { name: firstName } : {}),
+        ...(hsAnonId ? { hsAnonId } : {}),
+      }),
+      keepalive: true,
+    }).catch(() => {
+      // Network/route failure — swallowed on purpose, see above.
+    });
+  }
+
+  // The sign-up: a CONSENTED identify on both sides. PostHog gets the person
+  // (email + name as $set person properties under the stable distinct id),
+  // the engine gets the contact via recordSignup above, and localStorage
+  // holds the gate. The in-app feed stays keyed to the same anon id, so the
+  // bell keeps working either way.
   function submitSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (signedUp) return;
@@ -192,6 +233,7 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
       });
     }
     sessionIdentity.email = normalizedEmail;
+    recordSignup(normalizedEmail, trimmedName);
     trackEvent(AnalyticsEvent.CAPTURE_SUBMITTED, { placement: "live-demo" });
 
     try {
