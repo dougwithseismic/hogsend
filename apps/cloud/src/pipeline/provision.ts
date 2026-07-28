@@ -9,6 +9,10 @@ import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
 import { HatchetTenantService } from "../services/hatchet-tenant";
 import type { StackRow } from "../services/orgs";
+import {
+  buildProviderEnv,
+  type StoredProviderKey,
+} from "../services/provider-env";
 import { ProviderKeyService } from "../services/provider-keys";
 import { StackService } from "../services/stacks";
 import { TenantDbService } from "../services/tenant-db";
@@ -205,64 +209,6 @@ function hatchetAddresses(url: string): { httpBase: string; hostPort: string } {
     return { httpBase: trimmed, hostPort: trimmed.replace(/^https?:\/\//, "") };
   }
   return { httpBase: `http://${trimmed}`, hostPort: trimmed };
-}
-
-/**
- * Map a stored provider credential onto the engine env vars its plugin reads.
- * Unknown providers contribute nothing: the control plane must not invent an
- * env var name the engine would ignore.
- */
-function providerEnv(
-  provider: string,
-  payload: Record<string, string>,
-): Record<string, string> {
-  const pick = (...names: string[]): string | undefined => {
-    for (const name of names) {
-      const value = payload[name];
-      if (typeof value === "string" && value.length > 0) return value;
-    }
-    return undefined;
-  };
-  const set = (
-    target: Record<string, string>,
-    key: string,
-    value: string | undefined,
-  ) => {
-    if (value !== undefined) target[key] = value;
-  };
-
-  const vars: Record<string, string> = {};
-  switch (provider) {
-    case "resend":
-      set(vars, "RESEND_API_KEY", pick("apiKey", "api_key", "key"));
-      set(vars, "RESEND_FROM_EMAIL", pick("fromEmail", "from"));
-      break;
-    case "postmark":
-      set(
-        vars,
-        "POSTMARK_SERVER_TOKEN",
-        pick("serverToken", "apiKey", "token"),
-      );
-      set(vars, "POSTMARK_MESSAGE_STREAM", pick("messageStream"));
-      break;
-    case "posthog":
-      set(vars, "POSTHOG_API_KEY", pick("apiKey", "projectApiKey"));
-      set(vars, "POSTHOG_PERSONAL_API_KEY", pick("personalApiKey"));
-      set(vars, "POSTHOG_HOST", pick("host"));
-      break;
-    case "twilio":
-      set(vars, "TWILIO_ACCOUNT_SID", pick("accountSid"));
-      set(vars, "TWILIO_AUTH_TOKEN", pick("authToken"));
-      set(
-        vars,
-        "TWILIO_MESSAGING_SERVICE_SID",
-        pick("messagingServiceSid", "messagingService"),
-      );
-      break;
-    default:
-      break;
-  }
-  return vars;
 }
 
 /**
@@ -631,30 +577,23 @@ async function assembleStackEnv(args: {
   }
 
   // Tenant provider credentials, mapped onto the env names their engine plugins
-  // read. `list()` carries no ciphertext, so each one is opened explicitly.
+  // read — through the SAME `buildProviderEnv` the key-sync service uses on a
+  // running stack (PRD 05), so a key cannot work on first boot and silently do
+  // nothing on a rotation. `list()` carries no ciphertext, so each one is
+  // opened explicitly.
   const { keys } = await deps.providerKeys.list({
     environmentId: context.stack.environmentId,
   });
+  const stored: StoredProviderKey[] = [];
   for (const key of keys) {
-    const stored = await deps.providerKeys.getDecrypted({
+    const decrypted = await deps.providerKeys.getDecrypted({
       environmentId: context.stack.environmentId,
       provider: key.provider,
     });
-    if (!stored.found) continue;
-    Object.assign(vars, providerEnv(key.provider, stored.payload));
+    if (!decrypted.found) continue;
+    stored.push({ provider: key.provider, payload: decrypted.payload });
   }
-
-  // The neutral from-address the engine prefers over RESEND_FROM_EMAIL, and its
-  // domain — supplied by whichever email provider the tenant configured.
-  if (vars.RESEND_FROM_EMAIL && !vars.EMAIL_FROM) {
-    vars.EMAIL_FROM = vars.RESEND_FROM_EMAIL;
-  }
-  const emailFrom = vars.EMAIL_FROM;
-  if (emailFrom && !vars.EMAIL_DOMAIN) {
-    const at = emailFrom.lastIndexOf("@");
-    const domain = at === -1 ? "" : emailFrom.slice(at + 1).replace(/>$/, "");
-    if (domain) vars.EMAIL_DOMAIN = domain;
-  }
+  Object.assign(vars, buildProviderEnv({ keys: stored }));
 
   return vars;
 }
