@@ -12,8 +12,11 @@ Replace it with the vendor-neutral `getAnalytics()`, newly exported from
 `undefined` when the deployment configures none), so swapping the `analytics`
 option on `createHogsendClient` actually swaps what your journeys get back —
 which was never true of the PostHog-shaped singleton. The engine's own internals
-already read `getAnalytics()`; this finishes ADR 0001 (provider boundary) by
-removing the last vendor name from the public API.
+already read `getAnalytics()`; this finishes ADR 0001 (provider boundary) for
+the analytics ACCESSOR. Vendor-named exports still exist for vendor-specific
+work (`lookupPostHogPerson`, `EXPECTED_POSTHOG_SCOPES`, `seedPostHogDestination`,
+`posthogDestination`) — those name PostHog because they ARE PostHog. What is
+gone is the vendor name on the general-purpose wire every journey reaches for.
 
 Migration:
 
