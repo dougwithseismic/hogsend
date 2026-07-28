@@ -225,15 +225,19 @@ describe("cloud tenant schema", () => {
       WHERE table_schema = 'cloud' AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `);
-    expect([...rows].map((r) => r.table_name)).toEqual([
-      "__cloud_migrations",
-      "cells",
-      "cloud_audit_log",
-      "environments",
-      "organizations",
-      "provider_keys",
-      "stacks",
-      "usage_counters",
-    ]);
+    // Subset, not deep-equal: later migrations add tables (0003 added the
+    // Better Auth set) and must not fail the 0001 drift check.
+    expect([...rows].map((r) => r.table_name)).toEqual(
+      expect.arrayContaining([
+        "__cloud_migrations",
+        "cells",
+        "cloud_audit_log",
+        "environments",
+        "organizations",
+        "provider_keys",
+        "stacks",
+        "usage_counters",
+      ]),
+    );
   });
 });
