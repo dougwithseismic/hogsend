@@ -70,6 +70,10 @@ import {
   registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
+// Narrows ctx.history.email/sms `template` to the registered key unions. Kept
+// as a side-effect import because the augmentation must load in every program
+// that can see a JourneyContext, not only this one.
+import "./template-key-augmentation.js";
 import { recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be

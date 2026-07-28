@@ -11,6 +11,7 @@ process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
+import type { EmailHistoryOptions, SmsHistoryOptions } from "@hogsend/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const {
@@ -136,11 +137,21 @@ afterAll(async () => {
 describe("ctx.history delivery", () => {
   it("counts only attempts that reached the provider", async () => {
     const sentAt = new Date("2026-07-15T08:00:00.000Z");
-    const emailTemplate = `${RUN}-email-history`;
-    const emailFailedOnly = `${RUN}-email-failed-only`;
-    const smsTemplate = `${RUN}-sms-history`;
-    const smsFailedOnly = `${RUN}-sms-failed-only`;
-    const phone = `+1555${String(Date.now()).slice(-7)}`;
+    // Real registry keys, not RUN-namespaced strings: `ctx.history.email` /
+    // `.sms` narrow `template` to the SAME union the send path enforces, so a
+    // made-up key no longer type-checks.
+    const emailTemplate = "welcome";
+    const emailFailedOnly = "password-reset";
+    const smsTemplate = "welcome-sms";
+    const smsFailedOnly = "winback-sms";
+    // The email assertions stay isolated by the RUN-unique EMAIL_A, but
+    // `ctx.history.sms` filters on phone + template only — and the template is
+    // now a shared registry key rather than a RUN-namespaced string. So the
+    // phone carries the isolation alone, and it uses the same random draw the
+    // sibling SMS suites in this shared TimescaleDB use (sms-tracked,
+    // sms-consent, sms-journey-suppress) rather than a clock slice those
+    // suites can land on. `afterAll` cleans by USER_A, not by phone.
+    const phone = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
 
     await db.insert(emailSends).values([
       {
@@ -221,6 +232,36 @@ describe("ctx.history delivery", () => {
     await expect(
       ctx.history.sms({ phone, template: smsFailedOnly }),
     ).resolves.toEqual({ sent: false, lastSentAt: null, count: 0 });
+  });
+
+  /**
+   * The AUGMENTED half of the read-path narrowing contract. This app declares
+   * its templates in `src/emails/templates.d.ts` + `src/sms/templates.d.ts`, so
+   * `ctx.history.email({ template })` resolves to that key union — the very
+   * same one `sendEmail({ template })` enforces one line away. Before the
+   * narrowing a misspelled key compiled and answered "never sent" forever,
+   * silently steering a journey down the wrong branch.
+   *
+   * A TYPE-level guard: the `@ts-expect-error` directives are the assertion.
+   * Widen either `template` back to `string` and the directives become unused,
+   * which `check-types` reports as TS2578. The mirror guard — that an
+   * un-augmented consumer still gets `string` — lives in
+   * `packages/engine/src/journeys/history-template-keys.test.ts`.
+   */
+  it("rejects a template key that is not in the registry", () => {
+    const registered: EmailHistoryOptions["template"] = "welcome";
+    // @ts-expect-error - "welcom" is not a registered email template key.
+    const typo: EmailHistoryOptions["template"] = "welcom";
+    const smsRegistered: SmsHistoryOptions["template"] = "welcome-sms";
+    // @ts-expect-error - "welcom-sms" is not a registered SMS template key.
+    const smsTypo: SmsHistoryOptions["template"] = "welcom-sms";
+
+    expect([registered, typo, smsRegistered, smsTypo]).toEqual([
+      "welcome",
+      "welcom",
+      "welcome-sms",
+      "welcom-sms",
+    ]);
   });
 });
 
@@ -355,7 +396,7 @@ describe("getUserContext()", () => {
   });
 
   it("omits posthog when POSTHOG_API_KEY is not set", async () => {
-    // getPostHog() returns undefined without POSTHOG_API_KEY — posthog field
+    // getAnalytics() returns undefined without POSTHOG_API_KEY — posthog field
     // must be absent from the bundle (not undefined-but-present, absent).
     const ctx = makeCtx(USER_A, EMAIL_A);
     const user = {
