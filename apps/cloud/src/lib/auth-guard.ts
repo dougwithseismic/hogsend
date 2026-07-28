@@ -14,6 +14,10 @@ export const PROTECTED_PREFIXES = [
   "/environments",
   "/usage",
   "/settings",
+  // The post-signup key step. A dashboard route like any other: it reads and
+  // writes the organization's provider credentials, so a signed-out visitor
+  // has no business rendering it.
+  "/setup",
   // Signed-in-only too, but it is where the org-less land rather than a
   // dashboard page — the redirect INTO it is `session.ts`'s job, because only a
   // database read knows whether the user has an organization.

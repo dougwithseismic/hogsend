@@ -122,7 +122,14 @@ describe("cloud auth", () => {
 });
 
 describe("route guard", () => {
-  const protectedPaths = ["/", "/environments", "/usage", "/settings"];
+  const protectedPaths = [
+    "/",
+    "/environments",
+    "/usage",
+    "/settings",
+    // The post-signup key step reads and writes provider credentials.
+    "/setup",
+  ];
 
   it.each(protectedPaths)("redirects %s to /login when signed out", (path) => {
     expect(guardRoute({ pathname: path, hasSession: false })).toEqual({
@@ -141,6 +148,14 @@ describe("route guard", () => {
     expect(
       guardRoute({ pathname: "/environments/env_123", hasSession: false }),
     ).toEqual({ action: "redirect", to: "/login" });
+    // The onboarding step lives under the prefix, not at it — a guard that
+    // only matched "/setup" would leave the page create-org redirects to open.
+    expect(
+      guardRoute({ pathname: "/setup/providers", hasSession: false }),
+    ).toEqual({ action: "redirect", to: "/login" });
+    expect(
+      guardRoute({ pathname: "/setup/providers", hasSession: true }),
+    ).toEqual({ action: "allow" });
   });
 
   it("lets a signed-out visitor reach the auth screens", () => {

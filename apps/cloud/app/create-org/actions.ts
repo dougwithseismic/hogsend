@@ -51,5 +51,10 @@ export async function createOrganizationAction(
 
   // Outside the catch: `redirect` signals by throwing, and swallowing it here
   // would turn a successful signup into a generic form error.
-  redirect("/");
+  //
+  // Straight into the key step rather than the dashboard: the instance being
+  // provisioned right now cannot send a single email until a provider key
+  // arrives, so asking for one is the honest next screen. It is skippable —
+  // the step says so — and skipping lands on the dashboard.
+  redirect("/setup/providers");
 }

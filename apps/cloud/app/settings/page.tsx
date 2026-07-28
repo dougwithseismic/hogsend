@@ -5,12 +5,14 @@ import { AccountSection } from "@/components/cloud/account-section";
 import { CopyValue } from "@/components/cloud/copy-value";
 import { DangerZoneSection } from "@/components/cloud/danger-zone-section";
 import { MembersSection } from "@/components/cloud/members-section";
+import { ProvidersSection } from "@/components/cloud/providers-section";
 import { TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
 import { hasRole, readMembersView } from "@/src/lib/org-members";
+import { readProvidersView } from "@/src/lib/provider-keys-ops";
 import { CLOUD_REGIONS } from "@/src/lib/regions";
 import { requireActiveOrganization } from "@/src/lib/session";
 
@@ -30,10 +32,20 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export default async function SettingsPage() {
+type PageProps = {
+  /** `?env=` selects which environment's provider keys are shown. */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function SettingsPage({ searchParams }: PageProps) {
   const { record, user } = await requireActiveOrganization();
   const region = CLOUD_REGIONS.find((option) => option.id === record.region);
-  const membersView = await readMembersView(await headers());
+  const requestHeaders = await headers();
+  const rawEnv = (await searchParams).env;
+  const membersView = await readMembersView(requestHeaders);
+  const providersView = await readProvidersView(requestHeaders, {
+    environmentId: Array.isArray(rawEnv) ? rawEnv[0] : rawEnv,
+  });
 
   const owners = membersView.members.filter((member) =>
     hasRole(member.role, "owner"),
@@ -72,6 +84,7 @@ export default async function SettingsPage() {
         </Card>
       </Section>
 
+      <ProvidersSection view={providersView} basePath="/settings" />
       <MembersSection view={membersView} />
       <AccountSection email={user.email} />
       <DangerZoneSection
