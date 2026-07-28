@@ -752,8 +752,13 @@ async function resolveContactShared(
       // --- ARM: refuse (D1) --- Observation is not identity: a caller that
       // opted out of minting gets `id: null` and the key it supplied, and NO
       // `contacts` row is written. The event still stores under this key
-      // (D2) — and a later identify ADOPTS that history through the create
-      // arm's repoint below, so nothing is orphaned by the refusal.
+      // (D2) — and a later identify ADOPTS that history, so nothing is
+      // orphaned by the refusal. TWO arms do that adoption, and which one runs
+      // depends on whether a contact already exists by the time the anon id
+      // arrives: the create arm below when the identify supplies both keys at
+      // once, and `fillInLink` when identity was folded server-side first (the
+      // shape the docs sign-in produces). Both are gated on the anon key not
+      // naming another contact.
       if (opts.refuseCreateWithKey !== undefined) {
         return {
           id: null,
@@ -1056,9 +1061,12 @@ async function fillInLink(
   }
   // Does the incoming anon id already key SOMEONE ELSE's history? Resolution
   // only probed the anonymous namespace, so a miss does not answer this. One
-  // query, reused by both arms below.
+  // query, reused by both arms below — and skipped entirely when the row
+  // already holds this anon id, since neither arm is reachable then and this is
+  // the hottest path there is (every repeat page view from a known device).
   const foreignAnonKey =
     ctx.anonymousId != null &&
+    ctx.anonymousId !== row.anonymousId &&
     (await keysAnotherContact(tx, ctx.anonymousId, row.id));
 
   // The anon id this call claims for the row — into the column when it is free,
