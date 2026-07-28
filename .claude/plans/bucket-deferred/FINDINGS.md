@@ -6,7 +6,9 @@ picking this up cold should need nothing from the people who wrote it.
 **Status at time of writing.** Three of the four blast profiles are resolved:
 Profile 1 (real-time criteria lookup) shipped in **#624**; Profiles 2 and 3 (the cron leave/dwell
 passes and the bucket accessor) shipped TOGETHER in **#625**, with the first-tick guard described
-below. What REMAINS is listed under "Still open" at the end. A `README.md` may sit beside this file
+below. What REMAINS is listed under "Still open" at the end — where §1 also resolves the question the
+guard section used to leave open, namely whether the shipped guard covers a join burst. It does not,
+and the reason is the load-bearing idea in this document. A `README.md` may sit beside this file
 describing the cron fix as "NOT SHIPPED" — that README predates #625 and is stale; this document is
 authoritative.
 
@@ -138,8 +140,12 @@ Now live in `workflows/bucket-reconcile.ts` as `claimCoalesceCohort`. The reason
 because the code shows WHAT it does and not why each alternative was rejected.
 
 **It was designed for the LEAVE/DWELL cohort specifically.** It claims members and resets
-membership-age clocks. Whether it also covers a JOIN burst — a criteria-evaluation change producing
-`bucket:entered` across a sweep — is UNVERIFIED. Do not assume it transfers; see "Still open".
+membership-age clocks, which is the right instrument for an emission that has gone STALE. It does
+NOT transfer to a JOIN burst, and that is now settled rather than open: a join is criteria-driven and
+therefore true-on-arrival, so there is no stale clock to reset and suppressing it on staleness
+grounds would be incoherent. A join burst needs silent enrollment instead — the full reasoning, and
+the reason it still wants THIS marker, is under "Still open" §1. Reuse `coalesce_claimed_at`; do not
+reuse the clock reset.
 
 **One-shot cohort claim, per bucket.** Before the emitting passes, if this bucket has not been
 claimed, find the memberships that were previously invisible — active, and joined to a live contact
@@ -182,34 +188,110 @@ discriminator, and it needs one persisted bit.
 
 ### 1. `loadContactProperties` + `bucket-backfill.ts:468-472` — its own piece, its own guard
 
+#### The idea to keep: a stale burst and a true burst are not the same problem
+
+The guard that shipped in #625 defers AGE-driven emissions, and the instinct on reading this section
+will be to reuse it. Do not, and the reason is worth stating precisely.
+
+**A dwell/TTL burst is STALE.** The member crossed the threshold months ago and nobody was watching.
+When the emission finally fires, the message it carries is *factually wrong on arrival* — "you have
+been inactive for 7 days" delivered on day 300. Suppressing it is not censorship of a true statement;
+it is declining to assert something false. That is why resetting the age clocks is the right
+instrument: it makes the next assertion true again.
+
+**A join burst is TRUE.** The contact matches `plan == "pro"` right now. `bucket:entered` is a
+correct statement about the present moment, and the only thing wrong with it is that it should have
+been made earlier. Nothing about it becomes false by being late.
+
+So the age-clock guard is not merely unnecessary for a join burst — it is **incoherent** for one. It
+would suppress a correct statement on staleness grounds, and there is no clock to reset that would
+make the statement more true than it already is. This document's own principled line says the same
+thing from the other end: criteria-driven transitions are legitimately timely, and only age-driven
+ones can go stale.
+
+The real objection to a join burst is therefore not correctness but VOLUME, and it needs a different
+instrument. See "the instrument" below.
+
+#### The independence check
+
 **This was originally scoped INTO the "safe" Profile 1 PR and pulled out after an independence
 check.** Recording the check, because the scope error is easy to repeat.
 
 `buckets/check-membership.ts` (shipped, #624) is the REAL-TIME path — incremental, one contact per
 event, no sweep. Genuinely safe.
 
-`workflows/bucket-reconcile.ts` `loadContactProperties` is NOT. Both callers gate emissions and one
-is a sweep:
+`workflows/bucket-reconcile.ts` `loadContactProperties` is NOT. Both callers gate emissions, and they
+move in OPPOSITE directions — which is why they cannot be reasoned about as one change:
 
-- `bucketExpiryTask`'s should-leave re-confirm — the `stillMember` verdict decides whether the woken
-  timer emits `bucket:left`
-- the cron join confirm — `isMember` gates `reconcileJoinOne`, which emits `kind: "entered"` →
-  enter reactions → journeys → **sends**, across a `BATCH_SIZE` sweep of candidates
+- `bucketExpiryTask`'s should-leave re-confirm — with `{}` a property criterion evaluates false, so
+  `stillMember` is false and the woken timer LEAVES. With real properties it is more often true and
+  the timer skips. Fixing this **reduces** emissions. Safe direction.
+- the cron join confirm — `isMember` gates `reconcileJoinOne`, which emits `kind: "entered"` → enter
+  reactions → journeys → **sends**, across a `BATCH_SIZE` sweep of candidates. Fixing this
+  **increases** emissions. This is the entire hazard.
 
 Concrete failing scenario: a bucket with criteria `plan == "pro"`. An email-only contact genuinely on
 Pro was never joined, because the property leg saw `{}`. Fix the lookup and the next tick finds them,
 `evaluateCondition` returns true, `reconcileJoinOne` emits `bucket:entered`, and the enter reaction
-sends a welcome email — for the whole cohort at once. `shouldEmitJoin` suppresses some via
-`entryLimit`, not all. `firstTimeBackfillIncomplete` does not help; it covers only the first-time
-backfill window.
+sends a welcome email — for the whole cohort at once.
 
-`bucket-backfill.ts:468-472` is likewise not independent: `selectEventMatchers` feeds `reevalLeaves`
-(which leaves and emits) and backfill enrollment, so it changes membership.
+#### Nothing bounds it
 
-**Deliberately NOT folded into #625's guard.** That guard was built for the leave/dwell cohort — it
-claims members and resets age clocks. A join burst is a different emission with a different shape,
-and whether the claim covers it has not been verified. Bundling on the assumption that it does is the
-exact mistake this subsystem keeps nearly making. This needs its own guard reasoning.
+`firstTimeBackfillIncomplete` does not help: it covers only the first-time backfill window.
+
+`entryLimit` does not help either, and an earlier draft of this document got that wrong. It claimed
+`shouldEmitJoin` "suppresses some via `entryLimit`, not all". It suppresses **none** of this cohort.
+`buckets/check-membership.ts` opens that function with:
+
+```ts
+if (priorCount === 0) return true;   // First-ever join always emits.
+```
+
+The newly-visible cohort has never been enrolled, so `priorCount === 0` holds for every member of it
+by definition, and the `entryLimit` switch below is never reached. `BATCH_SIZE` only spreads the
+burst across ticks while the cohort drains. The burst is unbounded in total.
+
+#### The instrument: silent enrollment, which this codebase already uses
+
+`workflows/bucket-backfill.ts` contains exactly ONE `emitBucketTransition` call site — `:405`, inside
+`reevalLeaves`. The enrollment insert emits nothing. So the first-time backfill **materializes a
+historical join cohort completely silently**, and `firstTimeBackfillIncomplete` exists to hold the
+cron join path off until it has done so; its own comment says it "keeps the cron JOIN path from
+emitting a historical blast on first deploy".
+
+That is the answer, and it is already policy. For the previously-invisible cohort: write the
+membership row (so `count()`, `members()` and Studio reflect reality) and skip the `bucket:entered`
+emission; emit normally for genuinely new joins thereafter. Not a new rule — the existing rule
+applied consistently to a cohort that was invisible for a different reason.
+
+**This needs no product decision**, which distinguishes it sharply from §2 below. Nobody receives
+mail they would not otherwise have received; the cohort simply gets the enrollment it should always
+have had, minus a retroactive welcome.
+
+#### It depends on #625, and must not duplicate its marker
+
+Silent enrollment has to happen exactly once per bucket, which needs a per-bucket one-shot marker.
+#625 already adds one — `bucket_configs.coalesce_claimed_at` — for the **identical cohort** (contacts
+whose canonical key is not their `external_id`). The action differs (reset age clocks vs enroll
+silently); the cohort and the once-per-bucket semantics are the same. **Reuse it.**
+
+Adding a second column would also collide on migration numbering: main topped out at
+`0067_watery_sir_ram` and #625 holds `0068_smiling_bastion`, so a parallel branch would produce a
+second 0068 and `release-doctor.mjs` fails on "no duplicate migration numbers (parallel-PR
+collision)" the moment both merge.
+
+#### `selectEventMatchers`: re-derive its safety on the base you ship against
+
+`bucket-backfill.ts:468-472` PROJECTS `contactKeySql()` while JOINING `contacts.externalId` in one
+query — internally incoherent regardless of anything else. It feeds `reevalLeaves` (which emits) and
+the backfill enrollment (which does not).
+
+**Its safety argument FLIPS depending on whether #625 is present, so do not inherit this paragraph —
+redo it.** Without #625, `reevalLeaves`' `activeMembers` still joins `contacts.externalId`, so the
+cohort can never be a leaver and a wider matcher set cannot change leave emissions at all. With #625,
+`activeMembers` includes the cohort, so a wider matcher set means FEWER leavers. Both happen to be
+safe directions, but the reason differs, and a conclusion that is true for the wrong reason is one
+refactor away from being false.
 
 ### 2. `send-campaign.ts:984` — product decision
 
