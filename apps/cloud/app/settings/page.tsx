@@ -1,63 +1,63 @@
-import { Settings } from "lucide-react";
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import { CopyValue } from "@/components/cloud/copy-value";
+import { TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
-import { EmptyState } from "@/components/ds/empty-state";
-import { Section, SectionHeading } from "@/components/ds/section";
+import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
+import { CLOUD_REGIONS } from "@/src/lib/regions";
+import { requireActiveOrganization } from "@/src/lib/session";
 
 export const metadata: Metadata = {
   title: "Settings",
-  description: "Account, team and API key settings for this control plane.",
+  description: "Organization details for this control-plane account.",
 };
 
-const SECTIONS = [
-  {
-    title: "Account",
-    body: "Account name, billing email and the plan this account is on.",
-  },
-  {
-    title: "Team",
-    body: "The people who can see and change this account's environments.",
-  },
-  {
-    title: "API keys",
-    body: "Keys that authenticate calls to the control plane API.",
-  },
-] as const;
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <span className="font-medium text-sm text-white/80 tracking-[-0.02em]">
+        {label}
+      </span>
+      <span className="text-sm text-white/60">{children}</span>
+    </div>
+  );
+}
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const { record } = await requireActiveOrganization();
+  const region = CLOUD_REGIONS.find((option) => option.id === record.region);
+
   return (
     <main className="flex flex-1 flex-col">
       <PageHeader
         title="Settings"
-        description="Account, team and API key settings. Nothing here is editable yet."
+        description="What this organization is and where it runs. Region is fixed at creation; the plan changes with billing."
       />
 
       <Section divider={false}>
-        <EmptyState
-          icon={<Settings aria-hidden className="size-5" strokeWidth={1.75} />}
-          title="Nothing to configure yet"
-          description="Settings become editable once accounts and authentication are wired up. Until then this page shows the sections it will hold."
-        />
-      </Section>
-
-      <Section>
-        <SectionHeading eyebrow="Coming to this page" title="Three sections" />
-        <Card className="mt-8 p-0">
-          {SECTIONS.map((section, index) => (
-            <div key={section.title}>
-              {index > 0 ? <Hairline /> : null}
-              <div className="flex flex-col gap-1.5 p-6">
-                <h3 className="font-medium font-sans text-base text-white tracking-[-0.02em]">
-                  {section.title}
-                </h3>
-                <p className="text-sm text-white/60 leading-6">
-                  {section.body}
-                </p>
-              </div>
-            </div>
-          ))}
+        <Card className="p-0">
+          <Row label="Organization name">{record.name}</Row>
+          <Hairline />
+          <Row label="Region">
+            {region ? `${region.label} (${record.region})` : record.region}
+          </Row>
+          <Hairline />
+          <Row label="Plan">
+            <span className="inline-flex items-center gap-2">
+              <TagPill tone="accent">{record.plan}</TagPill>
+              {record.trialEndsAt ? (
+                <span className="text-white/50 text-xs">
+                  trial ends {record.trialEndsAt.toISOString().slice(0, 10)}
+                </span>
+              ) : null}
+            </span>
+          </Row>
+          <Hairline />
+          <Row label="Organization id">
+            <CopyValue value={record.id} label="organization id" />
+          </Row>
         </Card>
       </Section>
     </main>

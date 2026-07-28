@@ -1,16 +1,27 @@
 import { Server } from "lucide-react";
+import { EnvironmentTable } from "@/components/cloud/environment-table";
+import { ProvisioningNote } from "@/components/cloud/provisioning-note";
 import { Button } from "@/components/ds/button";
-import { FeatureCard } from "@/components/ds/card";
 import { EmptyState } from "@/components/ds/empty-state";
-import { Section, SectionHeading } from "@/components/ds/section";
+import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
+import { requireActiveOrganization } from "@/src/lib/session";
+import { environmentService } from "@/src/services/environments";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const { record } = await requireActiveOrganization();
+  const { environments } = await environmentService.list({
+    organizationId: record.id,
+  });
+  const requested = environments.filter(
+    (environment) => environment.stack?.status === "requested",
+  ).length;
+
   return (
     <main className="flex flex-1 flex-col">
       <PageHeader
         title="Overview"
-        description="This account has no environments. Once one exists, its status, region and usage appear here."
+        description={`${record.name} runs in ${record.region} on the ${record.plan} plan.`}
         actions={
           <Button href="/environments" variant="outline">
             View environments
@@ -18,39 +29,18 @@ export default function HomePage() {
         }
       />
 
-      <Section divider={false}>
-        <EmptyState
-          icon={<Server aria-hidden className="size-5" strokeWidth={1.75} />}
-          title="No environments yet"
-          description="An environment is one Hogsend instance — an API, a worker, Postgres and Redis — deployed to a region you pick."
-          actions={
-            <Button href="/environments" icon>
-              Go to environments
-            </Button>
-          }
-        />
-      </Section>
+      <Section divider={false} containerClassName="flex flex-col gap-4">
+        {environments.length > 0 ? (
+          <EnvironmentTable environments={environments} />
+        ) : (
+          <EmptyState
+            icon={<Server aria-hidden className="size-5" strokeWidth={1.75} />}
+            title="No environments"
+            description="This organization has no environments. Its production environment is created with the organization, so an empty list means one was removed."
+          />
+        )}
 
-      <Section>
-        <SectionHeading
-          eyebrow="What lives here"
-          title="Three surfaces"
-          subtitle="Provisioning, billing and account settings are not wired up yet. These pages exist so the shell they sit in is settled first."
-        />
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <FeatureCard
-            title="Environments"
-            description="One row per deployed Hogsend instance: region, status, and the URL its SDKs point at."
-          />
-          <FeatureCard
-            title="Usage"
-            description="Events ingested, emails sent and SMS sent per environment, per billing period."
-          />
-          <FeatureCard
-            title="Settings"
-            description="Account details, team members and the API keys used to call the control plane."
-          />
-        </div>
+        {requested > 0 ? <ProvisioningNote count={requested} /> : null}
       </Section>
     </main>
   );

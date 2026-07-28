@@ -4,10 +4,21 @@ export const PROTECTED_PREFIXES = [
   "/environments",
   "/usage",
   "/settings",
+  // Signed-in-only too, but it is where the org-less land rather than a
+  // dashboard page — the redirect INTO it is `session.ts`'s job, because only a
+  // database read knows whether the user has an organization.
+  "/create-org",
 ] as const;
 
 /** Auth screens: a signed-in visitor has no business here. */
 export const AUTH_ROUTES = ["/login", "/signup"] as const;
+
+/**
+ * Routes rendered without the dashboard chrome. The auth screens, plus
+ * create-org: a nav rail whose every link redirects straight back here is
+ * furniture the visitor cannot use yet.
+ */
+export const BARE_ROUTES = [...AUTH_ROUTES, "/create-org"] as const;
 
 export type GuardDecision =
   | { action: "allow" }

@@ -11,7 +11,8 @@
     "worker": "tsx src/worker.ts",
     "worker:dev": "tsx watch src/worker.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "seed:dev": "tsx scripts/seed-dev.ts"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.11",

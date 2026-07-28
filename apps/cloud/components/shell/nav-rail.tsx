@@ -3,6 +3,7 @@
 import { Gauge, Server, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
 import { Wordmark } from "@/components/ds/wordmark";
 import { cn } from "@/lib/cn";
 
@@ -23,7 +24,7 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function NavRail() {
+export function NavRail({ orgSwitcher }: { orgSwitcher?: ReactNode }) {
   const pathname = usePathname();
 
   return (
@@ -37,6 +38,8 @@ export function NavRail() {
       >
         <Wordmark />
       </Link>
+
+      {orgSwitcher}
 
       <ul className="flex flex-row gap-1 overflow-x-auto md:flex-col md:overflow-visible">
         {NAV_ITEMS.map((item) => {
