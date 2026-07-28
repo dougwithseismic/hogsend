@@ -15,7 +15,7 @@ import {
 import { and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { blueprintGraphLock } from "../lib/blueprint-lock.js";
-import { ALL_IDENTITY_KINDS } from "../lib/contacts.js";
+import { ALL_IDENTITY_KINDS, lookupContactIdByKey } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
@@ -103,6 +103,55 @@ export interface JourneyDurableCtx {
 export type JourneyStateRow = typeof journeyStates.$inferSelect;
 
 /**
+ * PRD 04 dual-write resolve for the two `journey_states` insert sites (the
+ * enrollment row and the held_out row).
+ *
+ * D6 — a bookkeeping resolve may NEVER fail the operation it rides on: every
+ * failure degrades to NULL plus a warn, because a missing `contact_id` is a
+ * NULL a backfill fills later while a throwing enrollment is an outage.
+ *
+ * The pushed `input.contactId` is preferred — `ingestEvent` already resolved the
+ * subject before routing the event here — but it is VALIDATED, not trusted. The
+ * pin was computed at INGEST time and then crossed an unbounded Hatchet queue
+ * delay; a contact MERGE inside that window soft-deletes the pinned loser and
+ * re-aliases its key onto the survivor. Stamping the pin blindly would write a
+ * TOMBSTONE id, and that stamp is PERMANENT: the backfill only fills NULLs (it
+ * is not a repair tool) and T3's merge re-point ran before this row existed.
+ * Worse, the pin-ABSENT path would have got it right — `lookupContactIdByKey`'s
+ * alias probe refuses soft-deleted targets and follows the key to the survivor.
+ *
+ * So: ONE indexed live-PK probe on the pin, and on a miss FALL THROUGH to the
+ * ordinary key probe (survivor, or null). Any failure degrades to NULL per D6.
+ */
+async function resolveEnrollmentContactId(opts: {
+  db: Database;
+  userId: string;
+  journeyId: string;
+  pushed?: string;
+}): Promise<string | null> {
+  try {
+    if (opts.pushed) {
+      const live = await opts.db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contacts.id, opts.pushed), isNull(contacts.deletedAt)))
+        .limit(1);
+      if (live[0]) return live[0].id;
+      // Pin went stale between ingest and execution (merged away, or hard
+      // deleted). Fall through rather than stamping the tombstone.
+    }
+    return await lookupContactIdByKey(opts.db, opts.userId);
+  } catch (err) {
+    logger.warn("journey_states contact_id dual-write resolve failed", {
+      journeyId: opts.journeyId,
+      userId: opts.userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Insert the enrollment row, tolerating the partial-unique-index race.
  *
  * The active-state read guard in the run lifecycle (a `findFirst` over the live
@@ -148,6 +197,15 @@ export async function insertEnrollment(opts: {
    */
   journeyVersionHash?: string | null;
   journeyVersionLabel?: string | null;
+  /**
+   * PRD 04 dual-write: the `contacts.id` owning `userId`, stamped alongside the
+   * canonical string key. OPTIONAL and defaulting to NULL — this is public API
+   * (index.ts) and bookkeeping, so a caller that omits it (dogfood tests, any
+   * pre-PRD-04 consumer) behaves exactly as before. The RESOLVE lives in the
+   * caller, never here: `executeJourneyRun` already holds the pushed
+   * `input.contactId` and only pays for a lookup when it doesn't.
+   */
+  contactId?: string | null;
 }): Promise<JourneyStateRow | undefined> {
   const values = {
     userId: opts.userId,
@@ -159,6 +217,7 @@ export async function insertEnrollment(opts: {
     hatchetRunId: opts.hatchetRunId,
     journeyVersionHash: opts.journeyVersionHash ?? null,
     journeyVersionLabel: opts.journeyVersionLabel ?? null,
+    contactId: opts.contactId ?? null,
   };
   const onConflict = {
     target: [journeyStates.userId, journeyStates.journeyId],
@@ -355,6 +414,19 @@ export async function executeJourneyRun(
         });
         if (!priorHoldout) {
           const heldOutAt = new Date();
+          // PRD 04 dual-write. This is deliberately its OWN D6-wrapped resolve
+          // rather than a hoist of the `subjectContactId` compute below: that
+          // compute lives INSIDE the ingest try/catch, and lifting it out would
+          // change which failures skip the `journey.heldout` re-emit — a
+          // control-flow change to the identity-provenance path, made for
+          // bookkeeping. Cost on this once-ever-per-(user, journey) path: one
+          // live-PK validation probe with a pushed pin, 1-2 probes without.
+          const heldOutContactId = await resolveEnrollmentContactId({
+            db,
+            userId,
+            journeyId: meta.id,
+            pushed: input.contactId,
+          });
           const inserted = await db
             .insert(journeyStates)
             .values({
@@ -363,6 +435,7 @@ export async function executeJourneyRun(
               journeyId: meta.id,
               currentNodeId: "held-out",
               status: "held_out",
+              contactId: heldOutContactId,
               // Reserved record-once namespaces are STRIPPED from event
               // properties before seeding (injection fix): a publishable-key
               // event must never pre-fill __once__/__digest__/__throttle__/
@@ -519,6 +592,15 @@ export async function executeJourneyRun(
       hatchetRunId: workflowRunId,
       journeyVersionHash: meta.versionHash ?? null,
       journeyVersionLabel: meta.version ?? null,
+      // PRD 04 dual-write — the pushed pin when ingest resolved one, else one
+      // D6-wrapped probe. NULL (unknown subject / refused resolve) is a legal
+      // stamp: the enrollment proceeds exactly as before.
+      contactId: await resolveEnrollmentContactId({
+        db,
+        userId,
+        journeyId: meta.id,
+        pushed: input.contactId,
+      }),
       serializeWithGraphLock: options.serializeEnrollment,
     });
     if (!state) {
