@@ -1241,6 +1241,10 @@ async function reconcileJoinOne(opts: {
       expiresAt: computeExpiresAt(bucket),
       maxDwellAt: computeMaxDwellAt(bucket),
       lastEvaluatedAt: new Date(),
+      // PRD 04 dual-write — `contactId` is already a param of this function (the
+      // cron reads it off the same contacts row it took userId/email from), so
+      // this is zero new queries. `undefined` stamps NULL.
+      contactId: contactId ?? null,
     })
     .onConflictDoNothing()
     .returning({ id: bucketMemberships.id });

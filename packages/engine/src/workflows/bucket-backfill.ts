@@ -229,10 +229,17 @@ async function backfillJoins(opts: {
     // contacts row).
     const resolvedKey = contactKeySql();
     const chunkContacts = await db
-      .select({ userKey: resolvedKey, email: contacts.email })
+      .select({ userKey: resolvedKey, email: contacts.email, id: contacts.id })
       .from(contacts)
       .where(and(inArray(resolvedKey, chunk), isNull(contacts.deletedAt)));
     const emailByUser = new Map(chunkContacts.map((c) => [c.userKey, c.email]));
+    // PRD 04 dual-write: the SAME already-issued per-chunk read carries the row
+    // id, so stamping `contact_id` costs one extra selected column and zero
+    // extra queries. A chunk key with no live contacts row (a membership keyed
+    // on a since-deleted / never-minted subject) simply stamps NULL.
+    const contactIdByUser = new Map(
+      chunkContacts.map((c) => [c.userKey, c.id]),
+    );
 
     // Fix A: entryCount = 1 + prior memberships for each (user, bucket), the
     // same monotonic ordinal the live join computes (check-membership.ts). On a
@@ -300,6 +307,7 @@ async function backfillJoins(opts: {
       // Historical dwell anchor where derivable; NULL otherwise (→ enteredAt).
       dwellAnchorAt: anchorByUser.get(userId) ?? null,
       lastEvaluatedAt: new Date(),
+      contactId: contactIdByUser.get(userId) ?? null,
     }));
 
     const result = await db
