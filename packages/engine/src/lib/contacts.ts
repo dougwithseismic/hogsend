@@ -468,8 +468,10 @@ export interface ResolvePolicy {
   trustedKinds: readonly IdentityKind[];
 }
 
-/** Every kind — the legacy shapes' implicit trust grant (the server default). */
-const ALL_IDENTITY_KINDS: readonly IdentityKind[] = [
+/** Every kind — the legacy shapes' implicit trust grant (the server default).
+ * Exported (module-level, not public API) so policy-declaring callers state
+ * the full grant without re-spelling the four literals (PRD 06 T3). */
+export const ALL_IDENTITY_KINDS: readonly IdentityKind[] = [
   "external",
   "email",
   "anonymous",

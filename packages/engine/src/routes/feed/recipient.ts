@@ -21,7 +21,12 @@ export type FeedRecipient =
       contactId?: string;
       /**
        * D1 REFUSAL verdict for the feed's OWN re-ingests (`emitMarkEvents`,
-       * `inapp.feed_cleared`), threaded to their `ingestEvent({ allowCreate })`.
+       * `inapp.feed_cleared`), threaded into their ingest policy's `create`
+       * leg (`false` ⇒ `create: "refuse-on-miss"` — PRD 06 L5 row 8). It is
+       * the ONLY thing those engine-internal re-emits inherit from the
+       * originating request: their `allowMerge`/`trustedKinds` stay full
+       * server trust, because the resolver's caller is the engine with a
+       * server-derived subject, not the pk_ HTTP caller (L4).
        * `false` ⇒ this recipient is an UNSEEN anonymous visitor: no live contact
        * owns their anon id, so a re-ingest keyed on it is pure OBSERVATION and
        * must not mint. Omitted (⇒ create as before) on every identity-asserting

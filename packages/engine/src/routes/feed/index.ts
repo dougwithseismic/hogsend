@@ -3,6 +3,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { streamSSE } from "hono/streaming";
 import type { AppEnv } from "../../app.js";
+import { ALL_IDENTITY_KINDS } from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { getRedis } from "../../lib/redis.js";
 import { errorSchema } from "../../lib/schemas.js";
@@ -57,11 +58,27 @@ function emitMarkEvents(
     args.ids.map((r) =>
       ingestEvent({
         ...deps,
-        // D1 refusal for an UNSEEN anonymous visitor (sibling of `event`, not a
-        // field on it). `resolveFeedRecipient` sets this only on the anon arm,
-        // where `recipientKey` IS the raw anon id, so D8 holds and the refused
-        // re-ingest keys `user_events` exactly as a creating one would.
-        allowCreate: args.allowCreate,
+        // PRD 06 T3 (L5 rows 8-9) / L4: this is an ENGINE-INTERNAL re-emit.
+        // `trustedKinds` describes the keys as supplied by the caller OF THE
+        // RESOLVER — here the engine itself, whose subject (`recipientKey` +
+        // the `contactId` pin below) was derived server-side by
+        // `resolveFeedRecipient` — NOT by whatever authenticated the
+        // originating HTTP request. So the policy declares full server trust
+        // (`allowMerge: "any"`, all four kinds; deriving them from the pk_
+        // request would break every anon bell mark/clear once T5 arms) and
+        // inherits exactly ONE thing from that request: the D1 `create`
+        // refusal for an UNSEEN anonymous visitor. `resolveFeedRecipient` sets
+        // `allowCreate: false` only on the anon arm where BOTH the column
+        // probe and the alias probe missed — and there `recipientKey` IS the
+        // raw anon id, so D8 holds and the refused re-ingest keys
+        // `user_events` exactly as a creating one would. The `contactId` pin
+        // is a SUBJECT declaration, orthogonal to this policy — never folded
+        // into it.
+        policy: {
+          create: args.allowCreate === false ? "refuse-on-miss" : "on-miss",
+          allowMerge: "any",
+          trustedKinds: ALL_IDENTITY_KINDS,
+        },
         event: {
           event: args.eventType,
           // recipientKey IS the canonical contact key — pass it as userId so
@@ -459,11 +476,17 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
         hatchet,
         logger,
         analytics,
-        // D1 refusal (see emitMarkEvents). This emit fires UNCONDITIONALLY —
-        // even when `updated` is empty — so a first-time visitor clearing a bell
-        // that never held an item drives one re-ingest, and that alone used to
+        // PRD 06 T3 / L4 (see emitMarkEvents): engine-internal re-emit — full
+        // server trust, inheriting ONLY the D1 `create` refusal from the
+        // recipient verdict. This emit fires UNCONDITIONALLY — even when
+        // `updated` is empty — so a first-time visitor clearing a bell that
+        // never held an item drives one re-ingest, and that alone used to
         // mint the ghost that locks them out.
-        allowCreate: rec.allowCreate,
+        policy: {
+          create: rec.allowCreate === false ? "refuse-on-miss" : "on-miss",
+          allowMerge: "any",
+          trustedKinds: ALL_IDENTITY_KINDS,
+        },
         event: {
           event: "inapp.feed_cleared",
           userId: rec.recipientKey,

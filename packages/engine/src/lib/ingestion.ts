@@ -29,6 +29,7 @@ import {
 import { recordAttributionCredits } from "./attribution.js";
 import {
   ContactProvenanceLostError,
+  type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./contacts.js";
@@ -352,8 +353,32 @@ export async function ingestEvent(opts: {
    * email-only / discordId-only event has no stable refusal key.
    */
   allowCreate?: boolean;
+  /**
+   * Explicit caller trust (PRD 06 T3), forwarded VERBATIM into the identity
+   * resolve. The `create` leg also selects the resolver entry point (the D1
+   * branch below), replacing `allowCreate` for policy-declaring callers.
+   * Mutually exclusive with the legacy `restrictToAnonymous`/`allowCreate`
+   * fields — supplying both shapes throws (no precedence rule exists). Absent
+   * ⇒ the legacy fields (or their defaults) apply unchanged.
+   */
+  policy?: ResolvePolicy;
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event, analytics, eventMirror } = opts;
+
+  // PRD 06: EITHER trust shape, never both. The resolver enforces the same rule
+  // for `restrictToAnonymous`, but `allowCreate` is consumed HERE (it selects
+  // the entry point and never reaches the resolver), so the ingest layer must
+  // refuse the mix itself rather than silently letting `policy` win the branch.
+  if (
+    opts.policy &&
+    (opts.restrictToAnonymous !== undefined || opts.allowCreate !== undefined)
+  ) {
+    throw new Error(
+      "ingestEvent: pass either `policy` or the legacy fields " +
+        "(`restrictToAnonymous` / `allowCreate`), never both — no precedence " +
+        "rule exists",
+    );
+  }
 
   // (1) Resolve identity FIRST (awaited — no longer fire-and-forget). The
   // contact-referencing tables join on a NOT NULL text key, so an email-only /
@@ -376,6 +401,8 @@ export async function ingestEvent(opts: {
       contactId: event.contactId,
       contactProperties: event.contactProperties,
       restrictToAnonymous: opts.restrictToAnonymous,
+      // Explicit caller trust (PRD 06). Verbatim; `undefined` ⇒ legacy shape.
+      policy: opts.policy,
       // First-touch contact provenance from the event's pipeline origin — a
       // Contact Source ("clay"/"attio") or "api"/"posthog"/…; only stamped when
       // the contact is created (or first fill-in-linked) with no prior source.
@@ -387,10 +414,15 @@ export async function ingestEvent(opts: {
     // a separate function — not an overload, which widens it. (b) A `boolean`
     // VARIABLE cannot select an overload/conditional signature (TS2769), so the
     // branch has to be here, at the one site that knows the literal.
-    resolved =
-      opts.allowCreate === false
-        ? await resolveContactNoCreate(resolveArgs)
-        : await resolveOrCreateContact(resolveArgs);
+    // (PRD 06: a declared `policy` selects the same branch via its `create`
+    // leg — reason (a) keeps this a two-entry branch either way.)
+    resolved = (
+      opts.policy
+        ? opts.policy.create !== "on-miss"
+        : opts.allowCreate === false
+    )
+      ? await resolveContactNoCreate(resolveArgs)
+      : await resolveOrCreateContact(resolveArgs);
   } catch (err) {
     // Provenance pin pointed at a hard-deleted/unfollowable subject: drop the
     // internal re-emit (do NOT value-fall-back — that could mint the very twin

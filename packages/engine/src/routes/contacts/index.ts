@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
+  ALL_IDENTITY_KINDS,
   findContacts,
   PublishableAnonymousMergeError,
   resolveContact,
@@ -164,11 +165,36 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         // §4: 2nd-precedence resolver key (zero-merge stitch).
         anonymousId: body.anonymousId,
         contactProperties: body.properties,
-        // §Phase 1 GAP-1: a publishable (pk_) browser upsert is anon-clamped —
-        // its browser-readable `anonymousId` may NOT attach to / merge / poison
-        // an already-identified victim contact. Secret-key upserts are never
-        // clamped.
-        restrictToAnonymous: c.get("publishable") === true,
+        // PRD 06 T3 (L5 rows 4-5): trust is DECLARED by this caller, not
+        // re-inferred inside the resolver.
+        //  - `create` — an upsert is an identity assertion, never observation:
+        //    this route NEVER refuses to create, on either arm.
+        //  - `allowMerge` — §Phase 1 GAP-1: a publishable (pk_) browser upsert
+        //    is anon-clamped — its browser-readable `anonymousId` may NOT
+        //    attach to / merge / poison an already-identified victim contact.
+        //    Kept "anonymous-only" even when a verified token proves a
+        //    `userId`: the clamp is inert there by DERIVATION (a non-anon key
+        //    is present), never by hard-coding "any". Secret-key upserts are
+        //    never clamped.
+        //  - `trustedKinds` — from the gate's own evidence: a publishable
+        //    `userId` reaching this call is token-proven
+        //    (`gatePublishableIdentity` 403'd every other identity-claiming
+        //    shape), so pk_ = `anonymous` (+`external` with that proof);
+        //    secret = all four. Declared now, enforced by T5.
+        policy:
+          c.get("publishable") === true
+            ? {
+                create: "on-miss",
+                allowMerge: "anonymous-only",
+                trustedKinds: body.userId
+                  ? ["anonymous", "external"]
+                  : ["anonymous"],
+              }
+            : {
+                create: "on-miss",
+                allowMerge: "any",
+                trustedKinds: ALL_IDENTITY_KINDS,
+              },
       });
     } catch (err) {
       if (err instanceof PublishableAnonymousMergeError) {
