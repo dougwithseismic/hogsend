@@ -536,3 +536,65 @@ No schema change, no migration, no data change — rollback is code-only at ever
 - A minor changeset exists for the additive public API.
 
 ## Implementation Notes
+
+Shipped across six commits, T5 and T6 kept disjoint so the one non-identical task stays revertable
+alone: T1 `05bc1c2c`, T2 `0b33e650`, T3 `cbf59bc5`, T4 `5c23e357`, T5 `a0270d80`, T6 `a0752483`.
+Final gates: lint 13 warnings / 0 errors; `check-types --force` 50/50 with 0 cached; apps/api
+**2236 passed / 0 failed / 7 skipped**; engine 105 pass / 0 fail; `release:check` green (minor →
+0.57.0).
+
+**Four spec errors were found and corrected BEFORE building** (see §Advisory corrections). The most
+important, A1, would have published a caller-supplied refusal key — this stack's own bug class,
+re-introduced on the public API surface. A2 aimed a task and a test at a function with zero callers.
+A3 promised a branch collapse that a return-type constraint makes impossible. A4 was the T2
+namespacing requirement. None of these were visible from the code alone; all came from reading the
+spec against the code.
+
+**The mutation gate found two uncovered predicates in T1, needing opposite treatments.** The
+collide-MERGE clamp is unreachable BY CONSTRUCTION — `clamped` implies exactly one supplied key, one
+key resolves to at most one candidate, and the merge arm needs two — so it carries a proof comment
+rather than an impossible test. That analysis also killed a planned T2 fixture cell:
+`{anon-only × two-colliding-rows}` cannot drive a merge. The pin gate was unreachable only BY CALLER
+CONVENTION, which is not the same thing, so it got a real test
+(`contacts-pin-clamp.test.ts`, both option shapes, asserted on the pinned row's properties).
+
+**Mutation method matters.** Inverting a predicate (`clamped → !clamped`) exercises both directions;
+killing it (`→ false`) exercises one. The two produce different maps — 9/28/7/69 inverted versus
+0/2/0/13 killed. Use inversion.
+
+**T2 needed an absolute oracle to have any teeth.** Both option shapes normalize into one internal
+policy, so every break is symmetric and pure differential comparison stays green under a broken
+resolver. Each of the 144 live cells therefore also asserts, from its own coordinates and without
+consulting the resolver, which arm it must reach. Verified: breaking the clamp kills 3 cells (the
+structural maximum for a kill-style mutation; inversion kills 5), breaking the refusal arm kills 12.
+
+**The L4 feed trap is now executable and was proven live.** Dropping the inherited `create` refusal
+from the feed re-emit mints the ghost and turns the repeat mark-all into a **403** — reproducing the
+exact production lockout where `collidesWithIdentified` locks a visitor out of their own bell.
+
+**Row 28 was a real gap the original census missed entirely.** `ingestTransformResult` forwarded only
+`allowCreate`, so a policy-declaring caller's refusal died there silently. Its mix-guard is hoisted
+ABOVE the element loop deliberately: left inside, the per-element error isolation would have caught
+the misuse and reported a warning, turning a caller bug into `{ ingested: 0 }` — an error presenting
+as an absence, which is the failure shape this whole stack exists to remove.
+
+**T5's unreachability proof has three legs, not one**, and the original spec overclaimed it as
+gate-coverage. The gate covers events/contacts/lists; `arrive` bypasses it entirely (keys come from
+the first-write-wins stamp); `feed` never presents a browser-asserted key to the resolver. A
+fourth-path sweep found none — the one near-miss (`plugin-discord`'s `member-link.ts`) is a docstring
+reference; the real call goes through `linkContact`. The placement requirement is asserted rather
+than assumed: a test holds the resolver's exact `pg_advisory_xact_lock` in a parallel transaction and
+requires the untrusted call to be refused while it is held. Moving the check after the lock leaves
+every other test green and hangs that one.
+
+**The narrow grants are the sites enforcement will bite first** — `["email"]` at `crm-ingest`,
+`["external","email"]` at import-contacts / admin create / agent subscribe / lists. All are inert
+today because a body schema or key guard stops other kinds upstream. Each has its own test, so a
+future widening of those inputs fails here with the reason attached.
+
+### Outstanding (why this row is `[~]`, not `[x]`)
+
+The F4 guard-rails are two-thirds done: the reserved `"never-identified-pair"` value throws rather
+than silently granting nothing, and its docblock names the concrete harm. **The issue itself is
+drafted but NOT filed** — this is a public repository and filing is the user's call. Until it is
+filed with its number recorded here, the third Done-when item is unmet.
