@@ -1,6 +1,14 @@
 # PRD 07 — `posthog-engagement-writeback`
 
-**Depends on:** 00, 03. **Status:** `[ ]`
+**Depends on:** 00, 03. **Status:** `[~]` BLOCKED, 2026-07-28 — PRD 03 is blocked behind
+PRD 02's parking (`DECISIONS.md` §8), and the 03 dependency below is the load-bearing kind.
+
+> This PRD is the single largest source of person-property writes in the product and it
+> depends on 03's provenance registry, namespace-forcing and fuse existing first. Shipping
+> it while 03 is unbuilt inverts the reason the dependency was written. Note that 03's
+> return leg is currently absent — no cohort import exists to re-read these keys — so the
+> loop cannot close today; that is a property of the parking, not a reason to drop the
+> dependency, because it re-closes the moment `parked/posthog-cohort-sync` is resumed.
 
 ## Goal
 

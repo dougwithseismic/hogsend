@@ -1,6 +1,8 @@
 # PRD 10 — `posthog-distribution`
 
-**Depends on:** 02 and 04 shipped and demonstrably stable. **Status:** `[~]` DEFERRED HARD.
+**Depends on:** 02 and 04 shipped and demonstrably stable. **Status:** `[~]` DEFERRED HARD,
+and as of 2026-07-28 its entry conditions are unreachable: 02 is parked on
+`parked/posthog-cohort-sync` and 04 is cut (`DECISIONS.md` §8).
 
 Scoped, not fully specified. Outward-facing: **requires explicit approval before any
 submission.**

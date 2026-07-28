@@ -7,6 +7,14 @@ Scoped under `docs/posthog-deep/` rather than claiming repo-global `docs/DECISIO
 because this is one initiative in a repo that already uses `docs/` for shipped subsystem
 docs (`tracking.md`, `sms.md`, `groups.md`).
 
+> **Read §8 before §2.** The cohort integration — PRDs 02, 03, and everything sequenced
+> behind them — was **parked** on 2026-07-28, and PRD 04 was **cut**. PRDs 00 and 01 and
+> the P0 prerequisite shipped and stay. Sections 2.2 and 2.4 through 2.7a below describe
+> a system that is **not in the tree**; they are preserved because the analysis is
+> expensive and correct, and because the parked branch is meant to be resumable. §8
+> records what happened and why; §9 records the design rule the episode produced, which
+> outlives PostHog entirely.
+
 ## 1. Product definition
 
 Make `@hogsend/plugin-posthog` deep enough that a team already running PostHog adopts
@@ -176,9 +184,9 @@ mystery drip of sends over days.
 
    - **It keys off a provenance registry, not the `hogsend_*` prefix.** A static prefix is
      evadable using documented features: a bucket with a custom `postHogPropertyKey`, or
-     one line of `getPostHog()?.identify()` inside a cohort-triggered journey, closes a
-     two-hop loop that passes registration, evades write-suppression, and stays under the
-     fuse. The registry covers the default `hogsend_bucket_<id>`, every configured
+     one line of `getAnalytics()?.setPersonProperties()` inside a cohort-triggered
+     journey, closes a two-hop loop that passes registration, evades
+     write-suppression, and stays under the fuse. The registry covers the default `hogsend_bucket_<id>`, every configured
      `postHogPropertyKey` across the bucket registry, and PRD 07's writeback keys.
      Additionally, engine-originated person writes are namespace-forced (a
      `setPersonProperties` key outside the reserved namespace is rejected or prefixed) so
@@ -406,3 +414,74 @@ Do not merge to `main` without Doug's nod on the preview.
   encodes them).
 - Any PostHog CDP catalog submission (PRD 10) is outward-facing and needs explicit
   approval.
+
+## 8. The cohort integration is parked; PRD 04 is cut (2026-07-28)
+
+**What shipped and stays on `feat/posthog-deep-integration`:** the P0 prerequisite (the
+rate-limited fetch, moved into `@hogsend/core`), PRD 00 (`posthog-identity-map`), and
+PRD 01 (`manual-bucket-membership`). PRD 01 is the valuable standalone engine primitive
+— it has no PostHog coupling and stands on its own, exactly as §BACKLOG sequencing
+predicted it would.
+
+**What is parked:** PRD 02 (`posthog-cohort-sync`) was built, reviewed, and then reverted
+off the working branch. PRD 03 (`cohort-loop-guard`) is consequently not startable: it
+exists only to guard a loop that PRD 02 closes.
+
+**Where the work is, stated plainly so it can be recovered.** Work that cannot be found
+again has been deleted, whatever the doc says.
+
+- Branch **`parked/posthog-cohort-sync`**, seven commits, `b2ada111..1d7d91db`.
+- The **first** of those seven, `b2ada111` (`refactor(engine): let
+  liveContactByCanonicalKey take a column`), was cherry-picked forward and is on the
+  working branch as `25b8674f`, because PRD 00 depends on it. So the cohort-specific work
+  is the six commits `3d851442..1d7d91db`, and a resumption starts there.
+- The last of those, `1d7d91db` (`docs(posthog): mark PRD 02 shipped`), is the false
+  shipped-claim. It exists only on the parked branch; on the working branch PRD 02 reads
+  parked, as it should.
+
+**Why parked, and it is not a quality judgement.** Two reasons.
+
+First, PostHog is repositioning away from being the passive data layer that other tools
+act upon. A deep bet on their cohort surface is worth less than it looked when this stack
+was specced, and §2.4's finding — that there is no cohort-entry signal, that the
+realtime-cohort work is unshipped, and that behavioural cohorts error outright in CDP
+destination filters — reads differently once the vendor is moving in that direction on
+purpose.
+
+Second, and more decisively: of roughly 26k lines built, about 20k were the cohort
+integration. The ~6k underneath it — the rate-limited fetch in core, the fix for bucket
+membership missing anonymous contacts and matching soft-deleted merge losers, and the
+whole manual-bucket membership primitive — is vendor-neutral engine capability worth more
+than the integration sitting on top of it. Parking the top and keeping the base is the
+trade.
+
+**PRD 04 (`cohort-trigger-sugar`) is cut, not deferred.** It was the original source of
+the `trigger: { cohort: "some-name" }` magic string that started this review. With the
+cohort bet parked there is no cohort-bound bucket to sugar, and the decision is not to
+ship the cohort trigger. `trigger: { event: "bucket:entered:<id>" }` remains legal
+end-to-end today with zero engine changes (§2.2), which is the whole capability minus the
+sugar.
+
+**Consequence worth stating plainly: `AudienceSource` was dropped.** That descriptor was
+designed to replace the raw `cohortId: number` on a bucket binding, and it existed solely
+to fix the cohort binding's magic number. With the cohort bet parked it has zero
+consumers, and building a vendor-source abstraction with no vendors behind it is
+speculative machinery.
+
+## 9. A declared reference is passed as the object, never as a name
+
+This is the durable design rule the episode produced. It outlives PostHog, it is not
+scoped to this initiative, and it is the lasting output of the review that parked the
+stack.
+
+**A reference to something declared in the consumer's own repo is passed as the typed
+object, never as an unchecked name.** The consumer authored the thing; the type system can
+see it; passing a bare string throws that away and converts a compile error into a runtime
+wrong answer.
+
+**And this applies to READ paths as much as WRITE paths.** That asymmetry is the
+recurring defect class found here: sends were narrowed against a registry while the
+corresponding history reads took bare strings. A typo therefore compiled, and quietly
+returned a wrong answer instead of erroring — a "this user has not received that email"
+that is indistinguishable from the truth, on a code path whose entire job is to decide
+whether to send again.

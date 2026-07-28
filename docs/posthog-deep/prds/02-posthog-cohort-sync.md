@@ -1,6 +1,28 @@
 # PRD 02 — `posthog-cohort-sync`
 
-**Depends on:** 00, 01. **Ships with:** 03. **Status:** `[ ]`
+**Depends on:** 00, 01. **Ships with:** 03. **Status:** `[~]` PARKED 2026-07-28.
+
+> **This PRD was built, reviewed, and then reverted off `feat/posthog-deep-integration`.**
+> The implementation lives on the local branch **`parked/posthog-cohort-sync`**, commit
+> range **`b2ada111..1d7d91db`**. Of those seven, the first — `b2ada111`, the
+> `liveContactByCanonicalKey` widening — was cherry-picked forward and is on the working
+> branch as `25b8674f`, because PRD 00 depends on it. The cohort-specific work is
+> therefore `3d851442..1d7d91db`, and a resumption starts there. Nothing else from this
+> PRD is in the tree: `grep -rn "cohortSync"` across `packages/` and `apps/` returns zero
+> files.
+>
+> Reasoning for the parking is in `DECISIONS.md` §8 — briefly, PostHog is repositioning
+> away from being the passive data layer other tools act upon, and ~20k of the ~26k lines
+> built were this integration while the ~6k underneath it is vendor-neutral engine
+> capability worth more. The `AudienceSource` descriptor specced to replace this PRD's raw
+> `cohortId: number` was dropped with it.
+>
+> **The document is kept deliberately.** The analysis below — the abort-on-partial-read
+> invariant, the diff-on-`person_id` rule, the seeding rule, the producer contract — was
+> expensive and is correct, and it is what anyone resuming from
+> `parked/posthog-cohort-sync` needs. Read it as a spec for parked work, not as
+> substrate: **nothing in this PRD exists in the tree**, so no downstream PRD may build
+> against T02.0-T02.6.
 
 ## Goal
 

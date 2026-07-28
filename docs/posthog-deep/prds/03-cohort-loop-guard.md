@@ -1,6 +1,25 @@
 # PRD 03 — `cohort-loop-guard`
 
-**Depends on:** 02. **Ships in the same release as 02.** **Status:** `[ ]`
+**Depends on:** 02. **Ships in the same release as 02.** **Status:** `[~]` BLOCKED by
+PRD 02's parking, 2026-07-28.
+
+> **Not startable.** PRD 02 was reverted off `feat/posthog-deep-integration` and lives on
+> `parked/posthog-cohort-sync` (`DECISIONS.md` §8). This PRD exists to cut a feedback loop
+> that only closes once PRD 02's cohort import exists, and every task below is written
+> against substrate that is not in the tree — T03.1 depends on PRD 02 T02.1's cohort
+> client, T03.2 on T02.2's binding surface and T02.4's tick head. Where the text below
+> says "fold into PRD 02's cheap LIST check", read it as a note to whoever resumes both
+> PRDs together, not as an available seam.
+>
+> **One part of this PRD is independently real and outlives the parking: T03.0**, which
+> asks whether the already-shipped `syncToPostHog` mirror
+> (`packages/engine/src/lib/bucket-posthog-sync.ts`) can self-sustain a loop without any
+> cohort import at all. If it can, that is a live bug in shipped code and it is worth
+> answering on its own, outside this stack.
+>
+> **The document is kept deliberately.** The provenance-registry design, the
+> registry-not-prefix correction, and the "cannot run at boot" finding are the expensive
+> parts and they are correct.
 
 ## Goal
 
@@ -9,9 +28,13 @@ documented.
 
 ## Why this is not optional and not deferrable
 
+This section argued that 02 must not ship without 03. It still holds, and parking 02 is
+what discharges it: with no cohort import in the tree, the return leg of the loop below is
+absent. The argument stands unchanged for whoever resumes `parked/posthog-cohort-sync`.
+
 `packages/engine/src/lib/bucket-posthog-sync.ts` **already** writes `hogsend_bucket_<id>`
-to PostHog persons on join (shipped, off by default per bucket). Combined with PRD 02's
-cohort import, the loop closes with no new code:
+to PostHog persons on join (shipped, off by default per bucket) — that half is real and in
+the tree today. Combined with PRD 02's cohort import, the loop closes with no new code:
 
 1. Bucket A with `syncToPostHog: true` sets `hogsend_bucket_a: true` on PostHog persons.
 2. An operator defines a PostHog cohort filtering on `hogsend_bucket_a`.
@@ -77,9 +100,9 @@ supported features break that assumption, neither requiring ill intent:
 1. **A bucket with a custom `postHogPropertyKey`.** The operator names the mirrored
    property whatever they like. A cohort filtering on that name references a
    Hogsend-written key while passing a prefix check cleanly.
-2. **One line of `getPostHog()?.identify()` inside a cohort-triggered journey.** A journey
-   entered via `bucket:entered:<id>` sets an arbitrary person property; a cohort filters on
-   it; the cohort feeds the bucket. That is a two-hop loop that passes binding validation,
+2. **One line of `getAnalytics()?.setPersonProperties()` inside a cohort-triggered
+   journey.** A journey entered via `bucket:entered:<id>` sets an arbitrary person
+   property; a cohort filters on it; the cohort feeds the bucket. That is a two-hop loop that passes binding validation,
    evades write-suppression (layer 2 gates the *mirror*, not arbitrary journey writes), and
    sits under the fuse (layer 3) because it is one write per enrollment.
 

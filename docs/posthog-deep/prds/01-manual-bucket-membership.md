@@ -2,6 +2,13 @@
 
 **Depends on:** nothing. **Status:** `[x]` SHIPPED 2026-07-27
 
+> This is the piece of the stack that justified itself independently, and the parking
+> decision (`DECISIONS.md` §8) turned on that. It has no PostHog coupling and stands on its
+> own: CSV audience import, admin tagging, SDK-driven audiences. Its first intended
+> consumer — PRD 02's cohort poller, named repeatedly below — is parked on
+> `parked/posthog-cohort-sync` and is **not in the tree**, so read those forward references
+> as the contract's design rationale rather than as a live caller.
+
 ## Goal
 
 Unlock `BucketMeta.kind: "manual"` end-to-end: the schema accepts it, membership-age
@@ -187,11 +194,14 @@ schema makes manual-with-criteria unreachable, so `!criteria` alone already skip
 assertion could ever fail on the clause. An unreachable branch is dead code, not
 defence-in-depth.
 
-**Known gap, carried to PRD 02.** The maxDwell TTL pass runs before the pending-leave pass
-and its selector does not exclude rows carrying a silent (`emit: false`) pending leave, so a
-bucket with BOTH `maxDwell` and `minDwell` can emit a `bucket:left` for a leave that was
-requested silently. Narrow (needs all three conditions) but it is an `emit: false` contract
-violation, and `emit: false` is what protects the seed path. Fix when PRD 02 wires seeding.
+**Known gap, and it no longer has a scheduled home.** The maxDwell TTL pass runs before the
+pending-leave pass and its selector does not exclude rows carrying a silent (`emit: false`)
+pending leave, so a bucket with BOTH `maxDwell` and `minDwell` can emit a `bucket:left` for
+a leave that was requested silently. Narrow (needs all three conditions) but it is an
+`emit: false` contract violation, and `emit: false` is what protects the seed path. It was
+booked to be fixed when PRD 02 wired seeding; PRD 02 is parked (`DECISIONS.md` §8), so this
+is now an **open defect in shipped code** owned by nothing. It is reachable today by any
+consumer setting both dwell bounds on one bucket — it does not need PostHog.
 
 **Also flagged, not fixed:** `check-membership.ts:155` carries the same now-redundant
 `kind !== "manual"` clause that was deleted from the registry. Do not "cover" it with a test

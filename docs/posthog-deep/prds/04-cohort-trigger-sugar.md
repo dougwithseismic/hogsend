@@ -1,7 +1,24 @@
 # PRD 04 — `cohort-trigger-sugar`
 
 **Depends on:** 02 (`posthog-cohort-sync` — binds a PostHog cohort to a `kind: "manual"`
-bucket and gives that bucket a stable `id`). **Status:** `[ ]`
+bucket and gives that bucket a stable `id`). **Status:** `[-]` CUT 2026-07-28.
+
+> **Cut, not deferred. This is not going to be built.** `trigger: { cohort: "some-name" }`
+> is the magic string that started the review which ended in parking the cohort chain
+> (`DECISIONS.md` §8): a reference to a thing declared in the consumer's own repo, passed
+> as an unchecked name instead of the typed object. Its dependency, PRD 02, is parked on
+> `parked/posthog-cohort-sync`, so there is no cohort-bound bucket for this sugar to name;
+> and the decision is that the cohort trigger does not ship even if 02 is resumed.
+>
+> **Nothing is lost by cutting it.** The capability it wraps is already legal end-to-end
+> with zero engine changes — `trigger: { event: "bucket:entered:<bucketId>" }` — because
+> journey triggers are not subject to `RESERVED_EVENT_NAMESPACES` and `journeyMetaSchema`
+> validates `trigger.event` as a bare string. That is verified below and remains true.
+> This PRD only ever proposed sugar over it.
+>
+> **The document is kept deliberately**, for two findings worth more than the feature: the
+> namespace verification below, and the `where`-scope misconception T04.4 was written to
+> guard against.
 
 ## Goal
 

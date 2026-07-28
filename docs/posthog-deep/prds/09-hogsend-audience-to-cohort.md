@@ -1,6 +1,8 @@
 # PRD 09 — `hogsend-audience-to-cohort`
 
-**Depends on:** 07. **Status:** `[~]` DEFERRED by decision, 2026-07-27.
+**Depends on:** 07. **Status:** `[~]` DEFERRED by decision, 2026-07-27; still deferred, and
+now transitively blocked — 07 depends on 03, which is blocked behind PRD 02's parking
+(`DECISIONS.md` §8).
 
 Scoped, not fully specified. Flesh out to the full PRD shape when popped.
 

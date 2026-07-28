@@ -1,7 +1,8 @@
 # PRD 06 — `retroactive-enrollment`
 
 **Depends on:** 00 (`posthog-identity-map` — the person↔contact resolver this pulls
-through). **Status:** `[ ]`
+through). **Status:** `[ ]` — startable; 00 and P0 are both in the tree and this PRD never
+depended on the parked cohort chain (`DECISIONS.md` §8).
 
 ## Goal
 
@@ -300,8 +301,9 @@ DECISIONS §2.10's "every one is a hand-rolled `fetch`" pattern). Reuse
 task moving it out of `packages/cli/src/lib/import-shared.ts:96-148`, because
 `plugin-posthog` may not import from `@hogsend/cli` (workspace dependency cycle) — and the
 OAuth-preferred/personal-key-fallback/host-derivation pattern from `properties.ts`
-(mirrors PRD 02 T02.1's cohort client — coordinate with that PRD to avoid duplicating the
-credential-resolution logic twice; extract a shared helper if both land close together).
+(the coordinate-with-PRD-02 note here is void: PRD 02's cohort client is parked on
+`parked/posthog-cohort-sync` and is not in the tree, so this task owns its
+credential-resolution outright rather than sharing a helper with it).
 Each pulled event carries PostHog's own `uuid` (for the idempotency key, D3),
 `distinct_id`/`person_id`/`timestamp`/`event`/`properties`.
 
@@ -340,10 +342,10 @@ every other cron/backfill task in this codebase. Reuses the `import_jobs` status
 pattern exactly as `bucketBackfillTask` does: `fileName`/`format` discriminator (a new
 format string, e.g. `"posthog-backfill"`), `status`/`totalRows`/`processedRows`/
 `errors` progress fields, and a resumable page cursor persisted the same way PRD 02's
-poller is required to (DECISIONS §2.4's cursor requirement) — satisfies AC 6. **Note
-`import_jobs` has no cursor/metadata column today** (`packages/db/src/schema/import-jobs.ts:12-26`);
-it is added by PRD 02 T02.0, or hoisted into PRD 00 T00.1 if this PRD ships first (see
-T00.1's migration-batching note). Do not add it twice. Applies
+poller is required to (DECISIONS §2.4's cursor requirement) — satisfies AC 6. **The
+`import_jobs` cursor/metadata column is already in the tree**: PRD 00 T00.1 hoisted it so
+this PRD could ship before PRD 02, which is now the only order available (PRD 02 is parked,
+`DECISIONS.md` §8). Do not add it again. Applies
 `--max-age` as a pre-filter before any event reaches T06.2/T06.3 (D5, AC 4, 5).
 
 ### T06.5 — CLI command

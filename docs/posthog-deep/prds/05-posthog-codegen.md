@@ -1,6 +1,8 @@
 # PRD 05 — `posthog-codegen`
 
-**Depends on:** credentials only (PRD 00's plumbing, not its schema). **Status:** `[ ]`
+**Depends on:** credentials only (PRD 00's plumbing, not its schema). **Status:** `[ ]` —
+startable now, and the only headline PostHog PRD that still is. It never touched the cohort
+chain, so PRD 02's parking (`DECISIONS.md` §8) costs it nothing.
 
 Independently shippable at any point. Zero runtime coupling to the cohort chain, delivers
 standalone DX value, and exercises the OAuth credential path end-to-end — a useful
@@ -11,10 +13,9 @@ requires paged reads under PostHog's rate limits, so T05.1 needs the rate-limite
 client, which today lives in `packages/cli/src/lib/import-shared.ts:96-148` — a package
 `packages/engine` may not import from (workspace dependency cycle). **Resolution: this PRD
 depends on the DECISIONS §2.10 prerequisite that moves `createRateLimitedFetch` into
-`@hogsend/core`, NOT on PRD 02 T02.1.** That keeps 05 genuinely queue-jumpable — the move
-is a small standalone refactor, not the cohort client. If 05 lands first, it is the task
-that pulls the move forward; if 02 lands first, 05 inherits it. Either way the limiter is
-implemented once.
+`@hogsend/core`, NOT on PRD 02 T02.1.** That distinction is what kept 05 alive: the
+prerequisite shipped as P0 (`f4419e26`) and is in the tree, while PRD 02's cohort client is
+not. T05.1 inherits the limiter and owes nothing.
 
 ## Goal
 

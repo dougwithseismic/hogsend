@@ -2,7 +2,8 @@
 
 **Depends on:** 00 (`posthog-identity-map` — for cases where the survey's own identity
 signal needs the mapped-alias resolver rather than the raw `distinct_id` shortcut the
-existing webhook path already uses). **Status:** `[ ]`
+existing webhook path already uses). **Status:** `[ ]` — startable; 00 is in the tree and
+this PRD never depended on the parked cohort chain (`DECISIONS.md` §8).
 
 ## Goal
 
@@ -130,7 +131,8 @@ around) the existing `posthog.ts` transform** — it does not require a new webh
 consistent with D1.
 
 An "NPS detractor" journey trigger is then authorable as an ordinary
-`trigger.where`-gated event trigger — no new sugar needed, unlike PRD 04's cohort case,
+`trigger.where`-gated event trigger — no new sugar needed, unlike the cohort trigger PRD 04
+proposed and that was subsequently cut (`DECISIONS.md` §8),
 because this is a plain property-on-event condition, which `JourneyWhereBuilder`
 (`packages/core/src/types/journey.ts:12`) already supports natively:
 
