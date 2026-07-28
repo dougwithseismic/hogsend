@@ -1,16 +1,151 @@
 @import "tailwindcss";
 
+/* ========================================================================== */
+/*  Hogsend design system — crimzon visual language, ported from apps/docs.    */
+/*  One dark page (#050101), one red accent (#F64838), hairline-framed         */
+/*  surfaces. Fonts: Inter Display (display) · Inter (body) · mono for ids.    */
+/*  Dark-only: there is no light theme.                                        */
+/* ========================================================================== */
+
 @theme {
-  /* Dark-only surface tokens. The full design system lands in the next task. */
-  --color-ink: #050101;
-  --color-hairline: rgba(255, 255, 255, 0.12);
+  /* Fonts (sourced from next/font in app/layout.tsx via lib/fonts.ts) */
+  --font-display: var(--ff-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--ff-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  /* Brand color tokens → utilities: bg-accent, text-accent, border-accent… */
+  --color-accent: #f64838;
+  --color-accent-deep: #b8281c;
+  --color-accent-tint: rgba(246, 72, 56, 0.15);
+  --color-ink: #050101; /* the one page background */
+  --color-ink-raised: #0a0606; /* raised chrome: nav rail, popovers */
+
+  /* Status tokens — dashboard state (healthy / needs attention). "warn"
+     reuses --color-accent, keeping the page to one red. */
+  --color-good: #54d6c4;
+  --color-good-tint: rgba(84, 214, 196, 0.12);
+  --color-caution: #e8b23a;
+  --color-caution-tint: rgba(232, 178, 58, 0.12);
+
+  /* Hairline tokens → border-hairline / border-hairline-faint utilities. */
+  --color-hairline: rgba(255, 255, 255, 0.2); /* page frame */
+  --color-hairline-faint: rgba(255, 255, 255, 0.08); /* cards, dividers */
+
+  /* Content frame width: 1200px. */
+  --spacing-container: 75rem;
+
+  /* Left nav rail width — also the content area's left offset at md+. */
+  --spacing-rail: 15rem; /* 240px */
 }
 
 html {
+  scrollbar-gutter: stable;
+  background-color: #050101;
   color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  background-color: var(--color-ink);
-  color: #f7f5f4;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
+/* Headings render in the display face (Inter Display). Default weight 400. */
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* --------------------------------------------------------------------------
+   Reusable design-system helpers (things awkward to express in utilities).
+   -------------------------------------------------------------------------- */
+
+/* Centered 1200px content frame used by the page chrome and every section. */
+.container-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 75rem; /* 1200px */
+  padding-inline: 1.5rem;
+}
+
+/* Vertical section rhythm. Lives in the components layer so Tailwind padding
+   utilities passed via Section's containerClassName can override it. */
+@layer components {
+  .section-py {
+    padding-block: 2.5rem;
+  }
+  @media (min-width: 768px) {
+    .section-py {
+      padding-block: 3.5rem;
+    }
+  }
+}
+
+/* Micro label: 12px UPPERCASE Inter — stat captions, column headers. */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.75rem; /* 12px */
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Section kicker: red 18px sentence-case Inter (the crimzon eyebrow). */
+.kicker {
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.5rem; /* 24px */
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+}
+
+/* Dark glass panel — raised chrome over the ink page. */
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background-color: rgba(10, 6, 6, 0.8);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Faint film-grain noise overlay (~2.5%) — mounted once by PageFrame. */
+.noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.025;
+}
+
+/* Faint scattered red-dot grid — empty-state backdrop. */
+.dot-grid {
+  background-image: radial-gradient(
+    rgba(246, 72, 56, 0.45) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+code,
+kbd,
+pre,
+samp {
+  letter-spacing: 0;
+}
+
+/* Reduce motion respectfully. The !important is required so these overrides
+   win over inline/animation styles. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    animation-duration: 0.001ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    transition-duration: 0.001ms !important;
+  }
 }
