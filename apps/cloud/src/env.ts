@@ -96,6 +96,11 @@ export const env = createEnv({
     // to build a Railway substrate without it (PRD 04 EARS — never silently
     // fake).
     CLOUD_RAILWAY_TOKEN: z.string().min(1).optional(),
+    // OPTIONAL workspace/team the org projects are created inside. Absent →
+    // Railway places new projects in the token's default workspace, which is
+    // correct for a single-workspace account; a multi-workspace account must
+    // name one or the projects land somewhere nobody is watching.
+    CLOUD_RAILWAY_WORKSPACE_ID: z.string().min(1).optional(),
     // The account the provisioner logs into on a CELL's Hatchet to mint each
     // tenant's token (`services/hatchet-tenant.ts`). Dev/test default to
     // hatchet-lite's seeded admin so a fresh clone provisions with no setup;

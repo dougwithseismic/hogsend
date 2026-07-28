@@ -199,10 +199,16 @@ describe("getSubstrate", () => {
     expect(getSubstrate).toThrow();
   });
 
-  it("refuses railway even WITH a token — not implemented yet", async () => {
-    const { getSubstrate } = await loadFactory("railway", "fake-railway-token");
+  it("builds a railway substrate — never a fake — once a token exists", async () => {
+    const {
+      getSubstrate,
+      FakeSubstrate: Fake,
+      RailwaySubstrate: Railway,
+    } = await loadFactory("railway", "fake-railway-token");
 
-    expect(() => getSubstrate()).toThrow(/not implemented yet/);
+    const provider = getSubstrate();
+    expect(provider).toBeInstanceOf(Railway);
+    expect(provider).not.toBeInstanceOf(Fake);
   });
 
   it("rejects an unknown substrate name at boot", async () => {

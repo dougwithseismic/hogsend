@@ -1,9 +1,11 @@
 import { env } from "../env";
 import { FakeSubstrate } from "./fake";
+import { RailwaySubstrate } from "./railway";
 import { SubstrateError, type SubstrateProvider } from "./types";
 
 export type { FakeStackSnapshot, FakeSubstrateCall } from "./fake";
 export { FAKE_SUBSTRATE_ID, FakeSubstrate, fakeApiPublicUrl } from "./fake";
+export { RAILWAY_SUBSTRATE_ID, RailwaySubstrate } from "./railway";
 export * from "./types";
 
 /**
@@ -21,6 +23,13 @@ export * from "./types";
  */
 let fakeSingleton: FakeSubstrate | undefined;
 
+/**
+ * The Railway substrate is a singleton for a different reason: it is stateless
+ * but holds a token and an HTTP client, and one instance per request would
+ * throw away connection reuse for no benefit.
+ */
+let railwaySingleton: RailwaySubstrate | undefined;
+
 export function getSubstrate(): SubstrateProvider {
   switch (env.CLOUD_SUBSTRATE) {
     case "fake":
@@ -35,9 +44,11 @@ export function getSubstrate(): SubstrateProvider {
           "CLOUD_SUBSTRATE=railway requires CLOUD_RAILWAY_TOKEN; refusing to start (a missing token never falls back to the fake substrate)",
         );
       }
-      throw new SubstrateError(
-        "CLOUD_SUBSTRATE=railway is not implemented yet (PRD 04 task 5); use CLOUD_SUBSTRATE=fake until RailwaySubstrate ships",
-      );
+      railwaySingleton ??= new RailwaySubstrate({
+        token: env.CLOUD_RAILWAY_TOKEN,
+        workspaceId: env.CLOUD_RAILWAY_WORKSPACE_ID,
+      });
+      return railwaySingleton;
   }
 }
 
