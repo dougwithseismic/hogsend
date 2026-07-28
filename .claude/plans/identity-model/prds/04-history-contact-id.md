@@ -27,6 +27,21 @@ corrections:
 | C4 | minor | **T5/T6 have a fresher precedent than `bucket-backfill.ts`:** PRD 02 shipped `workflows/identity-alias-backfill.ts` (import_jobs progress, chunked, resumable, boot-enqueued, FK-race retry) plus `routes/admin/identity.ts`, whose parity route IS T6's invariant-probe pattern already shipped. Model on these |
 | C5 | minor | The D8 reproduce grep must also match `insert(schema.userEvents)` — the seed files use the `schema.` prefix, so a bare `insert(userEvents)` grep misses rows 14-15 |
 
+## Re-anchoring (2026-07-28, wave-2 start, against post-0.57.0 main `1e2e7b0d`)
+
+Census re-derived after #624–#628 merged: **21 insert statements, 16 sites, zero new, zero missing** —
+wave 1 added no writes into the five tables. Raw-SQL grep: zero hits; every insert is Drizzle
+`.insert()`. Drifted anchors: `ingestion.ts` inserts now `:523`/`:547`; `check-membership.ts` insert
+`:338`; `bucket-reconcile.ts` insert `:1233`; `contacts.ts` now 2,655 lines — `mergeContacts` `:1592`
+with the deals/crm_links repoint at `:1668-1674` (group memberships now fold via
+`foldGroupMemberships`, called `:1682`, defined `:2059`); `repointOwnHistory` `:2188`; `contactKey`
+`:792` / `contactKeySql` `:803`; `insertEnrollment` def `:126`, sole caller `:508`,
+`subjectContactId` `:409`. **T4e narrative correction:** `routes/lists/index.ts` gained a
+`resolveOrCreateContact` step at `:509` returning `{ contactId }` BEFORE `resolveRecipient` (`:530`);
+the `upsertEmailPreference` call is `:539` and can take that `contactId` directly — no lookup needed
+on that path (the PRD's "from `resolveRecipient`" provenance is stale). `email_preferences`'s leading
+`user_id` probe index is a `uniqueIndex` on `(user_id, email)` — still serves D3's backfill probe.
+
 ## Locked decisions
 
 ### D1 — Column shape: `contact_id uuid`, nullable, **no FK in this PRD**
