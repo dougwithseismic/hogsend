@@ -17,6 +17,9 @@ export const userEvents = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id"),
     userId: text("user_id").notNull(),
+    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
+    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    contactId: uuid("contact_id"),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
     // Group association map captured at event time (groupType → groupKey), e.g.

@@ -16,6 +16,9 @@ export const emailPreferences = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     email: text("email").notNull(),
+    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
+    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    contactId: uuid("contact_id"),
     unsubscribedAll: boolean("unsubscribed_all").notNull().default(false),
     suppressed: boolean("suppressed").notNull().default(false),
     bounceCount: integer("bounce_count").notNull().default(0),

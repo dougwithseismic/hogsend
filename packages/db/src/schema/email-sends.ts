@@ -30,6 +30,9 @@ export const emailSends = pgTable(
     // (raw/batch) sends that have no journey linkage. Both nullable.
     userId: text("user_id"),
     userEmail: text("user_email"),
+    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
+    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    contactId: uuid("contact_id"),
     templateKey: text("template_key"),
     messageId: text("message_id"),
     fromEmail: text("from_email").notNull(),
