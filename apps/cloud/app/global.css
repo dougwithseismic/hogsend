@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  /* Dark-only surface tokens. The full design system lands in the next task. */
+  --color-ink: #050101;
+  --color-hairline: rgba(255, 255, 255, 0.12);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-ink);
+  color: #f7f5f4;
+}

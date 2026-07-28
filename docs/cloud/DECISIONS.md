@@ -88,12 +88,14 @@ customer's — we are not an ESP), per-tenant database isolation, eject-to-self-
 
 ```bash
 pnpm exec turbo run check-types --concurrency=2
-pnpm exec turbo run lint --concurrency=2
+pnpm exec biome check apps/cloud packages/cli
 pnpm exec turbo run test --concurrency=2
 pnpm exec turbo run build --concurrency=2
 ```
 
-(`--concurrency=2` per the known turbo OOM issue.) Tests: vitest, colocated under
+(`--concurrency=2` per the known turbo OOM issue; lint is root-level Biome in this repo,
+not a turbo task — scope it to the packages this wave touches. Turbo tasks may be
+`--filter`ed to touched workspaces during the loop; run unfiltered at PRD completion.) Tests: vitest, colocated under
 `apps/cloud/src/__tests__/`. TDD: failing test first for every behavioral task. Biome
 formatting; conventional commits; 2-space/double-quote/semicolons per repo style.
 
