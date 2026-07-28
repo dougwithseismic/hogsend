@@ -100,10 +100,40 @@ export interface HasEventResult {
   count: number;
 }
 
-export interface JourneyHistoryOptions {
-  userId: string;
-  journeyId: string;
+/**
+ * STRUCTURAL stand-in for the object `defineJourney` returns, deliberately NOT
+ * an import of the engine's `DefinedJourney`: `@hogsend/core` is the leaf of the
+ * package graph and the engine already depends on it, so naming that type here
+ * — even type-only — would be a workspace cycle. This seam reads exactly one
+ * field, so it asks for exactly that field.
+ */
+export interface JourneyRef {
+  readonly meta: { readonly id: string };
 }
+
+/**
+ * Identify the journey being asked about by HANDING OVER THE JOURNEY, not by
+ * spelling its id.
+ *
+ * `journeyId` is a name the consumer declared in their own repo, and nothing
+ * checks it: `journeyId: "onbaording"` compiles and returns
+ * `{ completed: false, entryCount: 0 }` forever — indistinguishable from "this
+ * user genuinely never completed it", on a path whose entire job is cross-journey
+ * gating ("skip the winback if onboarding completed"). A later rename of the
+ * journey does the same thing silently. Passing `journey: onboarding` cannot be
+ * misspelled (an unknown symbol is a compile error) and a rename follows the
+ * symbol automatically.
+ *
+ * `journeyId` REMAINS legal for the case the type system cannot serve: an id
+ * that only exists at runtime — read from config, a blueprint, a Studio-authored
+ * journey, or an agent's input. That is the sanctioned serialization-boundary
+ * exemption, not a second spelling of the same thing.
+ *
+ * Exactly one of the two, never both.
+ */
+export type JourneyHistoryOptions =
+  | { userId: string; journey: JourneyRef; journeyId?: never }
+  | { userId: string; journeyId: string; journey?: never };
 
 export interface JourneyHistoryResult {
   completed: boolean;

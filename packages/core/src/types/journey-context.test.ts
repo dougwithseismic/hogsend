@@ -47,11 +47,9 @@ describe("JourneyContext.variant type contract (D0)", () => {
 describe("history template keys with no carrier augmentation", () => {
   it("widens the email template key back to string", () => {
     expectTypeOf<EmailHistoryOptions["template"]>().toEqualTypeOf<string>();
-    expect(true).toBe(true);
   });
 
   it("widens the sms template key back to string", () => {
     expectTypeOf<SmsHistoryOptions["template"]>().toEqualTypeOf<string>();
-    expect(true).toBe(true);
   });
 });

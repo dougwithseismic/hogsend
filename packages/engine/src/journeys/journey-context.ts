@@ -1412,7 +1412,11 @@ export function createJourneyContext(
         return { found: result.matched, count: result.count };
       },
 
-      async journey({ userId: targetUserId, journeyId: targetJourneyId }) {
+      async journey(opts) {
+        const targetUserId = opts.userId;
+        // The union guarantees exactly one arm is populated; the object form
+        // simply yields the id the journey already knows about itself.
+        const targetJourneyId = opts.journeyId ?? opts.journey.meta.id;
         const [result] = await db
           .select({
             entryCount: count(),
