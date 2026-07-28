@@ -197,10 +197,18 @@ function resolveManualBucket(
   if ((bucket.kind ?? "dynamic") !== "manual") {
     throw new BucketMembershipError("bucket_not_manual", bucketId);
   }
-  // Every other membership writer iterates `getEnabled()`. Without this the
-  // members route would write a row and emit `bucket:entered:<id>` into live
-  // journeys for a bucket the operator had switched off — a kill switch with a
-  // hole in it is worse than no kill switch, because it reads as working.
+  // `enabled: false` is the operator's kill switch, and the thing it must stop
+  // is a bucket transition reaching live journeys. Without this the members
+  // route would write a row and emit `bucket:entered:<id>` for a bucket that is
+  // switched off — a kill switch with a hole in it is worse than no kill
+  // switch, because it reads as working.
+  //
+  // The reconcile sweep deliberately does NOT mirror this refusal: it iterates
+  // `getAll()` so a disabled bucket's already-armed pending leaves still
+  // RESOLVE (they are applied operator intent that nothing else would ever
+  // clear), but with the emit suppressed. The distinction is DISCOVERING new
+  // work — which a disabled bucket must never do, and which this seam is —
+  // versus FINISHING work already accepted while it was enabled.
   if (bucket.enabled === false) {
     throw new BucketMembershipError("bucket_disabled", bucketId);
   }
@@ -572,6 +580,13 @@ export interface SeedBucketMembersResult {
   seeded: number;
   /** Members that already held an active row — the insert was a no-op. */
   alreadyActive: number;
+  /**
+   * Members DROPPED because no LIVE contact owns their canonical key — the key
+   * belongs to a soft-deleted (merged-away or erased) contact, or to no contact
+   * at all. `seeded + alreadyActive + skippedNoContact` is the deduped input
+   * size, so a caller can always account for every member it handed in.
+   */
+  skippedNoContact: number;
 }
 
 /**
@@ -586,9 +601,22 @@ export interface SeedBucketMembersResult {
  * in one burst; enrolling an existing population stays an explicit, separate
  * opt-in on the caller's side.
  *
- * Set-based and chunked (one email lookup + one prior-count GROUP BY per
+ * Set-based and chunked (one live-contact lookup + one prior-count GROUP BY per
  * chunk — never per-member serial queries), idempotent via the partial-unique
  * active index, and safely re-runnable.
+ *
+ * GATED ON A LIVE CONTACT, like every other membership writer (the reconcile
+ * passes `innerJoin` {@link liveContactByCanonicalKey}; `checkBucketMembership`
+ * probes for the erased row and refuses). A seeded `userId` that no live contact
+ * owns is DROPPED, not written: the sweeps that would later expire it, re-
+ * evaluate it or force-leave it all join live contacts, so such a row is
+ * unreachable by every one of them and sits `active` FOREVER — inflating bucket
+ * size and membership stats with a member that has no path out and (GDPR,
+ * Section 8.6) should not be a member at all. Dropping is preferred to throwing
+ * because this is the bulk path: one stale id in a 40k-member cohort must not
+ * abort the other 39,999. The drop is REPORTED (`skippedNoContact`) rather than
+ * silent, so a caller can distinguish "seeded nothing because everyone was
+ * already a member" from "seeded nothing because every id was dead".
  */
 export async function seedBucketMembers(opts: {
   db: Database;
@@ -622,25 +650,42 @@ export async function seedBucketMembers(opts: {
   const byUser = new Map<string, (typeof members)[number]>();
   for (const member of members) byUser.set(member.userId, member);
   const unique = [...byUser.values()];
-  if (unique.length === 0) return { seeded: 0, alreadyActive: 0 };
+  if (unique.length === 0) {
+    return { seeded: 0, alreadyActive: 0, skippedNoContact: 0 };
+  }
 
   // Stamped once for the whole seed, mirroring the backfill join pass.
   const maxDwellAt = computeMaxDwellAt(bucket);
 
   let seeded = 0;
+  let skippedNoContact = 0;
   for (let i = 0; i < unique.length; i += batchSize) {
     const chunk = unique.slice(i, i + batchSize);
-    const chunkIds = chunk.map((m) => m.userId);
 
-    // Emails backfilled from the contacts row where the caller did not supply
-    // one. Keyed on the SAME canonical-key coalesce the membership rows carry,
-    // so an anonymous-only or email-only contact is not missed.
+    // The LIVE contacts owning this chunk's keys. This is the set-based form of
+    // `liveContactByCanonicalKey` (which takes a single key or a column, so it
+    // cannot express an IN-list): the SAME `contactKeySql()` coalesce and the
+    // SAME `deleted_at IS NULL` half, as one query per chunk rather than per
+    // member — verbatim the lookup `bucket-backfill.ts` runs for its own
+    // chunked email pass. Keying on the coalesce (not `external_id`) is what
+    // keeps an anonymous-only or email-only contact visible here.
+    //
+    // It serves BOTH purposes: the eligibility gate below, and the email
+    // backfill for members whose caller did not supply one.
     const resolvedKey = contactKeySql();
+    const chunkIds = chunk.map((m) => m.userId);
     const chunkContacts = await db
       .select({ userKey: resolvedKey, email: contacts.email })
       .from(contacts)
       .where(and(inArray(resolvedKey, chunkIds), isNull(contacts.deletedAt)));
     const emailByUser = new Map(chunkContacts.map((c) => [c.userKey, c.email]));
+
+    // `has`, not a truthy `get` — a live contact with a NULL email is a member
+    // in good standing; only the ABSENCE of a live row disqualifies.
+    const seedable = chunk.filter((m) => emailByUser.has(m.userId));
+    skippedNoContact += chunk.length - seedable.length;
+    if (seedable.length === 0) continue;
+    const seedableIds = seedable.map((m) => m.userId);
 
     // entryCount = 1 + prior memberships for each (user, bucket) — the same
     // monotonic ordinal the live join computes. ONE batched GROUP BY per chunk.
@@ -653,7 +698,7 @@ export async function seedBucketMembers(opts: {
       .where(
         and(
           eq(bucketMemberships.bucketId, bucketId),
-          inArray(bucketMemberships.userId, chunkIds),
+          inArray(bucketMemberships.userId, seedableIds),
         ),
       )
       .groupBy(bucketMemberships.userId);
@@ -661,7 +706,7 @@ export async function seedBucketMembers(opts: {
       priorCounts.map((r) => [r.userId, Number(r.cnt)]),
     );
 
-    const values = chunk.map((member) => ({
+    const values = seedable.map((member) => ({
       userId: member.userId,
       userEmail: normalizeEmailOrNull(
         member.userEmail !== undefined
@@ -677,20 +722,57 @@ export async function seedBucketMembers(opts: {
       lastEvaluatedAt: new Date(),
     }));
 
+    // The conflict arbiter is stated EXPLICITLY, because the count below reads
+    // every absorbed row as "this member was already active" — a claim a bare
+    // `onConflictDoNothing()` does not establish. Untargeted, the clause
+    // swallows a conflict on ANY constraint (today only the primary key, but
+    // any index added later joins that set) and the absorbed row would be
+    // silently miscounted as an existing membership. Naming
+    // `uq_user_bucket_active` makes the active-membership collision the ONLY
+    // tolerated one; anything else raises, which is what we want from a bulk
+    // path that reports counts as fact.
+    //
+    // DRIZZLE GOTCHA (mirrors campaigns/reconcile.ts + execute-journey-run.ts):
+    // for a PARTIAL unique index the arbiter predicate goes in `where`, NOT
+    // `targetWhere`, and must reproduce the index predicate EXACTLY or Postgres
+    // throws 42P10 at runtime — see bucket-memberships.ts:uq_user_bucket_active.
     const result = await db
       .insert(bucketMemberships)
       .values(values)
-      .onConflictDoNothing()
+      // Arbiter named EXPLICITLY, mirroring `uq_user_bucket_active`
+      // (`(user_id, bucket_id) WHERE status = 'active' AND deleted_at IS NULL`).
+      // Honest note: this is currently UNOBSERVABLE by test — that partial
+      // unique index is the only constraint an insert here can violate, so a
+      // bare `onConflictDoNothing()` behaves identically and no mutation can
+      // tell them apart. It is stated anyway because the `alreadyActive`
+      // counter below SUBTRACTS from this result and would silently start
+      // lying the day a second constraint is added to the table. Keep the
+      // predicate in lockstep with the index or Postgres raises 42P10.
+      .onConflictDoNothing({
+        target: [bucketMemberships.userId, bucketMemberships.bucketId],
+        where: sql`status = 'active' and deleted_at is null`,
+      })
       .returning({ id: bucketMemberships.id });
 
     seeded += result.length;
   }
 
-  const alreadyActive = unique.length - seeded;
+  // Sound because the two subtrahends are the only other fates a deduped member
+  // can meet: it was dropped for want of a live contact, or its insert was
+  // absorbed by the active-membership arbiter above (the ONLY conflict that
+  // clause tolerates).
+  const alreadyActive = unique.length - skippedNoContact - seeded;
   logger.info("Bucket members seeded (no transitions emitted)", {
     bucketId,
     seeded,
     alreadyActive,
+    skippedNoContact,
   });
-  return { seeded, alreadyActive };
+  if (skippedNoContact > 0) {
+    logger.warn("Bucket seed dropped members with no live contact", {
+      bucketId,
+      skippedNoContact,
+    });
+  }
+  return { seeded, alreadyActive, skippedNoContact };
 }

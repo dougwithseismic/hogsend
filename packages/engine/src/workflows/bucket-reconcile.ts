@@ -107,7 +107,17 @@ export const bucketReconcileTask = hatchet.task({
     let reconciled = 0;
     let joined = 0;
 
-    for (const bucket of registry.getEnabled()) {
+    // `getAll()`, NOT `getEnabled()`. A DISABLED bucket can still own ACTIVE
+    // membership rows carrying a `minDwell`-DEFERRED leave (the operator flips
+    // the switch after `removeBucketMember` armed one), and NOTHING else on any
+    // code path ever clears that marker — so skipping the bucket entirely
+    // strands the member `active`, with an armed `expiresAt` and a pending
+    // intent nobody will ever honour, permanently. A stranded active membership
+    // is itself a bug, so the sweep still RESOLVES the row; what the kill
+    // switch actually protects is the journey-visible side effect, and that is
+    // suppressed at the emit (see `selectReconcilePasses` + the `allowEmit`
+    // argument below). Every OTHER pass stays off for a disabled bucket.
+    for (const bucket of registry.getAll()) {
       const dwellReactions = journeyRegistry
         .getAll()
         .filter(
@@ -162,6 +172,10 @@ export const bucketReconcileTask = hatchet.task({
             logger,
             journeyRegistry,
             bucket,
+            // A DISABLED bucket resolves the ROW but must never fire into live
+            // journeys (DECISIONS §2.7a) — the same reading `resolveManualBucket`
+            // applies when it refuses NEW writes to a switched-off bucket.
+            allowEmit: bucket.enabled,
           });
         }
 
@@ -369,6 +383,25 @@ export function selectReconcilePasses(
   hasDwell: boolean,
 ): BucketReconcilePasses {
   const isManual = (bucket.kind ?? "dynamic") === "manual";
+
+  // A DISABLED bucket earns exactly ONE pass: the deferred-leave resolution.
+  // Deliberate, and it is the opposite of the obvious reading — here is why.
+  // Everything else the sweep does DISCOVERS work from the clock (a criteria
+  // window closing, a TTL elapsing, a dwell ordinal arriving), and a disabled
+  // bucket must discover nothing. A pending leave is not discovered: it is an
+  // ALREADY-APPLIED operator intent, recorded on the row by an explicit
+  // `removeBucketMember` while the bucket was live, and `minDwell` only delayed
+  // the write. Skipping the bucket therefore does not "do less" — it leaves the
+  // member `active`, carrying an armed `expiresAt` and a `__pendingLeave__`
+  // marker no other code path ever clears, forever. So the row IS resolved and
+  // the EMIT is suppressed instead (the caller passes `allowEmit: false`):
+  // a disabled bucket must not fire into live journeys (DECISIONS §2.7a), which
+  // is what the kill switch is actually about, but a stranded active membership
+  // is itself a bug and the switch must not manufacture one.
+  if (!bucket.enabled) {
+    return { ...NO_PASSES, pendingLeaves: isManual };
+  }
+
   if (!isManual && bucket.criteria == null) return NO_PASSES;
 
   // timeBased is honoured explicitly OR inferred from a `within` window.
@@ -377,7 +410,16 @@ export function selectReconcilePasses(
     criteriaLeaves: timeBased,
     criteriaJoins: timeBased && shouldReconcileJoins(bucket),
     ttlLeaves: bucket.maxDwell != null,
-    pendingLeaves: isManual && bucket.minDwell != null,
+    // Deliberately NOT `&& bucket.minDwell != null`. The pass selects on the
+    // PRESENCE OF THE MARKER, never on the bucket's CURRENT `minDwell`: an
+    // operator who removes `minDwell` after a leave was deferred would
+    // otherwise switch the ONLY pass that can resolve that row off forever,
+    // leaving the member `active` with an armed deadline and an unhonoured
+    // intent. Keying the selector on the live config makes a config edit
+    // silently destroy recorded intent; keying it on the marker cannot. The
+    // cost of running it for a manual bucket that has no deferrals is one
+    // indexed SELECT that returns zero rows.
+    pendingLeaves: isManual,
     dwell: hasDwell,
   };
 }
@@ -598,6 +640,30 @@ async function reconcileCompositeLeaves(opts: {
  * anonymous_id ?? id`) the membership writers stamp onto the row. Joining
  * `contacts.external_id` alone made every anonymous-only member invisible to
  * this pass: their TTL deadline passed and they were never force-left.
+ *
+ * The selector EXCLUDES rows carrying a `__pendingLeave__` marker whose `emit`
+ * is `false`, and that exclusion is load-bearing rather than cosmetic. This pass
+ * is ordered BEFORE {@link reconcilePendingLeaves}, so on a manual bucket with
+ * BOTH `maxDwell` and `minDwell` a seeded population (`emit: false`) removed
+ * inside the dwell window has a due `maxDwellAt` on the very tick its deferral
+ * comes due — and without the exclusion the TTL pass wins the race, force-leaves
+ * the row and EMITS `bucket:left` with `reason: "maxDwell"`, firing a seeded
+ * population into live journeys. That is precisely what DECISIONS §2.7a exists
+ * to prevent, and the recorded `emit: false` is destroyed in the process (the
+ * row is already `left` when the pending pass runs, so the intent is never
+ * replayed). SKIPPING is the correct remedy rather than "leave silently here":
+ * the row is left for the pending pass, which resolves it with the RIGHT emit
+ * intent AND the right `reason` ("manual" — an explicit removal that `minDwell`
+ * merely delayed, not a TTL expiry). No row can be stranded by the skip:
+ * `maxDwell >= minDwell` is schema-enforced, so a due `maxDwellAt` implies the
+ * armed `expiresAt` (`enteredAt + minDwell`) is due too, and the pending pass
+ * resolves it on this same tick. A DUE `emit: true` marker is excluded for the
+ * same reason: both passes would leave the row, but they emit different
+ * journey-visible `reason`s ("maxDwell" vs "manual"), and "manual" is the truth
+ * — an operator removed this member and `minDwell` merely delayed it. Leaving
+ * it to pass ORDER would make a journey branching on `reason` depend on how the
+ * sweep is sequenced. A marker that is NOT yet due stays eligible: the pending
+ * pass cannot resolve it, and the row has genuinely outlived its TTL ceiling.
  */
 async function reconcileBucketTtlLeaves(opts: {
   db: Database;
@@ -624,6 +690,27 @@ async function reconcileBucketTtlLeaves(opts: {
         isNull(bucketMemberships.deletedAt),
         isNotNull(bucketMemberships.maxDwellAt),
         lte(bucketMemberships.maxDwellAt, new Date()),
+        // …and no SUPPRESSED pending leave is recorded on the row. `->>`
+        // yields NULL for a row with no context / no marker, and `IS DISTINCT
+        // FROM` keeps those rows (NULL <> 'false' is UNKNOWN under plain `<>`,
+        // which would silently drop every ordinary member). See the doc
+        // comment: the row is left for the pending pass to resolve silently.
+        sql`(${bucketMemberships.context} -> ${PENDING_LEAVE_KEY} ->> 'emit'::text) is distinct from 'false'`,
+        // …and yield any marker the PENDING pass can resolve on this same tick.
+        // Both passes would leave the row, but with different journey-visible
+        // `reason`s: TTL emits "maxDwell", the pending pass emits "manual" —
+        // and "manual" is the truth, because an operator explicitly removed
+        // this member and `minDwell` merely delayed it. Whichever pass wins
+        // would otherwise be a race decided by pass ORDER, so a journey
+        // branching on `reason` would see an answer that depends on how the
+        // sweep happens to be sequenced. A marker that is NOT yet due stays
+        // eligible: the pending pass cannot resolve it, and the row really has
+        // outlived its TTL ceiling.
+        sql`(
+          ${bucketMemberships.context} -> ${PENDING_LEAVE_KEY} is null
+          or ${bucketMemberships.expiresAt} is null
+          or ${bucketMemberships.expiresAt} > now()
+        )`,
       ),
     );
 
@@ -697,8 +784,15 @@ async function reconcilePendingLeaves(opts: {
   logger: Logger;
   journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
   bucket: BucketMeta;
+  /**
+   * `false` → resolve every due row SILENTLY, whatever the marker recorded.
+   * The DISABLED-bucket branch (see {@link selectReconcilePasses}): the row must
+   * still flip so the member is not stranded, but a switched-off bucket must
+   * never fire into live journeys.
+   */
+  allowEmit: boolean;
 }): Promise<number> {
-  const { db, logger, journeyRegistry, bucket } = opts;
+  const { db, logger, journeyRegistry, bucket, allowEmit } = opts;
 
   const dwellMs = bucket.minDwell ? durationToMs(bucket.minDwell) : 0;
   const dwellCutoff = dwellMs > 0 ? new Date(Date.now() - dwellMs) : null;
@@ -742,11 +836,14 @@ async function reconcilePendingLeaves(opts: {
   }
 
   // Partition by the REPLAYED emit intent. Everything is applied; only the
-  // emission differs.
-  const emitting = due.filter(
-    (r) => readPendingLeave(r.context)?.emit !== false,
-  );
-  const silent = due.filter((r) => readPendingLeave(r.context)?.emit === false);
+  // emission differs. A DISABLED bucket collapses the partition: every row is
+  // resolved, none of them emits.
+  const emitting = allowEmit
+    ? due.filter((r) => readPendingLeave(r.context)?.emit !== false)
+    : [];
+  const silent = allowEmit
+    ? due.filter((r) => readPendingLeave(r.context)?.emit === false)
+    : due;
 
   let left = 0;
   for (const [leavers, emit] of [
@@ -764,6 +861,13 @@ async function reconcilePendingLeaves(opts: {
       // only delayed it, so the reaction filter must still see reason "manual".
       reason: "manual",
       emit,
+      // Re-assert the marker + the due deadline INSIDE the CAS. The SELECT
+      // above and this UPDATE are two statements, and `addBucketMember`'s
+      // re-add disarm (`expiresAt := NULL`, marker deleted) can land between
+      // them — the exact race that disarm exists to prevent. Without these
+      // predicates the UPDATE still flips the row and emits a spurious
+      // `bucket:left` for a member the caller just re-added.
+      requirePendingLeave: true,
     });
   }
   return left;
@@ -775,6 +879,13 @@ async function reconcilePendingLeaves(opts: {
  * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
  * a member still inside its dwell window is NOT left here (the dwell deadline is
  * carried on `expiresAt`; the next eligible tick leaves it).
+ *
+ * The CAS predicates are the SHARED ones (bucket + active + live + the leaver
+ * set + the minDwell floor). `requirePendingLeave` is an OPT-IN extra term for
+ * the deferred-leave pass ALONE, deliberately not folded into the shared
+ * contract: the TTL, criteria and composite passes select rows that carry NO
+ * marker, so a helper that unconditionally demanded one would strand every
+ * non-deferred leave instead of fixing anything.
  */
 async function bulkLeave(opts: {
   db: Database;
@@ -790,6 +901,14 @@ async function bulkLeave(opts: {
    * criteria/TTL pass leaves it at the default.
    */
   emit?: boolean;
+  /**
+   * `true` → the UPDATE additionally re-asserts that the row STILL carries a
+   * `__pendingLeave__` marker and that its armed `expiresAt` is still due, so
+   * the compare-and-swap covers every predicate the SELECT relied on. Only the
+   * deferred-leave pass sets it; see the doc comment for why it is not the
+   * shared default.
+   */
+  requirePendingLeave?: boolean;
 }): Promise<number> {
   const {
     db,
@@ -799,6 +918,7 @@ async function bulkLeave(opts: {
     leavers,
     reason,
     emit = true,
+    requirePendingLeave = false,
   } = opts;
   const userIds = leavers.map((l) => l.userId);
   // Membership key → resolved contact row id, for the emit's provenance pin.
@@ -830,6 +950,15 @@ async function bulkLeave(opts: {
         inArray(bucketMemberships.userId, userIds),
         // minDwell: only leave rows that have existed at least minDwell.
         dwellCutoff ? lte(bucketMemberships.enteredAt, dwellCutoff) : undefined,
+        // Deferred-leave pass only: the marker AND its armed deadline, both
+        // cleared by `addBucketMember`'s re-add disarm, so a re-add that landed
+        // after the SELECT makes this match zero rows and nothing is emitted.
+        requirePendingLeave
+          ? sql`${bucketMemberships.context} -> ${PENDING_LEAVE_KEY} is not null`
+          : undefined,
+        requirePendingLeave
+          ? lte(bucketMemberships.expiresAt, new Date())
+          : undefined,
       ),
     )
     .returning({

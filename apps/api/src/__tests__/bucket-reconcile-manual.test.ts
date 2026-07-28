@@ -214,6 +214,73 @@ const manualStarveBucket = defineBucket({
   },
 });
 
+/**
+ * Manual bucket with NO `minDwell` at all — the state an operator leaves behind
+ * by REMOVING `minDwell` after a leave was already deferred. The armed row and
+ * its `__pendingLeave__` marker outlive the config edit, so a selector keyed on
+ * the bucket's CURRENT `minDwell` switches the only pass that can resolve them
+ * off forever.
+ */
+const NOMIN_ID = `${RUN}-manual-nomindwell`;
+const manualNoMinDwellBucket = defineBucket({
+  meta: {
+    id: NOMIN_ID,
+    name: "Manual, minDwell since removed",
+    enabled: true,
+    kind: "manual",
+  },
+});
+
+/**
+ * DISABLED manual bucket with `minDwell`. A leave deferred while it was live
+ * must still be RESOLVED once the window elapses (else the member is stranded
+ * `active` forever), but a switched-off bucket must never fire into live
+ * journeys — so the row flips SILENTLY.
+ */
+const DISABLED_ID = `${RUN}-manual-disabled`;
+const manualDisabledBucket = defineBucket({
+  meta: {
+    id: DISABLED_ID,
+    name: "Disabled manual with minDwell",
+    enabled: false,
+    kind: "manual",
+    minDwell: MIN_DWELL,
+  },
+});
+
+/**
+ * Manual + minDwell, dedicated to the SELECT→UPDATE race guard so the disarm
+ * fired from the push hook cannot perturb any other suite's rows.
+ */
+const RACE_ID = `${RUN}-manual-race`;
+const manualRaceBucket = defineBucket({
+  meta: {
+    id: RACE_ID,
+    name: "Manual minDwell — re-add race",
+    enabled: true,
+    kind: "manual",
+    minDwell: MIN_DWELL,
+  },
+});
+
+/**
+ * Manual with BOTH ceilings: the TTL pass and the deferred-leave pass can come
+ * due on the SAME tick, and the TTL pass runs first. A SEEDED population's
+ * `emit: false` lives only on the pending-leave marker, so a TTL force-leave
+ * destroys it and blasts `bucket:left` into live journeys.
+ */
+const SEEDTTL_ID = `${RUN}-manual-seed-ttl`;
+const manualSeedTtlBucket = defineBucket({
+  meta: {
+    id: SEEDTTL_ID,
+    name: "Manual with maxDwell AND minDwell",
+    enabled: true,
+    kind: "manual",
+    minDwell: MIN_DWELL,
+    maxDwell: hours(48),
+  },
+});
+
 const TEST_BUCKETS = [
   manualTtlBucket,
   manualDeferBucket,
@@ -221,6 +288,10 @@ const TEST_BUCKETS = [
   manualTrapBucket,
   manualBoundBucket,
   manualStarveBucket,
+  manualNoMinDwellBucket,
+  manualDisabledBucket,
+  manualRaceBucket,
+  manualSeedTtlBucket,
   dynamicBucket,
 ];
 
@@ -317,7 +388,25 @@ const meta = (over: Partial<BucketMeta>): BucketMeta => ({
   ...over,
 });
 
+/**
+ * A hook fired FROM INSIDE the emit of a `bucket:left`, i.e. at the one instant
+ * that sits strictly between the pending-leave pass's SELECT and the UPDATE it
+ * issues for the SILENT partition (`ingestEvent` awaits `hatchet.events.push`,
+ * and the pass emits the `emit: true` partition before flipping the silent one).
+ * That is the only honest way to land a concurrent write in the window the CAS
+ * is supposed to cover — a wall-clock race would be probabilistic, and a
+ * probabilistic guard certifies rather than fails.
+ */
+let onPush: ((event: string, userId: string) => Promise<void>) | null = null;
+
+pushSpy.mockImplementation(
+  async (event: string, payload: { userId?: string }) => {
+    await onPush?.(event, payload?.userId ?? "");
+  },
+);
+
 beforeEach(() => {
+  onPush = null;
   pushSpy.mockClear();
 });
 
@@ -372,6 +461,72 @@ describe("selectReconcilePasses (the criteria/kind split)", () => {
       criteriaLeaves: false,
       criteriaJoins: false,
       ttlLeaves: true,
+      // ON despite `minDwell` being absent: the pass selects on the PRESENCE of
+      // the `__pendingLeave__` marker, never on the live config, so removing
+      // `minDwell` cannot orphan an already-armed deferral.
+      pendingLeaves: true,
+      dwell: false,
+    });
+  });
+
+  // Config edits must not destroy recorded intent. A manual bucket that has
+  // NEVER had `minDwell` selects nothing (the marker predicate returns zero
+  // rows), so arming the pass unconditionally is free; keying it on the live
+  // `minDwell` is what makes a REMOVAL strand every deferred leave.
+  it("arms the pending-leave pass for a manual bucket with no minDwell at all", () => {
+    expect(selectReconcilePasses(meta({ kind: "manual" }), false)).toEqual({
+      criteriaLeaves: false,
+      criteriaJoins: false,
+      ttlLeaves: false,
+      pendingLeaves: true,
+      dwell: false,
+    });
+  });
+
+  // A DISABLED manual bucket keeps the deferred-leave pass and NOTHING else:
+  // every other pass DISCOVERS work from the clock (and a kill switch must
+  // discover nothing), while a pending leave is an already-applied operator
+  // intent that no other code path will ever clear.
+  it("leaves a disabled manual bucket with the pending-leave pass ONLY", () => {
+    expect(
+      selectReconcilePasses(
+        meta({
+          enabled: false,
+          kind: "manual",
+          minDwell: hours(2),
+          maxDwell: hours(48),
+        }),
+        true,
+      ),
+    ).toEqual({
+      criteriaLeaves: false,
+      criteriaJoins: false,
+      ttlLeaves: false,
+      pendingLeaves: true,
+      dwell: false,
+    });
+  });
+
+  it("keeps a disabled DYNAMIC bucket fully inert", () => {
+    expect(
+      selectReconcilePasses(
+        meta({
+          enabled: false,
+          timeBased: true,
+          maxDwell: hours(48),
+          criteria: {
+            type: "event",
+            eventName: "x",
+            check: "exists",
+            within: days(7),
+          },
+        }),
+        true,
+      ),
+    ).toEqual({
+      criteriaLeaves: false,
+      criteriaJoins: false,
+      ttlLeaves: false,
       pendingLeaves: false,
       dwell: false,
     });
@@ -1149,5 +1304,285 @@ describe("pending-leave pass: a RAISED minDwell re-defers without looping", () =
     expect(stuck.filter((u) => statuses.get(u) === "active")).toHaveLength(
       BATCH_SIZE,
     );
+  });
+});
+
+// ===========================================================================
+// E. A deferred leave can never be STRANDED.
+//
+// AC 7 is "minDwell DEFERS the leave, NEVER DROPS it". A deferral that no pass
+// will ever look at again is a DROP that also leaves the member permanently
+// `active` with an armed deadline — strictly worse than dropping it cleanly.
+// Both strandings below are reached by CONFIG, not by data: the marker outlives
+// the config edit that made it, so the selector must key on the marker.
+// ===========================================================================
+
+/** Insert an ACTIVE membership already carrying a DUE pending leave. */
+async function seedDuePendingLeave(opts: {
+  bucketId: string;
+  userId: string;
+  emit: boolean;
+  enteredAgoMs?: number;
+  dueAgoMs?: number;
+  maxDwellAt?: Date | null;
+}): Promise<void> {
+  const {
+    bucketId,
+    userId,
+    emit,
+    enteredAgoMs = 5 * HOUR,
+    dueAgoMs = HOUR,
+    maxDwellAt = null,
+  } = opts;
+  const expiresAt = new Date(Date.now() - dueAgoMs);
+  await db.insert(bucketMemberships).values({
+    userId,
+    userEmail: `${userId}@example.com`,
+    bucketId,
+    status: "active",
+    source: "manual",
+    entryCount: 1,
+    enteredAt: new Date(Date.now() - enteredAgoMs),
+    expiresAt,
+    ...(maxDwellAt ? { maxDwellAt } : {}),
+    context: pendingLeave(expiresAt, emit),
+    lastEvaluatedAt: new Date(Date.now() - enteredAgoMs),
+  });
+}
+
+describe("pending-leave pass: the selector keys on the MARKER, not on config", () => {
+  // (a) The operator REMOVES `minDwell` after a leave was deferred. The armed
+  // row survives the edit; a selector reading the bucket's CURRENT `minDwell`
+  // switches the only pass that can resolve it off, permanently.
+  it("resolves a deferred leave on a bucket whose minDwell was since removed", async () => {
+    const user = uid("nomindwell-defer");
+    await seedContact(user);
+    await seedDuePendingLeave({ bucketId: NOMIN_ID, userId: user, emit: true });
+
+    pushSpy.mockClear();
+    await runReconcile();
+
+    expect((await membershipRow(user, NOMIN_ID))?.status).toBe("left");
+    expect(pushCountForUser(`bucket:left:${NOMIN_ID}`, user)).toBe(1);
+    expect(
+      lastPushForUser(`bucket:left:${NOMIN_ID}`, user)?.properties?.reason,
+    ).toBe("manual");
+  });
+
+  // (b) The operator DISABLES the bucket after a leave was deferred. The sweep
+  // iterates enabled buckets, so the row is never looked at again.
+  it("resolves a deferred leave on a DISABLED bucket, silently", async () => {
+    const user = uid("disabled-defer");
+    await seedContact(user);
+    await seedDuePendingLeave({
+      bucketId: DISABLED_ID,
+      userId: user,
+      // Recorded `emit: true` — the suppression under test comes from the
+      // bucket being switched OFF, not from the marker.
+      emit: true,
+    });
+
+    pushSpy.mockClear();
+    await runReconcile();
+
+    // The row is resolved (never stranded active with an armed deadline)…
+    expect((await membershipRow(user, DISABLED_ID))?.status).toBe("left");
+    // …and a switched-off bucket fires NOTHING into live journeys (§2.7a).
+    expect(pushCountForUser(`bucket:left:${DISABLED_ID}`, user)).toBe(0);
+  });
+});
+
+// ===========================================================================
+// F. The pending-leave CAS is honest about every predicate its SELECT used.
+// ===========================================================================
+
+describe("pending-leave pass: a re-add between SELECT and UPDATE wins", () => {
+  // `addBucketMember` disarms a pending leave precisely so a re-added member is
+  // not force-left by the next sweep. That disarm is worthless if the sweep's
+  // UPDATE does not RE-ASSERT the marker + deadline: the SELECT already
+  // captured the row, so the UPDATE flips a member the caller just re-added.
+  //
+  // The disarm is landed from inside the emit of the OTHER (emit:true) row —
+  // `ingestEvent` awaits `hatchet.events.push`, and the pass emits its
+  // `emit: true` partition before flipping the silent one, so that push is a
+  // deterministic point strictly between the SELECT and the silent UPDATE.
+  it("does not flip a row whose pending leave a re-add disarmed mid-sweep", async () => {
+    const trigger = uid("race-trigger");
+    const raced = uid("race-readded");
+    await seedContact(trigger);
+    await seedContact(raced);
+    await seedDuePendingLeave({
+      bucketId: RACE_ID,
+      userId: trigger,
+      emit: true,
+      dueAgoMs: 2 * HOUR,
+    });
+    await seedDuePendingLeave({
+      bucketId: RACE_ID,
+      userId: raced,
+      emit: false,
+      dueAgoMs: HOUR,
+    });
+
+    pushSpy.mockClear();
+    let disarmed = false;
+    onPush = async (event, userId) => {
+      if (
+        disarmed ||
+        event !== `bucket:left:${RACE_ID}` ||
+        userId !== trigger
+      ) {
+        return;
+      }
+      disarmed = true;
+      // The REAL re-add path, not a hand-rolled UPDATE.
+      const readd = await addBucketMember({
+        ...deps,
+        bucketId: RACE_ID,
+        userId: raced,
+      });
+      expect(readd.verdict).toBe("already-active");
+    };
+
+    await runReconcile();
+    expect(disarmed).toBe(true);
+
+    // The trigger row is unaffected — it really was due and really did leave.
+    expect((await membershipRow(trigger, RACE_ID))?.status).toBe("left");
+
+    // The re-added member is STILL a member: the CAS re-checked the marker and
+    // the armed deadline, both cleared by the disarm, so it matched zero rows.
+    const racedRow = await membershipRow(raced, RACE_ID);
+    expect(racedRow?.status).toBe("active");
+    expect(racedRow?.expiresAt).toBeNull();
+    expect(
+      (racedRow?.context as Record<string, unknown> | null) ?? {},
+    ).not.toHaveProperty("__pendingLeave__");
+    expect(pushCountForUser(`bucket:left:${RACE_ID}`, raced)).toBe(0);
+  });
+});
+
+// ===========================================================================
+// G. The TTL pass must not destroy a recorded `emit: false`.
+// ===========================================================================
+
+describe("maxDwell TTL pass honours a SUPPRESSED pending leave", () => {
+  // A seeded population removed inside the dwell window records `emit: false`
+  // on the marker. On a bucket with BOTH ceilings the TTL deadline can come due
+  // on the SAME tick, and the TTL pass runs FIRST — force-leaving the row and
+  // emitting `bucket:left` with `reason: "maxDwell"`, i.e. firing a SEEDED
+  // population into live journeys (DECISIONS §2.7a) and destroying the recorded
+  // intent (the row is already `left` when the pending pass runs).
+  //
+  // The EMIT is the assertion. A status-only check is green either way — the
+  // row ends `left` whichever pass reaches it — while the journey-visible event
+  // still fired, which IS the defect.
+  it("emits nothing when an emit:false deferral and maxDwell come due together", async () => {
+    const user = uid("seedttl-silent");
+    await seedContact(user);
+
+    const added = await addBucketMember({
+      ...deps,
+      bucketId: SEEDTTL_ID,
+      userId: user,
+      emit: false,
+    });
+    expect(added.verdict).toBe("seeded");
+
+    const removed = await removeBucketMember({
+      ...deps,
+      bucketId: SEEDTTL_ID,
+      userId: user,
+      emit: false,
+    });
+    expect(removed.verdict).toBe("deferred");
+
+    // Both deadlines due on this tick (maxDwell >= minDwell is schema-enforced,
+    // so a due maxDwellAt always implies a due armed expiresAt).
+    await db
+      .update(bucketMemberships)
+      .set({
+        enteredAt: new Date(Date.now() - 72 * HOUR),
+        expiresAt: new Date(Date.now() - 70 * HOUR),
+        maxDwellAt: new Date(Date.now() - 24 * HOUR),
+      })
+      .where(
+        and(
+          eq(bucketMemberships.bucketId, SEEDTTL_ID),
+          eq(bucketMemberships.userId, user),
+        ),
+      );
+
+    pushSpy.mockClear();
+    await runReconcile();
+
+    // Applied, never dropped — the leave still lands…
+    expect((await membershipRow(user, SEEDTTL_ID))?.status).toBe("left");
+    // …and stays SILENT. This is the assertion the defect breaks: without the
+    // TTL exclusion the row leaves with `reason: "maxDwell"` and this is 1.
+    expect(pushCountForUser(`bucket:left:${SEEDTTL_ID}`, user)).toBe(0);
+  });
+
+  // An `emit: true` deferral whose armed deadline is ALSO due is resolvable by
+  // the PENDING pass on this same tick, so both passes could leave the row —
+  // but they emit different journey-visible `reason`s. "manual" is the truth:
+  // an operator explicitly removed this member and `minDwell` merely delayed
+  // it. Leaving the answer to pass ORDER means a journey branching on `reason`
+  // gets a value that depends on how the sweep happens to be sequenced.
+  it("a due emit:true deferral leaves with reason manual, not maxDwell", async () => {
+    const user = uid("seedttl-reason");
+    await seedContact(user);
+    await seedDuePendingLeave({
+      bucketId: SEEDTTL_ID,
+      userId: user,
+      emit: true,
+      enteredAgoMs: 72 * HOUR,
+      // Positive → the armed deadline is DUE, so the pending pass owns this row.
+      dueAgoMs: HOUR,
+      maxDwellAt: new Date(Date.now() - 24 * HOUR),
+    });
+
+    pushSpy.mockClear();
+    await runReconcile();
+
+    expect((await membershipRow(user, SEEDTTL_ID))?.status).toBe("left");
+    // Journey-visible either way, so a count assertion alone would pass with
+    // the defect present — the REASON is the whole finding.
+    expect(pushCountForUser(`bucket:left:${SEEDTTL_ID}`, user)).toBe(1);
+    expect(
+      lastPushForUser(`bucket:left:${SEEDTTL_ID}`, user)?.properties?.reason,
+    ).toBe("manual");
+  });
+
+  // The exclusion must be NARROW — `emit: false` only, never "any marker". The
+  // discriminating state is a marker whose armed deadline is NOT yet due while
+  // `maxDwellAt` IS (the operator LOWERED `minDwell` after the deferral was
+  // armed, so `expiresAt = enteredAt + oldMinDwell` outruns
+  // `maxDwellAt = enteredAt + maxDwell`). The pending pass cannot touch this row
+  // — its deadline is in the future — so if the TTL pass skipped every marker
+  // the member would sit past their TTL ceiling with nobody to force-leave them.
+  // An `emit: true` leave is journey-visible whichever pass reaches it, so the
+  // TTL ceiling wins here and the emit is correct.
+  it("still force-leaves a row whose pending leave is emit:true and not yet due", async () => {
+    const user = uid("seedttl-loud");
+    await seedContact(user);
+    await seedDuePendingLeave({
+      bucketId: SEEDTTL_ID,
+      userId: user,
+      emit: true,
+      enteredAgoMs: 72 * HOUR,
+      // Negative → the armed deadline is still an hour AWAY.
+      dueAgoMs: -HOUR,
+      maxDwellAt: new Date(Date.now() - 24 * HOUR),
+    });
+
+    pushSpy.mockClear();
+    await runReconcile();
+
+    expect((await membershipRow(user, SEEDTTL_ID))?.status).toBe("left");
+    expect(pushCountForUser(`bucket:left:${SEEDTTL_ID}`, user)).toBe(1);
+    expect(
+      lastPushForUser(`bucket:left:${SEEDTTL_ID}`, user)?.properties?.reason,
+    ).toBe("maxDwell");
   });
 });
