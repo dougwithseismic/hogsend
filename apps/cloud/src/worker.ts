@@ -8,8 +8,10 @@
 import { env } from "./env";
 import {
   getCloudHatchet,
+  getHealthSweepTask,
   getProvisionStackTask,
   PROVISION_STACK_TASK,
+  SWEEP_STACK_HEALTH_TASK,
 } from "./pipeline/hatchet";
 import { startWorker } from "./worker-runtime";
 
@@ -18,6 +20,7 @@ const worker = startWorker({
   nodeEnv: env.NODE_ENV,
   hatchetConfigured: Boolean(env.CLOUD_HATCHET_CLIENT_TOKEN),
   substrate: env.CLOUD_SUBSTRATE,
+  taskNames: [PROVISION_STACK_TASK, SWEEP_STACK_HEALTH_TASK],
   // Built here rather than inside the runtime so the runtime stays a plain
   // function over injected config — the Hatchet client is the one dependency
   // that opens a socket at construction.
@@ -25,7 +28,9 @@ const worker = startWorker({
     const client = getCloudHatchet();
     if (!client) throw new Error("no cloud Hatchet client");
     const hatchetWorker = await client.worker("cloud-worker", {
-      workflows: [getProvisionStackTask(client)],
+      // The sweep declares its own cron (`onCrons`), so registering it here is
+      // the whole wiring — there is no separate schedule to create or drift.
+      workflows: [getProvisionStackTask(client), getHealthSweepTask(client)],
     });
     // `start()` does not resolve until the worker stops — awaiting it here
     // would hang boot. Kick it off and hand back the handle.
@@ -47,7 +52,7 @@ process.stdout.write(
     service: "cloud-worker",
     event: "config",
     substrate: env.CLOUD_SUBSTRATE,
-    task: PROVISION_STACK_TASK,
+    tasks: [PROVISION_STACK_TASK, SWEEP_STACK_HEALTH_TASK],
   })}\n`,
 );
 

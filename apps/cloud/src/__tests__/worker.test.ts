@@ -131,6 +131,31 @@ describe("startWorker", () => {
     expect(lines.some((line) => line.event === "tasks")).toBe(true);
   });
 
+  it("counts and names every task it was told to register", async () => {
+    // The boot line is the only place an operator learns the health sweep is
+    // actually on. A hardcoded count would go stale the moment a task landed.
+    const { lines, log } = collector();
+    const worker = startWorker({
+      databaseUrl: TEST_URL,
+      nodeEnv: "test",
+      log,
+      hatchetConfigured: true,
+      substrate: "fake",
+      taskNames: ["provision-stack", "sweep-stack-health"],
+      startHatchetWorker: async () => ({
+        async start() {},
+        async stop() {},
+      }),
+    });
+
+    expect(lines[0]).toMatchObject({ event: "boot", tasks: 2 });
+    await worker.stop();
+    expect(lines.find((line) => line.event === "tasks")).toMatchObject({
+      registered: 2,
+      names: ["provision-stack", "sweep-stack-health"],
+    });
+  });
+
   it("reports zero tasks and never builds a worker without a Hatchet token", async () => {
     const { lines, log } = collector();
     let built = false;

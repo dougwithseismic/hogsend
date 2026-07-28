@@ -10,5 +10,6 @@ export * from "./enums";
 export * from "./environments";
 export * from "./organizations";
 export * from "./provider-keys";
+export * from "./stack-health";
 export * from "./stacks";
 export * from "./usage-counters";

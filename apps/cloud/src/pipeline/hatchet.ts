@@ -1,6 +1,7 @@
 import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
+import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
 
 /**
@@ -26,6 +27,9 @@ export const CLOUD_HATCHET_NAMESPACE = "cloud";
 
 /** The durable task name. Also the Hatchet dashboard's label. */
 export const PROVISION_STACK_TASK = "provision-stack";
+
+/** The recurring health sweep (PRD 04 task 4). Cron-triggered, never enqueued. */
+export const SWEEP_STACK_HEALTH_TASK = "sweep-stack-health";
 
 export interface ProvisionStackInput extends JsonObject {
   stackId: string;
@@ -108,4 +112,47 @@ export function getProvisionStackTask(
 ): ProvisionStackTask {
   taskCache ??= buildProvisionStackTask(client);
   return taskCache;
+}
+
+/** The JSON summary a finished health sweep leaves in Hatchet. */
+export interface HealthSweepTaskOutput extends JsonObject {
+  checked: number;
+  healthy: number;
+  unhealthy: number;
+}
+
+/**
+ * The `sweep-stack-health` cron task — every minute, every `running` stack.
+ *
+ * `retries: 0` on purpose: the sweep is idempotent in the harmless sense (a
+ * re-run just writes another observation), but a retried sweep would write a
+ * SECOND row for the same minute and shorten the "3 consecutive sweeps" window
+ * to something less than three minutes. Missing one minute is cheaper than
+ * corrupting the streak the alert rule is built on — the next cron tick is 60
+ * seconds away.
+ */
+function buildHealthSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_STACK_HEALTH_TASK,
+    onCrons: [HEALTH_SWEEP_CRON],
+    retries: 0,
+    executionTimeout: "5m",
+    fn: async (): Promise<HealthSweepTaskOutput> => {
+      const result = await sweepStackHealth();
+      return {
+        checked: result.checked,
+        healthy: result.healthy,
+        unhealthy: result.unhealthy,
+      };
+    },
+  });
+}
+
+export type HealthSweepTask = ReturnType<typeof buildHealthSweepTask>;
+
+let sweepCache: HealthSweepTask | undefined;
+
+export function getHealthSweepTask(client: HatchetClient): HealthSweepTask {
+  sweepCache ??= buildHealthSweepTask(client);
+  return sweepCache;
 }

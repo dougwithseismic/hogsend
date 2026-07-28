@@ -43,6 +43,13 @@ export interface WorkerConfig {
    * refuses to start.
    */
   substrate: string;
+  /**
+   * The tasks `startHatchetWorker` registers, by name. Carried as data purely
+   * so the boot line can COUNT and NAME them honestly — the runtime never
+   * imports the pipeline, so a hardcoded number here would drift the moment a
+   * task was added.
+   */
+  taskNames: string[];
   /** Builds + starts the Hatchet worker. Injected so tests need no engine. */
   startHatchetWorker: () => Promise<HatchetWorkerHandle>;
 }
@@ -55,6 +62,12 @@ export interface WorkerHandle {
 }
 
 const DEFAULT_HEARTBEAT_MS = 60_000;
+
+/**
+ * What a caller registers when it says nothing — the task that has been here
+ * since PRD 04 task 3. `src/worker.ts` passes the real list.
+ */
+const DEFAULT_TASK_NAMES = ["provision-stack"];
 
 function defaultLog(line: WorkerLogLine): void {
   process.stdout.write(`${JSON.stringify(line)}\n`);
@@ -70,6 +83,7 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
   const heartbeatMs = config.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const hatchetConfigured = config.hatchetConfigured ?? false;
   const substrate = config.substrate ?? "fake";
+  const taskNames = config.taskNames ?? DEFAULT_TASK_NAMES;
 
   if (!config.databaseUrl || config.databaseUrl.trim() === "") {
     throw new Error(
@@ -94,9 +108,9 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
     node: process.version,
     pid: process.pid,
     heartbeatMs,
-    // 1 = `provision-stack`. Zero means "no Hatchet configured, this worker is
-    // idling" — the gap is explicit rather than implied.
-    tasks: hatchetConfigured ? 1 : 0,
+    // Zero means "no Hatchet configured, this worker is idling" — the gap is
+    // explicit rather than implied.
+    tasks: hatchetConfigured ? taskNames.length : 0,
   });
 
   let hatchetWorker: HatchetWorkerHandle | undefined;
@@ -106,7 +120,12 @@ export function startWorker(config: Partial<WorkerConfig> = {}): WorkerHandle {
           .startHatchetWorker()
           .then((worker) => {
             hatchetWorker = worker;
-            log({ service: "cloud-worker", event: "tasks", registered: 1 });
+            log({
+              service: "cloud-worker",
+              event: "tasks",
+              registered: taskNames.length,
+              names: taskNames,
+            });
           })
           .catch((error) => {
             // Registration happens after boot (the gRPC handshake is async), so
