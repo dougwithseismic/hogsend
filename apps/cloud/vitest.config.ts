@@ -13,6 +13,10 @@ export default defineConfig({
     // Migrations touch a real database and hold an advisory lock; the default
     // 5s timeout flakes on a cold connection + CREATE DATABASE.
     testTimeout: 60_000,
+    // Every suite hits the same real Postgres; parallel files race fixtures
+    // and stack connection pools against the server's max_connections when
+    // turbo runs the whole monorepo. The suite is ~4s — serialize it.
+    fileParallelism: false,
     env: {
       NODE_ENV: "test",
       // LAW: the default MUST be port 5434 — the repo's docker-compose
