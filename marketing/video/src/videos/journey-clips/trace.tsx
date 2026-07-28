@@ -214,7 +214,7 @@ const useStage = (rowCount: number): Stage => {
   const content = f.width - 2 * f.pad;
   if (f.ratio === "169") {
     // Slightly wider code column than the launch videos — clip journeys
-    // carry longer real-API lines (getPostHog()?.identify(...)).
+    // carry longer real-API lines (getAnalytics()?.setPersonProperties(...)).
     return {
       sideBySide: true,
       codeWidth: 940,

@@ -61,7 +61,7 @@ Visual map of how Hogsend's components connect today, and where the gaps are.
      │  │  ctx.guard.*       → subscription checks      │   │
      │  │  ctx.history.*     → event/journey/email lookups│  │
      │  │  sendEmail()       → standalone email service  │   │
-     │  │  getPostHog()      → standalone PostHog client │   │
+     │  │  getAnalytics()    → standalone analytics wire │   │
      │  └──────────────┬───────────────────────────────┘   │
      │                 │                                    │
      │                 ▼                                    │

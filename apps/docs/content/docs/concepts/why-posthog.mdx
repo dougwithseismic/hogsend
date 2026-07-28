@@ -43,13 +43,13 @@ PostHog forwards each event to `POST /v1/events`, the same [data-plane endpoint]
 
 ### Person properties enrich journeys
 
-Hogsend pulls PostHog person properties (with Redis caching) so your journeys and timezone logic can use the full user profile. The provider is exposed as `getPostHog()`, which returns `undefined` when `POSTHOG_API_KEY` isn't set — so guard it:
+Hogsend pulls PostHog person properties (with Redis caching) so your journeys and timezone logic can use the full user profile. The active provider is exposed as `getAnalytics()` — vendor-neutral, and `undefined` when no provider is configured (for PostHog, when `POSTHOG_API_KEY` isn't set) — so guard it:
 
 ```ts
-import { getPostHog } from "@hogsend/engine";
+import { getAnalytics } from "@hogsend/engine";
 
-// getPostHog() returns undefined when POSTHOG_API_KEY isn't set, so guard it.
-const properties = await getPostHog()?.getPersonProperties(user.id);
+// getAnalytics() returns undefined when no provider is configured, so guard it.
+const properties = await getAnalytics()?.getPersonProperties(user.id);
 // { plan: "pro", company_size: 50, signup_source: "Product Hunt" }
 ```
 

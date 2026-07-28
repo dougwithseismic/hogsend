@@ -50,7 +50,7 @@ POSTHOG_PERSONAL_API_KEY=...
 
 | Capability | Needs | Without it |
 |---|---|---|
-| Event capture (`getPostHog().captureEvent`, destinations) | `POSTHOG_API_KEY` | Silent no-op |
+| Event capture (`getAnalytics().capture`, destinations) | `POSTHOG_API_KEY` | Silent no-op |
 | Person **writes** (`setPersonProperties`, bucket mirror) | `POSTHOG_API_KEY` | Silent no-op |
 | Person **reads** (`ctx.when` timezone, `getPersonProperties`) | `POSTHOG_PERSONAL_API_KEY` | Soft-fails to **contact properties → client default timezone**; surfaced once at boot and by `hogsend doctor` |
 
@@ -120,14 +120,18 @@ that trigger your journeys are all **one identity**, joined on a key you own.
 
 ## Person writes: the propagation rail
 
-`setPersonProperties` on the provider (or the legacy `identify()` shim) puts
-contact truth onto the analytics person — plan, role, lifecycle stage — using
-only the project key:
+`setPersonProperties` on the provider puts contact truth onto the analytics
+person — plan, role, lifecycle stage — using only the project key. Reach the
+active provider with `getAnalytics()`, which is vendor-neutral and returns
+`undefined` when no provider is configured:
 
 ```ts
-import { getPostHog } from "@hogsend/engine";
+import { getAnalytics } from "@hogsend/engine";
 
-getPostHog()?.identify(user.id, { plan: "pro" });
+await getAnalytics()?.setPersonProperties({
+  distinctId: user.id,
+  set: { plan: "pro" },
+});
 ```
 
 [Buckets](/docs/guides/buckets) can mirror membership automatically

@@ -200,10 +200,11 @@ You don't fire it from `run` — it receives the lifecycle automatically:
 
 See the **hogsend-authoring-destinations** skill. (PostHog is now JUST a
 destination, `kind="posthog"`.) If you need a fire-and-forget raw write inside a
-production-only module, `getPostHog()` remains on the main `@hogsend/engine`
-runtime entry — but for fan-out, reach for a destination, not an in-journey
-vendor call. Importing that runtime entry from a journey module also means a
-zero-infrastructure test must mock or wrap the vendor call.
+production-only module, `getAnalytics()` — the vendor-neutral analytics provider
+— remains on the main `@hogsend/engine` runtime entry, but for fan-out reach for
+a destination, not an in-journey provider call. Importing that runtime entry
+from a journey module also means a zero-infrastructure test must mock or wrap
+the provider call.
 
 ## Guards
 
@@ -245,14 +246,20 @@ orchestration:
 - **`sendEmail()`** —
   `import { sendEmail } from "@hogsend/engine/journeys"`. See
   `references/sending-email-from-a-journey.md`.
-- **`getPostHog()`** — `import { getPostHog } from "@hogsend/engine"` for the raw
-  PostHog service (a runtime-only, fire-and-forget escape hatch). For fanning
+- **`getAnalytics()`** — `import { getAnalytics } from "@hogsend/engine"` for the
+  active analytics provider (a runtime-only, fire-and-forget escape hatch).
+  Returns `AnalyticsProvider | undefined` — `undefined` when the deployment has
+  no provider configured, so always optional-chain. Person WRITE is
+  `await getAnalytics()?.setPersonProperties({ distinctId: user.id, set: { … } })`;
+  person READ is `getAnalytics()?.getPersonProperties(user.id)`. For fanning
   lifecycle data out to product/data tools, prefer an outbound DESTINATION (see
-  above) — it delivers durably and is vendor-neutral. Note: capture and `$set`
-  person WRITES use the `phc_` project key; person READS
-  (`getPersonProperties`) additionally need `POSTHOG_PERSONAL_API_KEY` (the
-  project key is write-only by PostHog's design) and soft-fail to `{}` without
-  it.
+  above) — it delivers durably. On the PostHog provider specifically, capture and
+  `set` person WRITES use the `phc_` project key; person READS additionally need
+  `POSTHOG_PERSONAL_API_KEY` (the project key is write-only by PostHog's design)
+  and soft-fail to `{}` without it.
+
+  There is no `getPostHog()`. It was removed from the engine's public API — the
+  engine names no vendor in its surface. Reaching for it is a compile error.
 - **SMS / feed / connector actions** — plain functions from
   `@hogsend/engine/journeys`, never on `ctx`.
 - There is **no `ctx.db`, no `ctx.sendEmail`, no `ctx.hatchet`** surfaced to

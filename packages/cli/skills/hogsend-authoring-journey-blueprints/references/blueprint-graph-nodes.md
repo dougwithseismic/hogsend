@@ -38,7 +38,7 @@ renders for code journeys, restricted to a validated execution-tier subset.
 - **`sleepUntil`** — the target instant is computed at runtime, not
   statically expressible in a stored graph.
 - **`capture`** — analytics capture calls aren't idempotent
-  (`getPostHog()?.capture()` isn't replay-safe), so they're not exposed here.
+  (`getAnalytics()?.capture()` isn't replay-safe), so they're not exposed here.
 - **`unknown`** — the code-journey AST extractor's escape hatch for an
   unresolved call. A blueprint graph is hand/agent-authored, so there's
   nothing to degrade to — an `unknown` node is a validation error, not a

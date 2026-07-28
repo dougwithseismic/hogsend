@@ -106,12 +106,17 @@ Each capability stands alone — losing one credential never takes down the othe
 
 | Capability | Needs | Without it |
 |---|---|---|
-| Event capture, feature flags | `POSTHOG_API_KEY` | Silent no-op (`getPostHog()` returns `undefined`) |
+| Event capture (`getAnalytics()?.capture()`) | `POSTHOG_API_KEY` | Silent no-op (`getAnalytics()` returns `undefined`) |
 | Person writes (`setPersonProperties`, destination `syncPersons`, bucket mirror) | `POSTHOG_API_KEY` | Silent no-op |
 | Person reads (`ctx.when` timezone, `getPersonProperties`, property conditions) | OAuth credential **or** `POSTHOG_PERSONAL_API_KEY` | Falls back to contact properties → client default timezone; surfaced at boot and by `hogsend doctor` |
 | Events in (PostHog triggers journeys) | The webhook destination + a signing secret (`POSTHOG_WEBHOOK_SECRET`, or one minted by connect when env has none) | No PostHog-triggered journeys; the [data plane](/docs/data-api/events) still ingests everything else |
 | Engagement out (email lifecycle into PostHog) | `ENABLE_POSTHOG_DESTINATION=true` + `POSTHOG_API_KEY` | Opens/clicks recorded in Hogsend only |
 | Loop provisioning | A credential with `hog_function:write` + a reachable `API_PUBLIC_URL` (the signing secret is minted if `POSTHOG_WEBHOOK_SECRET` is unset) | Refused with one of the `409` codes above |
+
+PostHog **feature flags** are not in this table because they are not on the
+engine's analytics wire. `AnalyticsProvider` is deliberately narrow — capture
+and person properties — so read flags from the PostHog SDK directly, or use
+Hogsend's own [feature flags](/docs/flags).
 
 ## Self-hosted / the personal-key fallback
 

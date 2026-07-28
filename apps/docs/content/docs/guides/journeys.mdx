@@ -236,7 +236,7 @@ interface JourneyUser {
 
 ### `JourneyContext`
 
-The context object provides durable execution primitives. It does not include service integrations. Journey effects such as email, SMS, feed items, and connector actions are standalone imports from `@hogsend/engine/journeys`, keeping the context focused on orchestration. Runtime-only services such as the raw `getPostHog()` escape hatch remain on the main `@hogsend/engine` entry and need a mock or adapter in zero-infrastructure tests. (See [How it works](/docs/concepts/how-it-works) for why.)
+The context object provides durable execution primitives. It does not include service integrations. Journey effects such as email, SMS, feed items, and connector actions are standalone imports from `@hogsend/engine/journeys`, keeping the context focused on orchestration. Runtime-only services such as the raw `getAnalytics()` escape hatch remain on the main `@hogsend/engine` entry and need a mock or adapter in zero-infrastructure tests. (See [How it works](/docs/concepts/how-it-works) for why.)
 
 ## `ctx.sleep()`
 
@@ -689,13 +689,19 @@ Check whether a specific email template has been sent to an address.
 ```ts
 email(opts: {
   email: string;
-  template: string;
+  // a key of your template registry, not any string
+  template: TemplateName;
 }): Promise<{
   sent: boolean;
   lastSentAt: string | null;
   count: number;
 }>
 ```
+
+`template` is narrowed to the same union `sendEmail({ template })` enforces, so
+a typo is a compile error instead of a lookup that answers "never sent"
+forever. Before you register your first template the union is empty and the
+type widens back to `string`.
 
 ```ts
 const { sent, count } = await ctx.history.email({

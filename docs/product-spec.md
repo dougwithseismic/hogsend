@@ -489,7 +489,7 @@ Scope: exactly-once is scoped to **replays of the same durable run**. A genuinel
 
 **The only authoring rule:** if you send the SAME template (or trigger the SAME event) more than once in one journey on divergent branches that share a nearest wait label, pass a distinct `idempotencyLabel` per call. The engine throws a loud intra-run key-collision error if two sites derive the same key, so the footgun is caught in dev — never a silently dropped message.
 
-`getPostHog()?.identify()` is replay-safe (a `$set` upsert); prefer a recorded timestamp (e.g. the matched event's `occurredAt` from `ctx.waitForEvent`) over `new Date()` for any value it writes.
+`getAnalytics()?.setPersonProperties({ distinctId, set })` is replay-safe (a `$set` upsert); prefer a recorded timestamp (e.g. the matched event's `occurredAt` from `ctx.waitForEvent`) over `new Date()` for any value it writes. `getAnalytics()?.capture()` is NOT idempotent — avoid it in journeys.
 
 **Non-deterministic decisions** — if a journey makes a non-deterministic choice (LLM, RNG, time-bucketing) whose output selects the send template or trigger event (i.e. becomes the dedup key's discriminant), wrap it in `ctx.once(key, compute)`. `ctx.once` records the computed value in the enrollment's state row the first time and replays it verbatim thereafter — durable on ANY engine — so a replay re-derives the SAME choice (and the SAME send key) instead of delivering a duplicate-but-different message.
 

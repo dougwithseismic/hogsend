@@ -54,7 +54,7 @@ silently do nothing.
 - `ctx` inside a journey is durable-execution primitives only (`sleep`,
   `sleepUntil`, `when`, `waitForEvent`, `digest`, `once`, `checkpoint`,
   `trigger`, `guard`, `history`). Sending email or capturing analytics are
-  STANDALONE imports (`sendEmail`, `getPostHog` from `@hogsend/engine`), not
+  STANDALONE imports (`sendEmail`, `getAnalytics` from `@hogsend/engine`), not
   methods on `ctx` — there is no `ctx.identify` or `ctx.posthog`.
 
 ## Commands

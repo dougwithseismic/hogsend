@@ -91,8 +91,23 @@ const UTIL_CALLS = new Set([
   "String",
   "Boolean",
   "Number",
-  "getPostHog",
+  "getAnalytics",
 ]);
+/**
+ * The vendor-neutral analytics accessor a journey imports from the engine. It
+ * is matched by NAME because the extractor reads source text, never the module
+ * graph — there is nothing else to key on. The predecessor `getPostHog()` was
+ * removed from the public API, so a journey that still names it cannot compile
+ * and is deliberately not recognised here.
+ */
+const ANALYTICS_ACCESSOR = "getAnalytics";
+/**
+ * The `AnalyticsProvider` methods that are SIDE EFFECTS, and so earn a node.
+ * `getPersonProperties` is a read the author branches on — a decision input,
+ * not a step — and is intentionally absent, matching how `ctx.history` is
+ * skipped above.
+ */
+const ANALYTICS_WRITE_METHODS = new Set(["capture", "setPersonProperties"]);
 /**
  * Duration-helper name → the ACTUAL `DurationObject` it produces at runtime
  * (`@hogsend/core`: `days(n) = { hours: n*24 }`, `hours(n) = { hours: n }`,
@@ -357,7 +372,7 @@ function ctxFirstProp(callee: Node, ctxName: string): string | null {
   return null;
 }
 
-/** The base identifier name of a member/call chain (`getPostHog()?.capture` → "getPostHog"). */
+/** Base identifier of a member/call chain (`getAnalytics()?.capture` → "getAnalytics"). */
 function rootIdentName(node: Node): string | undefined {
   let n: Node = node;
   for (;;) {
@@ -538,13 +553,14 @@ function classifyCall(
     }
   }
 
-  // 2. getPostHog()?.capture()/.identify()
+  // 2. getAnalytics()?.capture() / .setPersonProperties()
   if (callee.type === "MemberExpression") {
     const method =
       callee.property.type === "Identifier" ? callee.property.name : undefined;
     if (
-      (method === "capture" || method === "identify") &&
-      rootIdentName(callee.object as Node) === "getPostHog"
+      method &&
+      ANALYTICS_WRITE_METHODS.has(method) &&
+      rootIdentName(callee.object as Node) === ANALYTICS_ACCESSOR
     ) {
       return { ...base, kind: "capture", captureMethod: method };
     }
@@ -918,7 +934,7 @@ function nodeFromRaw(
         node: {
           ...shell(
             `capture:${idx}`,
-            raw.captureMethod === "identify" ? "Identify" : "Capture",
+            raw.captureMethod === "capture" ? "Capture" : "Identify",
             raw.captureMethod,
           ),
           type: "capture",

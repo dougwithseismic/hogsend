@@ -1,5 +1,5 @@
 import { days, hours } from "@hogsend/core";
-import { defineJourney, getPostHog, sendEmail } from "@hogsend/engine";
+import { defineJourney, getAnalytics, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
 
 /**
@@ -82,15 +82,19 @@ export const feedbackNps = defineJourney({
 
     await ctx.checkpoint(`scored-${score}`);
     // Person enrichment is a standalone service, not a ctx primitive — no-op
-    // without POSTHOG_API_KEY. identify ($set) is last-write-wins idempotent so
-    // re-firing on a replay is harmless; the one replay defect would be a
-    // divergent timestamp. Use the matched event's RECORDED occurredAt when the
-    // lookback path supplied it (replay-stable on ANY engine); otherwise omit the
-    // timestamp entirely (PostHog stamps its own ingest time) rather than write a
-    // `new Date()` that would drift on replay.
-    getPostHog()?.identify(user.id, {
-      nps_score: score,
-      ...(answer.occurredAt ? { nps_responded_at: answer.occurredAt } : {}),
+    // when no analytics provider is configured. A `set` write is last-write-wins
+    // idempotent so re-firing on a replay is harmless; the one replay defect
+    // would be a divergent timestamp. Use the matched event's RECORDED
+    // occurredAt when the lookback path supplied it (replay-stable on ANY
+    // engine); otherwise omit the timestamp entirely (the provider stamps its
+    // own ingest time) rather than write a `new Date()` that would drift on
+    // replay.
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: {
+        nps_score: score,
+        ...(answer.occurredAt ? { nps_responded_at: answer.occurredAt } : {}),
+      },
     });
 
     if (score <= 6) {

@@ -31,7 +31,10 @@ const SPECS: ClipSpec[] = [
         : "feature-highlight",
     });
 
-    getPostHog()?.identify(user.id, { activated: true });
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { activated: true },
+    });
   },
 });`,
     steps: [
@@ -62,9 +65,9 @@ const SPECS: ClipSpec[] = [
       },
       {
         kind: "fanout",
-        label: "identify",
+        label: "person props",
         events: ["activated: true"],
-        band: [16, 1],
+        band: [16, 4],
       },
     ],
   },
@@ -288,8 +291,9 @@ const SPECS: ClipSpec[] = [
     });
 
     const score = answer.properties?.score;
-    getPostHog()?.identify(user.id, {
-      nps_score: score,
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { nps_score: score },
     });
   },
 });`,
@@ -314,9 +318,9 @@ const SPECS: ClipSpec[] = [
       },
       {
         kind: "fanout",
-        label: "identify",
+        label: "person props",
         events: ["nps_score: 9"],
-        band: [11, 3],
+        band: [11, 4],
       },
     ],
   },
