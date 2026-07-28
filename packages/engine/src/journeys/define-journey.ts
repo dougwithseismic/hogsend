@@ -152,10 +152,16 @@ function resolveTriggerEvent(meta: JourneyMetaInput): string {
   // mutually exclusive, which narrows the illegal combination to `never` and
   // would hide it from the guards below. These guards exist for the callers
   // types cannot reach.
-  const { event, bucket } = meta.trigger as {
-    event?: string;
-    bucket?: BucketTriggerRef;
+  const raw = meta.trigger as {
+    event?: string | null;
+    bucket?: BucketTriggerRef | null;
   };
+  // `null` is folded to `undefined` before the guards run. Without this a
+  // `{ bucket: null }` from a JS caller passes `!== undefined` (null is not
+  // undefined) and then dereferences `bucket.entered` — crashing with a raw
+  // TypeError raised while BUILDING the diagnostic that exists to prevent it.
+  const event = raw.event ?? undefined;
+  const bucket = raw.bucket ?? undefined;
   if (event !== undefined && bucket !== undefined) {
     throw new Error(
       `defineJourney("${meta.id}"): trigger declares BOTH \`event\` ` +

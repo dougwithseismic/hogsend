@@ -102,6 +102,34 @@ test("declaring NEITHER event nor bucket throws", () => {
   );
 });
 
+// `null` is not `undefined`, so a JS caller passing an explicitly-null bucket
+// used to slip past both guards and die on `bucket.entered` — a raw TypeError
+// raised while building the very diagnostic meant to catch it. Both shapes must
+// reach the friendly error instead.
+test("an explicitly null bucket reaches the diagnostic, not a TypeError", () => {
+  assert.throws(
+    () =>
+      defineJourney({
+        meta: {
+          ...BASE,
+          trigger: { bucket: null } as unknown as JourneyTriggerInput,
+        },
+        run,
+      }),
+    /neither `event` nor `bucket`/,
+  );
+  // A null bucket means ABSENT, so it is not the illegal both-keys case: the
+  // event stands on its own rather than tripping the exclusivity guard.
+  const j = defineJourney({
+    meta: {
+      ...BASE,
+      trigger: { event: "a", bucket: null } as unknown as JourneyTriggerInput,
+    },
+    run,
+  });
+  assert.equal(j.meta.trigger.event, "a");
+});
+
 test("a bucket without an entered transition ref throws", () => {
   assert.throws(
     () =>
