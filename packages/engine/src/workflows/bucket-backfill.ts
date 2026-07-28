@@ -554,6 +554,8 @@ async function selectCompositeMatchers(
         ctx: {
           db,
           userId: contact.userId,
+          // PRD 05: real contactId wired when this subsystem's read batch flips
+          contactId: null,
           journeyContext:
             (contact.properties as Record<string, unknown> | null) ?? {},
         },

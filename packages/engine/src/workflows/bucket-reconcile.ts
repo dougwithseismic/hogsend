@@ -258,7 +258,13 @@ export const bucketExpiryTask = hatchet.durableTask({
         : {};
     const stillMember = await evaluateCondition({
       condition: bucket.criteria,
-      ctx: { db, userId: input.userId, journeyContext },
+      ctx: {
+        db,
+        userId: input.userId,
+        // PRD 05: real contactId wired when this subsystem's read batch flips
+        contactId: null,
+        journeyContext,
+      },
     });
     if (stillMember) {
       return { status: "skipped", reason: "still_member" };
@@ -485,7 +491,13 @@ async function reconcileCompositeLeaves(opts: {
       : {};
     const isMember = await evaluateCondition({
       condition: criteria,
-      ctx: { db, userId: member.userId, journeyContext },
+      ctx: {
+        db,
+        userId: member.userId,
+        // PRD 05: real contactId wired when this subsystem's read batch flips
+        contactId: null,
+        journeyContext,
+      },
     });
     if (!isMember) {
       leavers.push({ userId: member.userId, contactId: member.contactId });
@@ -1101,7 +1113,13 @@ async function reconcileBucketJoins(opts: {
         : {};
       const isMember = await evaluateCondition({
         condition: criteria,
-        ctx: { db, userId: candidate.userId, journeyContext },
+        ctx: {
+          db,
+          userId: candidate.userId,
+          // PRD 05: real contactId wired when this subsystem's read batch flips
+          contactId: null,
+          journeyContext,
+        },
       });
       if (!isMember) continue;
     }

@@ -252,7 +252,13 @@ export async function checkBucketMembership(opts: {
     // sub-conditions read the merged journeyContext.
     const isMember = await evaluateCondition({
       condition: bucket.criteria,
-      ctx: { db, userId, journeyContext },
+      ctx: {
+        db,
+        userId,
+        // PRD 05: real contactId wired when this subsystem's read batch flips
+        contactId: null,
+        journeyContext,
+      },
     });
 
     if (!wasMember && isMember) {

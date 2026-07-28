@@ -1,5 +1,5 @@
 import { emailSends } from "@hogsend/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL } from "drizzle-orm";
 import type { EmailEngagementCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
@@ -16,17 +16,24 @@ export async function evaluateEmailEngagementCondition(opts: {
       "email_engagement condition without templateKey is scoped by caller context (campaign waves) — the per-user evaluator requires an explicit templateKey.",
     );
   }
-  // `email_sends.to_email` is an address. Prefer the explicitly-resolved
-  // `ctx.email` (the flag path passes the contact's real email); fall back to
-  // `ctx.userId` only for legacy callers that never set `email`. A contact with
-  // no email cannot have engagement — resolve to false rather than mis-query.
-  const recipient = ctx.email !== undefined ? ctx.email : ctx.userId;
-  if (recipient == null) return false;
+  // This leaf is the one history read that is NOT keyed on `userId` — its
+  // contactless form keys on `email_sends.to_email`, an ADDRESS. So it does
+  // NOT route through `bySubject`; the owning contact simply supersedes the
+  // address when one is resolved.
+  let subject: SQL;
+  if (ctx.contactId) {
+    subject = eq(emailSends.contactId, ctx.contactId);
+  } else {
+    // `email_sends.to_email` is an address. Prefer the explicitly-resolved
+    // `ctx.email` (the flag path passes the contact's real email); fall back to
+    // `ctx.userId` only for legacy callers that never set `email`. A contact with
+    // no email cannot have engagement — resolve to false rather than mis-query.
+    const recipient = ctx.email !== undefined ? ctx.email : ctx.userId;
+    if (recipient == null) return false;
+    subject = eq(emailSends.toEmail, recipient);
+  }
   const send = await ctx.db.query.emailSends.findFirst({
-    where: and(
-      eq(emailSends.toEmail, recipient),
-      eq(emailSends.templateKey, condition.templateKey),
-    ),
+    where: and(subject, eq(emailSends.templateKey, condition.templateKey)),
     orderBy: (sends, { desc }) => [desc(sends.createdAt)],
   });
 

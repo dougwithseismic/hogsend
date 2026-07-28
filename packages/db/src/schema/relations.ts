@@ -57,10 +57,11 @@ export const bucketConfigsRelations = relations(bucketConfigs, () => ({}));
 
 export const contactsRelations = relations(contacts, ({ many }) => ({
   // NOTE: the logical joins below (emailPreferences/userEvents/journeyStates/
-  // bucketMemberships) reference contacts.externalId — anonymous-only contacts
-  // (external_id NULL) won't resolve through Drizzle relational queries until
-  // identified. Acceptable (anon contacts have no prefs/journeys yet); see
-  // risk 22. contacts.id is NOT the relational key for those tables.
+  // bucketMemberships) reference contacts.id through each table's contact_id
+  // (PRD 05 T1). Anonymous-only contacts now resolve too — the old
+  // user_id → contacts.external_id join could not see them. A row whose
+  // contact_id is still NULL (an observation no contact owns) resolves to no
+  // contact, which is the honest answer.
   emailPreferences: many(emailPreferences),
   userEvents: many(userEvents),
   journeyStates: many(journeyStates),
@@ -94,8 +95,8 @@ export const bucketMembershipsRelations = relations(
   bucketMemberships,
   ({ one }) => ({
     contact: one(contacts, {
-      fields: [bucketMemberships.userId],
-      references: [contacts.externalId],
+      fields: [bucketMemberships.contactId],
+      references: [contacts.id],
     }),
   }),
 );
@@ -122,16 +123,16 @@ export const emailPreferencesRelations = relations(
   emailPreferences,
   ({ one }) => ({
     contact: one(contacts, {
-      fields: [emailPreferences.userId],
-      references: [contacts.externalId],
+      fields: [emailPreferences.contactId],
+      references: [contacts.id],
     }),
   }),
 );
 
 export const userEventsRelations = relations(userEvents, ({ one }) => ({
   contact: one(contacts, {
-    fields: [userEvents.userId],
-    references: [contacts.externalId],
+    fields: [userEvents.contactId],
+    references: [contacts.id],
   }),
 }));
 
@@ -139,8 +140,8 @@ export const journeyStatesRelations = relations(
   journeyStates,
   ({ one, many }) => ({
     contact: one(contacts, {
-      fields: [journeyStates.userId],
-      references: [contacts.externalId],
+      fields: [journeyStates.contactId],
+      references: [contacts.id],
     }),
     logs: many(journeyLogs),
     emailSends: many(emailSends),

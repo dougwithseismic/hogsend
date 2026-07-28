@@ -370,7 +370,14 @@ export async function walkBlueprintGraph(
           for (const condition of conditions) {
             const matched = await evaluateCondition({
               condition,
-              ctx: { db, userId: user.id, journeyContext: user.properties },
+              ctx: {
+                db,
+                userId: user.id,
+                // PRD 05: real contactId wired when this subsystem's read
+                // batch flips
+                contactId: null,
+                journeyContext: user.properties,
+              },
             });
             if (!matched) return false;
           }
