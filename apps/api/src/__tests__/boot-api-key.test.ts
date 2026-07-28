@@ -100,9 +100,21 @@ describe("bootstrapApiKeyFromEnv", () => {
     setBootstrapFlag(container, "false");
     const warnSpy = vi.spyOn(container.logger, "warn");
 
-    const before = await container.db.select({ id: apiKeys.id }).from(apiKeys);
+    // Scoped to the key this suite owns, NOT a whole-table count. The main
+    // vitest project runs files in parallel and eight-plus of them insert
+    // `api_keys` rows, so an unscoped before/after sandwich fails whenever a
+    // sibling's insert lands between the two selects — a false red that reads
+    // like the bootstrap opt-out leaking. The delete hygiene below was already
+    // name-scoped; only the assertion was not.
+    const scoped = () =>
+      container.db
+        .select({ id: apiKeys.id })
+        .from(apiKeys)
+        .where(eq(apiKeys.name, BOOTSTRAP_KEY_NAME));
+
+    const before = await scoped();
     await bootstrapApiKeyFromEnv({ client: container });
-    const after = await container.db.select({ id: apiKeys.id }).from(apiKeys);
+    const after = await scoped();
 
     expect(after.length).toBe(before.length);
     const minted = await container.db
