@@ -75,3 +75,15 @@ None — pure DB + logic against local Postgres.
 EARS green under vitest; gates green; no substrate imports anywhere in this layer.
 
 ## Implementation Notes
+Shipped in 4 commits (schema 0001 / crypto+keys 0002 / org+env services / state machine).
+139 tests total on close. Deltas + laws discovered: all tables live in a `cloud` pg
+schema; org pk = Better Auth org id TEXT (no mapping table); provider_keys upsert
+arbiter (environment_id, provider) added in 0002 — one key per provider per env,
+replace-on-store resets verified_at; crypto is `v1:`-prefixed AES-256-GCM mirroring the
+engine's construction, fail-closed with a no-oracle `CloudDecryptError`; audit detail
+excludes even last4. Transition enforcement is a single guarded UPDATE
+(`WHERE status IN legalSources(to)`) — concurrency-safe without SELECT-then-write; the
+full edge table incl. error→destroying (tear down a failed half-provision) lives in
+`stacks.ts` as exported data (`LEGAL_EDGES`/`legalSources`) for PRD 04. Stack rows are
+CREATED (status requested) by org/env services — creation is not a transition. Enum
+values are frozen in PG order; future statuses must be APPENDED.
