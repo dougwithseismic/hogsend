@@ -73,6 +73,19 @@ export const env = createEnv({
       .string()
       .min(1)
       .default("Hogsend <no-reply@hogsend.com>"),
+    // Which `SubstrateProvider` backs every infrastructure operation. Dev/test
+    // default to the in-memory fake so a fresh clone can walk a whole
+    // provision → running → destroy with no cloud account. Production
+    // WITHHOLDS the default: a deploy that forgot to choose must fail the boot
+    // rather than quietly running a control plane that provisions nothing.
+    CLOUD_SUBSTRATE: isDevOrTest
+      ? z.enum(["fake", "railway"]).default("fake")
+      : z.enum(["fake", "railway"]),
+    // The Railway workspace token. OPTIONAL here (a fake-substrate deploy
+    // needs none) and enforced at the point of use: `getSubstrate()` refuses
+    // to build a Railway substrate without it (PRD 04 EARS — never silently
+    // fake).
+    CLOUD_RAILWAY_TOKEN: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
