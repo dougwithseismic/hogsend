@@ -8,6 +8,13 @@
       "when": 1785258568983,
       "tag": "0000_secret_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785259726002,
+      "tag": "0001_classy_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
