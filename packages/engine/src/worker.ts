@@ -31,6 +31,10 @@ import {
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
 import { dispatchConversionTask } from "./workflows/dispatch-conversion.js";
+import {
+  enqueueIdentityAliasBackfill,
+  identityAliasBackfillTask,
+} from "./workflows/identity-alias-backfill.js";
 import { impactDigestTask } from "./workflows/impact-digest.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { importSuppressionsTask } from "./workflows/import-suppressions.js";
@@ -132,6 +136,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     impactDigestTask,
     bucketReconcileTask,
     bucketBackfillTask,
+    identityAliasBackfillTask,
     crmReconcileTask,
     dispatchConversionTask,
     ...journeyTasks,
@@ -224,6 +229,19 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       logger: container.logger,
     }).catch((err) => {
       container.logger.warn("Bucket backfill enqueue (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // PRD 02: fill `contact_aliases` once per deployment (skipped when a
+    // non-failed job record exists). Same fire-and-forget, best-effort stance
+    // as the bucket backfills above; internally try/caught, `.catch` is the
+    // belt-and-suspenders.
+    enqueueIdentityAliasBackfill({
+      db: container.db,
+      logger: container.logger,
+    }).catch((err) => {
+      container.logger.warn("Identity alias backfill enqueue (boot) failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     });

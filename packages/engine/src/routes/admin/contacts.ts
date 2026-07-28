@@ -9,6 +9,7 @@ import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   contactSearchFilter,
+  deleteIdentityAliasesForContact,
   identifiedContactFilter,
   resolveContact,
   resolveOrCreateContact,
@@ -626,10 +627,16 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    await db
-      .update(contacts)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(contacts.id, contact.id));
+    // Soft-delete + erasure hook in ONE transaction (PRD 02 T1): every
+    // contact_aliases row keyed to the erased contact is that person's own
+    // identity data, whatever `reason`/`from_contact_id` it carries.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(contacts)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(contacts.id, contact.id));
+      await deleteIdentityAliasesForContact(tx, contact.id);
+    });
 
     return c.json({ deleted: true }, 200);
   });

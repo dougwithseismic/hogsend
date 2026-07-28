@@ -22,9 +22,26 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { createLogger } from "./logger.js";
+
+/** Module logger (the house lib idiom — see connector-actions.ts:28). Used only
+ * for the alias dual-write's conflict warning; the resolver's option surface
+ * stays logger-free. */
+const logger = createLogger(process.env.LOG_LEVEL);
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `contact_aliases.reason` values written by PRD 02's dual-write and backfill.
+ * One exported const per value so the writer (here), the backfill job
+ * (`workflows/identity-alias-backfill.ts`) and any rollback statement share a
+ * single spelling — `reason` is bare text with no CHECK, so a typo would
+ * silently escape a string-matched filter. The pre-existing `'promote'` /
+ * `'merge'` literals are provenance events and are deliberately not touched.
+ */
+export const ALIAS_REASON_RESOLVE = "resolve";
+export const ALIAS_REASON_BACKFILL = "backfill";
 
 /**
  * Thrown by {@link resolveOrCreateContact} when a PUBLISHABLE (browser, pk_) anon
@@ -354,11 +371,43 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Look up the single live contact owning `(kind, value)`, falling back to
- * `contact_aliases` on a miss so a stale (loser/promoted) key still resolves to
- * the SURVIVOR (risk 5). Returns the contact row or null.
+ * Look up the single live contact owning `(kind, value)`. Probe order (PRD 02
+ * T5 — the identity table is the source of truth):
+ *
+ *   1. ALIAS-FIRST — one joined statement over `contact_aliases` → `contacts`.
+ *      The `deleted_at IS NULL` predicate lives INSIDE the join on purpose: an
+ *      alias whose target is soft-deleted must produce NO row, so the probe
+ *      falls through rather than resolving a tombstone (the live-target rule).
+ *   2. Identity-column probe — unchanged; covers keys that predate the alias
+ *      backfill and keys whose alias row is dead.
+ *   3. Row-uuid fallback (external keys only) — unchanged, still last.
+ *
+ * With an empty `contact_aliases` this behaves exactly as the old column-first
+ * order did, which is what makes the flip revertable.
  */
 async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
+  // (1) Alias probe FIRST. Single round trip; served by the
+  // `contact_aliases_kind_value_idx` unique index plus a PK join.
+  const viaAlias = await tx
+    .select({ contact: contacts })
+    .from(contactAliases)
+    .innerJoin(
+      contacts,
+      and(
+        eq(contacts.id, contactAliases.contactId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(contactAliases.aliasKind, key.kind),
+        eq(contactAliases.aliasValue, key.value),
+      ),
+    )
+    .limit(1);
+  if (viaAlias[0]) return viaAlias[0].contact;
+
+  // (2) Identity-column probe — unchanged.
   const column =
     key.kind === "external"
       ? contacts.externalId
@@ -374,28 +423,6 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
     .where(and(eq(column, key.value), isNull(contacts.deletedAt)))
     .limit(1);
   if (direct[0]) return direct[0];
-
-  // Alias fallback: the key may sit on a soft-deleted loser row.
-  const alias = await tx
-    .select({ contactId: contactAliases.contactId })
-    .from(contactAliases)
-    .where(
-      and(
-        eq(contactAliases.aliasKind, key.kind),
-        eq(contactAliases.aliasValue, key.value),
-      ),
-    )
-    .limit(1);
-  if (alias[0]) {
-    const aliased = await tx
-      .select()
-      .from(contacts)
-      .where(
-        and(eq(contacts.id, alias[0].contactId), isNull(contacts.deletedAt)),
-      )
-      .limit(1);
-    if (aliased[0]) return aliased[0];
-  }
 
   // Row-id fallback (external keys only): an email-only / anonymous-only
   // contact's canonical key (`external_id ?? anonymous_id ?? id`) IS its row id,
@@ -846,6 +873,9 @@ async function resolveContactShared(
       const createdRow = inserted[0];
       if (!createdRow) throw new Error("Contact insert returned no row");
 
+      // PRD 02 dual-write: the create arm historically wrote ZERO alias rows.
+      await ensureIdentityAliases(tx, createdRow);
+
       // HISTORY ADOPTION (D2). Once observation stops minting a row, a later
       // identify no longer finds an anon contact to fill-in-link — it lands
       // HERE, in the create arm, which historically had no repoint. Everything
@@ -1185,6 +1215,9 @@ async function fillInLink(
     externalId: nextExternalId,
     anonymousId: nextAnonymousId,
     email: (set.email as string | undefined) ?? row.email,
+    // Post-fill discord id: not part of the canonical key, but the PRD 02
+    // dual-write below records an alias per column the row NOW carries.
+    discordId: (set.discordId as string | undefined) ?? row.discordId,
   };
 
   let mergedKeys: string[] | undefined;
@@ -1254,6 +1287,12 @@ async function fillInLink(
         target: [contactAliases.aliasKind, contactAliases.aliasValue],
       });
   }
+
+  // PRD 02 dual-write, AFTER the promote loop so newly-attached keys keep
+  // their `promote` provenance and only the row's pre-existing (pre-alias-era)
+  // columns gain `resolve` rows. This is what backfills a hot contact whose
+  // columns predate `contact_aliases`, without waiting for the offline job.
+  await ensureIdentityAliases(tx, updatedRow);
 
   // `newKey` IS the post-fill canonical key (external_id ?? anonymous_id ?? id) —
   // the same value the old read-back derived.
@@ -1461,6 +1500,21 @@ async function mergeContacts(
     .update(contacts)
     .set(survivorSet)
     .where(eq(contacts.id, survivor.id));
+
+  // PRD 02 dual-write on the POST-merge survivor row: a `resolve` alias per
+  // identity column it now carries. Runs AFTER `recordMergeAliases` (inside the
+  // loser loop above), so the loser keys' `merge` provenance wins the conflict
+  // and only the survivor's pre-alias-era keys gain rows here.
+  await ensureIdentityAliases(tx, {
+    ...survivor,
+    externalId:
+      (survivorSet.externalId as string | undefined) ?? survivor.externalId,
+    email: (survivorSet.email as string | undefined) ?? survivor.email,
+    anonymousId:
+      (survivorSet.anonymousId as string | undefined) ?? survivor.anonymousId,
+    discordId:
+      (survivorSet.discordId as string | undefined) ?? survivor.discordId,
+  });
 
   // If the survivor's canonical key flipped (it had no external_id/anonymous_id
   // and the merge promoted one from the call/loser), re-point the survivor's OWN
@@ -1931,6 +1985,123 @@ async function recordMergeAliases(
     });
 }
 
+/**
+ * PRD 02 T2 — the identity-table dual-write. Ensures a `contact_aliases` row
+ * exists for EVERY identity column the contact carries after a resolve (create /
+ * fill-in-link / collide-merge survivor). Runs inside the resolver transaction
+ * on the hottest write path in the engine, so it is shaped for the steady
+ * state:
+ *
+ *   1. ONE batched SELECT over the row's `(kind, value)` pairs (≤4 rows via the
+ *      unique index). On a repeat resolve every pair already exists and this is
+ *      the ONLY statement — no insert, no conflict churn, no `updated_at` writes.
+ *   2. ONE batched INSERT for the missing pairs only, `onConflictDoNothing` on
+ *      `(alias_kind, alias_value)` as the race guard (concurrent resolvers for
+ *      the same key already serialize on the advisory locks; a cross-key race
+ *      lands here and is silently deduped). Never a per-key loop.
+ *
+ * A pair owned by a DIFFERENT contact is never repointed (the backfill's
+ * "never steals" rule, applied online) — it is skipped and logged as
+ * `identity.alias.conflict` with the KIND and contact id only, never the value
+ * (alias values are emails and account ids). Rows written here carry
+ * `reason: 'resolve'` and `from_contact_id: NULL` — "this contact holds this
+ * key right now", the index entry, not a provenance event — so the existing
+ * `promote`/`merge` writers (which always run BEFORE this in their arms) win
+ * the conflict and keep their provenance.
+ *
+ * The email pair is NORMALIZED (`normalizeEmail`) even when the legacy column
+ * value is mixed-case, because the alias probe compares against the normalized
+ * value the resolver always supplies.
+ */
+async function ensureIdentityAliases(tx: Tx, row: ContactRow): Promise<void> {
+  const email = normalizeEmailOrNull(row.email);
+  const pairs: { kind: Kind; value: string }[] = [];
+  if (row.externalId) pairs.push({ kind: "external", value: row.externalId });
+  if (email) pairs.push({ kind: "email", value: email });
+  if (row.anonymousId)
+    pairs.push({ kind: "anonymous", value: row.anonymousId });
+  if (row.discordId) pairs.push({ kind: "discord", value: row.discordId });
+  if (pairs.length === 0) return;
+
+  const existing = await tx
+    .select({
+      aliasKind: contactAliases.aliasKind,
+      aliasValue: contactAliases.aliasValue,
+      contactId: contactAliases.contactId,
+    })
+    .from(contactAliases)
+    .where(
+      or(
+        ...pairs.map((p) =>
+          and(
+            eq(contactAliases.aliasKind, p.kind),
+            eq(contactAliases.aliasValue, p.value),
+          ),
+        ),
+      ),
+    );
+
+  const held = new Map(
+    existing.map((r) => [`${r.aliasKind}|${r.aliasValue}`, r.contactId]),
+  );
+  const foreignKinds = existing
+    .filter((r) => r.contactId !== row.id)
+    .map((r) => r.aliasKind);
+  if (foreignKinds.length > 0) {
+    logger.warn("identity.alias.conflict", {
+      contactId: row.id,
+      kinds: foreignKinds,
+    });
+  }
+
+  const missing = pairs.filter((p) => !held.has(`${p.kind}|${p.value}`));
+  if (missing.length === 0) return;
+
+  await tx
+    .insert(contactAliases)
+    .values(
+      missing.map((p) => ({
+        contactId: row.id,
+        aliasKind: p.kind,
+        aliasValue: p.value,
+        fromContactId: null,
+        reason: ALIAS_REASON_RESOLVE,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [contactAliases.aliasKind, contactAliases.aliasValue],
+    });
+}
+
+/**
+ * PRD 02 T1 — the erasure hook. Deletes EVERY `contact_aliases` row whose
+ * `contact_id` is the erased contact — no `reason` filter, no `from_contact_id`
+ * filter. Two earlier revisions of this rule each kept a subset and each kept a
+ * leak: `promote` rows hold the person's own email; ABSORBED rows
+ * (`from_contact_id` set) hold the same human's pre-merge email in the common
+ * merge. The erasure question is "whose data is this?", and for any row keyed
+ * to the erased contact the answer is always *theirs*.
+ *
+ * This does NOT strand `followToSurvivor`: that walk follows rows by
+ * `from_contact_id = <loser>`, and those rows live under the SURVIVOR's
+ * `contact_id` — erasing a loser touches none of them, and erasing a survivor
+ * makes the chain into it moot (the alias probe only resolves live contacts).
+ *
+ * Called from both soft-delete sites (`softDeleteContact` and the admin
+ * `DELETE /v1/admin/contacts/:id` route) inside their transactions. The merge
+ * path's loser soft-delete is deliberately NOT a caller — a merge is a fold,
+ * not an erasure, and its aliases (pointing at the survivor) are the mechanism
+ * that keeps the loser's stale keys resolving.
+ */
+export async function deleteIdentityAliasesForContact(
+  db: Database | Tx,
+  contactId: string,
+): Promise<void> {
+  await db
+    .delete(contactAliases)
+    .where(eq(contactAliases.contactId, contactId));
+}
+
 // ---------------------------------------------------------------------------
 // Retained wrapper + public-route helpers
 // ---------------------------------------------------------------------------
@@ -2022,22 +2193,35 @@ export async function softDeleteContact(opts: {
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const userId = opts.userId?.trim() || undefined;
 
-  const clauses = [];
+  // Annotated (unlike findContacts' evolving-any) because the array is read
+  // inside the transaction closure below, where inference cannot follow it.
+  const clauses: SQL[] = [];
   if (email) clauses.push(eq(contacts.email, email));
   if (userId) clauses.push(eq(contacts.externalId, userId));
   if (clauses.length === 0) return { deleted: false };
 
-  const updated = await db
-    .update(contacts)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(or(...clauses), isNull(contacts.deletedAt)))
-    .returning({
-      id: contacts.id,
-      externalId: contacts.externalId,
-      email: contacts.email,
-    });
+  // One transaction: the soft-delete and its erasure hook (PRD 02 T1 — every
+  // contact_aliases row for the erased contact goes with it) commit or roll
+  // back together, so a failure cannot leave identity keys stranded in the
+  // alias table for a deleted person.
+  const row = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(contacts)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(or(...clauses), isNull(contacts.deletedAt)))
+      .returning({
+        id: contacts.id,
+        externalId: contacts.externalId,
+        email: contacts.email,
+      });
+    // The or(email, userId) filter can match TWO distinct contacts in one
+    // call; every soft-deleted row gets its erasure, not just the reported one.
+    for (const deleted of updated) {
+      await deleteIdentityAliasesForContact(tx, deleted.id);
+    }
+    return updated[0];
+  });
 
-  const row = updated[0];
   if (!row) return { deleted: false };
 
   return {

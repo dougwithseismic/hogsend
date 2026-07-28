@@ -398,7 +398,12 @@ export {
 // but pure observation never mints a `contacts` row.
 // `identifiedContactFilter` is the read-side counterpart (PRD 01): the single
 // "has this person ever identified?" predicate behind `?identity=`.
+// `deleteIdentityAliasesForContact` is the erasure hook (PRD 02 T1): a
+// consumer-built deletion flow that soft-deletes `contacts` rows directly must
+// call it too, or the erased person's identity keys survive in
+// `contact_aliases`.
 export {
+  deleteIdentityAliasesForContact,
   identifiedContactFilter,
   resolveContactNoCreate,
   resolveOrCreateContact,
@@ -930,6 +935,17 @@ export {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
+// --- Identity alias backfill (PRD 02): task + boot enqueue + parity probe ---
+export {
+  type AliasParityRow,
+  enqueueIdentityAliasBackfill,
+  IDENTITY_ALIAS_BACKFILL_FORMAT,
+  type IdentityAliasBackfillInput,
+  type IdentityAliasBackfillResult,
+  identityAliasBackfillTask,
+  identityAliasParity,
+  runIdentityAliasBackfill,
+} from "./workflows/identity-alias-backfill.js";
 export {
   buildImpactDigest,
   detectLiftCrossings,
