@@ -1,6 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
-import { PublishableAnonymousMergeError } from "../../lib/contacts.js";
+import {
+  ALL_IDENTITY_KINDS,
+  PublishableAnonymousMergeError,
+} from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
@@ -159,8 +162,9 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
     //    shape that has a real refusal key changes no outcome and keeps the
     //    thrown message pointing at the actual defect.
     //
-    // NOT collapsed into `restrictToAnonymous` even though the conditions
-    // overlap here: that flag guards MERGE/poison, this one guards CREATION.
+    // NOT collapsed into the policy's `allowMerge` clamp even though the
+    // conditions overlap here: that leg guards MERGE/poison, this one guards
+    // CREATION.
     const observationOnly =
       c.get("publishable") === true &&
       !body.userId &&
@@ -179,16 +183,41 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
         // §5.3: thread the active analytics provider so a collide-MERGE /
         // key-flip fires the provider-neutral `mergeIdentities` stitch.
         analytics,
-        // §Phase 1 GAP-1: a publishable (pk_) browser write is anon-clamped —
-        // its browser-readable `anonymousId` may NOT attach to / merge / poison
-        // an already-identified victim contact. Secret-key ingest is never
-        // clamped.
-        restrictToAnonymous: c.get("publishable") === true,
-        // D1 creation guard (see `observationOnly` above). Deliberately a
-        // SEPARATE flag from `restrictToAnonymous`: merge-clamping and
-        // creation-refusal are different questions that only happen to agree on
-        // part of this route's input.
-        allowCreate: !observationOnly,
+        // PRD 06 T3 (L5 rows 1-3): trust is DECLARED by this caller, not
+        // re-inferred inside the resolver.
+        //  - `create` — the D1 creation guard (see `observationOnly` above): a
+        //    token-less pk_ observation refuses to mint; everything else keeps
+        //    creating. Deliberately a SEPARATE leg from `allowMerge`:
+        //    merge-clamping and creation-refusal are different questions that
+        //    only happen to agree on part of this route's input.
+        //  - `allowMerge` — §Phase 1 GAP-1: a publishable (pk_) browser write
+        //    is anon-clamped — its browser-readable `anonymousId` may NOT
+        //    attach to / merge / poison an already-identified victim contact.
+        //    Declared "anonymous-only" even for a token-proven `userId` (row
+        //    2): the clamp is inert there because the DERIVATION sees a
+        //    non-anon key — hard-coding the conclusion ("any") would silently
+        //    break on the next key-precedence change. Secret-key ingest is
+        //    never clamped.
+        //  - `trustedKinds` — the evidence `gatePublishableIdentity` already
+        //    computed: a publishable `userId` reaching this call IS
+        //    token-proven (the gate 403'd every other identity-claiming shape,
+        //    incl. any pk_ email), so a pk_ caller may assert `anonymous`
+        //    (+`external` with that proof); a secret caller all four. Declared
+        //    now, enforced by T5.
+        policy:
+          c.get("publishable") === true
+            ? {
+                create: observationOnly ? "refuse-on-miss" : "on-miss",
+                allowMerge: "anonymous-only",
+                trustedKinds: body.userId
+                  ? ["anonymous", "external"]
+                  : ["anonymous"],
+              }
+            : {
+                create: "on-miss",
+                allowMerge: "any",
+                trustedKinds: ALL_IDENTITY_KINDS,
+              },
         event: {
           event: body.name,
           userId: body.userId,

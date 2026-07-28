@@ -396,7 +396,20 @@ export {
 // --- Contacts identity (resolve/create — used by connector member-link) ---
 // `resolveContactNoCreate` is the refuse-on-miss sibling (D1): same resolution,
 // but pure observation never mints a `contacts` row.
+// `identifiedContactFilter` is the read-side counterpart (PRD 01): the single
+// "has this person ever identified?" predicate behind `?identity=`.
+// `deleteIdentityAliasesForContact` is the erasure hook (PRD 02 T1): a
+// consumer-built deletion flow that soft-deletes `contacts` rows directly must
+// call it too, or the erased person's identity keys survive in
+// `contact_aliases`.
+// `ResolvePolicy`/`IdentityKind` (PRD 06): the explicit caller-declared trust
+// shape both resolver entry points accept via `policy` — the additive
+// replacement for the deprecated `restrictToAnonymous`/`allowCreate` booleans.
 export {
+  deleteIdentityAliasesForContact,
+  type IdentityKind,
+  identifiedContactFilter,
+  type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./lib/contacts.js";
@@ -927,6 +940,17 @@ export {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
+// --- Identity alias backfill (PRD 02): task + boot enqueue + parity probe ---
+export {
+  type AliasParityRow,
+  enqueueIdentityAliasBackfill,
+  IDENTITY_ALIAS_BACKFILL_FORMAT,
+  type IdentityAliasBackfillInput,
+  type IdentityAliasBackfillResult,
+  identityAliasBackfillTask,
+  identityAliasParity,
+  runIdentityAliasBackfill,
+} from "./workflows/identity-alias-backfill.js";
 export {
   buildImpactDigest,
   detectLiftCrossings,

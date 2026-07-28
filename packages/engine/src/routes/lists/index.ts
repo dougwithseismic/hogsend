@@ -317,6 +317,17 @@ async function applyListSubscription(opts: {
       db,
       userId,
       email,
+      // PRD 06 T3 (L5 row 12): a subscribe/unsubscribe reaches here only
+      // server-trusted or token-proven (`gatePublishableIdentity` at both call
+      // sites) and the body carries no `anonymousId`, so the clamp would be
+      // inert — `allowMerge: "any"` is behaviour-identical, and the narrow
+      // `trustedKinds` is the honest statement of what this caller may
+      // assert. Declared now, enforced by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
@@ -499,6 +510,16 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       db,
       userId,
       email,
+      // PRD 06 T3 (L5 row 13): same trust statement as the subscribe path —
+      // server or token-proven caller, no `anonymousId` in the body (the
+      // handler 400s without an email/userId), so `allowMerge: "any"` is
+      // behaviour-identical and the narrow `trustedKinds` is honest. Enforced
+      // by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });

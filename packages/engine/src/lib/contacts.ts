@@ -11,10 +11,37 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import { createLogger } from "./logger.js";
+
+/** Module logger (the house lib idiom — see connector-actions.ts:28). Used only
+ * for the alias dual-write's conflict warning; the resolver's option surface
+ * stays logger-free. */
+const logger = createLogger(process.env.LOG_LEVEL);
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `contact_aliases.reason` values written by PRD 02's dual-write and backfill.
+ * One exported const per value so the writer (here), the backfill job
+ * (`workflows/identity-alias-backfill.ts`) and any rollback statement share a
+ * single spelling — `reason` is bare text with no CHECK, so a typo would
+ * silently escape a string-matched filter. The pre-existing `'promote'` /
+ * `'merge'` literals are provenance events and are deliberately not touched.
+ */
+export const ALIAS_REASON_RESOLVE = "resolve";
+export const ALIAS_REASON_BACKFILL = "backfill";
 
 /**
  * Thrown by {@link resolveOrCreateContact} when a PUBLISHABLE (browser, pk_) anon
@@ -34,6 +61,33 @@ export class PublishableAnonymousMergeError extends Error {
   ) {
     super(message);
     this.name = "PublishableAnonymousMergeError";
+  }
+}
+
+/**
+ * Thrown by the resolver when a supplied identity key's kind is absent from
+ * the caller's declared `ResolvePolicy.trustedKinds` (PRD 06 T5).
+ *
+ * INTERNAL — deliberately NOT exported from `index.ts`. This is defence in
+ * depth, not a request-shaping tool: every browser-facing route is already
+ * gated one layer up (`gatePublishableIdentity` for `/v1/events`,
+ * `/v1/contacts` and the `lists` handlers; `arrive`'s keys come from the
+ * first-write-wins stamp; `feed`'s re-ingests are engine-internal full-trust
+ * with a server-derived subject — the three-legged L3 proof), so this throw
+ * is unreachable from every route today. It exists to catch a FUTURE route
+ * that forgets the gate — a caller bug, surfaced loudly in dev, never a
+ * condition for consumers to branch on. Thrown BEFORE any advisory lock is
+ * taken and before the transaction opens, so a refused call leaves no lock
+ * and no row behind.
+ */
+export class UntrustedKeyKindError extends Error {
+  constructor(kind: string, trustedKinds: readonly string[]) {
+    super(
+      `identity key kind "${kind}" is not in this caller's declared ` +
+        `trustedKinds [${trustedKinds.join(", ")}] — the caller supplied a ` +
+        "key it is not authorized to assert (PRD 06 T5)",
+    );
+    this.name = "UntrustedKeyKindError";
   }
 }
 
@@ -135,24 +189,74 @@ async function keysAnotherContact(
   return false;
 }
 
-/** True when this contact already holds `value` as an anonymous alias. */
-async function anonAliasAlreadyHeld(
+/**
+ * PRD 03 — THE single claim executor. Every supplied identity key the columns
+ * cannot (or should not) hold becomes an identity row through this one path,
+ * on the fill-in-link arm and the merge arm alike. The arms decide WHAT to
+ * claim (and whether a free column also gets the legacy dual-write); this
+ * function is the only place a claim is gated and recorded — the per-arm
+ * inline-side-effect shape is what let the pre-PRD-03 if-arm ship ungated.
+ *
+ * Gate: `external` and `anonymous` claims are refused when the value is
+ * another live contact's CANONICAL key (`keysAnotherContact`) — resolution
+ * probes only the kind's own namespace, so "no candidate resolved" does not
+ * mean "nobody owns this value", and while history is string-keyed a claim on
+ * someone else's canonical key is the setup for theft (the adoption/repoint
+ * primitives key on strings until PRD 05). `email`/`discord` need no gate:
+ * neither is ever canonical, so neither ever keyed history — nothing to steal.
+ * The gate result is memoised per value (`foreignMemo`) so a caller probing
+ * the same value twice issues one query.
+ *
+ * A refused claim is silent + logged (`identity.claim.refused_foreign_key`,
+ * kind + contact id, NEVER the value — it is another person's identifier):
+ * throwing would 500 an ingest that looks legitimate to its caller.
+ *
+ * Returns:
+ *  - "refused" — foreign canonical key; the caller must skip the column write,
+ *    the adoption and the `mergedKeys` report as well.
+ *  - "claimed" — THIS call inserted the `(kind, value)` row. The first-claim
+ *    signal adoption reads: structural idempotence via the unique index +
+ *    `returning()`, replacing the bespoke `anonAliasAlreadyHeld` probe (a
+ *    repeat resolve conflicts, returns nothing, and re-fires nothing — the
+ *    re-stitch-storm guard, now enforced by the index instead of remembered).
+ *  - "held" — the row already existed (repeat resolve, or a merge/backfill
+ *    wrote it first); nothing to adopt or report.
+ */
+async function claimIdentityKey(
   tx: Tx,
-  value: string,
-  contactId: string,
-): Promise<boolean> {
-  const rows = await tx
-    .select({ contactId: contactAliases.contactId })
-    .from(contactAliases)
-    .where(
-      and(
-        eq(contactAliases.aliasKind, "anonymous"),
-        eq(contactAliases.aliasValue, value),
-        eq(contactAliases.contactId, contactId),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  row: ContactRow,
+  key: ResolveKey,
+  foreignMemo: Map<string, boolean>,
+): Promise<"refused" | "claimed" | "held"> {
+  if (key.kind === "external" || key.kind === "anonymous") {
+    let foreign = foreignMemo.get(key.value);
+    if (foreign === undefined) {
+      foreign = await keysAnotherContact(tx, key.value, row.id);
+      foreignMemo.set(key.value, foreign);
+    }
+    if (foreign) {
+      logger.warn("identity.claim.refused_foreign_key", {
+        kind: key.kind,
+        contactId: row.id,
+      });
+      return "refused";
+    }
+  }
+
+  const inserted = await tx
+    .insert(contactAliases)
+    .values({
+      contactId: row.id,
+      aliasKind: key.kind,
+      aliasValue: key.value,
+      fromContactId: null,
+      reason: "promote",
+    })
+    .onConflictDoNothing({
+      target: [contactAliases.aliasKind, contactAliases.aliasValue],
+    })
+    .returning({ id: contactAliases.id });
+  return inserted.length > 0 ? "claimed" : "held";
 }
 
 /**
@@ -264,6 +368,56 @@ export function contactSearchFilter(search: string) {
 }
 
 /**
+ * "Has this person EVER identified?" — the single display predicate behind
+ * `GET /v1/admin/contacts?identity=…` and Studio's identified-only default.
+ *
+ * FOUR columns, not two. `external_id` and `email` are the obvious pair, but
+ * `contacts.discord_id` and `contacts.phone` are documented in the schema as
+ * RESOLVABLE identity keys, NOT properties (`schema/contacts.ts:34-53`), each
+ * carrying its own live partial-unique index. A Discord-linked community
+ * member and an SMS-only subscriber have both identified; dropping either leg
+ * makes a real customer vanish from the default list. `anonymous_id` is
+ * deliberately absent — it is exactly what this predicate exists to exclude.
+ *
+ * The complement is `not(identifiedContactFilter())`, and it is EXACT: every
+ * operand is `IS NOT NULL`, which never yields NULL, so three-valued logic
+ * cannot swallow a row under the negation. Hence
+ * `total(identified) + total(anonymous) === total(all)`, and the rare keyless
+ * row (no identity column at all — the engine already handles those by uuid)
+ * lands in `anonymous`, which is the truthful bucket for it.
+ *
+ * FUTURE (PRD 02/03) — the swap is this function body and nothing else:
+ *
+ * ```ts
+ * or(
+ *   sql`exists (select 1 from contact_aliases ca
+ *               where ca.contact_id = ${contacts.id} and ca.alias_kind <> 'anonymous')`,
+ *   isNotNull(contacts.phone),
+ * )
+ * ```
+ *
+ * Two ordering rules govern it. (1) It is correct only AFTER PRD 02's alias
+ * backfill is verified — today `contact_aliases` is written only on
+ * merge/promote, so the `EXISTS` would read as "never identified" for almost
+ * everyone and empty the list. (2) The `phone` leg SURVIVES the swap: PRD 02
+ * deliberately excludes phone from both the backfill and the dual-write
+ * (phone is not yet a merge-participating `Kind`), so a phone-only contact has
+ * no non-anonymous alias row. That leg retires only when phone joins the
+ * identity table.
+ */
+export function identifiedContactFilter(): SQL {
+  // `or()` is typed `SQL | undefined` because it tolerates undefined operands.
+  // All four here are statically present, so the result is never undefined —
+  // the assertion narrows the type, it does not assert anything at runtime.
+  return or(
+    isNotNull(contacts.externalId),
+    isNotNull(contacts.email),
+    isNotNull(contacts.discordId),
+    isNotNull(contacts.phone),
+  ) as SQL;
+}
+
+/**
  * Normalized, sendable email: `trim` + `toLowerCase`. No dot/+tag stripping —
  * we store the NORMALIZED RAW email (D1), so the address must still deliver.
  */
@@ -282,7 +436,78 @@ export function normalizeEmailOrNull(
 // Identity resolution
 // ---------------------------------------------------------------------------
 
-type Kind = "external" | "email" | "anonymous" | "discord";
+/**
+ * The four key kinds identity resolution understands (PRD 06 — the module-local
+ * `Kind` promoted to the public API). `phone` is deliberately absent: it is not
+ * yet a merge-participating kind (SMS STOP resolves a contact by a direct
+ * `contacts.phone` lookup, outside the resolver).
+ */
+export type IdentityKind = "external" | "email" | "anonymous" | "discord";
+
+// Module-local shorthand retained so this file's existing signatures
+// (`ResolveKey`, `resolveViaAlias`, …) don't churn.
+export type Kind = IdentityKind;
+
+/**
+ * Explicit, caller-declared trust for ONE resolve call (PRD 06). Replaces the
+ * legacy inference from `restrictToAnonymous`/`allowCreate` plus *which keys
+ * happen to be present*: trust travels with the call instead of being
+ * reconstructed inside the resolver. Pass at most one shape — `policy` OR the
+ * legacy fields — never both (the resolver throws; no precedence rule exists).
+ */
+export interface ResolvePolicy {
+  /**
+   * MINT policy. `"on-miss"` is the historic create arm: when no live contact
+   * owns any supplied key, insert one. `"refuse-on-miss"` is the D1 observation
+   * refusal: return `{ id: null }` and mint nothing (reachable only through
+   * {@link resolveContactNoCreate}). The refusal KEY is never accepted from the
+   * caller — it stays DERIVED (`userId ?? anonymousId`) and D8-validated inside
+   * `resolveContactNoCreate`: a caller-supplied key could diverge from what the
+   * create arm would have made canonical and strand the event's history under a
+   * key no contact will ever own (A1).
+   */
+  create: "on-miss" | "refuse-on-miss";
+  /**
+   * MERGE/ATTACH policy. `"any"` is the historic unrestricted behavior.
+   * `"anonymous-only"` is the publishable clamp (§Phase 1 GAP-1, the legacy
+   * `restrictToAnonymous`): it bites only when the supplied keys are EXACTLY
+   * one `anonymous` key, and then refuses to fill-in-link to / merge with an
+   * identified contact and ignores the `contactId` provenance pin.
+   *
+   * `"never-identified-pair"` is RESERVED and NOT IMPLEMENTED — selecting it
+   * throws until it is. It names the rule the current vocabulary cannot
+   * express: never merge two ALREADY-IDENTIFIED persons. The concrete harm it
+   * will one day prevent: person A signs in on a browser (the browser's anon
+   * id `V` is claimed onto A's identified contact), then person B signs in on
+   * the SAME browser without `reset()` — the resolve `{ userId: B,
+   * anonymousId: V }` finds two candidates, both identified, and
+   * `mergeContacts` folds two real humans into one: {@link pickSurvivor}
+   * prefers identified-then-oldest and never checks whether BOTH candidates
+   * are identified. Shared computers, family devices and kiosks make this an
+   * ordinary event, not an attack. Fixing it is a behaviour change and out of
+   * this refactor's scope (D8); no built-in caller selects the value.
+   */
+  allowMerge: "any" | "anonymous-only" | "never-identified-pair";
+  /**
+   * The key kinds THIS CALLER is authorized to assert. ENFORCED (PRD 06 T5):
+   * a supplied key whose kind is absent from this list throws
+   * `UntrustedKeyKindError` — after the keys array is built, before any
+   * advisory lock is taken and before the transaction opens. The default when
+   * no policy is supplied is all four kinds, so legacy-shape callers are
+   * unaffected.
+   */
+  trustedKinds: readonly IdentityKind[];
+}
+
+/** Every kind — the legacy shapes' implicit trust grant (the server default).
+ * Exported (module-level, not public API) so policy-declaring callers state
+ * the full grant without re-spelling the four literals (PRD 06 T3). */
+export const ALL_IDENTITY_KINDS: readonly IdentityKind[] = [
+  "external",
+  "email",
+  "anonymous",
+  "discord",
+];
 
 interface ResolveKey {
   kind: Kind;
@@ -294,11 +519,43 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Look up the single live contact owning `(kind, value)`, falling back to
- * `contact_aliases` on a miss so a stale (loser/promoted) key still resolves to
- * the SURVIVOR (risk 5). Returns the contact row or null.
+ * Look up the single live contact owning `(kind, value)`. Probe order (PRD 02
+ * T5 — the identity table is the source of truth):
+ *
+ *   1. ALIAS-FIRST — one joined statement over `contact_aliases` → `contacts`.
+ *      The `deleted_at IS NULL` predicate lives INSIDE the join on purpose: an
+ *      alias whose target is soft-deleted must produce NO row, so the probe
+ *      falls through rather than resolving a tombstone (the live-target rule).
+ *   2. Identity-column probe — unchanged; covers keys that predate the alias
+ *      backfill and keys whose alias row is dead.
+ *   3. Row-uuid fallback (external keys only) — unchanged, still last.
+ *
+ * With an empty `contact_aliases` this behaves exactly as the old column-first
+ * order did, which is what makes the flip revertable.
  */
 async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
+  // (1) Alias probe FIRST. Single round trip; served by the
+  // `contact_aliases_kind_value_idx` unique index plus a PK join.
+  const viaAlias = await tx
+    .select({ contact: contacts })
+    .from(contactAliases)
+    .innerJoin(
+      contacts,
+      and(
+        eq(contacts.id, contactAliases.contactId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(contactAliases.aliasKind, key.kind),
+        eq(contactAliases.aliasValue, key.value),
+      ),
+    )
+    .limit(1);
+  if (viaAlias[0]) return viaAlias[0].contact;
+
+  // (2) Identity-column probe — unchanged.
   const column =
     key.kind === "external"
       ? contacts.externalId
@@ -314,28 +571,6 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
     .where(and(eq(column, key.value), isNull(contacts.deletedAt)))
     .limit(1);
   if (direct[0]) return direct[0];
-
-  // Alias fallback: the key may sit on a soft-deleted loser row.
-  const alias = await tx
-    .select({ contactId: contactAliases.contactId })
-    .from(contactAliases)
-    .where(
-      and(
-        eq(contactAliases.aliasKind, key.kind),
-        eq(contactAliases.aliasValue, key.value),
-      ),
-    )
-    .limit(1);
-  if (alias[0]) {
-    const aliased = await tx
-      .select()
-      .from(contacts)
-      .where(
-        and(eq(contacts.id, alias[0].contactId), isNull(contacts.deletedAt)),
-      )
-      .limit(1);
-    if (aliased[0]) return aliased[0];
-  }
 
   // Row-id fallback (external keys only): an email-only / anonymous-only
   // contact's canonical key (`external_id ?? anonymous_id ?? id`) IS its row id,
@@ -593,8 +828,21 @@ interface ResolveContactOptions {
    * (`get_distinct_id()`), so without this clamp a pk_ key could forge events as
    * / poison a victim's identified contact via the anon resolution arm. The
    * secret-key path NEVER sets this, so its behavior is byte-for-byte unchanged.
+   *
+   * @deprecated PRD 06 — declare {@link ResolvePolicy} instead:
+   * `policy: { allowMerge: "anonymous-only", … }`. Still fully accepted and
+   * honoured (removal is a breaking change deferred to a later sweep), but
+   * mutually exclusive with `policy` — supplying both shapes throws.
    */
   restrictToAnonymous?: boolean;
+  /**
+   * Explicit caller trust (PRD 06). Mutually exclusive with the legacy
+   * `restrictToAnonymous` field (and, on the internal shared body, the derived
+   * `refuseCreateWithKey` channel): supplying both shapes throws — no
+   * precedence rule exists. Absent ⇒ the legacy fields (or their defaults)
+   * apply unchanged.
+   */
+  policy?: ResolvePolicy;
   /**
    * ENGINE-INTERNAL provenance — the subject contact's UNFORGEABLE row id
    * (`contacts.id`, a server-minted uuid). Set ONLY by engine-internal re-emit
@@ -676,6 +924,10 @@ async function resolveContactShared(
      * `contactKey = external_id ?? anonymous_id ?? id`, so for any other shape
      * the canonical key is a freshly-minted row uuid that refusal cannot
      * reproduce. Absent ⇒ the historic create-on-miss behavior, unchanged.
+     *
+     * @deprecated PRD 06 — the legacy internal channel for the derived refusal
+     * key. The policy shape re-derives the identical key inside the shared
+     * body instead; mutually exclusive with `policy` (supplying both throws).
      */
     refuseCreateWithKey?: string;
   },
@@ -688,16 +940,43 @@ async function resolveContactShared(
   const contactId = opts.contactId?.trim() || undefined;
   const source = opts.source?.trim() || undefined;
   const sourcedAt = opts.sourcedAt;
-  // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
-  // only shape a token-less pk_ key can produce — the gate 403s any
-  // email/userId without a verified userToken before we get here). An identified
-  // arm (token-authorized userId, or the secret path) is never clamped.
-  const restrictToAnonymous =
-    opts.restrictToAnonymous === true &&
-    !userId &&
-    !email &&
-    !discordId &&
-    !!anonymousId;
+
+  // --- POLICY NORMALIZATION (PRD 06 T1) --- EITHER input shape — the explicit
+  // `policy` object or the legacy fields — normalises into this ONE local.
+  // Supplying both shapes at once is a caller bug and throws: no precedence
+  // rule ever ships.
+  if (
+    opts.policy &&
+    (opts.restrictToAnonymous !== undefined ||
+      opts.refuseCreateWithKey !== undefined)
+  ) {
+    throw new Error(
+      "resolveContact: pass either `policy` or the legacy fields " +
+        "(`restrictToAnonymous` / `allowCreate` / `refuseCreateWithKey`), " +
+        "never both — no precedence rule exists",
+    );
+  }
+  if (opts.policy?.allowMerge === "never-identified-pair") {
+    throw new Error(
+      'ResolvePolicy.allowMerge "never-identified-pair" is reserved and not ' +
+        "implemented yet — no caller may select it (see the ResolvePolicy " +
+        "docblock for the shared-browser harm it will eventually prevent)",
+    );
+  }
+  const policy: ResolvePolicy = opts.policy ?? {
+    create:
+      opts.refuseCreateWithKey !== undefined ? "refuse-on-miss" : "on-miss",
+    allowMerge: opts.restrictToAnonymous === true ? "anonymous-only" : "any",
+    trustedKinds: ALL_IDENTITY_KINDS,
+  };
+  // The refusal key stays DERIVED, never caller-supplied (PRD 06 A1): the
+  // legacy channel carries `resolveContactNoCreate`'s already-D8-validated key
+  // verbatim; the policy shape re-derives the IDENTICAL `userId ?? anonymousId`
+  // from the same normalized locals above.
+  const refuseWithKey =
+    policy.create === "on-miss"
+      ? undefined
+      : (opts.refuseCreateWithKey ?? userId ?? anonymousId);
 
   const keys: ResolveKey[] = [];
   if (userId) keys.push({ kind: "external", value: userId });
@@ -712,6 +991,33 @@ async function resolveContactShared(
     );
   }
 
+  // --- TRUST ENFORCEMENT (PRD 06 T5) --- Every supplied key's kind must be in
+  // the caller's declared `trustedKinds`. Placed AFTER the keys array is built
+  // and BEFORE the transaction opens — so a refused call takes no advisory
+  // lock, opens no transaction, and writes no row. The default policy (no
+  // `policy` supplied) grants all four kinds, so every legacy-shape caller is
+  // unaffected. Unreachable from every route today (the three-legged L3
+  // unreachability proof — see {@link UntrustedKeyKindError}); this is defence
+  // in depth against a future route that forgets the gate.
+  for (const key of keys) {
+    if (!policy.trustedKinds.includes(key.kind)) {
+      throw new UntrustedKeyKindError(key.kind, policy.trustedKinds);
+    }
+  }
+
+  // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
+  // only shape a token-less pk_ key can produce — the gate 403s any
+  // email/userId without a verified userToken before we get here). An identified
+  // arm (token-authorized userId, or the secret path) is never clamped.
+  // Provably identical to the legacy derivation (`opts.restrictToAnonymous ===
+  // true && !userId && !email && !discordId && !!anonymousId`): the
+  // supplied-kinds test IS that key-shape test over the same locals (PRD 06 L2).
+  const suppliedKinds = keys.map((k) => k.kind);
+  const clamped =
+    policy.allowMerge === "anonymous-only" &&
+    suppliedKinds.length === 1 &&
+    suppliedKinds[0] === "anonymous";
+
   const patch = contactProperties ?? {};
   const hasPatch = Object.keys(patch).length > 0;
 
@@ -720,11 +1026,11 @@ async function resolveContactShared(
     // trusted internal re-emit pins resolution to that exact row (no value-key
     // probe, no mint), so a contact's own canonical key round-tripping back as a
     // `userId` folds into it instead of minting a phantom `external_id` twin.
-    // Gated on `!restrictToAnonymous` (mutually exclusive with the publishable
+    // Gated on `!clamped` (mutually exclusive with the publishable
     // clamp — a clamped pk_ write can never carry provenance) so it is never an
     // attacker-reachable path. Runs BEFORE the value-key advisory locks: the pin
     // serializes on the concrete row PK via `FOR UPDATE`, not on value locks.
-    if (contactId && UUID_REGEX.test(contactId) && !restrictToAnonymous) {
+    if (contactId && UUID_REGEX.test(contactId) && !clamped) {
       return resolveByContactId(tx, contactId, { patch, hasPatch });
     }
 
@@ -759,10 +1065,19 @@ async function resolveContactShared(
       // once, and `fillInLink` when identity was folded server-side first (the
       // shape the docs sign-in produces). Both are gated on the anon key not
       // naming another contact.
-      if (opts.refuseCreateWithKey !== undefined) {
+      if (policy.create !== "on-miss") {
+        if (refuseWithKey === undefined) {
+          // Unreachable: `refuse-on-miss` enters only through
+          // `resolveContactNoCreate`, whose D8 precondition already threw when
+          // neither `userId` nor `anonymousId` was supplied. Narrows without a
+          // cast.
+          throw new Error(
+            "refuse-on-miss resolve without a derivable refusal key",
+          );
+        }
         return {
           id: null,
-          resolvedKey: opts.refuseCreateWithKey,
+          resolvedKey: refuseWithKey,
           created: false,
           linked: false,
           merged: false,
@@ -785,6 +1100,9 @@ async function resolveContactShared(
         .returning();
       const createdRow = inserted[0];
       if (!createdRow) throw new Error("Contact insert returned no row");
+
+      // PRD 02 dual-write: the create arm historically wrote ZERO alias rows.
+      await ensureIdentityAliases(tx, createdRow);
 
       // HISTORY ADOPTION (D2). Once observation stops minting a row, a later
       // identify no longer finds an anon contact to fill-in-link — it lands
@@ -837,7 +1155,7 @@ async function resolveContactShared(
       // is a forge/poison attempt — the browser-readable anonymousId pointed at
       // a victim. Refuse to fill-in-link / mutate it. (Resolving to its OWN
       // anonymous-only contact — no external_id, no email — is allowed.)
-      if (restrictToAnonymous && (single.externalId || single.email)) {
+      if (clamped && (single.externalId || single.email)) {
         throw new PublishableAnonymousMergeError();
       }
       const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
@@ -866,7 +1184,20 @@ async function resolveContactShared(
     // §Phase 1 GAP-1: an anon-only publishable write must NEVER drive a merge —
     // the browser-readable anonymousId would let an attacker fold two of a
     // victim's contacts together (identity-graph corruption). Refuse.
-    if (restrictToAnonymous) {
+    //
+    // UNREACHABLE BY CONSTRUCTION (PRD 06 T1 mutation-gate note) — do not
+    // burn time hunting a test that can kill this guard; none can. `clamped`
+    // requires `suppliedKinds` to be exactly `["anonymous"]`, so `keys` holds
+    // ONE entry, `findByKey` returns at most ONE row per key, and
+    // `candidates.length <= 1` — but this arm runs only when
+    // `candidates.length >= 2`. The same argument means PRD 06 T2's planned
+    // {anon-only key × two-colliding-rows} equivalence cell cannot actually
+    // drive a collide-MERGE — an anon-only fixture lands in the create or
+    // fill-in-link arm no matter what rows are seeded; don't be confused when
+    // that cell never reaches here. The guard stays anyway: it is a behaviour
+    // of record (removing it is not a refactor) and it becomes load-bearing
+    // the moment key construction lets a clamped resolve supply a second key.
+    if (clamped) {
       throw new PublishableAnonymousMergeError();
     }
     const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
@@ -936,10 +1267,20 @@ export async function resolveOrCreateContact(
    */
   mergedIdentifiedKeys?: string[];
 }> {
+  // PRD 06: this entry point is create-on-miss BY CONTRACT — honouring a
+  // refuse-on-miss policy here would make the refusal arm reachable and force
+  // the published `id: string` to widen (D3). Reject loudly rather than guess.
+  if (opts.policy && opts.policy.create !== "on-miss") {
+    throw new Error(
+      "resolveOrCreateContact is create-on-miss by contract (D3: `id` is " +
+        'never null) — use resolveContactNoCreate for `create: "refuse-on-miss"`',
+    );
+  }
   const resolved = await resolveContactShared(opts);
   if (resolved.id === null) {
-    // Unreachable: `refuseCreateWithKey` is never set on this path, so every
-    // arm either resolves a row or inserts one. Narrows `id` without a cast.
+    // Unreachable: `refuseCreateWithKey` is never set on this path (and a
+    // refuse-on-miss policy is rejected above), so every arm either resolves a
+    // row or inserts one. Narrows `id` without a cast.
     throw new Error("resolveOrCreateContact resolved to no contact");
   }
   return { ...resolved, id: resolved.id };
@@ -994,6 +1335,22 @@ export async function resolveContactNoCreate(
     );
   }
 
+  // PRD 06: with a declared policy the legacy internal channel stays UNSET —
+  // the shared body re-derives the identical `userId ?? anonymousId` refusal
+  // key from the same normalized locals (validated present above), so `policy`
+  // and `refuseCreateWithKey` can never collide.
+  if (opts.policy) {
+    if (opts.policy.create !== "refuse-on-miss") {
+      throw new Error(
+        "resolveContactNoCreate never mints (`created` is pinned false) — " +
+          'its policy must declare `create: "refuse-on-miss"`; use ' +
+          "resolveOrCreateContact for create-on-miss",
+      );
+    }
+    const resolved = await resolveContactShared(opts);
+    return { ...resolved, created: false };
+  }
+
   const resolved = await resolveContactShared({ ...opts, refuseCreateWithKey });
   // Structurally always false (the create arm is refused above); pinned in the
   // type so callers can't branch on a create this entry point cannot perform.
@@ -1013,9 +1370,16 @@ interface ResolveCtx {
 }
 
 /**
- * Single matching row: fill any identity keys it is missing, record a `'promote'`
- * alias for each newly-attached key (provenance + belt-and-suspenders so the key
- * still resolves through the alias path), and apply the property patch.
+ * Single matching row: claim every supplied identity key the row does not
+ * already hold (column when free — the legacy dual-write — identity row
+ * ALWAYS), apply the property patch, then repoint/adopt history where the
+ * claims require it.
+ *
+ * PRD 03 shape — the arm PLANS, {@link claimIdentityKey} EXECUTES: one ordered
+ * pass over the supplied keys replaces the old per-kind attach branches, whose
+ * arm-local side effects are how the if-arm shipped without the foreign-key
+ * gate. "The column is taken" is a non-event now: a second/third value per
+ * kind is just another identity row, for every kind alike.
  */
 async function fillInLink(
   tx: Tx,
@@ -1031,7 +1395,6 @@ async function fillInLink(
     lastSeenAt: new Date(),
     updatedAt: new Date(),
   };
-  const promoted: ResolveKey[] = [];
 
   // The contact's canonical string key BEFORE this fill (external_id ??
   // anonymous_id ?? id). Attaching an external_id (or anonymous_id where none
@@ -1042,61 +1405,84 @@ async function fillInLink(
   let nextExternalId = row.externalId;
   let nextAnonymousId = row.anonymousId;
 
-  if (ctx.userId && !row.externalId) {
-    set.externalId = ctx.userId;
-    nextExternalId = ctx.userId;
-    promoted.push({ kind: "external", value: ctx.userId });
-  }
-  if (ctx.email && !row.email) {
-    set.email = ctx.email;
-    promoted.push({ kind: "email", value: ctx.email });
-  }
-  // discord_id is an attachable resolvable key but NEVER the canonical key
-  // (external_id ?? anonymous_id ?? id), so it does NOT touch
-  // nextExternalId/nextAnonymousId — gaining it never flips the canonical key,
-  // so no own-history re-point follows.
-  if (ctx.discordId && !row.discordId) {
-    set.discordId = ctx.discordId;
-    promoted.push({ kind: "discord", value: ctx.discordId });
-  }
-  // Does the incoming anon id already key SOMEONE ELSE's history? Resolution
-  // only probed the anonymous namespace, so a miss does not answer this. One
-  // query, reused by both arms below — and skipped entirely when the row
-  // already holds this anon id, since neither arm is reachable then and this is
-  // the hottest path there is (every repeat page view from a known device).
-  const foreignAnonKey =
-    ctx.anonymousId != null &&
-    ctx.anonymousId !== row.anonymousId &&
-    (await keysAnotherContact(tx, ctx.anonymousId, row.id));
+  // The supplied keys, in the resolver's precedence order. `current` is the
+  // column value the row holds for that kind today; `column` names the legacy
+  // dual-write slot (retired in PRD 07). Note discord_id / email are attachable
+  // resolvable keys but NEVER the canonical key (external_id ?? anonymous_id ??
+  // id) — gaining either never flips the canonical key, so neither touches
+  // nextExternalId/nextAnonymousId below.
+  const supplied: {
+    kind: Kind;
+    value: string;
+    current: string | null;
+    column: "externalId" | "email" | "anonymousId" | "discordId";
+  }[] = [];
+  if (ctx.userId)
+    supplied.push({
+      kind: "external",
+      value: ctx.userId,
+      current: row.externalId,
+      column: "externalId",
+    });
+  if (ctx.email)
+    supplied.push({
+      kind: "email",
+      value: ctx.email,
+      current: row.email,
+      column: "email",
+    });
+  if (ctx.anonymousId)
+    supplied.push({
+      kind: "anonymous",
+      value: ctx.anonymousId,
+      current: row.anonymousId,
+      column: "anonymousId",
+    });
+  if (ctx.discordId)
+    supplied.push({
+      kind: "discord",
+      value: ctx.discordId,
+      current: row.discordId,
+      column: "discordId",
+    });
 
-  // The anon id this call claims for the row — into the column when it is free,
-  // otherwise as an alias. A person browses from more than one device, but
-  // `contacts.anonymous_id` holds exactly one; `contact_aliases` is the
-  // multi-key table, and `findByKey` already falls back to it, so a second
-  // device's id resolves back here once recorded.
-  let claimedAnonymousId: string | undefined;
-  if (ctx.anonymousId && !row.anonymousId) {
-    // Column write + alias are pre-existing behaviour and stay unconditional;
-    // only the ADOPTION below is gated, since only adoption moves rows.
-    set.anonymousId = ctx.anonymousId;
-    nextAnonymousId = ctx.anonymousId;
-    promoted.push({ kind: "anonymous", value: ctx.anonymousId });
-    claimedAnonymousId = ctx.anonymousId;
-  } else if (
-    ctx.anonymousId &&
-    ctx.anonymousId !== row.anonymousId &&
-    // Never mint a resolution edge to a key that names someone else.
-    !foreignAnonKey &&
-    // IDEMPOTENCE. The column keeps the FIRST device's id, so this arm's
-    // condition stays true forever for every later device. Without this check a
-    // browser that identifies on each page load would re-alias, re-repoint and
-    // — the part that actually escapes — re-report `mergedKeys` on every single
-    // load, firing the analytics anon-to-known stitch over and over.
-    !(await anonAliasAlreadyHeld(tx, ctx.anonymousId, row.id))
-  ) {
-    promoted.push({ kind: "anonymous", value: ctx.anonymousId });
-    claimedAnonymousId = ctx.anonymousId;
+  // Keys THIS call was first to claim — the adoption/report signal. Refused
+  // (foreign) keys never enter it; repeat claims conflict on the unique index
+  // and never re-enter it. A person browses from more than one device, and
+  // `contacts.anonymous_id` holds exactly one — `contact_aliases` is the
+  // multi-key table, and `findByKey` reads it first, so any claimed value
+  // resolves back here once recorded.
+  const foreignMemo = new Map<string, boolean>();
+  const claimed: ResolveKey[] = [];
+
+  for (const s of supplied) {
+    // Hottest path there is (every repeat page view from a known device): the
+    // value is already the row's column value — nothing to claim, no queries.
+    if (s.value === s.current) continue;
+
+    const outcome = await claimIdentityKey(
+      tx,
+      row,
+      { kind: s.kind, value: s.value },
+      foreignMemo,
+    );
+    // A refused (foreign-canonical-key) claim skips EVERYTHING for this key:
+    // no column write (an external write would flip the canonical key and
+    // repoint the claimant's history INTO a string someone else's rows key
+    // on), no identity row, no adoption, no mergedKeys report.
+    if (outcome === "refused") continue;
+
+    if (s.current == null) {
+      // Legacy dual-write: the column when it happens to be free (PRD 07
+      // retires the columns; writing them keeps every column-only reader
+      // working until then).
+      set[s.column] = s.value;
+      if (s.kind === "external") nextExternalId = s.value;
+      if (s.kind === "anonymous") nextAnonymousId = s.value;
+    }
+    if (outcome === "claimed") claimed.push({ kind: s.kind, value: s.value });
   }
+
   // First-touch provenance: only stamp when the row has none, so an inbound
   // contact that a Source later re-touches keeps its original origin.
   if (ctx.source && !row.source) {
@@ -1125,6 +1511,9 @@ async function fillInLink(
     externalId: nextExternalId,
     anonymousId: nextAnonymousId,
     email: (set.email as string | undefined) ?? row.email,
+    // Post-fill discord id: not part of the canonical key, but the PRD 02
+    // dual-write below records an alias per column the row NOW carries.
+    discordId: (set.discordId as string | undefined) ?? row.discordId,
   };
 
   let mergedKeys: string[] | undefined;
@@ -1142,7 +1531,7 @@ async function fillInLink(
   }
 
   // ADOPT ORPHANED ANON HISTORY — the second-order effect of refusing to mint
-  // on observation. When an anon id is newly attached but does NOT become the
+  // on observation. When an anon id is newly claimed but does NOT become the
   // canonical key (the row already had an `external_id`), the flip test above is
   // false, so nothing above this moves the history keyed on that anon id.
   //
@@ -1158,42 +1547,38 @@ async function fillInLink(
   //
   // It also covers the SECOND-DEVICE shape, which the same refusal broke the
   // same way: the row's `anonymous_id` column is already taken by the first
-  // device, so the id from a second one is claimed as an alias above, and its
-  // pre-sign-in history is adopted here.
+  // device, so the id from a second one is claimed as an identity row above,
+  // and its pre-sign-in history is adopted here.
   //
-  // Gated on `foreignAnonKey`. This shape carries a `userId`, so
-  // `restrictToAnonymous` is false by construction (it requires `!userId`) and
-  // neither publishable clamp fires — the ONLY thing standing between a caller
-  // and someone else's rows is the provenance check. A `userToken` proves which
-  // account the caller is; it says nothing about which `anonymousId` they may
-  // name, and a canonical key is a far weaker secret than a browser-local id
-  // (it is frequently a sequential or public account id).
-  if (
-    claimedAnonymousId &&
-    claimedAnonymousId !== newKey &&
-    claimedAnonymousId !== oldKey &&
-    !foreignAnonKey
-  ) {
-    await repointOwnHistory(tx, claimedAnonymousId, newKey, updatedRow);
+  // Adoption is ANONYMOUS-ONLY (claiming adds a resolution edge; adopting MOVES
+  // rows — a second external/email/discord value never keyed this person's
+  // history, so there is nothing to move; PRD 04 reunites externally-keyed rows
+  // through the identity row instead). Foreign keys never reach this loop: the
+  // claim path refused them before `claimed` was built. That refusal is the
+  // ONLY thing standing between a caller and someone else's rows — this shape
+  // carries a `userId`, so `restrictToAnonymous` is false by construction (it
+  // requires `!userId`) and neither publishable clamp fires. A `userToken`
+  // proves which account the caller is; it says nothing about which
+  // `anonymousId` they may name, and a canonical key is a far weaker secret
+  // than a browser-local id (it is frequently a sequential or public account
+  // id). First-claim-only by construction (`claimed` is populated from the
+  // insert's `returning()`), so a browser that identifies on every page load
+  // cannot re-adopt or re-fire the analytics stitch — the re-stitch storm
+  // guard, structural instead of remembered.
+  for (const key of claimed) {
+    if (key.kind !== "anonymous") continue;
+    if (key.value === newKey || key.value === oldKey) continue;
+    await repointOwnHistory(tx, key.value, newKey, updatedRow);
     // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;
     // appended, since a key flip above may already have folded a uuid/anon key.
-    mergedKeys = [...(mergedKeys ?? []), claimedAnonymousId];
+    mergedKeys = [...(mergedKeys ?? []), key.value];
   }
 
-  for (const key of promoted) {
-    await tx
-      .insert(contactAliases)
-      .values({
-        contactId: row.id,
-        aliasKind: key.kind,
-        aliasValue: key.value,
-        fromContactId: null,
-        reason: "promote",
-      })
-      .onConflictDoNothing({
-        target: [contactAliases.aliasKind, contactAliases.aliasValue],
-      });
-  }
+  // PRD 02 dual-write, AFTER the claim pass so newly-claimed keys keep their
+  // `promote` provenance and only the row's pre-existing (pre-alias-era)
+  // columns gain `resolve` rows. This is what backfills a hot contact whose
+  // columns predate `contact_aliases`, without waiting for the offline job.
+  await ensureIdentityAliases(tx, updatedRow);
 
   // `newKey` IS the post-fill canonical key (external_id ?? anonymous_id ?? id) —
   // the same value the old read-back derived.
@@ -1401,6 +1786,54 @@ async function mergeContacts(
     .update(contacts)
     .set(survivorSet)
     .where(eq(contacts.id, survivor.id));
+
+  // The survivor as it stands AFTER the update above — what the claim step and
+  // the PRD 02 dual-write below both key off.
+  const postSurvivor: ContactRow = {
+    ...survivor,
+    externalId:
+      (survivorSet.externalId as string | undefined) ?? survivor.externalId,
+    email: (survivorSet.email as string | undefined) ?? survivor.email,
+    anonymousId:
+      (survivorSet.anonymousId as string | undefined) ?? survivor.anonymousId,
+    discordId:
+      (survivorSet.discordId as string | undefined) ?? survivor.discordId,
+  };
+
+  // PRD 03 T4 — claim CALL-supplied keys the survivor's columns could not
+  // hold. Loser-held keys already survive as identity rows via
+  // `recordMergeAliases`; the only drop left was a ctx key when the survivor's
+  // column was already occupied — each `if (!survivor.<column>)` block above
+  // picks one value and used to discard the rest. Runs AFTER the loser
+  // soft-delete (the partial-unique live indexes are already free — the same
+  // ordering the survivorSet copy depends on) and AFTER the survivor update.
+  // Same gate as fill-in-link: an external/anonymous value that is another
+  // live contact's canonical key is refused, not aliased — a merge arm reached
+  // with a foreign key (one the candidate probes never matched) must not mint
+  // a resolution edge to someone else's person. NO adoption here: every
+  // absorbed candidate key's history was already folded by the loser rewrites
+  // above; a claimed second value never keyed history at all.
+  {
+    const foreignMemo = new Map<string, boolean>();
+    const unheld: ResolveKey[] = [];
+    if (ctx.userId && ctx.userId !== postSurvivor.externalId)
+      unheld.push({ kind: "external", value: ctx.userId });
+    if (ctx.email && ctx.email !== postSurvivor.email)
+      unheld.push({ kind: "email", value: ctx.email });
+    if (ctx.anonymousId && ctx.anonymousId !== postSurvivor.anonymousId)
+      unheld.push({ kind: "anonymous", value: ctx.anonymousId });
+    if (ctx.discordId && ctx.discordId !== postSurvivor.discordId)
+      unheld.push({ kind: "discord", value: ctx.discordId });
+    for (const key of unheld) {
+      await claimIdentityKey(tx, postSurvivor, key, foreignMemo);
+    }
+  }
+
+  // PRD 02 dual-write on the POST-merge survivor row: a `resolve` alias per
+  // identity column it now carries. Runs AFTER `recordMergeAliases` (inside the
+  // loser loop above), so the loser keys' `merge` provenance wins the conflict
+  // and only the survivor's pre-alias-era keys gain rows here.
+  await ensureIdentityAliases(tx, postSurvivor);
 
   // If the survivor's canonical key flipped (it had no external_id/anonymous_id
   // and the merge promoted one from the call/loser), re-point the survivor's OWN
@@ -1871,6 +2304,123 @@ async function recordMergeAliases(
     });
 }
 
+/**
+ * PRD 02 T2 — the identity-table dual-write. Ensures a `contact_aliases` row
+ * exists for EVERY identity column the contact carries after a resolve (create /
+ * fill-in-link / collide-merge survivor). Runs inside the resolver transaction
+ * on the hottest write path in the engine, so it is shaped for the steady
+ * state:
+ *
+ *   1. ONE batched SELECT over the row's `(kind, value)` pairs (≤4 rows via the
+ *      unique index). On a repeat resolve every pair already exists and this is
+ *      the ONLY statement — no insert, no conflict churn, no `updated_at` writes.
+ *   2. ONE batched INSERT for the missing pairs only, `onConflictDoNothing` on
+ *      `(alias_kind, alias_value)` as the race guard (concurrent resolvers for
+ *      the same key already serialize on the advisory locks; a cross-key race
+ *      lands here and is silently deduped). Never a per-key loop.
+ *
+ * A pair owned by a DIFFERENT contact is never repointed (the backfill's
+ * "never steals" rule, applied online) — it is skipped and logged as
+ * `identity.alias.conflict` with the KIND and contact id only, never the value
+ * (alias values are emails and account ids). Rows written here carry
+ * `reason: 'resolve'` and `from_contact_id: NULL` — "this contact holds this
+ * key right now", the index entry, not a provenance event — so the existing
+ * `promote`/`merge` writers (which always run BEFORE this in their arms) win
+ * the conflict and keep their provenance.
+ *
+ * The email pair is NORMALIZED (`normalizeEmail`) even when the legacy column
+ * value is mixed-case, because the alias probe compares against the normalized
+ * value the resolver always supplies.
+ */
+async function ensureIdentityAliases(tx: Tx, row: ContactRow): Promise<void> {
+  const email = normalizeEmailOrNull(row.email);
+  const pairs: { kind: Kind; value: string }[] = [];
+  if (row.externalId) pairs.push({ kind: "external", value: row.externalId });
+  if (email) pairs.push({ kind: "email", value: email });
+  if (row.anonymousId)
+    pairs.push({ kind: "anonymous", value: row.anonymousId });
+  if (row.discordId) pairs.push({ kind: "discord", value: row.discordId });
+  if (pairs.length === 0) return;
+
+  const existing = await tx
+    .select({
+      aliasKind: contactAliases.aliasKind,
+      aliasValue: contactAliases.aliasValue,
+      contactId: contactAliases.contactId,
+    })
+    .from(contactAliases)
+    .where(
+      or(
+        ...pairs.map((p) =>
+          and(
+            eq(contactAliases.aliasKind, p.kind),
+            eq(contactAliases.aliasValue, p.value),
+          ),
+        ),
+      ),
+    );
+
+  const held = new Map(
+    existing.map((r) => [`${r.aliasKind}|${r.aliasValue}`, r.contactId]),
+  );
+  const foreignKinds = existing
+    .filter((r) => r.contactId !== row.id)
+    .map((r) => r.aliasKind);
+  if (foreignKinds.length > 0) {
+    logger.warn("identity.alias.conflict", {
+      contactId: row.id,
+      kinds: foreignKinds,
+    });
+  }
+
+  const missing = pairs.filter((p) => !held.has(`${p.kind}|${p.value}`));
+  if (missing.length === 0) return;
+
+  await tx
+    .insert(contactAliases)
+    .values(
+      missing.map((p) => ({
+        contactId: row.id,
+        aliasKind: p.kind,
+        aliasValue: p.value,
+        fromContactId: null,
+        reason: ALIAS_REASON_RESOLVE,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [contactAliases.aliasKind, contactAliases.aliasValue],
+    });
+}
+
+/**
+ * PRD 02 T1 — the erasure hook. Deletes EVERY `contact_aliases` row whose
+ * `contact_id` is the erased contact — no `reason` filter, no `from_contact_id`
+ * filter. Two earlier revisions of this rule each kept a subset and each kept a
+ * leak: `promote` rows hold the person's own email; ABSORBED rows
+ * (`from_contact_id` set) hold the same human's pre-merge email in the common
+ * merge. The erasure question is "whose data is this?", and for any row keyed
+ * to the erased contact the answer is always *theirs*.
+ *
+ * This does NOT strand `followToSurvivor`: that walk follows rows by
+ * `from_contact_id = <loser>`, and those rows live under the SURVIVOR's
+ * `contact_id` — erasing a loser touches none of them, and erasing a survivor
+ * makes the chain into it moot (the alias probe only resolves live contacts).
+ *
+ * Called from both soft-delete sites (`softDeleteContact` and the admin
+ * `DELETE /v1/admin/contacts/:id` route) inside their transactions. The merge
+ * path's loser soft-delete is deliberately NOT a caller — a merge is a fold,
+ * not an erasure, and its aliases (pointing at the survivor) are the mechanism
+ * that keeps the loser's stale keys resolving.
+ */
+export async function deleteIdentityAliasesForContact(
+  db: Database | Tx,
+  contactId: string,
+): Promise<void> {
+  await db
+    .delete(contactAliases)
+    .where(eq(contactAliases.contactId, contactId));
+}
+
 // ---------------------------------------------------------------------------
 // Retained wrapper + public-route helpers
 // ---------------------------------------------------------------------------
@@ -1962,22 +2512,35 @@ export async function softDeleteContact(opts: {
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const userId = opts.userId?.trim() || undefined;
 
-  const clauses = [];
+  // Annotated (unlike findContacts' evolving-any) because the array is read
+  // inside the transaction closure below, where inference cannot follow it.
+  const clauses: SQL[] = [];
   if (email) clauses.push(eq(contacts.email, email));
   if (userId) clauses.push(eq(contacts.externalId, userId));
   if (clauses.length === 0) return { deleted: false };
 
-  const updated = await db
-    .update(contacts)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(or(...clauses), isNull(contacts.deletedAt)))
-    .returning({
-      id: contacts.id,
-      externalId: contacts.externalId,
-      email: contacts.email,
-    });
+  // One transaction: the soft-delete and its erasure hook (PRD 02 T1 — every
+  // contact_aliases row for the erased contact goes with it) commit or roll
+  // back together, so a failure cannot leave identity keys stranded in the
+  // alias table for a deleted person.
+  const row = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(contacts)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(or(...clauses), isNull(contacts.deletedAt)))
+      .returning({
+        id: contacts.id,
+        externalId: contacts.externalId,
+        email: contacts.email,
+      });
+    // The or(email, userId) filter can match TWO distinct contacts in one
+    // call; every soft-deleted row gets its erasure, not just the reported one.
+    for (const deleted of updated) {
+      await deleteIdentityAliasesForContact(tx, deleted.id);
+    }
+    return updated[0];
+  });
 
-  const row = updated[0];
   if (!row) return { deleted: false };
 
   return {
@@ -2061,9 +2624,12 @@ export async function resolveRecipient(opts: {
   };
 }
 
-/** Alias-aware lookup helper for resolveRecipient (mirrors findByKey but on the
- * top-level db handle, no tx). */
-async function resolveViaAlias(
+/** Alias-aware lookup helper (mirrors findByKey's alias probe but on the
+ * top-level db handle, no tx). Engine-internal export: `resolveRecipient`
+ * below and the feed's anonymous-recipient resolver (PRD 03 T5 — a second
+ * device's anon id lives ONLY as an identity row) both fall back to it after
+ * their column probes miss. */
+export async function resolveViaAlias(
   db: Database,
   kind: Kind,
   value: string,
