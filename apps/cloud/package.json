@@ -8,6 +8,8 @@
     "start": "next start -p 3004",
     "check-types": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "worker": "tsx src/worker.ts",
+    "worker:dev": "tsx watch src/worker.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts"
   },
