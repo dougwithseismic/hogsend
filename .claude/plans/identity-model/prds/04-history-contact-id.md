@@ -287,7 +287,7 @@ Inserts (grep `insert(<table>)` across `packages` + `apps`, excluding `__tests__
 | 1 | `lib/ingestion.ts:465` (idempotent insert) | `contactId` already in scope from `:412` | **zero** — no extra query |
 | 2 | `lib/ingestion.ts:489` (plain insert) | same | **zero** |
 | 3 | `journeys/execute-journey-run.ts:169` / `:179` (`insertEnrollment`) | new optional `contactId` opt, fed `input.contactId ?? lookup(userId)` | 1 indexed SELECT per *fresh* enrollment |
-| 4 | `journeys/execute-journey-run.ts:358` (held-out row) | `subjectContactId`, already computed at `:409-417` | zero |
+| 4 | `journeys/execute-journey-run.ts:358` (held-out row) | own D6-wrapped `resolveEnrollmentContactId` — `input.contactId` when pushed, else `lookupContactIdByKey` (T4 build correction: the `subjectContactId` compute at `:409-417` runs AFTER this insert, inside the `journey.heldout` re-emit try/catch, so "reuse at zero cost" was unimplementable without a control-flow change DECISIONS §4 forbids here) | zero with a pushed pin; 1–2 indexed probes once-ever per (user, journey) without one |
 | 5 | `buckets/check-membership.ts:320` | `contactId` already a documented param (`:56-63`) | zero |
 | 6 | `workflows/bucket-reconcile.ts:1126` | `contactId` already a param of `reconcileJoinOne` (`:1111`) | zero |
 | 7 | `workflows/bucket-backfill.ts:306` | add `id: contacts.id` to the existing `chunkContacts` select at `:231-235` (already keyed by `contactKeySql()`) | zero |
@@ -514,27 +514,53 @@ re-run test goes red.
 ### T6 — the invariant probe
 _Boundary:_ `packages/engine` · _Depends:_ T5
 
-A `verifyContactIdBackfill({ db })` returning per-table `{ missing, mismatched, orphaned }`:
+A `verifyContactIdBackfill({ db })` returning per-table `{ missing, mismatched, orphaned }`.
+
+**Ownership is ALIAS-AWARE (T4 review correction).** The probes as first specced tested
+ownership with the bare canonical coalesce only. Post-03 that predicate is WRONG: a
+second-device anonymous id lives ONLY in `contact_aliases`, the dual-write deliberately
+resolves it (C1), and a bare-coalesce `mismatched` probe would then flag every such
+correctly-stamped row as corruption — a false alarm that would block the PRD 05 gate
+forever on any deployment with a second device. "Contact `c` owns key `k`" means:
+`coalesce(c.external_id, c.anonymous_id, c.id::text) = k` **OR** an alias row
+`(contact_id = c.id, alias_value = k, alias_kind IN ('external','anonymous'))` exists.
 
 ```sql
--- missing: a live contact owns the key, but contact_id is NULL
+-- missing: a live contact owns the key (canonical OR alias), but contact_id is NULL
 SELECT count(*) FROM <t> t
-  JOIN contacts c
-    ON coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id
- WHERE c.deleted_at IS NULL AND t.contact_id IS NULL;
+ WHERE t.contact_id IS NULL
+   AND EXISTS (SELECT 1 FROM contacts c
+                WHERE c.deleted_at IS NULL
+                  AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id)
+    OR t.contact_id IS NULL
+   AND EXISTS (SELECT 1 FROM contact_aliases a JOIN contacts c ON c.id = a.contact_id
+                WHERE c.deleted_at IS NULL AND a.alias_value = t.user_id
+                  AND a.alias_kind IN ('external','anonymous'));
 
--- mismatched: contact_id points somewhere that does not own the key
+-- mismatched: contact_id points somewhere that owns the key NEITHER canonically NOR by alias
 SELECT count(*) FROM <t> t
   JOIN contacts c ON c.id = t.contact_id
- WHERE coalesce(c.external_id, c.anonymous_id, c.id::text) IS DISTINCT FROM t.user_id;
+ WHERE coalesce(c.external_id, c.anonymous_id, c.id::text) IS DISTINCT FROM t.user_id
+   AND NOT EXISTS (SELECT 1 FROM contact_aliases a
+                    WHERE a.contact_id = c.id
+                      AND a.alias_value = t.user_id
+                      AND a.alias_kind IN ('external','anonymous'));
 
--- orphaned (expected, reported not failed): no contact owns the key
+-- orphaned (expected, reported not failed): no live contact owns the key either way
 SELECT count(*) FROM <t> t
  WHERE t.contact_id IS NULL
    AND NOT EXISTS (SELECT 1 FROM contacts c
                     WHERE c.deleted_at IS NULL
-                      AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id);
+                      AND coalesce(c.external_id, c.anonymous_id, c.id::text) = t.user_id)
+   AND NOT EXISTS (SELECT 1 FROM contact_aliases a JOIN contacts c ON c.id = a.contact_id
+                    WHERE c.deleted_at IS NULL AND a.alias_value = t.user_id
+                      AND a.alias_kind IN ('external','anonymous'));
 ```
+
+(Exact SQL shape is T6's to settle — the `missing` OR-of-EXISTS above needs parenthesising
+when implemented; what is LOCKED is the alias-aware ownership definition and that T6's test
+fixture must include an alias-only-keyed row asserted to land in NEITHER `missing` (when
+stamped) NOR `mismatched`.)
 
 Surfaced on the existing admin readiness surface (`routes/admin/readiness.ts`). `missing` and
 `mismatched` must be zero to enter PRD 05; `orphaned` is expected and non-zero by D5 — the probe
