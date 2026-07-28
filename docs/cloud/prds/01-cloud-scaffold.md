@@ -55,3 +55,14 @@ All EARS pass; gates green from repo root; placeholder dashboard screenshotted i
 browser (no-artifacts law).
 
 ## Implementation Notes
+Shipped in 4 commits (scaffold / ds+shell / db+health / worker+docs), all EARS met.
+Deltas from spec worth knowing: migrations live at `src/db/migrations` (not
+`apps/cloud/migrations`), ledger `cloud.__cloud_migrations`, advisory lock key distinct
+from engine's; `db:migrate` auto-creates the `hogsend_cloud` database (one-command
+bootstrap); health always returns 200 with the verdict in the body; API docs are a
+ds-rendered OpenAPI page (no Scalar dep — revisit past ~10 endpoints) with a drift test
+pinning the doc to the real /api/health handler; worker is `startWorker()` runtime
+(signal-free, injectable) + thin entry owning signals; Next `output: "standalone"` with
+monorepo tracing root is already configured (helps PRD 08). Repo lint = root Biome, not a
+turbo task (DECISIONS §4 updated). Known local flake: compose PG max_connections=100 can
+saturate across worktrees → transient "too many clients".

@@ -5,7 +5,7 @@ Ordered queue. Statuses: `[ ]` not started · `[~]` shipped-to-seam (human ask o
 
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
-| 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [ ] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
+| 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [x] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
 | 02 | [tenant-model](prds/02-tenant-model.md) | [ ] | 01 | org→env→stack schema, state machine, encrypted provider keys, plan limits, audit |
 | 03 | [auth-dashboard](prds/03-auth-dashboard.md) | [ ] | 02 | signup/OTP/org-create, dashboard shell, members/roles, essentials (legal, API docs) |
 | 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [ ] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
