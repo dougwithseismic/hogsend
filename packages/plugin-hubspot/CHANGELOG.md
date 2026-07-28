@@ -1,5 +1,12 @@
 # @hogsend/plugin-hubspot
 
+## 0.43.12
+
+### Patch Changes
+
+- Updated dependencies [aa24d2a]
+  - @hogsend/core@0.58.0
+
 ## 0.43.11
 
 ### Patch Changes
