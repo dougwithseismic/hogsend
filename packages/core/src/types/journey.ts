@@ -23,16 +23,71 @@ export type JourneyWhere =
   | ((b: JourneyWhereBuilder) => PropertyCondition | PropertyCondition[]);
 
 /**
+ * STRUCTURAL stand-in for the object `defineBucket` returns, deliberately NOT
+ * an import of the engine's `DefinedBucket`. Core cannot name that type at all:
+ * `@hogsend/core` does not depend on `@hogsend/engine` (and the engine already
+ * depends on core), so an import — even a type-only one — would be both
+ * unresolvable under pnpm's strict layout and a genuine workspace cycle. All
+ * this seam actually needs is the ONE field it reads, so it asks for exactly
+ * that field and nothing more.
+ *
+ * `entered` is the TEMPLATE literal, never a bare `string`. That is the ONLY
+ * thing making this key safer than spelling the event out: a plain-string field
+ * would accept any object carrying any `entered` — `{ entered: "user.created" }`,
+ * a typo'd `"bucket:enter:power-users"`, a hand-rolled
+ * `{ entered: someConfigValue }` — and mint a journey bound to an event nothing
+ * ever emits, which is exactly the silent miss this key exists to remove. Every
+ * `DefinedBucket<Id>["entered"]` (`` `bucket:entered:${Id}` ``) satisfies it and
+ * nothing else does. `defineJourney` re-checks the same prefix at runtime,
+ * because JS callers reach that seam with no types at all.
+ */
+export interface BucketTriggerRef {
+  readonly entered: `bucket:entered:${string}`;
+}
+
+/**
+ * Authoring form of a journey trigger: name the event, or hand over the BUCKET
+ * OBJECT and let the engine derive the event.
+ *
+ * `{ event: "bucket:entered:at-risk" }` is a string naming something defined
+ * elsewhere in the author's own repo — the compiler cannot check it, so a typo
+ * or a later bucket rename yields a journey that silently never fires. That is
+ * why the consumer's own `bucketEntered`/`bucketLeft` string helpers
+ * (`apps/api/src/journeys/constants/buckets.ts`) are already marked
+ * `@deprecated` in favour of the bucket's own `.entered`. `{ bucket }` and the
+ * equally-canonical `{ event: bucket.entered }` are the two spellings of that
+ * same fix — both resolve a real binding, so both fail the build on a rename.
+ * `{ bucket }` exists because it reads as the INTENT ("this journey is driven
+ * by this bucket") rather than as a field access, and because it cannot be
+ * half-applied: `.entered` on a non-bucket is a plain string the compiler
+ * waves through, whereas the `bucket` key demands the `bucket:entered:` shape.
+ *
+ * The two forms are mutually exclusive by construction (`?: never` on the
+ * opposite key). `defineJourney` ALSO throws at runtime when both or neither
+ * arrive — silent precedence between them would make this form worse than the
+ * string it replaces, and JS callers reach the same seam without types.
+ *
+ * `where` narrows on the TRIGGERING EVENT'S OWN PROPERTIES, and for a bucket
+ * transition that bag is fixed by the engine to `bucketId`, `bucketName`,
+ * `userId`, `transition`, `source`, `entryCount` (plus `reason` on a leave and
+ * `dwellCount` on a dwell) — NOT the person's properties. `where: (b) =>
+ * b.prop("plan").eq("pro")` on a bucket trigger therefore enrolls nobody,
+ * silently and forever. Put person predicates in the BUCKET'S criteria, where
+ * they are evaluated against the person; keep `where` for the transition
+ * itself (`b.prop("source").eq("manual")`, `b.prop("entryCount").eq(1)`).
+ */
+export type JourneyTriggerInput =
+  | { event: string; bucket?: never; where?: JourneyWhere }
+  | { bucket: BucketTriggerRef; event?: never; where?: JourneyWhere };
+
+/**
  * What `defineJourney` ACCEPTS. The stored {@link JourneyMeta} (registry,
- * schema, HTTP) keeps plain `PropertyCondition[]` — only the authoring
- * surface widens.
+ * schema, HTTP) keeps plain `PropertyCondition[]` and a plain trigger event
+ * string — only the authoring surface widens.
  */
 export interface JourneyMetaInput
   extends Omit<JourneyMeta, "trigger" | "exitOn" | "versionHash"> {
-  trigger: {
-    event: string;
-    where?: JourneyWhere;
-  };
+  trigger: JourneyTriggerInput;
   exitOn?: Array<{
     event: string;
     where?: JourneyWhere;
