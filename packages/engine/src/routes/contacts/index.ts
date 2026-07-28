@@ -46,8 +46,25 @@ const upsertRoute = createRoute({
             email: z.string().email().optional(),
             userId: z.string().min(1).optional(),
             // §4: caller's analytics anon id — the resolver's 2nd-precedence
-            // key. An EXTRA, never a third identity arm: `requireIdentity`
-            // still requires email or userId below.
+            // key, normally an EXTRA alongside email/userId rather than an
+            // identity arm of its own.
+            //
+            // NOT a guarantee, on the publishable path. The handler gates with
+            // `gatePublishableIdentity`, NOT `requireIdentity`, and that gate
+            // returns early for a pk_ caller who claims nothing
+            // (`routes/_shared.ts` — "No claimed identity → anon-only,
+            // allowed"). The create arm of `resolveContactShared` carries no
+            // `restrictToAnonymous` guard either — that flag bites only
+            // fill-in-link and collide-merge. So a hand-rolled `pk_` fetch
+            // sending ONLY `anonymousId` still MINTS an anonymous-only contact.
+            //
+            // Known and deliberately deferred (ghost-contacts BACKLOG): refusing
+            // here would force `id: z.string().nullable()` on the published
+            // response schema plus a `@hogsend/client` type widening. No
+            // first-party SDK emits that shape — `@hogsend/js` `identify()`
+            // always sends a `userId` — so the residual is a hand-rolled
+            // request, not an SDK path. Do not "fix" this comment back into a
+            // guarantee the code does not provide.
             anonymousId: z.string().min(1).max(200).optional(),
             properties: z.record(z.string(), z.unknown()).optional(),
             lists: z.record(z.string(), z.boolean()).optional(),

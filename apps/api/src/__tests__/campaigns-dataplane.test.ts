@@ -520,6 +520,65 @@ describe("sendCampaignTask (bucket audience)", () => {
     expect(sends[0]?.toEmail).toBe(BUCKET_EMAIL);
     expect(sends[0]?.status).toBe("sent");
   });
+
+  // `bucket_memberships.user_id` holds the CANONICAL key
+  // (`external_id ?? anonymous_id ?? id`), but the audience query joined
+  // `contacts.external_id`. An email-only subscriber — someone who gave you
+  // their address but never created an account, so their canonical key is
+  // their uuid — was an active member the query could not see, and was
+  // silently dropped from every bucket-targeted broadcast. Nothing surfaced
+  // it: a report reading "1 of 1 delivered" looks complete either way.
+  it("sends to a member whose canonical key is not its external_id", async () => {
+    providerSend.mockClear();
+
+    // No external_id: the contact is keyed on its own uuid, which is what the
+    // membership row carries.
+    const emailOnlyAddress = `${RUN}-email-only@example.com`;
+    const [emailOnly] = await db
+      .insert(contacts)
+      .values({ email: emailOnlyAddress })
+      .returning({ id: contacts.id });
+    if (!emailOnly?.id) throw new Error("failed to seed email-only contact");
+    await db.insert(bucketMemberships).values({
+      userId: emailOnly.id,
+      userEmail: emailOnlyAddress,
+      bucketId: BUCKET_ID,
+      status: "active",
+    });
+
+    const [campaign] = await db
+      .insert(campaigns)
+      .values({
+        name: "Bucket blast (canonical key)",
+        status: "queued",
+        audienceKind: "bucket",
+        audienceId: BUCKET_ID,
+        templateKey: "welcome",
+        props: { name: "Ada" },
+      })
+      .returning({ id: campaigns.id });
+    const campaignId = campaign?.id;
+    if (!campaignId) throw new Error("failed to seed campaign");
+
+    const result = await campaignTask.fn({ campaignId });
+    expect(result.status).toBe("sent");
+
+    const sentTo = providerSend.mock.calls.map(
+      (c) => (c[0] as SendEmailOptions).to,
+    );
+    // Both the external-id member and the email-only one — the fix WIDENS the
+    // audience rather than swapping which rows match.
+    expect(sentTo).toContain(emailOnlyAddress);
+    expect(sentTo).toContain(BUCKET_EMAIL);
+    expect(sentTo).not.toContain(BUCKET_LEFT_EMAIL);
+
+    // Cleanup so the earlier active-members-only test stays deterministic
+    // whatever order these run in.
+    await db
+      .delete(bucketMemberships)
+      .where(eq(bucketMemberships.userId, emailOnly.id));
+    await db.delete(contacts).where(eq(contacts.id, emailOnly.id));
+  });
 });
 
 // ===========================================================================

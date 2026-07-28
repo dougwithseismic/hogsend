@@ -1,5 +1,6 @@
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, count as countFn, eq, gt, isNull } from "drizzle-orm";
+import { contactKeySql } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 
 /**
@@ -74,7 +75,7 @@ export function createBucketAccessor(
       const rows = await db
         .select({ value: countFn() })
         .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+        .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
         .where(
           and(
             eq(bucketMemberships.bucketId, bucketId),
@@ -98,7 +99,7 @@ export function createBucketAccessor(
       const rows = await db
         .select({ id: bucketMemberships.id })
         .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+        .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
         .where(
           and(
             eq(bucketMemberships.bucketId, bucketId),
@@ -144,10 +145,7 @@ export function createBucketAccessor(
             entryCount: bucketMemberships.entryCount,
           })
           .from(bucketMemberships)
-          .innerJoin(
-            contacts,
-            eq(contacts.externalId, bucketMemberships.userId),
-          )
+          .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
           .where(and(...conditions))
           .orderBy(bucketMemberships.id)
           // +1 peek to detect a next page.
@@ -155,10 +153,7 @@ export function createBucketAccessor(
         db
           .select({ value: countFn() })
           .from(bucketMemberships)
-          .innerJoin(
-            contacts,
-            eq(contacts.externalId, bucketMemberships.userId),
-          )
+          .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
           .where(
             and(
               eq(bucketMemberships.bucketId, bucketId),
