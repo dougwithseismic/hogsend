@@ -22,6 +22,9 @@ export const bucketMemberships = pgTable(
     // journeyStates; membership rows can predate a contacts row).
     userId: text("user_id").notNull(),
     userEmail: text("user_email"), // denormalized so emitted events carry it
+    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
+    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    contactId: uuid("contact_id"),
     bucketId: text("bucket_id").notNull(),
     status: bucketMembershipStatusEnum("status").notNull().default("active"),
     enteredAt: timestamp("entered_at", { withTimezone: true })

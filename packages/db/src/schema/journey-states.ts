@@ -19,6 +19,9 @@ export const journeyStates = pgTable(
     organizationId: text("organization_id"),
     userId: text("user_id").notNull(),
     userEmail: text("user_email").notNull(),
+    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
+    // column yet; no FK/index by design — see PRD 04 D1/D2.
+    contactId: uuid("contact_id"),
     journeyId: text("journey_id").notNull(),
     currentNodeId: text("current_node_id").notNull(),
     status: journeyStatusEnum("status").notNull().default("active"),
