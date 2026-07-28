@@ -110,3 +110,20 @@ Contract suite green on Fake AND Railway(mocked); full provision→running→sus
 walked on FakeSubstrate from the real dashboard in the browser; gates green.
 
 ## Implementation Notes
+Shipped in 6 commits + 1 fix; 331 tests on close. The seam held: RailwaySubstrate passes
+the identical contract suite as FakeSubstrate (mocked transport; emulator throws on
+unknown operations). Decisions that stuck: poolMax travels as DATA not DSN params
+(postgres-js silently ignores URL pool params when the caller passes options — verified
+in driver source; engine follow-up `DATABASE_POOL_MAX` folded into PRD 06);
+`create()` never rotates a live tenant-db password (alreadyExists + explicit
+resetCredentials); Hatchet tokens are additive, never deduped; suspend = replicas 0
+(Railway has no pause mutation); destroy keeps the org project (sibling envs);
+mint-credentials step is a recorded no-op stub until a real engine boots (PRD 08 image).
+SHIPPED BUG FIXED: proxy judged sessions by cookie PRESENCE → a dead cookie ping-ponged
+/login ↔ / as sub-second meta-refresh reloads ("rerendering every frame"); auth screens
+now always allowed at the proxy, real-session bounce lives in the pages. KNOWN GAP →
+PRD 10: a stack whose enqueue died with its process strands at `requested` — needs the
+stuck-provision reconciler sweep (re-enqueue stale requested/provisioning). Live seam
+still owed: workspace token is stored + validated (lists projects); shared-cell
+bootstrap + default image (PRD 08) before first live provision. Overview copy nit: a
+`requested` stack is described as mid-transition — soften when PRD 10 lands the sweep.

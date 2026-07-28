@@ -8,7 +8,7 @@ Ordered queue. Statuses: `[ ]` not started · `[~]` shipped-to-seam (human ask o
 | 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [x] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
 | 02 | [tenant-model](prds/02-tenant-model.md) | [x] | 01 | org→env→stack schema, state machine, encrypted provider keys, plan limits, audit |
 | 03 | [auth-dashboard](prds/03-auth-dashboard.md) | [x] | 02 | signup/OTP/org-create, dashboard shell, members/roles, essentials (legal, API docs) |
-| 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [ ] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
+| 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [~] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
 | 05 | [onboarding-keys](prds/05-onboarding-keys.md) | [ ] | 03, 04 | paste-your-keys flow, live validation, env sync |
 | 06 | [billing-metering](prds/06-billing-metering.md) | [ ] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page |
 | 08 | [build-pipeline](prds/08-build-pipeline.md) | [ ] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (also builds the default scaffold image) |
