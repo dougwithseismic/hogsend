@@ -19,7 +19,7 @@ import {
   waveConditionSql,
 } from "../campaigns/cohort-sql.js";
 import { campaignSendKey } from "../lib/campaign-send-key.js";
-import { normalizeEmail } from "../lib/contacts.js";
+import { contactKeySql, normalizeEmail } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 import { getEmailService } from "../lib/email.js";
 import { hatchet } from "../lib/hatchet.js";
@@ -973,18 +973,36 @@ async function* resolveBucketRecipients(
       ];
       if (cursor) conditions.push(gt(bucketMemberships.id, cursor));
 
-      return db
-        .select({
-          id: bucketMemberships.id,
-          userId: bucketMemberships.userId,
-          membershipEmail: bucketMemberships.userEmail,
-          contactEmail: contacts.email,
-        })
-        .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
-        .where(and(...conditions))
-        .orderBy(bucketMemberships.id)
-        .limit(CHUNK_SIZE);
+      return (
+        db
+          .select({
+            id: bucketMemberships.id,
+            userId: bucketMemberships.userId,
+            membershipEmail: bucketMemberships.userEmail,
+            contactEmail: contacts.email,
+          })
+          .from(bucketMemberships)
+          // Join on the CANONICAL key, not `external_id` alone.
+          // `bucket_memberships.user_id` holds `coalesce(external_id,
+          // anonymous_id, id)`, so a contact with a NULL `external_id` — an
+          // email-only subscriber keyed on its uuid, or an anonymous visitor
+          // keyed on its `anonymous_id` — matched nothing here and was silently
+          // dropped from the audience. They were genuine active members of the
+          // bucket; they simply never received the campaign, and nothing
+          // surfaced it: a send report showing 40 of 40 delivered looks complete
+          // whether or not the audience was built correctly.
+          //
+          // Suppression is unaffected by widening this join. Every gate lives in
+          // the same `conditions` array applied to this query and is keyed on
+          // `recipientEmail` (`coalesce(membership email, contact email)`, lowered
+          // and trimmed), not on the join column — so a newly-visible member is
+          // filtered by the identical unsubscribed/suppressed `NOT EXISTS` as
+          // everyone else, and the mailer re-checks preferences per send.
+          .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
+          .where(and(...conditions))
+          .orderBy(bucketMemberships.id)
+          .limit(CHUNK_SIZE)
+      );
     },
     cursorOf: (row) => row.id,
     map: (row) => {
