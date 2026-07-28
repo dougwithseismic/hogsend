@@ -119,6 +119,28 @@ export class StackNotRemovableError extends CloudServiceError {
   }
 }
 
+/**
+ * The stack lifecycle refused an edge — either the pair is not in the
+ * transition table at all, or the row had moved on before the write landed
+ * (a lost race, which is the SAME failure to the caller: the state you assumed
+ * is not the state that is).
+ *
+ * `from` is the status ACTUALLY observed on the row, not the one the caller
+ * hoped for, so an operator reading the message learns where the stack really
+ * is.
+ */
+export class IllegalTransitionError extends CloudServiceError {
+  readonly code = "illegal_transition";
+
+  constructor(
+    readonly stackId: string,
+    readonly from: string,
+    readonly to: string,
+  ) {
+    super(`Stack "${stackId}" cannot move from "${from}" to "${to}"`);
+  }
+}
+
 /** Postgres unique-violation SQLSTATE, walked out of drizzle's wrapper. */
 const UNIQUE_VIOLATION = "23505";
 
