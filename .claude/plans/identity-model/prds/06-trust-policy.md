@@ -230,9 +230,12 @@ Three independent proofs, in increasing strength:
    `{ id===null, resolvedKey, created, linked, merged, mergedKeys, mergedIdentifiedKeys, thrown
    error constructor }` **and** identical `contacts` row deltas. This is the actual evidence, and it
    is cheap precisely because the flip is additive.
-3. **Regression (DECISIONS §4, "behaviour tests are the contract").** **143 tests across thirteen
+3. **Regression (DECISIONS §4, "behaviour tests are the contract").** **144 tests across thirteen
    suites** pin the outcomes this PRD must not move, and they must pass **unmodified**:
-   `publishable-key.test.ts` (35), `observation-paths.test.ts` (17), `contacts-no-create.test.ts`
+   `publishable-key.test.ts` (**36** — a grep for `it(`/`test(` reports 35 and is WRONG; the runner
+   is authoritative. Both this census and PRD 05's twelfth identity JOIN were under-reported by
+   pattern matching, which is worth remembering the next time a count is derived by grep),
+   `observation-paths.test.ts` (17), `contacts-no-create.test.ts`
    (14), `identity-alias-lifecycle.test.ts` (13), `links-arrive.test.ts` (11),
    `contacts-many-keys.test.ts` (10), `observation-derived-reingest.test.ts` (8),
    `identity-alias-backfill.test.ts` (8), `identity-provenance.test.ts` (7),
