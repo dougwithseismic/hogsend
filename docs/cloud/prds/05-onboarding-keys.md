@@ -44,3 +44,12 @@ Removal warns about which engine features go inert.
 _Boundary:_ `apps/cloud`. _Depends:_ PRD 03, PRD 04.
 
 ## Implementation Notes
+Shipped in 2 commits; 389 tests on close. Notables: PostHog phc_ key is SHAPE-validated
+only (a live probe would persist an event; the key is write-only by design) — UI says
+"stored, unverified" honestly; personal key live-probed. From-address = pseudo-provider
+row `sender-identity` (zero migrations); domain-verification enforced only where the
+provider exposes a verified list (Resend). Sync recomputes the FULL provider env with
+null-unsets on every write; HOGSEND_TEST_MODE re-asserted for non-prod envs. Pipeline
+and sync share `provider-env.ts` — extraction proven by untouched pipeline tests.
+Deferred nits: Postmark sender verification via GET /senders; removing an email
+provider keeps the sender-identity row.

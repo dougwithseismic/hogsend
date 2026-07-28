@@ -24,4 +24,23 @@ _Boundary:_ `apps/cloud` + `packages/engine` (the ingest-suspend flag only). _De
 PRD 04 (05 for upgrade surfaces).
 Seams: Stripe keys (test-mode first), price IDs.
 
+## Tasks (fleshed at pop)
+1. **Engine: ingest-suspend flag + pool cap** — `HOGSEND_INGEST_SUSPENDED=true` →
+   `/v1/events` 429 `{ error: "ingest_suspended", detail }` (documented body, tests,
+   transactional-webhook routes unaffected); `DATABASE_POOL_MAX` read by
+   `createDatabase` (default 10 unchanged). _Boundary:_ `packages/engine` +
+   `packages/db`. _Depends:_ —
+2. **BillingProvider seam + Stripe** — `src/billing/` mirror of the substrate pattern:
+   Fake + Stripe impls (checkout session create, subscription lifecycle webhook w/
+   signature fail-closed, plan mapping via env price IDs), plan-change service
+   (trial→paid, upgrade to dedicated marks stack for re-provision — defer the actual
+   migration to PRD 11, park the stack note), dunning state on org (grace 14d →
+   suspend). _Boundary:_ apps/cloud. _Depends:_ —
+3. **Metering + enforcement + Usage UI** — nightly cloud-worker sweep reading per-tenant
+   counts via the stack's stored tenant DSN (read-only role); upsert usage_counters;
+   soft-block = setEnv HOGSEND_INGEST_SUSPENDED on cap breach (+ un-set on new month /
+   upgrade); trial-expiry → suspend; Usage page (per-env counters vs plan limits, ds
+   bars, no chart lib); overage banners; checkout/upgrade surfaces wired to task 2.
+   _Boundary:_ apps/cloud. _Depends:_ 1, 2.
+
 ## Implementation Notes
