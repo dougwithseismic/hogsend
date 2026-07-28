@@ -440,6 +440,214 @@ export async function runContactIdBackfill(opts: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// T6 — the invariant probe
+// ---------------------------------------------------------------------------
+
+/** One table's verdict. `missing` and `mismatched` are failures; `orphaned` is
+ * information (D5) and is expected to be non-zero forever. */
+export interface ContactIdVerifyCounts {
+  /** A live contact owns the row's `user_id` — canonically OR by alias — but
+   * `contact_id` is NULL. After a completed sweep this is a HOLE: either the
+   * backfill missed the row or a dual-write site dropped it (D6). MUST be 0. */
+  missing: number;
+  /** `contact_id` points at a contact that owns the row's `user_id` NEITHER
+   * canonically NOR by alias (including a pointer at no contact at all). The
+   * corruption detector, and the one count an FK could never give: an FK proves
+   * the uuid EXISTS, this proves it is the RIGHT uuid. MUST be 0. */
+  mismatched: number;
+  /** `contact_id` is NULL and NO live contact owns the key either way — a
+   * refused anonymous ingest, a keyless raw send. Expected, permitted, reported.
+   * NEVER a failure (D5). */
+  orphaned: number;
+}
+
+/** The probe's verdict for the whole database (or, when scoped, for the keys it
+ * was pointed at). */
+export interface ContactIdVerifyResult {
+  tables: Record<ContactIdBackfillTable, ContactIdVerifyCounts>;
+  /** The five tables summed — what the alert line and the gate read. */
+  totals: ContactIdVerifyCounts;
+  /**
+   * **THE PRD 05 ENTRY GATE.** True iff EVERY table reports `missing === 0` AND
+   * `mismatched === 0` — i.e. every row a live contact owns is stamped, and
+   * every stamp points at a contact that really owns that row's key. `orphaned`
+   * is deliberately NOT part of the gate (D5 makes it legitimately non-zero
+   * forever). PRD 05 flips reads from `user_id` onto `contact_id`; flipping
+   * while this is false means silently losing history (`missing`) or attributing
+   * it to the wrong person (`mismatched`). Judge it AFTER a completed sweep — a
+   * false reading with no sweep on record is just a pending backfill.
+   */
+  flipReady: boolean;
+}
+
+/**
+ * "Contact `c` owns key `k`" — the **ALIAS-AWARE** ownership definition
+ * (T6's "T4 review correction", LOCKED):
+ *
+ *   `coalesce(c.external_id, c.anonymous_id, c.id::text) = k`   (canonical)
+ *   **OR** a live alias row `(contact_id = c.id, alias_value = k,
+ *   alias_kind IN ('external','anonymous'))`                     (alias)
+ *
+ * The bare canonical coalesce is WRONG post-PRD-03 and is not a nicety: a
+ * second-device anonymous id lives ONLY in `contact_aliases`, the dual-write
+ * deliberately resolves it (C1), and a coalesce-only `mismatched` probe would
+ * flag every such CORRECTLY-stamped row as corruption — a false alarm that would
+ * block the gate forever on any deployment where anyone has ever used two
+ * devices. Kinds are restricted to `external`/`anonymous` for the same reason
+ * pass 2 restricts them (D4): those are the only kinds a canonical key can ever
+ * be, so an `email`/`discord` alias is NOT ownership.
+ *
+ * Three properties worth naming:
+ *
+ *  - `missing` and `orphaned` PARTITION the NULL-stamped rows: every row with
+ *    `contact_id IS NULL` is one or the other, never both, never neither. So
+ *    `missing + orphaned = count(*) WHERE contact_id IS NULL`, which is what
+ *    makes "zero NULLs" the wrong completion criterion and this the right one.
+ *  - `mismatched` does NOT require the pointed-at contact to be LIVE. A
+ *    soft-deleted contact whose key still matches is consistent data (someone
+ *    was deleted), not corruption; demanding liveness would fail the gate on
+ *    every GDPR delete. The merge-regression case risk 5 worries about is still
+ *    caught, because a merge REWRITES the row's `user_id` to the survivor's key
+ *    — so a row stranded on a soft-deleted loser mismatches on the KEY. A
+ *    pointer at a contact row that does not exist at all is counted (that is the
+ *    FK's job, and this probe is meant to be strictly stronger than an FK).
+ *  - **`user_id IS NULL` rows are NOT counted as mismatched, and the reasoning
+ *    is load-bearing.** D7 makes a raw/keyless send stamp `contact_id = NULL`
+ *    (`lib/tracked.ts` resolves `sendContactId` only `if (options.userId)`), so
+ *    the instinct — "a keyless row carrying a `contact_id` must be a new writer
+ *    violating D7" — looks safe. It is FALSE: the admin resend path
+ *    (`routes/admin/bulk.ts`, D8 row 11) inserts its new `email_sends` row with
+ *    `contactId: email.contactId` copied off the source row and does NOT copy
+ *    `userId` (the pre-existing gap T4d files as do-not-fix). So
+ *    `user_id IS NULL AND contact_id IS NOT NULL` is reachable TODAY, on a
+ *    committed path, carrying a CORRECT contact_id. Counting it would pin
+ *    `mismatched > 0` on any deployment that has ever resent a bounced email —
+ *    the same permanent false alarm the alias correction exists to prevent. The
+ *    cost, stated plainly: a future writer resolving a keyless send by recipient
+ *    ADDRESS would be indistinguishable from a resend, so this probe cannot
+ *    catch that particular D7 violation. `email_sends` is the only one of the
+ *    five tables where the case exists at all — the other four are
+ *    `user_id NOT NULL`.
+ *
+ * Two set-based statements per table, no per-row work: one over the NULL-stamped
+ * rows (which `missing`/`orphaned` partition) and one over the stamped rows
+ * (whose `contact_id IS NOT NULL` predicate is exactly D2's partial index). The
+ * canonical leg is the same `contactKeySql()` coalesce the backfill keys on; the
+ * alias leg probes `contact_aliases_kind_value_idx` (an `IN` on the leading
+ * `alias_kind` column keeps the index usable).
+ */
+async function verifyTable(
+  db: Database,
+  table: ContactIdBackfillTable,
+  userIds: string[] | undefined,
+): Promise<ContactIdVerifyCounts> {
+  const name = sql.identifier(table);
+  const scope = scopeToKeys(userIds);
+
+  const [nulls] = await db.execute<{ missing: number; orphaned: number }>(sql`
+    SELECT count(*) FILTER (WHERE s.owned)::int     AS missing,
+           count(*) FILTER (WHERE NOT s.owned)::int AS orphaned
+      FROM (
+        SELECT (
+                 EXISTS (
+                   SELECT 1 FROM contacts
+                    WHERE contacts.deleted_at IS NULL
+                      AND ${contactKeySql()} = t.user_id
+                 )
+              OR EXISTS (
+                   SELECT 1 FROM contact_aliases a
+                     JOIN contacts ON contacts.id = a.contact_id
+                                  AND contacts.deleted_at IS NULL
+                    WHERE a.alias_value = t.user_id
+                      AND a.alias_kind IN ('external', 'anonymous')
+                 )
+               ) AS owned
+          FROM ${name} t
+         WHERE t.contact_id IS NULL${scope}
+      ) s
+  `);
+
+  const [stamped] = await db.execute<{ mismatched: number }>(sql`
+    SELECT count(*)::int AS mismatched
+      FROM ${name} t
+      LEFT JOIN contacts ON contacts.id = t.contact_id
+     WHERE t.contact_id IS NOT NULL
+       AND t.user_id IS NOT NULL${scope}
+       AND ${contactKeySql()} IS DISTINCT FROM t.user_id
+       AND NOT EXISTS (
+             SELECT 1 FROM contact_aliases a
+              WHERE a.contact_id = contacts.id
+                AND a.alias_value = t.user_id
+                AND a.alias_kind IN ('external', 'anonymous')
+           )
+  `);
+
+  return {
+    missing: Number(nulls?.missing ?? 0),
+    mismatched: Number(stamped?.mismatched ?? 0),
+    orphaned: Number(nulls?.orphaned ?? 0),
+  };
+}
+
+/** The optional key restriction, appended to both statements' WHERE. `undefined`
+ * = the whole table (the gate); an EMPTY list means "these zero keys", which is
+ * `false`, not "everything". */
+function scopeToKeys(userIds: string[] | undefined) {
+  if (userIds === undefined) return sql.empty();
+  if (userIds.length === 0) return sql` AND false`;
+  return sql` AND t.user_id IN (${sql.join(
+    userIds.map((value) => sql`${value}`),
+    sql`, `,
+  )})`;
+}
+
+/**
+ * PRD 04 T6 — the invariant probe, and the thing this PRD ships INSTEAD of a
+ * foreign key (D1): an FK proves the uuid exists, this proves it is the right
+ * uuid. It is also the only control that can catch a dual-write writing the
+ * WRONG contact (risk 3) — the backfill cannot, because it only fills NULLs and
+ * will happily leave a wrong non-NULL value in place. **The backfill is not a
+ * repair tool**; if `mismatched > 0` the fix is a targeted corrective job.
+ *
+ * Read-only. Five tables × two set-based statements, run SEQUENTIALLY rather
+ * than fanned out: these are full-table probes by nature, and five concurrent
+ * scans of the two largest tables in the system is not what an operator wants
+ * from an on-demand admin endpoint. Nothing here is on a hot path.
+ *
+ * `userIds` restricts every count to rows carrying one of those exact `user_id`
+ * values. **The gate is the UNSCOPED call** — that is what the admin route runs
+ * and what `flipReady` means. The scope exists so a caller can ask the question
+ * about a known set of keys; in practice that caller is the test suite, which
+ * shares one Postgres with concurrently-running files and would otherwise be
+ * reduced to asserting deltas on counts other writers move underneath it.
+ */
+export async function verifyContactIdBackfill(opts: {
+  db: Database;
+  userIds?: string[];
+}): Promise<ContactIdVerifyResult> {
+  const tables = {} as Record<ContactIdBackfillTable, ContactIdVerifyCounts>;
+  const totals: ContactIdVerifyCounts = {
+    missing: 0,
+    mismatched: 0,
+    orphaned: 0,
+  };
+
+  for (const table of TABLES) {
+    const counts = await verifyTable(opts.db, table, opts.userIds);
+    tables[table] = counts;
+    totals.missing += counts.missing;
+    totals.mismatched += counts.mismatched;
+    totals.orphaned += counts.orphaned;
+  }
+
+  return {
+    tables,
+    totals,
+    flipReady: totals.missing === 0 && totals.mismatched === 0,
+  };
+}
+
 export const contactIdBackfillTask = hatchet.task({
   name: "identity-contact-id-backfill",
   retries: 0,
