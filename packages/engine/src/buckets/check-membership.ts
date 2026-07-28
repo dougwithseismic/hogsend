@@ -9,7 +9,7 @@ import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { normalizeEmailOrNull } from "../lib/contacts.js";
+import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -183,13 +183,31 @@ export async function checkBucketMembership(opts: {
   let storedContactProps: Record<string, unknown> = {};
   let contactDeleted = false;
   if (needsContactState) {
+    // Match on the CANONICAL key, not `external_id` alone. Memberships and
+    // events are keyed on `coalesce(external_id, anonymous_id, id)`
+    // (`contactKeySql`), so an email-only contact is keyed on its uuid and an
+    // anonymous one on its `anonymous_id` — both have a NULL `external_id` and
+    // neither was ever found here. The cron's join scan already made exactly
+    // this correction for the same reason (`bucket-reconcile.ts`, "joining on
+    // contacts.externalId would … silently drop exactly the dormant email-only
+    // contacts this cron exists to reconcile"); this is that fix applied to the
+    // real-time path, which was missed.
+    //
+    // Two things were wrong, and the second is the serious one:
+    //   1. property criteria evaluated against `{}` instead of the contact's
+    //      real state, so a property leg silently answered "absent" for every
+    //      such person;
+    //   2. `contactDeleted` stayed false because the row was never found, so
+    //      the GDPR guard below — "never (re-)evaluate or emit for a
+    //      soft-deleted contact" — did not fire for them. A soft-deleted
+    //      email-only contact could still transition buckets and emit.
     const [contact] = await db
       .select({
         properties: contacts.properties,
         deletedAt: contacts.deletedAt,
       })
       .from(contacts)
-      .where(eq(contacts.externalId, userId))
+      .where(eq(contactKeySql(), userId))
       .limit(1);
     if (contact) {
       storedContactProps =
