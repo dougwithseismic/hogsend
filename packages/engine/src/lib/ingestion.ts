@@ -530,6 +530,12 @@ export async function ingestEvent(opts: {
         currency,
         source: event.source ?? null,
         idempotencyKey: event.idempotencyKey,
+        // PRD 04 dual-write. The resolve ABOVE already produced this — zero new
+        // queries, and no D6 wrapper is needed because there is no new failure
+        // mode to swallow. A REFUSED resolve stamps NULL here BY DESIGN: the
+        // observation is kept (same canonical key, same row) while the CRM row
+        // it would point at deliberately does not exist.
+        contactId,
         ...(occurredAt ? { occurredAt } : {}),
       })
       .onConflictDoNothing({
@@ -553,6 +559,9 @@ export async function ingestEvent(opts: {
         value,
         currency,
         source: event.source ?? null,
+        // PRD 04 dual-write — same already-resolved value as the idempotent
+        // branch above, NULL on a refused resolve by design.
+        contactId,
         ...(occurredAt ? { occurredAt } : {}),
       })
       .returning({ id: userEvents.id, occurredAt: userEvents.occurredAt });
