@@ -87,6 +87,22 @@ Verified against PostHog docs and posthog-node 5.35.1 (native `identify` at `cli
 | Email link click | `hs_t` → server `alias({distinctId: contactKey, alias: landing session})` | identified = `contactKey`, anon = landing session | `/v1/t/identify` (§6) |
 | Contact merge / Discord `/link` | resolver folds loser → `alias({distinctId: survivorKey, alias: loser ANON key})` | identified = survivorKey, anon = loser anon/uuid key | `ingestEvent` post-resolve (§5) |
 
+### 3.5 Many keys per kind
+
+A person may hold **many identity keys per kind**. The `contacts` columns hold at
+most one value each (the legacy dual-write, retired when the columns are); every
+further value — a second device's anon id, a work email alongside a personal
+one, a second external id from another system — is a `contact_aliases` row, and
+resolution reads that table first. "The column is taken" is a non-event: the
+resolver records the identity row and the key resolves back to the same person.
+Only a newly claimed **anonymous** key adopts orphaned history (it may have
+keyed pre-identify observation); other kinds never keyed history, so claiming
+them moves nothing. A claim whose value is another live contact's **canonical**
+key is refused and logged as `identity.claim.refused_foreign_key` (kind +
+contact id, never the value) — an operator whose ingest legitimately reuses
+another contact's canonical key as a different person's id will see those
+refusals in the logs rather than silent cross-linking.
+
 ---
 
 ## 4. Part 1 — `anonymousId` threading (never fork in the first place)

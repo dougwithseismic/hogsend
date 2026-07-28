@@ -7,6 +7,7 @@ import {
   contactKey,
   normalizeEmail,
   resolveContact,
+  resolveViaAlias,
 } from "../../lib/contacts.js";
 import {
   InvalidUserTokenError,
@@ -135,16 +136,27 @@ export async function resolveFeedRecipient(
         ),
       )
       .limit(1);
+    // PRD 03 T5: a SECOND device's anon id lives ONLY as an identity row —
+    // the column holds the first device's. Without this fallback the resolver
+    // read the person as having no contact, forced `allowCreate: false`, and
+    // the device's mark/clear re-ingests were refused: the events stranded
+    // under the raw device id instead of folding into the contact. Trust-wise
+    // this is the same class as the column hit: the id is the caller's OWN
+    // browser id held by the contact, never an identified canonical key (those
+    // were 403'd by `collidesWithIdentified` above).
+    const contactId =
+      anonRow[0]?.id ??
+      (await resolveViaAlias(db, "anonymous", params.anonymousId))?.id;
     return {
       ok: true,
       recipientKey: params.anonymousId,
-      contactId: anonRow[0]?.id,
+      contactId,
       // No row to pin to ⇒ the provenance pin cannot save us: an unpinned
       // re-ingest keyed on this anon id would MINT `external_id = <anonId>`,
       // the very ghost `sendFeedItem` just refused (D1/PRD 02 site 3), and the
       // next poll would 403 on it. Refuse instead — legal here and only here,
       // because `recipientKey` is the raw `anonymousId` (D8).
-      ...(anonRow[0] ? {} : { allowCreate: false }),
+      ...(contactId ? {} : { allowCreate: false }),
     };
   }
 

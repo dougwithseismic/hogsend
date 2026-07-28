@@ -162,24 +162,74 @@ async function keysAnotherContact(
   return false;
 }
 
-/** True when this contact already holds `value` as an anonymous alias. */
-async function anonAliasAlreadyHeld(
+/**
+ * PRD 03 — THE single claim executor. Every supplied identity key the columns
+ * cannot (or should not) hold becomes an identity row through this one path,
+ * on the fill-in-link arm and the merge arm alike. The arms decide WHAT to
+ * claim (and whether a free column also gets the legacy dual-write); this
+ * function is the only place a claim is gated and recorded — the per-arm
+ * inline-side-effect shape is what let the pre-PRD-03 if-arm ship ungated.
+ *
+ * Gate: `external` and `anonymous` claims are refused when the value is
+ * another live contact's CANONICAL key (`keysAnotherContact`) — resolution
+ * probes only the kind's own namespace, so "no candidate resolved" does not
+ * mean "nobody owns this value", and while history is string-keyed a claim on
+ * someone else's canonical key is the setup for theft (the adoption/repoint
+ * primitives key on strings until PRD 05). `email`/`discord` need no gate:
+ * neither is ever canonical, so neither ever keyed history — nothing to steal.
+ * The gate result is memoised per value (`foreignMemo`) so a caller probing
+ * the same value twice issues one query.
+ *
+ * A refused claim is silent + logged (`identity.claim.refused_foreign_key`,
+ * kind + contact id, NEVER the value — it is another person's identifier):
+ * throwing would 500 an ingest that looks legitimate to its caller.
+ *
+ * Returns:
+ *  - "refused" — foreign canonical key; the caller must skip the column write,
+ *    the adoption and the `mergedKeys` report as well.
+ *  - "claimed" — THIS call inserted the `(kind, value)` row. The first-claim
+ *    signal adoption reads: structural idempotence via the unique index +
+ *    `returning()`, replacing the bespoke `anonAliasAlreadyHeld` probe (a
+ *    repeat resolve conflicts, returns nothing, and re-fires nothing — the
+ *    re-stitch-storm guard, now enforced by the index instead of remembered).
+ *  - "held" — the row already existed (repeat resolve, or a merge/backfill
+ *    wrote it first); nothing to adopt or report.
+ */
+async function claimIdentityKey(
   tx: Tx,
-  value: string,
-  contactId: string,
-): Promise<boolean> {
-  const rows = await tx
-    .select({ contactId: contactAliases.contactId })
-    .from(contactAliases)
-    .where(
-      and(
-        eq(contactAliases.aliasKind, "anonymous"),
-        eq(contactAliases.aliasValue, value),
-        eq(contactAliases.contactId, contactId),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  row: ContactRow,
+  key: ResolveKey,
+  foreignMemo: Map<string, boolean>,
+): Promise<"refused" | "claimed" | "held"> {
+  if (key.kind === "external" || key.kind === "anonymous") {
+    let foreign = foreignMemo.get(key.value);
+    if (foreign === undefined) {
+      foreign = await keysAnotherContact(tx, key.value, row.id);
+      foreignMemo.set(key.value, foreign);
+    }
+    if (foreign) {
+      logger.warn("identity.claim.refused_foreign_key", {
+        kind: key.kind,
+        contactId: row.id,
+      });
+      return "refused";
+    }
+  }
+
+  const inserted = await tx
+    .insert(contactAliases)
+    .values({
+      contactId: row.id,
+      aliasKind: key.kind,
+      aliasValue: key.value,
+      fromContactId: null,
+      reason: "promote",
+    })
+    .onConflictDoNothing({
+      target: [contactAliases.aliasKind, contactAliases.aliasValue],
+    })
+    .returning({ id: contactAliases.id });
+  return inserted.length > 0 ? "claimed" : "held";
 }
 
 /**
@@ -359,7 +409,10 @@ export function normalizeEmailOrNull(
 // Identity resolution
 // ---------------------------------------------------------------------------
 
-type Kind = "external" | "email" | "anonymous" | "discord";
+// Module-exported (not re-exported from the package index) so the exported
+// `resolveViaAlias` signature can name it; PRD 06 promotes it to the public
+// `IdentityKind`.
+export type Kind = "external" | "email" | "anonymous" | "discord";
 
 interface ResolveKey {
   kind: Kind;
@@ -1103,9 +1156,16 @@ interface ResolveCtx {
 }
 
 /**
- * Single matching row: fill any identity keys it is missing, record a `'promote'`
- * alias for each newly-attached key (provenance + belt-and-suspenders so the key
- * still resolves through the alias path), and apply the property patch.
+ * Single matching row: claim every supplied identity key the row does not
+ * already hold (column when free — the legacy dual-write — identity row
+ * ALWAYS), apply the property patch, then repoint/adopt history where the
+ * claims require it.
+ *
+ * PRD 03 shape — the arm PLANS, {@link claimIdentityKey} EXECUTES: one ordered
+ * pass over the supplied keys replaces the old per-kind attach branches, whose
+ * arm-local side effects are how the if-arm shipped without the foreign-key
+ * gate. "The column is taken" is a non-event now: a second/third value per
+ * kind is just another identity row, for every kind alike.
  */
 async function fillInLink(
   tx: Tx,
@@ -1121,7 +1181,6 @@ async function fillInLink(
     lastSeenAt: new Date(),
     updatedAt: new Date(),
   };
-  const promoted: ResolveKey[] = [];
 
   // The contact's canonical string key BEFORE this fill (external_id ??
   // anonymous_id ?? id). Attaching an external_id (or anonymous_id where none
@@ -1132,61 +1191,84 @@ async function fillInLink(
   let nextExternalId = row.externalId;
   let nextAnonymousId = row.anonymousId;
 
-  if (ctx.userId && !row.externalId) {
-    set.externalId = ctx.userId;
-    nextExternalId = ctx.userId;
-    promoted.push({ kind: "external", value: ctx.userId });
-  }
-  if (ctx.email && !row.email) {
-    set.email = ctx.email;
-    promoted.push({ kind: "email", value: ctx.email });
-  }
-  // discord_id is an attachable resolvable key but NEVER the canonical key
-  // (external_id ?? anonymous_id ?? id), so it does NOT touch
-  // nextExternalId/nextAnonymousId — gaining it never flips the canonical key,
-  // so no own-history re-point follows.
-  if (ctx.discordId && !row.discordId) {
-    set.discordId = ctx.discordId;
-    promoted.push({ kind: "discord", value: ctx.discordId });
-  }
-  // Does the incoming anon id already key SOMEONE ELSE's history? Resolution
-  // only probed the anonymous namespace, so a miss does not answer this. One
-  // query, reused by both arms below — and skipped entirely when the row
-  // already holds this anon id, since neither arm is reachable then and this is
-  // the hottest path there is (every repeat page view from a known device).
-  const foreignAnonKey =
-    ctx.anonymousId != null &&
-    ctx.anonymousId !== row.anonymousId &&
-    (await keysAnotherContact(tx, ctx.anonymousId, row.id));
+  // The supplied keys, in the resolver's precedence order. `current` is the
+  // column value the row holds for that kind today; `column` names the legacy
+  // dual-write slot (retired in PRD 07). Note discord_id / email are attachable
+  // resolvable keys but NEVER the canonical key (external_id ?? anonymous_id ??
+  // id) — gaining either never flips the canonical key, so neither touches
+  // nextExternalId/nextAnonymousId below.
+  const supplied: {
+    kind: Kind;
+    value: string;
+    current: string | null;
+    column: "externalId" | "email" | "anonymousId" | "discordId";
+  }[] = [];
+  if (ctx.userId)
+    supplied.push({
+      kind: "external",
+      value: ctx.userId,
+      current: row.externalId,
+      column: "externalId",
+    });
+  if (ctx.email)
+    supplied.push({
+      kind: "email",
+      value: ctx.email,
+      current: row.email,
+      column: "email",
+    });
+  if (ctx.anonymousId)
+    supplied.push({
+      kind: "anonymous",
+      value: ctx.anonymousId,
+      current: row.anonymousId,
+      column: "anonymousId",
+    });
+  if (ctx.discordId)
+    supplied.push({
+      kind: "discord",
+      value: ctx.discordId,
+      current: row.discordId,
+      column: "discordId",
+    });
 
-  // The anon id this call claims for the row — into the column when it is free,
-  // otherwise as an alias. A person browses from more than one device, but
-  // `contacts.anonymous_id` holds exactly one; `contact_aliases` is the
-  // multi-key table, and `findByKey` already falls back to it, so a second
-  // device's id resolves back here once recorded.
-  let claimedAnonymousId: string | undefined;
-  if (ctx.anonymousId && !row.anonymousId) {
-    // Column write + alias are pre-existing behaviour and stay unconditional;
-    // only the ADOPTION below is gated, since only adoption moves rows.
-    set.anonymousId = ctx.anonymousId;
-    nextAnonymousId = ctx.anonymousId;
-    promoted.push({ kind: "anonymous", value: ctx.anonymousId });
-    claimedAnonymousId = ctx.anonymousId;
-  } else if (
-    ctx.anonymousId &&
-    ctx.anonymousId !== row.anonymousId &&
-    // Never mint a resolution edge to a key that names someone else.
-    !foreignAnonKey &&
-    // IDEMPOTENCE. The column keeps the FIRST device's id, so this arm's
-    // condition stays true forever for every later device. Without this check a
-    // browser that identifies on each page load would re-alias, re-repoint and
-    // — the part that actually escapes — re-report `mergedKeys` on every single
-    // load, firing the analytics anon-to-known stitch over and over.
-    !(await anonAliasAlreadyHeld(tx, ctx.anonymousId, row.id))
-  ) {
-    promoted.push({ kind: "anonymous", value: ctx.anonymousId });
-    claimedAnonymousId = ctx.anonymousId;
+  // Keys THIS call was first to claim — the adoption/report signal. Refused
+  // (foreign) keys never enter it; repeat claims conflict on the unique index
+  // and never re-enter it. A person browses from more than one device, and
+  // `contacts.anonymous_id` holds exactly one — `contact_aliases` is the
+  // multi-key table, and `findByKey` reads it first, so any claimed value
+  // resolves back here once recorded.
+  const foreignMemo = new Map<string, boolean>();
+  const claimed: ResolveKey[] = [];
+
+  for (const s of supplied) {
+    // Hottest path there is (every repeat page view from a known device): the
+    // value is already the row's column value — nothing to claim, no queries.
+    if (s.value === s.current) continue;
+
+    const outcome = await claimIdentityKey(
+      tx,
+      row,
+      { kind: s.kind, value: s.value },
+      foreignMemo,
+    );
+    // A refused (foreign-canonical-key) claim skips EVERYTHING for this key:
+    // no column write (an external write would flip the canonical key and
+    // repoint the claimant's history INTO a string someone else's rows key
+    // on), no identity row, no adoption, no mergedKeys report.
+    if (outcome === "refused") continue;
+
+    if (s.current == null) {
+      // Legacy dual-write: the column when it happens to be free (PRD 07
+      // retires the columns; writing them keeps every column-only reader
+      // working until then).
+      set[s.column] = s.value;
+      if (s.kind === "external") nextExternalId = s.value;
+      if (s.kind === "anonymous") nextAnonymousId = s.value;
+    }
+    if (outcome === "claimed") claimed.push({ kind: s.kind, value: s.value });
   }
+
   // First-touch provenance: only stamp when the row has none, so an inbound
   // contact that a Source later re-touches keeps its original origin.
   if (ctx.source && !row.source) {
@@ -1235,7 +1317,7 @@ async function fillInLink(
   }
 
   // ADOPT ORPHANED ANON HISTORY — the second-order effect of refusing to mint
-  // on observation. When an anon id is newly attached but does NOT become the
+  // on observation. When an anon id is newly claimed but does NOT become the
   // canonical key (the row already had an `external_id`), the flip test above is
   // false, so nothing above this moves the history keyed on that anon id.
   //
@@ -1251,45 +1333,35 @@ async function fillInLink(
   //
   // It also covers the SECOND-DEVICE shape, which the same refusal broke the
   // same way: the row's `anonymous_id` column is already taken by the first
-  // device, so the id from a second one is claimed as an alias above, and its
-  // pre-sign-in history is adopted here.
+  // device, so the id from a second one is claimed as an identity row above,
+  // and its pre-sign-in history is adopted here.
   //
-  // Gated on `foreignAnonKey`. This shape carries a `userId`, so
-  // `restrictToAnonymous` is false by construction (it requires `!userId`) and
-  // neither publishable clamp fires — the ONLY thing standing between a caller
-  // and someone else's rows is the provenance check. A `userToken` proves which
-  // account the caller is; it says nothing about which `anonymousId` they may
-  // name, and a canonical key is a far weaker secret than a browser-local id
-  // (it is frequently a sequential or public account id).
-  if (
-    claimedAnonymousId &&
-    claimedAnonymousId !== newKey &&
-    claimedAnonymousId !== oldKey &&
-    !foreignAnonKey
-  ) {
-    await repointOwnHistory(tx, claimedAnonymousId, newKey, updatedRow);
+  // Adoption is ANONYMOUS-ONLY (claiming adds a resolution edge; adopting MOVES
+  // rows — a second external/email/discord value never keyed this person's
+  // history, so there is nothing to move; PRD 04 reunites externally-keyed rows
+  // through the identity row instead). Foreign keys never reach this loop: the
+  // claim path refused them before `claimed` was built. That refusal is the
+  // ONLY thing standing between a caller and someone else's rows — this shape
+  // carries a `userId`, so `restrictToAnonymous` is false by construction (it
+  // requires `!userId`) and neither publishable clamp fires. A `userToken`
+  // proves which account the caller is; it says nothing about which
+  // `anonymousId` they may name, and a canonical key is a far weaker secret
+  // than a browser-local id (it is frequently a sequential or public account
+  // id). First-claim-only by construction (`claimed` is populated from the
+  // insert's `returning()`), so a browser that identifies on every page load
+  // cannot re-adopt or re-fire the analytics stitch — the re-stitch storm
+  // guard, structural instead of remembered.
+  for (const key of claimed) {
+    if (key.kind !== "anonymous") continue;
+    if (key.value === newKey || key.value === oldKey) continue;
+    await repointOwnHistory(tx, key.value, newKey, updatedRow);
     // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;
     // appended, since a key flip above may already have folded a uuid/anon key.
-    mergedKeys = [...(mergedKeys ?? []), claimedAnonymousId];
+    mergedKeys = [...(mergedKeys ?? []), key.value];
   }
 
-  for (const key of promoted) {
-    await tx
-      .insert(contactAliases)
-      .values({
-        contactId: row.id,
-        aliasKind: key.kind,
-        aliasValue: key.value,
-        fromContactId: null,
-        reason: "promote",
-      })
-      .onConflictDoNothing({
-        target: [contactAliases.aliasKind, contactAliases.aliasValue],
-      });
-  }
-
-  // PRD 02 dual-write, AFTER the promote loop so newly-attached keys keep
-  // their `promote` provenance and only the row's pre-existing (pre-alias-era)
+  // PRD 02 dual-write, AFTER the claim pass so newly-claimed keys keep their
+  // `promote` provenance and only the row's pre-existing (pre-alias-era)
   // columns gain `resolve` rows. This is what backfills a hot contact whose
   // columns predate `contact_aliases`, without waiting for the offline job.
   await ensureIdentityAliases(tx, updatedRow);
@@ -1501,11 +1573,9 @@ async function mergeContacts(
     .set(survivorSet)
     .where(eq(contacts.id, survivor.id));
 
-  // PRD 02 dual-write on the POST-merge survivor row: a `resolve` alias per
-  // identity column it now carries. Runs AFTER `recordMergeAliases` (inside the
-  // loser loop above), so the loser keys' `merge` provenance wins the conflict
-  // and only the survivor's pre-alias-era keys gain rows here.
-  await ensureIdentityAliases(tx, {
+  // The survivor as it stands AFTER the update above — what the claim step and
+  // the PRD 02 dual-write below both key off.
+  const postSurvivor: ContactRow = {
     ...survivor,
     externalId:
       (survivorSet.externalId as string | undefined) ?? survivor.externalId,
@@ -1514,7 +1584,42 @@ async function mergeContacts(
       (survivorSet.anonymousId as string | undefined) ?? survivor.anonymousId,
     discordId:
       (survivorSet.discordId as string | undefined) ?? survivor.discordId,
-  });
+  };
+
+  // PRD 03 T4 — claim CALL-supplied keys the survivor's columns could not
+  // hold. Loser-held keys already survive as identity rows via
+  // `recordMergeAliases`; the only drop left was a ctx key when the survivor's
+  // column was already occupied — each `if (!survivor.<column>)` block above
+  // picks one value and used to discard the rest. Runs AFTER the loser
+  // soft-delete (the partial-unique live indexes are already free — the same
+  // ordering the survivorSet copy depends on) and AFTER the survivor update.
+  // Same gate as fill-in-link: an external/anonymous value that is another
+  // live contact's canonical key is refused, not aliased — a merge arm reached
+  // with a foreign key (one the candidate probes never matched) must not mint
+  // a resolution edge to someone else's person. NO adoption here: every
+  // absorbed candidate key's history was already folded by the loser rewrites
+  // above; a claimed second value never keyed history at all.
+  {
+    const foreignMemo = new Map<string, boolean>();
+    const unheld: ResolveKey[] = [];
+    if (ctx.userId && ctx.userId !== postSurvivor.externalId)
+      unheld.push({ kind: "external", value: ctx.userId });
+    if (ctx.email && ctx.email !== postSurvivor.email)
+      unheld.push({ kind: "email", value: ctx.email });
+    if (ctx.anonymousId && ctx.anonymousId !== postSurvivor.anonymousId)
+      unheld.push({ kind: "anonymous", value: ctx.anonymousId });
+    if (ctx.discordId && ctx.discordId !== postSurvivor.discordId)
+      unheld.push({ kind: "discord", value: ctx.discordId });
+    for (const key of unheld) {
+      await claimIdentityKey(tx, postSurvivor, key, foreignMemo);
+    }
+  }
+
+  // PRD 02 dual-write on the POST-merge survivor row: a `resolve` alias per
+  // identity column it now carries. Runs AFTER `recordMergeAliases` (inside the
+  // loser loop above), so the loser keys' `merge` provenance wins the conflict
+  // and only the survivor's pre-alias-era keys gain rows here.
+  await ensureIdentityAliases(tx, postSurvivor);
 
   // If the survivor's canonical key flipped (it had no external_id/anonymous_id
   // and the merge promoted one from the call/loser), re-point the survivor's OWN
@@ -2305,9 +2410,12 @@ export async function resolveRecipient(opts: {
   };
 }
 
-/** Alias-aware lookup helper for resolveRecipient (mirrors findByKey but on the
- * top-level db handle, no tx). */
-async function resolveViaAlias(
+/** Alias-aware lookup helper (mirrors findByKey's alias probe but on the
+ * top-level db handle, no tx). Engine-internal export: `resolveRecipient`
+ * below and the feed's anonymous-recipient resolver (PRD 03 T5 — a second
+ * device's anon id lives ONLY as an identity row) both fall back to it after
+ * their column probes miss. */
+export async function resolveViaAlias(
   db: Database,
   kind: Kind,
   value: string,
