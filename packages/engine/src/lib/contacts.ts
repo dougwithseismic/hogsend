@@ -13,6 +13,7 @@ import {
 } from "@hogsend/db";
 import {
   and,
+  type Column,
   eq,
   ilike,
   inArray,
@@ -802,6 +803,35 @@ export function contactKey(row: ContactRow): string {
  */
 export function contactKeySql() {
   return sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)`;
+}
+
+/**
+ * The ADOPTION STAMP fragment: `coalesce(<table>.contact_id, :contactId)`.
+ *
+ * Every statement below that moves a history row's mutable `user_id` string
+ * onto an absorbing contact's key ALSO stamps that contact's uuid — so the
+ * later read-flip onto `contact_id` leaves no adopted row behind. Two
+ * properties make this fragment (rather than a bare `contact_id = :id`) the
+ * only correct shape:
+ *
+ *  - SECURITY, not optimization. The `coalesce` is a NULL guard: it stamps only
+ *    rows nobody owns yet (written while the contact did not exist — the whole
+ *    point of refusing to mint on observation). A row already carrying ANOTHER
+ *    contact's id is left alone, so a mis-gated adoption can never re-parent a
+ *    second person's history even if it does move the string key.
+ *  - It must ride IN the same UPDATE that rewrites `user_id`. A separate stamp
+ *    statement afterwards matches zero rows — the key it would filter on has
+ *    already moved — and one before it would need its own scan of the old key.
+ *
+ * Idempotent by construction: re-running an adoption finds `contact_id` already
+ * non-NULL and changes nothing.
+ *
+ * The `::uuid` cast pins the bound parameter's type the way {@link
+ * contactKeySql}'s `::text` does; without it the param arrives untyped and
+ * Postgres has to infer it from the coalesce.
+ */
+function adoptedContactId(column: Column, contactId: string): SQL<string> {
+  return sql<string>`coalesce(${column}, ${contactId}::uuid)`;
 }
 
 /**
@@ -1630,10 +1660,19 @@ async function mergeContacts(
       safeLoserKeys.push(loser.anonymousId ?? loser.id);
     }
 
-    // (ii) user_events.user_id rewrite.
+    // (ii) user_events.user_id rewrite. The paired `contact_id` stamp is the
+    // ADOPTION half only (NULL rows — history the loser's keys accumulated
+    // before any contact existed). Rows already owned by the LOSER keep
+    // `loser.id` here and are re-pointed wholesale by (vi-b-hist) below, which
+    // is the one statement that may overwrite a non-NULL owner. Splitting it
+    // that way keeps a single rule in the fragment (never take a row from
+    // another contact) and one explicit, auditable place where a merge does.
     await tx
       .update(userEvents)
-      .set({ userId: survivorKey })
+      .set({
+        userId: survivorKey,
+        contactId: adoptedContactId(userEvents.contactId, survivor.id),
+      })
       .where(inArray(userEvents.userId, loserKeysToRewrite));
 
     // (iii) journey_states — exit the loser's duplicate active/waiting row when
@@ -1646,6 +1685,7 @@ async function mergeContacts(
       .update(emailSends)
       .set({
         userId: survivorKey,
+        contactId: adoptedContactId(emailSends.contactId, survivor.id),
         ...(survivor.email ? { userEmail: survivor.email } : {}),
       })
       .where(inArray(emailSends.userId, loserKeysToRewrite));
@@ -1653,10 +1693,20 @@ async function mergeContacts(
     // (v) bucket_memberships — soft-leave the loser's duplicate active
     // membership when the survivor already holds one in the same bucket (respect
     // uq_user_bucket_active, preserve survivor's dwell clock), THEN rewrite.
-    await foldBucketMemberships(tx, survivorKey, loserKeysToRewrite);
+    await foldBucketMemberships(
+      tx,
+      survivorKey,
+      loserKeysToRewrite,
+      survivor.id,
+    );
 
     // (vi) email_preferences FOLD (never blind-rewrite — risk 6).
-    await foldEmailPreferences(tx, loserKeysToRewrite, survivorKey);
+    await foldEmailPreferences(
+      tx,
+      loserKeysToRewrite,
+      survivorKey,
+      survivor.id,
+    );
 
     // (vi-b) deals + crm_links re-point: these carry contact_id uuid FKs
     // (not user keys), which the key rewrites above never touch. Without
@@ -1683,6 +1733,15 @@ async function mergeContacts(
     // the moment the dual-write starts, merges are already correct. Shipped in
     // the other order, every merge in between would strand history rows
     // pointing at a soft-deleted loser contact.
+    //
+    // It is also the OVERWRITE half of the key rewrites above: those stamp only
+    // rows nobody owned (the {@link adoptedContactId} NULL guard), so the
+    // loser-OWNED rows arrive here still carrying `loser.id` and this is what
+    // moves them. Between the two halves, every row the merge leaves keyed to
+    // the survivor also carries the survivor's uuid. Runs after the rewrites
+    // rather than before because it filters on `contact_id`, not `user_id` —
+    // the order the key rewrites move is irrelevant to it — and re-running the
+    // pair changes nothing (`contact_id = loser.id` matches zero rows twice).
     await tx
       .update(userEvents)
       .set({ contactId: survivor.id })
@@ -2015,6 +2074,7 @@ async function foldJourneyStates(
       .update(journeyStates)
       .set({
         userId: survivorKey,
+        contactId: adoptedContactId(journeyStates.contactId, survivor.id),
         ...(survivor.email ? { userEmail: survivor.email } : {}),
         updatedAt: new Date(),
       })
@@ -2027,11 +2087,16 @@ async function foldJourneyStates(
  * a bucket where a loser key also holds one, soft-LEAVE the loser's row first
  * (uq_user_bucket_active forbids two active rows for the same (user, bucket);
  * preserve the survivor's dwell clock), then rewrite the rest onto the survivor.
+ *
+ * `survivorId` is the absorbing contact's uuid — the soft-left rows are rewritten
+ * by the same statement as the rest, so both halves of a folded pair leave here
+ * carrying it (see {@link adoptedContactId} for the NULL guard).
  */
 async function foldBucketMemberships(
   tx: Tx,
   survivorKey: string,
   loserKeys: string[],
+  survivorId: string,
 ): Promise<void> {
   const survivorActive = await tx
     .select({ bucketId: bucketMemberships.bucketId })
@@ -2072,7 +2137,11 @@ async function foldBucketMemberships(
 
   await tx
     .update(bucketMemberships)
-    .set({ userId: survivorKey, updatedAt: new Date() })
+    .set({
+      userId: survivorKey,
+      contactId: adoptedContactId(bucketMemberships.contactId, survivorId),
+      updatedAt: new Date(),
+    })
     .where(inArray(bucketMemberships.userId, loserKeys));
 }
 
@@ -2127,11 +2196,19 @@ async function foldGroupMemberships(
  * 3-way merge where two losers each carry a pref for the SAME email folds
  * loser2 into loser1's already-folded result instead of colliding on
  * `uq(user_id, email)` (risk 3). The loser row is deleted after folding.
+ *
+ * This is the one fold whose SURVIVING row is not the row that moved — a
+ * collision keeps the TARGET and deletes the loser — so `survivorId` is stamped
+ * on both branches: onto the re-pointed row when the slot is free, and onto the
+ * target as part of the fold write when it is not. Same NULL guard either way
+ * (see {@link adoptedContactId}); the fold branch expresses it in TS because the
+ * target row is already in hand.
  */
 async function foldEmailPreferences(
   tx: Tx,
   loserKeys: string[],
   survivorKey: string,
+  survivorId: string,
 ): Promise<void> {
   if (loserKeys.length === 0) return;
 
@@ -2167,7 +2244,11 @@ async function foldEmailPreferences(
       // The (survivorKey, lp.email) slot is free — re-point the loser row.
       await tx
         .update(emailPreferences)
-        .set({ userId: survivorKey, updatedAt: new Date() })
+        .set({
+          userId: survivorKey,
+          contactId: adoptedContactId(emailPreferences.contactId, survivorId),
+          updatedAt: new Date(),
+        })
         .where(eq(emailPreferences.id, lp.id));
       continue;
     }
@@ -2193,6 +2274,7 @@ async function foldEmailPreferences(
         categories: foldedCategories,
         suppressedAt: earliest(target.suppressedAt, lp.suppressedAt),
         lastBounceAt: earliest(target.lastBounceAt, lp.lastBounceAt),
+        contactId: target.contactId ?? survivorId,
         updatedAt: new Date(),
       })
       .where(eq(emailPreferences.id, target.id));
@@ -2214,6 +2296,14 @@ async function foldEmailPreferences(
  * active/terminal dedupe as the merge fold so the rewrite can't violate
  * uq_user_journey_active / uq_user_bucket_active / uq(user_id,email).
  *
+ * Every rewrite here ALSO stamps `row.id` into the row's `contact_id` under the
+ * {@link adoptedContactId} NULL guard — the adopted rows predate the contact, so
+ * the column they are missing is exactly the one the read path is about to move
+ * onto. `row` is the ADOPTING contact at all four call sites (the freshly
+ * inserted row on the create arm, the post-fill row on both fill-in-link arms,
+ * the post-merge survivor on the merge arm), so no separate id argument can
+ * drift out of step with the email the folds denormalize from the same row.
+ *
  * No-op when oldKey === newKey (the canonical key did not change).
  */
 async function repointOwnHistory(
@@ -2227,25 +2317,29 @@ async function repointOwnHistory(
   // user_events: no unique constraint on user_id — blind rewrite.
   await tx
     .update(userEvents)
-    .set({ userId: newKey })
+    .set({
+      userId: newKey,
+      contactId: adoptedContactId(userEvents.contactId, row.id),
+    })
     .where(eq(userEvents.userId, oldKey));
 
   // journey_states + bucket_memberships: dedupe against the survivor/new key's
   // existing rows (the folds already handle the collision logic).
   await foldJourneyStates(tx, newKey, [oldKey], row);
-  await foldBucketMemberships(tx, newKey, [oldKey]);
+  await foldBucketMemberships(tx, newKey, [oldKey], row.id);
 
   // email_sends: no unique constraint on user_id — blind rewrite.
   await tx
     .update(emailSends)
     .set({
       userId: newKey,
+      contactId: adoptedContactId(emailSends.contactId, row.id),
       ...(row.email ? { userEmail: row.email } : {}),
     })
     .where(eq(emailSends.userId, oldKey));
 
   // email_preferences: FOLD into the new key's rows (uq(user_id, email)).
-  await foldEmailPreferences(tx, [oldKey], newKey);
+  await foldEmailPreferences(tx, [oldKey], newKey, row.id);
 }
 
 /** RECORD a contact_aliases row per loser key → survivor (reason 'merge'). */
