@@ -353,7 +353,7 @@ async function reevalLeaves(opts: {
       entryCount: bucketMemberships.entryCount,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+    .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
