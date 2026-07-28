@@ -484,6 +484,13 @@
       "when": 1785171399757,
       "tag": "0068_careless_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785229644368,
+      "tag": "0069_loud_mandroid",
+      "breakpoints": true
     }
   ]
 }

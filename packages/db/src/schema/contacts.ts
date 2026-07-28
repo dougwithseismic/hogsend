@@ -111,6 +111,21 @@ export const contacts = pgTable(
     uniqueIndex("contacts_phone_unique_idx")
       .on(table.phone)
       .where(sql`phone IS NOT NULL AND deleted_at IS NULL`),
+    // Functional index over the CANONICAL CONTACT KEY — the expression
+    // `contactKeySql()` builds and `liveContactByCanonicalKey` filters on.
+    // Not an optimisation: `checkBucketMembership` is awaited inside
+    // `ingestEvent`, so without this every ingested event sequentially scans
+    // `contacts` once any bucket carries property criteria, and the three
+    // reconcile joins degrade to full hash joins. Partial on live rows to
+    // match the predicate exactly (a soft-deleted merge loser keeps its
+    // identity keys, so dead and live rows coalesce to the SAME key — the
+    // reason the `deleted_at IS NULL` half is load-bearing rather than
+    // cosmetic). NOT unique: two live rows can legitimately coalesce to the
+    // same key only transiently mid-merge, and a unique index here would turn
+    // that into a hard write failure.
+    index("contacts_canonical_key_idx")
+      .on(sql`coalesce(external_id, anonymous_id, id::text)`)
+      .where(sql`deleted_at IS NULL`),
     // PRD 06 — GIN over the whole properties document, `jsonb_path_ops`
     // (containment is the only operator class it serves, and it indexes
     // smaller/faster than the default `jsonb_ops`; same trade as

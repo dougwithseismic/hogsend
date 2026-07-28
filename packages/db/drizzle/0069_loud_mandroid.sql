@@ -1,0 +1,1 @@
+CREATE INDEX "contacts_canonical_key_idx" ON "contacts" USING btree (coalesce(external_id, anonymous_id, id::text)) WHERE deleted_at IS NULL;
