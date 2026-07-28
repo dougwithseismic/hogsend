@@ -20,6 +20,7 @@
     "campaigns",
     "conditions",
     "destinations",
+    "analytics",
     "analytics-access",
     "database",
     "plugins"

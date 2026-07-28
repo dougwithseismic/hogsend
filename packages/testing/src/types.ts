@@ -1,5 +1,9 @@
 import type { DurationObject } from "@hogsend/core";
-import type { JourneyMeta } from "@hogsend/core/types";
+import type {
+  EmailTemplateKey,
+  JourneyMeta,
+  SmsTemplateKey,
+} from "@hogsend/core/types";
 import type { TemplateRegistry } from "@hogsend/email";
 import type {
   EnrollmentPolicyFacts,
@@ -34,7 +38,13 @@ export interface TestEvent {
 
 export interface TestEmailHistory {
   email: string;
-  template: string;
+  /**
+   * Narrowed to the same registry union `ctx.history.email({ template })`
+   * reads and `sendEmail` writes. Seeding a key the read path can never ask
+   * for produced a phantom "never sent" branch that looked like a journey bug
+   * rather than a typo in the fixture.
+   */
+  template: EmailTemplateKey;
   sentAt: string;
   category?: string;
   /** Journey owning the send; required for cross-enrollment meta.suppress. */
@@ -43,7 +53,8 @@ export interface TestEmailHistory {
 
 export interface TestSmsHistory {
   phone: string;
-  template: string;
+  /** SMS twin of {@link TestEmailHistory.template}. */
+  template: SmsTemplateKey;
   sentAt: string;
   /** Journey owning the send; required for cross-enrollment meta.suppress. */
   journeyId?: string;
@@ -146,7 +157,16 @@ export interface JourneyTestOptions {
 export interface MailboxMessage {
   channel: "email" | "sms";
   to: string;
-  template: string;
+  /**
+   * Widened across BOTH channels on purpose — one mailbox carries email and
+   * SMS messages, so this cannot be either channel's key union alone. Both
+   * degrade to `string` for a consumer who has registered no templates, so an
+   * unaugmented app is unaffected. Narrow at the point of use: the per-channel
+   * history rows ({@link TestEmailHistory}, {@link TestSmsHistory}) take the
+   * channel's own union, and the harness feeds those from the send effect
+   * rather than from this field.
+   */
+  template: EmailTemplateKey | SmsTemplateKey;
   subject?: string;
   props: Record<string, unknown>;
   sentAt: string;

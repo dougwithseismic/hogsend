@@ -28,9 +28,9 @@ const SPEC: ClipSpec = {
   },
   run: async (user, ctx) => {
     // Their Discord identity becomes one PostHog person.
-    getPostHog()?.⟦identify⟧({
+    getAnalytics()?.⟦setPersonProperties⟧({
       distinctId: user.id,
-      properties: { discord_id: user.discordId },
+      set: { discord_id: user.discordId },
     });
 
     // Activity keeps last_active_at fresh on that same person.
@@ -46,7 +46,7 @@ const SPEC: ClipSpec = {
       within: days(14),
     })).found) {
       await sendEmail({ template: "discord/re-engage" });
-      getPostHog()?.capture({ event: "discord_dormant" });
+      getAnalytics()?.capture({ event: "discord_dormant" });
     }
   },
 });`,
@@ -61,7 +61,7 @@ const SPEC: ClipSpec = {
     // 2. Identify the person + set discord_id, sent to PostHog.
     {
       kind: "fanout",
-      label: "identify",
+      label: "person props",
       events: ["distinct_id", "discord_id"],
       dest: "PostHog",
       logo: "posthog.svg",

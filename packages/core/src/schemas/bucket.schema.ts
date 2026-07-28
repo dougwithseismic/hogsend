@@ -104,21 +104,32 @@ export const bucketMetaSchema = z
       });
     }
 
-    // Rule 4: kind/criteria coherence. `kind:"manual"` is declared on the
-    // discriminator for forward-compat (Phase 4) but is NOT implemented in v1 —
-    // it would register as a silent no-op (never populated by the real-time path
-    // or the reconcile cron). Reject it LOUDLY at registration time
-    // (bucketMetaSchema.parse) rather than accepting a bucket that can never
-    // gain members. This is a runtime-validation tightening, not a type break:
-    // the `kind` enum still allows declaring "manual".
+    // Rule 4: kind/criteria coherence. A manual bucket's membership is mutated
+    // ONLY by the explicit membership write path, so criteria on it are a
+    // contradiction: nothing would ever evaluate them (the registry's inverted
+    // indexes, the real-time membership check, and the backfill all skip manual
+    // buckets by design), and the bucket would silently behave as if they were
+    // absent. Reject that LOUDLY at registration time.
+    //
+    // Everything below this block is dynamic-only and meaningless without
+    // criteria. The minDwell <= maxDwell coherence check applies regardless of
+    // kind and has already run above — do not move it below this return.
+    // The issue anchors on `criteria`, not `kind`: `criteria` is the field to
+    // delete, the message names it, and every other criteria rule below reports
+    // on the same path. `kind` was the right anchor only for the v1 blanket
+    // "manual is unimplemented" reject, which no longer exists.
     if (kind === "manual") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["kind"],
-        message:
-          'kind:"manual" buckets are not implemented in v1; use a dynamic ' +
-          'bucket (kind:"dynamic" with `criteria`) instead.',
-      });
+      if (criteria !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["criteria"],
+          message:
+            'kind:"manual" buckets must not declare `criteria`: membership ' +
+            "is mutated only by the explicit membership write path, so the " +
+            'criteria would never be evaluated. Use kind:"dynamic" for ' +
+            "criteria-driven membership.",
+        });
+      }
       return;
     }
 

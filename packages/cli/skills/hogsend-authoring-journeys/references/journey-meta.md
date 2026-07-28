@@ -11,10 +11,16 @@ interface JourneyMeta {
   description?: string;
   enabled: boolean;           // master on/off for this journey
 
-  trigger: {
-    event: string;            // the event name that enrolls a user
-    where?: PropertyCondition[]; // optional gate on event properties
-  };
+  // EITHER an event name OR a bucket object — exactly one, never both.
+  // Declaring both, or neither, throws at defineJourney.
+  trigger:
+    | { event: string; where?: PropertyCondition[] }
+    | { bucket: DefinedBucket; where?: PropertyCondition[] };
+  // `{ bucket: atRisk }` desugars to `{ event: atRisk.entered }` at definition
+  // time, so a renamed bucket is a COMPILE error rather than a journey that
+  // silently never fires. `{ event: atRisk.entered }` is equally canonical and
+  // is the only spelling available in `exitOn`, which takes no bucket form.
+  // Only spell a bucket transition as a raw string if you enjoy silent misses.
 
   entryLimit: "once" | "once_per_period" | "unlimited";
   entryPeriod?: DurationObject; // required-in-practice for once_per_period

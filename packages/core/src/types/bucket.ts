@@ -9,17 +9,17 @@ export interface BucketMeta {
   enabled: boolean;
 
   /**
-   * Discriminator, declared NOW for forward-compat even though "manual" ships in
-   * Phase 4. "dynamic" (default) = membership auto-recomputed from `criteria`;
-   * "manual" = membership mutated only by explicit API/import, NO criteria,
-   * skipped by checkBucketMembership and the reconcile cron (early-continue, the
-   * Laudspeaker pattern). Declaring it up front keeps Phase 4 genuinely additive
-   * — no breaking change to BucketMeta later. Default "dynamic".
+   * Discriminator. "dynamic" (default) = membership auto-recomputed from
+   * `criteria`; "manual" = membership mutated only by the explicit membership
+   * write path (API / import / sync), NO criteria, skipped by
+   * checkBucketMembership and by the reconcile cron's criteria passes (the
+   * Laudspeaker pattern). Default "dynamic".
    *
-   * v1: kind:"manual" is REJECTED at registration time (bucketMetaSchema parse)
-   * because nothing populates a manual bucket yet — it would be a silent no-op.
-   * The value stays on the enum for forward-compat; use kind:"dynamic" with
-   * `criteria` until full manual membership ships.
+   * A manual bucket declaring `criteria` is REJECTED at registration time
+   * (bucketMetaSchema parse): nothing would ever evaluate those criteria, so it
+   * would silently behave as if they were absent. The criteria-independent
+   * membership-age knobs (`entryLimit`, `minDwell`, `maxDwell`) DO apply to
+   * manual buckets.
    */
   kind?: "dynamic" | "manual";
 

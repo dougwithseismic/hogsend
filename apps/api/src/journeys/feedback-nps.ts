@@ -1,5 +1,5 @@
 import { days, hours } from "@hogsend/core";
-import { defineJourney, getPostHog, sendEmail } from "@hogsend/engine";
+import { defineJourney, getAnalytics, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
 
 /**
@@ -82,15 +82,25 @@ export const feedbackNps = defineJourney({
 
     await ctx.checkpoint(`scored-${score}`);
     // Person enrichment is a standalone service, not a ctx primitive — no-op
-    // without POSTHOG_API_KEY. identify ($set) is last-write-wins idempotent so
-    // re-firing on a replay is harmless; the one replay defect would be a
-    // divergent timestamp. Use the matched event's RECORDED occurredAt when the
-    // lookback path supplied it (replay-stable on ANY engine); otherwise omit the
-    // timestamp entirely (PostHog stamps its own ingest time) rather than write a
-    // `new Date()` that would drift on replay.
-    getPostHog()?.identify(user.id, {
-      nps_score: score,
-      ...(answer.occurredAt ? { nps_responded_at: answer.occurredAt } : {}),
+    // when no analytics provider is configured. A `set` write is last-write-wins
+    // idempotent so re-firing on a replay is harmless; the one replay defect
+    // would be a divergent timestamp. Use the matched event's RECORDED
+    // occurredAt when the lookback path supplied it (replay-stable on ANY
+    // engine); otherwise omit the timestamp entirely (the provider stamps its
+    // own ingest time) rather than write a `new Date()` that would drift on
+    // replay.
+    // Awaited on purpose, unlike the fire-and-forget `identify()` this replaced:
+    // `setPersonProperties` returns a promise, and an unawaited one inside a
+    // durable task can be abandoned when the run completes, silently losing the
+    // write. The cost is that a slow provider extends the run, and a rejecting
+    // one fails the enrollment where the old form could not — acceptable here
+    // because the score is the whole point of the journey.
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: {
+        nps_score: score,
+        ...(answer.occurredAt ? { nps_responded_at: answer.occurredAt } : {}),
+      },
     });
 
     if (score <= 6) {

@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.5.0",
+    "@hogsend/core": "workspace:^",
     "@hogsend/db": "workspace:^",
     "@hogsend/engine": "workspace:^",
     "@types/papaparse": "^5.5.2",

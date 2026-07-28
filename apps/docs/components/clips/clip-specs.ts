@@ -11,6 +11,12 @@
  * Bare trace runs of the REAL dogfood journeys/recipes, trimmed for the
  * frame: real journey code on the left, the run executing on the right. The
  * `⟦⟧` emphasis markers are preserved exactly. Keyed by clip id.
+ *
+ * The samples are READER-FACING code, so they track the current engine API even
+ * when the Remotion sources have not been re-rendered yet: the analytics calls
+ * read `getAnalytics()` (the vendor-neutral accessor that replaced the removed
+ * `getPostHog()`). Whenever a sample's line COUNT changes, re-tune the `band`
+ * ranges below — they are zero-indexed `[firstLine, lineCount]` into `code`.
  */
 
 import type { ClipSpec } from "@/components/clips/clip-types";
@@ -38,7 +44,10 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
         : "feature-highlight",
     });
 
-    getPostHog()?.identify(user.id, { activated: true });
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { activated: true },
+    });
   },
 });`,
     steps: [
@@ -69,9 +78,9 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
       },
       {
         kind: "fanout",
-        label: "identify",
+        label: "person props",
         events: ["activated: true"],
-        band: [16, 1],
+        band: [16, 4],
       },
     ],
   },
@@ -175,8 +184,9 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
     });
 
     const score = answer.properties?.score;
-    getPostHog()?.identify(user.id, {
-      nps_score: score,
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { nps_score: score },
     });
   },
 });`,
@@ -201,9 +211,9 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
       },
       {
         kind: "fanout",
-        label: "identify",
+        label: "person props",
         events: ["nps_score: 9"],
-        band: [11, 3],
+        band: [11, 4],
       },
     ],
   },
@@ -222,9 +232,9 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
   },
   run: async (user, ctx) => {
     // Their Discord identity becomes one PostHog person.
-    getPostHog()?.⟦identify⟧({
+    getAnalytics()?.⟦setPersonProperties⟧({
       distinctId: user.id,
-      properties: { discord_id: user.discordId },
+      set: { discord_id: user.discordId },
     });
 
     // Activity keeps last_active_at fresh on that same person.
@@ -240,7 +250,7 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
       within: days(14),
     })).found) {
       await sendEmail({ template: "discord/re-engage" });
-      getPostHog()?.capture({ event: "discord_dormant" });
+      getAnalytics()?.capture({ event: "discord_dormant" });
     }
   },
 });`,
@@ -255,7 +265,7 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
       // 2. Identify the person + set discord_id, sent to PostHog.
       {
         kind: "fanout",
-        label: "identify",
+        label: "person props",
         events: ["distinct_id", "discord_id"],
         dest: "PostHog",
         logo: "posthog.svg",

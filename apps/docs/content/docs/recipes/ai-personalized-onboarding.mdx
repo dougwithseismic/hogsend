@@ -33,7 +33,7 @@ const [events, openedResult, clickedResult, posthogProps] = await Promise.all([
   ctx.history.events({ userId: user.id, limit: 50 }), // newest-first from user_events
   ctx.history.hasEvent({ userId: user.id, event: "email.opened" }),
   ctx.history.hasEvent({ userId: user.id, event: "email.link_clicked" }),
-  getPostHog()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
+  getAnalytics()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
 ]);
 ```
 

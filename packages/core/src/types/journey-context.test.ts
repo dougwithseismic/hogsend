@@ -1,5 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { JourneyContext } from "./journey-context.js";
+import type {
+  EmailHistoryOptions,
+  JourneyContext,
+  SmsHistoryOptions,
+} from "./journey-context.js";
 
 // Compile-time contract only: expectTypeOf assertions are runtime no-ops;
 // the real gate is `pnpm check-types` (packages/core tsconfig includes
@@ -24,5 +28,28 @@ describe("JourneyContext.variant type contract (D0)", () => {
       return ctx.variant("welcome-subject", []);
     };
     expect(contract).toBeTypeOf("function");
+  });
+});
+
+// The NO-CARRIER half of the read-path narrowing contract, and the only
+// program in the repo that can pin it: `@hogsend/core` is the leaf of the
+// package graph, so nothing here augments `EmailTemplateKeyCarrier` and the
+// `EmailTemplateKeyCarrier extends { key: infer K }` check is FALSE. That is
+// the state of any program consuming core without the engine, and the state
+// every conditional-type fallback below is written for.
+//
+// The engine-side twin (packages/engine/src/journeys/history-template-keys
+// .test.ts) cannot cover this: the engine loads the augmentation, so it only
+// ever exercises the inner `[K] extends [never] ? string` branch. Deleting the
+// OUTER `: string` fallback would leave both entry-level surfaces typed
+// `never` — `ctx.history.email` becomes uncallable for every consumer without
+// registered templates — and only this file goes red.
+describe("history template keys with no carrier augmentation", () => {
+  it("widens the email template key back to string", () => {
+    expectTypeOf<EmailHistoryOptions["template"]>().toEqualTypeOf<string>();
+  });
+
+  it("widens the sms template key back to string", () => {
+    expectTypeOf<SmsHistoryOptions["template"]>().toEqualTypeOf<string>();
   });
 });

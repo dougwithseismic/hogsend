@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { JourneySourceLocation } from "@hogsend/core";
 import { normalizeWhere } from "@hogsend/core";
 import type {
+  BucketTriggerRef,
   JourneyMeta,
   JourneyMetaInput,
   JourneyRunFn,
@@ -118,18 +119,98 @@ function captureCallSite(): JourneySourceLocation | undefined {
   return undefined;
 }
 
+/**
+ * The one shape a `trigger.bucket` ref may carry, mirroring the literal type
+ * `BucketTriggerRef.entered` declares and the string `defineBucket` derives
+ * (`bucket:entered:${meta.id}`). Kept local rather than shared from
+ * define-bucket.ts: this module must not take a value import on the bucket
+ * layer, which would put the journey seam inside the bucket ESM cycle.
+ */
+const BUCKET_ENTERED_PREFIX = "bucket:entered:";
+
+/**
+ * Collapse the authoring trigger to the ONE plain event string everything
+ * downstream understands. A bucket-object trigger is sugar resolved HERE, at
+ * the same one-shot seam `normalizeWhere` resolves a builder `where` — before
+ * `versionHash` is computed, so a desugared journey hashes byte-identically to
+ * a hand-authored one, and before registration, so the registry, Hatchet
+ * routing, blueprints, and Studio never learn a second trigger concept.
+ *
+ * Both forms present, or neither, THROWS: quietly preferring one over the
+ * other would reintroduce exactly the silent-miss failure the bucket object
+ * exists to eliminate, and a JS caller (or a widened `any`) reaches this
+ * function with no type to stop them. A `bucket` whose `entered` is not a
+ * `bucket:entered:` ref throws for the same reason.
+ *
+ * Note what this seam does NOT touch: `trigger.where`. It keeps narrowing on
+ * the transition event's own payload (`bucketId`/`userId`/`transition`/
+ * `source`/`entryCount`), never the person's properties — see
+ * {@link JourneyTriggerInput}.
+ */
+function resolveTriggerEvent(meta: JourneyMetaInput): string {
+  // Widened deliberately: the authoring union already makes the two keys
+  // mutually exclusive, which narrows the illegal combination to `never` and
+  // would hide it from the guards below. These guards exist for the callers
+  // types cannot reach.
+  const raw = meta.trigger as {
+    event?: string | null;
+    bucket?: BucketTriggerRef | null;
+  };
+  // `null` is folded to `undefined` before the guards run. Without this a
+  // `{ bucket: null }` from a JS caller passes `!== undefined` (null is not
+  // undefined) and then dereferences `bucket.entered` — crashing with a raw
+  // TypeError raised while BUILDING the diagnostic that exists to prevent it.
+  const event = raw.event ?? undefined;
+  const bucket = raw.bucket ?? undefined;
+  if (event !== undefined && bucket !== undefined) {
+    throw new Error(
+      `defineJourney("${meta.id}"): trigger declares BOTH \`event\` ` +
+        `("${event}") and \`bucket\` ("${bucket.entered}"). Declare exactly ` +
+        `one — the engine will not pick for you.`,
+    );
+  }
+  if (bucket !== undefined) {
+    if (typeof bucket.entered !== "string" || bucket.entered.length === 0) {
+      throw new Error(
+        `defineJourney("${meta.id}"): trigger.bucket is not a bucket — it ` +
+          `has no \`entered\` transition ref. Pass the object defineBucket ` +
+          `returned.`,
+      );
+    }
+    // The type demands `bucket:entered:${string}`; this is the same check for
+    // the callers types cannot reach. Without it a hand-rolled ref carrying an
+    // arbitrary string binds the journey to an event nothing ever emits — the
+    // silent miss this key exists to remove, reached through the key itself.
+    if (!bucket.entered.startsWith(BUCKET_ENTERED_PREFIX)) {
+      throw new Error(
+        `defineJourney("${meta.id}"): trigger.bucket is not a bucket — its ` +
+          `\`entered\` is "${bucket.entered}", which is not a ` +
+          `\`${BUCKET_ENTERED_PREFIX}\` transition ref. Pass the object ` +
+          `defineBucket returned.`,
+      );
+    }
+    return bucket.entered;
+  }
+  if (event !== undefined) return event;
+  throw new Error(
+    `defineJourney("${meta.id}"): trigger declares neither \`event\` nor ` +
+      `\`bucket\`. A journey with no trigger can never enroll anyone.`,
+  );
+}
+
 export function defineJourney(options: {
   meta: JourneyMetaInput;
   run: JourneyRunFn;
 }): DefinedJourney {
   const runSource = safeRunSource(options.run);
   const source = captureCallSite();
+  const triggerEvent = resolveTriggerEvent(options.meta);
   const { trigger, exitOn, ...rest } = options.meta;
   const triggerWhere = normalizeWhere(trigger.where);
   const normalized: JourneyMeta = {
     ...rest,
     trigger: {
-      event: trigger.event,
+      event: triggerEvent,
       ...(triggerWhere ? { where: triggerWhere } : {}),
     },
     ...(exitOn

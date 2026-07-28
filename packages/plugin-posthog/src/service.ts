@@ -12,9 +12,11 @@ import type {
 /**
  * @deprecated Prefer {@link createPostHogProvider} (the neutral
  * `AnalyticsProvider` contract). This PostHog-shaped service predates it and
- * is kept so existing `createHogsendClient({ analytics })` call sites and
- * `getPostHog()` consumers keep compiling; person reads honour the same
- * `personalApiKey` config as the provider.
+ * is kept so existing `createHogsendClient({ analytics })` call sites keep
+ * compiling (the container adapter-wraps it); person reads honour the same
+ * `personalApiKey` config as the provider. The other half of its original
+ * reason to exist — `getPostHog()` consumers — is gone, since that accessor
+ * was removed from the engine's public API.
  */
 export function createPostHogService(
   config: PostHogServiceConfig,

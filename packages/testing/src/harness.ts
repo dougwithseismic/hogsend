@@ -798,7 +798,10 @@ export class JourneyTest {
         );
         this.emailHistory.push({
           email: message.to,
-          template: message.template,
+          // From the EFFECT, not the mailbox message: the mailbox is shared
+          // with SMS so its `template` spans both key unions, while this row
+          // is email-only.
+          template: effect.template,
           sentAt: message.sentAt,
           category: message.category,
           journeyId: this.journey.meta.id,
@@ -936,7 +939,8 @@ export class JourneyTest {
         );
         this.smsHistory.push({
           phone: message.to,
-          template: message.template,
+          // From the EFFECT, for the same reason as the email twin above.
+          template: effect.template,
           sentAt: message.sentAt,
           journeyId: this.journey.meta.id,
         });

@@ -159,7 +159,7 @@ export async function sendEmail(
   const effect = {
     to: opts.to,
     userId: opts.userId,
-    template: String(opts.template),
+    template: opts.template,
     ...(opts.subject !== undefined ? { subject: opts.subject } : {}),
     props: sendOptions.props as Record<string, unknown>,
     category: boundary?.category ?? "journey",

@@ -2,8 +2,8 @@ import { createServer } from "node:http";
 import {
   createApp,
   createHogsendClient,
+  getAnalytics,
   getEngineSchemaVersion,
-  getPostHog,
   getRedisIfConnected,
 } from "@hogsend/engine";
 import { serve } from "@hono/node-server";
@@ -63,7 +63,7 @@ async function shutdown(signal: string) {
   server.close(async () => {
     await Promise.allSettled([
       client.dbClient.end({ timeout: 5 }),
-      getPostHog()?.shutdown(),
+      getAnalytics()?.shutdown?.(),
       getRedisIfConnected()?.quit(),
     ]);
     logger.info("Server closed");

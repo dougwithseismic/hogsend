@@ -90,7 +90,10 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
     }
     if (answer.timedOut) return;
     await ctx.checkpoint(\`scored-\${score}\`);
-    getPostHog()?.identify(user.id, { nps_score: score });
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { nps_score: score },
+    });
     if (score <= 6) {
       await ctx.trigger({
         event: Events.NPS_DETRACTOR,
@@ -472,6 +475,60 @@ describe("buildJourneyGraph — connector-only + helper (unused _ctx)", () => {
     expect(graph.warnings).toContain(
       "'grantAndAnnounce' is a helper call — its side effects are not expanded",
     );
+  });
+});
+
+describe("buildJourneyGraph — getAnalytics() side effects", () => {
+  const meta = metaFor({ id: "analytics-journey" });
+  // The vendor-neutral accessor replaced `getPostHog()`. Both WRITE wires must
+  // still surface as `capture` nodes — a Studio graph that silently omits a
+  // person-property write is worse than one that renders it plainly, because
+  // the operator has no tell that a side effect was elided. The READ wire is
+  // deliberately NOT a node (it is a decision input, like `ctx.history`).
+  const runSource = `async (user, _ctx) => {
+    const props = await getAnalytics()?.getPersonProperties(user.id);
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { plan: props?.plan },
+    });
+    getAnalytics()?.capture({ distinctId: user.id, event: "upgraded" });
+  }`;
+
+  const graph = buildJourneyGraph({ runSource, meta });
+
+  it("is valid and non-degraded", () => {
+    expectValidGraph(graph);
+    expect(graph.degraded).toBeUndefined();
+  });
+
+  it("emits a capture node per write wire and none for the read", () => {
+    expect(types(graph)).toEqual([
+      "start",
+      "capture",
+      "capture",
+      "end-completed",
+    ]);
+    expect(ids(graph)).toEqual([
+      "start",
+      "capture:0",
+      "capture:1",
+      "end-completed",
+    ]);
+  });
+
+  it("titles the person-property write Identify and the event write Capture", () => {
+    expect(nodeById(graph, "capture:0")).toMatchObject({
+      title: "Identify",
+      subtitle: "setPersonProperties",
+    });
+    expect(nodeById(graph, "capture:1")).toMatchObject({
+      title: "Capture",
+      subtitle: "capture",
+    });
+  });
+
+  it("does not warn — the analytics calls are recognised, not unexpanded", () => {
+    expect(graph.warnings).toBeUndefined();
   });
 });
 

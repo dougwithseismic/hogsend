@@ -91,6 +91,20 @@ export {
   defineBucket,
 } from "./buckets/define-bucket.js";
 export {
+  addBucketMember,
+  type BucketMembershipDeps,
+  BucketMembershipError,
+  type BucketMembershipErrorCode,
+  type BucketMembershipResult,
+  type BucketMembershipVerdict,
+  PENDING_LEAVE_KEY,
+  type PendingBucketLeave,
+  readPendingLeave,
+  removeBucketMember,
+  type SeedBucketMembersResult,
+  seedBucketMembers,
+} from "./buckets/membership.js";
+export {
   buildBucketRegistry,
   collectBucketReactionJourneys,
   selectBucketReactionTasks,
@@ -302,6 +316,24 @@ export {
 } from "./lib/analytics-identity.js";
 export { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 export { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
+/**
+ * The active {@link AnalyticsProvider}, or `undefined` when the deployment has
+ * none configured. This is the vendor-neutral successor to the removed
+ * `getPostHog()` escape hatch: consumer code (journeys, entry points, helper
+ * modules) that needs the analytics wire without a container reference reads it
+ * here, and swapping `analytics` on `createHogsendClient` actually swaps what
+ * comes back — which was never true of a PostHog-shaped singleton.
+ *
+ * "Without a container REFERENCE" is not "without a container": the value is
+ * installed by `createHogsendClient`, so this reads `undefined` until one has
+ * been built in the SAME process. The API and worker both build one at boot, so
+ * journeys, workflows and handlers are always covered; a standalone script that
+ * never builds a container is not, and would capture into the void.
+ *
+ * Only the getter is public. `setAnalytics`/`resetAnalytics` stay internal so
+ * the container remains the single writer.
+ */
+export { getAnalytics } from "./lib/analytics-singleton.js";
 // --- Auth ---
 export {
   type Auth,
@@ -636,7 +668,12 @@ export {
   type OutboundPayloads,
 } from "./lib/outbound.js";
 export { isE164, normalizePhone } from "./lib/phone.js";
-export { getPostHog } from "./lib/posthog.js";
+// --- PostHog person ↔ contact (find-only lookup + creating resolve) ---
+export {
+  lookupPostHogPerson,
+  type PostHogPersonRef,
+  resolvePostHogPerson,
+} from "./lib/posthog-person.js";
 // --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
 export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
 // --- Recipient preferences (shared aggregated read across email/feed/connectors) ---

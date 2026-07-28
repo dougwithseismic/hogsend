@@ -7,8 +7,8 @@
  * FAITHFUL to the journeys the production docs site actually talks to —
  * hogsend-dogfood/src/journeys/docs-inapp-demo.ts (NOT the trimmed apps/api
  * mirror). The real shape:
- *   - welcome  → `getPostHog().identify` the visitor (name → PostHog person
- *     property) → check `ctx.history.hasEvent` (returning?) → mint a per-visitor
+ *   - welcome  → `getAnalytics().setPersonProperties` on the visitor (name →
+ *     PostHog person property) → check `ctx.history.hasEvent` (returning?) → mint a per-visitor
  *     TRACKED link → `sendFeedItem` into the bell → mirror the event into the
  *     team's Discord (`mirrorToKitchenSink`).
  *   - launch / trial → mint tracked link → `sendFeedItem` → mirror to Discord.
@@ -51,8 +51,9 @@ const WELCOME_CODE = `export const demoWelcome = defineJourney({
   meta: { trigger: { event: Events.DEMO_WELCOME } },
   run: async (user, ctx) => {
     // identify on PostHog — name becomes a person property
-    getPostHog()?.identify(user.id, {
-      name: user.properties.name,
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { name: user.properties.name },
     });
     const { found } = await ctx.history.hasEvent({
       event: Events.DEMO_WELCOME,
@@ -127,7 +128,10 @@ export const demoNpsAnswered = defineJourney({
   run: async (user) => {
     const { score } = user.properties;
     // write the score onto the PostHog person ($set)
-    getPostHog()?.identify(user.id, { nps_score: score });
+    await getAnalytics()?.setPersonProperties({
+      distinctId: user.id,
+      set: { nps_score: score },
+    });
     await sendFeedItem({
       recipient: { anonymousId: user.id },
       type: "survey-thanks",
@@ -171,27 +175,27 @@ const CONFIGS: Record<string, DemoSpecConfig> = {
         label: "identify",
         events: ["name"],
         ...POSTHOG,
-        band: [4, 3],
+        band: [4, 4],
       },
       {
         kind: "check",
         question: "ctx.history.hasEvent",
         sub: "demo.welcome",
         verdict: "found: false",
-        band: [7, 3],
+        band: [8, 3],
       },
       {
         kind: "send",
         subject: "Your welcome journey just ran ✅",
         accent: true,
-        band: [14, 6],
+        band: [15, 6],
       },
       {
         kind: "fanout",
         label: "mirror",
         events: ["demo.welcome"],
         ...DISCORD,
-        band: [20, 1],
+        band: [21, 1],
       },
     ],
   },
@@ -270,13 +274,13 @@ const CONFIGS: Record<string, DemoSpecConfig> = {
         label: "identify",
         events: ["nps_score: 9"],
         ...POSTHOG,
-        band: [18, 2],
+        band: [18, 5],
       },
       {
         kind: "send",
         subject: "Thanks — you scored 9 🙏",
         accent: true,
-        band: [20, 5],
+        band: [23, 5],
       },
     ],
   },

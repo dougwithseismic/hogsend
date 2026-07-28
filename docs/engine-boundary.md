@@ -37,7 +37,7 @@ FRAMEWORK → moves to `packages/engine/src`. CONTENT → stays in `apps/api/src
 | `lib/email.ts` | FRAMEWORK | `sendEmail()` service wrapper |
 | `lib/hatchet.ts` | FRAMEWORK | Hatchet client singleton |
 | `lib/ingestion.ts` | FRAMEWORK | `ingestEvent()` central pipeline |
-| `lib/posthog.ts` | FRAMEWORK | `getPostHog()` singleton |
+| `lib/analytics-singleton.ts` | FRAMEWORK | `getAnalytics()` singleton |
 | `lib/tracking.ts` | FRAMEWORK | `prepareTrackedHtml()` |
 | `lib/tracking-events.ts` | FRAMEWORK | tracking event helpers |
 | `lib/backfill.ts` | FRAMEWORK | `runBatchedBackfill()` |

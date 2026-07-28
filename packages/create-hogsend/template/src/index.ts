@@ -4,8 +4,8 @@ import {
   bootstrapApiKeyFromEnv,
   createApp,
   createHogsendClient,
+  getAnalytics,
   getEngineSchemaVersion,
-  getPostHog,
   getRedisIfConnected,
   reportApiReady,
 } from "@hogsend/engine";
@@ -102,7 +102,7 @@ async function shutdown(signal: string) {
   server.close(async () => {
     await Promise.allSettled([
       client.dbClient.end({ timeout: 5 }),
-      getPostHog()?.shutdown(),
+      getAnalytics()?.shutdown?.(),
       getRedisIfConnected()?.quit(),
     ]);
     logger.info("Server closed");

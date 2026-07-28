@@ -13,5 +13,5 @@ export default defineConfig({
   // auth + drizzle path used by `studio admin` (createAuth + createDatabase).
   // `better-auth` and other npm deps stay external (resolved from node_modules
   // at runtime).
-  noExternal: ["@hogsend/engine", "@hogsend/db"],
+  noExternal: ["@hogsend/engine", "@hogsend/db", "@hogsend/core"],
 });

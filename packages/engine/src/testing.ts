@@ -1,5 +1,10 @@
 /** Narrow, side-effect-free engine surface used by @hogsend/testing. */
 
+// Type-only side effect: narrows ctx.history.email/sms `template` to the
+// registered key unions so the @hogsend/testing harness — and every journey
+// test written against it — sees the same union the send path enforces.
+import "./journeys/template-key-augmentation.js";
+
 export { JourneyExitedError } from "./journeys/errors.js";
 export {
   deriveJourneyKey,
@@ -10,6 +15,10 @@ export {
   registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
+export {
+  contactKeySql,
+  liveContactByCanonicalKey,
+} from "./lib/contacts.js";
 export {
   type EnrollmentPolicyFacts,
   type EnrollmentPolicyResult,

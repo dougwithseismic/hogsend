@@ -120,7 +120,7 @@ export interface JourneyTriggerNode extends JourneyNodeBase {
   };
 }
 
-/** `getPostHog()?.capture()` / `.identify()` */
+/** `getAnalytics()?.capture()` / `.setPersonProperties()` */
 export interface JourneyCaptureNode extends JourneyNodeBase {
   type: "capture";
   meta?: JourneyNodeMetaBase;

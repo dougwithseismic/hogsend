@@ -11,7 +11,16 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  type SQLWrapper,
+  sql,
+} from "drizzle-orm";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -568,6 +577,47 @@ export function contactKey(row: ContactRow): string {
 export function contactKeySql() {
   return sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)`;
 }
+
+/**
+ * The row predicate every canonical-key contact read joins on: the LIVE row
+ * whose {@link contactKeySql} is `userId`.
+ *
+ * The `deleted_at IS NULL` half is load-bearing and NOT implied by the key — a
+ * soft-deleted merge loser RETAINS its identity keys ({@link mergeContacts}
+ * frees them from the partial-unique indexes rather than nulling them) and the
+ * survivor inherits a copy, so the dead row and the live one coalesce to the
+ * SAME key. Named and exported (via `@hogsend/engine/testing`) so a test can
+ * assert the row SET this matches rather than whatever an unordered `limit(1)`
+ * happened to return: heap order is not a guarantee, so a test that reaches the
+ * predicate only through the read's downstream effect catches a dropped
+ * live-filter by luck, not by construction.
+ *
+ * `userId` accepts a COLUMN (any `SQLWrapper`) as well as a literal string, so
+ * the set-based reconcile passes can use it as their `innerJoin` ON clause
+ * (`bucket_memberships.user_id`) instead of hand-rolling the coalesce — the
+ * exact duplication that let an anonymous-only member slip past three passes.
+ */
+export function liveContactByCanonicalKey(userId: string | SQLWrapper) {
+  return and(eq(contactKeySql(), userId), isNull(contacts.deletedAt));
+}
+
+/**
+ * THE resolver (D1). Transactional. Resolves any combination of identity keys
+ * (external_id / email / anonymous_id, in any subset — incl. anon-only or
+ * email-only) to a single canonical `contacts` row, handling three cases:
+ *
+ *   - create        — no existing row owns any provided key.
+ *   - fill-in-link  — exactly one row matches; missing keys are filled and a
+ *                     `'promote'` alias is recorded for each newly-attached key.
+ *   - collide-MERGE — 2-3 distinct rows match; a survivor is chosen (SURVIVOR
+ *                     RULE) and the losers are re-pointed across all 5 tables,
+ *                     folded, soft-deleted, and aliased (9-step order).
+ *
+ * INSERT RACE strategy: a `pg_advisory_xact_lock(hashtext(kind||value))` is taken
+ * per provided key at the TOP of the tx (before any SELECT). Two concurrent
+ * resolves for the same key serialize on the lock, so the second sees the first's
+ * insert and links/merges instead of racing a duplicate row. The lock is held
+ * until the tx commits/rolls back (xact-scoped) — no manual unlock.
 
 /**
  * The identity keys + options EVERY resolve entry point accepts. Named (rather

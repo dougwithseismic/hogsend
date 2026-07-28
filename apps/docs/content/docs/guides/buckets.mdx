@@ -98,8 +98,8 @@ interface BucketMeta {
 | `name` | `string` | Human-readable name for logs and Studio. |
 | `description` | `string?` | Optional longer description, shown in Studio. |
 | `enabled` | `boolean` | Set to `false` to disable without removing code. Checked before membership is evaluated. |
-| `kind` | `"dynamic" \| "manual"` | `"dynamic"` (default) recomputes membership from `criteria`. `"manual"` is **not implemented in v1** — the discriminator ships for forward-compat, but registering a `kind:"manual"` bucket **throws at startup**. Omit `kind` (or set `"dynamic"`). |
-| `criteria` | `ConditionEval?` | The membership predicate, reusing the existing condition engine. **Required** for `"dynamic"` buckets; omit for `"manual"`. |
+| `kind` | `"dynamic" \| "manual"` | `"dynamic"` (default) recomputes membership from `criteria`. `"manual"` has no predicate: membership is mutated only through the `/v1/buckets/:id/members` write path, and the bucket is skipped by criteria evaluation, the reconcile joins/leaves scan, and backfill. `entryLimit`, `minDwell` and `maxDwell` still apply. Declaring `criteria` on a `"manual"` bucket is **rejected at registration**. |
+| `criteria` | `ConditionEval?` | The membership predicate, reusing the existing condition engine. **Required** for `"dynamic"` buckets; **forbidden** for `"manual"` ones. |
 | `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | Controls how often a **join** event re-fires. Default `"unlimited"`. |
 | `entryPeriod` | `DurationObject?` | Required when `entryLimit` is `"once_per_period"`. The cooldown before a join re-emits. |
 | `minDwell` | `DurationObject?` | Anti-flap: defers a `bucket:left` until membership has lasted at least this long. Guards journeys from re-enroll spam on oscillating membership. |
@@ -147,6 +147,76 @@ meta: {
 ```
 
 Pure-property buckets (no `within` window) are real-time only and never swept.
+
+### Manual buckets
+
+`kind: "manual"` is a bucket with no predicate. It registers like any other and is skipped by criteria evaluation, backfill, and the reconcile cron's criteria joins/leaves scan. Declaring `criteria` on it is rejected at registration — nothing would ever evaluate them.
+
+```ts
+export const betaCohort = defineBucket({
+  meta: {
+    id: "beta-cohort",
+    name: "Beta cohort",
+    enabled: true,
+    kind: "manual",
+    entryLimit: "once",
+    maxDwell: { hours: 720 }, // still force-leaves on the reconcile cron
+  },
+});
+```
+
+Membership changes only through the write path, which is **secret-key only** (`requireApiKey` + the `ingest` scope) — a publishable browser key can never mutate it:
+
+| Endpoint | Effect |
+|---|---|
+| `POST /v1/buckets/:id/members` | Writes the active row and emits `bucket:entered:<id>`, subject to `entryLimit`. Re-adding an active member returns `already-active` and emits nothing. |
+| `DELETE /v1/buckets/:id/members/:userId` | Transitions the row to `left` and emits `bucket:left:<id>` with `reason: "manual"`. A leave inside `minDwell` is deferred, never dropped — the cron resolves it. |
+| `GET /v1/buckets/:id/members` | Read-only, so it serves dynamic buckets too. Only mutation is restricted to manual buckets. |
+
+Each mutation returns `{ emitted, epoch, verdict }`, so a caller can tell "wrote a row and emitted" from "wrote a row and deliberately did not" without re-querying. `verdict` is one of `applied`, `already-active`, `already-left`, `deferred`, `suppressed-by-entry-limit`, `seeded` (a join written without emitting), and `leave-seeded` (a leave applied without emitting).
+
+Pass `emit: false` on the add to materialize an existing population **without** firing transitions into live journeys (verdict `seeded`) — the same rule backfill applies to dynamic buckets. Use it for the initial import; use the default for live changes.
+
+Mutating a bucket that is not `kind: "manual"` is refused with a 409: its membership is owned by its criteria, and an explicit write would be reverted by the next evaluation. A **disabled** bucket is refused with a 409 too — `enabled: false` is the operator's kill switch, and accepting a write would emit `bucket:entered:<id>` into live journeys from a bucket that is supposed to be off.
+
+**Bulk seeding** additionally skips any `userId` no **live** contact owns — one erased or merged away. Such a row would be invisible to every sweep (they all join live contacts), so it would sit `active` forever with no path out, inflating bucket size and membership stats. Skipped rather than thrown, because one stale id in a 40k import must not abort the other 39,999, and the count comes back as `skippedNoContact` so you can tell "seeded nothing because everyone was already a member" from "seeded nothing because every id was dead".
+
+<Callout type="warn">
+  The single-member `POST` does **not** yet apply that check: it will write a
+  row and emit for a `userId` with no live contact. Gate on the contact
+  existing before you call it. Making the endpoint refuse is a behavioural
+  change that first needs a decision on erased-versus-not-yet-created, since
+  lazy contact creation by ingest is a legitimate flow.
+</Callout>
+
+### Calling it from your own code
+
+The HTTP route is a thin wrapper. A workflow, a webhook source or a custom job
+calls the same functions directly, exported from `@hogsend/engine`:
+
+```ts
+import { addBucketMember, removeBucketMember, seedBucketMembers } from "@hogsend/engine";
+
+const { verdict, emitted } = await addBucketMember({
+  db, registry, hatchet, logger,   // from your container
+  bucketId: "beta-cohort",
+  userId: contact.externalId,
+});
+```
+
+Dependencies are passed **explicitly** rather than resolved from a request
+container, so a Hatchet task that bootstraps its own `db`/`logger` gets
+identical behaviour to an HTTP call. `seedBucketMembers` is the bulk form: it
+writes in chunks, is idempotent via the active partial-unique index, and is
+safely re-runnable.
+
+### What happens to a deferred leave
+
+A leave inside `minDwell` is recorded as a pending intent on the row, carrying both its deadline **and** the caller's `emit` choice, and the reconcile cron resolves it. Three consequences worth knowing:
+
+- Removing `minDwell` from the bucket afterwards, or disabling the bucket, does **not** strand the member. The pass keys on the pending intent, not on the bucket's current config. A disabled bucket still *finishes* work accepted while it was enabled — with the emit suppressed, because a kill switch stops a bucket discovering new work, not from completing what it already accepted.
+- Re-adding the member before the deadline **disarms** the deferral, and the cron will not later flip a member you have re-added.
+- If the member also hits `maxDwell` in the meantime, the deferred leave still wins the reason: you get `reason: "manual"` (an operator removed them; `minDwell` merely delayed it), not `reason: "maxDwell"`. A leave that was suppressed with `emit: false` stays silent even then.
 
 ## Membership criteria
 
@@ -690,6 +760,5 @@ Buckets are observe-only in [Studio](/docs/operating/studio) — there is no vis
 
 Deliberately deferred, not missing — the API is shaped to add these without breaking changes:
 
-- **Static / manual buckets** (`kind: "manual"`) — membership mutated by an explicit add/remove API instead of `criteria`. The discriminator is declared today, but registering a `manual` bucket throws (`not implemented in v1`); use a dynamic bucket for now.
 - **Imperative criteria escape hatch** — an opaque `(user, ctx) => boolean` predicate (with an explicit dependency hint) for membership the declarative/builder form can't express. `criteria` stays declarative today so the registry index, set-based cron, and Studio keep working.
 - **`in_bucket` condition** — reference one bucket's membership inside another bucket's (or a journey's) criteria. Workaround today: `syncToPostHog` to a property, then a `PropertyCondition`.

@@ -9,6 +9,7 @@
 "@hogsend/js": minor
 "@hogsend/mcp": minor
 "@hogsend/plugin-apollo": minor
+"@hogsend/plugin-discord": minor
 "@hogsend/plugin-meta-capi": minor
 "@hogsend/plugin-posthog": minor
 "@hogsend/plugin-postmark": minor

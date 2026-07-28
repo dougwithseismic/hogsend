@@ -1,5 +1,5 @@
 import type { JourneyContext, JourneyUser, RecentEvent } from "@hogsend/engine";
-import { getPostHog } from "@hogsend/engine";
+import { getAnalytics } from "@hogsend/engine";
 
 export interface EmailEngagementSummary {
   /** Whether the user has opened at least one email. */
@@ -44,7 +44,8 @@ export async function getUserContext(
       ctx.history.events({ userId: user.id, limit: 50 }),
       ctx.history.hasEvent({ userId: user.id, event: "email.opened" }),
       ctx.history.hasEvent({ userId: user.id, event: "email.link_clicked" }),
-      getPostHog()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
+      getAnalytics()?.getPersonProperties(user.id) ??
+        Promise.resolve(undefined),
     ],
   );
 

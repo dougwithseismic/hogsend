@@ -7,7 +7,7 @@ import {
 } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
@@ -16,6 +16,7 @@ import {
   computeExpiresAt,
   computeMaxDwellAt,
   countPriorMemberships,
+  minDwellDeadline,
 } from "./membership-epoch.js";
 import { getBucketRegistrySingleton } from "./registry-singleton.js";
 
@@ -174,6 +175,13 @@ export async function checkBucketMembership(opts: {
   // `ingestEvent` already awaited `resolveOrCreateContact` before us, so the row
   // exists by the resolved key; the patch overlay still covers the read-after-
   // write gap on a contact's very first event (risk 7).
+  //
+  // The read keys on the CANONICAL key — coalesce(external_id, anonymous_id,
+  // id::text) — the same expression `userId` was minted from (contactKey), NOT
+  // `external_id` alone. An anonymous-keyed or email-only contact has a NULL
+  // external_id, so the narrow lookup missed it and evaluated every property
+  // criterion against EMPTY stored state: such a contact could never join a
+  // property bucket. Matches the join in bucket-reconcile / bucket-backfill.
   const needsContactState = candidates.some(
     (bucket) =>
       bucket.criteria != null &&
@@ -201,6 +209,16 @@ export async function checkBucketMembership(opts: {
     //      the GDPR guard below — "never (re-)evaluate or emit for a
     //      soft-deleted contact" — did not fire for them. A soft-deleted
     //      email-only contact could still transition buckets and emit.
+    //
+    // ORDERED so a LIVE row always wins. A merge loser is soft-deleted but
+    // RETAINS its identity keys (`mergeContacts` frees them from the partial-
+    // unique indexes, which are `WHERE deleted_at IS NULL`, rather than nulling
+    // them) and the survivor inherits a copy — so the dead loser and the live
+    // survivor COALESCE TO THE SAME canonical key. An unordered `limit(1)`
+    // could hand back the dead one, and `contactDeleted` would then skip bucket
+    // evaluation entirely for a perfectly live contact. `NULLS FIRST` makes the
+    // live row deterministic; a purely-erased contact is still found, so the
+    // GDPR guard below keeps firing for it.
     const [contact] = await db
       .select({
         properties: contacts.properties,
@@ -208,10 +226,14 @@ export async function checkBucketMembership(opts: {
       })
       .from(contacts)
       .where(eq(contactKeySql(), userId))
+      .orderBy(sql`${contacts.deletedAt} nulls first`)
       .limit(1);
     if (contact) {
       storedContactProps =
         (contact.properties as Record<string, unknown> | null) ?? {};
+      // Only reachable when NO live row owns the key — the ordering above puts
+      // a live row first — so this is "the sole owner of this key is erased",
+      // not "some erased row also happens to share it".
       contactDeleted = contact.deletedAt != null;
     }
   }
@@ -440,12 +462,10 @@ async function handleLeave(opts: {
   // minDwell DEFERS (never silently drops) the leave (Section 6.3). We set a
   // pending-leave deadline on expiresAt = enteredAt + minDwell so the reconcile
   // cron / fastExpiry timer re-checks after the dwell window and emits the leave
-  // via the CAS path. We do NOT emit now.
-  if (withinMinDwell(active, bucket)) {
-    const deadline = new Date(
-      active.enteredAt.getTime() +
-        durationToMs(bucket.minDwell as NonNullable<BucketMeta["minDwell"]>),
-    );
+  // via the CAS path. We do NOT emit now. The window math is shared with the
+  // explicit membership-mutation seam (`minDwellDeadline`).
+  const deadline = minDwellDeadline(active, bucket);
+  if (deadline) {
     await db
       .update(bucketMemberships)
       .set({ expiresAt: deadline, lastEvaluatedAt: new Date() })
@@ -566,16 +586,6 @@ export async function shouldEmitJoin(opts: {
     default:
       return true;
   }
-}
-
-/** True while the active membership is still inside its minDwell window. */
-function withinMinDwell(
-  active: typeof bucketMemberships.$inferSelect,
-  bucket: BucketMeta,
-): boolean {
-  if (!bucket.minDwell) return false;
-  const elapsed = Date.now() - active.enteredAt.getTime();
-  return elapsed < durationToMs(bucket.minDwell);
 }
 
 /**

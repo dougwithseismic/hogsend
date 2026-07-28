@@ -70,6 +70,10 @@ import {
   registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
+// Narrows ctx.history.email/sms `template` to the registered key unions. Kept
+// as a side-effect import because the augmentation must load in every program
+// that can see a JourneyContext, not only this one.
+import "./template-key-augmentation.js";
 import { recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
@@ -1457,7 +1461,11 @@ export function createJourneyContext(
         return { found: result.matched, count: result.count };
       },
 
-      async journey({ userId: targetUserId, journeyId: targetJourneyId }) {
+      async journey(opts) {
+        const targetUserId = opts.userId;
+        // The union guarantees exactly one arm is populated; the object form
+        // simply yields the id the journey already knows about itself.
+        const targetJourneyId = opts.journeyId ?? opts.journey.meta.id;
         const [result] = await db
           .select({
             entryCount: count(),

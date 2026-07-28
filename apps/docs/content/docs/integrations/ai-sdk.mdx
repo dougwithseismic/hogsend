@@ -41,7 +41,7 @@ Agents need context. Rather than scatter `ctx.history.*` calls across agent file
 ```ts
 // src/lib/user-context.ts
 import type { JourneyContext, JourneyUser, RecentEvent } from "@hogsend/engine";
-import { getPostHog } from "@hogsend/engine";
+import { getAnalytics } from "@hogsend/engine";
 
 export interface UserContext {
   contact: { id: string; email: string; properties: Record<string, string | number | boolean | null> };
@@ -58,7 +58,7 @@ export async function getUserContext(
     ctx.history.events({ userId: user.id, limit: 50 }),
     ctx.history.hasEvent({ userId: user.id, event: "email.opened" }),
     ctx.history.hasEvent({ userId: user.id, event: "email.link_clicked" }),
-    getPostHog()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
+    getAnalytics()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
   ]);
 
   const context: UserContext = {

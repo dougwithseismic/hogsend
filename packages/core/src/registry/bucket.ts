@@ -62,8 +62,14 @@ export class BucketRegistry {
 
     this.buckets.set(validated.id, validated);
 
-    // manual buckets are not criteria-driven → not indexed for real-time eval
-    if (validated.kind === "manual" || !validated.criteria) {
+    // Only criteria-driven buckets are indexed for real-time eval — the two
+    // inverted indexes are built FROM `criteria`, so a bucket without it has
+    // nothing to index. `kind` is deliberately NOT tested here: `parse` above
+    // rejects manual + criteria (bucket.schema.ts Rule 4), so a manual bucket
+    // reaching this line always has `criteria === undefined` and is skipped by
+    // the same test. A `kind === "manual" ||` clause would be unreachable, and
+    // an unreachable branch is an untestable one.
+    if (!validated.criteria) {
       return;
     }
 
