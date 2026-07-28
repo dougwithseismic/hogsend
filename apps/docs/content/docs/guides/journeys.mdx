@@ -661,26 +661,43 @@ const { found, count } = await ctx.history.hasEvent({
 Check whether a user has previously entered or completed a specific journey.
 
 ```ts
-journey(opts: {
-  userId: string;
-  journeyId: string;
-}): Promise<{
+journey(opts:
+  | { userId: string; journey: DefinedJourney }
+  | { userId: string; journeyId: string }
+): Promise<{
   completed: boolean;
   lastCompletedAt: string | null;
   entryCount: number;
 }>
 ```
 
+Hand over the **journey**, not its id:
+
 ```ts
+import { activationWelcome } from "./activation-welcome.js";
+
 const { completed, entryCount } = await ctx.history.journey({
   userId: user.id,
-  journeyId: "activation-welcome",
+  journey: activationWelcome,
 });
 
 if (!completed) {
   // user never finished onboarding
 }
 ```
+
+`journeyId: "activation-welcome"` still works, but nothing checks it. Misspell it
+— or rename the journey six months later — and you get
+`{ completed: false, entryCount: 0 }` forever, which is indistinguishable from a
+user who genuinely never finished. On a call whose entire job is deciding whether
+to route someone into another flow, that is a wrong answer that looks like a
+right one. `journey: activationWelcome` cannot be misspelled (an unknown symbol
+is a compile error) and a rename follows the symbol.
+
+Keep `journeyId` for ids that only exist at **runtime** — read from config, a
+Blueprint, a Studio-authored journey, or an agent's input. That is the case the
+type system cannot serve, not a second spelling of the same thing. Pass exactly
+one of the two.
 
 ### `ctx.history.email()`
 
