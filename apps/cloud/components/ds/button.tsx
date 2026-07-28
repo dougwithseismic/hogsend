@@ -19,6 +19,12 @@ type ButtonProps = {
   type?: "button" | "submit";
   /** Only meaningful without an href (a disabled link is not a thing). */
   disabled?: boolean;
+  /**
+   * Click handler for the no-href case. Only usable from a client component —
+   * passing one from a server component is a build error, which is the correct
+   * outcome rather than a button that renders and does nothing.
+   */
+  onClick?: () => void;
   children: ReactNode;
   className?: string;
 };
@@ -40,6 +46,7 @@ export function Button({
   external = false,
   type = "button",
   disabled = false,
+  onClick,
   children,
   className,
 }: ButtonProps): JSX.Element {
@@ -82,6 +89,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled}
+      onClick={onClick}
       // pointer-events-none rather than a hover override: the variants each
       // define their own hover colour, and there is nothing to hover anyway.
       className={cn(

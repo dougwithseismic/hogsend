@@ -1,6 +1,8 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Card } from "@/components/ds/card";
 import { Wordmark } from "@/components/ds/wordmark";
+import { LEGAL_DOCUMENTS } from "@/src/lib/legal";
 
 type AuthShellProps = {
   title: string;
@@ -34,6 +36,26 @@ export function AuthShell({
         {footer ? (
           <p className="text-center text-sm text-white/50">{footer}</p>
         ) : null}
+
+        {/* Both documents are DRAFT stubs, and the link says so: sending
+            someone to a page badged DRAFT is honest, implying a signed
+            contract exists behind an unlabelled "Terms" link is not. */}
+        <p className="text-center text-white/40 text-xs">
+          <Link
+            href={LEGAL_DOCUMENTS.terms.path}
+            className="underline underline-offset-4 hover:text-white/70"
+          >
+            {LEGAL_DOCUMENTS.terms.title}
+          </Link>{" "}
+          ·{" "}
+          <Link
+            href={LEGAL_DOCUMENTS.privacy.path}
+            className="underline underline-offset-4 hover:text-white/70"
+          >
+            {LEGAL_DOCUMENTS.privacy.title}
+          </Link>{" "}
+          · both draft
+        </p>
       </div>
     </main>
   );

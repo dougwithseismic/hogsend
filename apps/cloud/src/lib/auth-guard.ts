@@ -1,3 +1,13 @@
+import { LEGAL_PATHS } from "./legal";
+
+/**
+ * Routes anybody may read, signed in or out. Listed explicitly rather than
+ * relying on the default-open fallback below: the legal pages are linked from
+ * the auth screens, so "a signed-out visitor can open them" is a rule this app
+ * owes, not an accident of ordering that a later prefix could break.
+ */
+export const PUBLIC_ROUTES = [...LEGAL_PATHS] as const;
+
 /** Dashboard routes: a session is required, and their prefixes' subroutes. */
 export const PROTECTED_PREFIXES = [
   "/",
@@ -14,13 +24,15 @@ export const PROTECTED_PREFIXES = [
 export const AUTH_ROUTES = ["/login", "/signup"] as const;
 
 /**
- * Routes rendered without the dashboard chrome. The auth screens, create-org,
- * and the invitation page: a nav rail whose every link redirects straight back
- * here is furniture the visitor cannot use yet. The invited visitor may have no
- * organization at all until they press Accept.
+ * Routes rendered without the dashboard chrome. The auth screens, the legal
+ * pages, create-org, and the invitation page: a nav rail whose every link
+ * redirects straight back here is furniture the visitor cannot use yet. The
+ * invited visitor may have no organization at all until they press Accept, and
+ * a reader of the legal pages may have no account at all.
  */
 export const BARE_ROUTES = [
   ...AUTH_ROUTES,
+  ...PUBLIC_ROUTES,
   "/create-org",
   "/accept-invitation",
 ] as const;
@@ -67,6 +79,12 @@ export function guardRoute(input: {
   hasSession: boolean;
 }): GuardDecision {
   const { pathname, hasSession } = input;
+
+  // Checked first: a public page answers the same to everyone, and a session
+  // is not a reason to be redirected away from the terms you are reading.
+  if (PUBLIC_ROUTES.some((route) => matches(pathname, route))) {
+    return { action: "allow" };
+  }
 
   if (AUTH_ROUTES.some((route) => matches(pathname, route))) {
     return hasSession ? { action: "redirect", to: "/" } : { action: "allow" };

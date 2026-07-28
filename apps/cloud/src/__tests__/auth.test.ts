@@ -160,8 +160,19 @@ describe("route guard", () => {
     }
   });
 
+  it("lets anyone read the public legal pages", () => {
+    // Linked from the sign-in screen, so a redirect here would be a dead link
+    // for exactly the visitor most likely to follow it. (Fuller coverage lives
+    // in legal.test.ts.)
+    for (const hasSession of [false, true]) {
+      expect(guardRoute({ pathname: "/terms", hasSession })).toEqual({
+        action: "allow",
+      });
+    }
+  });
+
   it("leaves unlisted paths alone rather than looping them", () => {
-    expect(guardRoute({ pathname: "/terms", hasSession: false })).toEqual({
+    expect(guardRoute({ pathname: "/api-docs", hasSession: false })).toEqual({
       action: "allow",
     });
   });

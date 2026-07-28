@@ -6,6 +6,7 @@ import { Section, SectionHeading } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
 import {
   apiDocsEnabled,
+  type OpenApiDelegatedOperation,
   type OpenApiOperation,
   openApiDocument,
 } from "@/src/openapi";
@@ -21,9 +22,25 @@ export const dynamic = "force-dynamic";
 
 type Endpoint = { path: string; method: string; operation: OpenApiOperation };
 
-const ENDPOINTS: Endpoint[] = Object.entries(openApiDocument.paths).map(
-  ([path, item]) => ({ path, method: "GET", operation: item.get }),
-);
+/**
+ * Implemented endpoints — the ones whose response shape this app owns and a
+ * test pins to the real handler. The delegated ones are rendered separately,
+ * because a response table under a body this app never builds would be a
+ * guess dressed as a schema.
+ */
+const ENDPOINTS: Endpoint[] = [
+  {
+    path: "/api/health",
+    method: "GET",
+    operation: openApiDocument.paths["/api/health"].get,
+  },
+];
+
+const AUTH_PATH = "/api/auth/{path}";
+const DELEGATED: { method: string; operation: OpenApiDelegatedOperation }[] = [
+  { method: "GET", operation: openApiDocument.paths[AUTH_PATH].get },
+  { method: "POST", operation: openApiDocument.paths[AUTH_PATH].post },
+];
 
 export default function ApiDocsPage() {
   // Dev-only: in production this route does not exist at all.
@@ -40,7 +57,7 @@ export default function ApiDocsPage() {
       <Section divider={false}>
         <SectionHeading
           eyebrow={`OpenAPI ${openApiDocument.openapi}`}
-          title="Endpoints"
+          title="Implemented endpoints"
           subtitle="Hand-written and covered by a test that calls the real handler, so the shapes below are the shapes the API returns."
         />
 
@@ -49,6 +66,48 @@ export default function ApiDocsPage() {
             <EndpointCard key={endpoint.path} endpoint={endpoint} />
           ))}
         </div>
+      </Section>
+
+      <Section>
+        <SectionHeading
+          eyebrow="Delegated"
+          title="Mounted, not implemented"
+          subtitle="This app forwards these routes to Better Auth without touching the request or the response, so the shapes are documented where they are defined."
+        />
+
+        <Card className="mt-8 flex flex-col gap-5">
+          <div className="flex flex-wrap items-center gap-3">
+            {DELEGATED.map((entry) => (
+              <TagPill key={entry.method} tone="good">
+                {entry.method}
+              </TagPill>
+            ))}
+            <code className="font-mono text-[15px] text-white">
+              {AUTH_PATH}
+            </code>
+          </div>
+          <p className="max-w-3xl text-base text-white/60 leading-6">
+            {DELEGATED[0]?.operation.description}
+          </p>
+          <div className="flex flex-col gap-2">
+            {DELEGATED.map((entry) => (
+              <p key={entry.method} className="text-sm text-white/50 leading-6">
+                <span className="font-mono text-white/70">{entry.method}</span>{" "}
+                — {entry.operation.responses.default.description}
+              </p>
+            ))}
+          </div>
+          {DELEGATED[0] ? (
+            <a
+              href={DELEGATED[0].operation.externalDocs.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-white underline underline-offset-4 hover:text-white/70"
+            >
+              {DELEGATED[0].operation.externalDocs.description}
+            </a>
+          ) : null}
+        </Card>
       </Section>
 
       <Section>

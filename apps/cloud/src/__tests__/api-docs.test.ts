@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  GET as authGET,
+  POST as authPOST,
+} from "../../app/api/auth/[...all]/route";
 import { GET as healthGET } from "../../app/api/health/route";
 import ApiDocsPage from "../../app/api-docs/page";
 import { apiDocsEnabled, openApiDocument } from "../openapi";
@@ -8,13 +12,36 @@ afterEach(() => {
 });
 
 describe("openApiDocument", () => {
-  it("is an OpenAPI 3.1 document describing the health endpoint", () => {
+  it("is an OpenAPI 3.1 document describing the whole HTTP surface", () => {
     expect(openApiDocument.openapi).toBe("3.1.0");
     expect(openApiDocument.info.title).toMatch(/hogsend cloud/i);
-    expect(Object.keys(openApiDocument.paths)).toEqual(["/api/health"]);
+    // The app has exactly two route files; both are documented, and nothing
+    // that does not exist is.
+    expect(Object.keys(openApiDocument.paths).sort()).toEqual([
+      "/api/auth/{path}",
+      "/api/health",
+    ]);
     expect(
       openApiDocument.paths["/api/health"].get.responses["200"],
     ).toBeTruthy();
+  });
+
+  it("documents the auth mount as delegated, by reference", () => {
+    const item = openApiDocument.paths["/api/auth/{path}"];
+    // The documented methods are the ones the real route file exports.
+    expect(Object.keys(item).sort()).toEqual(["get", "post"]);
+    expect(typeof authGET).toBe("function");
+    expect(typeof authPOST).toBe("function");
+    for (const operation of [item.get, item.post]) {
+      expect(operation.tags).toContain("Auth");
+      expect(operation.externalDocs.url).toMatch(
+        /^https:\/\/www\.better-auth\.com\//,
+      );
+      // No response schema on purpose: Better Auth owns those shapes, and a
+      // copy here would be a second source of truth with nothing pinning it.
+      expect(operation.responses.default.description).not.toBe("");
+      expect(operation.parameters[0]?.name).toBe("path");
+    }
   });
 
   it("documents the exact response shape the health route returns", async () => {

@@ -1,4 +1,5 @@
 import { Server } from "lucide-react";
+import type { Metadata } from "next";
 import { EnvironmentTable } from "@/components/cloud/environment-table";
 import { ProvisioningNote } from "@/components/cloud/provisioning-note";
 import { Button } from "@/components/ds/button";
@@ -7,6 +8,11 @@ import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
 import { requireActiveOrganization } from "@/src/lib/session";
 import { environmentService } from "@/src/services/environments";
+
+export const metadata: Metadata = {
+  title: "Overview",
+  description: "Environments and stack status for the active organization.",
+};
 
 export default async function HomePage() {
   const { record } = await requireActiveOrganization();
