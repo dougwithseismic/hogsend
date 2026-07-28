@@ -103,6 +103,41 @@ contact id, never the value) — an operator whose ingest legitimately reuses
 another contact's canonical key as a different person's id will see those
 refusals in the logs rather than silent cross-linking.
 
+### 3.6 Trust is a property of the key (`ResolvePolicy`)
+
+Every resolve call declares the caller's trust explicitly via
+`policy: ResolvePolicy` — `{ create: "on-miss" | "refuse-on-miss", allowMerge:
+"any" | "anonymous-only", trustedKinds: IdentityKind[] }` — accepted by
+`resolveOrCreateContact`, `resolveContactNoCreate`, `ingestEvent` and
+`ingestTransformResult`. The legacy `restrictToAnonymous`/`allowCreate` fields
+remain accepted (deprecated); supplying both shapes on one call throws. The
+rule, stated once:
+
+1. **Trust is declared by the caller, not inferred from which resolution arm
+   ran.** The policy travels with the call: what a caller may do is what it
+   said it may do, never a reconstruction from which keys happened to be
+   present or which arm (create / fill-in-link / collide-merge) resolution
+   happened to reach. `trustedKinds` names the key kinds *this caller of the
+   resolver* is authorized to assert, and a supplied key outside them throws —
+   before any advisory lock is taken and before the transaction opens.
+
+2. **An engine-internal re-emit inherits `create` and nothing else — never
+   `allowMerge`, never `trustedKinds`.** A re-emit whose subject was derived
+   server-side (a feed mark/clear, a journey lifecycle emit, a bucket
+   transition, `ctx.trigger`) is a fully trusted caller of the resolver
+   regardless of what authenticated the originating HTTP request. The one
+   thing it inherits from that request is the D1 creation refusal — so a
+   refused observation stays refused all the way down its derived hops — while
+   its merge policy stays `"any"` and its `trustedKinds` stay full. Deriving
+   those from the originating pk_ request would break every anonymous bell
+   mark/clear.
+
+3. **The `contactId` pin is a SUBJECT declaration, orthogonal to the policy.**
+   It says *who* this resolve is about (the unforgeable `contacts.id` uuid an
+   internal re-emit already resolved), never *what the caller may do*. It is a
+   sibling option, deliberately not part of `ResolvePolicy` — folding it in
+   would make a provenance pin look like a trust grant.
+
 ---
 
 ## 4. Part 1 — `anonymousId` threading (never fork in the first place)
