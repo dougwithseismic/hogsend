@@ -1,5 +1,352 @@
 # @hogsend/engine
 
+## 0.57.0
+
+### Minor Changes
+
+- baa18a2: A contact is minted by identity, not by observation.
+
+  The engine no longer writes a `contacts` row for pure observation. Three paths
+  change: `POST /v1/events` on a publishable (`pk_`) key with nothing asserted,
+  `POST /v1/t/arrive` on the unauthenticated (no token) leg, and a feed send whose
+  recipient is a bare `anonymousId`. The refusal is inherited by every re-ingest
+  derived from a refused event (the feed mark and `feed_cleared` emits, the
+  journey holdout emit, a same-user `ctx.trigger`, and the bucket transition and
+  fast-expiry timer), so a downstream hop cannot re-resolve the same key and mint
+  an `external_id = <anonId>` row, which would be strictly worse than the ghost it
+  replaces: that row collides with identified contacts and 403s the visitor out of
+  their own feed.
+
+  Nothing is lost. A refused event still writes to `user_events` under the same
+  key, still routes to journeys, still evaluates exits and buckets, and is still
+  mirrored to analytics. When the visitor later identifies, their anonymous
+  history is adopted rather than stranded: events, journey states, bucket
+  memberships, sends and preferences repoint onto the new canonical key, and the
+  absorbed key is reported in `mergedKeys` so the analytics anon-to-known stitch
+  still fires.
+
+  Both arms of that identify do the adoption. Refusing to mint means there is no
+  longer a contact row for the anonymous key, so the collide-MERGE arm that used
+  to perform this repoint is never reached, and the two arms that ARE reached had
+  to learn it. The create arm covers a first identify that supplies the anonymous
+  id alongside a new `userId`. The fill-in-link arm covers the case where the
+  contact already exists and merely gains the anonymous id — which is what happens
+  whenever identity is folded server-side first (a session mints the contact from
+  `{ email, userId }` with no anonymous id) and the browser then identifies with
+  its anonymous id. That attachment does not move the canonical key, so the old
+  key-flip test never fired and the anonymous history stayed orphaned behind a
+  contact that looked correctly linked.
+
+  Adoption only ever moves rows the anonymous key actually owns. Identity
+  resolution probes the _anonymous_ namespace, so a value that is another
+  contact's canonical key (its `external_id`, or its row id when it has neither
+  key) misses every probe while still keying all of that contact's rows. Both
+  adopting arms therefore prove the key names nobody else before repointing;
+  a caller naming someone else's canonical key as their own `anonymousId` gets a
+  normal resolve and no history movement. Attaching a key and adopting one are
+  separate acts, and only adoption is gated.
+
+  The same arm now also handles a person signing in from a **second device**.
+  `contacts.anonymous_id` holds exactly one id, so once the first device has
+  claimed it, the second device's id used to be dropped entirely — not stored, not
+  aliased, its pre-sign-in history not adopted. It is now recorded in
+  `contact_aliases` (which identity resolution already falls back to), so it
+  resolves to the same contact, and its history is adopted like any other.
+
+  `@hogsend/plugin-discord` drops `GUILD_PRESENCES` from the gateway worker's
+  default intents. It is a privileged intent, so requesting less cannot break a
+  deploy that was not already granted it.
+
+  **What you will observe.** Contact counts stop growing from anonymous traffic:
+  if your Studio contacts list is dominated by rows with a blank email and a blank
+  external id, that growth stops. `discord.presence_active` stops firing.
+
+  **The one change that can surprise a revenue-tracking deploy.** An anonymous
+  browser event with no `value` no longer fires conversions, attribution credits
+  or funnel progress. `conversions.contact_id`, `funnel_progress.contact_id` and
+  `deals.contact_id` are all NOT NULL foreign keys to `contacts.id`, so a refused
+  ingest has no degraded write available. The carve-outs, plainly:
+  - an event carrying `value` still creates, so e-commerce revenue conversions and
+    their attribution credits keep firing anonymously exactly as before;
+  - an event carrying a `groups` map still creates, so a pre-login
+    `hogsend.group()` still writes the group and the membership;
+  - any secret-key (`sk_`) caller still creates, on every path;
+  - any event asserting an `email`, or a `userId` proven by a server-minted user
+    token, still creates.
+
+  **Keeping the old behaviour.** `ingestEvent` and `ingestTransformResult` take an
+  `allowCreate` option that defaults to `true`, so your own ingest calls (webhook
+  sources, custom routes, server-side SDK writes) are unchanged, and passing
+  `allowCreate: true` explicitly pins that. The three built-in refusal sites above
+  are not configurable: to keep minting from browser traffic, identify the visitor
+  or write from a secret key. For Discord, toggle PRESENCE in the portal and pass
+  an explicit `intents` bitfield including `DISCORD_INTENTS.GUILD_PRESENCES` to
+  `createDiscordGatewayWorker`; the `PRESENCE_UPDATE` transform is untouched, so
+  the intent is the only switch. `createDiscordRuntime` (the default inline path)
+  does not forward an `intents` option, so a worker-hosted deploy that wants
+  presence supplies its own `ConnectorRuntime` around
+  `createDiscordGatewayWorker`.
+
+  **New public API.** `resolveContactNoCreate` is exported: it resolves an
+  identity and returns `{ id: null, resolvedKey }` instead of creating when
+  nothing matches. It throws unless the highest-precedence key supplied is
+  `userId` or `anonymousId`, because those are the only shapes whose refusal keys
+  history on the same string the create arm would have written.
+  `resolveOrCreateContact`'s signature and return type are unchanged;
+  `ingestEvent` and `ingestTransformResult` gain only the optional `allowCreate`.
+  `ingestTransformResult` is now exported too; it was engine-internal.
+
+- 199f4b2: Bucket leave and dwell passes now see members keyed on anything but `external_id`.
+
+  `bucket_memberships.user_id` holds the canonical contact key
+  (`external_id ?? anonymous_id ?? id`), but every leave, TTL, dwell and re-eval
+  query joined `contacts.external_id = bucket_memberships.user_id`. A contact
+  whose canonical key is not its `external_id` — an email-only contact keyed on
+  its uuid, or an anonymous one keyed on its `anonymous_id` — was therefore a
+  one-way door: the join scan already reads the coalesce key, so it could be
+  enrolled, but it was never left, never dwell-fired and never re-evaluated. Its
+  `maxDwell` TTL never expired and its dwell schedules never ran. The join scan
+  was corrected for exactly this reason and the leave side was never brought
+  along; the comment there already says joining on `external_id` "would silently
+  drop exactly the dormant email-only contacts this cron exists to reconcile".
+
+  Nine queries now join on the same `coalesce(external_id, anonymous_id, id)` key: the five cron
+  passes above, and the bucket accessor's `count()`, `has()` and `members()` (two queries). Those move
+  TOGETHER on purpose. Correcting the cron alone would make it act on members the accessor still could
+  not see — dwell fires and leave emissions for people `count()` reports as absent, and `has()`
+  returning false for a real member. A non-obvious divergence introduced by the fix is worse than the
+  consistent blind spot it replaces. The accessor sites are pure reads: they emit nothing and change no
+  membership, so they carry none of the first-tick hazard below.
+
+  Correcting it makes a previously-stranded cohort due all at once, and a dwell
+  reaction is a full journey that can send email, so the first tick would deliver
+  a backlog of months-old lifecycle messages. It does not. The first sweep after
+  this upgrade claims that cohort per bucket and resets its membership-age clocks
+  to that instant — the dwell anchor moves to now, dwell stamps clear, and a
+  `maxDwell` TTL is re-armed a full window out — then skips that bucket for that
+  one tick. Nothing is emitted and nothing is silently swallowed: every age-driven
+  emission still happens, measured from the moment the cron could first see the
+  member. Criteria-driven leaves are deliberately not deferred, because they
+  evaluate against present-day events rather than membership age.
+
+  The claim is recorded on a new nullable `bucket_configs.coalesce_claimed_at`
+  column so it runs exactly once per bucket. It runs even when the cohort is
+  empty, which costs a new deployment one no-op reconcile tick per bucket, once.
+
+  **What you will observe.** Buckets containing email-only or anonymous members
+  report leaves and dwell fires that previously never arrived. If you have such
+  members sitting far past a `maxDwell`, expect their leave one full `maxDwell`
+  window after the upgrade rather than immediately.
+
+  Known remaining asymmetry, unchanged here: the campaign audience query for a bucket still joins
+  `external_id`, so a bucket-targeted campaign still omits these members. Correcting it changes who
+  receives a broadcast, so it is a product decision and is deliberately not bundled.
+
+- dab3005: The identity table becomes the source of truth for key resolution.
+
+  `contact_aliases` — until now a fallback consulted only after the identity
+  columns missed, populated only on merge/promote — is promoted to the primary
+  resolution index. Four changes, no schema migration:
+  - **Alias-first resolution.** `findByKey` probes `contact_aliases` first (one
+    joined statement with a live-target rule: an alias pointing at a soft-deleted
+    contact produces no row and falls through), then the identity columns, then
+    the row-uuid fallback, exactly as before. With an empty alias table behavior
+    is byte-identical to the old order.
+  - **Dual-write.** Every resolver arm (create / fill-in-link / collide-merge)
+    now ensures an alias row per identity column the contact carries, with
+    `reason: 'resolve'`. Existing `promote`/`merge` rows keep their provenance; a
+    `(kind, value)` owned by another contact is never repointed (logged as
+    `identity.alias.conflict` — kind and contact id only, never the value).
+  - **Backfill.** New `identityAliasBackfillTask` (chunked, idempotent,
+    resumable; `dryRun` supported) fills the table for pre-existing contacts. The
+    worker enqueues it once at boot (skipped when a completed job record exists);
+    `POST /v1/admin/identity/alias-backfill` forces a re-run and
+    `GET /v1/admin/identity/alias-backfill/{jobId}` polls it. The read-only
+    parity probe `GET /v1/admin/identity/alias-parity` reports, per kind, keys
+    where alias-first and column-first resolution disagree — `diverged` should
+    be 0; if it is not, that is pre-existing data corruption to fix on its own
+    (roll back to the previous release, repair, re-upgrade).
+  - **Erasure.** Soft-deleting a contact (public `DELETE /v1/contacts`, admin
+    delete, agent tool) now deletes EVERY `contact_aliases` row keyed to that
+    contact — regardless of `reason` or `from_contact_id` — since each such row
+    holds that person's own identity key. Merge-trail rows under a surviving
+    contact are untouched.
+
+  New exports: `identityAliasBackfillTask`, `runIdentityAliasBackfill`,
+  `enqueueIdentityAliasBackfill`, `identityAliasParity`,
+  `deleteIdentityAliasesForContact` (call it from any consumer-built deletion
+  flow that soft-deletes `contacts` rows directly),
+  `IDENTITY_ALIAS_BACKFILL_FORMAT`, and the `AliasParityRow` /
+  `IdentityAliasBackfillInput` / `IdentityAliasBackfillResult` types.
+
+- dab3005: Many keys per person: a second value for any identity kind is an identity row,
+  never a silent drop.
+
+  The `contacts` columns hold one slot per kind, so a second anonymous id, email,
+  external id or discord id used to be dropped — and a later resolve on the
+  dropped value minted a duplicate person. Now every supplied key the columns
+  cannot hold is recorded in `contact_aliases` through one uniform claim path, on
+  the fill-in-link arm and the collide-merge arm alike, and resolves back to the
+  same contact. Only a newly claimed anonymous key adopts orphaned pre-identify
+  history; other kinds add a resolution edge and move nothing.
+
+  **Security tightening (breaking only for pathological inputs).** Claims of
+  `external`/`anonymous` values are now uniformly gated: a value that is another
+  live contact's CANONICAL key is refused — no column write, no identity row, no
+  history move — and logged as `identity.claim.refused_foreign_key` with the kind
+  and contact id (never the value). Previously one attach arm shipped ungated: a
+  caller could have a victim's canonical key written into their own
+  `anonymous_id` column (and worse, an ungated `external_id` attach could flip
+  the caller's canonical key onto a string another person's history keys on). An
+  operator whose ingest legitimately supplies one contact's canonical key as a
+  different person's id will see those claims refused; grep the log line above to
+  find them.
+
+  **Bell fix.** The feed's anonymous recipient resolver now falls back to the
+  identity table, so a SECOND device whose anon id is held as an identity row is
+  recognized: its mark/clear re-ingests fold into the owning contact instead of
+  being refused and stranding events under the raw device id.
+
+  Internals: `anonAliasAlreadyHeld` is gone — first-claim detection is structural
+  (`ON CONFLICT` + `RETURNING` on the `(alias_kind, alias_value)` unique index),
+  so a browser that identifies on every page load cannot re-adopt or re-fire the
+  analytics anon→known stitch. `keysAnotherContact` and `repointOwnHistory`
+  deliberately remain: they guard string-keyed history and are PRD 05's to
+  retire.
+
+- dab3005: Trust is a property of the key: the resolver accepts an explicit
+  `ResolvePolicy`.
+
+  `resolveOrCreateContact`, `resolveContactNoCreate`, `ingestEvent` and
+  `ingestTransformResult` gain an optional `policy` option, and the
+  `ResolvePolicy` / `IdentityKind` types are exported. A policy declares the
+  caller's trust once — `create` ("on-miss" | "refuse-on-miss"), `allowMerge`
+  ("any" | "anonymous-only"), and `trustedKinds` (the key kinds this caller is
+  authorized to assert) — instead of the resolver re-deriving it from
+  `restrictToAnonymous`/`allowCreate` plus which keys happen to be present.
+  Every built-in caller now declares its policy explicitly.
+
+  Behaviour is identical for every reachable input:
+  - The legacy `restrictToAnonymous` / `allowCreate` fields stay accepted and
+    honoured, now marked `@deprecated`. An absent policy means exactly what it
+    always did. Supplying both shapes on one call throws — no precedence rule
+    exists.
+  - The refusal key remains DERIVED (`userId ?? anonymousId`) inside
+    `resolveContactNoCreate` and is never accepted from a caller.
+  - `allowMerge: "never-identified-pair"` is a reserved value naming the
+    not-yet-implemented "never merge two already-identified persons" rule;
+    selecting it throws.
+  - `trustedKinds` is enforced: a supplied key whose kind is absent from the
+    caller's declared `trustedKinds` now throws — before any advisory lock is
+    taken, before the transaction opens, and without writing a row. The default
+    when no policy is supplied trusts all four kinds, so callers on the legacy
+    shape are unaffected, and every built-in route is already gated one layer
+    up — the throw is defence in depth against a future route that forgets the
+    gate, not a behaviour consumers can reach today.
+
+### Patch Changes
+
+- ac82f01: Bucket criteria now read the contact behind an email-only or anonymous member.
+
+  `bucket_memberships.user_id` holds the canonical contact key
+  (`external_id ?? anonymous_id ?? id`), but the real-time membership check looked
+  that contact up by `external_id` alone. A contact whose canonical key is not its
+  `external_id` — an email-only contact keyed on its uuid, or an anonymous one
+  keyed on its `anonymous_id` — was never found, and two things followed.
+
+  Property criteria evaluated against `{}` instead of the person's real state, so
+  every property leg silently answered "absent" for them. A bucket asking for
+  `plan == "pro"` never matched a member who genuinely was on Pro.
+
+  More seriously, the soft-delete guard is driven by the row that lookup returns.
+  When the lookup found nothing, `deleted_at` was never read, so a **soft-deleted**
+  email-only or anonymous contact could still transition buckets and emit
+  `bucket:entered` / `bucket:left` — the one thing that guard exists to prevent.
+
+  Both now resolve on the same `coalesce(external_id, anonymous_id, id)`
+  expression the cron's join scan already uses. That scan was corrected for
+  exactly this reason, and its comment says why: joining on `external_id` "would
+  silently drop exactly the dormant email-only contacts this cron exists to
+  reconcile". This applies the same correction to the real-time path.
+
+  **What you may observe.** Buckets with property criteria start matching
+  email-only and anonymous members who genuinely satisfy them and were previously
+  invisible, so those buckets can gain members. The change is incremental — each
+  affected contact is re-evaluated when they next generate an event, not in a
+  sweep — so there is no backlog burst. Soft-deleted contacts stop transitioning
+  entirely.
+
+  **Known, and deliberately not fixed here.** The cron's leave, TTL and dwell
+  passes still join `external_id`, so such a member enrolled by the cron is still
+  never left or dwell-fired by it. That fix needs a first-tick guard: a member
+  sitting past its `maxDwell` for months would otherwise fire immediately, and a
+  dwell reaction is a full journey that can send email — a backlog of months-old
+  lifecycle messages to real recipients. The same `external_id` join also affects
+  the bucket accessor (`count`/`has`/`members`) and the campaign audience query,
+  the latter changing who receives a broadcast. Those carry different blast
+  profiles and are handled separately rather than bundled here.
+
+- f118017: A campaign targeting a bucket now reaches every member of that bucket.
+
+  `bucket_memberships.user_id` holds the canonical contact key
+  (`external_id ?? anonymous_id ?? id`), but the audience query joined
+  `contacts.external_id`. A contact whose canonical key is not its `external_id`
+  — an email-only subscriber keyed on its uuid, someone who gave you their
+  address but never created an account — matched nothing and was silently dropped
+  from the recipient list.
+
+  They were genuine active members of the bucket. They simply never received the
+  campaign, and nothing surfaced it: a send report reading "40 of 40 delivered"
+  looks complete whether or not the audience was built correctly.
+
+  **What you will observe.** The next bucket-targeted campaign reaches those
+  members, so recipient counts rise. Nothing is sent retroactively — this changes
+  who a FUTURE send resolves, not history.
+
+  Suppression is unaffected. Every gate lives in the same condition set applied to
+  this query and is keyed on the recipient email rather than the join column, so a
+  newly-visible member passes the identical unsubscribed/suppressed check as
+  everyone else, and the mailer re-checks preferences per send.
+
+- 8bc5420: A managed-link click no longer mints a contact.
+
+  `pushLinkClickEvent` re-ingests the first-party `link.clicked` bus event keyed
+  on the link's `distinctId`. It did so with creation allowed, and `mintLink`
+  copies whatever `distinctId` the caller passes for a `personal` link — so a link
+  minted for a visitor who was never identified carried an anonymous key, and
+  clicking it wrote `external_id = <anonId>`.
+
+  That row is strictly worse than the ghost the previous release removed: it
+  answers `collidesWithIdentified`, which is what the publishable feed read and the
+  arrival stamp consult, so the visitor is then 403-locked out of their own feed.
+  The click re-ingest is a re-ingest derived from an earlier observation, and a
+  refusal is inherited by every derived re-ingest — the same law the feed marks,
+  `feed_cleared`, the journey holdout emit and the bucket transitions already
+  follow. This one path was missed.
+
+  Nothing is lost. The click still redirects, the `link.clicked` event still stores
+  under the same key, and journeys that trigger or `waitForEvent` on a link click
+  are unaffected — only the contact row is skipped. A link whose `distinctId` names
+  a contact that does exist resolves exactly as before.
+
+  Also corrects a comment on the `PUT /v1/contacts` request schema that claimed
+  identity was required. On the publishable path it is not: the route gates with
+  `gatePublishableIdentity`, which allows a caller who claims nothing, and the
+  create arm has no anonymous clamp — so a hand-rolled `pk_` request sending only
+  `anonymousId` still mints an anonymous-only contact. That behaviour is unchanged
+  and remains deliberately deferred (refusing needs a nullable `id` on a published
+  response schema); only the comment was wrong.
+
+- Updated dependencies [199f4b2]
+- Updated dependencies [baa18a2]
+  - @hogsend/db@0.57.0
+  - @hogsend/attribution@0.57.0
+  - @hogsend/core@0.57.0
+  - @hogsend/email@0.57.0
+  - @hogsend/plugin-posthog@0.57.0
+  - @hogsend/plugin-resend@0.57.0
+  - @hogsend/sms@0.57.0
+
 ## 0.56.0
 
 ### Minor Changes
