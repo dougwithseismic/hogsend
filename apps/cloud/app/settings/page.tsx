@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
+import { AccountSection } from "@/components/cloud/account-section";
 import { CopyValue } from "@/components/cloud/copy-value";
+import { DangerZoneSection } from "@/components/cloud/danger-zone-section";
+import { MembersSection } from "@/components/cloud/members-section";
 import { TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
+import { hasRole, readMembersView } from "@/src/lib/org-members";
 import { CLOUD_REGIONS } from "@/src/lib/regions";
 import { requireActiveOrganization } from "@/src/lib/session";
 
@@ -26,8 +31,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default async function SettingsPage() {
-  const { record } = await requireActiveOrganization();
+  const { record, user } = await requireActiveOrganization();
   const region = CLOUD_REGIONS.find((option) => option.id === record.region);
+  const membersView = await readMembersView(await headers());
+
+  const owners = membersView.members.filter((member) =>
+    hasRole(member.role, "owner"),
+  );
+  const isSoleOwner = owners.length === 1 && owners[0]?.userId === user.id;
 
   return (
     <main className="flex flex-1 flex-col">
@@ -60,6 +71,13 @@ export default async function SettingsPage() {
           </Row>
         </Card>
       </Section>
+
+      <MembersSection view={membersView} />
+      <AccountSection email={user.email} />
+      <DangerZoneSection
+        organizationName={record.name}
+        isSoleOwner={isSoleOwner}
+      />
     </main>
   );
 }

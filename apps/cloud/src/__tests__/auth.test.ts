@@ -5,7 +5,7 @@ import { runCloudMigrations } from "../db/migrator";
 import { user } from "../db/schema/auth";
 import { env } from "../env";
 import { CLOUD_SESSION_COOKIE_NAME, createCloudAuth } from "../lib/auth";
-import { guardRoute } from "../lib/auth-guard";
+import { guardRoute, sanitizeNext } from "../lib/auth-guard";
 import type { EmailMessage, EmailSender } from "../lib/email-sender";
 
 /**
@@ -164,5 +164,29 @@ describe("route guard", () => {
     expect(guardRoute({ pathname: "/terms", hasSession: false })).toEqual({
       action: "allow",
     });
+  });
+});
+
+describe("sanitizeNext", () => {
+  it("keeps a same-origin path", () => {
+    expect(sanitizeNext("/accept-invitation/abc")).toBe(
+      "/accept-invitation/abc",
+    );
+  });
+
+  it("refuses anything that could leave this origin", () => {
+    // An invitation link is mail-delivered and tampered with; a post-sign-in
+    // redirect to another origin would be an open redirect.
+    for (const value of [
+      "//evil.example",
+      "/\\evil.example",
+      "https://evil.example",
+      "javascript:alert(1)",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(sanitizeNext(value)).toBe("/");
+    }
   });
 });

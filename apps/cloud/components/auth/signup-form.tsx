@@ -13,7 +13,7 @@ type Step = "credentials" | "verify";
  * NOT create a session (`autoSignIn: false`), so after the OTP is accepted we
  * sign in with the password already in state rather than asking for it twice.
  */
-export function SignupForm() {
+export function SignupForm({ next = "/" }: { next?: string }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("credentials");
   const [name, setName] = useState("");
@@ -68,7 +68,7 @@ export function SignupForm() {
       setPending(false);
       return;
     }
-    router.replace("/");
+    router.replace(next);
     router.refresh();
   }
 

@@ -6,7 +6,8 @@ import { Button } from "@/components/ds/button";
 import { Field, FormError, Input } from "@/components/ds/field";
 import { authClient } from "@/src/lib/auth-client";
 
-export function LoginForm() {
+/** `next` is where to land after sign-in — already sanitized by the page. */
+export function LoginForm({ next = "/" }: { next?: string }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,8 +30,8 @@ export function LoginForm() {
       return;
     }
     // The session cookie is set; a refresh re-runs the middleware guard, which
-    // now allows "/".
-    router.replace("/");
+    // now allows the destination.
+    router.replace(next);
     router.refresh();
   }
 

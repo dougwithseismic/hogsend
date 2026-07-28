@@ -14,11 +14,34 @@ export const PROTECTED_PREFIXES = [
 export const AUTH_ROUTES = ["/login", "/signup"] as const;
 
 /**
- * Routes rendered without the dashboard chrome. The auth screens, plus
- * create-org: a nav rail whose every link redirects straight back here is
- * furniture the visitor cannot use yet.
+ * Routes rendered without the dashboard chrome. The auth screens, create-org,
+ * and the invitation page: a nav rail whose every link redirects straight back
+ * here is furniture the visitor cannot use yet. The invited visitor may have no
+ * organization at all until they press Accept.
  */
-export const BARE_ROUTES = [...AUTH_ROUTES, "/create-org"] as const;
+export const BARE_ROUTES = [
+  ...AUTH_ROUTES,
+  "/create-org",
+  "/accept-invitation",
+] as const;
+
+/**
+ * Sanitize a `?next=` destination.
+ *
+ * Only a path on this origin is ever returned: an absolute URL (or the
+ * protocol-relative `//evil.example`) in a redirect the app performs after
+ * sign-in is an open redirect, and the invitation link is exactly the kind of
+ * mail-delivered URL that gets tampered with.
+ */
+export function sanitizeNext(
+  value: string | null | undefined,
+  fallback = "/",
+): string {
+  if (typeof value !== "string") return fallback;
+  if (!value.startsWith("/")) return fallback;
+  if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
+  return value;
+}
 
 export type GuardDecision =
   | { action: "allow" }

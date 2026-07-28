@@ -16,6 +16,16 @@ function otpSubject(type: string): string {
     : "Your Hogsend Cloud verification code";
 }
 
+/**
+ * Where an invitation email points. Better Auth mints the invitation row and
+ * its id but never a URL — the app owns the route, so the link is built here
+ * and `app/accept-invitation/[id]` is the only page that reads it.
+ */
+export function buildInvitationUrl(invitationId: string): string {
+  const base = env.CLOUD_PUBLIC_URL ?? DEFAULT_CLOUD_PUBLIC_URL;
+  return `${base.replace(/\/+$/, "")}/accept-invitation/${invitationId}`;
+}
+
 export function createCloudAuth(opts?: { emailSender?: EmailSender }) {
   const sender = opts?.emailSender ?? resolveEmailSender();
 
@@ -50,6 +60,12 @@ export function createCloudAuth(opts?: { emailSender?: EmailSender }) {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
     },
+    user: {
+      // The settings danger zone needs it. The endpoint is password-gated by
+      // the caller (`deleteAccount` passes the password it just collected), so
+      // enabling it does not make a stolen session enough to delete an account.
+      deleteUser: { enabled: true },
+    },
     rateLimit: {
       customRules: {
         "/sign-in/email": { window: 60, max: 10 },
@@ -78,6 +94,21 @@ export function createCloudAuth(opts?: { emailSender?: EmailSender }) {
       organization({
         organizationLimit: 5,
         membershipLimit: 100,
+        // Same seam as the OTP: the log transport prints the link in dev, so a
+        // local invite is completed by copying it out of `next dev` output.
+        async sendInvitationEmail({ id, email, organization, inviter }) {
+          await sender.send({
+            to: email,
+            subject: `Join ${organization.name} on Hogsend Cloud`,
+            text: [
+              `${inviter.user.email} invited you to join ${organization.name} on Hogsend Cloud.`,
+              "",
+              `Accept: ${buildInvitationUrl(id)}`,
+              "",
+              "The invitation is tied to this email address. Sign in (or sign up) with it to accept.",
+            ].join("\n"),
+          });
+        },
       }),
     ],
   });
