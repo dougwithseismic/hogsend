@@ -746,7 +746,11 @@ describe("seedBucketMembers", () => {
     });
     const after = Date.now();
 
-    expect(result).toEqual({ seeded: 3, alreadyActive: 0 });
+    expect(result).toEqual({
+      seeded: 3,
+      alreadyActive: 0,
+      skippedNoContact: 0,
+    });
 
     for (const id of ids) {
       const all = await rows(id, TTL_ID);
@@ -785,7 +789,11 @@ describe("seedBucketMembers", () => {
       members: [{ userId: existing }, { userId: fresh }],
     });
 
-    expect(result).toEqual({ seeded: 1, alreadyActive: 1 });
+    expect(result).toEqual({
+      seeded: 1,
+      alreadyActive: 1,
+      skippedNoContact: 0,
+    });
     expect(await rows(existing, PLAIN_ID)).toHaveLength(1);
     expect(await rows(fresh, PLAIN_ID)).toHaveLength(1);
   });
@@ -803,7 +811,11 @@ describe("seedBucketMembers", () => {
       members: [{ userId }],
     });
 
-    expect(result).toEqual({ seeded: 1, alreadyActive: 0 });
+    expect(result).toEqual({
+      seeded: 1,
+      alreadyActive: 0,
+      skippedNoContact: 0,
+    });
     const all = await rows(userId, PLAIN_ID);
     expect(all.map((r) => [r.entryCount, r.status])).toEqual([
       [1, "left"],
@@ -823,7 +835,11 @@ describe("seedBucketMembers", () => {
       batchSize: 2,
     });
 
-    expect(result).toEqual({ seeded: 5, alreadyActive: 0 });
+    expect(result).toEqual({
+      seeded: 5,
+      alreadyActive: 0,
+      skippedNoContact: 0,
+    });
     const all = await db.query.bucketMemberships.findMany({
       where: and(
         eq(bucketMemberships.bucketId, PLAIN_ID),
@@ -834,6 +850,131 @@ describe("seedBucketMembers", () => {
     for (const id of ids) {
       expect(await transitionEvents(PLAIN_ID, "entered", id)).toEqual([]);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // The live-contact gate. Every sweep that could ever move a member OUT of a
+  // bucket (criteria leave, maxDwell TTL, pending-leave) selects through
+  // `liveContactByCanonicalKey`, so a row seeded for a key no live contact owns
+  // is invisible to all of them: it stays `active` forever, inflating bucket
+  // size and membership stats with a member that has no path out.
+  // -------------------------------------------------------------------------
+
+  it("drops a member whose contact is soft-deleted, and reports the drop", async () => {
+    const erased = uid("seed-erased");
+    await seedContact(erased);
+    // A merge loser / erased contact RETAINS its identity keys, so its
+    // canonical key still resolves — only `deleted_at` marks it dead.
+    await db
+      .update(contacts)
+      .set({ deletedAt: new Date() })
+      .where(eq(contacts.externalId, erased));
+
+    const result = await seedBucketMembers({
+      db,
+      logger,
+      bucketId: PLAIN_ID,
+      members: [{ userId: erased }],
+    });
+
+    expect(result).toEqual({
+      seeded: 0,
+      alreadyActive: 0,
+      skippedNoContact: 1,
+    });
+    // No row AT ALL — not an inserted-then-unreachable one. Asserted on the
+    // full row set (`rows`, both statuses) so an active row cannot hide behind
+    // a status filter.
+    expect(await rows(erased, PLAIN_ID)).toEqual([]);
+  });
+
+  // The caller-supplied email is the one input that could plausibly be read as
+  // "I already know this member, skip the contact read" — it must not.
+  it("does not let a caller-supplied email bypass the live-contact gate", async () => {
+    const erased = uid("seed-erased-email");
+    await seedContact(erased);
+    await db
+      .update(contacts)
+      .set({ deletedAt: new Date() })
+      .where(eq(contacts.externalId, erased));
+
+    const result = await seedBucketMembers({
+      db,
+      logger,
+      bucketId: PLAIN_ID,
+      members: [{ userId: erased, userEmail: "supplied@example.com" }],
+    });
+
+    expect(result).toEqual({
+      seeded: 0,
+      alreadyActive: 0,
+      skippedNoContact: 1,
+    });
+    expect(await rows(erased, PLAIN_ID)).toEqual([]);
+  });
+
+  // The gate keys on the CANONICAL key (external_id ?? anonymous_id ?? id), not
+  // `external_id` — narrowing it would silently make every anonymous-only
+  // contact unseedable, which is the failure mode that has already bitten three
+  // reconcile passes.
+  it("still seeds an anonymous-only contact", async () => {
+    const anon = uid("seed-anon-only");
+    await seedContact(anon, { anonymousOnly: true });
+
+    const result = await seedBucketMembers({
+      db,
+      logger,
+      bucketId: PLAIN_ID,
+      members: [{ userId: anon }],
+    });
+
+    expect(result).toEqual({
+      seeded: 1,
+      alreadyActive: 0,
+      skippedNoContact: 0,
+    });
+    expect(await activeRow(anon, PLAIN_ID)).toHaveLength(1);
+  });
+
+  // The counters must partition the deduped input: a caller that seeds nothing
+  // has to be able to tell "everyone was already a member" from "every id was
+  // dead". `batchSize: 2` splits the drops across chunks (the second chunk is
+  // ALL-dead, so the empty-chunk short-circuit is exercised too).
+  it("partitions a mixed batch into seeded / alreadyActive / skipped", async () => {
+    const live = uid("seed-mixed-live");
+    const active = uid("seed-mixed-active");
+    const erased = uid("seed-mixed-erased");
+    const neverExisted = uid("seed-mixed-missing");
+    await seedContact(live);
+    await seedContact(active);
+    await seedContact(erased);
+    await addBucketMember({ ...deps, bucketId: PLAIN_ID, userId: active });
+    await db
+      .update(contacts)
+      .set({ deletedAt: new Date() })
+      .where(eq(contacts.externalId, erased));
+
+    const members = [live, active, erased, neverExisted];
+    const result = await seedBucketMembers({
+      db,
+      logger,
+      bucketId: PLAIN_ID,
+      members: members.map((userId) => ({ userId })),
+      batchSize: 2,
+    });
+
+    expect(result).toEqual({
+      seeded: 1,
+      alreadyActive: 1,
+      skippedNoContact: 2,
+    });
+    expect(result.seeded + result.alreadyActive + result.skippedNoContact).toBe(
+      members.length,
+    );
+    expect(await activeRow(live, PLAIN_ID)).toHaveLength(1);
+    expect(await activeRow(active, PLAIN_ID)).toHaveLength(1);
+    expect(await rows(erased, PLAIN_ID)).toEqual([]);
+    expect(await rows(neverExisted, PLAIN_ID)).toEqual([]);
   });
 
   it("refuses to seed a dynamic bucket", async () => {
