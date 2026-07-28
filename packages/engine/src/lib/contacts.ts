@@ -409,10 +409,72 @@ export function normalizeEmailOrNull(
 // Identity resolution
 // ---------------------------------------------------------------------------
 
-// Module-exported (not re-exported from the package index) so the exported
-// `resolveViaAlias` signature can name it; PRD 06 promotes it to the public
-// `IdentityKind`.
-export type Kind = "external" | "email" | "anonymous" | "discord";
+/**
+ * The four key kinds identity resolution understands (PRD 06 — the module-local
+ * `Kind` promoted to the public API). `phone` is deliberately absent: it is not
+ * yet a merge-participating kind (SMS STOP resolves a contact by a direct
+ * `contacts.phone` lookup, outside the resolver).
+ */
+export type IdentityKind = "external" | "email" | "anonymous" | "discord";
+
+// Module-local shorthand retained so this file's existing signatures
+// (`ResolveKey`, `resolveViaAlias`, …) don't churn.
+export type Kind = IdentityKind;
+
+/**
+ * Explicit, caller-declared trust for ONE resolve call (PRD 06). Replaces the
+ * legacy inference from `restrictToAnonymous`/`allowCreate` plus *which keys
+ * happen to be present*: trust travels with the call instead of being
+ * reconstructed inside the resolver. Pass at most one shape — `policy` OR the
+ * legacy fields — never both (the resolver throws; no precedence rule exists).
+ */
+export interface ResolvePolicy {
+  /**
+   * MINT policy. `"on-miss"` is the historic create arm: when no live contact
+   * owns any supplied key, insert one. `"refuse-on-miss"` is the D1 observation
+   * refusal: return `{ id: null }` and mint nothing (reachable only through
+   * {@link resolveContactNoCreate}). The refusal KEY is never accepted from the
+   * caller — it stays DERIVED (`userId ?? anonymousId`) and D8-validated inside
+   * `resolveContactNoCreate`: a caller-supplied key could diverge from what the
+   * create arm would have made canonical and strand the event's history under a
+   * key no contact will ever own (A1).
+   */
+  create: "on-miss" | "refuse-on-miss";
+  /**
+   * MERGE/ATTACH policy. `"any"` is the historic unrestricted behavior.
+   * `"anonymous-only"` is the publishable clamp (§Phase 1 GAP-1, the legacy
+   * `restrictToAnonymous`): it bites only when the supplied keys are EXACTLY
+   * one `anonymous` key, and then refuses to fill-in-link to / merge with an
+   * identified contact and ignores the `contactId` provenance pin.
+   *
+   * `"never-identified-pair"` is RESERVED and NOT IMPLEMENTED — selecting it
+   * throws until it is. It names the rule the current vocabulary cannot
+   * express: never merge two ALREADY-IDENTIFIED persons. The concrete harm it
+   * will one day prevent: person A signs in on a browser (the browser's anon
+   * id `V` is claimed onto A's identified contact), then person B signs in on
+   * the SAME browser without `reset()` — the resolve `{ userId: B,
+   * anonymousId: V }` finds two candidates, both identified, and
+   * `mergeContacts` folds two real humans into one: {@link pickSurvivor}
+   * prefers identified-then-oldest and never checks whether BOTH candidates
+   * are identified. Shared computers, family devices and kiosks make this an
+   * ordinary event, not an attack. Fixing it is a behaviour change and out of
+   * this refactor's scope (D8); no built-in caller selects the value.
+   */
+  allowMerge: "any" | "anonymous-only" | "never-identified-pair";
+  /**
+   * The key kinds THIS CALLER is authorized to assert. Declared now; enforced
+   * by a later task (PRD 06 T5) — unread until then.
+   */
+  trustedKinds: readonly IdentityKind[];
+}
+
+/** Every kind — the legacy shapes' implicit trust grant (the server default). */
+const ALL_IDENTITY_KINDS: readonly IdentityKind[] = [
+  "external",
+  "email",
+  "anonymous",
+  "discord",
+];
 
 interface ResolveKey {
   kind: Kind;
@@ -733,8 +795,21 @@ interface ResolveContactOptions {
    * (`get_distinct_id()`), so without this clamp a pk_ key could forge events as
    * / poison a victim's identified contact via the anon resolution arm. The
    * secret-key path NEVER sets this, so its behavior is byte-for-byte unchanged.
+   *
+   * @deprecated PRD 06 — declare {@link ResolvePolicy} instead:
+   * `policy: { allowMerge: "anonymous-only", … }`. Still fully accepted and
+   * honoured (removal is a breaking change deferred to a later sweep), but
+   * mutually exclusive with `policy` — supplying both shapes throws.
    */
   restrictToAnonymous?: boolean;
+  /**
+   * Explicit caller trust (PRD 06). Mutually exclusive with the legacy
+   * `restrictToAnonymous` field (and, on the internal shared body, the derived
+   * `refuseCreateWithKey` channel): supplying both shapes throws — no
+   * precedence rule exists. Absent ⇒ the legacy fields (or their defaults)
+   * apply unchanged.
+   */
+  policy?: ResolvePolicy;
   /**
    * ENGINE-INTERNAL provenance — the subject contact's UNFORGEABLE row id
    * (`contacts.id`, a server-minted uuid). Set ONLY by engine-internal re-emit
@@ -816,6 +891,10 @@ async function resolveContactShared(
      * `contactKey = external_id ?? anonymous_id ?? id`, so for any other shape
      * the canonical key is a freshly-minted row uuid that refusal cannot
      * reproduce. Absent ⇒ the historic create-on-miss behavior, unchanged.
+     *
+     * @deprecated PRD 06 — the legacy internal channel for the derived refusal
+     * key. The policy shape re-derives the identical key inside the shared
+     * body instead; mutually exclusive with `policy` (supplying both throws).
      */
     refuseCreateWithKey?: string;
   },
@@ -828,16 +907,43 @@ async function resolveContactShared(
   const contactId = opts.contactId?.trim() || undefined;
   const source = opts.source?.trim() || undefined;
   const sourcedAt = opts.sourcedAt;
-  // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
-  // only shape a token-less pk_ key can produce — the gate 403s any
-  // email/userId without a verified userToken before we get here). An identified
-  // arm (token-authorized userId, or the secret path) is never clamped.
-  const restrictToAnonymous =
-    opts.restrictToAnonymous === true &&
-    !userId &&
-    !email &&
-    !discordId &&
-    !!anonymousId;
+
+  // --- POLICY NORMALIZATION (PRD 06 T1) --- EITHER input shape — the explicit
+  // `policy` object or the legacy fields — normalises into this ONE local.
+  // Supplying both shapes at once is a caller bug and throws: no precedence
+  // rule ever ships.
+  if (
+    opts.policy &&
+    (opts.restrictToAnonymous !== undefined ||
+      opts.refuseCreateWithKey !== undefined)
+  ) {
+    throw new Error(
+      "resolveContact: pass either `policy` or the legacy fields " +
+        "(`restrictToAnonymous` / `allowCreate` / `refuseCreateWithKey`), " +
+        "never both — no precedence rule exists",
+    );
+  }
+  if (opts.policy?.allowMerge === "never-identified-pair") {
+    throw new Error(
+      'ResolvePolicy.allowMerge "never-identified-pair" is reserved and not ' +
+        "implemented yet — no caller may select it (see the ResolvePolicy " +
+        "docblock for the shared-browser harm it will eventually prevent)",
+    );
+  }
+  const policy: ResolvePolicy = opts.policy ?? {
+    create:
+      opts.refuseCreateWithKey !== undefined ? "refuse-on-miss" : "on-miss",
+    allowMerge: opts.restrictToAnonymous === true ? "anonymous-only" : "any",
+    trustedKinds: ALL_IDENTITY_KINDS,
+  };
+  // The refusal key stays DERIVED, never caller-supplied (PRD 06 A1): the
+  // legacy channel carries `resolveContactNoCreate`'s already-D8-validated key
+  // verbatim; the policy shape re-derives the IDENTICAL `userId ?? anonymousId`
+  // from the same normalized locals above.
+  const refuseWithKey =
+    policy.create === "on-miss"
+      ? undefined
+      : (opts.refuseCreateWithKey ?? userId ?? anonymousId);
 
   const keys: ResolveKey[] = [];
   if (userId) keys.push({ kind: "external", value: userId });
@@ -852,6 +958,19 @@ async function resolveContactShared(
     );
   }
 
+  // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
+  // only shape a token-less pk_ key can produce — the gate 403s any
+  // email/userId without a verified userToken before we get here). An identified
+  // arm (token-authorized userId, or the secret path) is never clamped.
+  // Provably identical to the legacy derivation (`opts.restrictToAnonymous ===
+  // true && !userId && !email && !discordId && !!anonymousId`): the
+  // supplied-kinds test IS that key-shape test over the same locals (PRD 06 L2).
+  const suppliedKinds = keys.map((k) => k.kind);
+  const clamped =
+    policy.allowMerge === "anonymous-only" &&
+    suppliedKinds.length === 1 &&
+    suppliedKinds[0] === "anonymous";
+
   const patch = contactProperties ?? {};
   const hasPatch = Object.keys(patch).length > 0;
 
@@ -860,11 +979,11 @@ async function resolveContactShared(
     // trusted internal re-emit pins resolution to that exact row (no value-key
     // probe, no mint), so a contact's own canonical key round-tripping back as a
     // `userId` folds into it instead of minting a phantom `external_id` twin.
-    // Gated on `!restrictToAnonymous` (mutually exclusive with the publishable
+    // Gated on `!clamped` (mutually exclusive with the publishable
     // clamp — a clamped pk_ write can never carry provenance) so it is never an
     // attacker-reachable path. Runs BEFORE the value-key advisory locks: the pin
     // serializes on the concrete row PK via `FOR UPDATE`, not on value locks.
-    if (contactId && UUID_REGEX.test(contactId) && !restrictToAnonymous) {
+    if (contactId && UUID_REGEX.test(contactId) && !clamped) {
       return resolveByContactId(tx, contactId, { patch, hasPatch });
     }
 
@@ -899,10 +1018,19 @@ async function resolveContactShared(
       // once, and `fillInLink` when identity was folded server-side first (the
       // shape the docs sign-in produces). Both are gated on the anon key not
       // naming another contact.
-      if (opts.refuseCreateWithKey !== undefined) {
+      if (policy.create !== "on-miss") {
+        if (refuseWithKey === undefined) {
+          // Unreachable: `refuse-on-miss` enters only through
+          // `resolveContactNoCreate`, whose D8 precondition already threw when
+          // neither `userId` nor `anonymousId` was supplied. Narrows without a
+          // cast.
+          throw new Error(
+            "refuse-on-miss resolve without a derivable refusal key",
+          );
+        }
         return {
           id: null,
-          resolvedKey: opts.refuseCreateWithKey,
+          resolvedKey: refuseWithKey,
           created: false,
           linked: false,
           merged: false,
@@ -980,7 +1108,7 @@ async function resolveContactShared(
       // is a forge/poison attempt — the browser-readable anonymousId pointed at
       // a victim. Refuse to fill-in-link / mutate it. (Resolving to its OWN
       // anonymous-only contact — no external_id, no email — is allowed.)
-      if (restrictToAnonymous && (single.externalId || single.email)) {
+      if (clamped && (single.externalId || single.email)) {
         throw new PublishableAnonymousMergeError();
       }
       const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
@@ -1009,7 +1137,20 @@ async function resolveContactShared(
     // §Phase 1 GAP-1: an anon-only publishable write must NEVER drive a merge —
     // the browser-readable anonymousId would let an attacker fold two of a
     // victim's contacts together (identity-graph corruption). Refuse.
-    if (restrictToAnonymous) {
+    //
+    // UNREACHABLE BY CONSTRUCTION (PRD 06 T1 mutation-gate note) — do not
+    // burn time hunting a test that can kill this guard; none can. `clamped`
+    // requires `suppliedKinds` to be exactly `["anonymous"]`, so `keys` holds
+    // ONE entry, `findByKey` returns at most ONE row per key, and
+    // `candidates.length <= 1` — but this arm runs only when
+    // `candidates.length >= 2`. The same argument means PRD 06 T2's planned
+    // {anon-only key × two-colliding-rows} equivalence cell cannot actually
+    // drive a collide-MERGE — an anon-only fixture lands in the create or
+    // fill-in-link arm no matter what rows are seeded; don't be confused when
+    // that cell never reaches here. The guard stays anyway: it is a behaviour
+    // of record (removing it is not a refactor) and it becomes load-bearing
+    // the moment key construction lets a clamped resolve supply a second key.
+    if (clamped) {
       throw new PublishableAnonymousMergeError();
     }
     const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
@@ -1079,10 +1220,20 @@ export async function resolveOrCreateContact(
    */
   mergedIdentifiedKeys?: string[];
 }> {
+  // PRD 06: this entry point is create-on-miss BY CONTRACT — honouring a
+  // refuse-on-miss policy here would make the refusal arm reachable and force
+  // the published `id: string` to widen (D3). Reject loudly rather than guess.
+  if (opts.policy && opts.policy.create !== "on-miss") {
+    throw new Error(
+      "resolveOrCreateContact is create-on-miss by contract (D3: `id` is " +
+        'never null) — use resolveContactNoCreate for `create: "refuse-on-miss"`',
+    );
+  }
   const resolved = await resolveContactShared(opts);
   if (resolved.id === null) {
-    // Unreachable: `refuseCreateWithKey` is never set on this path, so every
-    // arm either resolves a row or inserts one. Narrows `id` without a cast.
+    // Unreachable: `refuseCreateWithKey` is never set on this path (and a
+    // refuse-on-miss policy is rejected above), so every arm either resolves a
+    // row or inserts one. Narrows `id` without a cast.
     throw new Error("resolveOrCreateContact resolved to no contact");
   }
   return { ...resolved, id: resolved.id };
@@ -1135,6 +1286,22 @@ export async function resolveContactNoCreate(
         "highest-precedence key (D8): email/discordId are never canonical, so " +
         "a refusal there would key history on a row uuid that was never minted",
     );
+  }
+
+  // PRD 06: with a declared policy the legacy internal channel stays UNSET —
+  // the shared body re-derives the identical `userId ?? anonymousId` refusal
+  // key from the same normalized locals (validated present above), so `policy`
+  // and `refuseCreateWithKey` can never collide.
+  if (opts.policy) {
+    if (opts.policy.create !== "refuse-on-miss") {
+      throw new Error(
+        "resolveContactNoCreate never mints (`created` is pinned false) — " +
+          'its policy must declare `create: "refuse-on-miss"`; use ' +
+          "resolveOrCreateContact for create-on-miss",
+      );
+    }
+    const resolved = await resolveContactShared(opts);
+    return { ...resolved, created: false };
   }
 
   const resolved = await resolveContactShared({ ...opts, refuseCreateWithKey });

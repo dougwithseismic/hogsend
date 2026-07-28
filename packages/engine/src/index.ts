@@ -402,9 +402,14 @@ export {
 // consumer-built deletion flow that soft-deletes `contacts` rows directly must
 // call it too, or the erased person's identity keys survive in
 // `contact_aliases`.
+// `ResolvePolicy`/`IdentityKind` (PRD 06): the explicit caller-declared trust
+// shape both resolver entry points accept via `policy` — the additive
+// replacement for the deprecated `restrictToAnonymous`/`allowCreate` booleans.
 export {
   deleteIdentityAliasesForContact,
+  type IdentityKind,
   identifiedContactFilter,
+  type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./lib/contacts.js";
