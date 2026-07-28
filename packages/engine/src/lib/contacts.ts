@@ -65,6 +65,33 @@ export class PublishableAnonymousMergeError extends Error {
 }
 
 /**
+ * Thrown by the resolver when a supplied identity key's kind is absent from
+ * the caller's declared `ResolvePolicy.trustedKinds` (PRD 06 T5).
+ *
+ * INTERNAL — deliberately NOT exported from `index.ts`. This is defence in
+ * depth, not a request-shaping tool: every browser-facing route is already
+ * gated one layer up (`gatePublishableIdentity` for `/v1/events`,
+ * `/v1/contacts` and the `lists` handlers; `arrive`'s keys come from the
+ * first-write-wins stamp; `feed`'s re-ingests are engine-internal full-trust
+ * with a server-derived subject — the three-legged L3 proof), so this throw
+ * is unreachable from every route today. It exists to catch a FUTURE route
+ * that forgets the gate — a caller bug, surfaced loudly in dev, never a
+ * condition for consumers to branch on. Thrown BEFORE any advisory lock is
+ * taken and before the transaction opens, so a refused call leaves no lock
+ * and no row behind.
+ */
+export class UntrustedKeyKindError extends Error {
+  constructor(kind: string, trustedKinds: readonly string[]) {
+    super(
+      `identity key kind "${kind}" is not in this caller's declared ` +
+        `trustedKinds [${trustedKinds.join(", ")}] — the caller supplied a ` +
+        "key it is not authorized to assert (PRD 06 T5)",
+    );
+    this.name = "UntrustedKeyKindError";
+  }
+}
+
+/**
  * True when `value` is the canonical key of an IDENTIFIED contact — i.e. a
  * live contact's `external_id`, or its `email` when that is its canonical key
  * (no `external_id`). Such a value names an identified person, so a
@@ -462,8 +489,12 @@ export interface ResolvePolicy {
    */
   allowMerge: "any" | "anonymous-only" | "never-identified-pair";
   /**
-   * The key kinds THIS CALLER is authorized to assert. Declared now; enforced
-   * by a later task (PRD 06 T5) — unread until then.
+   * The key kinds THIS CALLER is authorized to assert. ENFORCED (PRD 06 T5):
+   * a supplied key whose kind is absent from this list throws
+   * `UntrustedKeyKindError` — after the keys array is built, before any
+   * advisory lock is taken and before the transaction opens. The default when
+   * no policy is supplied is all four kinds, so legacy-shape callers are
+   * unaffected.
    */
   trustedKinds: readonly IdentityKind[];
 }
@@ -958,6 +989,20 @@ async function resolveContactShared(
       "resolveOrCreateContact requires at least one of userId, email, " +
         "anonymousId, discordId",
     );
+  }
+
+  // --- TRUST ENFORCEMENT (PRD 06 T5) --- Every supplied key's kind must be in
+  // the caller's declared `trustedKinds`. Placed AFTER the keys array is built
+  // and BEFORE the transaction opens — so a refused call takes no advisory
+  // lock, opens no transaction, and writes no row. The default policy (no
+  // `policy` supplied) grants all four kinds, so every legacy-shape caller is
+  // unaffected. Unreachable from every route today (the three-legged L3
+  // unreachability proof — see {@link UntrustedKeyKindError}); this is defence
+  // in depth against a future route that forgets the gate.
+  for (const key of keys) {
+    if (!policy.trustedKinds.includes(key.kind)) {
+      throw new UntrustedKeyKindError(key.kind, policy.trustedKinds);
+    }
   }
 
   // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
