@@ -68,6 +68,11 @@ const T3_USER = `${RUN}-t3-user`;
 const T3_EMAIL = `${RUN}-t3@example.com`;
 const T3_JOURNEY = `${RUN}-t3-journey`;
 
+// ---- T4 second-device case ----
+const T4_LAPTOP_ANON = `${RUN}-t4-laptop`;
+const T4_PHONE_ANON = `${RUN}-t4-phone`;
+const T4_USER = `${RUN}-t4-user`;
+
 const createdContactIds: string[] = [];
 
 /** Live (non-soft-deleted) contacts owning any of the given anon/external keys. */
@@ -100,6 +105,9 @@ afterAll(async () => {
     T2_USER,
     T3_ANON,
     T3_USER,
+    T4_LAPTOP_ANON,
+    T4_PHONE_ANON,
+    T4_USER,
     ...createdContactIds,
   ];
   await db.delete(userEvents).where(inArray(userEvents.userId, keys));
@@ -467,5 +475,81 @@ describe("fill-in-link history adoption", () => {
     expect(live).toHaveLength(1);
     expect(live[0]?.id).toBe(folded.id);
     expect(live[0]?.externalId).toBe(T3_USER);
+  });
+});
+
+// ===========================================================================
+// T4 — the SECOND-DEVICE shape, broken by refusal in the same way as T3.
+//
+// `contacts.anonymous_id` holds exactly one id, but a person browses from more
+// than one device. Laptop: browse anonymously as A1, sign in — the row now has
+// `external_id = U` and `anonymous_id = A1`. Phone: browse anonymously as A2
+// (refused, so no row), then sign in as the same person.
+//
+// The fill-in arm's guard was `ctx.anonymousId && !row.anonymousId`, so with the
+// column already taken by A1 the phone's id was dropped ENTIRELY — not written,
+// not aliased, its history not adopted. Before refusal, A2 owned a row, so the
+// identify saw two candidates and the collide-MERGE arm folded it correctly.
+// A2 must be claimed as an alias (which `findByKey` resolves through) and its
+// pre-sign-in history adopted.
+// ===========================================================================
+describe("second-device anon id", () => {
+  it("claims a second device's anon id as an alias and adopts its history", async () => {
+    // Laptop: anonymous → signed in.
+    const laptop = await resolveOrCreateContact({
+      db,
+      userId: T4_USER,
+      anonymousId: T4_LAPTOP_ANON,
+    });
+    createdContactIds.push(laptop.id);
+
+    // Phone: browsed anonymously (refused — no row), leaving history behind.
+    const refused = await resolveContactNoCreate({
+      db,
+      anonymousId: T4_PHONE_ANON,
+    });
+    expect(refused.id).toBeNull();
+    await db
+      .insert(userEvents)
+      .values({ userId: T4_PHONE_ANON, event: "phone.viewed" });
+
+    // Phone: signs in as the same person.
+    const phone = await resolveOrCreateContact({
+      db,
+      userId: T4_USER,
+      anonymousId: T4_PHONE_ANON,
+    });
+
+    // One person, one contact — no second row minted for the second device.
+    expect(phone.id).toBe(laptop.id);
+    expect(phone.created).toBe(false);
+    expect(phone.mergedKeys).toEqual([T4_PHONE_ANON]);
+
+    // The column still belongs to the first device; the second is an alias.
+    const row = (
+      await db.select().from(contacts).where(eq(contacts.id, laptop.id))
+    )[0];
+    expect(row?.anonymousId).toBe(T4_LAPTOP_ANON);
+
+    // The phone's pre-sign-in history followed the person.
+    const orphaned = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T4_PHONE_ANON));
+    expect(orphaned).toHaveLength(0);
+    const adopted = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T4_USER));
+    expect(adopted).toHaveLength(1);
+
+    // And the alias resolves: the phone's id now finds THIS contact rather than
+    // minting a new one, which is what makes the link durable.
+    const relookup = await resolveOrCreateContact({
+      db,
+      anonymousId: T4_PHONE_ANON,
+    });
+    expect(relookup.created).toBe(false);
+    expect(relookup.id).toBe(laptop.id);
   });
 });

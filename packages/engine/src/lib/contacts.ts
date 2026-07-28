@@ -974,10 +974,23 @@ async function fillInLink(
     set.discordId = ctx.discordId;
     promoted.push({ kind: "discord", value: ctx.discordId });
   }
+  // The anon id this call claims for the row — into the column when it is free,
+  // otherwise as an alias. A person browses from more than one device, but
+  // `contacts.anonymous_id` holds exactly one; `contact_aliases` is the
+  // multi-key table, and `findByKey` already falls back to it, so a second
+  // device's id resolves back here once recorded. Reaching fillInLink at all
+  // means this id matched no live contact, so claiming it cannot steal one (and
+  // the alias insert is `onConflictDoNothing`, so a concurrent claim loses
+  // gracefully rather than throwing).
+  let claimedAnonymousId: string | undefined;
   if (ctx.anonymousId && !row.anonymousId) {
     set.anonymousId = ctx.anonymousId;
     nextAnonymousId = ctx.anonymousId;
     promoted.push({ kind: "anonymous", value: ctx.anonymousId });
+    claimedAnonymousId = ctx.anonymousId;
+  } else if (ctx.anonymousId && ctx.anonymousId !== row.anonymousId) {
+    promoted.push({ kind: "anonymous", value: ctx.anonymousId });
+    claimedAnonymousId = ctx.anonymousId;
   }
   // First-touch provenance: only stamp when the row has none, so an inbound
   // contact that a Source later re-touches keeps its original origin.
@@ -1038,22 +1051,26 @@ async function fillInLink(
   // loses every event, journey state, send and preference recorded before they
   // signed up.
   //
+  // It also covers the SECOND-DEVICE shape, which the same refusal broke the
+  // same way: the row's `anonymous_id` column is already taken by the first
+  // device, so the id from a second one is claimed as an alias above, and its
+  // pre-sign-in history is adopted here.
+  //
   // Reachability note: this shape carries a `userId`, so `restrictToAnonymous`
   // is false by construction (it requires `!userId`) — the caller has already
   // proven the identified arm with a verified `userToken`. Attaching someone
   // else's anon id therefore requires knowing their browser-local id, the same
   // precondition that already grants feed reads under it; adoption widens what
   // that buys but opens no new door.
-  const attachedAnonymousId = set.anonymousId as string | undefined;
   if (
-    attachedAnonymousId &&
-    attachedAnonymousId !== newKey &&
-    attachedAnonymousId !== oldKey
+    claimedAnonymousId &&
+    claimedAnonymousId !== newKey &&
+    claimedAnonymousId !== oldKey
   ) {
-    await repointOwnHistory(tx, attachedAnonymousId, newKey, updatedRow);
+    await repointOwnHistory(tx, claimedAnonymousId, newKey, updatedRow);
     // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;
     // appended, since a key flip above may already have folded a uuid/anon key.
-    mergedKeys = [...(mergedKeys ?? []), attachedAnonymousId];
+    mergedKeys = [...(mergedKeys ?? []), claimedAnonymousId];
   }
 
   for (const key of promoted) {

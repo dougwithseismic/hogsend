@@ -36,6 +36,13 @@ its anonymous id. That attachment does not move the canonical key, so the old
 key-flip test never fired and the anonymous history stayed orphaned behind a
 contact that looked correctly linked.
 
+The same arm now also handles a person signing in from a **second device**.
+`contacts.anonymous_id` holds exactly one id, so once the first device has
+claimed it, the second device's id used to be dropped entirely — not stored, not
+aliased, its pre-sign-in history not adopted. It is now recorded in
+`contact_aliases` (which identity resolution already falls back to), so it
+resolves to the same contact, and its history is adopted like any other.
+
 `@hogsend/plugin-discord` drops `GUILD_PRESENCES` from the gateway worker's
 default intents. It is a privileged intent, so requesting less cannot break a
 deploy that was not already granted it.
