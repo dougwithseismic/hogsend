@@ -146,6 +146,9 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
   const [cooldown, setCooldown] = useState(0);
   const [anonId, setAnonId] = useState("");
   const [narration, setNarration] = useState(-1);
+  // The engine identity never resolved, so the last fire went out under the
+  // browser's anonymous id rather than this account.
+  const [unlinked, setUnlinked] = useState(false);
   const [firing, setFiring] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -404,19 +407,24 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
    * anonymously still demonstrates the whole loop. Read off `client` rather
    * than the `isIdentified` render slice, which is stale inside this closure.
    */
-  async function awaitIdentity(): Promise<void> {
+  async function awaitIdentity(): Promise<boolean> {
     const deadline = Date.now() + 1500;
     while (!client.isIdentified() && Date.now() < deadline) {
       await new Promise((resolve) => window.setTimeout(resolve, 100));
     }
+    return client.isIdentified();
   }
 
   async function fire(event: string) {
     if (!signedIn || firing !== null) return;
     setFiring(event);
     setNarration(0);
+    setUnlinked(false);
     try {
-      await awaitIdentity();
+      // When identity never arrives the event still fires, but under the
+      // browser's anonymous id — so it does NOT reach this account's bell. Say
+      // so instead of narrating a delivery that did not happen.
+      if (!(await awaitIdentity())) setUnlinked(true);
       // 1) capture the first-party event, carrying the name as a property
       await capture(event, effectiveName ? { name: effectiveName } : {});
       setNarration(1);
@@ -547,6 +555,17 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                 >
                   Sign out and use a different email
                 </button>
+                {/* `endSession` is the only thing that can fail in this branch,
+                    and it returns early on failure — without this the visitor
+                    clicks sign out, stays signed in, and is told nothing. */}
+                {error ? (
+                  <p
+                    className="mt-2 text-[12px] text-accent leading-5"
+                    role="alert"
+                  >
+                    {error}
+                  </p>
+                ) : null}
               </div>
             ) : formStep === "code" ? (
               <div className="mt-4 flex flex-col gap-3">
@@ -812,6 +831,17 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
                 );
               })}
             </ol>
+            {unlinked ? (
+              <p
+                className="mt-4 text-[12px] text-accent leading-5"
+                role="status"
+                aria-live="polite"
+              >
+                That event fired under this browser's anonymous id, not your
+                account: the engine identity never resolved, so it will not
+                reach your bell. Reload the page to retry the link.
+              </p>
+            ) : null}
             <p className="mt-4 text-[12px] text-white/35 leading-5">
               Unread in your bell:{" "}
               <span className="font-mono text-accent tabular-nums">
