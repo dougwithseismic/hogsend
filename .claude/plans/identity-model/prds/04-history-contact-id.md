@@ -662,3 +662,55 @@ Ordered cheapest-first; nothing here needs a snapshot restore, because nothing r
   `pnpm changeset:engine-line`.
 
 ## Implementation Notes
+
+**Shipped 2026-07-28, wave 2, all six tasks.** T1 released alone as **0.58.0** (PR #630,
+migration `0069_sour_wildside`, exactly five metadata-only ADD COLUMNs) — the two-release split
+D2 demands, so operators can pre-create the indexes concurrently against the running column-only
+release. T2–T6 ship together in the follow-up PR (migration `0070_confused_mindworm`,
+`CREATE INDEX IF NOT EXISTS` hand-edited per the house pattern; the changeset body carries the
+five `CONCURRENTLY` statements verbatim plus the invalid-index-after-failed-CONCURRENTLY drop
+instruction).
+
+**Where the build deviated from the spec, and why:**
+
+- **T4b held-out row** — its own D6-wrapped resolve, NOT a `subjectContactId` reuse: the compute
+  sits AFTER the insert, inside the `journey.heldout` re-emit's try/catch; hoisting it would
+  change which failures skip the re-emit (D8 row 4 corrected in place above).
+- **T4 review round added a pin-liveness guard** (`resolveEnrollmentContactId`): the ingest-time
+  `input.contactId` crosses an unbounded Hatchet queue delay, and a merge in that window would
+  stamp a soft-deleted loser — permanently, since the backfill fills only NULLs. The pin is now
+  validated against a live contact row and falls through to the alias-aware probe (which resolves
+  the re-aliased key to the survivor). Mutation-verified: unguarding it turns exactly the two
+  stale-pin tests red.
+- **T6 ownership is alias-aware** (locked mid-build after the T4 review panel caught it): the
+  bare canonical-coalesce probes would have counted every correctly-stamped second-device row as
+  `mismatched`, blocking the PRD 05 gate forever on any deployment with a multi-device user.
+- **T6 does NOT count `user_id IS NULL, contact_id IS NOT NULL` email_sends rows as mismatched**
+  — investigated against the committed code: the admin resend path copies `contact_id` off the
+  source row while (pre-existing gap, filed not fixed) not copying `userId`, so the shape is
+  reachable today with a CORRECT stamp. Cost stated in the probe comment: an address-resolving
+  D7 violator on that one path is invisible to the probe.
+- **T6 `mismatched` does not require the pointed-at contact to be live**: a GDPR-deleted contact
+  whose key still matches is consistent data. Merge regressions are still caught because a merge
+  rewrites `user_id` to the survivor's key, so a stranded row mismatches on the key.
+- **T5 is a periodic reconcile sweep** per the revised D6 (`CONTACT_ID_BACKFILL_RESWEEP_HOURS`,
+  default 24h), with a runaway guard (5,000 statements per key), pause-only-after-writes pacing,
+  and pass 2 keyset-paginated over alias values that resolve unambiguously AND are not already a
+  live canonical key. Both-kinds-disagree values are skipped, counted (`ambiguousAliases`,
+  surfaced as `import_jobs.failedRows`) and sampled into the log.
+
+**Mutation proofs run by the orchestrator** (all conclusive, all restored): T2 index drop → 3
+red; T3 delete one repoint UPDATE → exactly that table red; T4 unguard the pin → the two
+stale-pin tests red; T5 remove the NULL guard → 4 red incl. the named re-run test; T6 remove the
+alias ownership leg → the alias-acceptance + healthy-world tests red.
+
+**Follow-ups filed, deliberately not fixed here:** (1) `contactIdBackfillTask.fn` creates a
+`createDatabase` pool per invocation and never closes it — the EXACT pattern of the two shipped
+backfill tasks (`bucket-backfill.ts:84`, `identity-alias-backfill.ts:333`), so it went in
+matching precedent; the trio deserves one shared fix (a `getDb()`-style handle or an explicit
+`end()`), and the local symptom (Postgres `53300` connection exhaustion during heavy test
+cadence, container restart required) is worth remembering. (2) demo-seed NULL stamps (D8 row 15,
+already filed in Risks). (3) resend-path `userId` gap (T4d, pre-existing).
+
+**Test infrastructure:** wave-2 test DB is `prd04_test` (fresh-created, migrated 0000→0070); the
+`prd06_test` DB from wave 1 was left poisoned by its mutation runs and was not reused.
