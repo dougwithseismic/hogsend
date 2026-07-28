@@ -541,6 +541,11 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       externalId,
       email: recipient.email,
       update: { unsubscribedAll },
+      // PRD 04 dual-write: the id is ALREADY in hand from the
+      // `resolveOrCreateContact` above (this handler resolves/creates the row
+      // before writing preferences), so pass it rather than making
+      // `upsertEmailPreference` re-probe the same contact.
+      contactId,
     });
 
     return c.json({ unsubscribedAll }, 200);

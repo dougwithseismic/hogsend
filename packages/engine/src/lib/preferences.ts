@@ -1,7 +1,7 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences } from "@hogsend/db";
 import { sql } from "drizzle-orm";
-import { resolveRecipient } from "./contacts.js";
+import { lookupContactIdByKey, resolveRecipient } from "./contacts.js";
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
@@ -54,10 +54,46 @@ export async function upsertEmailPreference(opts: {
    * TCPA record-keeping is the "how" as much as the "when".
    */
   source?: string;
+  /**
+   * PRD 04 dual-write: the `contacts.id` owning `externalId`.
+   *
+   * `undefined` (the default, and every caller that has nothing in hand) ⇒ this
+   * function does ONE D6-wrapped lookup itself. An EXPLICIT value — including
+   * an explicit `null` — is used verbatim, so a caller that already resolved
+   * the contact (the lists route, one line after `resolveOrCreateContact`) pays
+   * no second query and cannot disagree with itself.
+   */
+  contactId?: string | null;
 }): Promise<void> {
   const { db, externalId, email, update } = opts;
 
-  const setClause: Record<string, unknown> = { updatedAt: new Date() };
+  // D6 — the resolve may never fail the preference write it rides on: a throw
+  // degrades to NULL + a warn. The probe is paid ONLY when the caller supplied
+  // nothing; the discriminant is `undefined` (not falsiness), so an EXPLICIT
+  // null stays an explicit null rather than triggering a lookup.
+  let contactId: string | null = null;
+  if (opts.contactId !== undefined) {
+    contactId = opts.contactId;
+  } else {
+    try {
+      contactId = await lookupContactIdByKey(db, externalId);
+    } catch (err) {
+      logger.warn("email_preferences contact_id dual-write resolve failed", {
+        externalId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const setClause: Record<string, unknown> = {
+    updatedAt: new Date(),
+    // FILL-IF-KNOWN, NEVER NULL-OUT (house precedent: the fill-if-absent
+    // refinement, PR #615). The conflict arm takes the incoming id when there is
+    // one and otherwise KEEPS what the row already carries — so a failed or
+    // impossible resolve on a later write can never erase a `contact_id` an
+    // earlier write successfully stamped.
+    contactId: sql`coalesce(excluded.contact_id, ${emailPreferences.contactId})`,
+  };
 
   if (update.unsubscribedAll !== undefined) {
     setClause.unsubscribedAll = update.unsubscribedAll;
@@ -82,6 +118,7 @@ export async function upsertEmailPreference(opts: {
     .values({
       userId: externalId,
       email,
+      contactId,
       ...(update.unsubscribedAll !== undefined
         ? { unsubscribedAll: update.unsubscribedAll }
         : {}),
