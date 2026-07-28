@@ -189,6 +189,27 @@ Mutating a bucket that is not `kind: "manual"` is refused with a 409: its member
   lazy contact creation by ingest is a legitimate flow.
 </Callout>
 
+### Calling it from your own code
+
+The HTTP route is a thin wrapper. A workflow, a webhook source or a custom job
+calls the same functions directly, exported from `@hogsend/engine`:
+
+```ts
+import { addBucketMember, removeBucketMember, seedBucketMembers } from "@hogsend/engine";
+
+const { verdict, emitted } = await addBucketMember({
+  db, registry, hatchet, logger,   // from your container
+  bucketId: "beta-cohort",
+  userId: contact.externalId,
+});
+```
+
+Dependencies are passed **explicitly** rather than resolved from a request
+container, so a Hatchet task that bootstraps its own `db`/`logger` gets
+identical behaviour to an HTTP call. `seedBucketMembers` is the bulk form: it
+writes in chunks, is idempotent via the active partial-unique index, and is
+safely re-runnable.
+
 ### What happens to a deferred leave
 
 A leave inside `minDwell` is recorded as a pending intent on the row, carrying both its deadline **and** the caller's `emit` choice, and the reconcile cron resolves it. Three consequences worth knowing:
