@@ -1,5 +1,25 @@
 # @hogsend/api
 
+## 0.0.57
+
+### Patch Changes
+
+- Updated dependencies [aa24d2a]
+- Updated dependencies [aa24d2a]
+  - @hogsend/db@0.58.0
+  - @hogsend/attribution@0.58.0
+  - @hogsend/core@0.58.0
+  - @hogsend/email@0.58.0
+  - @hogsend/engine@0.58.0
+  - @hogsend/mcp@0.58.0
+  - @hogsend/plugin-apollo@0.58.0
+  - @hogsend/plugin-discord@0.58.0
+  - @hogsend/plugin-posthog@0.58.0
+  - @hogsend/plugin-resend@0.58.0
+  - @hogsend/plugin-telegram@0.58.0
+  - @hogsend/plugin-twilio@0.58.0
+  - @hogsend/sms@0.58.0
+
 ## 0.0.56
 
 ### Patch Changes
