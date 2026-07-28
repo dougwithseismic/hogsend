@@ -2320,10 +2320,10 @@ function PsDiscord() {
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
             The bot verifies through their inbox — a one-click emailed confirm,
-            never the Discord-reported address. From then on presence, messages,
-            and reactions keep a last-seen on the contact, and a journey can
-            send a DM the same way it sends an email, gated on the
-            member&rsquo;s channel preference.
+            never the Discord-reported address. From then on messages and
+            reactions keep a last-seen on the contact, and a journey can send a
+            DM the same way it sends an email, gated on the member&rsquo;s
+            channel preference.
           </p>
         </Reveal>
 

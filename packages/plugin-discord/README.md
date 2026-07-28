@@ -252,11 +252,21 @@ Both copies point at the same token; updating only one leaves them drifted.
 ## Required intents
 
 Toggle ON in the Developer Portal (Bot → Privileged Gateway Intents):
-`SERVER MEMBERS`, `PRESENCE`, and `MESSAGE CONTENT`. Without them the Gateway
-connection is rejected and message text is empty (`hasContent` reports it).
-Under 10k users / 100 guilds these three are a self-serve portal toggle (no
-Discord review). Each self-hosted deploy runs its own Discord app (single
-tenant).
+`SERVER MEMBERS` and `MESSAGE CONTENT`. Without them the Gateway connection is
+rejected and message text is empty (`hasContent` reports it).
+
+`PRESENCE` is the third privileged toggle and is **not** required:
+`createDiscordGatewayWorker` leaves `GUILD_PRESENCES` out of its default
+bitfield, so `PRESENCE_UPDATE` never arrives and `discord.presence_active`
+never fires. To opt in, toggle it in the portal **and** pass an explicit
+`intents` including `DISCORD_INTENTS.GUILD_PRESENCES`; the transform arm is
+intact, so nothing else changes. `createDiscordRuntime` (the default inline
+path) does not forward an `intents` option, so a worker-hosted deploy that wants
+presence supplies its own `ConnectorRuntime` around
+`createDiscordGatewayWorker`.
+
+Under 10k users / 100 guilds these toggles are self-serve (no Discord review).
+Each self-hosted deploy runs its own Discord app (single tenant).
 
 ## Caveats
 

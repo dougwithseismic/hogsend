@@ -115,6 +115,60 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
     const headerKey = c.req.header("idempotency-key");
     const idempotencyKey = headerKey ?? body.idempotencyKey;
 
+    // D1 — a contact is minted by IDENTITY, not by observation. A publishable
+    // (pk_) browser write that asserts nothing is pure traffic: it still stores
+    // in `user_events`, still routes to journeys, still checks exits (D2), but
+    // it no longer mints a `contacts` row for every unidentified visitor.
+    //
+    // Every conjunct is load-bearing:
+    //  - `publishable` — the caller CLASS is the whole guard (D1 is
+    //    caller-keyed, not endpoint-keyed). A secret-key server caller asserts
+    //    intent and is never refused.
+    //  - `!body.userId` — a userId on this path is already token-proven by
+    //    `gatePublishableIdentity` above, i.e. a server-authorized identity
+    //    assertion. It keeps creating.
+    //  - `!body.email` — an asserted email is an identity assertion too. It is
+    //    also a D8 PRECONDITION: `resolveContactNoCreate` THROWS unless the
+    //    highest-precedence key is `userId`/`anonymousId`, and `email`
+    //    outranks `anonymousId` in the resolver. (The gate 403s a publishable
+    //    email today, so this conjunct is defense in depth against a future
+    //    email arm silently becoming a 500.)
+    //  - `body.value === undefined` — D9's escape hatch. `conversions`,
+    //    `funnel_progress` and `deals` all hold `.notNull()` FKs to
+    //    `contacts.id` and `packages/db` is out of boundary, so a refused
+    //    ingest can perform no conversion, funnel or attribution work at all. A
+    //    money-bearing browser event is therefore treated as an identity
+    //    assertion so e-commerce revenue conversions and attribution credits
+    //    keep firing.
+    //  - `body.groups === undefined` — D10, the same hatch for the same reason.
+    //    `group_memberships.contact_id` is a fourth `.notNull()` FK to
+    //    `contacts.id`, so a refused ingest writes NEITHER the `groups` row
+    //    (minted by `associateGroups` → `resolveGroupId`) NOR the membership.
+    //    But browser group ASSOCIATION is a documented first-class capability —
+    //    root `CLAUDE.md`: "Publishable/browser keys may ONLY associate —
+    //    attach a `groups` map to an event via `hogsend.group()` → /v1/events"
+    //    — and `@hogsend/js` attaches the map to every capture regardless of
+    //    identification, so a pre-login `hogsend.group()` sends exactly this
+    //    shape. A visitor calling `hogsend.group()` is asserting an association
+    //    INTENT, which is more than pure observation, so it keeps creating.
+    //    Association-only still: the property writes a group row can receive
+    //    remain secret-key-only, unchanged by this hatch.
+    //  - `body.anonymousId` — the other half of D8: refusal is legal only where
+    //    the key is STABLE. With no key at all the resolve throws either way
+    //    (today: "requires at least one of…"), so restricting the guard to the
+    //    shape that has a real refusal key changes no outcome and keeps the
+    //    thrown message pointing at the actual defect.
+    //
+    // NOT collapsed into `restrictToAnonymous` even though the conditions
+    // overlap here: that flag guards MERGE/poison, this one guards CREATION.
+    const observationOnly =
+      c.get("publishable") === true &&
+      !body.userId &&
+      !body.email &&
+      body.value === undefined &&
+      body.groups === undefined &&
+      !!body.anonymousId;
+
     let result: Awaited<ReturnType<typeof ingestEvent>>;
     try {
       result = await ingestEvent({
@@ -130,6 +184,11 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
         // an already-identified victim contact. Secret-key ingest is never
         // clamped.
         restrictToAnonymous: c.get("publishable") === true,
+        // D1 creation guard (see `observationOnly` above). Deliberately a
+        // SEPARATE flag from `restrictToAnonymous`: merge-clamping and
+        // creation-refusal are different questions that only happen to agree on
+        // part of this route's input.
+        allowCreate: !observationOnly,
         event: {
           event: body.name,
           userId: body.userId,

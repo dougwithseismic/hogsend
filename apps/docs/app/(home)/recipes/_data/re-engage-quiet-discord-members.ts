@@ -6,6 +6,7 @@ const JOURNEY_CODE = `export const reEngageQuietDiscordMembers = defineJourney({
     name: "Retention — re-engage quiet Discord members",
     enabled: true,
     // Re-evaluate on each presence ping; the entry guard rate-limits re-entry.
+    // GUILD_PRESENCES is opt-in: swap in discord.message_sent to skip it.
     trigger: { event: Events.DISCORD_PRESENCE_ACTIVE },
     entryLimit: "once_per_period",
     entryPeriod: days(30),
@@ -99,8 +100,8 @@ export const reEngageQuietDiscordMembers: RecipeLander = {
       body: "Discord has no last-seen field. The connector stamps contacts.properties.discord.last_seen from the timestamp of every inbound event — message snowflake time for messages, receipt time for reactions/joins/presence — so the journey reads a real first-party activity signal.",
     },
     {
-      title: "Presence is not the win-back trigger by itself",
-      body: 'discord.presence_active fires the journey only as a re-evaluation tick; the actual decision is the last_seen math. Presence is collapsed to "active" (offline and absent are dropped), so it is a coarse heartbeat, not a measure of participation.',
+      title: "Presence is opt-in, and not the trigger by itself",
+      body: 'discord.presence_active needs the GUILD_PRESENCES intent, which the gateway worker does not request by default, so opt in with an explicit intents bitfield or trigger on discord.message_sent instead. Either way the event is only a re-evaluation tick: the decision is the last_seen math, and presence is collapsed to "active" (offline and absent are dropped).',
     },
     {
       title: "Re-entry is rate-limited, not unbounded",

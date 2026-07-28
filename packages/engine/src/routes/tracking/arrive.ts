@@ -199,6 +199,25 @@ export const arriveRouter = new OpenAPIHono<AppEnv>().openapi(
         logger,
         analytics,
         restrictToAnonymous: !isToken,
+        // D1 creation guard. An anon arrival is pure OBSERVATION — a visitor
+        // landing from a tracked hit with nothing but a browser id is not
+        // grounds for a CRM row. The stamp, the `link.arrived` event and the
+        // outbound emit all still happen (D2); only the `contacts` INSERT is
+        // refused. A token leg is a server-minted identity assertion and
+        // creates exactly as before. D8 holds on both legs: the ingest key
+        // below is `userId` on the token leg and `anonymousId` on the anon one,
+        // and `stamp.visitorDistinctId` is guaranteed non-empty by the guard
+        // above — both are canonical-key shapes, so the refusal keys history on
+        // the same string the create arm would have.
+        //
+        // POLARITY — the one place in this stack where the two flags are
+        // OPPOSITES rather than coinciding: the line above clamps merges when
+        // there is NO token, this line permits creation when there IS one. They
+        // read as complements here only because the token is simultaneously
+        // what makes a merge safe and what makes creation warranted; collapsing
+        // them into one flag is forbidden (they answer different questions and
+        // diverge at every other call site).
+        allowCreate: isToken,
         event: {
           event: LINK_ARRIVED,
           ...(isToken
