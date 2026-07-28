@@ -18,9 +18,23 @@ their own feed.
 
 Nothing is lost. A refused event still writes to `user_events` under the same
 key, still routes to journeys, still evaluates exits and buckets, and is still
-mirrored to analytics. When the visitor later identifies, the create arm adopts
-the anonymous key's history (events, journey states, bucket memberships, sends
-and preferences repoint onto the new canonical key) rather than stranding it.
+mirrored to analytics. When the visitor later identifies, their anonymous
+history is adopted rather than stranded: events, journey states, bucket
+memberships, sends and preferences repoint onto the new canonical key, and the
+absorbed key is reported in `mergedKeys` so the analytics anon-to-known stitch
+still fires.
+
+Both arms of that identify do the adoption. Refusing to mint means there is no
+longer a contact row for the anonymous key, so the collide-MERGE arm that used
+to perform this repoint is never reached, and the two arms that ARE reached had
+to learn it. The create arm covers a first identify that supplies the anonymous
+id alongside a new `userId`. The fill-in-link arm covers the case where the
+contact already exists and merely gains the anonymous id — which is what happens
+whenever identity is folded server-side first (a session mints the contact from
+`{ email, userId }` with no anonymous id) and the browser then identifies with
+its anonymous id. That attachment does not move the canonical key, so the old
+key-flip test never fired and the anonymous history stayed orphaned behind a
+contact that looked correctly linked.
 
 `@hogsend/plugin-discord` drops `GUILD_PRESENCES` from the gateway worker's
 default intents. It is a privileged intent, so requesting less cannot break a

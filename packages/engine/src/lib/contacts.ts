@@ -1002,15 +1002,16 @@ async function fillInLink(
   // had NO external_id (attaching one never happens to an already-external row),
   // so `oldKey` is structurally always anon/uuid here — the explicit gate guards
   // the invariant regardless.
+  const updatedRow: ContactRow = {
+    ...row,
+    externalId: nextExternalId,
+    anonymousId: nextAnonymousId,
+    email: (set.email as string | undefined) ?? row.email,
+  };
+
   let mergedKeys: string[] | undefined;
   let mergedIdentifiedKeys: string[] | undefined;
   if (newKey !== oldKey) {
-    const updatedRow: ContactRow = {
-      ...row,
-      externalId: nextExternalId,
-      anonymousId: nextAnonymousId,
-      email: (set.email as string | undefined) ?? row.email,
-    };
     await repointOwnHistory(tx, oldKey, newKey, updatedRow);
 
     const oldKeyWasExternalId =
@@ -1020,6 +1021,39 @@ async function fillInLink(
     } else {
       mergedKeys = [oldKey];
     }
+  }
+
+  // ADOPT ORPHANED ANON HISTORY — the second-order effect of refusing to mint
+  // on observation. When an anon id is newly attached but does NOT become the
+  // canonical key (the row already had an `external_id`), the flip test above is
+  // false, so nothing above this moves the history keyed on that anon id.
+  //
+  // That is the docs sign-in order exactly: the server-side fold resolves
+  // { email, userId } with no anon id and CREATES the row already carrying
+  // `external_id`; the browser's `identify()` then arrives with the anon id and
+  // lands here. Before observation-refusal shipped, a contact row existed for
+  // the anon id and the collide-MERGE arm adopted its history; refusal removed
+  // that row, and with it the only arm that did the adoption. Without this, a
+  // visitor who browses anonymously and then registers keeps their contact but
+  // loses every event, journey state, send and preference recorded before they
+  // signed up.
+  //
+  // Reachability note: this shape carries a `userId`, so `restrictToAnonymous`
+  // is false by construction (it requires `!userId`) — the caller has already
+  // proven the identified arm with a verified `userToken`. Attaching someone
+  // else's anon id therefore requires knowing their browser-local id, the same
+  // precondition that already grants feed reads under it; adoption widens what
+  // that buys but opens no new door.
+  const attachedAnonymousId = set.anonymousId as string | undefined;
+  if (
+    attachedAnonymousId &&
+    attachedAnonymousId !== newKey &&
+    attachedAnonymousId !== oldKey
+  ) {
+    await repointOwnHistory(tx, attachedAnonymousId, newKey, updatedRow);
+    // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;
+    // appended, since a key flip above may already have folded a uuid/anon key.
+    mergedKeys = [...(mergedKeys ?? []), attachedAnonymousId];
   }
 
   for (const key of promoted) {
