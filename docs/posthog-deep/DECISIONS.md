@@ -521,3 +521,38 @@ is aspirational.
 - **Cross-package edges where the narrowing would invert layering.** Achievable, but it
   costs a carrier type (see `EmailTemplateKeyCarrier`). Pay it where the blast radius
   justifies it; do not cargo-cult the machinery into every package.
+
+## 10. Two known defects left OPEN, deliberately
+
+Recorded rather than fixed, so neither is rediscovered as a surprise.
+
+**`resolvePostHogPerson` can mint a phantom-twin contact.** `packages/engine/src/lib/posthog-person.ts`
+passes `distinctIds[0]` to `resolveOrCreateContact` as `userId`, which the resolver treats
+as an EXTERNAL key. PostHog distinct_ids for unidentified persons are anonymous device
+ids, so an anonymous-only person gets a contact keyed `external_id = <device id>`; a later
+browser event resolving on `anonymousId` probes a different column, misses, and mints a
+second contact for the same human. Same class as #608/#621.
+
+A fix was written and REVERTED, which is the useful part of this record. It gated on
+`email !== null` as the test for "identified", and it was wrong in BOTH directions:
+`distinctIds` is sorted, so `distinctIds[0]` is usually the uuid-ish device id even for a
+genuinely identified person (the original bug, unfixed), while a person identified via
+`posthog.identify("acct-7")` with no email was newly routed to `anonymous_id`, minting the
+same twin in the opposite direction. A half-fix here is worse than the defect, because it
+looks closed.
+
+LATENT, not live: the only consumer was PRD 02's cohort sync, which is parked. Whoever
+resumes that work owns this first. The real fix needs a reliable identified-vs-anonymous
+signal from the PostHog payload — establish that it exists before writing code that
+assumes it.
+
+**`addBucketMember` has the seed path's ungated-contact defect, and is HTTP-reachable.**
+`resolveIdentity` reads the live contact and then discards whether it found one, so
+`POST /v1/buckets/:id/members` writes an active membership row — and EMITS
+`bucket:entered` — for a userId no live contact owns. `seedBucketMembers` was gated in
+this batch; this door was not.
+
+Deliberately deferred rather than fixed late: refusing the write is a behavioural change
+to a public endpoint, and it turns on a distinction the gate cannot currently make —
+a contact that was ERASED (must not be re-added) versus one that does not exist YET
+(lazy creation by ingest is a legitimate flow). Decide that semantic first, then fix.
