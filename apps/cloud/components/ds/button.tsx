@@ -17,6 +17,8 @@ type ButtonProps = {
   external?: boolean;
   /** Button element type when there's no href — "submit" to post a form. */
   type?: "button" | "submit";
+  /** Only meaningful without an href (a disabled link is not a thing). */
+  disabled?: boolean;
   children: ReactNode;
   className?: string;
 };
@@ -37,6 +39,7 @@ export function Button({
   icon = false,
   external = false,
   type = "button",
+  disabled = false,
   children,
   className,
 }: ButtonProps): JSX.Element {
@@ -76,7 +79,16 @@ export function Button({
   }
 
   return (
-    <button type={type} className={classes}>
+    <button
+      type={type}
+      disabled={disabled}
+      // pointer-events-none rather than a hover override: the variants each
+      // define their own hover colour, and there is nothing to hover anyway.
+      className={cn(
+        classes,
+        "disabled:pointer-events-none disabled:opacity-50",
+      )}
+    >
       {content}
     </button>
   );

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { PageFrame } from "@/components/ds/page-frame";
-import { NavRail } from "@/components/shell/nav-rail";
+import { AppChrome } from "@/components/shell/app-chrome";
 import { geistMono, inter, interDisplay } from "@/lib/fonts";
 import "./global.css";
 
@@ -21,12 +21,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       suppressHydrationWarning
     >
       <body className="min-h-dvh bg-ink font-sans text-white antialiased">
-        <NavRail />
-        {/* The rail is fixed at md+, so the content column carries its width
-            as a left offset. Below md the rail sits in flow above it. */}
-        <div className="relative z-10 flex min-h-dvh flex-col md:pl-rail">
-          {children}
-        </div>
+        {/* Nav rail + content offset, or a bare column on the auth screens. */}
+        <AppChrome>{children}</AppChrome>
         {/* Vertical hairlines at the content frame's edges + film grain. */}
         <PageFrame />
       </body>

@@ -25,6 +25,18 @@ const LOCAL_CLOUD_DATABASE_URL =
 const DEV_CLOUD_ENCRYPTION_SECRET =
   "dev-only-insecure-cloud-encryption-secret-change-me";
 
+/**
+ * DEV/TEST ONLY — the Better Auth signing secret, same posture as
+ * `DEV_CLOUD_ENCRYPTION_SECRET`: a fresh clone can sign sessions with no setup,
+ * and production withholds the default so a missing `CLOUD_AUTH_SECRET` fails
+ * the boot rather than shipping a publicly-known signing key.
+ */
+export const DEV_CLOUD_AUTH_SECRET =
+  "dev-only-insecure-cloud-auth-secret-change-me";
+
+/** The dev origin the Next app listens on (`next dev -p 3004`). */
+export const DEFAULT_CLOUD_PUBLIC_URL = "http://localhost:3004";
+
 export const env = createEnv({
   server: {
     NODE_ENV: z
@@ -42,6 +54,25 @@ export const env = createEnv({
     CLOUD_ENCRYPTION_SECRET: isDevOrTest
       ? z.string().min(32).default(DEV_CLOUD_ENCRYPTION_SECRET)
       : z.string().min(32),
+    // Better Auth's signing secret (`src/lib/auth.ts`). Distinct from
+    // CLOUD_ENCRYPTION_SECRET on purpose: rotating the session signing key must
+    // not make every stored provider-key ciphertext undecryptable.
+    CLOUD_AUTH_SECRET: isDevOrTest
+      ? z.string().min(32).default(DEV_CLOUD_AUTH_SECRET)
+      : z.string().min(32),
+    // The origin Better Auth signs callbacks/cookies against. Defaults to the
+    // dev port everywhere — a production deploy behind the wrong origin fails
+    // loudly at request time (origin mismatch), not silently at boot.
+    CLOUD_PUBLIC_URL: z.url().default(DEFAULT_CLOUD_PUBLIC_URL),
+    // OPTIONAL. Absent → OTP codes go to the server log (`logSender`). Present
+    // → they are emailed through Resend. Tests never set it, so no test can
+    // reach the network.
+    CLOUD_RESEND_API_KEY: z.string().min(1).optional(),
+    // From-address for the Resend transport. Only read when a key is set.
+    CLOUD_RESEND_FROM: z
+      .string()
+      .min(1)
+      .default("Hogsend <no-reply@hogsend.com>"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
