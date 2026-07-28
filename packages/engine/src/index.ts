@@ -916,6 +916,18 @@ export {
   createWorker,
   type Worker,
 } from "./worker.js";
+// --- History contact_id backfill (PRD 04): periodic reconcile sweep + enqueue ---
+export {
+  CONTACT_ID_BACKFILL_FORMAT,
+  type ContactIdBackfillCounts,
+  type ContactIdBackfillInput,
+  type ContactIdBackfillResult,
+  type ContactIdBackfillTable,
+  contactIdBackfillTask,
+  contactIdResweepIntervalMs,
+  enqueueContactIdBackfill,
+  runContactIdBackfill,
+} from "./workflows/backfill-contact-id.js";
 export {
   type BucketBackfillInput,
   bucketBackfillTask,
