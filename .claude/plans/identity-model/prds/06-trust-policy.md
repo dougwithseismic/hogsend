@@ -540,8 +540,10 @@ No schema change, no migration, no data change — rollback is code-only at ever
 Shipped across six commits, T5 and T6 kept disjoint so the one non-identical task stays revertable
 alone: T1 `05bc1c2c`, T2 `0b33e650`, T3 `cbf59bc5`, T4 `5c23e357`, T5 `a0270d80`, T6 `a0752483`.
 Final gates: lint 13 warnings / 0 errors; `check-types --force` 50/50 with 0 cached; apps/api
-**2236 passed / 0 failed / 7 skipped**; engine 105 pass / 0 fail; `release:check` green (minor →
-0.57.0).
+**2238 passed / 0 failed / 7 skipped**; engine 105 pass / 0 fail; `release:check` green (minor →
+0.57.0). (An earlier note said 2236 — that count was taken while T5's two narrow-grant canary tests
+were still being folded in. The committed tree has 8 tests in
+`resolve-policy-trusted-kinds.test.ts`, not 6.)
 
 **Four spec errors were found and corrected BEFORE building** (see §Advisory corrections). The most
 important, A1, would have published a caller-supplied refusal key — this stack's own bug class,
@@ -592,9 +594,34 @@ every other test green and hangs that one.
 today because a body schema or key guard stops other kinds upstream. Each has its own test, so a
 future widening of those inputs fails here with the reason attached.
 
-### Outstanding (why this row is `[~]`, not `[x]`)
+### F4 guard-rails — all three met
 
-The F4 guard-rails are two-thirds done: the reserved `"never-identified-pair"` value throws rather
-than silently granting nothing, and its docblock names the concrete harm. **The issue itself is
-drafted but NOT filed** — this is a public repository and filing is the user's call. Until it is
-filed with its number recorded here, the third Done-when item is unmet.
+1. The pinning test asserts today's behaviour on BOTH hooks the eventual fix will flip.
+2. The reserved `"never-identified-pair"` value **throws** rather than silently granting nothing, and
+   its docblock names the concrete harm (a second person signing in on the same browser without
+   `reset()`).
+3. Tracking issue **#629** filed, with the shared-browser repro, the code path, why this PRD did not
+   fix it, and the two hooks the fix flips.
+
+### The five narrow grants were audited, and none is narrower than its inputs
+
+`["email"]` at `crm-ingest`, `["external","email"]` at import-contacts / admin create / agent
+subscribe / lists. Each is inert today because a body schema, a key guard or a 400 stops other kinds
+upstream — `routes/admin/contacts.ts`'s create body is the strongest case: its Zod schema literally
+cannot express another kind. Two canary tests mirror the real `crm-ingest` and `["external","email"]`
+grants verbatim, so a future widening of those inputs fails here, naming the offending kind, rather
+than surfacing as an unrelated 500 in a CRM webhook or an operator import.
+
+### Known pre-existing flake, deliberately NOT fixed here
+
+`boot-api-key.test.ts > "empty table → mints exactly one ingest key"` is a TOCTOU race: it probes the
+WHOLE `api_keys` table, branches on emptiness, and a parallel suite's insert landing before
+`bootstrapApiKeyFromEnv` runs flips the branch — the bootstrap no-ops by design and the mint
+assertion sees zero. Structurally unreachable from any change in this PRD (`api_keys` is untouched).
+
+Its sibling assertion had the same shape and WAS fixed (`8b625daf`) by scoping to the key the suite
+owns. **This one cannot be fixed that way**: it branches on whole-table emptiness because that IS the
+production contract it tests ("mint only when no keys exist"). The remedy is test ISOLATION — moving
+the file to a single-worker vitest project — which is a config change outside this PRD's boundary.
+Recorded for whoever owns test hygiene, alongside the other identity-literal defects found in this
+wave.
