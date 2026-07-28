@@ -6,8 +6,10 @@ import { z } from "zod";
 import type { ActionState } from "@/src/lib/action-state";
 import {
   ConfirmationMismatchError,
+  createEnvironment,
   destroyEnvironment,
   resumeEnvironment,
+  retryEnvironmentProvisioning,
   suspendEnvironment,
 } from "@/src/lib/environment-ops";
 import { NotPermittedError } from "@/src/lib/org-members";
@@ -17,7 +19,7 @@ import {
 } from "@/src/services/errors";
 
 /**
- * The three environment operations, as server actions.
+ * Environment creation and the four stack operations, as server actions.
  *
  * Each one is an adapter and nothing more: parse the form, call the enforced
  * mutation in `src/lib/environment-ops.ts`, turn a refusal into a line the form
@@ -26,10 +28,17 @@ import {
  * these are POST endpoints anyone with a session can reach and a disabled
  * button is not a permission check.
  *
- * No UI ships with them (PRD 04 task 6 builds the controls); they are wired
- * here so the enforcement and its tests land with the pipeline that does the
- * work rather than a task later.
+ * Every one revalidates BOTH `/environments` and the environment's own page:
+ * the controls are on the detail page, and the list and the overview's status
+ * chips are reading the same row.
  */
+
+/** The two pages that render this environment's status. */
+function revalidateEnvironment(environmentId: string): void {
+  revalidatePath("/environments");
+  revalidatePath(`/environments/${environmentId}`);
+  revalidatePath("/");
+}
 
 const environmentSchema = z.object({
   environmentId: z.uuid({ message: "No environment was named." }),
@@ -71,7 +80,7 @@ export async function suspendEnvironmentAction(
     return { error: messageFrom(error, "The environment was not suspended.") };
   }
 
-  revalidatePath("/environments");
+  revalidateEnvironment(parsed.data.environmentId);
   return { error: null, notice: "Environment suspended." };
 }
 
@@ -92,7 +101,7 @@ export async function resumeEnvironmentAction(
     return { error: messageFrom(error, "The environment was not resumed.") };
   }
 
-  revalidatePath("/environments");
+  revalidateEnvironment(parsed.data.environmentId);
   return { error: null, notice: "Environment resumed." };
 }
 
@@ -115,7 +124,7 @@ export async function destroyEnvironmentAction(
     return { error: messageFrom(error, "The environment was not destroyed.") };
   }
 
-  revalidatePath("/environments");
+  revalidateEnvironment(parsed.data.environmentId);
   // A step failure is not thrown — the stack is parked in `error` and the
   // destroy is resumable — so the outcome has to be read off the result.
   if (result.status === "error") {
@@ -124,4 +133,73 @@ export async function destroyEnvironmentAction(
     };
   }
   return { error: null, notice: "Environment destroyed." };
+}
+
+export async function retryProvisioningAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = environmentSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    await retryEnvironmentProvisioning(await headers(), parsed.data);
+  } catch (error) {
+    return { error: messageFrom(error, "Provisioning was not restarted.") };
+  }
+
+  revalidateEnvironment(parsed.data.environmentId);
+  // Deliberately not "provisioned": the enqueue is what just happened, and the
+  // pipeline runs after this response. The status chip is the answer.
+  return { error: null, notice: "Provisioning restarted." };
+}
+
+/**
+ * `production` is absent from the form and from this schema: an organization's
+ * production environment is created with the organization, and the service
+ * refuses a second one.
+ */
+const createSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter a name for the environment.")
+    .max(63, "An environment name is at most 63 characters.")
+    .regex(
+      /^[a-z0-9][a-z0-9-]*$/,
+      "Use lowercase letters, numbers and dashes, starting with a letter or number.",
+    ),
+  kind: z.enum(["staging", "test"], { message: "Choose staging or test." }),
+});
+
+export async function createEnvironmentAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = createSchema.safeParse({
+    name: formData.get("name"),
+    kind: formData.get("kind"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  let created: Awaited<ReturnType<typeof createEnvironment>>;
+  try {
+    created = await createEnvironment(await headers(), parsed.data);
+  } catch (error) {
+    // The plan allowance and the name rule arrive here as CloudServiceError
+    // and are printed verbatim — they already name the limit and the count.
+    return { error: messageFrom(error, "The environment was not created.") };
+  }
+
+  revalidateEnvironment(created.environment.id);
+  return {
+    error: null,
+    notice: `Environment "${created.environment.name}" created; provisioning started.`,
+  };
 }

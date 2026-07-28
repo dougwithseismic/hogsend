@@ -86,8 +86,14 @@ export function guardRoute(input: {
     return { action: "allow" };
   }
 
+  // Auth screens are ALWAYS reachable at this layer. `hasSession` here is
+  // optimistic (the proxy only sees that a cookie EXISTS, not that its session
+  // row is alive) — bouncing /login → / on a dead cookie ping-pongs with the
+  // page-level "no real session → /login" redirect and reloads forever. The
+  // "already signed in, leave /login" bounce lives in the login/signup PAGES,
+  // which hold the real session verdict.
   if (AUTH_ROUTES.some((route) => matches(pathname, route))) {
-    return hasSession ? { action: "redirect", to: "/" } : { action: "allow" };
+    return { action: "allow" };
   }
 
   if (PROTECTED_PREFIXES.some((prefix) => matches(pathname, prefix))) {

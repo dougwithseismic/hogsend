@@ -151,11 +151,14 @@ describe("route guard", () => {
     }
   });
 
-  it("bounces a signed-in visitor off the auth screens", () => {
+  it("allows the auth screens even when a session cookie exists", () => {
+    // `hasSession` at the proxy is COOKIE PRESENCE, not a live session. A dead
+    // cookie redirected /login → / here would ping-pong with the page-level
+    // "no real session → /login" redirect and reload forever (shipped bug,
+    // 2026-07-28). The real signed-in bounce lives in the login/signup pages.
     for (const path of ["/login", "/signup"]) {
       expect(guardRoute({ pathname: path, hasSession: true })).toEqual({
-        action: "redirect",
-        to: "/",
+        action: "allow",
       });
     }
   });
