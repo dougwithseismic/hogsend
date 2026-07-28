@@ -1,4 +1,4 @@
-import { index, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { cloud, timestamps } from "./_shared";
 import { environments } from "./environments";
 import { organizations } from "./organizations";
@@ -32,8 +32,11 @@ export const providerKeys = cloud.table(
   },
   (table) => [
     index("provider_keys_organization_id_idx").on(table.organizationId),
-    // The service's lookup: this environment's key for this provider.
-    index("provider_keys_environment_provider_idx").on(
+    // The service's lookup AND its law: ONE key per provider per environment.
+    // `ProviderKeyService.store()` is an upsert whose conflict target is this
+    // index, so a re-store replaces the payload instead of accumulating rows
+    // (which would make "which credential is live?" ambiguous).
+    uniqueIndex("provider_keys_environment_provider_unique_idx").on(
       table.environmentId,
       table.provider,
     ),

@@ -15,6 +15,13 @@
       "when": 1785259726002,
       "tag": "0001_classy_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785260110004,
+      "tag": "0002_strange_black_queen",
+      "breakpoints": true
     }
   ]
 }
