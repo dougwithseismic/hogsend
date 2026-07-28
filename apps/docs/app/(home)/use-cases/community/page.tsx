@@ -48,6 +48,7 @@ export const reEngageQuietDiscordMembers = defineJourney({
     name: "Retention — re-engage quiet Discord members",
     enabled: true,
     // Re-evaluate on each presence ping; the entry guard rate-limits re-entry.
+    // GUILD_PRESENCES is opt-in: swap in discord.message_sent to skip it.
     trigger: { event: Events.DISCORD_PRESENCE_ACTIVE }, // "discord.presence_active"
     entryLimit: "once_per_period",
     entryPeriod: days(30),
@@ -98,7 +99,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Won't presence pings fire this constantly?",
-    a: 'They arrive constantly, but entryLimit: "once_per_period" with entryPeriod: days(30) caps re-entry to once per 30 days, so the firehose is absorbed before any journey state is created. The decision is the last_seen math, not the ping.',
+    a: 'Presence is opt-in to begin with: the gateway worker does not request the GUILD_PRESENCES intent by default, so discord.presence_active only arrives if you ask for it. If you do, entryLimit: "once_per_period" with entryPeriod: days(30) caps re-entry to once per 30 days, so the firehose is absorbed before any journey state is created. The decision is the last_seen math, not the ping.',
   },
 ];
 

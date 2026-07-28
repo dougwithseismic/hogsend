@@ -13,6 +13,10 @@ Discord exposes presence (online / idle / dnd) but no last-seen timestamp, and p
 | Compute inactivity | `(Date.now() - lastSeen) / 86_400_000` days |
 | Win-back the quiet, subscribed | `sendEmail(…)` after `ctx.guard.isSubscribed()` |
 
+<Callout type="warn">
+  This journey triggers on `discord.presence_active`, which requires the `GUILD_PRESENCES` intent. The gateway worker does **not** request it by default, so the journey never fires until you [opt in](/docs/integrations/discord#presence-is-opt-in). Trigger on `discord.message_sent` instead if you would rather not subscribe to the presence feed: the `last_seen` math below is identical either way.
+</Callout>
+
 ## last_seen is derived, not reported
 
 Discord has no last-seen field. The connector stamps `contacts.properties.discord.last_seen` from the timestamp of every inbound event:
@@ -48,6 +52,7 @@ export const reEngageQuietDiscordMembers = defineJourney({
     name: "Retention — re-engage quiet Discord members",
     enabled: true,
     // Re-evaluate on each presence ping; the entry guard rate-limits re-entry.
+    // GUILD_PRESENCES is opt-in: swap in discord.message_sent to skip it.
     trigger: { event: Events.DISCORD_PRESENCE_ACTIVE }, // "discord.presence_active"
     entryLimit: "once_per_period",
     entryPeriod: days(30),

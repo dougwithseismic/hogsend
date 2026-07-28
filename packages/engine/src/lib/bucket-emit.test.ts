@@ -51,14 +51,20 @@ function genericBoundRegistry(): JourneyRegistry {
   } as unknown as JourneyRegistry;
 }
 
-/** Recording ingest stub — captures each re-ingested event. */
+/**
+ * Recording ingest stub — captures each re-ingested event, plus the
+ * `allowCreate` guard, which is a SIBLING of `event` in the ingest opts (not a
+ * field on it) and so needs its own recorder.
+ */
 function recordingIngest() {
   const events: IngestEvent[] = [];
+  const allowCreates: (boolean | undefined)[] = [];
   const ingest: typeof ingestEvent = async (opts) => {
     events.push(opts.event);
+    allowCreates.push(opts.allowCreate);
     return { stored: true, exits: [], contactKey: opts.event.userId ?? "" };
   };
-  return { events, ingest };
+  return { events, allowCreates, ingest };
 }
 
 // db/hatchet are never touched by the stubbed ingest; emitOutbound is
@@ -142,4 +148,79 @@ test("no contactId: degrades to exactly the pin-less re-ingest", async () => {
   for (const event of events) {
     assert.equal(event.contactId, undefined);
   }
+});
+
+// ---------------------------------------------------------------------------
+// D1 — the INHERITED creation guard. When the originating ingest refused to
+// mint, there is no `contactId` to pin with, and degrading the pin here is
+// exactly what would mint an `external_id = <anonId>` phantom twin. So the
+// refusal itself rides the re-ingests instead — and, like the pin, it must ride
+// BOTH legs: forwarding it only on the alias would leave the ghost half-alive
+// for any journey bound to the generic `bucket:<kind>` form.
+// ---------------------------------------------------------------------------
+
+test("allowCreate: false rides BOTH re-ingests (alias + generic)", async () => {
+  const { events, allowCreates, ingest } = recordingIngest();
+
+  await emitBucketTransition({
+    db,
+    registry: genericBoundRegistry(),
+    hatchet,
+    logger,
+    kind: "entered",
+    bucket,
+    userId: "anon-608",
+    userEmail: null,
+    allowCreate: false,
+    epoch: 1,
+    ingest,
+  });
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(allowCreates, [false, false]);
+});
+
+test("allowCreate: false rides the leave re-ingests too", async () => {
+  const { events, allowCreates, ingest } = recordingIngest();
+
+  await emitBucketTransition({
+    db,
+    registry: genericBoundRegistry(),
+    hatchet,
+    logger,
+    kind: "left",
+    bucket,
+    userId: "anon-608",
+    userEmail: null,
+    allowCreate: false,
+    epoch: 2,
+    reason: "criteria",
+    ingest,
+  });
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(allowCreates, [false, false]);
+});
+
+test("no allowCreate: the creating producers are untouched", async () => {
+  const { allowCreates, ingest } = recordingIngest();
+
+  await emitBucketTransition({
+    db,
+    registry: genericBoundRegistry(),
+    hatchet,
+    logger,
+    kind: "entered",
+    bucket,
+    userId: "anon-608",
+    userEmail: null,
+    contactId: CONTACT_ID,
+    epoch: 1,
+    ingest,
+  });
+
+  // The reconcile cron and the backfill legitimately create; leaving the option
+  // unset must reach `ingestEvent` as `undefined` (its default-true path), not
+  // as a `false` someone helpfully filled in.
+  assert.deepEqual(allowCreates, [undefined, undefined]);
 });

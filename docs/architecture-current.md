@@ -25,7 +25,7 @@ Visual map of how Hogsend's components connect today, and where the gaps are.
                     │  1. Store event in userEvents         │
                     │  2. Push to Hatchet (route to tasks)  │
                     │  3. Evaluate exit conditions           │
-                    │  4. Upsert contact record              │
+                    │  4. Resolve contact (identity-gated)   │
                     └──────────┬──────────────────────────┘
                                │
                   ┌────────────┼────────────────┐
@@ -93,7 +93,8 @@ Visual map of how Hogsend's components connect today, and where the gaps are.
 Event → userEvents table
      → Hatchet (routes to journey tasks)
      → Exit condition check (may exit active journeys)
-     → Contact upsert
+     → Contact upsert  (only when the event asserts an identity;
+                        `allowCreate: false` resolves without creating)
 
 Journey task → journeyStates (created on entry)
             → journeyLogs (node transitions)

@@ -50,12 +50,18 @@ function emitMarkEvents(
     feedId: string;
     recipientKey: string;
     contactId?: string;
+    allowCreate?: boolean;
   },
 ): Promise<unknown> {
   return Promise.allSettled(
     args.ids.map((r) =>
       ingestEvent({
         ...deps,
+        // D1 refusal for an UNSEEN anonymous visitor (sibling of `event`, not a
+        // field on it). `resolveFeedRecipient` sets this only on the anon arm,
+        // where `recipientKey` IS the raw anon id, so D8 holds and the refused
+        // re-ingest keys `user_events` exactly as a creating one would.
+        allowCreate: args.allowCreate,
         event: {
           event: args.eventType,
           // recipientKey IS the canonical contact key — pass it as userId so
@@ -419,6 +425,7 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
         feedId,
         recipientKey: rec.recipientKey,
         contactId: rec.contactId,
+        allowCreate: rec.allowCreate,
       },
     );
 
@@ -452,6 +459,11 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
         hatchet,
         logger,
         analytics,
+        // D1 refusal (see emitMarkEvents). This emit fires UNCONDITIONALLY —
+        // even when `updated` is empty — so a first-time visitor clearing a bell
+        // that never held an item drives one re-ingest, and that alone used to
+        // mint the ghost that locks them out.
+        allowCreate: rec.allowCreate,
         event: {
           event: "inapp.feed_cleared",
           userId: rec.recipientKey,
@@ -472,6 +484,7 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
           feedId,
           recipientKey: rec.recipientKey,
           contactId: rec.contactId,
+          allowCreate: rec.allowCreate,
         },
       );
     }

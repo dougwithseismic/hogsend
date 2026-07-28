@@ -481,17 +481,17 @@ export function EmailCapture({
           product_notes: productNotes,
         });
         onSubscribed?.(trimmedName ? { name: trimmedName } : {});
-        // Durable "already signed up" flag (+ name for the site banner greeting)
-        // — read on the next visit by the home demo (in-app-demo-body.tsx) and
-        // the try-it demo so a return visitor isn't asked to sign up again. Keys
-        // match those modules: `hs-demo-email` doubles as the signed-up flag.
+        // The name for the site banner greeting (banner-ticker.tsx reads this
+        // key on the next visit). The email is NOT stored: both demos derive
+        // "already signed up" from the Better Auth session now, so a
+        // `hs-demo-email` flag had no reader left, and keeping an address in
+        // localStorage that nothing consumes is retention for its own sake.
         try {
-          window.localStorage.setItem("hs-demo-email", normalizedEmail);
           if (trimmedName)
             window.localStorage.setItem("hs-demo-name", trimmedName);
         } catch {
           // Private mode / storage blocked — the in-session state still unlocked
-          // the demo; only cross-reload detection is lost.
+          // the demo; only the greeting on a later visit is lost.
         }
         setStatus("idle");
         if (qualifyAfter) {

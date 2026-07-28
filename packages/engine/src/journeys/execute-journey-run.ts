@@ -12,7 +12,7 @@ import {
   journeyConfigs,
   journeyStates,
 } from "@hogsend/db";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { blueprintGraphLock } from "../lib/blueprint-lock.js";
 import { getDb } from "../lib/db.js";
@@ -384,15 +384,61 @@ export async function executeJourneyRun(
             // concurrent double-diversion dedups here even if it raced the
             // row existence check above.
             try {
+              // D11 — this re-ingest is DERIVED from the entry event, so it
+              // must inherit that event's creation verdict instead of
+              // re-resolving the key cold. Since PRD 02 site 1 a journey's
+              // `userId` is routinely a browser anon id owning NO contact row
+              // (`ingestEvent` pushes `userId: resolvedKey` and OMITS
+              // `contactId` on a refusal), and `findByKey` reads a bare
+              // `userId` as kind "external" — so a create-on-miss re-ingest
+              // here writes `external_id = <anonId>`, which is strictly WORSE
+              // than the ghost being removed: `collidesWithIdentified` returns
+              // true for it, so `resolveFeedRecipient` starts 403-ing the
+              // visitor out of their own bell.
+              //
+              // The verdict is DERIVED, never hardcoded — a held-out run for a
+              // real contact, or one asserting an email, must keep creating.
+              // This leg runs BEFORE the timezone `contact` fetch below, so
+              // provenance is resolved locally: the pushed `input.contactId`
+              // when the entry ingest resolved a row, else ONE indexed lookup
+              // for the live contact owning this canonical key on either
+              // identity column (`contactKey = external_id ?? anonymous_id`;
+              // the tz fetch reads `external_id` only, which misses an
+              // anon-keyed contact).
+              const subjectContactId =
+                input.contactId ??
+                (
+                  await db.query.contacts.findFirst({
+                    where: and(
+                      isNull(contacts.deletedAt),
+                      or(
+                        eq(contacts.externalId, userId),
+                        eq(contacts.anonymousId, userId),
+                      ),
+                    ),
+                    columns: { id: true },
+                  })
+                )?.id;
               await ingestEvent({
                 db,
                 registry: getJourneyRegistrySingleton(),
                 hatchet,
                 logger,
+                // Refuse ONLY when nothing was resolved AND nothing is
+                // asserted. An `userEmail` is a durable identity the caller
+                // asserted (D1), so refusing it would change behavior for
+                // identified users; anonymous runs carry `""` here
+                // (`ingestEvent` pushes `userEmail ?? ""`), correctly falsy.
+                ...(subjectContactId || userEmail
+                  ? {}
+                  : { allowCreate: false }),
                 event: {
                   event: "journey.heldout",
                   userId,
                   userEmail,
+                  // Pin to the exact subject row so the re-emit folds in
+                  // instead of value-probing a key that could mint a twin.
+                  ...(subjectContactId ? { contactId: subjectContactId } : {}),
                   eventProperties: {
                     journeyId: meta.id,
                     journeyName: meta.name,

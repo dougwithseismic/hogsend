@@ -221,9 +221,19 @@ describe("POST /v1/events — anonymousId does NOT override a present userId", (
     expect(contact.externalId).toBe(U_USER);
     expect(contact.anonymousId).toBe(U_ANON);
 
-    // A single CREATE folds nothing — zero merge calls on the identified path
-    // too (the anon id arrives attached to the new row, not folded into it).
-    expect(mergeSpy).not.toHaveBeenCalled();
+    // The CREATE arm ADOPTS the anon key (D2): the new row's canonical key is
+    // the userId, so the supplied anon id was superseded on arrival — its
+    // history is re-pointed and the key is reported as a safe `mergedKey`. That
+    // fires exactly ONE stitch, in the SURVIVOR direction (MF-1): the
+    // now-canonical external_id is `distinctId`, the absorbed anon id is
+    // `alias`. Without it the browser's pre-login PostHog person would never
+    // join the identified one — and with contactless ingest there is no anon
+    // ROW left to carry the fold on a later fill-in-link.
+    expect(mergeSpy).toHaveBeenCalledTimes(1);
+    expect(mergeSpy).toHaveBeenCalledWith({
+      distinctId: U_USER,
+      alias: U_ANON,
+    });
   });
 });
 

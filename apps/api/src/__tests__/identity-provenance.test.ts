@@ -186,7 +186,31 @@ afterAll(async () => {
 
 describe("engine-internal provenance (contactId) prevents phantom twins", () => {
   it("R1: an internal re-emit keyed by an anon contact's own canonical key folds in — no external_id twin", async () => {
-    // Anon visitor fires a publishable event → anon contact {anonymous_id:A1}.
+    // This whole describe tests the HAS-A-ROW invariant: given an anon contact
+    // {anonymous_id:A1}, an internal re-emit keyed by its own canonical key must
+    // FOLD IN rather than mint an `external_id` twin. It therefore needs a
+    // pre-existing row, and since D1 it has to seed one directly.
+    //
+    // READ THIS BEFORE COPYING THE SHAPE: a direct insert is NOT how an
+    // anonymous visitor's row arrives in production any more — since D1 a pk_
+    // event with no asserted identity and no `value` is pure OBSERVATION and
+    // mints nothing at all. The publishable POST that used to stand here stopped
+    // producing a row, so the seed replaces it. In production such a row now
+    // arrives only by a real identity assertion (a value-bearing event, a list
+    // subscribe, a server-side upsert).
+    //
+    // The complementary NO-ROW case — the anon visitor who never gets a contact
+    // at all, drives the feed mark/clear loop, and must not be locked out of
+    // their own bell — is pinned in `observation-paths.test.ts` ("anon bell
+    // survives its OWN mark/clear round trip" + "clearing an EMPTY bell mints
+    // nothing"). Do not read this seed as coverage of it.
+    const [seeded] = await db
+      .insert(contacts)
+      .values({ anonymousId: A1 })
+      .returning({ id: contacts.id });
+    if (seeded) createdIds.push(seeded.id);
+
+    // The publishable event still resolves ONTO that row (202, no twin).
     const fired = await pubPost({ name: `${RUN}.fired`, anonymousId: A1 });
     expect(fired.status).toBe(202);
     const [anon] = await db
@@ -224,6 +248,11 @@ describe("engine-internal provenance (contactId) prevents phantom twins", () => 
   });
 
   it("R2b: driving the real feed mark route mints no twin (the actual lockout trigger)", async () => {
+    // Runs against R1's SEEDED row — this case has no fixture of its own, so it
+    // pins the has-a-row leg of the mark path (the re-ingest must fold into the
+    // existing anon contact, not fork an `external_id` twin beside it). The
+    // no-row leg lives in `observation-paths.test.ts`; both legs are genuinely
+    // green independently (this case passes on its own, with R1 skipped).
     await sendFeedItem({
       recipient: { anonymousId: A1 },
       type: "welcome",

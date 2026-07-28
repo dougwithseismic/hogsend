@@ -70,7 +70,9 @@ const { bucketMetaSchema } = await import("@hogsend/core");
 // The PRODUCTION predicate behind the canonical-key contact read (T00.4's
 // live-row leg), imported rather than restated so the assertion below pins the
 // engine's own filter and not a copy of it.
-const { liveContactByCanonicalKey } = await import("@hogsend/engine/testing");
+const { contactKeySql, liveContactByCanonicalKey } = await import(
+  "@hogsend/engine/testing"
+);
 
 const container = createHogsendClient();
 const { db, logger } = container;
@@ -1692,12 +1694,29 @@ describe("canonical-key contact read (T00.4)", () => {
     // the wrong way. Running the predicate itself without the `limit(1)` removes
     // the toss: drop `isNull(deletedAt)` and this set is [loser, survivor] every
     // time, whatever the scan order.
+    // `liveContactByCanonicalKey` is still the predicate the set-based RECONCILE
+    // joins use, so pin it directly: drop its `deleted_at IS NULL` half and this
+    // set becomes [loser, survivor] every time, whatever the scan order.
     const matched = await db
       .select({ id: contacts.id })
       .from(contacts)
       .where(liveContactByCanonicalKey(anonId));
     expect(matched.map((r) => r.id).sort()).toEqual([survivor]);
     expect(matched.map((r) => r.id)).not.toContain(loser);
+
+    // The REAL-TIME read in `checkBucketMembership` cannot use that predicate:
+    // it must still SEE an erased row, because finding one is what fires the
+    // GDPR guard. It orders instead. Assert the ordered shape the engine runs —
+    // the live survivor first — because without the ORDER BY the answer is
+    // whichever row the heap scan reaches first, and that is a coin toss rather
+    // than a wrong answer, which is precisely why the clause has to be there.
+    const ordered = await db
+      .select({ id: contacts.id, deletedAt: contacts.deletedAt })
+      .from(contacts)
+      .where(eq(contactKeySql(), anonId))
+      .orderBy(sql`${contacts.deletedAt} nulls first`);
+    expect(ordered[0]?.id).toBe(survivor);
+    expect(ordered[0]?.deletedAt).toBeNull();
 
     // …and the survivor's state — not the loser's stale `plan: "free"` — is what
     // the bucket evaluates. (This leg pins the behaviour; the set assertion
@@ -1738,5 +1757,84 @@ describe("canonical-key contact read (T00.4)", () => {
     expect(transitions).toEqual([]);
     expect(await activeRow(anonId, EVENT_BUCKET_ID)).toBeUndefined();
     expect(await activeRow(anonId, PROP_BUCKET_ID)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical-key contact lookup (email-only / anonymous contacts)
+//
+// Memberships and events key on `coalesce(external_id, anonymous_id, id)`
+// (`contactKeySql`), but the real-time property lookup in `checkBucketMembership`
+// matched `external_id` ALONE. An email-only contact is keyed on its uuid and an
+// anonymous one on its `anonymous_id` — both carry a NULL `external_id`, so the
+// lookup found nothing for them and two things went wrong:
+//
+//   1. property criteria evaluated against `{}` rather than the contact's real
+//      state, so every property leg silently answered "absent";
+//   2. `contactDeleted` stayed false because no row was found, so the GDPR guard
+//      ("never re-evaluate or emit for a soft-deleted contact") never fired.
+//
+// The cron's join scan already made this exact correction, and its comment says
+// why: joining on `external_id` "would silently drop exactly the dormant
+// email-only contacts this cron exists to reconcile". This is that fix on the
+// real-time path.
+// ---------------------------------------------------------------------------
+describe("canonical-key contact lookup", () => {
+  it("evaluates property criteria against a contact keyed by anonymous_id", async () => {
+    // An ANONYMOUS contact: no external_id, so its canonical key is its
+    // anonymous_id — the shape the old `external_id` lookup could never find.
+    const anonKey = `${RUN}-anon-props`;
+    const [row] = await db
+      .insert(contacts)
+      .values({ anonymousId: anonKey, properties: { plan: "pro" } })
+      .returning({ id: contacts.id });
+    expect(row?.id).toBeTruthy();
+
+    // PROPERTY_BUCKET requires plan === "pro" (and converted !== true), which is
+    // true of this contact's REAL state and false of the `{}` the old lookup
+    // produced. The event payload deliberately carries no properties, so the
+    // verdict can only come from the contact row.
+    const transitions = await check({
+      userId: anonKey,
+      event: SIGNUP_EVENT,
+      eventProperties: { plan: "pro" },
+    });
+
+    const entered = transitions.filter((t) => t.transition === "entered");
+    expect(entered.map((t) => t.bucketId)).toContain(PROP_BUCKET_ID);
+  });
+
+  it("honours the soft-delete guard for a contact keyed by anonymous_id", async () => {
+    // The serious half. A soft-deleted contact must never transition or emit —
+    // but the guard reads `deletedAt` off the row the lookup returns, so when
+    // the lookup missed, a soft-deleted email-only/anon contact sailed straight
+    // past it.
+    const anonKey = `${RUN}-anon-deleted`;
+    await db.insert(contacts).values({
+      anonymousId: anonKey,
+      properties: { plan: "pro" },
+      deletedAt: new Date(),
+    });
+
+    // The this-ingest patch satisfies the criteria on its own (plan "pro",
+    // converted absent ⇒ neq true), so criteria evaluation CANNOT be what
+    // produces an empty result. That isolates the guard: the only reason this
+    // person does not transition is that they are soft-deleted. Without the
+    // patch the test passes for the wrong reason — the old lookup missed, left
+    // properties `{}`, and the criteria simply failed to match.
+    const transitions = await check({
+      userId: anonKey,
+      event: SIGNUP_EVENT,
+      eventProperties: { plan: "pro" },
+      contactProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toEqual([]);
+    // And nothing may have been written for them either.
+    const rows = await db
+      .select({ id: bucketMemberships.id })
+      .from(bucketMemberships)
+      .where(eq(bucketMemberships.userId, anonKey));
+    expect(rows).toHaveLength(0);
   });
 });

@@ -26,8 +26,15 @@ Journeys do not use any of this — a journey is entered per-person by an
 
 ## Contacts — the people
 
-The substrate. Not defined in code — rows accumulate from ingestion
-(`ingestEvent` upserts a contact per event), imports, and the admin API.
+The substrate. Not defined in code — rows accumulate from ingestion, imports,
+and the admin API. Ingestion is conditional: `ingestEvent` upserts a contact per
+event only when the event asserts an identity. Pure observation (a publishable
+browser event with no email, no `userId`, no `value` and no `groups` map) passes
+`allowCreate: false` and resolves without minting a row, so anonymous traffic
+does not accumulate blank contacts. The event still stores, still routes to
+journeys, and still evaluates exits and buckets; the history is keyed on the
+same canonical string and is adopted onto the contact if the visitor later
+identifies.
 
 - **`contacts`** — one row per person: `externalId` (the caller's user id),
   `email` (normalized at write), `timezone` (opportunistic IANA cache from

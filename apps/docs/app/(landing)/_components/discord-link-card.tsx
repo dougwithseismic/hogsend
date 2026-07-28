@@ -21,7 +21,8 @@ import {
  * Honest details preserved: there is no typed code — the bind happens in the
  * browser via the emailed confirm link, and the engine trusts the email the
  * link was issued for, never the Discord-reported one. `last_seen` derives
- * from presence/messages/reactions; a journey DM (`dmMember`) is gated on the
+ * from messages/reactions/joins (presence is an opt-in intent, so the readout
+ * credits a message); a journey DM (`dmMember`) is gated on the
  * member's discord channel preference, and a closed DM is a soft failure.
  *
  * Steps auto-advance until the visitor clicks one — then it's theirs.
@@ -85,7 +86,7 @@ const CONTACT_LINES: Array<{ step: StepKey; k: string; v: string }> = [
   { step: 0, k: "email", v: "jamie@northwind.io" },
   { step: 2, k: "discord_id", v: "882140…" },
   { step: 2, k: "isDiscordLinked", v: "true" },
-  { step: 3, k: "last_seen", v: "2m ago · presence" },
+  { step: 3, k: "last_seen", v: "2m ago · message" },
 ];
 
 /**

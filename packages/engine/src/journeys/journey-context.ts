@@ -1266,16 +1266,65 @@ export function createJourneyContext(
         registerKey(boundary, idempotencyKey);
       }
 
+      // D11 — a `ctx.trigger` re-ingest is DERIVED from the run's own entry
+      // event, so it must inherit that event's creation verdict rather than
+      // re-resolve the key cold. Since PRD 02 site 1 a journey's `userId` is
+      // routinely a browser anon id owning NO contact row (`ingestEvent` pushes
+      // `userId: resolvedKey` and OMITS `contactId` on a refusal), and
+      // `findByKey` reads a bare `userId` as kind "external" — so a
+      // create-on-miss re-ingest here writes `external_id = <anonId>`, strictly
+      // WORSE than the ghost being removed: `collidesWithIdentified` returns
+      // true for it, so `resolveFeedRecipient` starts 403-ing the visitor out of
+      // their own bell.
+      //
+      // The verdict is per-ARM, because the two arms have different subjects.
+      //
+      // SELF arm (`targetUserId === userId`) — the re-ingest really is derived
+      // from this run's own entry event, so it inherits that event's verdict,
+      // DERIVED (never hardcoded) from two signals already in scope:
+      //   - `config.contactId` — the run's resolved subject row id (pushed by
+      //     the entry ingest, else the enrollment's own contact lookup).
+      //     Present ⇒ the subject HAS a row: pin to it so the re-emit folds
+      //     into that exact row instead of value-probing a canonical key that
+      //     could mint a phantom twin.
+      //   - an asserted email (`targetEmail ?? userEmail`) — a durable identity
+      //     the caller is asserting (D1), so it keeps creating. Anonymous runs
+      //     carry `""` here (`ingestEvent` pushes `userEmail ?? ""`), correctly
+      //     falsy.
+      // Neither ⇒ nothing resolved and nothing asserted: refuse, so re-ingesting
+      // the run's own anon key cold cannot re-resolve it as an EXTERNAL key and
+      // mint the `external_id = <anonId>` twin. The refusal only ever bites a
+      // total MISS — a subject that already owns a contact still links/merges
+      // exactly as before.
+      //
+      // CROSS-USER arm — the run's identity says NOTHING about the person the
+      // author named, so neither signal is in scope for the target: the pin is
+      // `undefined` BY CONSTRUCTION (pinning an author-overridden `userId` to
+      // the run's subject row would misattribute the event), and the run's own
+      // `userEmail` belongs to somebody else. Reading the verdict off them would
+      // make an anonymous run refuse to mint a NAMED target — inverting D1,
+      // under which `ctx.trigger({ userId })` is exactly the "server-side caller
+      // explicitly asks" case — and would strip that target of everything gated
+      // on a non-null `contact_id` (conversions, attribution credits, funnel
+      // progress, deals). So this arm keeps creating, unconditionally.
+      const isSelfTrigger = targetUserId === userId;
+      const pinnedContactId = isSelfTrigger ? config.contactId : undefined;
+      const assertsIdentity = isSelfTrigger
+        ? !!pinnedContactId || !!(targetEmail ?? userEmail)
+        : true;
+
       const runIngest = () =>
         ingestEvent({
           db,
           registry,
           hatchet,
           logger,
+          ...(assertsIdentity ? {} : { allowCreate: false }),
           event: {
             event,
             userId: targetUserId,
             userEmail: targetEmail ?? userEmail,
+            ...(pinnedContactId ? { contactId: pinnedContactId } : {}),
             eventProperties: properties ?? {},
             value,
             currency,

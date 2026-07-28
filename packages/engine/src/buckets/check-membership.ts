@@ -7,13 +7,9 @@ import {
 } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import {
-  contactKeySql,
-  liveContactByCanonicalKey,
-  normalizeEmailOrNull,
-} from "../lib/contacts.js";
+import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -66,6 +62,18 @@ export async function checkBucketMembership(opts: {
    * contact degrades to the pin-less emit.
    */
   contactId?: string;
+  /**
+   * D1 creation guard, INHERITED from the originating ingest and forwarded into
+   * every `emitBucketTransition` (and from there into both of its re-ingests).
+   * `ingestEvent` passes `false` exactly when its own resolve REFUSED, i.e.
+   * when there is no `contactId` to pin with — because the alternative,
+   * degrading the pin to `contactId ?? undefined`, makes the transition
+   * re-ingest treat the anon canonical key as an EXTERNAL key and mint an
+   * `external_id = <anonId>` phantom twin (issue #608 from the other side).
+   * Bucket evaluation itself is UNAFFECTED: `bucket_memberships` is text-keyed
+   * with no contact FK, so a contactless subject is still a first-class member.
+   */
+  allowCreate?: boolean;
   event: string;
   /**
    * D2: the event payload — candidate-narrowing ONLY. It NO LONGER participates
@@ -95,6 +103,7 @@ export async function checkBucketMembership(opts: {
     logger,
     userId,
     contactId,
+    allowCreate,
     event,
     eventProperties,
     contactProperties: contactPropertiesPatch,
@@ -182,34 +191,50 @@ export async function checkBucketMembership(opts: {
   let storedContactProps: Record<string, unknown> = {};
   let contactDeleted = false;
   if (needsContactState) {
-    // LIVE rows only. A merge loser is soft-deleted but RETAINS its identity
-    // keys — `mergeContacts` frees them from the partial-unique indexes (which
-    // are `WHERE deleted_at IS NULL`) rather than nulling them, then copies them
-    // onto the survivor. Dead loser and live survivor therefore COALESCE to the
-    // SAME canonical key, and an unordered `limit(1)` could hand back the dead
-    // one — evaluating the survivor against the loser's stale properties, or
-    // (via the GDPR short-circuit below) skipping bucket evaluation for a live
-    // contact entirely. Matches the `isNull(contacts.deletedAt)` every sibling
-    // coalesce lookup in bucket-reconcile / bucket-backfill already carries.
+    // Match on the CANONICAL key, not `external_id` alone. Memberships and
+    // events are keyed on `coalesce(external_id, anonymous_id, id)`
+    // (`contactKeySql`), so an email-only contact is keyed on its uuid and an
+    // anonymous one on its `anonymous_id` — both have a NULL `external_id` and
+    // neither was ever found here. The cron's join scan already made exactly
+    // this correction for the same reason (`bucket-reconcile.ts`, "joining on
+    // contacts.externalId would … silently drop exactly the dormant email-only
+    // contacts this cron exists to reconcile"); this is that fix applied to the
+    // real-time path, which was missed.
+    //
+    // Two things were wrong, and the second is the serious one:
+    //   1. property criteria evaluated against `{}` instead of the contact's
+    //      real state, so a property leg silently answered "absent" for every
+    //      such person;
+    //   2. `contactDeleted` stayed false because the row was never found, so
+    //      the GDPR guard below — "never (re-)evaluate or emit for a
+    //      soft-deleted contact" — did not fire for them. A soft-deleted
+    //      email-only contact could still transition buckets and emit.
+    //
+    // ORDERED so a LIVE row always wins. A merge loser is soft-deleted but
+    // RETAINS its identity keys (`mergeContacts` frees them from the partial-
+    // unique indexes, which are `WHERE deleted_at IS NULL`, rather than nulling
+    // them) and the survivor inherits a copy — so the dead loser and the live
+    // survivor COALESCE TO THE SAME canonical key. An unordered `limit(1)`
+    // could hand back the dead one, and `contactDeleted` would then skip bucket
+    // evaluation entirely for a perfectly live contact. `NULLS FIRST` makes the
+    // live row deterministic; a purely-erased contact is still found, so the
+    // GDPR guard below keeps firing for it.
     const [contact] = await db
-      .select({ properties: contacts.properties })
+      .select({
+        properties: contacts.properties,
+        deletedAt: contacts.deletedAt,
+      })
       .from(contacts)
-      .where(liveContactByCanonicalKey(userId))
+      .where(eq(contactKeySql(), userId))
+      .orderBy(sql`${contacts.deletedAt} nulls first`)
       .limit(1);
     if (contact) {
       storedContactProps =
         (contact.properties as Record<string, unknown> | null) ?? {};
-    } else {
-      // No LIVE row owns this key — but a soft-deleted (erased) one may. Section
-      // 8.6 says never (re-)evaluate or emit for it, so probe explicitly instead
-      // of falling through to an empty-property evaluation that an
-      // event-criteria bucket in the same candidate set would happily join.
-      const [erased] = await db
-        .select({ id: contacts.id })
-        .from(contacts)
-        .where(and(eq(contactKeySql(), userId), isNotNull(contacts.deletedAt)))
-        .limit(1);
-      contactDeleted = erased != null;
+      // Only reachable when NO live row owns the key — the ordering above puts
+      // a live row first — so this is "the sole owner of this key is erased",
+      // not "some erased row also happens to share it".
+      contactDeleted = contact.deletedAt != null;
     }
   }
 
@@ -262,6 +287,7 @@ export async function checkBucketMembership(opts: {
         userId,
         userEmail,
         contactId,
+        allowCreate,
       });
       if (transition) transitions.push(transition);
     } else if (wasMember && isMember) {
@@ -281,6 +307,7 @@ export async function checkBucketMembership(opts: {
         userId,
         userEmail,
         contactId,
+        allowCreate,
       });
       if (transition) transitions.push(transition);
     }
@@ -300,6 +327,8 @@ async function handleJoin(opts: {
   userEmail: string | null;
   /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
   contactId?: string;
+  /** Inherited creation guard for the emit — see `checkBucketMembership`. */
+  allowCreate?: boolean;
 }): Promise<BucketTransition | null> {
   const {
     db,
@@ -310,6 +339,7 @@ async function handleJoin(opts: {
     userId,
     userEmail,
     contactId,
+    allowCreate,
   } = opts;
 
   // entryCount ordinal = 1 + count of ALL prior memberships (active + left) for
@@ -352,6 +382,10 @@ async function handleJoin(opts: {
   // is written. The cron remains the authoritative backstop, so a push failure
   // is best-effort. We arm against the persisted expiresAt so the timer's CAS on
   // wake matches the row (or no-ops if a later event re-armed the window).
+  // `allowCreate` rides along because the timer's eventual leave emit is a
+  // re-ingest DERIVED from this (possibly refused) event — D11 applies to the
+  // ASYNCHRONOUS producer exactly as it does to the two synchronous ones. The
+  // `contactId` pin deliberately does NOT (see `bucketExpiryTask`).
   if (bucket.fastExpiry && expiresAt) {
     await armExpiryTimer({
       hatchet,
@@ -361,6 +395,7 @@ async function handleJoin(opts: {
       userId,
       userEmail,
       expiresAt,
+      allowCreate,
     });
   }
 
@@ -379,8 +414,10 @@ async function handleJoin(opts: {
       userEmail,
       // Pin the re-ingest to the already-resolved contact row so an
       // anonymous-only contact's transition folds in instead of minting a
-      // phantom twin (issue #608).
+      // phantom twin (issue #608). With no row to pin to, the originating
+      // ingest's refusal is inherited instead — never a degraded pin.
       contactId,
+      allowCreate,
       epoch,
       source: "event",
     });
@@ -406,6 +443,8 @@ async function handleLeave(opts: {
   userEmail: string | null;
   /** Provenance pin for the emit — see `checkBucketMembership` (issue #608). */
   contactId?: string;
+  /** Inherited creation guard for the emit — see `checkBucketMembership`. */
+  allowCreate?: boolean;
 }): Promise<BucketTransition | null> {
   const {
     db,
@@ -417,6 +456,7 @@ async function handleLeave(opts: {
     userId,
     userEmail,
     contactId,
+    allowCreate,
   } = opts;
 
   // minDwell DEFERS (never silently drops) the leave (Section 6.3). We set a
@@ -479,9 +519,11 @@ async function handleLeave(opts: {
     bucket,
     userId,
     userEmail,
-    // Same provenance pin as the join emit — a leave re-ingests through the
-    // identical path and would mint the same phantom twin (issue #608).
+    // Same provenance pin (and same inherited refusal) as the join emit — a
+    // leave re-ingests through the identical path and would mint the same
+    // phantom twin (issue #608).
     contactId,
+    allowCreate,
     epoch: flipped.entryCount,
     source: "event",
     reason: "criteria",
@@ -555,6 +597,12 @@ export async function shouldEmitJoin(opts: {
  * by `checkBucketMembership`, so arming does NOT re-enter bucket evaluation.
  * Best-effort: the cron is the authoritative backstop, so a push failure is logged
  * and swallowed.
+ *
+ * The arm payload is the ONLY channel between this join and the leave the woken
+ * task emits, so the inherited D1 refusal has to ride it — otherwise the timer's
+ * `emitBucketTransition` re-resolves the anon canonical key create-on-miss and
+ * mints the `external_id = <anonId>` phantom twin the synchronous emits were
+ * already taught to refuse (issue #608, D11 category (iii)).
  */
 async function armExpiryTimer(opts: {
   hatchet: HatchetClient;
@@ -564,8 +612,25 @@ async function armExpiryTimer(opts: {
   userId: string;
   userEmail: string | null;
   expiresAt: Date;
+  /**
+   * D1 creation guard inherited from the originating ingest via `handleJoin`.
+   * Carried on the wire ONLY when `false`: an omitted key keeps today's
+   * create-by-default semantics for every producer that legitimately creates
+   * and keeps a JSON null off a Hatchet payload (the
+   * `...(contactId !== null ? { contactId } : {})` idiom at `ingestion.ts`).
+   */
+  allowCreate?: boolean;
 }): Promise<void> {
-  const { hatchet, logger, bucket, rowId, userId, userEmail, expiresAt } = opts;
+  const {
+    hatchet,
+    logger,
+    bucket,
+    rowId,
+    userId,
+    userEmail,
+    expiresAt,
+    allowCreate,
+  } = opts;
   const msUntilExpiry = Math.max(0, expiresAt.getTime() - Date.now());
   try {
     await hatchet.events.push("bucket:arm-expiry", {
@@ -575,6 +640,7 @@ async function armExpiryTimer(opts: {
       userEmail,
       armedExpiresAt: expiresAt.toISOString(),
       msUntilExpiry,
+      ...(allowCreate === false ? { allowCreate: false } : {}),
     });
   } catch (err) {
     logger.warn("Bucket fast-expiry arm failed (cron backstop covers it)", {
