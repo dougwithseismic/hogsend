@@ -14,7 +14,26 @@ import {
 } from "../../lib/user-token.js";
 
 export type FeedRecipient =
-  | { ok: true; recipientKey: string; contactId?: string }
+  | {
+      ok: true;
+      recipientKey: string;
+      contactId?: string;
+      /**
+       * D1 REFUSAL verdict for the feed's OWN re-ingests (`emitMarkEvents`,
+       * `inapp.feed_cleared`), threaded to their `ingestEvent({ allowCreate })`.
+       * `false` ⇒ this recipient is an UNSEEN anonymous visitor: no live contact
+       * owns their anon id, so a re-ingest keyed on it is pure OBSERVATION and
+       * must not mint. Omitted (⇒ create as before) on every identity-asserting
+       * arm — a token/secret `userId`/`email`, or an anon id that already owns a
+       * row (`contactId` is then set and the resolve pins to it).
+       *
+       * Set ONLY on the anon arm, where D8 holds: `recipientKey` IS the raw
+       * `anonymousId`, which is exactly the key the create arm would have made
+       * canonical, so a refused re-ingest and a creating one agree byte-for-byte
+       * and no history is stranded.
+       */
+      allowCreate?: boolean;
+    }
   | { ok: false; status: 400 | 403; error: string };
 
 export interface FeedRecipientParams {
@@ -120,6 +139,12 @@ export async function resolveFeedRecipient(
       ok: true,
       recipientKey: params.anonymousId,
       contactId: anonRow[0]?.id,
+      // No row to pin to ⇒ the provenance pin cannot save us: an unpinned
+      // re-ingest keyed on this anon id would MINT `external_id = <anonId>`,
+      // the very ghost `sendFeedItem` just refused (D1/PRD 02 site 3), and the
+      // next poll would 403 on it. Refuse instead — legal here and only here,
+      // because `recipientKey` is the raw `anonymousId` (D8).
+      ...(anonRow[0] ? {} : { allowCreate: false }),
     };
   }
 

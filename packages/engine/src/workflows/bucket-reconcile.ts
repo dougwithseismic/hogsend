@@ -209,6 +209,15 @@ export interface BucketArmExpiryInput extends JsonObject {
   armedExpiresAt: string;
   /** ms from arming to the deadline (the durable sleep). */
   msUntilExpiry: number;
+  /**
+   * D1 creation guard inherited from the ingest that armed this timer, present
+   * ONLY when that ingest REFUSED (`armExpiryTimer` omits the key otherwise, so
+   * an unset value keeps today's create-by-default semantics and no JSON null
+   * crosses the wire). Forwarded into the leave `emitBucketTransition` below —
+   * the one thing that keeps the woken timer from minting the phantom the
+   * synchronous emits already refuse (issue #608, D11 category (iii)).
+   */
+  allowCreate?: boolean;
 }
 
 export const bucketExpiryTask = hatchet.durableTask({
@@ -290,6 +299,15 @@ export const bucketExpiryTask = hatchet.durableTask({
       // unforgeable engine-internal provenance the pin requires. A value
       // lookup here would re-implement exactly the resolution the pin exists
       // to bypass. Degrades to the pre-pin resolve.
+      //
+      // The inherited `allowCreate` IS admissible over that same forgeable
+      // channel, because its two values are not symmetric in blast radius: a
+      // forged `false` can only ever SUPPRESS a write, costing at most a
+      // contact the refused ingest would not have created anyway, while a
+      // forged `true` is byte-identical to the default this task already had.
+      // Neither can fold a transition into a victim's row the way a forged id
+      // can — so the boolean rides, and the id stays off the wire.
+      allowCreate: input.allowCreate,
       epoch: flipped.entryCount,
       source: "reconcile",
       // Fast-expiry is a criteria re-confirm leave (Section 6.7).

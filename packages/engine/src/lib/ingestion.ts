@@ -588,10 +588,18 @@ export async function ingestEvent(opts: {
   // path has NO idempotency key, so a thrown error + ingest retry would
   // DOUBLE-insert the event) — a group-write hiccup must never fail an
   // already-stored event.
-  // Site 1: SKIPPED on a refusal. `group_memberships.contact_id` is a uuid FK to
-  // a row that does not exist, so there is no association to make — an anonymous
-  // browser event's `groups` map is association-only anyway, and the property
-  // writes it can never perform are secret-key-only.
+  // The `contactId !== null` arm is a TYPE guard, not a policy one:
+  // `group_memberships.contact_id` is a uuid FK, so there is nothing to join a
+  // refusal to. It must never BECOME the policy, because a silently-dropped
+  // association is exactly the regression D10 exists to prevent. What keeps it
+  // a type guard is enforced at the BOUNDARIES, not here: `/v1/events` is the
+  // only producer that can carry a `groups` map into an ingest that may refuse,
+  // and it carves `groups` out of `observationOnly` (routes/events/index.ts) so
+  // such an event keeps creating. Every other refusing caller — `/v1/t/arrive`
+  // and the D11 derived re-ingests (bucket emits, feed marks / `feed_cleared`,
+  // `ctx.trigger`, the holdout emit) — builds its own event and carries no
+  // `groups` map at all. ANY new refusing caller that can carry `groups` must
+  // carve it out at its own boundary rather than leaning on this branch.
   if (
     contactId !== null &&
     event.groups &&

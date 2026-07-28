@@ -342,6 +342,10 @@ async function handleJoin(opts: {
   // is written. The cron remains the authoritative backstop, so a push failure
   // is best-effort. We arm against the persisted expiresAt so the timer's CAS on
   // wake matches the row (or no-ops if a later event re-armed the window).
+  // `allowCreate` rides along because the timer's eventual leave emit is a
+  // re-ingest DERIVED from this (possibly refused) event — D11 applies to the
+  // ASYNCHRONOUS producer exactly as it does to the two synchronous ones. The
+  // `contactId` pin deliberately does NOT (see `bucketExpiryTask`).
   if (bucket.fastExpiry && expiresAt) {
     await armExpiryTimer({
       hatchet,
@@ -351,6 +355,7 @@ async function handleJoin(opts: {
       userId,
       userEmail,
       expiresAt,
+      allowCreate,
     });
   }
 
@@ -564,6 +569,12 @@ function withinMinDwell(
  * by `checkBucketMembership`, so arming does NOT re-enter bucket evaluation.
  * Best-effort: the cron is the authoritative backstop, so a push failure is logged
  * and swallowed.
+ *
+ * The arm payload is the ONLY channel between this join and the leave the woken
+ * task emits, so the inherited D1 refusal has to ride it — otherwise the timer's
+ * `emitBucketTransition` re-resolves the anon canonical key create-on-miss and
+ * mints the `external_id = <anonId>` phantom twin the synchronous emits were
+ * already taught to refuse (issue #608, D11 category (iii)).
  */
 async function armExpiryTimer(opts: {
   hatchet: HatchetClient;
@@ -573,8 +584,25 @@ async function armExpiryTimer(opts: {
   userId: string;
   userEmail: string | null;
   expiresAt: Date;
+  /**
+   * D1 creation guard inherited from the originating ingest via `handleJoin`.
+   * Carried on the wire ONLY when `false`: an omitted key keeps today's
+   * create-by-default semantics for every producer that legitimately creates
+   * and keeps a JSON null off a Hatchet payload (the
+   * `...(contactId !== null ? { contactId } : {})` idiom at `ingestion.ts`).
+   */
+  allowCreate?: boolean;
 }): Promise<void> {
-  const { hatchet, logger, bucket, rowId, userId, userEmail, expiresAt } = opts;
+  const {
+    hatchet,
+    logger,
+    bucket,
+    rowId,
+    userId,
+    userEmail,
+    expiresAt,
+    allowCreate,
+  } = opts;
   const msUntilExpiry = Math.max(0, expiresAt.getTime() - Date.now());
   try {
     await hatchet.events.push("bucket:arm-expiry", {
@@ -584,6 +612,7 @@ async function armExpiryTimer(opts: {
       userEmail,
       armedExpiresAt: expiresAt.toISOString(),
       msUntilExpiry,
+      ...(allowCreate === false ? { allowCreate: false } : {}),
     });
   } catch (err) {
     logger.warn("Bucket fast-expiry arm failed (cron backstop covers it)", {
