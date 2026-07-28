@@ -157,7 +157,16 @@ export interface JourneyTestOptions {
 export interface MailboxMessage {
   channel: "email" | "sms";
   to: string;
-  template: string;
+  /**
+   * Widened across BOTH channels on purpose — one mailbox carries email and
+   * SMS messages, so this cannot be either channel's key union alone. Both
+   * degrade to `string` for a consumer who has registered no templates, so an
+   * unaugmented app is unaffected. Narrow at the point of use: the per-channel
+   * history rows ({@link TestEmailHistory}, {@link TestSmsHistory}) take the
+   * channel's own union, and the harness feeds those from the send effect
+   * rather than from this field.
+   */
+  template: EmailTemplateKey | SmsTemplateKey;
   subject?: string;
   props: Record<string, unknown>;
   sentAt: string;

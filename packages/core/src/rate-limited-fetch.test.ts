@@ -187,8 +187,13 @@ describe("createRateLimitedFetch", () => {
 });
 
 describe("createRateLimitedFetch — public core export", () => {
+  // Pulls the WHOLE core barrel, which on a cold CI runner (no warm module
+  // cache, transpiling every re-export on first touch) comfortably exceeds
+  // vitest's 5s default — it timed out in CI while passing locally. The import
+  // cost is the point of the test, so raise the budget rather than reach for a
+  // narrower import that would stop proving the barrel re-exports it.
   it("is exported from the @hogsend/core barrel", async () => {
     const core = await import("./index.js");
     expect(typeof core.createRateLimitedFetch).toBe("function");
-  });
+  }, 30_000);
 });

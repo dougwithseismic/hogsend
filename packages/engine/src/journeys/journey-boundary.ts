@@ -1,4 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { EmailTemplateKey, SmsTemplateKey } from "@hogsend/core/types";
+// The augmentation that narrows those keys must load wherever this type is
+// visible, or they silently stay `string`.
+import "./template-key-augmentation.js";
 
 /**
  * The minimal slice of Hatchet's `DurableContext` the boundary needs for its
@@ -18,7 +22,14 @@ export interface HatchetMemoCtx {
 export interface JourneyEmailEffect {
   to: string;
   userId: string;
-  template: string;
+  /**
+   * `sendEmail` already types its input against the template registry, so
+   * declaring this `string` threw that away at the boundary and forced every
+   * consumer of the effect (the test harness's history rows, notably) to
+   * either re-widen or cast. Degrades to `string` for a consumer who has
+   * registered no templates, exactly as the send path does.
+   */
+  template: EmailTemplateKey;
   subject?: string;
   props: Record<string, unknown>;
   category: string;
@@ -30,7 +41,8 @@ export interface JourneyEmailEffect {
 export interface JourneySmsEffect {
   to: string;
   userId: string;
-  template: string;
+  /** SMS twin of {@link JourneyEmailEffect.template}. */
+  template: SmsTemplateKey;
   props: Record<string, unknown>;
   category: string;
   journeyName?: string;
