@@ -68,3 +68,21 @@ Seams: GHCR credentials; docker daemon on the build host (local dev: user's Dock
    deploy. _Boundary:_ apps/cloud (+ scripts). _Depends:_ 1, 2.
 
 ## Implementation Notes
+Shipped in 3 commits (T1 scaffold Dockerfile + parameterized preflight; T2 publish intake;
+T3 build pipeline). 663 cloud tests at close. T1 verified by real scaffold→build→preflight
+plus mutation tests; Railway TOMLs pin the DOCKERFILE builder + direct node/tsx commands
+(pnpm at runtime crash-loops the non-root image). T2: tokens sha256-at-rest with
+constant-time accept, minted in the env-create transaction; single-flight = one RUNNING
+build per env with a bounded queue (depth 3, 429 past it) after review caught the 409
+refusal contradicting EARS 3 (and a test named for the opposite of what it asserted);
+artifacts GC'd on terminal transition + env removal. T3: ImageStore seam (Fake + Docker
+via injectable exec, `--platform linux/amd64`, registry-less = honest local-only mode),
+hardened in-process ustar reader (traversal/link/device refusal, caps), build task walks
+the guarded machine, sweep reaps stale builds AND parks a mid-deploy stack
+(`publishing → error`) so nothing wedges. Review caught a BLOCKING tenant-RCE: the
+archive's own `scripts/preflight.sh` ran on the build host with full control-plane env —
+now the template's script always overwrites it and the gate runs under an env allowlist
+with a 20-min process-group-killing timeout. Live proof: `build:default-image` produced
+`hogsend-default:0.57.0`, preflight PASSED all three modes. Deferred: `waitForDeploy` on
+the substrate seam (deploys are trigger-only; health-poll observes), multi-arch images,
+GHCR push (seam: registry credential + `CLOUD_IMAGE_REGISTRY`).
