@@ -272,6 +272,8 @@ export async function evaluateTargeting(
     ctx: {
       db: ctx.db,
       userId: ctx.userId,
+      // PRD 05: real contactId wired when this subsystem's read batch flips
+      contactId: null,
       // `email_engagement` leaves look up `email_sends.to_email` — key it on the
       // contact's ACTUAL email (from the loaded snapshot), never the contactKey
       // (which is external_id/anonymous_id/id, never an address).

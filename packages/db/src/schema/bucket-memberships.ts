@@ -74,6 +74,28 @@ export const bucketMemberships = pgTable(
     uniqueIndex("uq_user_bucket_active")
       .on(table.userId, table.bucketId)
       .where(sql`status = 'active' AND deleted_at IS NULL`),
+    // PRD 05 T3 — the CONTACT-scoped twin of uq_user_bucket_active. Adoption
+    // stamps `contact_id` WITHOUT rewriting `user_id`, so two string keys can
+    // both become the same contact and hold two ACTIVE rows for one bucket; the
+    // string index above permits that and a `contact_id` read would then see a
+    // double membership. Same partial predicate, same re-entrancy: "left" rows
+    // sit outside it, so oscillating join → leave → join stays legal.
+    //
+    // `contact_id IS NOT NULL` in the predicate is LOAD-BEARING: contactless
+    // memberships are permanent and supported (`bucket_memberships` is
+    // text-keyed with no contact FK — a contactless subject is a first-class
+    // member), so anonymous visitors must stay outside this index and keep
+    // getting their uniqueness from uq_user_bucket_active.
+    //
+    // All three writers (`checkBucketMembership`, `bucket-reconcile`,
+    // `bucket-backfill`) insert with an ARBITER-LESS `ON CONFLICT DO NOTHING`,
+    // which absorbs a violation of EITHER index into the same "lost the race /
+    // already a member" branch. Do not narrow those to a column target.
+    uniqueIndex("uq_contact_bucket_active")
+      .on(table.contactId, table.bucketId)
+      .where(
+        sql`contact_id IS NOT NULL AND status = 'active' AND deleted_at IS NULL`,
+      ),
     index("bucket_memberships_bucket_id_status_idx").on(
       table.bucketId,
       table.status,

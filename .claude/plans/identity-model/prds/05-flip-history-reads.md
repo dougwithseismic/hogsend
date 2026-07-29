@@ -36,6 +36,25 @@ F1 (the `NULLS DISTINCT` arbiter trap) was re-verified end to end against the cu
 **unchanged**: the partial unique indexes, the enrollment upsert target, the preferences arbiter and
 PG18's default all still hold, and the contactless test is still specified first.
 
+## Re-anchoring (2026-07-28, post-0.59, HEAD `3a8239cc`)
+
+A full census re-derivation after PRD 04 shipped (0.58.0/0.59.0) and `origin/main` was merged back —
+bringing the #623-#625 bucket fixes, which are sibling work this PRD's census predates. The advisory
+pass's `e9c7c10f` is not an ancestor of this branch; everything below is measured at HEAD. Numeric
+corrections are applied in place throughout this document; this table records the deltas and the two
+scope changes.
+
+| # | Correction |
+| --- | --- |
+| R1 | **Total is 160, not 159.** PR #625 (`199f4b23`) added one `bucketMemberships.userId` site: `workflows/bucket-reconcile.ts:749`, a raw-SQL EXISTS subquery joining `coalesce(c.external_id, c.anonymous_id, c.id::text)` to `bm.user_id`. It belongs to T5 → T5 = 44, drizzle total = 131 |
+| R2 | **D8 is now a per-site audit, not a blanket patch.** #625 already rewrote the four `bucket-access.ts` joins from `eq(contacts.externalId, …)` to `eq(contactKeySql(), …)` — the widening D8 wanted to defer has SHIPPED there, and adding `isNotNull(contacts.externalId)` at those sites today would regress it. `routes/admin/events.ts:79` was mischaracterized from the start (its LATERAL already ORs all three key shapes). The two `bucket-backfill.ts` userEvents joins (now `:479-480`, `:497`) are still genuinely narrow and DO need the preservation treatment. Rule: classify each D8 site as already-wide (flip to the FK join, no `isNotNull`) or still-narrow (`isNotNull` + file the widening) before flipping it |
+| R3 | **`contactKeySql()` has 19 consumers across 6 files, not four**: `bucket-access.ts` ×4, `check-membership.ts` ×1, `bucket-backfill.ts` ×4, `bucket-reconcile.ts` ×5, `send-campaign.ts` ×1, plus ×4 in PRD 04's `backfill-contact-id.ts` (deliberately string-keyed — it is the machinery that populates `contact_id` FROM `user_id`). T9 item 6 rescoped: the helper does not die; it shrinks to that single permanent consumer |
+| R4 | **`ConditionContext` has 8 construction sites, not 4**: the three listed plus `buckets/check-membership.ts:253`, `workflows/bucket-backfill.ts:552`, and `workflows/bucket-reconcile.ts:259`, `:486`, `:1102` (bucket criteria evaluation). `flags.ts:437` is NOT a site — it builds an unrelated `TargetingEvalContext` that funnels into the single real site at `:274`. T1b's required-field approach enumerates all of these via `check-types` regardless, which is the point |
+| R5 | `ConditionContext`'s optional email field is named `email`, not `userEmail`. `evaluateTriggerConditions()` does not exist — `trigger.where` routes through the pure `evaluatePropertyConditions()` (no DB, no ConditionContext); out of scope either way |
+| R6 | The raw-SQL reproduce grep must add `t` to the alias set AND exclude `workflows/backfill-contact-id.ts` — its 4 `t.user_id` sites are PRD 04 machinery, permanently string-keyed |
+| R7 | Line-anchor drift: every `lib/contacts.ts` anchor is stale by ≈ +464 (file is now 2769 lines; `contactKey` `:792`, `repointOwnHistory` `:2219`, call sites `:1131`/`:1522`/`:1571`/`:1890`); enrollment arbiter `execute-journey-run.ts:223`; preferences arbiter `lib/preferences.ts:141`; the three partial unique indexes at `journey-states.ts:72-73`, `bucket-memberships.ts:74-75`, `email-preferences.ts:34-37`; `admin/contacts.ts` raw hit `:389`. `enrollment-guards.ts`, `conditions/evaluate.ts`, `relations.ts` and EVERY named test anchor have zero drift. Builders re-grep; never trust a digit |
+| R8 | `routes/admin/events.ts` "6 UE" included a docblock mention at `:62`; real code sites are 5 (`:79,80,81,87,311`) — expect 5 edits in T7 |
+
 ## Measured surface (reproduce before starting)
 
 ```bash
@@ -46,10 +65,10 @@ for t in userEvents journeyStates bucketMemberships emailSends emailPreferences;
 done
 ```
 
-**130 drizzle-column sites**, not 133. The DECISIONS §2 figure of 48 for `user_events` counts the
-three self-references inside `packages/db/src/schema/user-events.ts` (`:19`, `:45`, `:57`), which PRD
-04 already owns; the other four table counts match exactly (journey_states 29, bucket_memberships 34,
-email_preferences 15, email_sends 7). Measured non-schema total: **45 + 29 + 34 + 15 + 7 = 130**.
+**131 drizzle-column sites** (was 130 before #625; R1). The DECISIONS §2 figure of 48 for
+`user_events` counts the three self-references inside `packages/db/src/schema/user-events.ts` (`:19`,
+`:45`, `:57`), which PRD 04 already owns; journey_states 29, bucket_memberships 35,
+email_preferences 15, email_sends 7. Measured non-schema total: **45 + 29 + 35 + 15 + 7 = 131**.
 
 **Plus a THIRD category that NO grep of either shape can see: indirect subject threading.**
 `ConditionContext` (`packages/core/src/conditions/evaluate.ts:8-10`) carries the subject as a bare
@@ -59,8 +78,11 @@ email_preferences 15, email_sends 7). Measured non-schema total: **45 + 29 + 34 
 | File | Site |
 | --- | --- |
 | `packages/engine/src/workflows/journey-blueprint-interpreter.ts` | `:373` — `ctx: { db, userId: user.id, … }` for `conditional` nodes |
-| `packages/engine/src/lib/flags.ts` | `:274` and `:437` — server-mode flag targeting |
+| `packages/engine/src/lib/flags.ts` | `:274` — server-mode flag targeting (the ONLY flags site; `:437` builds an unrelated `TargetingEvalContext` that funnels into it, R4) |
 | `packages/engine/src/lib/agent/tools.ts` | `:294-300` — audience preview (already holds the contact row `c` and passes `contactKey(c)`) |
+| `packages/engine/src/buckets/check-membership.ts` | `:253-255` — bucket criteria evaluation (R4) |
+| `packages/engine/src/workflows/bucket-backfill.ts` | `:552-559` — backfill criteria matcher (R4) |
+| `packages/engine/src/workflows/bucket-reconcile.ts` | `:259-261`, `:486-488`, `:1102-1104` — reconcile leave/join checks (R4) |
 
 This matters precisely BECAUSE it is invisible: after T9 deletes `repointOwnHistory`, the evaluator's
 subject arm sees only rows written under the key it was handed, so a blueprint `conditional`, a
@@ -70,7 +92,7 @@ word "blueprint" appeared nowhere in an earlier revision of this PRD.
 
 **Do not solve this with a wider grep.** Add `contactId: string | null` to `ConditionContext` as a
 **REQUIRED** field, so `check-types` enumerates every caller for you and the compiler, not a regex,
-is what proves the census is complete. Explicitly NOT optional: the adjacent `userEmail` field
+is what proves the census is complete. Explicitly NOT optional: the adjacent `email` field
 (`:11-18`) was added as optional-with-a-fallback and its own docblock now has to warn callers to
 "pass it explicitly (even `null`)" — that is the failure mode repeating itself. A required field
 cannot be forgotten.
@@ -90,7 +112,9 @@ templates with table aliases rather than drizzle column references:
 | `apps/api/src/workflows/gtm-score.ts` | 1 (`:274`) | `e.user_id` |
 
 Reproduce with `grep -rnE "\b(js|ue|ep|bm|es|e)\.user_id\b" --include="*.ts" packages apps`.
-**True surface: 159 sites.** `check-types` catches the 130 and none of the 29 — the raw-SQL ones are
+(Adding `t` to the alias set also surfaces PRD 04's `workflows/backfill-contact-id.ts` — 4 sites,
+deliberately string-keyed, permanently excluded; R6.)
+**True surface: 160 sites.** `check-types` catches the 131 and none of the 29 — the raw-SQL ones are
 strings and will compile clean while returning zero rows.
 
 **Minus 3 that are not code.** `apps/docs/app/(home)/recipes/_data/weekly-digest.ts:78,92` and
@@ -103,7 +127,7 @@ and the compiler is blind to them.
 | Batch | Files (sites) |
 | --- | --- |
 | T4 journey runtime | `journeys/journey-context.ts` (5 UE + 1 JS), `journeys/execute-journey-run.ts` (3 JS), `lib/enrollment-guards.ts` (2 JS + 1 EP), `lib/ingestion.ts:942` (1 JS), `lib/flags.ts` (1 JS + 1 BM), `packages/core/src/conditions/event.ts:17` (1 UE) — **16** |
-| T5 buckets | `workflows/bucket-reconcile.ts` (5 UE + 11 BM), `workflows/bucket-backfill.ts` (9 UE + 6 BM), `buckets/bucket-access.ts` (6 BM), `buckets/check-membership.ts` (2 BM), `buckets/membership-epoch.ts` (1 BM), `workflows/send-campaign.ts:979,984` (2 BM), `routes/admin/buckets.ts:467` (1 BM) — **43** |
+| T5 buckets | `workflows/bucket-reconcile.ts` (5 UE + 12 BM, incl. the #625 EXISTS subquery at `:749`, R1), `workflows/bucket-backfill.ts` (9 UE + 6 BM), `buckets/bucket-access.ts` (6 BM), `buckets/check-membership.ts` (2 BM), `buckets/membership-epoch.ts` (1 BM), `workflows/send-campaign.ts:979,984` (2 BM), `routes/admin/buckets.ts:467` (1 BM) — **44** |
 | T6 email + preferences | `lib/tracking-events.ts` (3 JS + 1 ES), `lib/preferences.ts:104`, `lib/recipient-preferences.ts:28`, `workflows/send-campaign.ts:1064`, `routes/lists/index.ts:408,463`, `routes/email/preferences.ts:74`, `routes/admin/preferences.ts:107,141`, `routes/admin/contacts.ts:425`, `routes/admin/reporting.ts:288,420` — **14** |
 | T7 admin + agent reads | `routes/admin/events.ts` (6 UE), `routes/admin/timeline.ts` (2 UE + 4 JS), `routes/admin/emails.ts` (3 JS + 1 ES), `routes/admin/journeys.ts:748`, `routes/admin/groups.ts:868`, `routes/admin/bulk.ts:392`, `workflows/check-alerts.ts:79`, `lib/agent/tools.ts` (2 UE + 1 JS + 1 EP) — **22 drizzle** + the **29 raw-SQL** sites above |
 | T8 attribution + revenue | `lib/revenue.ts:96`, `lib/conversion-dispatch.ts:111`, `lib/attribution.ts:161`, `lib/attribution-backfill.ts:136`, `campaigns/cohort-sql.ts:166` — **5** |
@@ -273,6 +297,15 @@ DECISIONS §4 forbids bundling a behavioural change with a migration step. **Add
 file the widening as its own issue. It is probably the most valuable bug this whole re-model surfaces
 and it deserves its own PR, its own test and its own line in a changeset.
 
+> **Re-audited 2026-07-28 (R2) — the paragraph above is now wrong at most of its own sites.** #625
+> already rewrote the four `bucket-access.ts` joins to `eq(contactKeySql(), …)`: they are WIDE today,
+> so "preserve today's result set" at those sites means the FK join with NO `isNotNull` — adding it
+> would regress a shipped fix. `routes/admin/events.ts:79` was always wide (its LATERAL ORs all three
+> key shapes). `bucket-backfill.ts`'s two userEvents joins (now `:479-480`, `:497`) are still
+> genuinely narrow and keep the `isNotNull` preservation + filed widening. Every remaining D8 site
+> must be classified already-wide vs still-narrow at flip time, against the code as it stands, not
+> against this section's original description.
+
 ### D9 — Hatchet payloads, CEL filters and the admin API keep their string `userId`.
 
 Not DB reads, so not in scope, and each is a trap that looks in-scope:
@@ -328,9 +361,13 @@ first flipped read loses anon history. **T9 (deletions) must ship last**, after 
 `user_id`.
 
 ### T1 — `bySubject` helper + drizzle relations
-_Boundary:_ `packages/engine` (+ `packages/db` for relations) · _Depends:_ PRD 04
+_Boundary:_ `packages/core` + `packages/db` (+ `packages/engine` re-export) · _Depends:_ PRD 04
 
-Add and export the D2 helper. Flip the four `relations()` declarations in
+Add and export the D2 helper. **Placement amendment (2026-07-28):** D2 says the helper lives in
+`packages/engine/src/lib/`, but `conditions/event.ts` — a T1b flip site — is in `@hogsend/core`,
+which cannot import the engine. So `bySubject` lives in `@hogsend/core` (which already imports
+`@hogsend/db/schema`), exported from core's index and re-exported by `@hogsend/engine` so engine
+call sites import it from the engine surface as D2 intended. Flip the four `relations()` declarations in
 `packages/db/src/schema/relations.ts:97,125,133,142` from `references: [contacts.externalId]` to
 `references: [contacts.id]` on the new `contactId` field.
 
@@ -349,10 +386,9 @@ _Depends:_ T1
 
 Add `contactId: string | null` to `ConditionContext` (`packages/core/src/conditions/evaluate.ts:8`)
 as a **REQUIRED** field, and thread it through the `event` / `email_engagement` / composite arms so
-the subject query uses `bySubject`. Then fix every construction site the compiler reports — the three
-known ones are `journey-blueprint-interpreter.ts:373`, `flags.ts:274` + `:437`, and
-`agent/tools.ts:294-300`, but **trust `check-types`, not that list**: the point of making it required
-is that the compiler finds sites no census could.
+the subject query uses `bySubject`. Then fix every construction site the compiler reports — the eight
+known ones are in the census table above (R4), but **trust `check-types`, not that list**: the point
+of making it required is that the compiler finds sites no census could.
 
 **Do this BEFORE T4-T8.** It is the task that converts an invisible surface into a visible one, and
 running it early means the remaining flips start from a type error list rather than a grep.
@@ -463,6 +499,8 @@ the write target, D9) · `journeys/journey-context.ts:470,479,678,817,1469,1542`
 
 `conditions/event.ts` is in `@hogsend/core`, whose `evaluateCondition` signature takes `ctx.userId`. It
 needs `ctx.contactId` threaded through — a public type change in `@hogsend/core`, therefore a changeset.
+Also wire real `contactId` values into this batch's R4 ConditionContext sites
+(`journey-blueprint-interpreter.ts:373`, `flags.ts:274`), which T1b left as explicit `null`.
 
 **Cost: medium, highest risk.** These sites govern enrollment, entry limits and exits. A wrong flip
 here double-enrolls or silently stops exiting.
@@ -473,10 +511,11 @@ register as `U`, assert a `once` journey refuses entry. That test fails today if
 without T2, which is the proof the ordering is right. Also assert `ingestEvent` still exits an active
 journey for a contactless subject (the `bySubject` else-arm).
 
-### T5 — flip the bucket subsystem (43 sites)
+### T5 — flip the bucket subsystem (44 sites)
 _Boundary:_ `packages/engine` · _Depends:_ T3
 
-`workflows/bucket-reconcile.ts` (16) · `workflows/bucket-backfill.ts` (15) ·
+`workflows/bucket-reconcile.ts` (17, incl. the #625 EXISTS subquery at `:749`, R1) ·
+`workflows/bucket-backfill.ts` (15) ·
 `buckets/bucket-access.ts` (6) · `buckets/check-membership.ts:223,535` ·
 `buckets/membership-epoch.ts:39` · `workflows/send-campaign.ts:979,984` ·
 `routes/admin/buckets.ts:467`.
@@ -486,10 +525,13 @@ count, it is that `bucket-reconcile.ts` and `bucket-backfill.ts` are set-based b
 chunked `inArray(<t>.userId, chunk)` paging (`bucket-backfill.ts:252,276`) and
 `groupBy(<t>.userId)` aggregation (`:255,279,463,497`). Every chunk boundary, every `groupBy` key and
 every `selectDistinct` projection changes type from `string` to `uuid`, and the aggregate results feed
-downstream maps keyed by that value. Nine of the eleven D8 identity joins are in this batch.
+downstream maps keyed by that value. Most of the D8 identity joins are in this batch — classify each
+per the R2 re-audit before flipping it.
 
-Consider splitting T5 into T5a (the two workflow files, 31 sites) and T5b (accessor + membership +
-campaign + admin, 12 sites) if review latency becomes the bottleneck. They are independent: the
+Consider splitting T5 into T5a (the two workflow files, 32 sites) and T5b (accessor + membership +
+campaign + admin, 12 sites) if review latency becomes the bottleneck. Also wire real `contactId`
+values into this batch's R4 ConditionContext sites (`check-membership.ts:253`,
+`bucket-backfill.ts:552`, `bucket-reconcile.ts:259/:486/:1102`), which T1b left as explicit `null`. They are independent: the
 workflows write memberships, the accessor reads them.
 
 **Tested by:** engine bucket tests plus a fixture where an event-count bucket is entered under an anon
@@ -538,7 +580,8 @@ three-way priority `case` — the flip DELETES that whole construct, since `cont
 directly. That is the clearest single illustration of the win and worth calling out in the PR.
 
 **Cost: medium-large**, dominated by the raw SQL needing per-query reading rather than mechanical
-replacement.
+replacement. Also wire the real `contactId` into this batch's R4 ConditionContext site
+(`agent/tools.ts:294-300`, which already holds the contact row), left as explicit `null` by T1b.
 
 **Tested by:** each admin route already has route tests; assert unchanged response bodies against a
 seeded fixture (golden-ish). For the raw-SQL analytics queries, assert a **non-zero** count on a
@@ -585,8 +628,11 @@ Only after every read is off `user_id`:
    call. This is the deletion that removes the class of bug #621 existed to fix.
 4. `anonAliasAlreadyHeld` — already gone; PRD 03 deleted it (D7, closed).
 5. `mergedKeys` / `mergedIdentifiedKeys` — **kept** (D3).
-6. `contactKeySql()` — has exactly four consumers, all in the two bucket workflow files, which T5
-   flips. It dies here, as hoped.
+6. `contactKeySql()` — **not deleted** (rescoped, R3). It has 15 in-scope consumers across 5 files
+   (`bucket-access.ts` ×4, `check-membership.ts` ×1, `bucket-backfill.ts` ×4, `bucket-reconcile.ts`
+   ×5, `send-campaign.ts` ×1) — all in files T5 flips, so verify each is gone after T5 rather than
+   assuming four — plus 4 permanent calls in PRD 04's `backfill-contact-id.ts`, which keys on
+   strings by design. The helper survives with that single consumer; it dies with PRD 07, not here.
 
 **Tested by:** one commit per deletion so a bisect names the culprit, with
 `contacts-no-create.test.ts` AND `contacts-many-keys.test.ts` green throughout. Mutation proof for
@@ -660,8 +706,9 @@ the string key stale, so a reverted binary reads exactly what it wrote.
 
 ## Done when
 
-- All 130 drizzle sites and all 29 raw-SQL sites are either flipped or explicitly documented as
-  deliberately still on `user_id` (D9's write targets, `demo-seed.ts`, `cohort-sql.ts:166`).
+- All 131 drizzle sites and all 29 raw-SQL sites are either flipped or explicitly documented as
+  deliberately still on `user_id` (D9's write targets, `demo-seed.ts`, `cohort-sql.ts:166`,
+  `backfill-contact-id.ts`).
 - `grep -rn "\.userId" packages/engine/src/lib/enrollment-guards.ts packages/engine/src/buckets/`
   returns only write sites.
 - The full gate set from DECISIONS §5 is green, including

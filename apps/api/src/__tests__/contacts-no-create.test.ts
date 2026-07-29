@@ -51,6 +51,8 @@ const LINK_USER = `${RUN}-link-user`;
 // ---- collide-MERGE case ----
 const MERGE_USER = `${RUN}-merge-user`;
 const MERGE_ANON = `${RUN}-merge-anon`;
+const MERGE_EMAIL = `${RUN}-merge@example.com`;
+const MERGE_JOURNEY = `${RUN}-merge-journey`;
 
 // ---- resolveOrCreateContact still-creates control ----
 const CTRL_ANON = `${RUN}-ctrl-anon`;
@@ -200,6 +202,12 @@ describe("resolveContactNoCreate", () => {
     createdContactIds.push(seeded.id);
     expect(seeded.created).toBe(true);
 
+    // One pre-alias-era history row: keyed on the anon string, owner column
+    // still NULL. The canonical-key flip below must carry it on BOTH axes.
+    await db
+      .insert(userEvents)
+      .values({ userId: LINK_ANON, event: "link.viewed" });
+
     const r = await resolveContactNoCreate({
       db,
       userId: LINK_USER,
@@ -220,6 +228,19 @@ describe("resolveContactNoCreate", () => {
     )[0];
     expect(row?.externalId).toBe(LINK_USER);
     expect(row?.anonymousId).toBe(LINK_ANON);
+
+    // T2 — no residual under the old key, and the row now names its owner.
+    const eventsOld = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, LINK_ANON));
+    expect(eventsOld).toHaveLength(0);
+    const eventsNew = await db
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
+      .from(userEvents)
+      .where(eq(userEvents.userId, LINK_USER));
+    expect(eventsNew).toHaveLength(1);
+    expect(eventsNew[0]?.contactId).toBe(seeded.id);
   });
 
   it("collide-MERGEs two existing contacts exactly as the creating sibling does", async () => {
@@ -231,6 +252,40 @@ describe("resolveContactNoCreate", () => {
     const anon = await resolveOrCreateContact({ db, anonymousId: MERGE_ANON });
     createdContactIds.push(anon.id);
     expect(identified.id).not.toBe(anon.id);
+
+    // History on the LOSER's key in both ownership states the merge has to
+    // handle: already OWNED by the loser (only the merge may overwrite that —
+    // the adoption stamp's NULL guard deliberately will not), and unowned.
+    await db.insert(userEvents).values({
+      userId: MERGE_ANON,
+      event: "merge.owned",
+      contactId: anon.id,
+    });
+    await db
+      .insert(userEvents)
+      .values({ userId: MERGE_ANON, event: "merge.unowned" });
+    // A fold, not a blind rewrite: the loser's pref collides with the
+    // survivor's on uq(user_id, email), so ONE row survives — and it is the
+    // SURVIVOR's row, which here is the legacy unstamped one.
+    await db.insert(emailPreferences).values({
+      userId: MERGE_ANON,
+      email: MERGE_EMAIL,
+      unsubscribedAll: true,
+      contactId: anon.id,
+    });
+    await db.insert(emailPreferences).values({
+      userId: MERGE_USER,
+      email: MERGE_EMAIL,
+      unsubscribedAll: false,
+    });
+    await db.insert(journeyStates).values({
+      userId: MERGE_ANON,
+      userEmail: MERGE_EMAIL,
+      journeyId: MERGE_JOURNEY,
+      currentNodeId: "start",
+      status: "active",
+      contactId: anon.id,
+    });
 
     const r = await resolveContactNoCreate({
       db,
@@ -248,6 +303,44 @@ describe("resolveContactNoCreate", () => {
     const live = await liveContactsForKeys([MERGE_ANON]);
     expect(live).toHaveLength(1);
     expect(live[0]?.id).toBe(identified.id);
+
+    // T2 — nothing may end this operation still pointing at the soft-deleted
+    // loser. Both the owned and the unowned event land on the survivor.
+    const eventsLoser = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, MERGE_ANON));
+    expect(eventsLoser).toHaveLength(0);
+    const eventsSurvivor = await db
+      .select({ event: userEvents.event, contactId: userEvents.contactId })
+      .from(userEvents)
+      .where(eq(userEvents.userId, MERGE_USER));
+    expect(eventsSurvivor).toHaveLength(2);
+    for (const e of eventsSurvivor) {
+      expect(e.contactId).toBe(identified.id);
+    }
+
+    // The folded pref: one surviving row, the loser's unsubscribe preserved,
+    // and the survivor's previously-unstamped row now names its owner.
+    const prefs = await db
+      .select()
+      .from(emailPreferences)
+      .where(eq(emailPreferences.email, MERGE_EMAIL));
+    expect(prefs).toHaveLength(1);
+    expect(prefs[0]?.userId).toBe(MERGE_USER);
+    expect(prefs[0]?.unsubscribedAll).toBe(true);
+    expect(prefs[0]?.contactId).toBe(identified.id);
+
+    const states = await db
+      .select({
+        userId: journeyStates.userId,
+        contactId: journeyStates.contactId,
+      })
+      .from(journeyStates)
+      .where(eq(journeyStates.journeyId, MERGE_JOURNEY));
+    expect(states).toHaveLength(1);
+    expect(states[0]?.userId).toBe(MERGE_USER);
+    expect(states[0]?.contactId).toBe(identified.id);
   });
 
   it("leaves resolveOrCreateContact creating on a miss (unchanged behavior)", async () => {
@@ -324,10 +417,15 @@ describe("create-arm history adoption", () => {
       .where(eq(userEvents.userId, T2_ANON));
     expect(eventsA).toHaveLength(0);
     const eventsU = await db
-      .select({ id: userEvents.id })
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
       .where(eq(userEvents.userId, T2_USER));
     expect(eventsU).toHaveLength(1);
+    // T2 — the adopted row must also be STAMPED with the adopting contact's
+    // uuid. The `user_id` string is what the read path uses today; `contact_id`
+    // is what it moves onto next, so a row that follows the person by string
+    // but not by uuid is a row the read-flip silently drops.
+    expect(eventsU[0]?.contactId).toBe(created.id);
 
     const statesA = await db
       .select({ id: journeyStates.id })
@@ -335,10 +433,11 @@ describe("create-arm history adoption", () => {
       .where(eq(journeyStates.userId, T2_ANON));
     expect(statesA).toHaveLength(0);
     const statesU = await db
-      .select({ id: journeyStates.id })
+      .select({ id: journeyStates.id, contactId: journeyStates.contactId })
       .from(journeyStates)
       .where(eq(journeyStates.userId, T2_USER));
     expect(statesU).toHaveLength(1);
+    expect(statesU[0]?.contactId).toBe(created.id);
 
     const membershipsA = await db
       .select({ id: bucketMemberships.id })
@@ -346,10 +445,14 @@ describe("create-arm history adoption", () => {
       .where(eq(bucketMemberships.userId, T2_ANON));
     expect(membershipsA).toHaveLength(0);
     const membershipsU = await db
-      .select({ id: bucketMemberships.id })
+      .select({
+        id: bucketMemberships.id,
+        contactId: bucketMemberships.contactId,
+      })
       .from(bucketMemberships)
       .where(eq(bucketMemberships.userId, T2_USER));
     expect(membershipsU).toHaveLength(1);
+    expect(membershipsU[0]?.contactId).toBe(created.id);
 
     const sendsA = await db
       .select({ id: emailSends.id })
@@ -357,10 +460,11 @@ describe("create-arm history adoption", () => {
       .where(eq(emailSends.userId, T2_ANON));
     expect(sendsA).toHaveLength(0);
     const sendsU = await db
-      .select({ id: emailSends.id })
+      .select({ id: emailSends.id, contactId: emailSends.contactId })
       .from(emailSends)
       .where(eq(emailSends.userId, T2_USER));
     expect(sendsU).toHaveLength(1);
+    expect(sendsU[0]?.contactId).toBe(created.id);
 
     const prefsA = await db
       .select({ id: emailPreferences.id })
@@ -374,6 +478,23 @@ describe("create-arm history adoption", () => {
     expect(prefsU).toHaveLength(1);
     // The suppression the anon key carried must survive the adoption.
     expect(prefsU[0]?.unsubscribedAll).toBe(true);
+    expect(prefsU[0]?.contactId).toBe(created.id);
+
+    // Re-running the SAME adoption is a no-op: the anon key is already the
+    // contact's, so nothing moves, nothing is re-stamped, and no phantom
+    // key-flip merge is reported to the analytics stitch.
+    const again = await resolveOrCreateContact({
+      db,
+      userId: T2_USER,
+      anonymousId: T2_ANON,
+    });
+    expect(again.id).toBe(created.id);
+    expect(again.mergedKeys).toBeUndefined();
+    const eventsUAgain = await db
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T2_USER));
+    expect(eventsUAgain).toEqual(eventsU);
 
     // Exactly one contact, canonical key = U.
     const live = await liveContactsForKeys([T2_ANON]);
@@ -464,10 +585,13 @@ describe("fill-in-link history adoption", () => {
       .where(eq(userEvents.userId, T3_ANON));
     expect(eventsA).toHaveLength(0);
     const eventsU = await db
-      .select({ id: userEvents.id })
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
       .where(eq(userEvents.userId, T3_USER));
     expect(eventsU).toHaveLength(1);
+    // T2 — adopted by the no-flip arm, so stamped by the adoption loop rather
+    // than by the canonical-key flip. Same requirement either way.
+    expect(eventsU[0]?.contactId).toBe(folded.id);
 
     const statesA = await db
       .select({ id: journeyStates.id })
@@ -475,10 +599,11 @@ describe("fill-in-link history adoption", () => {
       .where(eq(journeyStates.userId, T3_ANON));
     expect(statesA).toHaveLength(0);
     const statesU = await db
-      .select({ id: journeyStates.id })
+      .select({ id: journeyStates.id, contactId: journeyStates.contactId })
       .from(journeyStates)
       .where(eq(journeyStates.userId, T3_USER));
     expect(statesU).toHaveLength(1);
+    expect(statesU[0]?.contactId).toBe(folded.id);
 
     // Still exactly one contact — adoption must not mint a second row.
     const live = await liveContactsForKeys([T3_ANON]);
@@ -548,10 +673,13 @@ describe("second-device anon id", () => {
       .where(eq(userEvents.userId, T4_PHONE_ANON));
     expect(orphaned).toHaveLength(0);
     const adopted = await db
-      .select({ id: userEvents.id })
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
       .where(eq(userEvents.userId, T4_USER));
     expect(adopted).toHaveLength(1);
+    // T2 — the second device's orphaned row is stamped with the ONE contact
+    // both devices resolve to.
+    expect(adopted[0]?.contactId).toBe(laptop.id);
 
     // And the alias resolves: the phone's id now finds THIS contact rather than
     // minting a new one, which is what makes the link durable.
@@ -561,6 +689,15 @@ describe("second-device anon id", () => {
     });
     expect(relookup.created).toBe(false);
     expect(relookup.id).toBe(laptop.id);
+
+    // That re-resolve re-walks the adoption path for a key already adopted —
+    // it must change nothing (row identity AND stamp), or every page load from
+    // the second device rewrites history.
+    const afterRelookup = await db
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
+      .from(userEvents)
+      .where(eq(userEvents.userId, T4_USER));
+    expect(afterRelookup).toEqual(adopted);
   });
 });
 
@@ -589,9 +726,14 @@ describe("history adoption provenance", () => {
       userId: T5_VICTIM_USER,
     });
     createdContactIds.push(victim.id);
-    await db
-      .insert(userEvents)
-      .values({ userId: T5_VICTIM_USER, event: "victim.private" });
+    // Stamped with its real owner, as the dual-write does — so "unchanged"
+    // below is a load-bearing claim about WHOSE row it stays, not merely that
+    // a NULL stayed NULL.
+    await db.insert(userEvents).values({
+      userId: T5_VICTIM_USER,
+      event: "victim.private",
+      contactId: victim.id,
+    });
 
     // The attacker: a real signed-in contact of their own.
     const attacker = await resolveOrCreateContact({
@@ -612,10 +754,14 @@ describe("history adoption provenance", () => {
 
     // The victim's history must not have moved.
     const stillVictims = await db
-      .select({ id: userEvents.id })
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
       .where(eq(userEvents.userId, T5_VICTIM_USER));
     expect(stillVictims).toHaveLength(1);
+    // T2 — neither axis moves. The `user_id` string stayed put (above) AND the
+    // owner uuid still names the victim: adoption stamps only rows nobody owns,
+    // so even a mis-gated adoption cannot re-parent a second person's history.
+    expect(stillVictims[0]?.contactId).toBe(victim.id);
     const stolen = await db
       .select({ id: userEvents.id })
       .from(userEvents)
@@ -651,7 +797,7 @@ describe("history adoption provenance", () => {
     expect(created.created).toBe(true);
 
     const stillVictims = await db
-      .select({ id: userEvents.id })
+      .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
       .where(eq(userEvents.userId, T5_VICTIM_USER));
     expect(stillVictims).toHaveLength(1);
@@ -661,6 +807,19 @@ describe("history adoption provenance", () => {
       .where(eq(userEvents.userId, T5_FRESH_USER));
     expect(stolen).toHaveLength(0);
     expect(created.mergedKeys ?? []).not.toContain(T5_VICTIM_USER);
+
+    // T2 — the owner uuid is the second axis the refusal has to hold, and the
+    // create arm mints a brand-new contact, so a stamp that ignored the NULL
+    // guard would hand the victim's row to a contact that did not exist a
+    // moment ago.
+    const victimRow = (
+      await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.externalId, T5_VICTIM_USER))
+    )[0];
+    expect(stillVictims[0]?.contactId).toBe(victimRow?.id);
+    expect(stillVictims[0]?.contactId).not.toBe(created.id);
   });
 
   it("claims a second device's anon id ONCE, not on every resolve", async () => {

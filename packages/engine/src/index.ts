@@ -37,14 +37,18 @@ export type {
 // types) so content can import everything from `@hogsend/engine`.
 export * from "@hogsend/core";
 // --- Capability-provider contracts (canonical origin: @hogsend/core) ---
-// Email provider contract + analytics contract, re-exported so consumers can
-// import them from `@hogsend/engine`. (`SendEmailOptions` is intentionally
-// omitted here: the engine's public `SendEmailOptions` is the high-level
-// journey-facing send options from `./lib/email.js`; the provider-contract
-// `SendEmailOptions` remains available via `@hogsend/core`.)
+// Email provider contract + analytics contract, plus `bySubject` (the
+// either/or history scope every engine-side history read is expected to move
+// onto), re-exported so consumers can import them from `@hogsend/engine`.
+// (`SendEmailOptions` is intentionally omitted here: the engine's public
+// `SendEmailOptions` is the high-level journey-facing send options from
+// `./lib/email.js`; the provider-contract `SendEmailOptions` remains available
+// via `@hogsend/core`.)
 export {
+  bySubject,
   defineAnalyticsProvider,
   defineEmailProvider,
+  type Subject,
   WebhookHandshakeSignal,
 } from "@hogsend/core";
 export {

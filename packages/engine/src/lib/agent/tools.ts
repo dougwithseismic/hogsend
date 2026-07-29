@@ -296,6 +296,8 @@ export function buildAgentTools({
             ctx: {
               db,
               userId: contactKey(c),
+              // PRD 05: real contactId wired when this subsystem's read batch flips
+              contactId: null,
               journeyContext: (c.properties ?? {}) as Record<string, unknown>,
             },
           });

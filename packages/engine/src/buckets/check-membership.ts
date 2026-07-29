@@ -252,7 +252,13 @@ export async function checkBucketMembership(opts: {
     // sub-conditions read the merged journeyContext.
     const isMember = await evaluateCondition({
       condition: bucket.criteria,
-      ctx: { db, userId, journeyContext },
+      ctx: {
+        db,
+        userId,
+        // PRD 05: real contactId wired when this subsystem's read batch flips
+        contactId: null,
+        journeyContext,
+      },
     });
 
     if (!wasMember && isMember) {
@@ -327,10 +333,19 @@ async function handleJoin(opts: {
   const priorCount = await countPriorMemberships(db, bucket.id, userId);
   const epoch = priorCount + 1;
 
-  // INSERT a FRESH active row. ON CONFLICT DO NOTHING targets the partial active
+  // INSERT a FRESH active row. ON CONFLICT DO NOTHING covers the partial active
   // unique index (uq_user_bucket_active): a concurrent emitter that already
   // inserted the active row makes THIS insert return zero rows → we do NOT emit
   // (the loser mutates nothing — Section 6.3 governing rule).
+  //
+  // PRD 05 T3 — the DO NOTHING is deliberately ARBITER-LESS. Two partial unique
+  // indexes now guard this table (uq_user_bucket_active and its contact-scoped
+  // twin uq_contact_bucket_active), Postgres allows only ONE conflict target per
+  // statement, and both must land in the same "already a member" branch: the
+  // contact one is what catches an adopted row whose `user_id` still differs.
+  // Narrowing this to a column target would let that collision escape as a raw
+  // 23505 — and a target naming `contact_id` would additionally miss every
+  // contactless (NULL) member.
   const expiresAt = computeExpiresAt(bucket);
   // Unconditional TTL deadline — set once on join, swept by the reconcile cron.
   const maxDwellAt = computeMaxDwellAt(bucket);

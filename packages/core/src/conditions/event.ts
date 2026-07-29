@@ -1,6 +1,7 @@
 import { userEvents } from "@hogsend/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { durationToMs } from "../duration.js";
+import { bySubject } from "../subject.js";
 import type { EventCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
@@ -14,7 +15,10 @@ export async function evaluateEventCondition(opts: {
     .from(userEvents)
     .where(
       and(
-        eq(userEvents.userId, ctx.userId),
+        bySubject(userEvents, {
+          contactId: ctx.contactId,
+          userKey: ctx.userId,
+        }),
         eq(userEvents.event, condition.eventName),
         condition.within
           ? gte(

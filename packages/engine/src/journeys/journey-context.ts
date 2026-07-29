@@ -1462,7 +1462,13 @@ export function createJourneyContext(
             check: "exists",
             within,
           },
-          ctx: { db, userId: targetUserId, journeyContext },
+          ctx: {
+            db,
+            userId: targetUserId,
+            // PRD 05: real contactId wired when this subsystem's read batch flips
+            contactId: null,
+            journeyContext,
+          },
         });
         return { found: result.matched, count: result.count };
       },

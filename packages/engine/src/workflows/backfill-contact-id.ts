@@ -5,7 +5,7 @@ import {
   type Database,
   importJobs,
 } from "@hogsend/db";
-import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { contactKeySql } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
@@ -106,6 +106,10 @@ export interface ContactIdBackfillResult extends JsonObject {
   /** Alias VALUES owned by more than one live contact across the two permitted
    * kinds. Skipped, never guessed (D4); a non-zero count wants a human. */
   ambiguousAliases: number;
+  /** PRD 05 T3 — stale `email_preferences` rows whose opt-out state was folded
+   * into the contact's already-stamped row for the same address, and which were
+   * then deleted. The only rows this job ever removes. */
+  preferencesFolded: number;
   /** UPDATE statements issued. Observability for the pacing rule. */
   statements: number;
   reason?: string;
@@ -129,6 +133,118 @@ function positiveInt(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback;
 }
 
+/** The three tables migration 0071 gives a CONTACT-scoped partial unique index
+ * (PRD 05 T3). Everything below that special-cases a table keys off this set. */
+const CONTACT_SCOPED_TABLES = new Set<ContactIdBackfillTable>([
+  "journey_states",
+  "bucket_memberships",
+  "email_preferences",
+]);
+
+/**
+ * PRD 05 T3 — "the owning contact ALREADY holds a row that this row's stamp
+ * would duplicate", correlated to the row `t` and to an owner-id expression.
+ *
+ * The sweep is a FOURTH writer to the three contact-scoped unique indexes, and
+ * the only one whose rows start OUTSIDE them: `contact_id IS NULL` is outside
+ * every one of the three predicates, so it is the STAMP that moves a row in.
+ * When the contact already owns a stamped twin (same live journey, same live
+ * bucket, same address — exactly the population adoption creates by stamping
+ * `contact_id` without rewriting `user_id`) the stamp raises 23505, and this
+ * job's blanket catch would turn ONE such row into a failed job that abandons
+ * the whole sweep — which the boot / 24h re-enqueue then re-hits forever.
+ *
+ * Each arm reproduces its index's WHERE clause EXACTLY. Keep in sync with:
+ *   uq_contact_journey_active            packages/db/src/schema/journey-states.ts
+ *   uq_contact_bucket_active             .../bucket-memberships.ts
+ *   email_preferences_contact_email_idx  .../email-preferences.ts
+ */
+function contactScopedTwinExists(
+  table: ContactIdBackfillTable,
+  owner: SQL,
+): SQL {
+  switch (table) {
+    case "journey_states":
+      return sql`t.status IN ('active', 'waiting') AND EXISTS (
+        SELECT 1 FROM journey_states x
+         WHERE x.contact_id = ${owner}
+           AND x.journey_id = t.journey_id
+           AND x.status IN ('active', 'waiting'))`;
+    case "bucket_memberships":
+      return sql`t.status = 'active' AND t.deleted_at IS NULL AND EXISTS (
+        SELECT 1 FROM bucket_memberships x
+         WHERE x.contact_id = ${owner}
+           AND x.bucket_id = t.bucket_id
+           AND x.status = 'active'
+           AND x.deleted_at IS NULL)`;
+    case "email_preferences":
+      return sql`EXISTS (
+        SELECT 1 FROM email_preferences x
+         WHERE x.contact_id = ${owner} AND x.email = t.email)`;
+    default:
+      return sql`false`;
+  }
+}
+
+/**
+ * PRD 05 T3 — the ONE fold this sweep performs. Everywhere else it only ever
+ * fills a NULL column; `email_preferences` earns the exception because a stale
+ * row left NULL is an OPT-OUT the flipped (contact-scoped) read will never see.
+ *
+ * Per stale-keyed NULL row whose contact already holds a row for the same
+ * address: fold the stale state into the TWIN under the merge path's
+ * `foldEmailPreferences` rule — OR the opt-outs (`unsubscribed_all`,
+ * `suppressed`), union the categories with the twin winning a conflict EXCEPT
+ * that FALSE always wins (an opt-out is never lost), which also means a grant
+ * the twin never heard of (a stale `sms: true` consent) survives — then DELETE
+ * the stale row so nothing is left outside the index. Never the other
+ * direction: the twin is the row the flipped read resolves.
+ *
+ * Postgres runs every data-modifying CTE exactly once and to completion whether
+ * or not the primary query reads it, so the fold lands before the delete; the
+ * two touch disjoint rows (the twin is stamped, the stale row is not).
+ */
+async function foldStalePreferences(opts: {
+  db: Database;
+  key: string;
+  contactId: string;
+}): Promise<number> {
+  const { db, key, contactId } = opts;
+  const rows = await db.execute<{ id: string }>(sql`
+    WITH stale AS (
+      SELECT p.id, p.email, p.unsubscribed_all, p.suppressed, p.suppressed_at,
+             p.bounce_count, p.last_bounce_at, p.categories
+        FROM email_preferences p
+       WHERE p.user_id = ${key}
+         AND p.contact_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM email_preferences t
+            WHERE t.contact_id = ${contactId}::uuid AND t.email = p.email
+         )
+    ), folded AS (
+      UPDATE email_preferences t
+         SET unsubscribed_all = t.unsubscribed_all OR s.unsubscribed_all,
+             suppressed       = t.suppressed OR s.suppressed,
+             suppressed_at    = least(t.suppressed_at, s.suppressed_at),
+             bounce_count     = greatest(t.bounce_count, s.bounce_count),
+             last_bounce_at   = least(t.last_bounce_at, s.last_bounce_at),
+             categories       = coalesce(s.categories, '{}'::jsonb)
+                             || coalesce(t.categories, '{}'::jsonb)
+                             || coalesce((
+               SELECT jsonb_object_agg(k.key, 'false'::jsonb)
+                 FROM jsonb_each(coalesce(s.categories, '{}'::jsonb)) k
+                WHERE k.value = 'false'::jsonb
+             ), '{}'::jsonb),
+             updated_at = now()
+        FROM stale s
+       WHERE t.contact_id = ${contactId}::uuid AND t.email = s.email
+    )
+    DELETE FROM email_preferences WHERE id IN (SELECT id FROM stale)
+    RETURNING id
+  `);
+  return rows.length;
+}
+
 /**
  * PASS 1, one table, one contact. The PRD's verbatim statement (D3), looped
  * until it affects zero rows. Returns rows stamped and statements issued.
@@ -137,6 +253,15 @@ function positiveInt(value: number | undefined, fallback: number): number {
  * what bounds the row-lock count: the fat tail of this system is a bot anon id
  * with tens of thousands of events under ONE key, and an unbounded statement
  * there is the lock/WAL spike D3 exists to avoid.
+ *
+ * PRD 05 T3: on the three contact-scoped tables the inner SELECT also carries
+ * {@link contactScopedTwinExists} as a NOT guard, so a row whose stamp would
+ * collide is never selected — it is SKIPPED, not stamped and not repaired. The
+ * sweep does not get to cancel a live enrollment or membership to make room;
+ * `verifyContactIdBackfill` reports what it skipped as `duplicates` (not
+ * `missing`) so the gate can still open and the triage list stays visible.
+ * Skipping in the SELECT (rather than swallowing a 23505) also keeps the loop
+ * terminating: a skipped row simply stops being a candidate.
  */
 async function fillCanonicalKey(opts: {
   db: Database;
@@ -145,24 +270,35 @@ async function fillCanonicalKey(opts: {
   contactId: string;
   rowsPerStatement: number;
   pauseMs: number;
-}): Promise<{ updated: number; statements: number }> {
+}): Promise<{ updated: number; statements: number; folded: number }> {
   const { db, table, key, contactId, rowsPerStatement, pauseMs } = opts;
   const name = sql.identifier(table);
   let updated = 0;
   let statements = 0;
+  let folded = 0;
+
+  // Opt-outs first: a folded row is deleted, so it never reaches the guard.
+  if (table === "email_preferences") {
+    folded = await foldStalePreferences({ db, key, contactId });
+    statements += 1;
+  }
+
+  const guard = CONTACT_SCOPED_TABLES.has(table)
+    ? sql` AND NOT (${contactScopedTwinExists(table, sql`${contactId}::uuid`)})`
+    : sql.empty();
 
   for (;;) {
     const rows = await db.execute<{ id: string }>(sql`
       UPDATE ${name} SET contact_id = ${contactId}::uuid
        WHERE id IN (
-         SELECT id FROM ${name}
-          WHERE user_id = ${key} AND contact_id IS NULL
+         SELECT t.id FROM ${name} t
+          WHERE t.user_id = ${key} AND t.contact_id IS NULL${guard}
           LIMIT ${rowsPerStatement}
        )
       RETURNING id
     `);
     statements += 1;
-    if (rows.length === 0) return { updated, statements };
+    if (rows.length === 0) return { updated, statements, folded };
     updated += rows.length;
 
     if (statements >= MAX_STATEMENTS_PER_LOOP) {
@@ -296,6 +432,7 @@ export async function runContactIdBackfill(opts: {
   let contactsScanned = 0;
   let statements = 0;
   let ambiguousAliases = 0;
+  let preferencesFolded = 0;
 
   const markJob = async (
     patch: Partial<typeof importJobs.$inferInsert>,
@@ -345,6 +482,7 @@ export async function runContactIdBackfill(opts: {
           });
           canonical[table] += filled.updated;
           statements += filled.statements;
+          preferencesFolded += filled.folded;
         }
       }
 
@@ -385,6 +523,7 @@ export async function runContactIdBackfill(opts: {
           });
           alias[table] += filled.updated;
           statements += filled.statements;
+          preferencesFolded += filled.folded;
         }
       }
 
@@ -407,6 +546,7 @@ export async function runContactIdBackfill(opts: {
       alias,
       updated,
       ambiguousAliases,
+      preferencesFolded,
       statements,
     });
     return {
@@ -416,6 +556,7 @@ export async function runContactIdBackfill(opts: {
       alias,
       updated,
       ambiguousAliases,
+      preferencesFolded,
       statements,
     };
   } catch (err) {
@@ -434,6 +575,7 @@ export async function runContactIdBackfill(opts: {
         TABLES.reduce((sum, t) => sum + canonical[t], 0) +
         TABLES.reduce((sum, t) => sum + alias[t], 0),
       ambiguousAliases,
+      preferencesFolded,
       statements,
       reason: message,
     };
@@ -444,13 +586,24 @@ export async function runContactIdBackfill(opts: {
 // T6 — the invariant probe
 // ---------------------------------------------------------------------------
 
-/** One table's verdict. `missing` and `mismatched` are failures; `orphaned` is
- * information (D5) and is expected to be non-zero forever. */
+/** One table's verdict. `missing` and `mismatched` are failures; `orphaned`
+ * (D5) and `duplicates` (PRD 05 T3) are information and may be non-zero. */
 export interface ContactIdVerifyCounts {
   /** A live contact owns the row's `user_id` — canonically OR by alias — but
-   * `contact_id` is NULL. After a completed sweep this is a HOLE: either the
-   * backfill missed the row or a dual-write site dropped it (D6). MUST be 0. */
+   * `contact_id` is NULL and the stamp WOULD land. After a completed sweep this
+   * is a HOLE: either the backfill missed the row or a dual-write site dropped
+   * it (D6). MUST be 0. */
   missing: number;
+  /**
+   * PRD 05 T3 — a live contact owns the row's `user_id`, `contact_id` is NULL,
+   * and stamping it would violate one of the contact-scoped partial unique
+   * indexes because the contact ALREADY holds a row for that live journey / live
+   * bucket / address. The sweep skips these on purpose (cancelling someone's
+   * live enrollment is not a background job's call), so counting them as
+   * `missing` would pin the gate shut forever on a population no sweep can
+   * drain. Reported separately so operators can triage it; NOT part of the gate.
+   */
+  duplicates: number;
   /** `contact_id` points at a contact that owns the row's `user_id` NEITHER
    * canonically NOR by alias (including a pointer at no contact at all). The
    * corruption detector, and the one count an FK could never give: an FK proves
@@ -472,8 +625,10 @@ export interface ContactIdVerifyResult {
    * **THE PRD 05 ENTRY GATE.** True iff EVERY table reports `missing === 0` AND
    * `mismatched === 0` — i.e. every row a live contact owns is stamped, and
    * every stamp points at a contact that really owns that row's key. `orphaned`
-   * is deliberately NOT part of the gate (D5 makes it legitimately non-zero
-   * forever). PRD 05 flips reads from `user_id` onto `contact_id`; flipping
+   * and `duplicates` are deliberately NOT part of the gate (D5 makes the first
+   * legitimately non-zero forever; the second is a population the sweep skips on
+   * purpose — see {@link ContactIdVerifyCounts.duplicates} — so gating on it
+   * would shut the door on a number no sweep can drain). PRD 05 flips reads from `user_id` onto `contact_id`; flipping
    * while this is false means silently losing history (`missing`) or attributing
    * it to the wrong person (`mismatched`). Judge it AFTER a completed sweep — a
    * false reading with no sweep on record is just a pending backfill.
@@ -500,10 +655,13 @@ export interface ContactIdVerifyResult {
  *
  * Three properties worth naming:
  *
- *  - `missing` and `orphaned` PARTITION the NULL-stamped rows: every row with
- *    `contact_id IS NULL` is one or the other, never both, never neither. So
- *    `missing + orphaned = count(*) WHERE contact_id IS NULL`, which is what
- *    makes "zero NULLs" the wrong completion criterion and this the right one.
+ *  - `missing`, `duplicates` and `orphaned` PARTITION the NULL-stamped rows:
+ *    every row with `contact_id IS NULL` is exactly one of the three, so
+ *    `missing + duplicates + orphaned = count(*) WHERE contact_id IS NULL` —
+ *    which is what makes "zero NULLs" the wrong completion criterion and this
+ *    the right one. `duplicates` (PRD 05 T3) splits off the owned rows the sweep
+ *    deliberately leaves NULL because stamping them would violate a
+ *    contact-scoped unique index.
  *  - `mismatched` does NOT require the pointed-at contact to be LIVE. A
  *    soft-deleted contact whose key still matches is consistent data (someone
  *    was deleted), not corruption; demanding liveness would fail the gate on
@@ -545,25 +703,44 @@ async function verifyTable(
   const name = sql.identifier(table);
   const scope = scopeToKeys(userIds);
 
-  const [nulls] = await db.execute<{ missing: number; orphaned: number }>(sql`
-    SELECT count(*) FILTER (WHERE s.owned)::int     AS missing,
-           count(*) FILTER (WHERE NOT s.owned)::int AS orphaned
+  // PRD 05 T3 — the owner is now RESOLVED (a LATERAL) rather than merely
+  // asserted (two EXISTS), because `duplicates` needs the owner's id to ask
+  // whether that contact already holds the row this stamp would duplicate. Same
+  // ownership definition, same two legs, same cost profile (the canonical leg is
+  // a `coalesce(...)` comparison either way, so neither shape is index-driven).
+  const collides = CONTACT_SCOPED_TABLES.has(table)
+    ? contactScopedTwinExists(table, sql`owner.id`)
+    : sql`false`;
+
+  const [nulls] = await db.execute<{
+    missing: number;
+    duplicates: number;
+    orphaned: number;
+  }>(sql`
+    SELECT count(*) FILTER (WHERE s.owner IS NOT NULL AND NOT s.collides)::int
+             AS missing,
+           count(*) FILTER (WHERE s.owner IS NOT NULL AND s.collides)::int
+             AS duplicates,
+           count(*) FILTER (WHERE s.owner IS NULL)::int
+             AS orphaned
       FROM (
-        SELECT (
-                 EXISTS (
-                   SELECT 1 FROM contacts
-                    WHERE contacts.deleted_at IS NULL
-                      AND ${contactKeySql()} = t.user_id
-                 )
-              OR EXISTS (
+        SELECT owner.id AS owner, (${collides}) AS collides
+          FROM ${name} t
+          LEFT JOIN LATERAL (
+            SELECT contacts.id
+              FROM contacts
+             WHERE contacts.deleted_at IS NULL
+               AND (
+                 ${contactKeySql()} = t.user_id
+                 OR EXISTS (
                    SELECT 1 FROM contact_aliases a
-                     JOIN contacts ON contacts.id = a.contact_id
-                                  AND contacts.deleted_at IS NULL
-                    WHERE a.alias_value = t.user_id
+                    WHERE a.contact_id = contacts.id
+                      AND a.alias_value = t.user_id
                       AND a.alias_kind IN ('external', 'anonymous')
                  )
-               ) AS owned
-          FROM ${name} t
+               )
+             LIMIT 1
+          ) owner ON true
          WHERE t.contact_id IS NULL${scope}
       ) s
   `);
@@ -585,6 +762,7 @@ async function verifyTable(
 
   return {
     missing: Number(nulls?.missing ?? 0),
+    duplicates: Number(nulls?.duplicates ?? 0),
     mismatched: Number(stamped?.mismatched ?? 0),
     orphaned: Number(nulls?.orphaned ?? 0),
   };
@@ -629,6 +807,7 @@ export async function verifyContactIdBackfill(opts: {
   const tables = {} as Record<ContactIdBackfillTable, ContactIdVerifyCounts>;
   const totals: ContactIdVerifyCounts = {
     missing: 0,
+    duplicates: 0,
     mismatched: 0,
     orphaned: 0,
   };
@@ -637,6 +816,7 @@ export async function verifyContactIdBackfill(opts: {
     const counts = await verifyTable(opts.db, table, opts.userIds);
     tables[table] = counts;
     totals.missing += counts.missing;
+    totals.duplicates += counts.duplicates;
     totals.mismatched += counts.mismatched;
     totals.orphaned += counts.orphaned;
   }
