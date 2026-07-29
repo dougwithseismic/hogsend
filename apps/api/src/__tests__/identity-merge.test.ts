@@ -440,13 +440,16 @@ describe("collide-merge (two distinct rows share a resolve)", () => {
     });
     expect(evtRes.status).toBe(202);
 
-    // (ii) user_events re-pointed onto the survivor key (loser key drained).
+    // (ii) user_events: the string key is FROZEN (PRD 07 T7 — the merge
+    // rewrite is deleted); the survivor owns the row through contact_id alone.
     const loserEvents = await db
       .select()
       .from(userEvents)
       .where(eq(userEvents.userId, loserKey));
-    expect(loserEvents).toHaveLength(0);
-    const survivorLoserEvent = await db
+    expect(loserEvents).toHaveLength(1);
+    expect(loserEvents[0]?.event).toBe("loser.event");
+    expect(loserEvents[0]?.contactId).toBe(aBody.id);
+    const survivorKeyedLoserEvent = await db
       .select()
       .from(userEvents)
       .where(
@@ -455,44 +458,43 @@ describe("collide-merge (two distinct rows share a resolve)", () => {
           eq(userEvents.event, "loser.event"),
         ),
       );
-    expect(survivorLoserEvent).toHaveLength(1);
+    expect(survivorKeyedLoserEvent).toHaveLength(0);
 
-    // (iii) journey_states re-pointed (+ user_email rewritten to survivor's).
+    // (iii) journey_states: key frozen, ownership stamped; the user_email
+    // DENORM still updates to the survivor's address (it is send data, not
+    // an identity key).
     const survivorStates = await db
       .select()
       .from(journeyStates)
-      .where(
-        and(
-          eq(journeyStates.userId, survivorKey),
-          eq(journeyStates.journeyId, `${RUN}-loser-journey`),
-        ),
-      );
+      .where(eq(journeyStates.journeyId, `${RUN}-loser-journey`));
     expect(survivorStates).toHaveLength(1);
+    expect(survivorStates[0]?.userId).toBe(loserKey);
+    expect(survivorStates[0]?.contactId).toBe(aBody.id);
     expect(survivorStates[0]?.userEmail).toBe(A_EMAIL);
 
-    // (iv) email_sends re-pointed onto the survivor key.
+    // (iv) email_sends: same — frozen key, survivor ownership on the FK.
     const survivorSends = await db
       .select()
       .from(emailSends)
-      .where(
-        and(
-          eq(emailSends.userId, survivorKey),
-          eq(emailSends.subject, "loser send"),
-        ),
-      );
+      .where(eq(emailSends.subject, "loser send"));
     expect(survivorSends).toHaveLength(1);
+    expect(survivorSends[0]?.userId).toBe(loserKey);
+    expect(survivorSends[0]?.contactId).toBe(aBody.id);
 
-    // (vi) email_preferences FOLD — the loser's unsubscribe was OR'd onto the
-    // survivor key (never lost); the loser pref row is gone.
+    // (vi) email_preferences FOLD — the loser's unsubscribe is never lost:
+    // the row keeps its frozen key, and the contact-scoped read (how every
+    // suppression check resolves it since PRD 05) finds it on the survivor.
     const loserPrefs = await db
       .select()
       .from(emailPreferences)
       .where(eq(emailPreferences.userId, loserKey));
-    expect(loserPrefs).toHaveLength(0);
+    expect(loserPrefs).toHaveLength(1);
+    expect(loserPrefs[0]?.unsubscribedAll).toBe(true);
+    expect(loserPrefs[0]?.contactId).toBe(aBody.id);
     const survivorPrefs = await db
       .select()
       .from(emailPreferences)
-      .where(eq(emailPreferences.userId, survivorKey));
+      .where(eq(emailPreferences.contactId, aBody.id));
     expect(survivorPrefs.some((p) => p.unsubscribedAll)).toBe(true);
 
     // (vii) properties folded — survivor wins on conflict, loser-only keys kept.
@@ -877,22 +879,15 @@ describe("merge with NO analytics provider (graceful no-op)", () => {
     // Still accepted — analytics is non-load-bearing.
     expect(evtRes.status).toBe(202);
 
-    // DB re-point unchanged: the loser-keyed event followed onto the survivor.
+    // DB fold unchanged in substance: the survivor owns the loser-keyed event
+    // — through contact_id, with the string key frozen (PRD 07 T7).
     const loserEvents = await db
       .select()
       .from(userEvents)
       .where(eq(userEvents.userId, loserKey));
-    expect(loserEvents).toHaveLength(0);
-    const survivorEvents = await db
-      .select()
-      .from(userEvents)
-      .where(
-        and(
-          eq(userEvents.userId, ABSENT_USER),
-          eq(userEvents.event, "absent.loser.event"),
-        ),
-      );
-    expect(survivorEvents).toHaveLength(1);
+    expect(loserEvents).toHaveLength(1);
+    expect(loserEvents[0]?.event).toBe("absent.loser.event");
+    expect(loserEvents[0]?.contactId).toBe(survivorBody.id);
 
     // The shared spy provider belongs to the OTHER container — it must not have
     // been touched by this no-provider container's merge.
