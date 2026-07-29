@@ -179,7 +179,7 @@ export const env = createEnv({
     // (`hogsend-default:<engine-version>`, PRD 04 "Initial deploy source").
     // Recorded on the stack row at provision time, so a later bump does not
     // rewrite what an existing stack is actually running.
-    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.56.0"),
+    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.57.0"),
     // Where `POST /api/publish/:environmentId` writes uploaded tarballs, and
     // where the build task reads them from (PRD 08). Defaulted everywhere
     // rather than withheld in production: an artifact directory is not a
