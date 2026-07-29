@@ -1,0 +1,17 @@
+# Railway config for the Hogsend Cloud control-plane WORKER service
+# (cloud-worker). See railway.cloud.toml for why this exists.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.cloud"
+watchPatterns = [
+  "apps/cloud/**",
+  "Dockerfile.cloud",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+# The image's default CMD is the web server; the worker must be told it is one.
+startCommand = "tsx src/worker.ts"
+restartPolicyType = "ON_FAILURE"

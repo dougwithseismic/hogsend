@@ -64,3 +64,5 @@ EXPOSE 3004
 #   worker   ->  tsx src/worker.ts
 #   migrate  ->  tsx scripts/migrate.ts
 CMD ["node", "server.js"]
+
+# build-stamp: 2026-07-29T1
