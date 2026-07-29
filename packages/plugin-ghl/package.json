@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/plugin-ghl",
-  "version": "0.43.14",
+  "version": "0.43.15",
   "private": true,
   "type": "module",
   "license": "MIT",
