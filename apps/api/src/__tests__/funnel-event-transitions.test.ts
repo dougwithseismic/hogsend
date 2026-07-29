@@ -463,7 +463,18 @@ describe("event-driven funnel transitions", () => {
     // USER's history: quote_sent(14500) + subscribed(15000) raw triggers,
     // plus the minted deal.quoted(14500, excluded) + deal.sold(15000,
     // counts). Correct realized revenue = 15000, counted ONCE.
-    const revenue = await getContactRevenue({ db, key: USER });
+    // Read by SUBJECT: USER's contact was minted during ingest above, so the
+    // rollup goes through the `contact_id` arm — the same arm the admin route
+    // uses.
+    const [owner] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.externalId, USER));
+    const revenue = await getContactRevenue({
+      db,
+      key: USER,
+      contactId: owner?.id ?? null,
+    });
     expect(revenue.totals).toEqual([
       { currency: "GBP", total: 15000, count: 1 },
     ]);

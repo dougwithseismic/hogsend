@@ -855,6 +855,7 @@ export async function ingestEvent(opts: {
             logger,
             conversionId: firedConversion.conversionId,
             userKey: resolvedKey,
+            contactId,
             value: firedConversion.value,
             currency: firedConversion.currency,
             occurredAt: insertedRow.occurredAt,

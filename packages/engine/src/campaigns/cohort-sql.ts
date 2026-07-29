@@ -161,6 +161,9 @@ function eventSql(condition: EventCondition, startedAt: Date): SQL {
         Date.now() - durationToMs(condition.within),
       ).toISOString()}::timestamptz`
     : sql.empty();
+  // PRD 05 T8 — this correlation STAYS string-keyed: `campaign_recipients`
+  // has no `contact_id` column, so the text key is the only subject available
+  // on the outer side of the join.
   const positive = sql`exists (
     select 1 from ${userEvents}
     where ${userEvents.userId} = ${campaignRecipients.userId}
