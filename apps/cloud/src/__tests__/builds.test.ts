@@ -15,10 +15,12 @@ import {
   BuildService,
   type BuildStatus,
   MAX_LOG_TAIL_CHARS,
+  MAX_QUEUED_BUILDS_PER_ENVIRONMENT,
   TERMINAL_BUILD_STATUSES,
 } from "../services/builds";
 import {
   BuildInFlightError,
+  BuildQueueFullError,
   IllegalBuildTransitionError,
   NotFoundError,
 } from "../services/errors";
@@ -259,7 +261,7 @@ describe("BuildService.transition", () => {
   });
 });
 
-describe("BuildService.create — single-flight per environment", () => {
+describe("BuildService.create — the per-environment publish queue", () => {
   it("creates a queued build and audits it", async () => {
     const environmentId = await seedEnvironment();
     const row = await service.create({
@@ -281,26 +283,55 @@ describe("BuildService.create — single-flight per environment", () => {
     expect(audit[0]?.actor).toBe("publish_token:abc");
   });
 
-  it("refuses a second build while one is unfinished, in EVERY active status", async () => {
+  it("queues a publish behind an unfinished build, in EVERY active status", async () => {
     for (const status of ACTIVE_BUILD_STATUSES) {
       const environmentId = await seedEnvironment();
       await seedBuild(status, environmentId);
 
-      await expect(
-        service.create({
-          environmentId,
-          artifactPath: `${environmentId}/second.tar.gz`,
-          manifest: { engineVersion: "0.56.0" },
-        }),
-      ).rejects.toBeInstanceOf(BuildInFlightError);
+      const queued = await service.create({
+        environmentId,
+        artifactPath: `${environmentId}/second.tar.gz`,
+        manifest: { engineVersion: "0.56.0" },
+      });
+      // Accepted, and WAITING — the publish is never lost to a busy
+      // environment (PRD 08: "a second publish … SHALL queue, never race").
+      expect(queued.status).toBe("queued");
+      expect(queued.startedAt).toBeNull();
 
-      // The refusal wrote nothing: the environment still has exactly one build.
       const rows = await db
         .select()
         .from(builds)
         .where(eq(builds.environmentId, environmentId));
-      expect(rows).toHaveLength(1);
+      expect(rows).toHaveLength(2);
     }
+  });
+
+  it("refuses past the queue depth, storing nothing", async () => {
+    const environmentId = await seedEnvironment();
+    await seedBuild("building", environmentId);
+
+    for (let n = 0; n < MAX_QUEUED_BUILDS_PER_ENVIRONMENT; n += 1) {
+      const row = await service.create({
+        environmentId,
+        artifactPath: `${environmentId}/wait-${n}.tar.gz`,
+        manifest: { engineVersion: "0.56.0" },
+      });
+      expect(row.status).toBe("queued");
+    }
+
+    await expect(
+      service.create({
+        environmentId,
+        artifactPath: `${environmentId}/one-too-many.tar.gz`,
+        manifest: { engineVersion: "0.56.0" },
+      }),
+    ).rejects.toBeInstanceOf(BuildQueueFullError);
+
+    const rows = await db
+      .select()
+      .from(builds)
+      .where(eq(builds.environmentId, environmentId));
+    expect(rows).toHaveLength(1 + MAX_QUEUED_BUILDS_PER_ENVIRONMENT);
   });
 
   it("allows a new build once the previous one is terminal", async () => {
@@ -317,10 +348,13 @@ describe("BuildService.create — single-flight per environment", () => {
     }
   });
 
-  it("holds single-flight under concurrent creates", async () => {
+  it("holds the queue depth under concurrent creates", async () => {
     const environmentId = await seedEnvironment();
+    // One more attempt than the queue can hold, all at once: the depth check is
+    // a read followed by a write, so without the advisory lock two of these
+    // would read the same count and both insert.
     const attempts = await Promise.allSettled(
-      [1, 2, 3, 4].map((n) =>
+      Array.from({ length: MAX_QUEUED_BUILDS_PER_ENVIRONMENT + 2 }, (_, n) =>
         service.create({
           environmentId,
           artifactPath: `${environmentId}/race-${n}.tar.gz`,
@@ -330,12 +364,85 @@ describe("BuildService.create — single-flight per environment", () => {
     );
 
     const created = attempts.filter((a) => a.status === "fulfilled");
-    expect(created).toHaveLength(1);
+    expect(created).toHaveLength(MAX_QUEUED_BUILDS_PER_ENVIRONMENT);
     for (const attempt of attempts) {
       if (attempt.status === "rejected") {
-        expect(attempt.reason).toBeInstanceOf(BuildInFlightError);
+        expect(attempt.reason).toBeInstanceOf(BuildQueueFullError);
       }
     }
+
+    const rows = await db
+      .select()
+      .from(builds)
+      .where(eq(builds.environmentId, environmentId));
+    expect(rows).toHaveLength(MAX_QUEUED_BUILDS_PER_ENVIRONMENT);
+  });
+
+  it("lets exactly one queued build START, and leaves the rest queued", async () => {
+    const environmentId = await seedEnvironment();
+    const queued = await Promise.all(
+      [1, 2, 3].map((n) =>
+        service.create({
+          environmentId,
+          artifactPath: `${environmentId}/claim-${n}.tar.gz`,
+          manifest: { engineVersion: "0.56.0" },
+        }),
+      ),
+    );
+
+    // Single-flight lives at the CLAIM now, not at the insert: three workers
+    // racing `queued → building` for one environment, one winner.
+    const claims = await Promise.allSettled(
+      queued.map((row) =>
+        service.transition({
+          buildId: row.id,
+          to: "building",
+          expectedFrom: "queued",
+          actor: "builder",
+        }),
+      ),
+    );
+    expect(claims.filter((c) => c.status === "fulfilled")).toHaveLength(1);
+    for (const claim of claims) {
+      if (claim.status === "rejected") {
+        expect(claim.reason).toBeInstanceOf(BuildInFlightError);
+      }
+    }
+
+    const rows = await db
+      .select()
+      .from(builds)
+      .where(eq(builds.environmentId, environmentId));
+    expect(rows.filter((row) => row.status === "building")).toHaveLength(1);
+    // The losers were not failed: they are still waiting their turn.
+    expect(rows.filter((row) => row.status === "queued")).toHaveLength(2);
+  });
+
+  it("hands the oldest waiting build to the next drain", async () => {
+    const environmentId = await seedEnvironment();
+    const first = await service.create({
+      environmentId,
+      artifactPath: `${environmentId}/first.tar.gz`,
+      manifest: { engineVersion: "0.56.0" },
+    });
+    const second = await service.create({
+      environmentId,
+      artifactPath: `${environmentId}/second.tar.gz`,
+      manifest: { engineVersion: "0.57.0" },
+    });
+
+    expect((await service.nextQueued({ environmentId }))?.id).toBe(first.id);
+
+    await service.transition({
+      buildId: first.id,
+      to: "building",
+      expectedFrom: "queued",
+    });
+    // Publishes deploy in the order they were sent.
+    expect((await service.nextQueued({ environmentId }))?.id).toBe(second.id);
+
+    await service.transition({ buildId: second.id, to: "failed" });
+    expect(await service.nextQueued({ environmentId })).toBeNull();
   });
 
   it("reports an unknown environment as not found", async () => {

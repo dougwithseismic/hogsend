@@ -1,0 +1,1 @@
+ALTER TABLE "cloud"."stacks" ADD COLUMN "image_digest" text;

@@ -179,6 +179,23 @@ export const env = createEnv({
     // volume the build host mounts. Relative values resolve against the
     // process's working directory.
     CLOUD_ARTIFACTS_DIR: z.string().min(1).default("./artifacts"),
+    // The registry namespace built images are pushed to, e.g.
+    // `ghcr.io/withseismic`. OPTIONAL, and its absence is a MODE rather than a
+    // misconfiguration: with no registry the build pipeline keeps images local
+    // and skips the push with a logged notice, which is exactly right on a dev
+    // machine driving the fake substrate. A real deploy sets it, and every
+    // reference — including the stock scaffold image provisioning boots on —
+    // becomes registry-qualified. Credentials are docker's (`docker login` on
+    // the build host), never this app's: a registry password in the control
+    // plane's env would be one more secret to rotate for no gain.
+    CLOUD_IMAGE_REGISTRY: z.string().min(1).optional(),
+    // Where `packages/create-hogsend/template/` lives, for the two files the
+    // build pipeline falls back to (the generic `Dockerfile` and the
+    // parameterized `scripts/preflight.sh`). Defaults to the monorepo path
+    // resolved from this module, which is correct for a worker running from
+    // the repo; a containerised cloud-worker that carries the template
+    // elsewhere sets this.
+    CLOUD_SCAFFOLD_TEMPLATE_DIR: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

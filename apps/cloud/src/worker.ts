@@ -8,11 +8,15 @@
 import { env } from "./env";
 import {
   getBillingSweepTask,
+  getBuildSweepTask,
   getCloudHatchet,
   getHealthSweepTask,
   getProvisionStackTask,
+  getRunBuildTask,
   PROVISION_STACK_TASK,
+  RUN_BUILD_TASK,
   SWEEP_BILLING_TASK,
+  SWEEP_BUILDS_TASK,
   SWEEP_STACK_HEALTH_TASK,
 } from "./pipeline/hatchet";
 import { startWorker } from "./worker-runtime";
@@ -26,6 +30,8 @@ const worker = startWorker({
     PROVISION_STACK_TASK,
     SWEEP_STACK_HEALTH_TASK,
     SWEEP_BILLING_TASK,
+    RUN_BUILD_TASK,
+    SWEEP_BUILDS_TASK,
   ],
   // Built here rather than inside the runtime so the runtime stays a plain
   // function over injected config — the Hatchet client is the one dependency
@@ -41,6 +47,8 @@ const worker = startWorker({
         getProvisionStackTask(client),
         getHealthSweepTask(client),
         getBillingSweepTask(client),
+        getRunBuildTask(client),
+        getBuildSweepTask(client),
       ],
     });
     // `start()` does not resolve until the worker stops — awaiting it here
@@ -63,7 +71,13 @@ process.stdout.write(
     service: "cloud-worker",
     event: "config",
     substrate: env.CLOUD_SUBSTRATE,
-    tasks: [PROVISION_STACK_TASK, SWEEP_STACK_HEALTH_TASK, SWEEP_BILLING_TASK],
+    tasks: [
+      PROVISION_STACK_TASK,
+      SWEEP_STACK_HEALTH_TASK,
+      SWEEP_BILLING_TASK,
+      RUN_BUILD_TASK,
+      SWEEP_BUILDS_TASK,
+    ],
   })}\n`,
 );
 

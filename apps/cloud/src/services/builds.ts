@@ -5,9 +5,11 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { builds, environments } from "../db/schema";
+import { removeArtifact } from "../lib/artifacts";
 import { type CloudWriter, writeAudit } from "./audit";
 import {
   BuildInFlightError,
+  BuildQueueFullError,
   IllegalBuildTransitionError,
   isUniqueViolation,
   NotFoundError,
@@ -28,8 +30,12 @@ import {
  *
  * The one law that is NOT here is single-flight. "Never two builds racing one
  * stack" (PRD 08) is a partial unique index in Postgres
- * (`builds_environment_active_unique_idx`), not a check in this file: a check
+ * (`builds_environment_running_unique_idx`), not a check in this file: a check
  * would be a read-then-write that two control-plane replicas can both pass.
+ * That index covers the RUNNING statuses only, which is what makes the other
+ * half of the same PRD line — "a second publish to a busy environment SHALL
+ * queue, never race" — expressible at all: publishes accumulate as `queued`
+ * rows, and the race is refused at the moment one of them tries to START.
  */
 
 /** The pipeline's vocabulary, in the order a healthy build walks it. */
@@ -71,18 +77,38 @@ export const LEGAL_BUILD_EDGES = {
 } as const satisfies Record<BuildStatus, readonly BuildStatus[]>;
 
 /**
- * The statuses a build never leaves — and, word for word, the predicate of
- * `builds_environment_active_unique_idx`. A status added here without the
- * matching migration would silently widen what single-flight allows, so the
- * suite asserts the two agree behaviourally (`builds.test.ts`).
+ * The statuses a build never leaves. Together with `queued` they are, word for
+ * word, the predicate of `builds_environment_running_unique_idx`. A status
+ * added here without the matching migration would silently widen what
+ * single-flight allows, so the suite asserts the two agree behaviourally
+ * (`builds.test.ts`).
  */
 export const TERMINAL_BUILD_STATUSES = ["succeeded", "failed"] as const;
 
-/** Everything the single-flight index treats as "still in flight". */
+/** Everything that is not finished: a build running, or one still waiting. */
 export const ACTIVE_BUILD_STATUSES = BUILD_STATUSES.filter(
   (status) =>
     !(TERMINAL_BUILD_STATUSES as readonly BuildStatus[]).includes(status),
 );
+
+/**
+ * The statuses the single-flight index forbids twice per environment: work
+ * actually in progress. `queued` is deliberately absent — a queue of waiting
+ * publishes is the point.
+ */
+export const RUNNING_BUILD_STATUSES = ACTIVE_BUILD_STATUSES.filter(
+  (status) => status !== "queued",
+);
+
+/**
+ * How many publishes may WAIT for one environment, on top of the one running.
+ *
+ * A cap rather than an unbounded queue because every waiting build pins a
+ * tarball of tenant source on a shared build host, and the queue drains one
+ * build at a time. Small on purpose: the queue exists so a publish that raced a
+ * build is not lost, not so a CI loop can buffer a morning's worth of pushes.
+ */
+export const MAX_QUEUED_BUILDS_PER_ENVIRONMENT = 3;
 
 export function isTerminalBuildStatus(status: BuildStatus): boolean {
   return (TERMINAL_BUILD_STATUSES as readonly BuildStatus[]).includes(status);
@@ -199,63 +225,80 @@ export class BuildService {
   constructor(private readonly db: CloudDb = defaultDb) {}
 
   /**
-   * Record a queued build for an uploaded artifact.
+   * QUEUE a build for an uploaded artifact. Never refuses because another build
+   * is running — that is exactly the case the queue exists for (PRD 08: "a
+   * second publish to a busy environment SHALL queue, never race").
    *
-   * Refuses with `BuildInFlightError` when the environment already has an
-   * unfinished build — and refuses from the INDEX, so the answer is correct
-   * under concurrency rather than under a read that happened to be recent.
+   * The one refusal is depth: past {@link MAX_QUEUED_BUILDS_PER_ENVIRONMENT}
+   * waiting builds the environment is told to publish again later
+   * (`BuildQueueFullError`). That check is a read followed by a write, so it is
+   * serialised per environment by a transaction-scoped ADVISORY LOCK — without
+   * it two control-plane replicas could each read "2 waiting" and both insert.
+   * The lock is per environment id, so publishes to different environments
+   * never wait on each other.
    */
   async create(input: CreateBuildInput): Promise<BuildRow> {
     const parsed = createInputSchema.parse(input);
     const id = parsed.id ?? randomUUID();
 
-    try {
-      return await this.db.transaction(async (tx) => {
-        const organizationId = await readOrganizationId(
-          tx,
-          parsed.environmentId,
+    return await this.db.transaction(async (tx) => {
+      const organizationId = await readOrganizationId(tx, parsed.environmentId);
+
+      // Held until this transaction ends, so the count below and the insert
+      // that acts on it cannot be interleaved by another publish.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${parsed.environmentId}, 0))`,
+      );
+
+      const [waiting] = await tx
+        .select({ queued: sql<number>`count(*)::int` })
+        .from(builds)
+        .where(
+          and(
+            eq(builds.environmentId, parsed.environmentId),
+            eq(builds.status, "queued"),
+          ),
         );
-
-        const [row] = await tx
-          .insert(builds)
-          .values({
-            id,
-            environmentId: parsed.environmentId,
-            ...(parsed.stackId ? { stackId: parsed.stackId } : {}),
-            status: "queued",
-            artifactPath: parsed.artifactPath,
-            manifest: parsed.manifest,
-            ...(parsed.engineVersion
-              ? { engineVersion: parsed.engineVersion }
-              : {}),
-          })
-          .returning();
-        if (!row) {
-          throw new Error(
-            `Failed to create a build for environment ${parsed.environmentId}`,
-          );
-        }
-
-        await writeAudit(tx, {
-          actor: parsed.actor,
-          organizationId,
-          action: "build.created",
-          subject: row.id,
-          detail: {
-            environmentId: parsed.environmentId,
-            engineVersion: parsed.engineVersion ?? null,
-          },
-        });
-
-        return row;
-      });
-    } catch (error) {
-      // The single-flight rule is the DATABASE's — we only give it a voice.
-      if (isUniqueViolation(error)) {
-        throw new BuildInFlightError(parsed.environmentId);
+      if ((waiting?.queued ?? 0) >= MAX_QUEUED_BUILDS_PER_ENVIRONMENT) {
+        throw new BuildQueueFullError(
+          parsed.environmentId,
+          MAX_QUEUED_BUILDS_PER_ENVIRONMENT,
+        );
       }
-      throw error;
-    }
+
+      const [row] = await tx
+        .insert(builds)
+        .values({
+          id,
+          environmentId: parsed.environmentId,
+          ...(parsed.stackId ? { stackId: parsed.stackId } : {}),
+          status: "queued",
+          artifactPath: parsed.artifactPath,
+          manifest: parsed.manifest,
+          ...(parsed.engineVersion
+            ? { engineVersion: parsed.engineVersion }
+            : {}),
+        })
+        .returning();
+      if (!row) {
+        throw new Error(
+          `Failed to create a build for environment ${parsed.environmentId}`,
+        );
+      }
+
+      await writeAudit(tx, {
+        actor: parsed.actor,
+        organizationId,
+        action: "build.created",
+        subject: row.id,
+        detail: {
+          environmentId: parsed.environmentId,
+          engineVersion: parsed.engineVersion ?? null,
+        },
+      });
+
+      return row;
+    });
   }
 
   /**
@@ -268,6 +311,15 @@ export class BuildService {
    *  - reaching a terminal status stamps `finished_at`;
    *  - `failed` carries the reason; every other edge CLEARS it, so a build that
    *    was re-driven past a stage cannot keep a stale explanation.
+   *
+   * Two things happen at the edges of the machine rather than inside a stage:
+   *  - LEAVING `queued` is the claim. It is the write the single-flight index
+   *    watches, so a worker that lost the race for a busy environment gets
+   *    `BuildInFlightError` here and its build simply stays queued;
+   *  - REACHING a terminal status retires the uploaded tarball. A finished
+   *    build never needs its artifact again (the log tail is the diagnosis
+   *    surface), and a control plane that kept every tenant's source forever
+   *    would be both a disk bug and a data-retention one.
    */
   async transition(input: TransitionBuildInput): Promise<BuildRow> {
     const parsed = transitionInputSchema.parse(input);
@@ -289,11 +341,13 @@ export class BuildService {
             : parsed.error
           ).slice(0, MAX_ERROR_LENGTH);
 
-    return this.db.transaction(async (tx) => {
-      const from = await lockBuildStatus(tx, buildId);
+    const updated = await this.db.transaction(async (tx) => {
+      const locked = await lockBuildStatus(tx, buildId);
+      const from = locked.status;
       const row = await applyBuildStatus(tx, {
         buildId,
         sources,
+        environmentId: locked.environmentId,
         set: {
           status: to,
           updatedAt: now,
@@ -328,6 +382,41 @@ export class BuildService {
 
       return row;
     });
+
+    // AFTER the commit, deliberately: an `rm` cannot be rolled back, so a
+    // transition that failed to commit must not have retired the artifact of a
+    // build that is still going to need it. Best-effort — a disk that refuses
+    // the delete is a cleanup problem, never a reason to fail a status write.
+    if (isTerminalBuildStatus(to)) {
+      await removeArtifact(updated.artifactPath).catch(() => {});
+    }
+
+    return updated;
+  }
+
+  /**
+   * The oldest build still WAITING for this environment — the head of the
+   * queue, and the one a drain should start next.
+   *
+   * Ordered by `createdAt` so publishes deploy in the order they were sent: the
+   * last thing a tenant pushed must be the last thing that lands.
+   */
+  async nextQueued(input: { environmentId: string }): Promise<BuildRow | null> {
+    const { environmentId } = z
+      .object({ environmentId: z.uuid() })
+      .parse(input);
+    const [row] = await this.db
+      .select()
+      .from(builds)
+      .where(
+        and(
+          eq(builds.environmentId, environmentId),
+          eq(builds.status, "queued"),
+        ),
+      )
+      .orderBy(builds.createdAt, builds.id)
+      .limit(1);
+    return row ?? null;
   }
 
   /**
@@ -431,27 +520,34 @@ export class BuildService {
 async function lockBuildStatus(
   writer: CloudWriter,
   buildId: string,
-): Promise<BuildStatus> {
+): Promise<{ status: BuildStatus; environmentId: string }> {
   const [current] = await writer
-    .select({ status: builds.status })
+    .select({ status: builds.status, environmentId: builds.environmentId })
     .from(builds)
     .where(eq(builds.id, buildId))
     .limit(1)
     .for("update");
   if (!current) throw new NotFoundError("Build", buildId);
-  return current.status;
+  return current;
 }
 
 /**
  * The one guarded write, and the sole enforcement point: `WHERE status IN
  * <legal sources>` means an illegal edge updates zero rows whatever any earlier
  * read believed. Returns null in that case.
+ *
+ * The OTHER refusal it can meet is the single-flight index, when the edge being
+ * written is the claim (`queued → building`) and the environment already has a
+ * build running. That is a 23505 from Postgres, and it is given its own voice
+ * here so a caller can tell "this build may not start YET" apart from "this
+ * build may never make this move".
  */
 async function applyBuildStatus(
   writer: CloudWriter,
   args: {
     buildId: string;
     sources: BuildStatus[];
+    environmentId: string;
     set: PgUpdateSetSource<typeof builds>;
   },
 ): Promise<BuildRow | null> {
@@ -459,14 +555,21 @@ async function applyBuildStatus(
   // a query worth building.
   if (args.sources.length === 0) return null;
 
-  const [row] = await writer
-    .update(builds)
-    .set(args.set)
-    .where(
-      and(eq(builds.id, args.buildId), inArray(builds.status, args.sources)),
-    )
-    .returning();
-  return row ?? null;
+  try {
+    const [row] = await writer
+      .update(builds)
+      .set(args.set)
+      .where(
+        and(eq(builds.id, args.buildId), inArray(builds.status, args.sources)),
+      )
+      .returning();
+    return row ?? null;
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new BuildInFlightError(args.environmentId);
+    }
+    throw error;
+  }
 }
 
 /**

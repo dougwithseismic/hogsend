@@ -33,7 +33,12 @@ import { FakeSubstrate } from "../substrate";
  */
 
 const ORG_ID = "key-sync-test-org";
-const RESEND_KEY = "re_fake_key_aaaa1111";
+// The tail is deliberately NON-HEX. The audit assertion below asserts the last
+// four characters never appear in any detail blob, and that blob is full of
+// UUIDs — a hex tail like "1111" turns up inside a random uuid often enough to
+// redden the suite for no reason, which is a test that fails at random rather
+// than a test that catches a leak.
+const RESEND_KEY = "re_fake_key_aaaazqxw";
 const TWILIO_TOKEN = "fake_twilio_token_bbbb2222";
 
 const providerKeyService = new ProviderKeyService(db);

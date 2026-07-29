@@ -12,6 +12,7 @@
     "worker:dev": "tsx watch src/worker.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "build:default-image": "tsx scripts/build-default-image.ts",
     "seed:dev": "tsx scripts/seed-dev.ts"
   },
   "dependencies": {

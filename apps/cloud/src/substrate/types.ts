@@ -136,6 +136,13 @@ export interface SubstrateProvider {
   setEnv(refs: StackRefs, vars: SubstrateEnvVars): Promise<void>;
   /** Restart on the current image. Safe to call repeatedly. */
   redeploy(refs: StackRefs, options?: RedeployOptions): Promise<void>;
+  /**
+   * Point a service at `imageUrl` and TRIGGER a rollout. Resolving means the
+   * substrate accepted the request — NOT that the new containers are up: there
+   * is deliberately no readiness read in this seam, so a caller that needs the
+   * outcome must observe it (`getHealth`, the health sweep), never infer it
+   * from this promise.
+   */
   deployImage(refs: StackRefs, options: DeployImageOptions): Promise<void>;
   attachDomain(refs: StackRefs, domain: string): Promise<DomainAttachment>;
   getHealth(refs: StackRefs, options?: HealthOptions): Promise<HealthResult>;

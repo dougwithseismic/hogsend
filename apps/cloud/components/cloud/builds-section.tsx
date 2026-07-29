@@ -79,8 +79,8 @@ export function BuildsSection({
           </h2>
           <p className="mt-1.5 max-w-prose text-sm text-white/60 leading-6">
             Every publish to this environment, newest first. One build runs at a
-            time: a publish sent while another is in flight is refused, so two
-            builds can never race the same stack.
+            time: a publish sent while another is in flight waits its turn, so
+            two builds can never race the same stack.
           </p>
         </div>
 
@@ -109,9 +109,10 @@ export function BuildsSection({
             Publish token
           </h2>
           <p className="mt-1.5 max-w-prose text-sm text-white/60 leading-6">
-            The bearer credential uploads authenticate with. It is stored
-            hashed, so only its last four characters can be shown after it is
-            issued.
+            The bearer credential uploads authenticate with. One was issued when
+            this environment was created; it is stored hashed, so only its last
+            four characters can be shown afterwards. Rotating is how you get a
+            copy you can use.
           </p>
         </div>
 

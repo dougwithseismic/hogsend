@@ -49,6 +49,18 @@ export const stacks = cloud.table(
       .notNull(),
     /** Engine version locked at publish time. */
     engineVersion: text("engine_version"),
+    /**
+     * `sha256:…` of the image this stack is CURRENTLY running, written by the
+     * build pipeline at the moment a deploy succeeds (PRD 08 task 3).
+     *
+     * The digest rather than the tag, and on the stack rather than only on the
+     * build, because the two answer different questions: `builds.image_digest`
+     * records what one publish PRODUCED, and this records what the tenant's
+     * runtime is actually serving. They diverge the instant a build fails —
+     * which is exactly when an operator needs to know that the stack is still
+     * on the previous image.
+     */
+    imageDigest: text("image_digest"),
     /** Hatchet tenant/namespace this stack's workers run under. */
     hatchetNamespace: text("hatchet_namespace"),
     /** Database name on the cell's shared cluster. */

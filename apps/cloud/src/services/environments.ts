@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { environments, organizations, stacks } from "../db/schema";
+import { removeEnvironmentArtifacts } from "../lib/artifacts";
 import { writeAudit } from "./audit";
 import {
   DuplicateNameError,
@@ -211,6 +212,13 @@ export class EnvironmentService {
   /**
    * Delete an environment (its stack row cascades). Refuses production, and
    * refuses anything whose stack has reached real infrastructure.
+   *
+   * The environment's uploaded publish tarballs go with it. They are deleted
+   * AFTER the transaction commits, not inside it: an `rm -r` cannot be rolled
+   * back, and a removal that was refused (production, a live stack) or that
+   * failed to commit must not have destroyed a tenant's source. The `builds`
+   * rows cascade away, so leaving the files would leave them referenced by
+   * nothing at all.
    */
   async remove(
     input: RemoveEnvironmentInput,
@@ -218,7 +226,7 @@ export class EnvironmentService {
     const { organizationId, environmentId, actor } =
       removeInputSchema.parse(input);
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [row] = await tx
         .select({
           environment: environments,
@@ -260,8 +268,17 @@ export class EnvironmentService {
         },
       });
 
-      return { removed: true };
+      // `as const` rather than an inferred literal: assigning the
+      // transaction's result to a `const` would widen this to `boolean`, which
+      // the declared `RemoveEnvironmentResult` refuses.
+      return { removed: true as const };
     });
+
+    // Best-effort: a disk that refuses the delete leaves files an operator can
+    // sweep, and must not turn a completed removal into an error.
+    await removeEnvironmentArtifacts(environmentId).catch(() => {});
+
+    return result;
   }
 }
 

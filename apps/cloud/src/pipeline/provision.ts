@@ -4,7 +4,9 @@ import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
 import { env } from "../env";
+import { defaultImageTag, qualifyImage } from "../images/index";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
+import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
 import { HatchetTenantService } from "../services/hatchet-tenant";
@@ -180,23 +182,6 @@ async function loadContext(
 }
 
 /**
- * The stored jsonb is `StackRefs` PLUS the pipeline's own bookkeeping (see
- * `mint-credentials`). Read the three seam fields back out rather than handing
- * the whole bag to the substrate, so our keys can never be mistaken for the
- * vendor's opaque `data`.
- */
-function readRefs(stack: StackRow): StackRefs | null {
-  const raw = stack.substrateRefs as Record<string, unknown>;
-  if (!raw || typeof raw.substrate !== "string") return null;
-  if (typeof raw.apiPublicUrl !== "string") return null;
-  return {
-    substrate: raw.substrate,
-    apiPublicUrl: raw.apiPublicUrl,
-    data: (raw.data as Record<string, unknown>) ?? {},
-  };
-}
-
-/**
  * Hatchet's HTTP API (token minting) and its gRPC endpoint (the engine client)
  * are two addresses, and `cells.shared_hatchet_url` holds one string. Treat a
  * scheme-carrying value as the HTTP base and a bare `host:port` as the gRPC
@@ -356,7 +341,7 @@ export async function runProvisionPipeline(
     // ---- substrate-provision ----------------------------------------------
     current = "substrate-provision";
     const engineVersion = stack.engineVersion ?? deps.defaultEngineVersion;
-    let refs = readRefs(stack);
+    let refs = readStackRefs(stack);
     if (refs) {
       steps.push({ step: "substrate-provision", skipped: true });
       await audit("substrate-provision", organizationId, {
@@ -370,7 +355,10 @@ export async function runProvisionPipeline(
         environmentName: context.environmentName,
         region: stack.region,
         topology: context.plan === "dedicated" ? "dedicated" : "shared",
-        initialImage: `hogsend-default:${engineVersion}`,
+        // Registry-qualified when one is configured: the substrate has to be
+        // able to PULL this, and a bare tag is only resolvable on a host that
+        // already built it (dev, with the fake substrate).
+        initialImage: qualifyImage(defaultImageTag(engineVersion)),
         // Env is set as its own step: the values below are assembled from four
         // stores and a half-configured stack is easier to reason about than a
         // provision call that half-failed.

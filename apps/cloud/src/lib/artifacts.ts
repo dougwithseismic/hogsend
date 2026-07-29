@@ -102,11 +102,37 @@ export async function writeArtifact(
 /**
  * Delete one artifact, tolerating its absence.
  *
- * The compensating half of the intake route's "a rejected upload leaves no file
- * and no row": the file is written before the build row is inserted (so a
- * refused insert cannot strand a row that points at nothing), and this undoes
- * the write when the insert refuses.
+ * Two callers, both compensating:
+ *  - the intake route's "a rejected upload leaves no file and no row" — the
+ *    file is written before the build row is inserted (so a refused insert
+ *    cannot strand a row that points at nothing), and this undoes the write;
+ *  - `BuildService.transition`, retiring the tarball of a build that reached a
+ *    terminal status. A finished build never reads its artifact again.
  */
 export async function removeArtifact(key: string): Promise<void> {
   await rm(resolveArtifactPath(key), { force: true });
+}
+
+/**
+ * Delete EVERY artifact belonging to one environment, tolerating their absence.
+ *
+ * The last owner of a tenant's uploaded source is the environment: once it is
+ * deleted the `builds` rows cascade away, and with them the only pointers to
+ * the files. Called when an environment is removed, so the source leaves with
+ * it rather than living forever under an id nothing references.
+ */
+export async function removeEnvironmentArtifacts(
+  environmentId: string,
+): Promise<void> {
+  if (!isUuid(environmentId)) throw new InvalidArtifactKeyError(environmentId);
+
+  const root = artifactsRoot();
+  const dir = resolve(join(root, environmentId));
+  // The uuid check already makes traversal impossible; this is the same belt
+  // `resolveArtifactPath` wears, because the cost of being wrong here is an
+  // `rm -r` outside the artifacts tree.
+  if (!dir.startsWith(root + sep)) {
+    throw new InvalidArtifactKeyError(environmentId);
+  }
+  await rm(dir, { recursive: true, force: true });
 }

@@ -30,6 +30,9 @@ const { db, sqlClient } = await import("../db");
 const { runCloudMigrations } = await import("../db/migrator");
 const { builds, environments, organizations } = await import("../db/schema");
 const { env } = await import("../env");
+const { buildService, MAX_QUEUED_BUILDS_PER_ENVIRONMENT } = await import(
+  "../services/builds"
+);
 const { PublishTokenService } = await import("../services/publish-tokens");
 
 const ORG = "publish-intake-test-org";
@@ -303,22 +306,80 @@ describe("POST /api/publish/:environmentId — a valid upload", () => {
       uploadRequest(environmentId, { token }),
     );
     expect(first.status).toBe(202);
+    const accepted = (await first.json()) as { buildId: string };
+
+    // The environment is busy the moment the first build leaves `queued`.
+    await buildService.transition({
+      buildId: accepted.buildId,
+      to: "building",
+      expectedFrom: "queued",
+    });
 
     const second = await post(
       environmentId,
       uploadRequest(environmentId, { token }),
     );
-    expect(second.status).toBe(409);
-    expect(await second.json()).toMatchObject({ error: "build_in_flight" });
+    // ACCEPTED, not refused: the publish waits its turn rather than being
+    // discarded (PRD 08: "a second publish to a busy environment SHALL queue,
+    // never race").
+    expect(second.status).toBe(202);
+    const queued = (await second.json()) as {
+      buildId: string;
+      status: string;
+    };
+    expect(queued.status).toBe("queued");
 
-    // The refused upload left neither a row nor a file behind: exactly the one
-    // build the first publish created, and exactly its one artifact.
     const rows = await buildRows(environmentId);
-    expect(rows).toHaveLength(1);
-    const accepted = (await first.json()) as { buildId: string };
-    expect(storedArtifacts(environmentId)).toEqual([
-      `${accepted.buildId}.tar.gz`,
-    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.id === accepted.buildId)?.status).toBe(
+      "building",
+    );
+    expect(rows.find((row) => row.id === queued.buildId)?.status).toBe(
+      "queued",
+    );
+    // Both artifacts are on disk — the queued build still needs its tarball.
+    expect(storedArtifacts(environmentId).sort()).toEqual(
+      [`${accepted.buildId}.tar.gz`, `${queued.buildId}.tar.gz`].sort(),
+    );
+  });
+
+  it("refuses a publish past the queue depth, storing nothing", async () => {
+    const { environmentId, token } = await seedEnvironment();
+
+    const first = await post(
+      environmentId,
+      uploadRequest(environmentId, { token }),
+    );
+    const running = (await first.json()) as { buildId: string };
+    await buildService.transition({
+      buildId: running.buildId,
+      to: "building",
+      expectedFrom: "queued",
+    });
+
+    for (let n = 0; n < MAX_QUEUED_BUILDS_PER_ENVIRONMENT; n += 1) {
+      const accepted = await post(
+        environmentId,
+        uploadRequest(environmentId, { token }),
+      );
+      expect(accepted.status).toBe(202);
+    }
+
+    const refused = await post(
+      environmentId,
+      uploadRequest(environmentId, { token }),
+    );
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("60");
+    expect(await refused.json()).toMatchObject({ error: "build_queue_full" });
+
+    // The refusal left neither a row nor a file: the running build, its
+    // artifact, and the ones that legitimately queued — nothing more.
+    const rows = await buildRows(environmentId);
+    expect(rows).toHaveLength(1 + MAX_QUEUED_BUILDS_PER_ENVIRONMENT);
+    expect(storedArtifacts(environmentId)).toHaveLength(
+      1 + MAX_QUEUED_BUILDS_PER_ENVIRONMENT,
+    );
   });
 });
 

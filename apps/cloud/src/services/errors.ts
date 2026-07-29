@@ -159,19 +159,41 @@ export class IllegalBuildTransitionError extends CloudServiceError {
 }
 
 /**
- * The environment already has a build that has not finished (PRD 08: "a second
- * publish to a busy environment SHALL queue, never race").
+ * A build could not be STARTED because the environment already has one running
+ * (PRD 08: "never two builds racing one stack").
  *
  * Raised from the partial unique index, not from a prior read — see
- * `builds_environment_active_unique_idx`. It is a QUEUEING answer, not a
- * breakage: the caller republishes when the running build finishes.
+ * `builds_environment_running_unique_idx`. It is never an answer to a publish:
+ * a publish queues. It is the answer to a WORKER that lost the race to claim
+ * the environment, and its build simply stays `queued` for the next drain.
  */
 export class BuildInFlightError extends CloudServiceError {
   readonly code = "build_in_flight";
 
   constructor(readonly environmentId: string) {
     super(
-      `Environment "${environmentId}" already has a build in flight; it finishes before another can start`,
+      `Environment "${environmentId}" already has a build running; it finishes before another can start`,
+    );
+  }
+}
+
+/**
+ * The environment's publish QUEUE is full — the one refusal a publish can still
+ * get once a build is already running.
+ *
+ * Backpressure, not a state machine rule: every queued build holds a tarball of
+ * tenant source on a shared build host, so the depth is bounded. The caller
+ * republishes; the queue drains at one build at a time.
+ */
+export class BuildQueueFullError extends CloudServiceError {
+  readonly code = "build_queue_full";
+
+  constructor(
+    readonly environmentId: string,
+    readonly limit: number,
+  ) {
+    super(
+      `Environment "${environmentId}" already has ${limit} publishes waiting to build; publish again once the queue drains`,
     );
   }
 }

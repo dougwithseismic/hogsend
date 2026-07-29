@@ -91,20 +91,26 @@ export const builds = cloud.table(
       sql`${table.createdAt} desc`,
     ),
     /**
-     * SINGLE-FLIGHT, in the DATABASE: at most one build per environment that is
-     * not finished. Two publishes racing the same environment cannot both
-     * insert — the loser takes a 23505 and is told the environment is busy.
-     * Nothing about this depends on application-level locking, so a second
-     * control-plane replica changes nothing.
+     * SINGLE-FLIGHT, in the DATABASE: at most one RUNNING build per
+     * environment. Two workers claiming the same environment cannot both move a
+     * build out of `queued` — the loser takes a 23505 and leaves its build
+     * queued. Nothing about this depends on application-level locking, so a
+     * second control-plane replica changes nothing.
      *
-     * The predicate names the TERMINAL statuses and negates them, rather than
-     * listing the active ones. That way a stage added later to the middle of
-     * the pipeline is covered automatically; the failure mode of the other
-     * spelling is a silently disabled single-flight, which is the one this
-     * index exists to prevent.
+     * `queued` is EXCLUDED from the predicate on purpose, and that exclusion is
+     * the queue: PRD 08 requires that "a second publish to a busy environment
+     * SHALL queue, never race", so waiting rows must be able to exist. What may
+     * not exist twice is a build that is actually working — the four middle
+     * statuses — because that is what would race one stack.
+     *
+     * The predicate names the statuses that are NOT running (the two terminal
+     * ones, plus `queued`) and negates them, rather than listing the running
+     * ones. That way a stage added later to the middle of the pipeline is
+     * covered automatically; the failure mode of the other spelling is a
+     * silently disabled single-flight, which is the one this index prevents.
      */
-    uniqueIndex("builds_environment_active_unique_idx")
+    uniqueIndex("builds_environment_running_unique_idx")
       .on(table.environmentId)
-      .where(sql`${table.status} not in ('succeeded', 'failed')`),
+      .where(sql`${table.status} not in ('queued', 'succeeded', 'failed')`),
   ],
 );

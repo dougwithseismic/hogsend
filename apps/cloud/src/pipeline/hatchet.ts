@@ -2,6 +2,8 @@ import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
 import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
+import { runBuildPipeline } from "./build";
+import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
 
@@ -34,6 +36,12 @@ export const SWEEP_STACK_HEALTH_TASK = "sweep-stack-health";
 
 /** The nightly metering + enforcement + dunning sweep (PRD 06 task 3). */
 export const SWEEP_BILLING_TASK = "sweep-billing";
+
+/** One publish artifact walked to a deployed image (PRD 08 task 3). */
+export const RUN_BUILD_TASK = "run-build";
+
+/** The minute sweep that picks up orphaned builds and reaps stale ones. */
+export const SWEEP_BUILDS_TASK = "sweep-builds";
 
 export interface ProvisionStackInput extends JsonObject {
   stackId: string;
@@ -217,4 +225,101 @@ let billingSweepCache: BillingSweepTask | undefined;
 export function getBillingSweepTask(client: HatchetClient): BillingSweepTask {
   billingSweepCache ??= buildBillingSweepTask(client);
   return billingSweepCache;
+}
+
+export interface RunBuildInput extends JsonObject {
+  buildId: string;
+}
+
+/** The JSON summary a finished `run-build` leaves in Hatchet. */
+export interface RunBuildTaskOutput extends JsonObject {
+  buildId: string;
+  status: "succeeded" | "failed" | "skipped";
+  steps: string[];
+  failedStep: string | null;
+  error: string | null;
+  reference: string | null;
+  imageDigest: string | null;
+}
+
+/**
+ * The `run-build` durable task.
+ *
+ * `retries: 0`, and that is a rule rather than a tuning choice. A `builds` row
+ * records ONE attempt — the state machine has no edge back into the middle of
+ * the pipeline, and a retry is a NEW row with its own artifact and its own log
+ * (`services/builds.ts`). A Hatchet retry would replay a task whose build is no
+ * longer `queued`, which the pipeline correctly refuses; making that the normal
+ * path would just hide failures behind a "skipped" result.
+ *
+ * The timeout is generous because a cold docker build of a whole app —
+ * dependency fetch, tsup, a pruned runner — is minutes, and being cut off
+ * halfway leaves a stale row for the sweep to reap for no gain.
+ */
+function buildRunBuildTask(client: HatchetClient) {
+  return client.task({
+    name: RUN_BUILD_TASK,
+    retries: 0,
+    executionTimeout: "60m",
+    fn: async (input: JsonObject): Promise<RunBuildTaskOutput> => {
+      const buildId = input.buildId;
+      if (typeof buildId !== "string" || buildId.length === 0) {
+        throw new Error(`${RUN_BUILD_TASK} requires a string "buildId" input`);
+      }
+      const result = await runBuildPipeline({ buildId });
+      return {
+        buildId: result.buildId,
+        status: result.status,
+        steps: result.steps,
+        failedStep: result.failedStep ?? null,
+        error: result.error ?? null,
+        reference: result.reference ?? null,
+        imageDigest: result.imageDigest ?? null,
+      };
+    },
+  });
+}
+
+export type RunBuildTask = ReturnType<typeof buildRunBuildTask>;
+
+let runBuildCache: RunBuildTask | undefined;
+
+export function getRunBuildTask(client: HatchetClient): RunBuildTask {
+  runBuildCache ??= buildRunBuildTask(client);
+  return runBuildCache;
+}
+
+/** The JSON summary a finished build sweep leaves in Hatchet. */
+export interface BuildSweepTaskOutput extends JsonObject {
+  started: string[];
+  reaped: string[];
+}
+
+/**
+ * The `sweep-builds` cron task — every minute.
+ *
+ * `retries: 0` for the health sweep's reason: the sweep is idempotent, but a
+ * retry would only re-run a minute early, and the next tick is 60 seconds away.
+ */
+function buildBuildSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_BUILDS_TASK,
+    onCrons: [BUILD_SWEEP_CRON],
+    retries: 0,
+    // The sweep AWAITS the build it starts, so its ceiling is a build's.
+    executionTimeout: "60m",
+    fn: async (): Promise<BuildSweepTaskOutput> => {
+      const result = await sweepBuilds();
+      return { started: result.started, reaped: result.reaped };
+    },
+  });
+}
+
+export type BuildSweepTask = ReturnType<typeof buildBuildSweepTask>;
+
+let buildSweepCache: BuildSweepTask | undefined;
+
+export function getBuildSweepTask(client: HatchetClient): BuildSweepTask {
+  buildSweepCache ??= buildBuildSweepTask(client);
+  return buildSweepCache;
 }

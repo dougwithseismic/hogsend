@@ -6,16 +6,18 @@ import {
   removeArtifact,
   writeArtifact,
 } from "@/src/lib/artifacts";
-import { buildService } from "@/src/services/builds";
-import { BuildInFlightError } from "@/src/services/errors";
+import { createAndEnqueueBuild } from "@/src/pipeline/build-enqueue";
+import { BuildQueueFullError } from "@/src/services/errors";
 import { publishTokenService } from "@/src/services/publish-tokens";
 
 /**
  * `POST /api/publish/:environmentId` — the publish intake (PRD 08 task 2).
  *
  * It STORES and QUEUES; it does not build. The tarball goes to
- * `CLOUD_ARTIFACTS_DIR`, a `queued` build row goes to the database, and the
- * answer is 202. Task 3's worker is what walks the record through the machine.
+ * `CLOUD_ARTIFACTS_DIR`, a `queued` build row goes to the database, the build
+ * task is enqueued, and the answer is 202 — the cloud-worker is what walks the
+ * record through the machine (`src/pipeline/build.ts`). The enqueue cannot fail
+ * the upload: a queued-but-unenqueued build is picked up by the minute sweep.
  *
  * The rules, in the order they are applied — the order IS the security posture:
  *
@@ -33,9 +35,15 @@ import { publishTokenService } from "@/src/services/publish-tokens";
  *     body is then piped through a counting stream that ERRORS past the cap, so
  *     a lying (or absent) `Content-Length` cannot buy a byte more than the cap.
  *  4. **A rejected upload leaves nothing.** Every refusal above happens before
- *     any write. The one refusal that can happen after the file is on disk —
- *     the single-flight index rejecting a second concurrent build — deletes the
- *     file it wrote.
+ *     any write. The one refusal that can happen after the file is on disk — a
+ *     full publish queue — deletes the file it wrote.
+ *
+ * A busy environment is NOT a refusal. A publish sent while another build is
+ * running is QUEUED behind it (PRD 08: "a second publish to a busy environment
+ * SHALL queue, never race") and answered 202 like any other. The only queueing
+ * refusal is depth: past `MAX_QUEUED_BUILDS_PER_ENVIRONMENT` waiting publishes
+ * the answer is 429 with `retry-after`, because each waiting build pins a
+ * tarball of tenant source on a shared build host.
  */
 
 /** Uploads are capped at 64MB of tarball (PRD 08 task 2). */
@@ -78,10 +86,15 @@ const OVERSIZE = "hogsend:body-too-large";
 // cached or prerendered.
 export const dynamic = "force-dynamic";
 
-function fail(status: number, error: string, message: string): Response {
+function fail(
+  status: number,
+  error: string,
+  message: string,
+  headers: Record<string, string> = {},
+): Response {
   return Response.json(
     { error, message },
-    { status, headers: { "cache-control": "no-store" } },
+    { status, headers: { "cache-control": "no-store", ...headers } },
   );
 }
 
@@ -251,7 +264,7 @@ export async function POST(
   await writeArtifact(key, bytes);
 
   try {
-    const build = await buildService.create({
+    const build = await createAndEnqueueBuild({
       id: buildId,
       environmentId,
       artifactPath: key,
@@ -266,8 +279,10 @@ export async function POST(
   } catch (error) {
     // Nothing was queued, so nothing may be left on disk.
     await removeArtifact(key).catch(() => {});
-    if (error instanceof BuildInFlightError) {
-      return fail(409, error.code, error.message);
+    if (error instanceof BuildQueueFullError) {
+      // Backpressure, not breakage: the queue drains one build at a time and
+      // the sweep ticks every minute, so a retry a minute later gets in.
+      return fail(429, error.code, error.message, { "retry-after": "60" });
     }
     throw error;
   }
