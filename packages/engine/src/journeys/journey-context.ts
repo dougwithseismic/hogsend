@@ -9,6 +9,7 @@ import {
 } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
 import {
+  bySubject,
   durationToMs,
   evaluateEventCondition,
   evaluatePropertyConditions,
@@ -228,6 +229,15 @@ export function createJourneyContext(
     resolvedTimezone,
     defaultSendWindow,
   } = config;
+
+  // PRD 05 T4 — the subject a history read is about. The run's resolved
+  // `contactId` applies ONLY to the ENROLLED user: `ctx.history.*` takes an
+  // arbitrary `userId` from author code, and scoping someone else's key to THIS
+  // run's contact would read the wrong person. A key that is not the enrolled
+  // one has no contact in hand, so it keeps `bySubject`'s text-key arm — which
+  // is exactly today's behavior for it.
+  const subjectFor = (targetUserId: string): string | null =>
+    targetUserId === userId ? (config.contactId ?? null) : null;
 
   // Replay-stable clock: the real DurableContext.now() is memoized across
   // replays; a pre-eviction engine (or a test ctx without it) falls back to the
@@ -477,7 +487,10 @@ export function createJourneyContext(
             // association map; user scope keeps the enrolled-user predicate.
             groupScope
               ? sql`${userEvents.groups} ->> ${groupScope.type} = ${groupScope.key}`
-              : eq(userEvents.userId, userId),
+              : bySubject(userEvents, {
+                  contactId: config.contactId,
+                  userKey: userId,
+                }),
             eq(userEvents.event, event),
             gte(userEvents.occurredAt, scanSince),
             ...eqPreds,
@@ -676,7 +689,10 @@ export function createJourneyContext(
             .from(userEvents)
             .where(
               and(
-                eq(userEvents.userId, userId),
+                bySubject(userEvents, {
+                  contactId: config.contactId,
+                  userKey: userId,
+                }),
                 eq(userEvents.event, event),
                 gte(userEvents.occurredAt, since),
               ),
@@ -815,7 +831,10 @@ export function createJourneyContext(
       .from(userEvents)
       .where(
         and(
-          eq(userEvents.userId, userId),
+          bySubject(userEvents, {
+            contactId: config.contactId,
+            userKey: userId,
+          }),
           eq(userEvents.event, event),
           gte(userEvents.occurredAt, scanSince),
           lte(userEvents.occurredAt, flushInstant),
@@ -1416,7 +1435,11 @@ export function createJourneyContext(
 
     guard: {
       async isSubscribed() {
-        const prefs = await checkEmailPreferences({ db, userId });
+        const prefs = await checkEmailPreferences({
+          db,
+          userId,
+          contactId: config.contactId ?? null,
+        });
         return !prefs.unsubscribed;
       },
     },
@@ -1465,8 +1488,7 @@ export function createJourneyContext(
           ctx: {
             db,
             userId: targetUserId,
-            // PRD 05: real contactId wired when this subsystem's read batch flips
-            contactId: null,
+            contactId: subjectFor(targetUserId),
             journeyContext,
           },
         });
@@ -1482,7 +1504,10 @@ export function createJourneyContext(
           .from(journeyStates)
           .where(
             and(
-              eq(journeyStates.userId, targetUserId),
+              bySubject(journeyStates, {
+                contactId: subjectFor(targetUserId),
+                userKey: targetUserId,
+              }),
               eq(journeyStates.journeyId, targetJourneyId),
             ),
           );
@@ -1555,7 +1580,12 @@ export function createJourneyContext(
         limit = 50,
         within,
       }): Promise<RecentEvent[]> {
-        const conditions = [eq(userEvents.userId, targetUserId)];
+        const conditions = [
+          bySubject(userEvents, {
+            contactId: subjectFor(targetUserId),
+            userKey: targetUserId,
+          }),
+        ];
         if (event) {
           conditions.push(eq(userEvents.event, event));
         }

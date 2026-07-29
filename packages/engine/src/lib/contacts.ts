@@ -1199,6 +1199,10 @@ async function resolveContactShared(
       // other live contact's canonical key, those rows are theirs and adopting
       // them here would hand one person's history to another.
       const createdKey = contactKey(createdRow);
+      // History written under this key BEFORE the row existed (see
+      // {@link adoptOwnKeyHistory}). Not a merge: no key is absorbed, so it
+      // reports nothing in `mergedKeys` and fires no analytics stitch.
+      await adoptOwnKeyHistory(tx, createdKey, createdRow.id);
       let mergedKeys: string[] | undefined;
       if (
         anonymousId &&
@@ -2378,6 +2382,69 @@ async function foldEmailPreferences(
 }
 
 /**
+ * Stamp `contact_id` on history ALREADY sitting under a brand-new contact's OWN
+ * canonical key. PRD 05 T4 discovered this gap while flipping the journey
+ * runtime's reads.
+ *
+ * `repointOwnHistory` only fires when a key CHANGES (it early-returns on
+ * `oldKey === newKey`), so it never covers the window where history is written
+ * BEFORE its owner exists under the SAME key: an anonymous visitor enrolls in a
+ * journey with no contact (the engine refuses to mint one on observation), then
+ * an event carrying a `value` (or a server-side call) mints a contact keyed on
+ * that very anon id. Nothing had ever associated the earlier rows, so they kept
+ * `contact_id IS NULL` — invisible to a `contact_id`-scoped read, which is how a
+ * flipped exit scan would stop exiting that person's live journey and a flipped
+ * entry-limit guard would re-enroll them.
+ *
+ * `WHERE user_id = :key AND contact_id IS NULL` cannot steal by construction:
+ * the key is this row's own unique identity value, and a row another contact
+ * owns already carries that owner's id. No fold is needed either — the contact
+ * is brand new, so it owns no other row that a partial unique index could
+ * collide with.
+ */
+async function adoptOwnKeyHistory(
+  tx: Tx,
+  key: string,
+  contactId: string,
+): Promise<void> {
+  const stamp = { contactId };
+  await Promise.all([
+    tx
+      .update(userEvents)
+      .set(stamp)
+      .where(and(eq(userEvents.userId, key), isNull(userEvents.contactId))),
+    tx
+      .update(journeyStates)
+      .set(stamp)
+      .where(
+        and(eq(journeyStates.userId, key), isNull(journeyStates.contactId)),
+      ),
+    tx
+      .update(bucketMemberships)
+      .set(stamp)
+      .where(
+        and(
+          eq(bucketMemberships.userId, key),
+          isNull(bucketMemberships.contactId),
+        ),
+      ),
+    tx
+      .update(emailSends)
+      .set(stamp)
+      .where(and(eq(emailSends.userId, key), isNull(emailSends.contactId))),
+    tx
+      .update(emailPreferences)
+      .set(stamp)
+      .where(
+        and(
+          eq(emailPreferences.userId, key),
+          isNull(emailPreferences.contactId),
+        ),
+      ),
+  ]);
+}
+
+/**
  * Re-point a contact's OWN string-keyed history when its canonical key flips
  * (risk 1). resolvedKey downstream is `external_id ?? anonymous_id ?? id`, so
  * when fill-in-link attaches an external_id to a previously email-only/anon
@@ -2396,7 +2463,9 @@ async function foldEmailPreferences(
  * the post-merge survivor on the merge arm), so no separate id argument can
  * drift out of step with the email the folds denormalize from the same row.
  *
- * No-op when oldKey === newKey (the canonical key did not change).
+ * No-op when oldKey === newKey (the canonical key did not change) — history
+ * already sitting under a brand-new contact's OWN key is
+ * {@link adoptOwnKeyHistory}'s job, not this one's.
  */
 async function repointOwnHistory(
   tx: Tx,

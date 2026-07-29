@@ -235,7 +235,7 @@ describe("T4c — bucket_memberships.contact_id at the real-time join", () => {
     expect(rows[0]?.contactId).toBe(contact.id);
   });
 
-  it("a pin-less caller still records the join, stamped NULL", async () => {
+  it("a pin-less caller still records the join; the transition's own re-ingest then adopts it", async () => {
     const userId = uid("pinless");
 
     const transitions = await checkBucketMembership({
@@ -260,11 +260,21 @@ describe("T4c — bucket_memberships.contact_id at the real-time join", () => {
 
     const rows = await membershipsFor(userId);
     expect(rows).toHaveLength(1);
-    // The membership is FULLY recorded (text-keyed, no contact FK) — only the
-    // bookkeeping column is empty.
+    // The membership is FULLY recorded (text-keyed, no contact FK) — the
+    // pin-less join itself writes NO contact id (D6: bookkeeping degrades to
+    // NULL, it never fails the join).
     expect(rows[0]?.status).toBe("active");
     expect(rows[0]?.entryCount).toBe(1);
-    expect(rows[0]?.contactId).toBeNull();
+    // …but the transition emit re-ingests `bucket.entered` for this very key,
+    // which mints the contact — and PRD 05 T4's own-key adoption then stamps
+    // the row that predated it. A NULL here would mean a contact-scoped read
+    // could not see its own membership.
+    const [owner] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.externalId, userId));
+    expect(owner?.id).toBeTruthy();
+    expect(rows[0]?.contactId).toBe(owner?.id);
   });
 
   it("an explicit contactId param is written verbatim", async () => {

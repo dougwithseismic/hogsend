@@ -239,6 +239,7 @@ export const targetingRouter = new OpenAPIHono<AppEnv>()
         mode: "server",
         db,
         userId: contactKey,
+        contactId: row.id,
       });
     };
 

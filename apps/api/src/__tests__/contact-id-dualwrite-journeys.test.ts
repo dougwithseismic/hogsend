@@ -359,7 +359,15 @@ describe("D6 — a throwing resolve never fails the enrollment", () => {
     const userId = uid("d6-journey");
     await resolveOrCreateContact({ db, userId });
 
-    lookupSpy.mockRejectedValueOnce(new Error("injected: probe unavailable"));
+    // Fault BOTH probe points: the guard-time memo resolve AND the fresh
+    // re-resolve at the enrollment insert (the stamp deliberately re-probes so
+    // a guard-time NULL cannot go stale mid-window). With a single one-shot
+    // rejection the guards consume the fault and the insert's probe recovers
+    // the real id — a legal outcome, but not the swallowed-rejection path
+    // under test.
+    lookupSpy
+      .mockRejectedValueOnce(new Error("injected: probe unavailable"))
+      .mockRejectedValueOnce(new Error("injected: probe unavailable"));
 
     const result = await journeyFn(ENROLL_ID)(
       payload(userId),
