@@ -50,9 +50,13 @@ export const SERVICE_CREATE = `
   }
 `;
 
+// serviceId/environmentId are TOP-LEVEL arguments on Railway's real schema,
+// not ServiceInstanceUpdateInput fields — the wrapped-input shape passed the
+// emulator but 400s live ("argument serviceId ... is required", found
+// 2026-07-29 on the first live provision).
 export const SERVICE_INSTANCE_UPDATE = `
-  mutation ServiceInstanceUpdate($input: ServiceInstanceUpdateInput!) {
-    serviceInstanceUpdate(input: $input)
+  mutation ServiceInstanceUpdate($serviceId: String!, $environmentId: String, $input: ServiceInstanceUpdateInput!) {
+    serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
   }
 `;
 

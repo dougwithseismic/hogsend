@@ -174,7 +174,13 @@ class RailwayMock {
       }
 
       case "ServiceInstanceUpdate": {
-        const service = this.service(input.serviceId);
+        // Live schema shape: serviceId rides top-level, never inside input.
+        if (typeof vars.serviceId !== "string" || "serviceId" in input) {
+          throw new Error(
+            "ServiceInstanceUpdate: serviceId must be a top-level variable",
+          );
+        }
+        const service = this.service(vars.serviceId);
         const source = input.source as Record<string, unknown> | undefined;
         if (source?.image) service.image = String(source.image);
         if (typeof input.region === "string") service.region = input.region;

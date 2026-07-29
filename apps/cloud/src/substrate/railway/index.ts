@@ -410,7 +410,9 @@ export class RailwaySubstrate implements SubstrateProvider {
     patch: Record<string, unknown>,
   ): Promise<void> {
     await this.client.request(Q.SERVICE_INSTANCE_UPDATE, {
-      input: { serviceId, environmentId, ...patch },
+      serviceId,
+      environmentId,
+      input: patch,
     });
   }
 
