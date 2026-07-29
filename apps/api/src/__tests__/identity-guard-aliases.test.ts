@@ -54,11 +54,20 @@ const uid = (label: string) => `${RUN}-${label}`;
 const mail = (label: string) => `${RUN}-${label}@example.com`;
 
 const PK_KEY = `pk_test_${RUN}_publishable`;
+const SECRET_KEY = `hsk_test_${RUN}_secret`;
 const ORIGIN = "https://app.example.com";
 const PK_HEADERS = {
   Authorization: `Bearer ${PK_KEY}`,
   "Content-Type": "application/json",
   Origin: ORIGIN,
+};
+const SECRET_HEADERS = {
+  Authorization: `Bearer ${SECRET_KEY}`,
+  "Content-Type": "application/json",
+};
+const ADMIN_HEADERS = {
+  Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
+  "Content-Type": "application/json",
 };
 
 const hashKey = (raw: string) => createHash("sha256").update(raw).digest("hex");
@@ -96,12 +105,19 @@ async function aliasRows(kind: string, value: string) {
  * one survives, and the loser's external key becomes a STALE alias on the
  * survivor while its own row is soft-deleted.
  */
-async function mergedPair(label: string) {
+async function mergedPair(label: string, opts?: { survivorEmail?: boolean }) {
   const survivorKey = uid(`${label}-survivor`);
   const staleKey = uid(`${label}-stale`);
   const loserEmail = mail(`${label}-loser`);
 
-  const survivor = await resolveOrCreateContact({ db, userId: survivorKey });
+  // With `survivorEmail`, the survivor keeps its OWN address, so the loser's
+  // email is NOT folded onto the column and survives ONLY as an alias row —
+  // the shape that exercises email-alias fallbacks.
+  const survivor = await resolveOrCreateContact({
+    db,
+    userId: survivorKey,
+    ...(opts?.survivorEmail ? { email: mail(`${label}-survivor`) } : {}),
+  });
   track(survivor.id);
   const loser = await resolveOrCreateContact({
     db,
@@ -128,7 +144,7 @@ async function mergedPair(label: string) {
   expect(stale).toHaveLength(1);
   expect(stale[0]?.contactId).toBe(survivor.id);
 
-  return { survivorId: survivor.id, staleKey };
+  return { survivorId: survivor.id, survivorKey, staleKey, loserEmail };
 }
 
 beforeAll(async () => {
@@ -143,6 +159,17 @@ beforeAll(async () => {
     })
     .returning({ id: apiKeys.id });
   if (pkRow) createdKeyIds.push(pkRow.id);
+
+  const [secretRow] = await db
+    .insert(apiKeys)
+    .values({
+      name: `${RUN} secret ingest`,
+      keyPrefix: SECRET_KEY.slice(0, 8),
+      keyHash: hashKey(SECRET_KEY),
+      scopes: ["ingest"],
+    })
+    .returning({ id: apiKeys.id });
+  if (secretRow) createdKeyIds.push(secretRow.id);
 });
 
 afterAll(async () => {
@@ -284,6 +311,136 @@ describe("contactSearchFilter — alias leg", () => {
     const body = await res.json();
     const ids = body.contacts.map((c: { id: string }) => c.id);
     expect(ids).toContain(survivorId);
+  });
+});
+
+describe("resolution flips onto the identity table (PRD 07 T7c)", () => {
+  it("public find + admin detail resolve a stale external key to the survivor", async () => {
+    const { survivorId, staleKey } = await mergedPair("resolve");
+
+    const find = await app.request(
+      `/v1/contacts/find?userId=${encodeURIComponent(staleKey)}`,
+      { method: "GET", headers: SECRET_HEADERS },
+    );
+    expect(find.status).toBe(200);
+    const found = await find.json();
+    expect(found.contacts.map((c: { id: string }) => c.id)).toContain(
+      survivorId,
+    );
+
+    const detail = await app.request(
+      `/v1/admin/contacts/${encodeURIComponent(staleKey)}`,
+      { method: "GET", headers: ADMIN_HEADERS },
+    );
+    expect(detail.status).toBe(200);
+    const body = await detail.json();
+    expect(body.contact.id).toBe(survivorId);
+  });
+
+  it("find by a stale email resolves the survivor through the alias row", async () => {
+    // survivorEmail: the loser's address is NOT folded onto the survivor's
+    // column, so only the alias row can produce this hit.
+    const { survivorId, loserEmail } = await mergedPair("findmail", {
+      survivorEmail: true,
+    });
+
+    const res = await app.request(
+      `/v1/contacts/find?email=${encodeURIComponent(loserEmail)}`,
+      { method: "GET", headers: SECRET_HEADERS },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contacts.map((c: { id: string }) => c.id)).toContain(
+      survivorId,
+    );
+  });
+
+  it("the secret-key feed keys a stale email onto the survivor's feed", async () => {
+    const { survivorId, survivorKey, loserEmail } = await mergedPair("feed", {
+      survivorEmail: true,
+    });
+    const sent = await sendFeedItem({
+      recipient: { userId: survivorKey },
+      type: `${RUN}.postmerge`,
+      title: "Survivor feed item",
+    });
+    expect(sent.recipientKey).toBe(survivorKey);
+    expect(survivorId).toBeTruthy();
+
+    const res = await app.request(
+      `/v1/feed?email=${encodeURIComponent(loserEmail)}`,
+      { method: "GET", headers: SECRET_HEADERS },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items.map((i: { type: string }) => i.type)).toContain(
+      `${RUN}.postmerge`,
+    );
+  });
+
+  it("erasure by a stale external key soft-deletes the survivor", async () => {
+    const { survivorId, staleKey } = await mergedPair("erase");
+
+    const res = await app.request("/v1/contacts", {
+      method: "DELETE",
+      headers: SECRET_HEADERS,
+      body: JSON.stringify({ userId: staleKey }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(true);
+
+    const [row] = await db
+      .select({ deletedAt: contacts.deletedAt })
+      .from(contacts)
+      .where(eq(contacts.id, survivorId));
+    expect(row?.deletedAt).not.toBeNull();
+  });
+
+  it("a merge freezes the loser's string keys — ownership moves on the FK only", async () => {
+    const label = "freeze";
+    const survivorKey = uid(`${label}-survivor`);
+    const staleKey = uid(`${label}-stale`);
+    const loserEmail = mail(`${label}-loser`);
+
+    const survivor = await resolveOrCreateContact({ db, userId: survivorKey });
+    track(survivor.id);
+    const loser = await resolveOrCreateContact({
+      db,
+      userId: staleKey,
+      email: loserEmail,
+    });
+    track(loser.id);
+    // One row the loser OWNS (stamped at write time) and one ORPHAN under its
+    // key — the two shapes the merge must handle differently, with the same
+    // frozen-key outcome.
+    await db.insert(userEvents).values([
+      { userId: staleKey, contactId: loser.id, event: `${RUN}.owned` },
+      { userId: staleKey, event: `${RUN}.orphan` },
+    ]);
+
+    const merged = await resolveOrCreateContact({
+      db,
+      userId: survivorKey,
+      email: loserEmail,
+    });
+    expect(merged.id).toBe(survivor.id);
+
+    const rows = await db
+      .select({
+        userId: userEvents.userId,
+        contactId: userEvents.contactId,
+        event: userEvents.event,
+      })
+      .from(userEvents)
+      .where(eq(userEvents.userId, staleKey));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      // The string key is a frozen record of the key the write happened
+      // under; the survivor owns the rows through contact_id alone.
+      expect(row.userId).toBe(staleKey);
+      expect(row.contactId).toBe(survivor.id);
+    }
   });
 });
 
