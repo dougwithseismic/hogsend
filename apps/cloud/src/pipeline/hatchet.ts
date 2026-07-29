@@ -1,6 +1,7 @@
 import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
+import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
 
@@ -30,6 +31,9 @@ export const PROVISION_STACK_TASK = "provision-stack";
 
 /** The recurring health sweep (PRD 04 task 4). Cron-triggered, never enqueued. */
 export const SWEEP_STACK_HEALTH_TASK = "sweep-stack-health";
+
+/** The nightly metering + enforcement + dunning sweep (PRD 06 task 3). */
+export const SWEEP_BILLING_TASK = "sweep-billing";
 
 export interface ProvisionStackInput extends JsonObject {
   stackId: string;
@@ -155,4 +159,62 @@ let sweepCache: HealthSweepTask | undefined;
 export function getHealthSweepTask(client: HatchetClient): HealthSweepTask {
   sweepCache ??= buildHealthSweepTask(client);
   return sweepCache;
+}
+
+/** The JSON summary a finished billing sweep leaves in Hatchet. */
+export interface BillingSweepTaskOutput extends JsonObject {
+  month: string;
+  metered: number;
+  meteringFailures: number;
+  ingestSuspended: number;
+  ingestResumed: number;
+  trialsExpired: number;
+  dunningSuspended: number;
+}
+
+/**
+ * The `sweep-billing` cron task — nightly: meter, enforce, expire the grace.
+ *
+ * `retries: 0`, for a sharper reason than the health sweep's. Every step is
+ * idempotent, so a retry would be SAFE — but it would also be pointless: a
+ * failure that survived the first attempt (an unreachable substrate, a cell
+ * that is down) will survive a second one minutes later, and the next tick is
+ * 24 hours away with the same absolute numbers to write. A per-tenant failure
+ * never reaches this level at all: the sweep records it and steps over.
+ */
+function buildBillingSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_BILLING_TASK,
+    onCrons: [BILLING_SWEEP_CRON],
+    retries: 0,
+    // A fleet of tenant databases, visited in sequence with a 10s connect
+    // timeout each. Generous, because being cut off mid-fleet would leave half
+    // the tenants un-metered for the night.
+    executionTimeout: "60m",
+    fn: async (): Promise<BillingSweepTaskOutput> => {
+      const result = await runBillingSweep();
+      return {
+        month: result.usage.month,
+        metered: result.usage.swept,
+        meteringFailures: result.usage.failed.length,
+        ingestSuspended: result.enforcement.actions.filter(
+          (action) => action.verdict === "ingest_suspended",
+        ).length,
+        ingestResumed: result.enforcement.actions.filter(
+          (action) => action.verdict === "ingest_resumed",
+        ).length,
+        trialsExpired: result.enforcement.trialsExpired.length,
+        dunningSuspended: result.dunning.suspended.length,
+      };
+    },
+  });
+}
+
+export type BillingSweepTask = ReturnType<typeof buildBillingSweepTask>;
+
+let billingSweepCache: BillingSweepTask | undefined;
+
+export function getBillingSweepTask(client: HatchetClient): BillingSweepTask {
+  billingSweepCache ??= buildBillingSweepTask(client);
+  return billingSweepCache;
 }

@@ -1,6 +1,7 @@
 import { Server } from "lucide-react";
 import type { Metadata } from "next";
 import { EnvironmentTable } from "@/components/cloud/environment-table";
+import { OverageBanner } from "@/components/cloud/overage-banner";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { EmptyState } from "@/components/ds/empty-state";
@@ -9,6 +10,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { requireActiveOrganization } from "@/src/lib/session";
 import { getStackAlerts } from "@/src/pipeline/health-poll";
 import { environmentService } from "@/src/services/environments";
+import { readUsageView } from "@/src/services/usage";
 
 export const metadata: Metadata = {
   title: "Overview",
@@ -22,9 +24,10 @@ export const metadata: Metadata = {
  */
 export default async function HomePage() {
   const { record } = await requireActiveOrganization();
-  const [{ environments }, alerts] = await Promise.all([
+  const [{ environments }, alerts, usage] = await Promise.all([
     environmentService.list({ organizationId: record.id }),
     getStackAlerts({ organizationId: record.id }),
+    readUsageView({ organizationId: record.id }),
   ]);
   const alertingStackIds = new Set(alerts.map((alert) => alert.stackId));
   const moving = environments.filter((environment) =>
@@ -51,6 +54,10 @@ export default async function HomePage() {
       />
 
       <Section divider={false} containerClassName="flex flex-col gap-4">
+        {/* Above the environment table on purpose: a paused ingest is the one
+            fact on this page that is costing the tenant data right now. */}
+        <OverageBanner view={usage} href="/usage" />
+
         {environments.length > 0 ? (
           <EnvironmentTable
             environments={environments}

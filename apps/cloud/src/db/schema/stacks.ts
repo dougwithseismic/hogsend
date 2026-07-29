@@ -3,6 +3,7 @@ import {
   integer,
   jsonb,
   text,
+  timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -78,6 +79,24 @@ export const stacks = cloud.table(
      * decrypted shape is validated in `pipeline/provision.ts`.
      */
     stackSecretsEncrypted: text("stack_secrets_encrypted"),
+    /**
+     * When plan enforcement set `HOGSEND_INGEST_SUSPENDED=true` on this stack;
+     * null = ingest is accepting (PRD 06 task 3).
+     *
+     * The marker exists because enforcement runs EVERY night against a cap that
+     * stays breached all month. Without a recorded flag state the sweep would
+     * re-`setEnv` and re-`redeploy` a stack that is already suspended, once a
+     * night, restarting a tenant's instance for no change — so the column is
+     * what makes the enforcement idempotent, and what the dashboard reads to
+     * say "ingest is paused" without asking the substrate.
+     *
+     * Written only AFTER the substrate call succeeds: a marker set ahead of a
+     * failed `setEnv` would claim a suspension that never landed, and no later
+     * sweep would ever retry it.
+     */
+    ingestSuspendedAt: timestamp("ingest_suspended_at", {
+      withTimezone: true,
+    }),
     region: cloudRegionEnum("region").notNull(),
     ...timestamps,
   },

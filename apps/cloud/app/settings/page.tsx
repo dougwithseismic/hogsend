@@ -5,6 +5,7 @@ import { AccountSection } from "@/components/cloud/account-section";
 import { CopyValue } from "@/components/cloud/copy-value";
 import { DangerZoneSection } from "@/components/cloud/danger-zone-section";
 import { MembersSection } from "@/components/cloud/members-section";
+import { PlanActions } from "@/components/cloud/plan-actions";
 import { ProvidersSection } from "@/components/cloud/providers-section";
 import { TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
@@ -12,6 +13,7 @@ import { Hairline } from "@/components/ds/decor";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
 import { hasRole, readMembersView } from "@/src/lib/org-members";
+import { PLAN_CATALOG } from "@/src/lib/plan-catalog";
 import { readProvidersView } from "@/src/lib/provider-keys-ops";
 import { CLOUD_REGIONS } from "@/src/lib/regions";
 import { requireActiveOrganization } from "@/src/lib/session";
@@ -68,13 +70,25 @@ export default async function SettingsPage({ searchParams }: PageProps) {
           </Row>
           <Hairline />
           <Row label="Plan">
-            <span className="inline-flex items-center gap-2">
-              <TagPill tone="accent">{record.plan}</TagPill>
-              {record.trialEndsAt ? (
+            <span className="flex flex-col items-start gap-3 sm:items-end">
+              <span className="inline-flex items-center gap-2">
+                <TagPill tone="accent">
+                  {PLAN_CATALOG[record.plan].label}
+                </TagPill>
                 <span className="text-white/50 text-xs">
-                  trial ends {record.trialEndsAt.toISOString().slice(0, 10)}
+                  {PLAN_CATALOG[record.plan].price}
                 </span>
-              ) : null}
+                {record.trialEndsAt ? (
+                  <span className="text-white/50 text-xs">
+                    trial ends {record.trialEndsAt.toISOString().slice(0, 10)}
+                  </span>
+                ) : null}
+              </span>
+              <PlanActions
+                plan={record.plan}
+                canManage={membersView.canManage}
+                billingCustomerId={record.billingCustomerId}
+              />
             </span>
           </Row>
           <Hairline />

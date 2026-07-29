@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { cells, organizations, stacks } from "../db/schema";
@@ -89,6 +89,18 @@ export interface ResumeResult {
   stackId: string;
   status: "running";
   skipped: boolean;
+}
+
+export interface ResumeFailure {
+  stackId: string;
+  reason: string;
+}
+
+export interface ResumeOrganizationResult {
+  organizationId: string;
+  /** Stacks moved `suspended → running` by this call. */
+  resumed: string[];
+  failed: ResumeFailure[];
 }
 
 export interface DestroyStepReport {
@@ -242,6 +254,70 @@ export async function resumeStack(
   });
 
   return { stackId, status: "running", skipped: false };
+}
+
+/**
+ * Un-pause every suspended stack an organization owns.
+ *
+ * This is what makes a billing recovery real. `OrgService.unsuspend` writes one
+ * boolean on the `organizations` row; the tenant's instance is stopped at the
+ * SUBSTRATE, and nothing about clearing a flag starts a container. Without this,
+ * a customer whose trial expired could complete a checkout, watch the dashboard
+ * say "active", and still have a dead API.
+ *
+ * Per-stack wrapped: an org with four environments must not lose three of them
+ * to one substrate error, and the failure is audited so an operator can finish
+ * the job by hand.
+ *
+ * It resumes EVERY suspended stack, including one a dashboard click paused
+ * before the billing stop landed — a per-stack "why" does not exist, and the
+ * only caller is an org-wide billing recovery, where bringing the tenant back
+ * whole is the answer that costs nothing to undo.
+ */
+export async function resumeOrganizationStacks(
+  input: { organizationId: string },
+  overrides: Partial<LifecycleDeps> = {},
+): Promise<ResumeOrganizationResult> {
+  const { organizationId } = input;
+  const database = overrides.db ?? defaultDb;
+
+  const suspended = await database
+    .select({ id: stacks.id })
+    .from(stacks)
+    .where(
+      and(
+        eq(stacks.organizationId, organizationId),
+        eq(stacks.status, "suspended"),
+      ),
+    );
+  // Resolved only when there is work: constructing the substrate is a live
+  // credential check, and a recovery for a tenant with nothing stopped must not
+  // depend on one.
+  if (suspended.length === 0)
+    return { organizationId, resumed: [], failed: [] };
+
+  const deps: LifecycleDeps = { ...defaultDeps(), ...overrides };
+  const resumed: string[] = [];
+  const failed: ResumeFailure[] = [];
+
+  for (const { id } of suspended) {
+    try {
+      await resumeStack({ stackId: id }, deps);
+      resumed.push(id);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      failed.push({ stackId: id, reason });
+      await writeAudit(deps.db, {
+        actor: LIFECYCLE_ACTOR,
+        organizationId,
+        action: "stack.resume_failed",
+        subject: id,
+        detail: { reason },
+      }).catch(() => undefined);
+    }
+  }
+
+  return { organizationId, resumed, failed };
 }
 
 /**

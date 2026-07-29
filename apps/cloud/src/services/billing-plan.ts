@@ -3,9 +3,16 @@ import type { BillingEvent } from "../billing/types";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { organizations } from "../db/schema";
+import {
+  ENFORCEMENT_FAILED_ACTION,
+  reasonOf,
+  reconcileIngestFlag,
+} from "../metering/enforcement";
+import { resumeOrganizationStacks } from "../pipeline/lifecycle";
+import type { SubstrateProvider } from "../substrate";
 import { writeAudit } from "./audit";
 import type { OrganizationRow, SuspensionReason } from "./orgs";
-import { type CloudPlan, OrgService, PLAN_ENVIRONMENT_LIMITS } from "./orgs";
+import { type CloudPlan, OrgService } from "./orgs";
 
 /**
  * Billing state, applied to the tenant root.
@@ -30,51 +37,15 @@ import { type CloudPlan, OrgService, PLAN_ENVIRONMENT_LIMITS } from "./orgs";
  *    subscription is in good standing again — a cancelled tenant who
  *    re-subscribes must not keep paying for a stopped stack — while an ops or
  *    abuse suspension carries a different reason and no invoice can lift it.
+ *  - a recovery reaches the INFRASTRUCTURE, not just the row. Clearing
+ *    `suspended_at` starts nothing: the stacks were stopped at the substrate,
+ *    so recovery resumes them, and the ingest flag is reconciled against the
+ *    new plan there and then rather than at the next 03:00 cron. A customer who
+ *    upgrades at 04:00 must not spend 23 more hours on 429s they have paid to
+ *    stop getting.
  *  - every transition is audit-logged, in the SAME transaction as the write it
  *    describes.
  */
-
-/** DECISIONS §2, as data. PRD 06 task 3 (metering + enforcement) consumes it. */
-export interface PlanLimits {
-  /** Environments, including production. */
-  environments: number;
-  /**
-   * Ingested events per calendar month. For `trial` this is the TOTAL for the
-   * whole 14 days rather than a monthly allowance — a trial never sees a second
-   * month, so one field carries both meanings without ambiguity.
-   */
-  eventsPerMonth: number;
-  /** Emails sent per calendar month; same trial caveat as `eventsPerMonth`. */
-  emailsPerMonth: number;
-}
-
-/**
- * The tier table from DECISIONS §2. The environment counts are NOT restated
- * here — they are read off `PLAN_ENVIRONMENT_LIMITS`, which the environment
- * service already enforces, so the two can never drift into disagreeing about
- * what a plan allows.
- */
-export const PLAN_LIMITS = {
-  trial: {
-    environments: PLAN_ENVIRONMENT_LIMITS.trial,
-    eventsPerMonth: 10_000,
-    emailsPerMonth: 1_000,
-  },
-  self_serve: {
-    environments: PLAN_ENVIRONMENT_LIMITS.self_serve,
-    eventsPerMonth: 100_000,
-    emailsPerMonth: 10_000,
-  },
-  dedicated: {
-    environments: PLAN_ENVIRONMENT_LIMITS.dedicated,
-    eventsPerMonth: 1_000_000,
-    emailsPerMonth: 100_000,
-  },
-} as const satisfies Record<CloudPlan, PlanLimits>;
-
-export function planLimits(plan: CloudPlan): PlanLimits {
-  return PLAN_LIMITS[plan];
-}
 
 /** DECISIONS/PRD 06: 14 days from the first failed payment to suspension. */
 export const DUNNING_GRACE_DAYS = 14;
@@ -102,11 +73,33 @@ export interface EnforceDunningResult {
   suspended: string[];
 }
 
+export interface PlanServiceDeps {
+  /**
+   * The substrate recovery drives. Injected so a test can prove a checkout
+   * really restarts a stopped tenant; in production it is resolved per call by
+   * the lifecycle/enforcement modules themselves.
+   */
+  substrate?: SubstrateProvider;
+}
+
 export class PlanService {
   private readonly orgs: OrgService;
 
-  constructor(private readonly db: CloudDb = defaultDb) {
+  constructor(
+    private readonly db: CloudDb = defaultDb,
+    private readonly deps: PlanServiceDeps = {},
+  ) {
     this.orgs = new OrgService(db);
+  }
+
+  /** `{ db, substrate? }` for the lifecycle + enforcement calls recovery makes.
+   * `substrate` is OMITTED rather than passed as undefined, so those modules
+   * fall back to their own `getSubstrate()` instead of being handed a hole. */
+  private infraOverrides(): { db: CloudDb; substrate?: SubstrateProvider } {
+    return {
+      db: this.db,
+      ...(this.deps.substrate ? { substrate: this.deps.substrate } : {}),
+    };
   }
 
   /**
@@ -269,6 +262,9 @@ export class PlanService {
       actions.push(
         ...(await this.recover(updated ?? organization, actor, { now })),
       );
+      // AFTER the resume: the flag goes on running stacks, and the stacks a
+      // recovery restarts are running only once `recover` has returned.
+      actions.push(...(await this.reconcileIngest(organization.id, actor)));
       return {
         applied: true,
         ...(updated ? { organization: updated } : {}),
@@ -278,6 +274,7 @@ export class PlanService {
     }
 
     actions.push(...(await this.recover(organization, actor, { now })));
+    actions.push(...(await this.reconcileIngest(organization.id, actor)));
     return { applied: true, organization, planChanged: false, actions };
   }
 
@@ -324,8 +321,73 @@ export class PlanService {
     ) {
       await this.orgs.unsuspend({ id: organization.id, actor });
       actions.push("org.unsuspended");
+      actions.push(...(await this.resumeStacks(organization.id, actor)));
     }
     return actions;
+  }
+
+  /**
+   * Restart what the suspension stopped. Best-effort by design: the money has
+   * already moved and the org row already says "active", so a substrate blip
+   * must not turn a successful payment into a failed webhook — it is audited,
+   * and the dashboard's resume button (and the operator reading the log) can
+   * finish the job.
+   */
+  private async resumeStacks(
+    organizationId: string,
+    actor: string,
+  ): Promise<string[]> {
+    try {
+      const { resumed } = await resumeOrganizationStacks(
+        { organizationId },
+        this.infraOverrides(),
+      );
+      // `resumeStack` writes its own `stack.resume` audit row per stack; this
+      // is the caller-visible echo of the same fact.
+      return resumed.map(() => "stack.resume");
+    } catch (error) {
+      await writeAudit(this.db, {
+        actor,
+        organizationId,
+        action: ENFORCEMENT_FAILED_ACTION,
+        subject: organizationId,
+        detail: { step: "resume_stacks", reason: reasonOf(error) },
+      }).catch(() => undefined);
+      return [];
+    }
+  }
+
+  /**
+   * Make the ingest flag agree with the plan the tenant now has.
+   *
+   * Best-effort for the same reason as `resumeStacks`, and idempotent on the
+   * persisted marker — so a failure here is retried by the nightly sweep rather
+   * than lost, and a success there costs nothing.
+   */
+  private async reconcileIngest(
+    organizationId: string,
+    actor: string,
+  ): Promise<string[]> {
+    try {
+      const { actions } = await reconcileIngestFlag(
+        { organizationId },
+        this.infraOverrides(),
+      );
+      return actions.map((action) =>
+        action.verdict === "ingest_suspended"
+          ? "usage.ingest_suspended"
+          : "usage.ingest_resumed",
+      );
+    } catch (error) {
+      await writeAudit(this.db, {
+        actor,
+        organizationId,
+        action: ENFORCEMENT_FAILED_ACTION,
+        subject: organizationId,
+        detail: { step: "reconcile_ingest_flag", reason: reasonOf(error) },
+      }).catch(() => undefined);
+      return [];
+    }
   }
 
   /** A failed charge. Records the fact every time; starts the clock once. */

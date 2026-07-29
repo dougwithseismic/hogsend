@@ -10,13 +10,9 @@ import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import { cells, cloudAuditLog, organizations } from "../db/schema";
 import { env } from "../env";
-import {
-  DUNNING_GRACE_DAYS,
-  PLAN_LIMITS,
-  PlanService,
-  planLimits,
-} from "../services/billing-plan";
+import { DUNNING_GRACE_DAYS, PlanService } from "../services/billing-plan";
 import { OrgService } from "../services/orgs";
+import { PLAN_LIMITS, planLimits } from "../services/plan-limits";
 
 /**
  * Against the REAL database: every rule here is a write — a plan column, a
