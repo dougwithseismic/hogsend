@@ -122,6 +122,8 @@ stack → health poll.
 | stack stuck in `provisioning` | pipeline died mid-run | reconciler is PRD 10; today: inspect stack step log, re-drive or park to `error` |
 | transient Railway 400 "Problem processing request" during bursts | rate/consistency blip | retry; steps are idempotent |
 | default image tag missing on GHCR | release didn't publish or pin not bumped | release CI pushes per publish; `CLOUD_DEFAULT_ENGINE_VERSION` bump is manual |
+| `railway up` build SKIPPED "no changes detected" after a config-only change (e.g. dockerfilePath) | Railway skips identical content snapshots | bump the gitignored `.railway-nonce` file and re-run `railway up` |
+| control-plane build uses the wrong Dockerfile | `RAILWAY_DOCKERFILE_PATH` env var is not honored for CLI uploads | set `dockerfilePath` via `serviceInstanceUpdate` (a real service setting) |
 
 ## Suspend / destroy
 
