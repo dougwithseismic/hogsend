@@ -6,6 +6,7 @@ import { db } from "../db";
 import { organizations } from "../db/schema";
 import type { OrganizationRow } from "../services/orgs";
 import { auth } from "./auth";
+import { loginHref } from "./auth-guard";
 import {
   type OrganizationSummary,
   resolveCreateOrgAccess,
@@ -76,17 +77,28 @@ export type ActiveOrgContext = {
 /**
  * Guard for every dashboard page: no session → `/login`, no organization →
  * `/create-org`, otherwise the active organization and its control-plane row.
+ *
+ * `returnTo` is for the pages a visitor is SENT to rather than navigates to —
+ * today the CLI approve page, which arrives with a user code in its query. It
+ * makes the sign-in bounce a round trip instead of a dead end; it is sanitized
+ * to a same-origin path by `loginHref`, and it only affects the `/login` leg.
  */
-export async function requireActiveOrganization(): Promise<ActiveOrgContext> {
+export async function requireActiveOrganization(
+  options: { returnTo?: string } = {},
+): Promise<ActiveOrgContext> {
   const context = await readSessionContext();
-  if (!context) redirect("/login");
+  if (!context) redirect(loginHref(options.returnTo));
 
   const decision = resolveDashboardAccess({
     hasSession: true,
     activeOrganizationId: context.activeOrganizationId,
     organizations: context.organizations,
   });
-  if (decision.action === "redirect") redirect(decision.to);
+  if (decision.action === "redirect") {
+    redirect(
+      decision.to === "/login" ? loginHref(options.returnTo) : decision.to,
+    );
+  }
 
   const [record] = await db
     .select()

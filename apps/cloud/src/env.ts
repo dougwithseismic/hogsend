@@ -80,6 +80,15 @@ export const env = createEnv({
     // dev port everywhere — a production deploy behind the wrong origin fails
     // loudly at request time (origin mismatch), not silently at boot.
     CLOUD_PUBLIC_URL: z.url().default(DEFAULT_CLOUD_PUBLIC_URL),
+    // How many proxies sit in front of this app, for reading `x-forwarded-for`
+    // (`lib/rate-limit.ts`). The header is append-only and client-writable, so
+    // the address a rate limit may key on is counted from the RIGHT: with N
+    // trusted hops it is the Nth entry from the end. Getting this wrong is
+    // deliberately asymmetric — too LOW buckets many callers under one proxy
+    // address (a tighter limit, visible as refusals), too HIGH keys on an entry
+    // the caller wrote (no limit at all) — so the default is the safe one and a
+    // deploy behind Cloudflare *and* Railway raises it to 2.
+    CLOUD_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).max(8).default(1),
     // OPTIONAL. Absent → OTP codes go to the server log (`logSender`). Present
     // → they are emailed through Resend. Tests never set it, so no test can
     // reach the network.

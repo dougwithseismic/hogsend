@@ -17,6 +17,19 @@ type ButtonProps = {
   external?: boolean;
   /** Button element type when there's no href — "submit" to post a form. */
   type?: "button" | "submit";
+  /**
+   * Posted with the form when THIS button is the one that submitted it. How a
+   * single form offers two verbs (approve / deny) over one shared input
+   * without two forms and two copies of the field.
+   */
+  name?: string;
+  value?: string;
+  /**
+   * Submit WITHOUT the browser's constraint validation. For the second verb of
+   * a two-verb form, where the refusing action must not have to satisfy the
+   * fields the approving one requires.
+   */
+  formNoValidate?: boolean;
   /** Only meaningful without an href (a disabled link is not a thing). */
   disabled?: boolean;
   /**
@@ -45,6 +58,9 @@ export function Button({
   icon = false,
   external = false,
   type = "button",
+  name,
+  value,
+  formNoValidate = false,
   disabled = false,
   onClick,
   children,
@@ -88,6 +104,9 @@ export function Button({
   return (
     <button
       type={type}
+      {...(name === undefined ? {} : { name })}
+      {...(value === undefined ? {} : { value })}
+      {...(formNoValidate ? { formNoValidate: true } : {})}
       disabled={disabled}
       onClick={onClick}
       // pointer-events-none rather than a hover override: the variants each

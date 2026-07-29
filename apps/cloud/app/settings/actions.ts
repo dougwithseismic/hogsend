@@ -11,6 +11,7 @@ import {
 import type { ActionState } from "@/src/lib/action-state";
 import { auth } from "@/src/lib/auth";
 import { CLOUD_SESSION_COOKIE_NAME } from "@/src/lib/auth-cookie";
+import { revokeCliSession } from "@/src/lib/cli-sessions-ops";
 import {
   INVITABLE_ROLES,
   inviteMember,
@@ -19,6 +20,7 @@ import {
   revokeInvitation,
   updateMemberRole,
 } from "@/src/lib/org-members";
+import { NotFoundError } from "@/src/services/errors";
 
 /**
  * Every mutation the settings page can run.
@@ -140,6 +142,33 @@ export async function updateMemberRoleAction(
 
   revalidatePath("/settings");
   return { error: null, notice: `Role set to ${parsed.data.role}.` };
+}
+
+/**
+ * Cut off one machine.
+ *
+ * `NotFoundError` is answered with the same line whether the session belongs to
+ * another organization or never existed: the id is not the caller's to have,
+ * and confirming it exists somewhere else would be a leak.
+ */
+export async function revokeCliSessionAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const sessionId = String(formData.get("sessionId") ?? "");
+  if (!sessionId) return { error: "No CLI session was named." };
+
+  try {
+    await revokeCliSession(await headers(), { sessionId });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return { error: "That CLI session no longer exists." };
+    }
+    return { error: messageFrom(error, "The CLI session was not revoked.") };
+  }
+
+  revalidatePath("/settings");
+  return { error: null, notice: "CLI session revoked." };
 }
 
 const passwordSchema = z.object({

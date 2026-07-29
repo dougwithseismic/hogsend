@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   buildArtifactKey,
-  isUuid,
   removeArtifact,
   writeArtifact,
 } from "@/src/lib/artifacts";
+import {
+  authorizePublishEnvironment,
+  bearerToken,
+  checkEngineVersion,
+  resolvePublishCredential,
+} from "@/src/lib/publish-guards";
 import { createAndEnqueueBuild } from "@/src/pipeline/build-enqueue";
 import { BuildQueueFullError } from "@/src/services/errors";
-import { publishTokenService } from "@/src/services/publish-tokens";
 
 /**
  * `POST /api/publish/:environmentId` — the publish intake (PRD 08 task 2).
@@ -23,18 +27,26 @@ import { publishTokenService } from "@/src/services/publish-tokens";
  *
  *  1. **Authenticate before reading a byte.** `proxy.ts` excludes `/api` from
  *     the session matcher, so this handler authenticates itself: a bearer
- *     publish token, checked against its sha256. An upload with no valid token
- *     is refused before the body is touched, so an anonymous caller cannot make
- *     this process buffer 64MB.
- *  2. **The token names its own environment.** A token valid for environment A
- *     posting to environment B is 403, not 401: it is a real credential used
- *     against a target it does not own, and saying so is not a leak — the
- *     holder already knows their own environment id.
+ *     credential, checked against its sha256. Two are accepted — an
+ *     environment-bound `hspub_…` publish token, and a person-bound `hscli_…`
+ *     CLI session from `hogsend login` — and `lib/publish-guards.ts` owns the
+ *     difference. An upload with no valid credential is refused before the body
+ *     is touched, so an anonymous caller cannot make this process buffer 64MB.
+ *  2. **The credential must reach THIS environment.** A publish token valid for
+ *     environment A posting to environment B is 403, not 401: it is a real
+ *     credential used against a target it does not own, and saying so is not a
+ *     leak — the holder already knows their own environment id. A CLI session
+ *     must be in the environment's ORGANIZATION and its human must still hold a
+ *     publishing role, re-read from the membership on every upload.
  *  3. **The size cap is enforced TWICE.** `Content-Length` is a hint, checked
  *     first so an honest oversize upload is refused without reading it; the
  *     body is then piped through a counting stream that ERRORS past the cap, so
  *     a lying (or absent) `Content-Length` cannot buy a byte more than the cap.
- *  4. **A rejected upload leaves nothing.** Every refusal above happens before
+ *  4. **The engine version must match the stack.** A tarball built against a
+ *     different engine than the stack is running is a migration, not a deploy,
+ *     so it is refused 409 unless the manifest says `allowUpgrade`. Checked
+ *     after the manifest is parsed and BEFORE anything is written.
+ *  5. **A rejected upload leaves nothing.** Every refusal above happens before
  *     any write. The one refusal that can happen after the file is on disk — a
  *     full publish queue — deletes the file it wrote.
  *
@@ -75,9 +87,12 @@ const manifestSchema = z.looseObject({
   engineVersion: z.string().min(1).max(64),
   appName: z.string().min(1).max(128).optional(),
   nodeVersion: z.string().min(1).max(32).optional(),
+  /**
+   * `hogsend publish --allow-upgrade`. The caller stating that a version
+   * disagreement with the stack is intentional; without it the intake refuses.
+   */
+  allowUpgrade: z.boolean().optional(),
 });
-
-const BEARER_PATTERN = /^Bearer\s+(\S+)$/i;
 
 /** Marker the limiting stream fails with, recognised below as a 413. */
 const OVERSIZE = "hogsend:body-too-large";
@@ -136,30 +151,31 @@ export async function POST(
 ): Promise<Response> {
   const { environmentId } = await context.params;
 
-  const match = BEARER_PATTERN.exec(request.headers.get("authorization") ?? "");
-  const token = match?.[1];
+  const token = bearerToken(request.headers);
   if (!token) {
     return fail(
       401,
       "missing_token",
-      "Send the environment's publish token as `Authorization: Bearer hspub_…`.",
+      "Send a credential as `Authorization: Bearer hspub_…` (environment publish token) or `Bearer hscli_…` (a `hogsend login` session).",
     );
   }
 
-  const verified = await publishTokenService.verify({ token });
-  if (!verified.found) {
+  const credential = await resolvePublishCredential({ token });
+  if (!credential) {
     return fail(
       401,
       "invalid_token",
-      "That publish token is not valid. Rotate the environment's token and try again.",
+      "That credential is not valid. Rotate the environment's publish token, or run `hogsend login` again.",
     );
   }
-  if (!isUuid(environmentId) || verified.environmentId !== environmentId) {
-    return fail(
-      403,
-      "forbidden_environment",
-      "That publish token belongs to a different environment.",
-    );
+
+  const authorized = await authorizePublishEnvironment({
+    credential,
+    environmentId,
+  });
+  if (!authorized.ok) {
+    const { status, error, message } = authorized.refusal;
+    return fail(status, error, message);
   }
 
   const declared = declaredLength(request.headers);
@@ -228,6 +244,23 @@ export async function POST(
     );
   }
 
+  const version = await checkEngineVersion({
+    environmentId,
+    manifestVersion: manifest.engineVersion,
+    allowUpgrade: manifest.allowUpgrade === true,
+  });
+  if (!version.ok) {
+    return Response.json(
+      {
+        error: "engine_version_mismatch",
+        message: `This stack runs engine ${version.stackVersion}; the upload is built against ${version.manifestVersion}. Publish with --allow-upgrade to change it.`,
+        stackVersion: version.stackVersion,
+        manifestVersion: version.manifestVersion,
+      },
+      { status: 409, headers: { "cache-control": "no-store" } },
+    );
+  }
+
   const tarball = form.get("tarball");
   if (typeof tarball === "string" || tarball === null) {
     return fail(
@@ -270,7 +303,7 @@ export async function POST(
       artifactPath: key,
       manifest,
       engineVersion: manifest.engineVersion,
-      actor: `publish_token:${verified.tokenId}`,
+      actor: authorized.actor,
     });
     return Response.json(
       { buildId: build.id, status: build.status },

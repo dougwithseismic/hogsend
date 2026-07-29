@@ -18,6 +18,10 @@ export const PROTECTED_PREFIXES = [
   // writes the organization's provider credentials, so a signed-out visitor
   // has no business rendering it.
   "/setup",
+  // The CLI device-flow approve page. Signed-in-only is the ENTIRE security
+  // model of the device flow: a user code names a pending login, and only a
+  // real dashboard session can turn it into an approved one.
+  "/cli",
   // Signed-in-only too, but it is where the org-less land rather than a
   // dashboard page — the redirect INTO it is `session.ts`'s job, because only a
   // database read knows whether the user has an organization.
@@ -57,6 +61,35 @@ export function sanitizeNext(
   if (!value.startsWith("/")) return fallback;
   if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
   return value;
+}
+
+/**
+ * The sign-in URL that comes BACK to `next` afterwards.
+ *
+ * It exists for the CLI approve page: a device-flow link mailed, pasted or
+ * opened by `hogsend login` arrives at `/cli/approve?code=…`, and a visitor
+ * whose session had lapsed must land on that exact page — code and all — after
+ * signing in, or the flow dead-ends on a dashboard with no way back.
+ *
+ * `sanitizeNext` runs on the way IN as well as on the way out, so a caller
+ * cannot smuggle an absolute URL into the round-trip. `/` is left bare: there
+ * is nothing to return to.
+ */
+export function loginHref(next?: string | null): string {
+  const target = sanitizeNext(next, "/");
+  return target === "/"
+    ? "/login"
+    : `/login?next=${encodeURIComponent(target)}`;
+}
+
+/** The same rule, for the middleware, which has a pathname and a query. */
+export function loginRedirectTarget(input: {
+  pathname: string;
+  search?: string;
+}): { pathname: string; search: string } {
+  const href = loginHref(`${input.pathname}${input.search ?? ""}`);
+  const [pathname = "/login", search] = href.split("?");
+  return { pathname, search: search ? `?${search}` : "" };
 }
 
 export type GuardDecision =

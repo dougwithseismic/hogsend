@@ -7,6 +7,7 @@ export * from "./audit-log";
 export * from "./auth";
 export * from "./builds";
 export * from "./cells";
+export * from "./cli-sessions";
 export * from "./enums";
 export * from "./environments";
 export * from "./organizations";

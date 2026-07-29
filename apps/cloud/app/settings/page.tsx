@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { AccountSection } from "@/components/cloud/account-section";
+import { CliSessionsSection } from "@/components/cloud/cli-sessions-section";
 import { CopyValue } from "@/components/cloud/copy-value";
 import { DangerZoneSection } from "@/components/cloud/danger-zone-section";
 import { MembersSection } from "@/components/cloud/members-section";
@@ -12,6 +13,7 @@ import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
+import { readCliSessionsView } from "@/src/lib/cli-sessions-ops";
 import { hasRole, readMembersView } from "@/src/lib/org-members";
 import { PLAN_CATALOG } from "@/src/lib/plan-catalog";
 import { readProvidersView } from "@/src/lib/provider-keys-ops";
@@ -45,6 +47,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
   const requestHeaders = await headers();
   const rawEnv = (await searchParams).env;
   const membersView = await readMembersView(requestHeaders);
+  const cliSessionsView = await readCliSessionsView(requestHeaders);
   const providersView = await readProvidersView(requestHeaders, {
     environmentId: Array.isArray(rawEnv) ? rawEnv[0] : rawEnv,
   });
@@ -100,6 +103,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       <ProvidersSection view={providersView} basePath="/settings" />
       <MembersSection view={membersView} />
+      <CliSessionsSection view={cliSessionsView} />
       <AccountSection email={user.email} />
       <DangerZoneSection
         organizationName={record.name}

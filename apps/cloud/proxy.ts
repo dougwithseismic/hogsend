@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { CLOUD_SESSION_COOKIE_NAME } from "@/src/lib/auth-cookie";
-import { guardRoute } from "@/src/lib/auth-guard";
+import { guardRoute, loginRedirectTarget } from "@/src/lib/auth-guard";
 
 /**
  * Route guard, on Next 16's `proxy` convention (the renamed `middleware`; the
@@ -25,8 +25,20 @@ export default function proxy(request: NextRequest): NextResponse {
 
   if (decision.action === "redirect") {
     const url = request.nextUrl.clone();
-    url.pathname = decision.to;
-    url.search = "";
+    if (decision.to === "/login") {
+      // Round-trip: a signed-out visitor bounced off a protected page comes
+      // back to it (query intact) once they sign in. Sanitized on both ends —
+      // see `loginHref`.
+      const target = loginRedirectTarget({
+        pathname: request.nextUrl.pathname,
+        search: request.nextUrl.search,
+      });
+      url.pathname = target.pathname;
+      url.search = target.search;
+    } else {
+      url.pathname = decision.to;
+      url.search = "";
+    }
     return NextResponse.redirect(url);
   }
 
