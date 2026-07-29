@@ -24,8 +24,9 @@ destroying it is also the natural test of the offboarding path.
       worker) has no production deployment target. Needs a Railway service pair
       in its own project, production env vars, and migrations gate — same
       pattern we impose on tenants. This is the largest single gap.
-- [ ] **Control-plane email.** Signup OTPs currently surface in the dev log.
-      Production needs a real sender (dogfood: Hogsend itself, or plain Resend).
+- [x] **Control-plane email.** Already built (`CLOUD_RESEND_API_KEY` +
+      `CLOUD_RESEND_FROM` in `lib/email-sender.ts`); dev-log fallback only when
+      unset. Remaining work is setting the two vars on the deployed service.
 - [ ] **Mint customer credentials.** The `mint-credentials` provision step is a
       recorded no-op (`credentialsMinted: false`); customers currently have no
       way to get their instance API keys. `HOGSEND_BOOTSTRAP_API_KEY` exists on
@@ -33,8 +34,15 @@ destroying it is also the natural test of the offboarding path.
 - [ ] **Stuck-provision reconciler** (PRD 10 slice). A provision that dies
       mid-pipeline parks a stack in `provisioning` forever; needs the sweep to
       reap/retry. We hit this repeatedly during live debugging.
-- [ ] **Stripe wiring against test keys** (PRD 06 seam) — code is built to the
-      seam; needs keys (see Doug list) then an end-to-end checkout proof.
+- [x] **Stripe wiring** (PRD 06 seam) — DONE 2026-07-29 with the live keys from
+      the course service (Doug's authorization). Products/prices created in the
+      live catalog (lookup keys `hogsend_cloud_self_serve` $49/mo,
+      `hogsend_cloud_dedicated` $149/mo); checkout proven end-to-end through
+      the real route to a hosted `checkout.stripe.com` session. Still open:
+      `CLOUD_STRIPE_WEBHOOK_SECRET` — the webhook endpoint can only be created
+      once the control plane has a public URL; and full payment completion was
+      not exercised (live mode rejects test cards — grab the `sk_test`
+      counterpart from the dashboard if we want a rehearsal payment).
 - [ ] **Tenant image registry credentials.** `hogsend publish` builds work, but
       deploying private tenant images to Railway needs registry-credential
       support on the deploy call. Default (public scaffold) images work today.
@@ -51,8 +59,9 @@ on the substrate seam.
 
 ## Launch blockers — Doug's required actions
 
-- [ ] **Stripe**: create the products/prices (~$49 shared, $149 dedicated),
-      hand over test-mode keys + price IDs; later flip to live keys.
+- [x] **Stripe**: products/prices created in the live account (2026-07-29);
+      keys sourced from the course service on Railway per Doug. Optional: hand
+      over the `sk_test` counterpart for a test-card checkout rehearsal.
 - [ ] **DNS**: point `cloud.hogsend.com` at the control-plane Railway service
       (Cloudflare CNAME, same pattern as api.hogsend.com).
 - [ ] **Production secrets**: bless a production Railway workspace token for
