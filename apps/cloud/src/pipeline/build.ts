@@ -87,6 +87,13 @@ export const BUILDER_ACTOR = "builder";
 export const MIGRATE_PRE_DEPLOY_COMMAND = "tsx scripts/migrate.ts";
 
 /**
+ * The worker run mode's start command, VERBATIM from the scaffold Dockerfile
+ * (whose default CMD is the api). Provision hands it to the substrate so the
+ * worker service actually executes journeys instead of booting a second api.
+ */
+export const WORKER_START_COMMAND = "node dist/worker.js";
+
+/**
  * The in-memory log tail, flushed to the row at every stage boundary.
  *
  * Bounded HERE as well as in Postgres (`right(…, 64KB)`) because the two bounds

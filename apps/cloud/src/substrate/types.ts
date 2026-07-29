@@ -53,6 +53,12 @@ export interface StackSpec {
    * 2026-07-29). Applied to api and worker, never redis.
    */
   preDeployCommand?: string;
+  /**
+   * Start command for the WORKER service. The shared image's default CMD is
+   * the api process, so a worker created without this override boots a second
+   * api and no journeys ever execute (found live 2026-07-29).
+   */
+  workerStartCommand?: string;
   /** Initial environment for every service in the stack. */
   env: Record<string, string>;
 }

@@ -127,10 +127,14 @@ export function describeSubstrateContract(
 
       const snapshot = await harness.inspect(refs);
       for (const service of SERVICES) {
-        expect(snapshot.env[service]).toEqual({
+        // Caller-owned vars merge and unset; a substrate may ALSO seed
+        // platform-owned vars at provision (Railway: REDIS_URL) which setEnv
+        // must leave alone — hence subset, not exact, equality.
+        expect(snapshot.env[service]).toMatchObject({
           LOG_LEVEL: "debug",
           HATCHET_TOKEN: "fake-token",
         });
+        expect(snapshot.env[service]?.DATABASE_URL).toBeUndefined();
       }
     });
 

@@ -5,7 +5,7 @@ import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
-import { MIGRATE_PRE_DEPLOY_COMMAND } from "./build";
+import { MIGRATE_PRE_DEPLOY_COMMAND, WORKER_START_COMMAND } from "./build";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
@@ -389,6 +389,9 @@ export async function runProvisionPipeline(
         // never pnpm, at runtime). Without it the first boot meets an empty
         // tenant database and the engine's schema guard crash-loops.
         preDeployCommand: MIGRATE_PRE_DEPLOY_COMMAND,
+        // One image, three run modes: the worker must be told which it is,
+        // or it boots the image's default CMD — a second api.
+        workerStartCommand: WORKER_START_COMMAND,
         // Env is set as its own step: the values below are assembled from four
         // stores and a half-configured stack is easier to reason about than a
         // provision call that half-failed.

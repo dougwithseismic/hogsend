@@ -32,6 +32,7 @@ interface MockService {
   region?: string;
   numReplicas: number;
   preDeployCommand?: string;
+  startCommand?: string;
   variables: Record<string, string>;
   deploymentStatus: string;
   deployCount: number;
@@ -190,6 +191,9 @@ class RailwayMock {
         if (typeof input.preDeployCommand === "string") {
           service.preDeployCommand = input.preDeployCommand;
         }
+        if (typeof input.startCommand === "string") {
+          service.startCommand = input.startCommand;
+        }
         return { serviceInstanceUpdate: true };
       }
 
@@ -318,6 +322,7 @@ const SPEC: StackSpec = {
   topology: "shared",
   initialImage: "hogsend-default:0.56.0",
   preDeployCommand: "tsx scripts/migrate.ts",
+  workerStartCommand: "node dist/worker.js",
   env: { LOG_LEVEL: "info" },
 };
 
@@ -558,6 +563,21 @@ describe("RailwaySubstrate topology", () => {
       "tsx scripts/migrate.ts",
     );
     expect(mock.find("staging-redis")?.preDeployCommand).toBeUndefined();
+    // The worker is the only service whose start command is overridden — the
+    // image's default CMD is the api process.
+    expect(mock.find("staging-worker")?.startCommand).toBe(
+      "node dist/worker.js",
+    );
+    expect(mock.find("staging-api")?.startCommand).toBeUndefined();
+    // Both app services are told where the stack's cache lives; redis itself
+    // gets no application env at all.
+    expect(mock.find("staging-api")?.variables.REDIS_URL).toBe(
+      "redis://staging-redis.railway.internal:6379",
+    );
+    expect(mock.find("staging-worker")?.variables.REDIS_URL).toBe(
+      "redis://staging-redis.railway.internal:6379",
+    );
+    expect(mock.find("staging-redis")?.variables.REDIS_URL).toBeUndefined();
     expect(first.substrate).toBe(RAILWAY_SUBSTRATE_ID);
     expect(first.apiPublicUrl.startsWith("https://")).toBe(true);
   });

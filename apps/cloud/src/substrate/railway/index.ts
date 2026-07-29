@@ -122,17 +122,27 @@ export class RailwaySubstrate implements SubstrateProvider {
         ...(role !== "redis" && spec.preDeployCommand
           ? { preDeployCommand: spec.preDeployCommand }
           : {}),
+        // The image's default CMD is the api; the worker must be told it is
+        // the worker or the stack runs two apis and zero journey executors.
+        ...(role === "worker" && spec.workerStartCommand
+          ? { startCommand: spec.workerStartCommand }
+          : {}),
       });
     }
 
     // Redis gets no application env: it is a cache, and shipping the tenant's
     // DSN + secrets into a third container widens the blast radius for free.
+    // The app services DO get the cache's address — it is Railway-internal
+    // (`<service>.railway.internal`), so only this substrate can know it.
+    const redisUrl = `redis://${serviceName(spec.environmentName, "redis")}.railway.internal:6379`;
     await this.upsertVariables(projectId, environmentId, serviceIds.api, {
       ...spec.env,
       PORT: API_PORT,
+      REDIS_URL: redisUrl,
     });
     await this.upsertVariables(projectId, environmentId, serviceIds.worker, {
       ...spec.env,
+      REDIS_URL: redisUrl,
     });
 
     const domain = await this.ensureServiceDomain(
