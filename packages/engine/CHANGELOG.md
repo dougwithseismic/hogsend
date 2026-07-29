@@ -1,5 +1,24 @@
 # @hogsend/engine
 
+## 0.60.0
+
+### Minor Changes
+
+- 76da7e4: Identity flip foundations (PRD 05, T1–T3). `@hogsend/core` gains `bySubject(table, { contactId, userKey })` — the either/or history read scope (`contact_id` when the owner is known, the string `user_id` otherwise; never OR) — and `ConditionContext` now requires `contactId`. The four contact relations join `contact_id → contacts.id` instead of `user_id → contacts.external_id`. Merge/adoption paths stamp `contact_id` inside the same UPDATE that rewrites `user_id` (NULL-guarded: an owned row is never re-parented). Migration 0071 adds three contact-scoped partial unique indexes (`WHERE contact_id IS NOT NULL`) on live journey enrollments, live bucket memberships and email preferences; enrollment and both preference writers catch-and-convert the one 23505 the retained string arbiters cannot see. The contact-id backfill sweep skips stamps that would collide (reported by the verify probe as `duplicates`, not `missing`, so `flipReady` still drains), folds stale preference opt-outs into the stamped twin, and merge folds dedupe by structural owner so a survivor row stamped under a stale key can never be duplicated. Run `packages/db/scripts/preflight-contact-uniqueness.sql` (three zero-row queries) before migrating a large deployment.
+- 8e2e098: Identity flip, delivered (PRD 05, T4–T9). Every history read follows the CONTACT instead of the mutable string key: journey entry guards and exit scans, the bucket subsystem (accessors, reconcile, backfill, campaign audiences), email suppression and preferences, tracking-event re-ingests, admin/agent surfaces (including the lift/holdout SQL), and attribution/revenue. Contactless subjects are still read by their string key (`bySubject`'s else-arm) — a permanent, supported state. The string-rewrite machinery is deleted: adoption now stamps `contact_id` (`WHERE user_id = :key AND contact_id IS NULL`) and never rewrites `user_id`, so history stays a frozen record of the key it happened under while ownership lives on the FK. Breaking type changes for direct engine-API consumers: `checkEntryLimit`, `checkEmailPreferences`, `readRecipientPreferences`, `getContactRevenue`, `recordAttributionCredits` and `recoverClickContext` now take a REQUIRED `contactId: string | null`; `resolveEmailSendContext`/`resolveSmsSendContext` results carry `contactId`. The admin events LATERAL owner-guess is gone (the FK names the owner); a soft-deleted owner yields no contact instead of a key-sharing phantom.
+
+### Patch Changes
+
+- Updated dependencies [76da7e4]
+- Updated dependencies [76da7e4]
+  - @hogsend/attribution@0.60.0
+  - @hogsend/email@0.60.0
+  - @hogsend/plugin-posthog@0.60.0
+  - @hogsend/plugin-resend@0.60.0
+  - @hogsend/sms@0.60.0
+  - @hogsend/core@0.60.0
+  - @hogsend/db@0.60.0
+
 ## 0.59.0
 
 ### Minor Changes
