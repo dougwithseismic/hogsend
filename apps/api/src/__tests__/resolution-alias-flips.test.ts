@@ -44,31 +44,22 @@ const { capturedFns, hatchetMock } = vi.hoisted(() => {
 vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
 vi.mock("../lib/hatchet.js", () => hatchetMock());
 
-const {
-  contactAliases,
-  contacts,
-  enrichmentLookups,
-  journeyStates,
-  userEvents,
-} = await import("@hogsend/db");
+const { contactAliases, contacts, journeyStates, userEvents } = await import(
+  "@hogsend/db"
+);
 const { and, eq, inArray, isNull, like, or } = await import("drizzle-orm");
 const {
-  EnrichmentProviderRegistry,
   createApp,
   createHogsendClient,
   defineConnectorAction,
-  defineEnrichmentProvider,
   defineJourney,
   isHeldOut,
-  refineContact,
   resolveOrCreateContact,
   sendConnectorAction,
   setContactTimezone,
-  setEnrichmentProviders,
   setJourneyRegistry,
 } = await import("@hogsend/engine");
 const { JourneyRegistry } = await import("@hogsend/core/registry");
-type EnrichmentResult = import("@hogsend/core").EnrichmentResult;
 
 // `lookupContactIdByKey` is engine-INTERNAL (not in the public index), so the
 // primitive-level proof imports the module by path — the same hatch
@@ -109,27 +100,6 @@ const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
   "Content-Type": "application/json",
 };
-
-// --- the enrichment provider under test (site 1) ---------------------------
-const FULL_RESULT: EnrichmentResult = {
-  found: true,
-  person: { title: "VP of Engineering", seniority: "vp" },
-  company: { name: "Acme", domain: "acme.com" },
-  raw: { vendor: "fake" },
-};
-let providerCalls = 0;
-const fakeProvider = defineEnrichmentProvider({
-  meta: { id: "fake-flip-enrich", name: "Fake enrichment" },
-  capabilities: { personLookup: true, companyLookup: true },
-  enrichPerson: async () => {
-    providerCalls += 1;
-    return FULL_RESULT;
-  },
-});
-setEnrichmentProviders(
-  new EnrichmentProviderRegistry([fakeProvider]),
-  fakeProvider,
-);
 
 // --- the journeys under test (site 4) --------------------------------------
 const TZ_JOURNEY_ID = `${RUN}-tz-journey`;
@@ -271,9 +241,6 @@ afterAll(async () => {
     );
   await db.delete(userEvents).where(like(userEvents.userId, `${RUN}-%`));
   await db
-    .delete(enrichmentLookups)
-    .where(like(enrichmentLookups.lookupKey, `${RUN}-%`));
-  await db
     .delete(contactAliases)
     .where(like(contactAliases.aliasValue, `${RUN}-%`));
   if (createdContactIds.length > 0) {
@@ -285,38 +252,9 @@ afterAll(async () => {
   await container.dbClient.end({ timeout: 5 }).catch(() => {});
 });
 
-// ---------------------------------------------------------------------------
-// Site 1 — lib/refine.ts
-// ---------------------------------------------------------------------------
-
-describe("refineContact — findContactRow (lib/refine.ts)", () => {
-  it("a merged-away userId refines the SURVIVOR instead of skipping", async () => {
-    const { survivorId, staleKey } = await mergedPair("refine");
-
-    // Before the flip: both column legs missed, `findContactRow` returned null,
-    // and with no `email` argument the chain skipped `no_lookup_key` without
-    // ever calling the vendor.
-    const before = providerCalls;
-    const result = await refineContact({ userId: staleKey });
-    expect(result.status).toBe("refined");
-    expect(providerCalls).toBe(before + 1);
-
-    const row = await db.query.contacts.findFirst({
-      where: eq(contacts.id, survivorId),
-    });
-    expect(row?.properties).toMatchObject({ seniority: "vp" });
-  });
-
-  it("an unowned userId still resolves nothing (miss behaviour preserved)", async () => {
-    const before = providerCalls;
-    const result = await refineContact({ userId: uid("refine-nobody") });
-    expect(result).toMatchObject({
-      status: "skipped",
-      reason: "no_lookup_key",
-    });
-    expect(providerCalls).toBe(before);
-  });
-});
+// Site 1 — lib/refine.ts — tested in refine-contact.test.ts (its lookups
+// spend the enrichment ledger, and that file's monthly-cap tests count the
+// WHOLE ledger; a concurrent spender flips them red at random).
 
 // ---------------------------------------------------------------------------
 // Site 2 — lib/timezone.ts
