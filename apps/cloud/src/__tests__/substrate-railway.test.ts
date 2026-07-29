@@ -533,9 +533,11 @@ describe("RailwaySubstrate topology", () => {
     });
 
     expect(mock.projects.size).toBe(1);
-    expect([...mock.projects.values()][0]?.name).toBe(
-      `hs-org-${SPEC.organizationId}`,
-    );
+    const createdName = [...mock.projects.values()][0]?.name;
+    expect(createdName).toBe(`hs-org-${SPEC.organizationId.slice(0, 25)}`);
+    // Railway rejects names past 32 characters ("Invalid project name",
+    // observed live) — a full 32-char org id must still fit with the prefix.
+    expect(createdName?.length).toBeLessThanOrEqual(32);
     expect(first.data.projectId).toBe(second.data.projectId);
     // Six services: redis/api/worker for each environment.
     expect([...mock.projects.values()][0]?.services.size).toBe(6);

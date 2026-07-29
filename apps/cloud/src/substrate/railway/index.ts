@@ -21,7 +21,8 @@ import * as Q from "./documents";
  * The live substrate: Hogsend stacks on Railway (DECISIONS §3, PRD 04 task 5).
  *
  * ## Topology
- * One Railway PROJECT per organization, named `hs-org-<organizationId>`,
+ * One Railway PROJECT per organization, named `hs-org-<organizationId[:25]>`
+ * (Railway caps project names at 32 characters — see {@link projectName}),
  * created lazily on the org's first stack. Inside it, each environment gets
  * three services named after the environment:
  *
@@ -559,9 +560,19 @@ export class RailwaySubstrate implements SubstrateProvider {
   }
 }
 
-/** The org's project name — the substrate's own idempotency key. */
+/**
+ * The org's project name — the substrate's own idempotency key.
+ *
+ * Railway rejects project names longer than 32 characters ("Invalid project
+ * name", found live 2026-07-29), and org ids are themselves 32 characters, so
+ * the id is truncated to fit the `hs-org-` prefix. A 25-character prefix of a
+ * random base62 id keeps collisions out of reach while the name stays
+ * recognizably the org's id in the Railway UI. Deterministic — lazy
+ * find-or-create keys on exactly this string — so NEVER change the scheme once
+ * live tenant projects exist.
+ */
 function projectName(organizationId: string): string {
-  return `hs-org-${organizationId}`;
+  return `hs-org-${organizationId.slice(0, 25)}`;
 }
 
 function serviceName(environmentName: string, role: StackServiceRole): string {
