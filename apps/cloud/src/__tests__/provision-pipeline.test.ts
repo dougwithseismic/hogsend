@@ -62,6 +62,16 @@ const CLUSTER_DSN =
 /** Scheme-carrying, so the pipeline treats it as the Hatchet HTTP base. */
 const CELL_HATCHET_URL = "http://hatchet.provision.test:8888";
 
+/**
+ * A SPLIT-address cell, shaped like the first live one: the Hatchet HTTP API
+ * and its gRPC endpoint sit behind two unrelated Railway proxies, so neither
+ * address derives from the other.
+ */
+const SPLIT_CELL_NAME = "aaa-provision-test-split-us-1";
+const SPLIT_ORG_ID = "provision-pipeline-split-org";
+const SPLIT_HATCHET_API_URL = "https://hatchet-api.provision.test";
+const SPLIT_HATCHET_GRPC = "grpc-proxy.provision.test:14108";
+
 const ORG_ID = "provision-pipeline-test-org";
 const AUTH_EMAIL = "provision-pipeline@hogsend.test";
 const AUTH_PASSWORD = "correct-horse-9";
@@ -130,11 +140,12 @@ interface Fixture {
 /** Insert an environment + a `requested` stack, ready to provision. */
 async function seedStack(
   kind: "production" | "staging" | "test",
+  organizationId: string = ORG_ID,
 ): Promise<Fixture> {
   const name = `${kind}-${randomBytes(3).toString("hex")}`;
   const [environment] = await db
     .insert(environments)
-    .values({ organizationId: ORG_ID, name, kind })
+    .values({ organizationId, name, kind })
     .returning();
   if (!environment) throw new Error("fixture environment not created");
 
@@ -145,7 +156,7 @@ async function seedStack(
   createdDatabases.push(dbName);
   await db.insert(stacks).values({
     id: stackId,
-    organizationId: ORG_ID,
+    organizationId,
     environmentId: environment.id,
     status: "requested",
     region: "us",
@@ -184,8 +195,12 @@ async function cleanup(): Promise<void> {
     await db.delete(member).where(inArray(member.organizationId, ids));
   }
   await db.delete(user).where(eq(user.email, AUTH_EMAIL));
-  await db.delete(organizations).where(eq(organizations.id, ORG_ID));
-  await db.delete(cells).where(eq(cells.name, CELL_NAME));
+  await db
+    .delete(organizations)
+    .where(inArray(organizations.id, [ORG_ID, SPLIT_ORG_ID]));
+  await db
+    .delete(cells)
+    .where(inArray(cells.name, [CELL_NAME, SPLIT_CELL_NAME]));
 }
 
 beforeAll(async () => {
@@ -210,6 +225,28 @@ beforeAll(async () => {
     region: "us",
     plan: "self_serve",
     cellId: cell?.id ?? null,
+  });
+
+  const [splitCell] = await db
+    .insert(cells)
+    .values({
+      name: SPLIT_CELL_NAME,
+      region: "us",
+      sharedClusterDsn: encryptSecretPayload(CLUSTER_DSN),
+      // The gRPC endpoint lives in the legacy column; the API base overrides.
+      sharedHatchetUrl: SPLIT_HATCHET_GRPC,
+      sharedHatchetApiUrl: SPLIT_HATCHET_API_URL,
+      accepting: false,
+      maxTenants: 100,
+    })
+    .returning();
+
+  await db.insert(organizations).values({
+    id: SPLIT_ORG_ID,
+    name: "Provision Pipeline Split Cell",
+    region: "us",
+    plan: "self_serve",
+    cellId: splitCell?.id ?? null,
   });
 
   await auth.api.signUpEmail({
@@ -340,6 +377,67 @@ describe("runProvisionPipeline", () => {
       data: { stackId: fixture.stackId },
     }).env.worker;
     expect(applied.HOGSEND_TEST_MODE).toBe("true");
+  });
+
+  it("mints against the cell's API url while the stack gets its gRPC host:port", async () => {
+    const fixture = await seedStack("production", SPLIT_ORG_ID);
+    const substrate = new FakeSubstrate();
+    const hatchet = stubHatchet();
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { substrate, hatchetTenant: hatchet.service },
+    );
+    expect(result.status).toBe("running");
+
+    // The two addresses go to two different places: no derivation could have
+    // produced one from the other, which is the whole point of the column.
+    expect(hatchet.calls).toEqual([
+      { hatchetUrl: SPLIT_HATCHET_API_URL, tenantSlug: fixture.stackId },
+    ]);
+    const applied = substrate.snapshot({
+      substrate: "fake",
+      apiPublicUrl: fakeApiPublicUrl(fixture.stackId),
+      data: { stackId: fixture.stackId },
+    }).env.api;
+    expect(applied.HATCHET_CLIENT_HOST_PORT).toBe(SPLIT_HATCHET_GRPC);
+  });
+
+  it("keeps the legacy single-address derivation for a cell with no api url", async () => {
+    // Same cell, override cleared and the legacy column holding a BARE
+    // host:port — the derivation the scheme-carrying fixture never exercises.
+    await db
+      .update(cells)
+      .set({
+        sharedHatchetUrl: "hatchet-legacy.provision.test:7077",
+        sharedHatchetApiUrl: null,
+      })
+      .where(eq(cells.name, SPLIT_CELL_NAME));
+
+    const fixture = await seedStack("production", SPLIT_ORG_ID);
+    const substrate = new FakeSubstrate();
+    const hatchet = stubHatchet();
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { substrate, hatchetTenant: hatchet.service },
+    );
+    expect(result.status).toBe("running");
+
+    expect(hatchet.calls).toEqual([
+      {
+        hatchetUrl: "http://hatchet-legacy.provision.test:7077",
+        tenantSlug: fixture.stackId,
+      },
+    ]);
+    const applied = substrate.snapshot({
+      substrate: "fake",
+      apiPublicUrl: fakeApiPublicUrl(fixture.stackId),
+      data: { stackId: fixture.stackId },
+    }).env.api;
+    expect(applied.HATCHET_CLIENT_HOST_PORT).toBe(
+      "hatchet-legacy.provision.test:7077",
+    );
   });
 
   it("parks the stack in error naming the failed step, then RESUMES on retry", async () => {

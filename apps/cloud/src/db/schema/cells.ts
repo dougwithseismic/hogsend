@@ -22,8 +22,21 @@ export const cells = cloud.table(
      * (AES-256-GCM, PRD 02 task 2). Never read raw outside the provisioner.
      */
     sharedClusterDsn: text("shared_cluster_dsn").notNull(),
-    /** gRPC/HTTP address of the cell's Hatchet engine. */
+    /**
+     * The cell's Hatchet engine address. When `shared_hatchet_api_url` is NULL
+     * this is the single address BOTH endpoints are derived from (scheme-
+     * carrying → HTTP base, bare `host:port` → gRPC). When it is set, this
+     * column is the gRPC `host:port` only.
+     */
     sharedHatchetUrl: text("shared_hatchet_url").notNull(),
+    /**
+     * The Hatchet HTTP API base (scheme-carrying) used for tenant token
+     * minting, for a cell whose HTTP and gRPC endpoints are two different
+     * addresses — as a Railway cell is, where the API sits behind
+     * `https://<svc>.up.railway.app` and gRPC behind `<proxy>:<port>`. NULL
+     * keeps the legacy single-address derivation from `shared_hatchet_url`.
+     */
+    sharedHatchetApiUrl: text("shared_hatchet_api_url"),
     /** Ops kill-switch: false drains the cell from new-tenant placement. */
     accepting: boolean("accepting").default(true).notNull(),
     /** Placement ceiling; the placer counts live tenants against it. */

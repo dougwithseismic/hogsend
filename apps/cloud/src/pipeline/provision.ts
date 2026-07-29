@@ -145,6 +145,8 @@ interface ProvisionContext {
   cellDsn: string | null;
   /** The cell's Hatchet address, verbatim from the row. */
   cellHatchetUrl: string | null;
+  /** The cell's explicit Hatchet HTTP API base, when its ports differ. */
+  cellHatchetApiUrl: string | null;
 }
 
 async function loadContext(
@@ -159,6 +161,7 @@ async function loadContext(
       plan: organizations.plan,
       cellDsn: cells.sharedClusterDsn,
       cellHatchetUrl: cells.sharedHatchetUrl,
+      cellHatchetApiUrl: cells.sharedHatchetApiUrl,
     })
     .from(stacks)
     .innerJoin(environments, eq(environments.id, stacks.environmentId))
@@ -178,18 +181,37 @@ async function loadContext(
     // Cell DSNs live encrypted at rest; this is the only place they are opened.
     cellDsn: row.cellDsn ? decryptSecretPayload<string>(row.cellDsn) : null,
     cellHatchetUrl: row.cellHatchetUrl,
+    cellHatchetApiUrl: row.cellHatchetApiUrl,
   };
 }
 
 /**
  * Hatchet's HTTP API (token minting) and its gRPC endpoint (the engine client)
- * are two addresses, and `cells.shared_hatchet_url` holds one string. Treat a
- * scheme-carrying value as the HTTP base and a bare `host:port` as the gRPC
- * address, deriving the other by the obvious rule — with the caveat recorded in
- * the PRD notes that a cell whose two ports differ needs a second column.
+ * are two addresses.
+ *
+ * When the cell carries `shared_hatchet_api_url` — the second column the PRD 04
+ * notes predicted, and what a Railway cell actually needs, its API behind
+ * `https://<svc>.up.railway.app` and its gRPC behind an unrelated
+ * `<proxy>:<port>` — that value IS the HTTP base and `shared_hatchet_url` is
+ * the gRPC `host:port` (any accidental scheme on it is stripped).
+ *
+ * With no override, the legacy single-address derivation applies unchanged: a
+ * scheme-carrying value is the HTTP base and a bare `host:port` is the gRPC
+ * address, each deriving the other by the obvious rule.
  */
-function hatchetAddresses(url: string): { httpBase: string; hostPort: string } {
+function hatchetAddresses(
+  url: string,
+  apiUrl?: string | null,
+): { httpBase: string; hostPort: string } {
   const trimmed = url.replace(/\/+$/, "");
+  if (apiUrl) {
+    const base = apiUrl.replace(/\/+$/, "");
+    return {
+      // A bare API host is assumed TLS: a split-port cell is a hosted one.
+      httpBase: /^https?:\/\//.test(base) ? base : `https://${base}`,
+      hostPort: trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ""),
+    };
+  }
   if (/^https?:\/\//.test(trimmed)) {
     return { httpBase: trimmed, hostPort: trimmed.replace(/^https?:\/\//, "") };
   }
@@ -315,7 +337,10 @@ export async function runProvisionPipeline(
         `Organization ${organizationId} has no cell Hatchet url; cannot mint a tenant token`,
       );
     }
-    const addresses = hatchetAddresses(context.cellHatchetUrl);
+    const addresses = hatchetAddresses(
+      context.cellHatchetUrl,
+      context.cellHatchetApiUrl,
+    );
     const hatchetHostPort = addresses.hostPort;
     if (stack.hatchetTokenEncrypted) {
       hatchetToken = decryptSecretPayload<string>(stack.hatchetTokenEncrypted);
