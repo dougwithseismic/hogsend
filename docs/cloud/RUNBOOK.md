@@ -73,6 +73,37 @@ worker (`hatchet worker dev` in `apps/cloud`, or the deployed worker service).
 Migrations: `pnpm --filter @hogsend/cloud db:migrate` (the deployed service
 runs this as its pre-deploy).
 
+## Deploying the control plane itself
+
+The control plane runs on Railway like anything else: project `hogsend-cloud`
+with `cloud-postgres` (its own database + volume + TCP proxy), `cloud-app` (the
+dashboard, public domain, `PORT=3004`, migrate pre-deploy) and `cloud-worker`
+(the provisioning task executor). Both app services run ONE image built from
+`Dockerfile.cloud`; the worker only differs by its start command.
+
+Ship a new version:
+
+```bash
+gh auth token | docker login ghcr.io -u <you> --password-stdin
+docker buildx build --platform linux/amd64 -f Dockerfile.cloud \
+  -t ghcr.io/<owner>/hogsend-cloud:<tag> --push .
+# then point both services at <tag> and trigger serviceInstanceDeployV2
+```
+
+Build the image yourself rather than letting Railway build from an upload:
+Railway's CLI upload path skipped identical snapshots repeatedly and inherited
+the repo-root `railway.toml`, and an amd64 image built locally is the same
+artifact every time. `linux/amd64` is REQUIRED — an arm64 image from an Apple
+machine will not boot there.
+
+The control plane's own Hatchet is a dedicated tenant (`hogsend-cloud-control`)
+on the `us-1` cell's engine; its token is `CLOUD_HATCHET_CLIENT_TOKEN`. That is
+separate from the per-tenant namespaces the provisioner mints.
+
+`hogsend publish` builds need a Docker daemon, which a Railway container does
+not have — tenant image builds must run somewhere with one. Default-image
+provisioning (the whole signup path) never touches Docker.
+
 ## Bringing up a new cell (e.g. `eu-1`)
 
 The `us-1` recipe, learned live:
@@ -120,10 +151,13 @@ stack → health poll.
 | provision fails "Invalid project name" | Railway caps at 32 chars | code slices org id to 25; never lengthen the scheme |
 | Railway 400 "Not Authorized" on one mutation | GraphQL doc drift (e.g. `serviceInstanceUpdate` takes TOP-LEVEL `serviceId`) | probe the doc against the live schema |
 | stack stuck in `provisioning` | pipeline died mid-run | reconciler is PRD 10; today: inspect stack step log, re-drive or park to `error` |
-| transient Railway 400 "Problem processing request" during bursts | rate/consistency blip | retry; steps are idempotent |
+| transient Railway 400 "Problem processing request" during bursts | Railway's API degrades for TENS OF SECONDS under a mutation burst | the client now spans ~63s (8 attempts); if it still exhausts, re-drive — every step is idempotent and each run advances |
+| provision parked at `error` after a transient | a retryable exhaustion still ends the run; nothing re-drives it | re-drive the Hatchet `provision-stack` task with the stack id (the standing gap PRD 10's reconciler closes) |
 | default image tag missing on GHCR | release didn't publish or pin not bumped | release CI pushes per publish; `CLOUD_DEFAULT_ENGINE_VERSION` bump is manual |
 | `railway up` build SKIPPED "no changes detected" after a config-only change (e.g. dockerfilePath) | Railway skips identical content snapshots | bump the gitignored `.railway-nonce` file and re-run `railway up` |
 | control-plane build uses the wrong Dockerfile | `RAILWAY_DOCKERFILE_PATH` env var is not honored for CLI uploads | set `dockerfilePath` via `serviceInstanceUpdate` (a real service setting) |
+| a control-plane service runs the ENGINE's start command / pre-deploy | the repo-root `railway.toml` (the hogsend-api config) applies to every service in the repo | give each service its own `railwayConfigFile` (`railway.cloud.toml`, `railway.cloud-worker.toml`) |
+| config change (start command, config file) has no effect after a redeploy | `serviceInstanceRedeploy` REPLAYS the previous deployment's recorded manifest | trigger a genuinely new deployment: `serviceInstanceDeployV2` (or push a new image tag) |
 
 ## Suspend / destroy
 
