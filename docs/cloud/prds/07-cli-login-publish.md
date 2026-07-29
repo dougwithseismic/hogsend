@@ -65,3 +65,22 @@ intake; publish can land dry-run first against a stub intake).
    polling loop with terminal exit codes, friendly rendering of every intake refusal
    (401/403/409/413/429/version-mismatch). _Boundary:_ packages/cli. _Depends:_ 1
 
+
+## Implementation Notes
+Shipped in 2 commits (T1 cloud device flow; T2+T3 CLI). 717 cloud + 307 cli tests at
+close. T1: `cli_sessions`/`cli_device_codes` sha256-at-rest, token minted at the
+single-use poll EXCHANGE (plaintext exists in exactly one response), sessions carry no
+stored authority (membership re-read per use). Review caught one-click phishing
+(prefilled approve link per RFC 8628 §5.4 — now: bare URL only, victim types the code,
+explicit confirm checkbox; Deny needs no checkbox) and a spoofable rate-limit key
+(x-forwarded-for now right-anchored via CLOUD_TRUSTED_PROXY_HOPS; device-code rows
+reaped). T2+T3: `login/whoami/logout/open/publish` on a separate cloud-config funnel
+(`--cloud` > HOGSEND_CLOUD_URL > .env > default; HOGSEND_API_URL never consulted);
+credentials 0600+atomic; hand-rolled deterministic tarball with un-negatable hard
+excludes (`.git`/`node_modules`/`dist`/`.env*` before .gitignore, poisoned-fixture
+tested); engine version from lockfile. Server gap-fills: GET /api/cli/session,
+POST /api/cli/session/revoke (revokes itself only), GET /api/cli/environments.
+Review caught a plain-HTTP token downgrade — non-loopback `http://` cloud URLs now
+refuse fail-closed. Known minors: no CLI-session idle expiry; approve/describe are
+org-agnostic by design (approver binds own org); symlink-exclude untested; `--no-wait`
+prints no build id on non-TTY; login sends any stored bearer on device endpoints.
