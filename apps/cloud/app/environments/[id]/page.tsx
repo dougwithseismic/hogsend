@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { BuildsSection } from "@/components/cloud/builds-section";
 import { EnvironmentOperations } from "@/components/cloud/environment-operations";
 import { HealthStrip } from "@/components/cloud/health-strip";
 import { ProvisionSteps } from "@/components/cloud/provision-steps";
@@ -12,6 +13,7 @@ import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
+import { readBuildsView } from "@/src/lib/build-views";
 import { readEnvironmentDetail } from "@/src/lib/environment-detail";
 import { canOperateEnvironments } from "@/src/lib/environment-ops";
 import { requireActiveOrganization } from "@/src/lib/session";
@@ -64,10 +66,17 @@ export default async function EnvironmentDetailPage({
   await requireActiveOrganization();
   const { id } = await params;
 
-  const detail = await readEnvironmentDetail(await headers(), {
+  const requestHeaders = await headers();
+  const detail = await readEnvironmentDetail(requestHeaders, {
     environmentId: id,
   });
   if (!detail) notFound();
+
+  // Runs after the 404 gate, so a cross-tenant id never reaches the mint-if-
+  // absent inside `readBuildsView`.
+  const buildsView = await readBuildsView(requestHeaders, {
+    environmentId: id,
+  });
 
   const { environment, stack, operations } = detail;
   const now = new Date();
@@ -165,6 +174,10 @@ export default async function EnvironmentDetailPage({
           status={stack?.status ?? null}
           now={now}
         />
+
+        {buildsView ? (
+          <BuildsSection environmentId={id} view={buildsView} now={now} />
+        ) : null}
 
         <EnvironmentOperations
           environmentId={environment.id}

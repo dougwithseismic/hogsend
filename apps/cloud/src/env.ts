@@ -171,6 +171,14 @@ export const env = createEnv({
     // Recorded on the stack row at provision time, so a later bump does not
     // rewrite what an existing stack is actually running.
     CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.56.0"),
+    // Where `POST /api/publish/:environmentId` writes uploaded tarballs, and
+    // where the build task reads them from (PRD 08). Defaulted everywhere
+    // rather than withheld in production: an artifact directory is not a
+    // secret, and a control plane with no publish traffic must not fail its
+    // boot over a path nothing has used yet. A real deploy points it at the
+    // volume the build host mounts. Relative values resolve against the
+    // process's working directory.
+    CLOUD_ARTIFACTS_DIR: z.string().min(1).default("./artifacts"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

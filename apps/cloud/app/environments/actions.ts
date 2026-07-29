@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
-import type { ActionState } from "@/src/lib/action-state";
+import type { ActionState, PublishTokenState } from "@/src/lib/action-state";
+import { rotatePublishToken } from "@/src/lib/build-views";
 import {
   ConfirmationMismatchError,
   createEnvironment,
@@ -201,5 +202,45 @@ export async function createEnvironmentAction(
   return {
     error: null,
     notice: `Environment "${created.environment.name}" created; provisioning started.`,
+  };
+}
+
+/**
+ * Issue a new publish token, retiring the current one.
+ *
+ * The only action here that returns a SECRET. It rides back in the action state
+ * and nowhere else: the row stores a sha256, so this response is the single
+ * moment the token exists outside the machine that will use it. Nothing is
+ * revalidated beyond the environment's own page — a router refresh would
+ * discard the state the secret is carried in.
+ */
+export async function rotatePublishTokenAction(
+  _previous: PublishTokenState,
+  formData: FormData,
+): Promise<PublishTokenState> {
+  const parsed = environmentSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the form.",
+      token: null,
+    };
+  }
+
+  let issued: Awaited<ReturnType<typeof rotatePublishToken>>;
+  try {
+    issued = await rotatePublishToken(await headers(), parsed.data);
+  } catch (error) {
+    return {
+      error: messageFrom(error, "The publish token was not rotated."),
+      token: null,
+    };
+  }
+
+  return {
+    error: null,
+    notice: "New publish token issued. The previous one no longer works.",
+    token: issued.token,
   };
 }

@@ -6,6 +6,7 @@ import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
 import { type CloudWriter, writeAudit } from "./audit";
 import { IllegalRegionError, NotFoundError } from "./errors";
+import { insertPublishToken } from "./publish-tokens";
 
 /**
  * Tenant roots: the mirror of a Better Auth organization plus the placement
@@ -167,6 +168,14 @@ export async function insertEnvironmentWithStack(
   if (!stack) {
     throw new Error(`Failed to create stack for environment ${environment.id}`);
   }
+
+  // Every environment is born publishable (PRD 08 task 2). Minted HERE — the
+  // one place both org signup and `EnvironmentService.create` pass through —
+  // and inside their transaction, so there is no window in which an environment
+  // exists that `hogsend publish` cannot address. The secret is discarded: it
+  // is not returned to any of these callers, and the dashboard's rotate is the
+  // only surface that ever hands one to a human.
+  await insertPublishToken(writer, { environmentId: environment.id });
 
   return { environment, stack };
 }

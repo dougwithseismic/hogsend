@@ -141,6 +141,41 @@ export class IllegalTransitionError extends CloudServiceError {
   }
 }
 
+/**
+ * The build state machine refused an edge, or lost the race for one. The exact
+ * twin of `IllegalTransitionError` for builds, kept separate so an API layer
+ * can say which machine refused without parsing a message.
+ */
+export class IllegalBuildTransitionError extends CloudServiceError {
+  readonly code = "illegal_build_transition";
+
+  constructor(
+    readonly buildId: string,
+    readonly from: string,
+    readonly to: string,
+  ) {
+    super(`Build "${buildId}" cannot move from "${from}" to "${to}"`);
+  }
+}
+
+/**
+ * The environment already has a build that has not finished (PRD 08: "a second
+ * publish to a busy environment SHALL queue, never race").
+ *
+ * Raised from the partial unique index, not from a prior read — see
+ * `builds_environment_active_unique_idx`. It is a QUEUEING answer, not a
+ * breakage: the caller republishes when the running build finishes.
+ */
+export class BuildInFlightError extends CloudServiceError {
+  readonly code = "build_in_flight";
+
+  constructor(readonly environmentId: string) {
+    super(
+      `Environment "${environmentId}" already has a build in flight; it finishes before another can start`,
+    );
+  }
+}
+
 /** Postgres unique-violation SQLSTATE, walked out of drizzle's wrapper. */
 const UNIQUE_VIOLATION = "23505";
 
