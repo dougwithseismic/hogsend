@@ -176,6 +176,26 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const sinceTs = sql`${since.toISOString()}::timestamptz`;
 
+    // WHO a journey_states row is about — `bySubject` written in SQL. The
+    // owning contact when the `contact_id` FK is stamped, else the mutable
+    // text key (a contactless enrollment is a permanent supported state: the
+    // engine refuses to mint a contact on observation). Either/or per row,
+    // never both. A bare `count(distinct js.contact_id)` would SILENTLY DROP
+    // every contactless enrollment, because `count(distinct …)` skips NULLs —
+    // and an under-counted denominator reads as "quiet journey", not as a bug.
+    const jsSubject = sql`coalesce(js.contact_id::text, js.user_id)`;
+    // The conversion cohort joins on the contact FK, not the text key.
+    // `conversions.contact_id` is NOT NULL, so a conversion always belongs to
+    // a resolved contact and this needs no text-key fallback: when
+    // `js.contact_id` is NULL the subject has no contact, therefore no
+    // conversion, and the NULL comparison correctly matches nothing. The
+    // uuid-to-uuid compare also uses `conversions_contact_idx`; the old
+    // `c.user_key = js.user_id` compare had no index at all. What it FIXES:
+    // the string join missed every conversion recorded under a key the person
+    // moved off after enrolling (anon → external), silently under-counting
+    // converters and inflating apparent lift.
+    const convBySubject = sql`c.contact_id = js.contact_id`;
+
     // (a) Journey base rollup — one grouped query, any-definition outcome,
     // latest-by-created_at version label. No deleted_at filter (matches the
     // /lift cohort SQL precedent).
@@ -185,20 +205,20 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
         (array_agg(js.journey_version_label order by js.created_at desc)
            filter (where js.journey_version_label is not null))[1]
           as version_label,
-        count(distinct js.user_id)
+        count(distinct ${jsSubject})
           filter (where js.status != 'held_out')::int as enrollments,
-        (count(distinct js.user_id) filter (where js.status != 'held_out'
+        (count(distinct ${jsSubject}) filter (where js.status != 'held_out'
           and exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at
         )))::int as converters,
-        count(distinct js.user_id)
+        count(distinct ${jsSubject})
           filter (where js.status = 'held_out')::int as control_contacts,
-        (count(distinct js.user_id) filter (where js.status = 'held_out'
+        (count(distinct ${jsSubject}) filter (where js.status = 'held_out'
           and exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at
         )))::int as control_converters
       from journey_states js
@@ -265,17 +285,17 @@ export const impactOverviewRouter = new OpenAPIHono<AppEnv>().openapi(
             control_converters: number;
           }>(sql`
             select
-              (count(distinct js.user_id)
+              (count(distinct ${jsSubject})
                 filter (where js.status != 'held_out' and exists (
                   select 1 from conversions c
-                  where c.user_key = js.user_id
+                  where ${convBySubject}
                     and c.occurred_at >= js.created_at
                     and c.definition_id = ${goal}
               )))::int as converters,
-              (count(distinct js.user_id)
+              (count(distinct ${jsSubject})
                 filter (where js.status = 'held_out' and exists (
                   select 1 from conversions c
-                  where c.user_key = js.user_id
+                  where ${convBySubject}
                     and c.occurred_at >= js.created_at
                     and c.definition_id = ${goal}
               )))::int as control_converters

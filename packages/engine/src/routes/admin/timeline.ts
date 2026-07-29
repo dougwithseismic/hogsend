@@ -1,3 +1,4 @@
+import { bySubject } from "@hogsend/core";
 import { emailSends, journeyStates, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
@@ -64,10 +65,15 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    // Resolved string key the history tables (user_events/journey_states/
-    // email_sends) were written under: external_id, else anonymous_id, else the
-    // contact uuid (matches ingestEvent's resolvedKey).
-    const externalId = contactKey(contact);
+    // The timeline reads history BY SUBJECT. `contact.id` always exists here
+    // (the contact was just resolved), so every leg below scopes on the
+    // `contact_id` FK — which is what makes the timeline show activity a
+    // person accumulated under keys they have since moved off (an anonymous
+    // id before they registered). `userKey` is the resolved string key those
+    // rows were originally written under (external_id, else anonymous_id,
+    // else the contact uuid — matches ingestEvent's resolvedKey); it is the
+    // `bySubject` fallback arm and is never reached from here.
+    const subject = { contactId: contact.id, userKey: contactKey(contact) };
     const entries: TimelineEntry[] = [];
 
     const shouldFetch = (t: string) => !type || type === t;
@@ -85,7 +91,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
         ? db
             .select()
             .from(userEvents)
-            .where(eq(userEvents.userId, externalId))
+            .where(bySubject(userEvents, subject))
             .orderBy(desc(userEvents.occurredAt))
             .limit(fetchLimit)
         : Promise.resolve([]),
@@ -95,7 +101,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
             .from(journeyStates)
             .where(
               and(
-                eq(journeyStates.userId, externalId),
+                bySubject(journeyStates, subject),
                 isNull(journeyStates.deletedAt),
               ),
             )
@@ -123,7 +129,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
             )
             .where(
               and(
-                eq(journeyStates.userId, externalId),
+                bySubject(journeyStates, subject),
                 isNull(journeyStates.deletedAt),
               ),
             )
@@ -134,7 +140,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
         ? db
             .select({ count: count() })
             .from(userEvents)
-            .where(eq(userEvents.userId, externalId))
+            .where(bySubject(userEvents, subject))
             .then((r) => r[0]?.count ?? 0)
         : Promise.resolve(0),
       shouldFetch("journey")
@@ -143,7 +149,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
             .from(journeyStates)
             .where(
               and(
-                eq(journeyStates.userId, externalId),
+                bySubject(journeyStates, subject),
                 isNull(journeyStates.deletedAt),
               ),
             )
@@ -159,7 +165,7 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
             )
             .where(
               and(
-                eq(journeyStates.userId, externalId),
+                bySubject(journeyStates, subject),
                 isNull(journeyStates.deletedAt),
               ),
             )

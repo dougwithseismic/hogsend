@@ -1,4 +1,9 @@
-import { criteriaBuilder, days, evaluateCondition } from "@hogsend/core";
+import {
+  bySubject,
+  criteriaBuilder,
+  days,
+  evaluateCondition,
+} from "@hogsend/core";
 import {
   contacts,
   emailPreferences,
@@ -130,6 +135,9 @@ export function buildAgentTools({
         return db
           .select({
             event: userEvents.event,
+            // Display echo of the stamped key — not a scoping predicate. This
+            // tool lists the recent event stream instance-wide; there is no
+            // subject to scope by.
             userId: userEvents.userId,
             source: userEvents.source,
             occurredAt: userEvents.occurredAt,
@@ -169,10 +177,18 @@ export function buildAgentTools({
       execute: async ({ id }) => {
         const contact = await resolveContact({ db, id });
         if (!contact) return { error: `No contact for "${id}"` };
+        // Was `contact.externalId ?? contact.id` — an inline re-derivation of
+        // the canonical key that missed a preferences row written under an
+        // anonymous id. The owning contact names it directly.
         const prefs = await db
           .select()
           .from(emailPreferences)
-          .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+          .where(
+            bySubject(emailPreferences, {
+              contactId: contact.id,
+              userKey: contactKey(contact),
+            }),
+          )
           .limit(1);
         return { contact, preferences: prefs[0] ?? null };
       },
@@ -189,6 +205,10 @@ export function buildAgentTools({
         const contact = await resolveContact({ db, id });
         if (!contact) return { error: `No contact for "${id}"` };
         const key = contactKey(contact);
+        // Read by subject: the contact was just resolved, so both legs scope
+        // on the `contact_id` FK and pick up activity from keys this person
+        // has since moved off.
+        const subject = { contactId: contact.id, userKey: key };
         const [events, journeys] = await Promise.all([
           db
             .select({
@@ -197,7 +217,7 @@ export function buildAgentTools({
               occurredAt: userEvents.occurredAt,
             })
             .from(userEvents)
-            .where(eq(userEvents.userId, key))
+            .where(bySubject(userEvents, subject))
             .orderBy(desc(userEvents.occurredAt))
             .limit(limit),
           db
@@ -209,7 +229,7 @@ export function buildAgentTools({
             .from(journeyStates)
             .where(
               and(
-                eq(journeyStates.userId, key),
+                bySubject(journeyStates, subject),
                 isNull(journeyStates.deletedAt),
               ),
             )
@@ -296,8 +316,11 @@ export function buildAgentTools({
             ctx: {
               db,
               userId: contactKey(c),
-              // PRD 05: real contactId wired when this subsystem's read batch flips
-              contactId: null,
+              // Every row here IS a contact, so the evaluator's event leaf
+              // counts that contact's whole history — including events stamped
+              // under an earlier anonymous key. Without this the audience
+              // preview under-counts anyone who registered after being seen.
+              contactId: c.id,
               journeyContext: (c.properties ?? {}) as Record<string, unknown>,
             },
           });

@@ -41,7 +41,7 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 const { contacts, conversions, journeyStates, userEvents } = await import(
   "@hogsend/db"
 );
-const { like } = await import("drizzle-orm");
+const { eq, like } = await import("drizzle-orm");
 const {
   computeJourneyLift,
   computeLift,
@@ -107,7 +107,28 @@ const container = createHogsendClient({ journeys: [jNone, jGoal] });
 const app = createApp(container);
 const { db } = container;
 
-let contactId: string;
+/**
+ * One contact per subject key. The lift cohort SQL reads by SUBJECT (PRD 05):
+ * enrollments are `count(distinct coalesce(js.contact_id::text, js.user_id))`
+ * and the outcome EXISTS joins `c.contact_id = js.contact_id`. A fixture that
+ * pointed every conversion at ONE shared contact only ever passed because the
+ * old join compared `c.user_key` strings; it does not describe a real
+ * instance, where each subject owns its own contact row.
+ */
+async function ensureContact(userKey: string): Promise<string> {
+  const existing = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.externalId, userKey))
+    .limit(1);
+  if (existing[0]) return existing[0].id;
+  const [row] = await db
+    .insert(contacts)
+    .values({ externalId: userKey, email: `${userKey}@example.com` })
+    .returning({ id: contacts.id });
+  if (!row) throw new Error("contact insert failed");
+  return row.id;
+}
 
 async function seedState(opts: {
   journeyId: string;
@@ -118,6 +139,9 @@ async function seedState(opts: {
   await db.insert(journeyStates).values({
     journeyId: opts.journeyId,
     userId: opts.userId,
+    // Stamped exactly as the engine's dual-write does. Without it the
+    // contact arm of every flipped read sees nothing.
+    contactId: await ensureContact(opts.userId),
     userEmail: `${opts.userId}@example.com`,
     currentNodeId: "entry",
     status: opts.status,
@@ -132,10 +156,12 @@ async function seedConversion(opts: {
   currency: string;
   occurredAt: Date;
 }) {
+  const contactId = await ensureContact(opts.userKey);
   const [event] = await db
     .insert(userEvents)
     .values({
       userId: opts.userKey,
+      contactId,
       event: "test.lift.convert",
       properties: {},
       source: "test",
@@ -160,12 +186,6 @@ function byCurrency(v: Array<{ currency: string | null; value: number }>) {
 }
 
 beforeAll(async () => {
-  const [contact] = await db
-    .insert(contacts)
-    .values({ email: `${RUN}@example.com`, externalId: `${RUN}-contact` })
-    .returning({ id: contacts.id });
-  contactId = contact?.id as string;
-
   const day = (n: number) => new Date(BASE.getTime() + n * DAY);
 
   // J_NONE — 4 treatment, 2 held_out, all entered at BASE.

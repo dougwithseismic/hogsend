@@ -1,8 +1,12 @@
+import { bySubject } from "@hogsend/core";
 import { contacts, emailSends, importJobs, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { contactSearchFilter } from "../../lib/contacts.js";
+import {
+  contactSearchFilter,
+  lookupContactIdByKey,
+} from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { importContactsTask } from "../../workflows/import-contacts.js";
@@ -388,8 +392,16 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
       if (body.filter?.event) {
         conditions.push(eq(userEvents.event, body.filter.event));
       }
+      // Replay by subject, not by string: resolve the supplied key to its
+      // owning contact so a replay covers the events that person emitted
+      // under keys they have since moved off. No contact for the key → the
+      // literal string match, as before.
       if (body.filter?.userId) {
-        conditions.push(eq(userEvents.userId, body.filter.userId));
+        const filterKey = body.filter.userId;
+        const contactId = await lookupContactIdByKey(db, filterKey);
+        conditions.push(
+          bySubject(userEvents, { contactId, userKey: filterKey }),
+        );
       }
       if (body.filter?.from) {
         conditions.push(gte(userEvents.occurredAt, new Date(body.filter.from)));

@@ -76,6 +76,10 @@ export async function surfaceStrandedWaiting(opts: {
       .select({
         id: journeyStates.id,
         journeyId: journeyStates.journeyId,
+        // Display echo for the alert payload — not a scoping predicate. The
+        // sweep is population-wide (`status = 'waiting'`), so there is no
+        // subject to scope by; the operator needs the stamped key to find the
+        // row in the admin surface.
         userId: journeyStates.userId,
         waitDeadline: journeyStates.waitDeadline,
         updatedAt: journeyStates.updatedAt,
