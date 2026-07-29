@@ -19,8 +19,13 @@ export const userEvents = pgTable(
     // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
     // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
-    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away. It
+    // means the writer had no contact row to point at: `lib/ingestion.ts`
+    // refused to mint one (`resolveContactNoCreate`), e.g. an anon-only
+    // POST /v1/events on a publishable key. Such a row is a string-keyed
+    // subject and reads scope it by `user_id` (the bySubject else-arm).
     contactId: uuid("contact_id"),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),

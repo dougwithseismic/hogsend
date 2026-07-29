@@ -33,8 +33,14 @@ export const emailSends = pgTable(
     // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id"),
     userEmail: text("user_email"),
-    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away. A
+    // raw-address send has no subject at all — `SendEmailOptions.userId` is
+    // optional, so a transactional/batch send to a bare address writes the row
+    // with neither a contact nor a key. Where a key IS present the row is a
+    // string-keyed subject and reads scope it by `user_id` (bySubject
+    // else-arm).
     contactId: uuid("contact_id"),
     templateKey: text("template_key"),
     messageId: text("message_id"),

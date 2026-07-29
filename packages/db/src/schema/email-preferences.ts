@@ -20,8 +20,15 @@ export const emailPreferences = pgTable(
     // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     email: text("email").notNull(),
-    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away. The
+    // preference writers take `contactId: string | null` and their
+    // `lookupContactIdByKey` fallback can MISS (`lib/preferences.ts`,
+    // `routes/admin/preferences.ts`) — an unsubscribe must land even when the
+    // address owns no contact. Such a row is a string-keyed subject and reads
+    // scope it by `user_id` (the bySubject else-arm); the opt-out is honored
+    // either way.
     contactId: uuid("contact_id"),
     unsubscribedAll: boolean("unsubscribed_all").notNull().default(false),
     suppressed: boolean("suppressed").notNull().default(false),

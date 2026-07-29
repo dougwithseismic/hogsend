@@ -24,8 +24,13 @@ export const bucketMemberships = pgTable(
     // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     userEmail: text("user_email"), // denormalized so emitted events carry it
-    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away.
+    // Bucket evaluation needs no contact row — `checkBucketMembership` →
+    // `handleJoin` runs on a refused (contactless) event and joins the subject
+    // by its canonical key. Such a row is a string-keyed subject and reads
+    // scope it by `user_id` (the bySubject else-arm).
     contactId: uuid("contact_id"),
     bucketId: text("bucket_id").notNull(),
     status: bucketMembershipStatusEnum("status").notNull().default("active"),
