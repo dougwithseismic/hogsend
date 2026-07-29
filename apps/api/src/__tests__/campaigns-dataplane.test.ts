@@ -255,16 +255,24 @@ beforeAll(async () => {
 
   // Bucket members: one active (a recipient), one left (must be ignored). Both
   // need a live contact for the email join.
-  await db.insert(contacts).values([
-    { externalId: BUCKET_USER, email: BUCKET_EMAIL },
-    { externalId: BUCKET_LEFT_USER, email: BUCKET_LEFT_EMAIL },
-  ]);
+  // PRD 05 T5 builds the bucket audience off `bucket_memberships.contact_id`,
+  // so these fixtures stamp the owner exactly as every membership writer does.
+  const bucketOwners = await db
+    .insert(contacts)
+    .values([
+      { externalId: BUCKET_USER, email: BUCKET_EMAIL },
+      { externalId: BUCKET_LEFT_USER, email: BUCKET_LEFT_EMAIL },
+    ])
+    .returning({ id: contacts.id, externalId: contacts.externalId });
+  const ownerOf = (key: string) =>
+    bucketOwners.find((c) => c.externalId === key)?.id ?? null;
   await db.insert(bucketMemberships).values([
     {
       userId: BUCKET_USER,
       userEmail: BUCKET_EMAIL,
       bucketId: BUCKET_ID,
       status: "active",
+      contactId: ownerOf(BUCKET_USER),
     },
     {
       userId: BUCKET_LEFT_USER,
@@ -272,6 +280,7 @@ beforeAll(async () => {
       bucketId: BUCKET_ID,
       status: "left",
       leftAt: new Date(),
+      contactId: ownerOf(BUCKET_LEFT_USER),
     },
   ]);
 });
@@ -544,6 +553,7 @@ describe("sendCampaignTask (bucket audience)", () => {
       userEmail: emailOnlyAddress,
       bucketId: BUCKET_ID,
       status: "active",
+      contactId: emailOnly.id,
     });
 
     const [campaign] = await db

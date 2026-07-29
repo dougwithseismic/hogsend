@@ -58,6 +58,27 @@ async function seedContact(
     });
 }
 
+/**
+ * The contact a canonical key resolves to, or `null` when nobody owns it.
+ *
+ * PRD 05 T5 flipped the accessor's `contacts` join onto
+ * `bucket_memberships.contact_id`, so a fixture that writes a membership with a
+ * NULL `contact_id` while a contact DOES exist for the key is describing a
+ * state PRD 04 removed (every writer dual-writes the id and the backfill
+ * stamped the historical rows). Resolving it here keeps these fixtures on the
+ * production shape instead of a pre-04 one.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
 async function seedMembership(opts: {
   userId: string;
   status: "active" | "left";
@@ -69,6 +90,7 @@ async function seedMembership(opts: {
     status: opts.status,
     source: "event",
     entryCount: 1,
+    contactId: await contactIdFor(opts.userId),
     leftAt: opts.status === "left" ? new Date() : null,
   });
 }

@@ -315,12 +315,33 @@ describe("T4c — bucket_memberships.contact_id at the BACKFILL insert", () => {
       userId: matcher,
       email: `${matcher}@example.com`,
     });
-    await resolveOrCreateContact({ db, userId: nonMatcher });
+    const nonMatcherContact = await resolveOrCreateContact({
+      db,
+      userId: nonMatcher,
+    });
+    // PRD 05 T5 reads matcher history by SUBJECT, so these fixtures carry the
+    // owning contact exactly as `ingestEvent`'s dual-write does — a hand-seeded
+    // event with a NULL `contact_id` describes a pre-PRD-04 row.
     await db.insert(userEvents).values([
-      { userId: matcher, event: BACKFILL_EVENT, properties: {} },
-      { userId: matcher, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: matcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
+      {
+        userId: matcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
       // 1 < 2 → not a matcher; guards against a blanket "everyone joins".
-      { userId: nonMatcher, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: nonMatcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: nonMatcherContact.id,
+      },
     ]);
 
     const [job] = await db
@@ -360,8 +381,18 @@ describe("T4c — bucket_memberships.contact_id at the BACKFILL insert", () => {
     const dead = uid("bf-dead");
     const contact = await resolveOrCreateContact({ db, userId: dead });
     await db.insert(userEvents).values([
-      { userId: dead, event: BACKFILL_EVENT, properties: {} },
-      { userId: dead, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: dead,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
+      {
+        userId: dead,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
     ]);
     await db
       .update(contacts)
@@ -397,23 +428,29 @@ describe("T4c — bucket_memberships.contact_id at the RECONCILE join", () => {
       userId,
       event: RECONCILE_EVENT,
       properties: {},
+      contactId: contact.id,
       occurredAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     });
 
     // Still active (fired inside the window) ⇒ excluded by present-in-all.
     const stillActive = uid("rc-active");
-    await resolveOrCreateContact({ db, userId: stillActive });
+    const stillActiveContact = await resolveOrCreateContact({
+      db,
+      userId: stillActive,
+    });
     await db.insert(userEvents).values([
       {
         userId: stillActive,
         event: RECONCILE_EVENT,
         properties: {},
+        contactId: stillActiveContact.id,
         occurredAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
       },
       {
         userId: stillActive,
         event: RECONCILE_EVENT,
         properties: {},
+        contactId: stillActiveContact.id,
         occurredAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
       },
     ]);

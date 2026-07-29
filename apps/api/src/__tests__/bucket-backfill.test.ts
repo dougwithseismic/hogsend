@@ -137,15 +137,34 @@ async function seedContact(
     });
 }
 
+/**
+ * The contact a canonical key resolves to. PRD 05 T5 flipped the backfill's
+ * matcher selection onto `user_events.contact_id` / `contact_id`, and PRD 04
+ * dual-writes that column on every real write — so these fixtures stamp it
+ * rather than describing a pre-04 row the engine can no longer produce.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
 async function seedEvents(
   userId: string,
   event: string,
   count: number,
 ): Promise<void> {
+  const contactId = await contactIdFor(userId);
   const rows = Array.from({ length: count }, () => ({
     userId,
     event,
     properties: {},
+    contactId,
   }));
   if (rows.length > 0) await db.insert(userEvents).values(rows);
 }
@@ -299,6 +318,7 @@ describe("backfill Fix A — entryCount + maxDwellAt parity", () => {
       status: "left",
       source: "event",
       entryCount: 1,
+      contactId: await contactIdFor(user),
       leftAt: new Date(),
     });
 
@@ -355,10 +375,12 @@ describe("backfill dwell-anchor derivation (Section 6.3)", () => {
     // the user was still active. resolveDwellAnchorEvent(powerBucket.criteria)
     // returns KEY_ACTION, so the backfill must stamp dwellAnchorAt = that max.
     const lastAt = new Date(Date.now() - 10 * DAY);
+    const anchorContactId = await contactIdFor(user);
     const rows = Array.from({ length: 12 }, (_, i) => ({
       userId: user,
       event: KEY_ACTION,
       properties: {},
+      contactId: anchorContactId,
       occurredAt: new Date(lastAt.getTime() - i * HOUR), // max == lastAt
     }));
     await db.insert(userEvents).values(rows);
