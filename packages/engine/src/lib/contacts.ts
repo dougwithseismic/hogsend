@@ -836,6 +836,22 @@ function adoptedContactId(column: Column, contactId: string): SQL<string> {
 }
 
 /**
+ * How a fold writes its routed rows (PRD 05 T9).
+ *
+ * - Merge mode (default): the historical shape — rewrite `user_id` onto the
+ *   survivor key, stamp `contact_id` under the {@link adoptedContactId} NULL
+ *   guard, denormalize the survivor's email.
+ * - `stampOnly` (the adoption path): one column. The loser scope is
+ *   `orphansOnly` (see {@link foldScopes}), so every matched row carries
+ *   `contact_id IS NULL` and a plain stamp cannot re-parent another person's
+ *   history. `user_id` is frozen at its write-time value — reads no longer
+ *   consult it, and D9 keeps writing it on inserts.
+ */
+interface FoldWriteOpts {
+  stampOnly?: boolean;
+}
+
+/**
  * PRD 05 T3 — "which rows belong to the loser, and which to the survivor", for
  * the three folds below.
  *
@@ -851,10 +867,18 @@ function adoptedContactId(column: Column, contactId: string): SQL<string> {
  * `contact_id`.
  *
  * `loserId` is the mirror on the other side and is supplied only by the merge
- * path: `repointOwnHistory` folds a contact onto its OWN new key, where the
- * "loser" rows carry that same `contact_id` and matching on it would swallow the
- * whole contact. The loser test wins the tie — a row is either being moved or
- * being folded into, never both.
+ * path: the adoption path ({@link adoptOrphanHistory}) folds history onto the
+ * contact that already owns its key, where the "loser" rows would carry that
+ * same `contact_id` and matching on it would swallow the whole contact. The
+ * loser test wins the tie — a row is either being adopted or being folded
+ * into, never both.
+ *
+ * `orphansOnly` (the adoption path, PRD 05 T9): the loser side additionally
+ * requires `contact_id IS NULL`. This predicate is the anti-theft guard that
+ * replaced `keysAnotherContact`'s adoption-gating role — a row another contact
+ * owns already carries that owner's id and can never match, so adoption
+ * cannot re-parent a second person's history. Never combined with `loserId`
+ * (only the merge path supplies one).
  */
 function foldScopes(opts: {
   userIdCol: Column;
@@ -863,6 +887,7 @@ function foldScopes(opts: {
   survivorId: string;
   loserKeys: string[];
   loserId?: string;
+  orphansOnly?: boolean;
 }): { isLoser: SQL; isSurvivor: SQL } {
   // `IS NOT DISTINCT FROM`, never `=`. `contact_id` is nullable, and a plain
   // equality against a NULL column is UNKNOWN, not false — which `NOT (… OR
@@ -872,7 +897,12 @@ function foldScopes(opts: {
   const sameContact = (id: string): SQL =>
     sql`${opts.contactIdCol} IS NOT DISTINCT FROM ${id}::uuid`;
 
-  const byKey = inArray(opts.userIdCol, opts.loserKeys);
+  const byKey = opts.orphansOnly
+    ? (and(
+        inArray(opts.userIdCol, opts.loserKeys),
+        isNull(opts.contactIdCol),
+      ) as SQL)
+    : inArray(opts.userIdCol, opts.loserKeys);
   const isLoser = opts.loserId ? or(byKey, sameContact(opts.loserId)) : byKey;
   const isSurvivor = and(
     or(eq(opts.userIdCol, opts.survivorKey), sameContact(opts.survivorId)),
@@ -1183,39 +1213,36 @@ async function resolveContactShared(
 
       // HISTORY ADOPTION (D2). Once observation stops minting a row, a later
       // identify no longer finds an anon contact to fill-in-link — it lands
-      // HERE, in the create arm, which historically had no repoint. Everything
-      // already keyed on the anon id (user_events, journey_states,
-      // bucket_memberships, email_sends, email_preferences — incl. an
-      // unsubscribe) would be silently orphaned under a key no contact owns.
+      // HERE, in the create arm. Everything already keyed on the anon id
+      // (user_events, journey_states, bucket_memberships, email_sends,
+      // email_preferences — incl. an unsubscribe) would otherwise be silently
+      // orphaned under a key no contact owns.
       //
-      // So: when the brand-new row's canonical key (`external_id ??
-      // anonymous_id ?? id`) is NOT the supplied `anonymousId`, the anon key was
-      // just superseded — re-point its history exactly as `fillInLink` does on a
-      // key flip. Only ever FROM `anonymousId`: an email/discord-shaped key is
-      // never canonical, so it never keyed history and must never be repointed.
-      //
-      // Gated on `keysAnotherContact`: resolution missed this value in the
-      // ANONYMOUS namespace, which does not mean nobody owns it. If it is some
-      // other live contact's canonical key, those rows are theirs and adopting
-      // them here would hand one person's history to another.
+      // Adoption is self-gating (T9): `adoptOrphanHistory` touches only
+      // `contact_id IS NULL` rows, so a value that is some other live
+      // contact's key cannot surrender their history — those rows carry their
+      // owner's id. `keysAnotherContact` therefore no longer gates adoption;
+      // it survives below ONLY to gate the `mergedKeys` REPORT — a foreign
+      // anon id must never enter the analytics stitch.
       const createdKey = contactKey(createdRow);
-      // History written under this key BEFORE the row existed (see
-      // {@link adoptOwnKeyHistory}). Not a merge: no key is absorbed, so it
-      // reports nothing in `mergedKeys` and fires no analytics stitch.
-      await adoptOwnKeyHistory(tx, createdKey, createdRow.id);
+      // History written under the row's OWN key BEFORE it existed. Not a
+      // merge: no key is absorbed, so it reports nothing in `mergedKeys` and
+      // fires no analytics stitch.
+      await adoptOrphanHistory(tx, createdKey, createdRow);
       let mergedKeys: string[] | undefined;
-      if (
-        anonymousId &&
-        anonymousId !== createdKey &&
-        !(await keysAnotherContact(tx, anonymousId, createdRow.id))
-      ) {
-        await repointOwnHistory(tx, anonymousId, createdKey, createdRow);
-        // §5.3 emission point 2 (canonical-key flip): report the absorbed anon
-        // key so `ingestEvent` still fires `mergeAnalyticsIdentities({ reason:
-        // "key_flip" })` — otherwise the DB history is adopted but the PostHog
-        // anon→known stitch stays broken. Safe to alias by construction (an
-        // anonymous key never identified a person — MF-2).
-        mergedKeys = [anonymousId];
+      if (anonymousId && anonymousId !== createdKey) {
+        // The anon key was just superseded as canonical — stamp its orphans.
+        // Only ever FROM `anonymousId`: an email/discord-shaped key is never
+        // canonical, so it never keyed history.
+        await adoptOrphanHistory(tx, anonymousId, createdRow);
+        if (!(await keysAnotherContact(tx, anonymousId, createdRow.id))) {
+          // §5.3 emission point 2 (canonical-key flip): report the absorbed
+          // anon key so `ingestEvent` still fires `mergeAnalyticsIdentities({
+          // reason: "key_flip" })` — otherwise the DB history is adopted but
+          // the PostHog anon→known stitch stays broken. Safe to alias by
+          // construction (an anonymous key never identified a person — MF-2).
+          mergedKeys = [anonymousId];
+        }
       }
 
       return {
@@ -1576,9 +1603,9 @@ async function fillInLink(
 
   await tx.update(contacts).set(set).where(eq(contacts.id, row.id));
 
-  // Re-point the contact's own history if the canonical key flipped. The
-  // updated row (with its new email/keys) is what foldJourneyStates/email_sends
-  // denormalize into.
+  // Adopt the contact's own orphan history (stamp-only since T9; nothing
+  // rewrites the string key anymore). The updated row carries the post-fill
+  // keys the fold scopes resolve ownership with.
   const newKey = nextExternalId ?? nextAnonymousId ?? row.id;
   // §5.3 emission point 2 (canonical-key flip): when the key flips, the OLD key
   // is folded into the NEW one. MF-3 gate — only emit a merge when `oldKey` was
@@ -1599,9 +1626,12 @@ async function fillInLink(
 
   let mergedKeys: string[] | undefined;
   let mergedIdentifiedKeys: string[] | undefined;
+  // T9: adoption is unconditional — with nothing keyed on the canonical key,
+  // "did the key flip" no longer decides whether history is stamped. Orphans
+  // under the pre-fill key are adopted either way (idempotent when there are
+  // none); the flip test now gates only the analytics REPORT.
+  await adoptOrphanHistory(tx, oldKey, updatedRow);
   if (newKey !== oldKey) {
-    await repointOwnHistory(tx, oldKey, newKey, updatedRow);
-
     const oldKeyWasExternalId =
       row.externalId != null && oldKey === row.externalId;
     if (oldKeyWasExternalId) {
@@ -1649,7 +1679,7 @@ async function fillInLink(
   for (const key of claimed) {
     if (key.kind !== "anonymous") continue;
     if (key.value === newKey || key.value === oldKey) continue;
-    await repointOwnHistory(tx, key.value, newKey, updatedRow);
+    await adoptOrphanHistory(tx, key.value, updatedRow);
     // Reported so `mergeAnalyticsIdentities` still fires the anon→known stitch;
     // appended, since a key flip above may already have folded a uuid/anon key.
     mergedKeys = [...(mergedKeys ?? []), key.value];
@@ -1993,11 +2023,10 @@ async function mergeContacts(
   await ensureIdentityAliases(tx, postSurvivor);
 
   // If the survivor's canonical key flipped (it had no external_id/anonymous_id
-  // and the merge promoted one from the call/loser), re-point the survivor's OWN
-  // history — including everything the loser rewrites just pointed at the old
-  // survivorKey — onto the new key (risk 1). Without this, a survivor whose
-  // history was keyed on its uuid/anonymous_id is orphaned the moment it gains
-  // an external_id mid-merge.
+  // and the merge promoted one from the call/loser), stamp any orphans still
+  // sitting under the OLD survivor key (risk 1). The loser folds above already
+  // stamped everything they routed, so this reaches only rows that predate the
+  // survivor's own contact_id era.
   const newSurvivorKey =
     (survivorSet.externalId as string | undefined) ??
     survivor.externalId ??
@@ -2013,7 +2042,7 @@ async function mergeContacts(
         (survivorSet.anonymousId as string | undefined) ?? survivor.anonymousId,
       email: (survivorSet.email as string | undefined) ?? survivor.email,
     };
-    await repointOwnHistory(tx, survivorKey, newSurvivorKey, updatedSurvivor);
+    await adoptOrphanHistory(tx, survivorKey, updatedSurvivor);
   }
 
   // `newSurvivorKey` IS the post-merge canonical key of the survivor — the same
@@ -2060,6 +2089,7 @@ async function foldJourneyStates(
   loserKeys: string[],
   survivor: ContactRow,
   loserId?: string,
+  opts?: FoldWriteOpts,
 ): Promise<void> {
   const ACTIVE = new Set<string>(["active", "waiting"]);
   const { isLoser, isSurvivor } = foldScopes({
@@ -2069,6 +2099,7 @@ async function foldJourneyStates(
     survivorId: survivor.id,
     loserKeys,
     loserId,
+    orphansOnly: opts?.stampOnly,
   });
 
   const survivorRows = await tx
@@ -2142,18 +2173,25 @@ async function foldJourneyStates(
       .where(inArray(journeyStates.id, idsToExit));
   }
 
-  // Rewrite both the originally non-colliding rows AND the just-exited rows onto
-  // the survivor key (the exited rows now sit in claimed-free 'exited' slots).
+  // Route both the originally non-colliding rows AND the just-exited rows to
+  // the survivor (the exited rows now sit in claimed-free 'exited' slots).
+  // Stamp mode (adoption, PRD 05 T9): one column — every matched row is an
+  // orphan (`orphansOnly` scope), so a plain stamp cannot re-parent anything.
+  // The string key and denormalized email stay frozen at write-time values.
   const rewriteIds = [...idsToRewrite, ...idsToExit];
   if (rewriteIds.length > 0) {
     await tx
       .update(journeyStates)
-      .set({
-        userId: survivorKey,
-        contactId: adoptedContactId(journeyStates.contactId, survivor.id),
-        ...(survivor.email ? { userEmail: survivor.email } : {}),
-        updatedAt: new Date(),
-      })
+      .set(
+        opts?.stampOnly
+          ? { contactId: survivor.id, updatedAt: new Date() }
+          : {
+              userId: survivorKey,
+              contactId: adoptedContactId(journeyStates.contactId, survivor.id),
+              ...(survivor.email ? { userEmail: survivor.email } : {}),
+              updatedAt: new Date(),
+            },
+      )
       .where(inArray(journeyStates.id, rewriteIds));
   }
 }
@@ -2174,6 +2212,7 @@ async function foldBucketMemberships(
   loserKeys: string[],
   survivorId: string,
   loserId?: string,
+  opts?: FoldWriteOpts,
 ): Promise<void> {
   const { isLoser, isSurvivor } = foldScopes({
     userIdCol: bucketMemberships.userId,
@@ -2182,6 +2221,7 @@ async function foldBucketMemberships(
     survivorId,
     loserKeys,
     loserId,
+    orphansOnly: opts?.stampOnly,
   });
 
   const survivorActive = await tx
@@ -2227,11 +2267,18 @@ async function foldBucketMemberships(
 
   await tx
     .update(bucketMemberships)
-    .set({
-      userId: survivorKey,
-      contactId: adoptedContactId(bucketMemberships.contactId, survivorId),
-      updatedAt: new Date(),
-    })
+    .set(
+      opts?.stampOnly
+        ? { contactId: survivorId, updatedAt: new Date() }
+        : {
+            userId: survivorKey,
+            contactId: adoptedContactId(
+              bucketMemberships.contactId,
+              survivorId,
+            ),
+            updatedAt: new Date(),
+          },
+    )
     .where(isLoser);
 }
 
@@ -2300,6 +2347,7 @@ async function foldEmailPreferences(
   survivorKey: string,
   survivorId: string,
   loserId?: string,
+  opts?: FoldWriteOpts,
 ): Promise<void> {
   if (loserKeys.length === 0) return;
 
@@ -2310,6 +2358,7 @@ async function foldEmailPreferences(
     survivorId,
     loserKeys,
     loserId,
+    orphansOnly: opts?.stampOnly,
   });
 
   const loserPrefs = await tx.select().from(emailPreferences).where(isLoser);
@@ -2337,14 +2386,23 @@ async function foldEmailPreferences(
     const target = targetRows[0];
 
     if (!target) {
-      // The slot is free on BOTH keys — re-point the loser row.
+      // The slot is free on BOTH keys. Merge mode re-points the loser row;
+      // stamp mode (adoption) writes ownership only — the row is an orphan by
+      // scope, so a plain stamp cannot re-parent anything.
       await tx
         .update(emailPreferences)
-        .set({
-          userId: survivorKey,
-          contactId: adoptedContactId(emailPreferences.contactId, survivorId),
-          updatedAt: new Date(),
-        })
+        .set(
+          opts?.stampOnly
+            ? { contactId: survivorId, updatedAt: new Date() }
+            : {
+                userId: survivorKey,
+                contactId: adoptedContactId(
+                  emailPreferences.contactId,
+                  survivorId,
+                ),
+                updatedAt: new Date(),
+              },
+        )
         .where(eq(emailPreferences.id, lp.id));
       continue;
     }
@@ -2382,125 +2440,68 @@ async function foldEmailPreferences(
 }
 
 /**
- * Stamp `contact_id` on history ALREADY sitting under a brand-new contact's OWN
- * canonical key. PRD 05 T4 discovered this gap while flipping the journey
- * runtime's reads.
+ * Adopt ORPHAN history sitting under `fromKey` onto its owning contact — the
+ * D4 statement, made permanent by PRD 05 T9: `UPDATE <t> SET contact_id = :id
+ * WHERE user_id = :fromKey AND contact_id IS NULL`, on five tables. One
+ * column. The string key is never rewritten again; reads follow `contact_id`
+ * (T4-T8), and D9 keeps writing `user_id` on every insert, so history stays a
+ * frozen record of the key it happened under.
  *
- * `repointOwnHistory` only fires when a key CHANGES (it early-returns on
- * `oldKey === newKey`), so it never covers the window where history is written
- * BEFORE its owner exists under the SAME key: an anonymous visitor enrolls in a
- * journey with no contact (the engine refuses to mint one on observation), then
- * an event carrying a `value` (or a server-side call) mints a contact keyed on
- * that very anon id. Nothing had ever associated the earlier rows, so they kept
- * `contact_id IS NULL` — invisible to a `contact_id`-scoped read, which is how a
- * flipped exit scan would stop exiting that person's live journey and a flipped
- * entry-limit guard would re-enroll them.
+ * This replaced two functions:
+ *  - `repointOwnHistory`, which rewrote `user_id` from the old canonical key
+ *    to the new one on a key flip (with three dedupe folds against the
+ *    string-scoped unique indexes), and
+ *  - `adoptOwnKeyHistory`, which stamped history already sitting under a
+ *    brand-new contact's OWN key.
+ * The "did the canonical key flip" test that distinguished them is meaningless
+ * when nothing is keyed on the canonical key, so both call shapes are one
+ * function now: name the key, stamp its orphans.
  *
- * `WHERE user_id = :key AND contact_id IS NULL` cannot steal by construction:
- * the key is this row's own unique identity value, and a row another contact
- * owns already carries that owner's id. No fold is needed either — the contact
- * is brand new, so it owns no other row that a partial unique index could
- * collide with.
+ * The `contact_id IS NULL` predicate is the anti-theft guard (D6): a row
+ * another contact owns already carries that owner's id and can never match.
+ * `keysAnotherContact` no longer gates adoption — it survives only to gate
+ * the `mergedKeys` REPORT (the analytics stitch must never alias a foreign
+ * key) and the attach path inside `claimIdentityKey`.
+ *
+ * The folds still run, re-expressed on the contact scope (D4/D5): the
+ * adopting contact may ALREADY own a live row for the same journey/bucket (or
+ * a pref row for the same address), and a bare stamp would mint a second row
+ * satisfying `uq_contact_journey_active` / `uq_contact_bucket_active` /
+ * `email_preferences_contact_email_idx` — a 23505 inside the resolve
+ * transaction. Same routing as the merge fold (exit / soft-leave / dedupe /
+ * pref-fold), stamp-only writes.
+ *
+ * Idempotent: a second run finds `contact_id` already set and matches nothing.
  */
-async function adoptOwnKeyHistory(
+async function adoptOrphanHistory(
   tx: Tx,
-  key: string,
-  contactId: string,
-): Promise<void> {
-  const stamp = { contactId };
-  await Promise.all([
-    tx
-      .update(userEvents)
-      .set(stamp)
-      .where(and(eq(userEvents.userId, key), isNull(userEvents.contactId))),
-    tx
-      .update(journeyStates)
-      .set(stamp)
-      .where(
-        and(eq(journeyStates.userId, key), isNull(journeyStates.contactId)),
-      ),
-    tx
-      .update(bucketMemberships)
-      .set(stamp)
-      .where(
-        and(
-          eq(bucketMemberships.userId, key),
-          isNull(bucketMemberships.contactId),
-        ),
-      ),
-    tx
-      .update(emailSends)
-      .set(stamp)
-      .where(and(eq(emailSends.userId, key), isNull(emailSends.contactId))),
-    tx
-      .update(emailPreferences)
-      .set(stamp)
-      .where(
-        and(
-          eq(emailPreferences.userId, key),
-          isNull(emailPreferences.contactId),
-        ),
-      ),
-  ]);
-}
-
-/**
- * Re-point a contact's OWN string-keyed history when its canonical key flips
- * (risk 1). resolvedKey downstream is `external_id ?? anonymous_id ?? id`, so
- * when fill-in-link attaches an external_id to a previously email-only/anon
- * contact (or merge promotes the survivor's external_id), the contact's
- * canonical key changes and its existing user_events/journey_states/email_sends/
- * bucket_memberships/email_preferences rows (keyed on the OLD key) would be
- * silently orphaned. Rewrite them from `oldKey` to `newKey`, applying the SAME
- * active/terminal dedupe as the merge fold so the rewrite can't violate
- * uq_user_journey_active / uq_user_bucket_active / uq(user_id,email).
- *
- * Every rewrite here ALSO stamps `row.id` into the row's `contact_id` under the
- * {@link adoptedContactId} NULL guard — the adopted rows predate the contact, so
- * the column they are missing is exactly the one the read path is about to move
- * onto. `row` is the ADOPTING contact at all four call sites (the freshly
- * inserted row on the create arm, the post-fill row on both fill-in-link arms,
- * the post-merge survivor on the merge arm), so no separate id argument can
- * drift out of step with the email the folds denormalize from the same row.
- *
- * No-op when oldKey === newKey (the canonical key did not change) — history
- * already sitting under a brand-new contact's OWN key is
- * {@link adoptOwnKeyHistory}'s job, not this one's.
- */
-async function repointOwnHistory(
-  tx: Tx,
-  oldKey: string,
-  newKey: string,
+  fromKey: string,
   row: ContactRow,
 ): Promise<void> {
-  if (oldKey === newKey) return;
+  const ownKey = contactKey(row);
 
-  // user_events: no unique constraint on user_id — blind rewrite.
+  // user_events + email_sends: no unique constraint involved — plain stamps.
   await tx
     .update(userEvents)
-    .set({
-      userId: newKey,
-      contactId: adoptedContactId(userEvents.contactId, row.id),
-    })
-    .where(eq(userEvents.userId, oldKey));
-
-  // journey_states + bucket_memberships: dedupe against the survivor/new key's
-  // existing rows (the folds already handle the collision logic).
-  await foldJourneyStates(tx, newKey, [oldKey], row);
-  await foldBucketMemberships(tx, newKey, [oldKey], row.id);
-
-  // email_sends: no unique constraint on user_id — blind rewrite.
+    .set({ contactId: row.id })
+    .where(and(eq(userEvents.userId, fromKey), isNull(userEvents.contactId)));
   await tx
     .update(emailSends)
-    .set({
-      userId: newKey,
-      contactId: adoptedContactId(emailSends.contactId, row.id),
-      ...(row.email ? { userEmail: row.email } : {}),
-    })
-    .where(eq(emailSends.userId, oldKey));
+    .set({ contactId: row.id })
+    .where(and(eq(emailSends.userId, fromKey), isNull(emailSends.contactId)));
 
-  // email_preferences: FOLD into the new key's rows (uq(user_id, email)).
-  await foldEmailPreferences(tx, [oldKey], newKey, row.id);
+  // journey_states / bucket_memberships / email_preferences: stamp through
+  // the folds so a collision with a row the contact already owns is routed
+  // (exited / left / folded) instead of violating the contact-scoped index.
+  await foldJourneyStates(tx, ownKey, [fromKey], row, undefined, {
+    stampOnly: true,
+  });
+  await foldBucketMemberships(tx, ownKey, [fromKey], row.id, undefined, {
+    stampOnly: true,
+  });
+  await foldEmailPreferences(tx, [fromKey], ownKey, row.id, undefined, {
+    stampOnly: true,
+  });
 }
 
 /** RECORD a contact_aliases row per loser key → survivor (reason 'merge'). */

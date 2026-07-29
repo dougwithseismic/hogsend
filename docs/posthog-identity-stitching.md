@@ -142,7 +142,7 @@ rule, stated once:
 
 ## 4. Part 1 — `anonymousId` threading (never fork in the first place)
 
-The cheapest stitch is to never fork: make `contactKey` equal the browser distinct id at the first identifying event, so the browser's own anon events and the server's captures land on one person with **zero merge calls**. The resolver already supports this end-to-end: precedence `external → email → anonymous → discord` (`contacts.ts:363-367`), `contactKey = external_id ?? anonymous_id ?? id` (`:304-306`), `ingestEvent` already forwards `anonymousId` to the resolver (`ingestion.ts:15-16,76`), and a later `external_id` attach re-points history via `fillInLink → repointOwnHistory` (`:515-524`) so nothing orphans.
+The cheapest stitch is to never fork: make `contactKey` equal the browser distinct id at the first identifying event, so the browser's own anon events and the server's captures land on one person with **zero merge calls**. The resolver already supports this end-to-end: precedence `external → email → anonymous → discord` (`contacts.ts:363-367`), `contactKey = external_id ?? anonymous_id ?? id` (`:304-306`), `ingestEvent` already forwards `anonymousId` to the resolver (`ingestion.ts:15-16,76`), and a later `external_id` attach adopts history via `fillInLink → adoptOrphanHistory` (stamping `contact_id`; the string key stays frozen) so nothing orphans.
 
 Gaps (all additive → minor):
 
