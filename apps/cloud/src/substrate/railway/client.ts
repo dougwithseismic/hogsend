@@ -18,11 +18,21 @@ import { SubstrateError } from "../types";
 
 export const RAILWAY_API_URL = "https://backboard.railway.com/graphql/v2";
 
-/** Attempts INCLUDING the first, per PRD 04 ("retry w/ backoff, max 5"). */
-export const RAILWAY_MAX_ATTEMPTS = 5;
+/**
+ * Attempts INCLUDING the first. PRD 04 said 5; live provisioning says
+ * otherwise. Railway answers a burst of valid mutations with intermittent
+ * `Problem processing request` 400s that persist for TENS OF SECONDS, and 5
+ * attempts over a 3.75s window exhausted mid-provision on two separate live
+ * runs (2026-07-29), parking a half-built stack at `error`. 8 attempts with the
+ * base below spans ~63s, which covered every burst observed.
+ */
+export const RAILWAY_MAX_ATTEMPTS = 8;
 
-/** First backoff step; each retry doubles it. */
-export const RAILWAY_BACKOFF_BASE_MS = 250;
+/** First backoff step; each retry doubles it, up to {@link RAILWAY_BACKOFF_MAX_MS}. */
+export const RAILWAY_BACKOFF_BASE_MS = 500;
+
+/** Ceiling per step, so late attempts stay useful rather than sleeping minutes. */
+export const RAILWAY_BACKOFF_MAX_MS = 30_000;
 
 export interface RailwayHttpRequest {
   url: string;
@@ -70,13 +80,16 @@ export interface RailwayClientOptions {
 }
 
 /**
- * Deterministic exponential backoff — 250, 500, 1000, 2000ms. NO jitter, by
- * design: the control plane runs one provisioning task per stack (Hatchet
- * serialises them), so there is no thundering herd to spread, and a fixed
- * sequence is assertable in a test.
+ * Deterministic exponential backoff — 500, 1000, 2000, 4000, 8000, 16000,
+ * 30000ms (capped). NO jitter, by design: the control plane runs one
+ * provisioning task per stack (Hatchet serialises them), so there is no
+ * thundering herd to spread, and a fixed sequence is assertable in a test.
  */
 export function railwayBackoffMs(attempt: number): number {
-  return RAILWAY_BACKOFF_BASE_MS * 2 ** (attempt - 1);
+  return Math.min(
+    RAILWAY_BACKOFF_BASE_MS * 2 ** (attempt - 1),
+    RAILWAY_BACKOFF_MAX_MS,
+  );
 }
 
 /**

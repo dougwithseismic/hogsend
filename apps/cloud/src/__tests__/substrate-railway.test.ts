@@ -4,6 +4,7 @@ import { RAILWAY_SUBSTRATE_ID, RailwaySubstrate } from "../substrate/railway";
 import {
   isRetryableHttp,
   RAILWAY_API_URL,
+  RAILWAY_MAX_ATTEMPTS,
   RailwayClient,
   type RailwayTransport,
   railwayBackoffMs,
@@ -396,7 +397,19 @@ describe("RailwayClient retry classifier", () => {
   });
 
   it("backs off exponentially with deterministic, jitterless delays", () => {
-    expect([1, 2, 3, 4].map(railwayBackoffMs)).toEqual([250, 500, 1000, 2000]);
+    expect([1, 2, 3, 4].map(railwayBackoffMs)).toEqual([500, 1000, 2000, 4000]);
+  });
+
+  it("caps a late backoff step and spans the observed flaky window", () => {
+    // Attempt 7 would be 32s uncapped; the ceiling keeps it useful.
+    expect(railwayBackoffMs(7)).toBe(30_000);
+    expect(railwayBackoffMs(20)).toBe(30_000);
+    // The whole retry budget must outlast Railway's tens-of-seconds bursts,
+    // which is the failure that parked two live provisions at `error`.
+    const total = Array.from({ length: RAILWAY_MAX_ATTEMPTS - 1 }, (_, i) =>
+      railwayBackoffMs(i + 1),
+    ).reduce((sum, ms) => sum + ms, 0);
+    expect(total).toBeGreaterThan(60_000);
   });
 });
 
@@ -415,7 +428,7 @@ describe("RailwayClient transport behaviour", () => {
       "query Projects { projects { edges { node { id } } } }",
     );
 
-    expect(sleeps).toEqual([250, 500]);
+    expect(sleeps).toEqual([railwayBackoffMs(1), railwayBackoffMs(2)]);
   });
 
   it("retries a flaky 400 and then succeeds", async () => {
@@ -433,13 +446,17 @@ describe("RailwayClient transport behaviour", () => {
     );
 
     expect(data.projects).toBeTruthy();
-    expect(sleeps).toEqual([250]);
+    expect(sleeps).toEqual([railwayBackoffMs(1)]);
   });
 
-  it("gives up after 5 attempts with a RETRYABLE error", async () => {
+  it("gives up after the attempt cap with a RETRYABLE error", async () => {
     const mock = new RailwayMock();
     const sleeps: number[] = [];
-    for (let i = 0; i < 6; i += 1) mock.scriptResponse(503);
+    // One more failure than the client will ever ask for, so the cap — not the
+    // script running dry — is what ends the loop.
+    for (let i = 0; i < RAILWAY_MAX_ATTEMPTS + 1; i += 1) {
+      mock.scriptResponse(503);
+    }
     const client = new RailwayClient({
       token: "t",
       transport: mock.transport,
@@ -452,7 +469,7 @@ describe("RailwayClient transport behaviour", () => {
 
     expect(error).toBeInstanceOf(SubstrateError);
     expect((error as SubstrateError).retryable).toBe(true);
-    expect(sleeps).toHaveLength(4);
+    expect(sleeps).toHaveLength(RAILWAY_MAX_ATTEMPTS - 1);
   });
 
   it("surfaces a GraphQL error as a PERMANENT failure", async () => {
@@ -489,7 +506,7 @@ describe("RailwayClient transport behaviour", () => {
       .catch((thrown: unknown) => thrown);
 
     expect((error as SubstrateError).retryable).toBe(true);
-    expect(sleeps).toHaveLength(4);
+    expect(sleeps).toHaveLength(RAILWAY_MAX_ATTEMPTS - 1);
   });
 
   it("authenticates with the workspace token against the v2 endpoint", async () => {

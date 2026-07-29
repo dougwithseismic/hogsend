@@ -5,7 +5,6 @@ import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
-import { MIGRATE_PRE_DEPLOY_COMMAND, WORKER_START_COMMAND } from "./build";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
@@ -24,6 +23,7 @@ import {
   type StackRefs,
   type SubstrateProvider,
 } from "../substrate";
+import { MIGRATE_PRE_DEPLOY_COMMAND, WORKER_START_COMMAND } from "./build";
 
 /**
  * The provisioning pipeline: `requested` → `running`, one named step at a time.
