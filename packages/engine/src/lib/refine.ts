@@ -1,7 +1,11 @@
 import { contacts, type Database } from "@hogsend/db";
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
-import { contactKey, normalizeEmail } from "./contacts.js";
+import {
+  contactKey,
+  lookupContactIdByKey,
+  normalizeEmail,
+} from "./contacts.js";
 import { getDb } from "./db.js";
 import {
   countEnrichmentLookups,
@@ -240,15 +244,17 @@ async function findContactRow(
     if (row) return row;
   }
   if (keys.userId) {
-    // `userId` is the canonical key — external_id ?? anonymous_id ?? id — so
-    // try each leg in that same precedence.
-    const byExternal = await live(eq(contacts.externalId, keys.userId));
-    if (byExternal) return byExternal;
-    const byAnonymous = await live(eq(contacts.anonymousId, keys.userId));
-    if (byAnonymous) return byAnonymous;
-    if (UUID.test(keys.userId)) {
-      const byId = await live(eq(contacts.id, keys.userId));
-      if (byId) return byId;
+    // `userId` is the canonical key — external_id ?? anonymous_id ?? id — and
+    // `lookupContactIdByKey` owns that whole precedence: the three identity
+    // columns (uuid leg regex-guarded) and then the identity table. The alias
+    // leg is the new behaviour: a MERGED-AWAY key refines the SURVIVOR instead
+    // of missing (the loser's row is soft-deleted, invisible to any column
+    // probe). A key nothing owns still resolves nothing — the caller's
+    // email-only fallback above is untouched.
+    const contactId = await lookupContactIdByKey(db, keys.userId);
+    if (contactId) {
+      const row = await live(eq(contacts.id, contactId));
+      if (row) return row;
     }
   }
   return null;

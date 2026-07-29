@@ -12,7 +12,7 @@ import {
   journeyConfigs,
   journeyStates,
 } from "@hogsend/db";
-import { and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { blueprintGraphLock } from "../lib/blueprint-lock.js";
 import { ALL_IDENTITY_KINDS, lookupContactIdByKey } from "../lib/contacts.js";
@@ -526,25 +526,16 @@ export async function executeJourneyRun(
               // real contact, or one asserting an email, must keep creating.
               // This leg runs BEFORE the timezone `contact` fetch below, so
               // provenance is resolved locally: the pushed `input.contactId`
-              // when the entry ingest resolved a row, else ONE indexed lookup
-              // for the live contact owning this canonical key on either
-              // identity column (`contactKey = external_id ?? anonymous_id`;
-              // the tz fetch reads `external_id` only, which misses an
-              // anon-keyed contact).
+              // when the entry ingest resolved a row (that precedence is
+              // unchanged), else the alias-aware lookup for the live contact
+              // owning this canonical key — every column form
+              // (`external_id ?? anonymous_id ?? id`) plus the identity table,
+              // so a merged-away key pins the SURVIVOR rather than resolving
+              // nothing.
               const subjectContactId =
                 input.contactId ??
-                (
-                  await db.query.contacts.findFirst({
-                    where: and(
-                      isNull(contacts.deletedAt),
-                      or(
-                        eq(contacts.externalId, userId),
-                        eq(contacts.anonymousId, userId),
-                      ),
-                    ),
-                    columns: { id: true },
-                  })
-                )?.id;
+                (await lookupContactIdByKey(db, userId)) ??
+                undefined;
               await ingestEvent({
                 db,
                 registry: getJourneyRegistrySingleton(),
@@ -717,8 +708,17 @@ export async function executeJourneyRun(
     // of the fn BEFORE the try/catch below (which would strand the row —
     // already inserted "active" — outside the failure handling). The PostHog
     // leg already `.catch`es; mirror it on the contact read.
-    db.query.contacts
-      .findFirst({ where: eq(contacts.externalId, userId) })
+    //
+    // Alias-aware resolve, then read the row by id. The old
+    // `external_id = :userId` probe missed an anon-keyed contact entirely and,
+    // carrying no `deleted_at` filter, read a merged-away loser's TOMBSTONE
+    // timezone in preference to the live survivor's.
+    lookupContactIdByKey(db, userId)
+      .then((contactId) =>
+        contactId
+          ? db.query.contacts.findFirst({ where: eq(contacts.id, contactId) })
+          : undefined,
+      )
       .catch(() => undefined),
     posthog?.getPersonProperties(userId).catch(() => undefined),
   ]);

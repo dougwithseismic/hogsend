@@ -1,6 +1,7 @@
 import { isValidTimeZone, type TimeZone } from "@hogsend/core/schedule";
 import { contacts, type Database } from "@hogsend/db";
 import { eq } from "drizzle-orm";
+import { lookupContactIdByKey } from "./contacts.js";
 
 export interface ResolveTimezoneInput {
   /** Explicit per-call override, e.g. from `ctx.when.tz("Area/City")`. */
@@ -116,10 +117,19 @@ export async function setContactTimezone(opts: {
     throw new TypeError(`setContactTimezone: invalid timezone "${timezone}"`);
   }
 
+  // Resolve the canonical key the alias-aware way, then write BY ROW ID. The
+  // old `external_id = :userId` probe was wrong twice over: it never saw an
+  // anon-keyed (or uuid-keyed) contact, and — carrying no `deleted_at` filter —
+  // a merged-away loser still holds its `external_id`, so a stale key wrote the
+  // timezone onto the TOMBSTONE while the live survivor kept none. A key that
+  // owns no live contact still returns `{ updated: false }`, unchanged.
+  const contactId = await lookupContactIdByKey(db, userId);
+  if (!contactId) return { updated: false };
+
   const rows = await db
     .update(contacts)
     .set({ timezone, updatedAt: new Date() })
-    .where(eq(contacts.externalId, userId))
+    .where(eq(contacts.id, contactId))
     .returning({ id: contacts.id });
 
   return { updated: rows.length > 0 };
