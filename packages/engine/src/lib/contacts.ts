@@ -19,6 +19,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   not,
   or,
   type SQL,
@@ -94,11 +95,12 @@ export class UntrustedKeyKindError extends Error {
 }
 
 /**
- * True when `value` is the canonical key of an IDENTIFIED contact — i.e. a
- * live contact's `external_id`, or its `email` when that is its canonical key
- * (no `external_id`). Such a value names an identified person, so a
- * token-less publishable/unauthenticated caller must NOT be allowed to claim
- * it as an "anon id" (the feed-read and arrival-stamp forgery guard).
+ * True when `value` names an IDENTIFIED person: a live contact's canonical
+ * `external_id` (or its `email` when that is its canonical key), OR — via the
+ * identity table — any non-anonymous key a live contact holds, including a
+ * merged loser's STALE key (PRD 07 T6b). Such a value must NOT be claimable by
+ * a token-less publishable/unauthenticated caller as an "anon id" (the
+ * feed-read and arrival-stamp forgery guard).
  *
  * A genuine browser anon id only ever matches a contact via `anonymous_id`
  * whose canonical key is that same anon id (the contact has no `external_id`)
@@ -112,6 +114,30 @@ export async function collidesWithIdentified(
   db: Database,
   value: string,
 ): Promise<boolean> {
+  // Alias leg (PRD 07 T6b). The identity table sees what the columns cannot:
+  // a merged loser's STALE key stays aliased to its live survivor while the
+  // loser row is soft-deleted and invisible to the column probe below. Any
+  // non-anonymous alias on a live contact names an identified person — reject.
+  // (Deliberately stricter than the column leg in one case: an identified
+  // contact's email is rejected even when an `external_id` exists.)
+  const aliasHit = await db
+    .select({ id: contactAliases.id })
+    .from(contactAliases)
+    .innerJoin(contacts, eq(contacts.id, contactAliases.contactId))
+    .where(
+      and(
+        eq(contactAliases.aliasValue, value),
+        ne(contactAliases.aliasKind, "anonymous"),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (aliasHit.length > 0) return true;
+
+  // Column leg — the unbackfilled-registry backstop. A deployment that
+  // upgraded past 0.57 without running `identity-alias-backfill` holds
+  // pre-upgrade keys in the columns only; a guard that read aliases alone
+  // would fail OPEN there. Keep both legs (PRD 07 re-spec).
   const rows = await db
     .select({
       externalId: contacts.externalId,
@@ -164,6 +190,31 @@ async function keysAnotherContact(
   value: string,
   selfId: string,
 ): Promise<boolean> {
+  // Alias leg (PRD 07 T6b). A value claimed by ANOTHER live contact — under
+  // any kind — refuses the claim: same-kind re-claims are already blocked by
+  // the `(kind, value)` unique index, so what this leg actually stops is the
+  // CROSS-kind claim (someone else's key asserted as this caller's
+  // `anonymousId`), which is the adoption-theft setup. It also sees a merged
+  // loser's stale keys (aliased to the live survivor; the soft-deleted loser
+  // row is invisible to the column probe below). The live-contact join keeps
+  // the merge arm working: mid-merge, the loser is already soft-deleted, so
+  // its own alias rows don't refuse the survivor's claim of its keys.
+  const aliasHit = await tx
+    .select({ id: contactAliases.id })
+    .from(contactAliases)
+    .innerJoin(contacts, eq(contacts.id, contactAliases.contactId))
+    .where(
+      and(
+        eq(contactAliases.aliasValue, value),
+        ne(contactAliases.contactId, selfId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (aliasHit.length > 0) return true;
+
+  // Column leg — the unbackfilled-registry backstop (see
+  // `collidesWithIdentified`).
   const rows = await tx
     .select({
       id: contacts.id,
@@ -361,11 +412,18 @@ export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
 }
 
 export function contactSearchFilter(search: string) {
+  // The alias leg (PRD 07 T6b) finds a contact by ANY of its historical keys —
+  // a merged loser's old email, a second device's anon id — which the one-slot
+  // columns cannot. The column legs stay: strictly-more-results, and they are
+  // the backstop on a deployment whose alias backfill never ran.
   return or(
     ilike(contacts.email, `%${search}%`),
     ilike(contacts.externalId, `%${search}%`),
     ilike(contacts.anonymousId, `%${search}%`),
     ilike(contacts.discordId, `%${search}%`),
+    sql`exists (select 1 from ${contactAliases}
+      where ${contactAliases.contactId} = ${contacts.id}
+        and ${contactAliases.aliasValue} ilike ${`%${search}%`})`,
   );
 }
 
@@ -406,6 +464,11 @@ export function contactSearchFilter(search: string) {
  * (phone is not yet a merge-participating `Kind`), so a phone-only contact has
  * no non-anonymous alias row. That leg retires only when phone joins the
  * identity table.
+ *
+ * PRD 07 verdict (2026-07-29): the swap is NOT taken. The rescope keeps the
+ * columns as written mirrors forever, so these `IS NOT NULL` legs stay exact —
+ * and the swap would empty the list on a deployment whose alias backfill never
+ * ran, for zero benefit. Revisit only if the columns ever actually die.
  */
 export function identifiedContactFilter(): SQL {
   // `or()` is typed `SQL | undefined` because it tolerates undefined operands.
