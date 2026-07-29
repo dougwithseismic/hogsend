@@ -12,7 +12,7 @@ PRD 05, which is the commitment step.
 | 06 | [Trust is a property of the key](prds/06-trust-policy.md) | [x] | 02 | `resolve(keys, { create, allowMerge, trustedKinds })`. Trust declared once by the route, not inferred from which arm ran. **Builds BEFORE 05** |
 | 04 | [`contact_id` on history tables](prds/04-history-contact-id.md) | [x] | 02, **03-T1** | Add nullable `contact_id` to the five string-keyed tables, backfill, dual-write. No reads change. T1 = 0.58.0 alone (the concurrent-index escape hatch); T2–T6 = 0.59.0 |
 | 05 | [Flip history reads](prds/05-flip-history-reads.md) | [x] | 04, 06 | The commitment step: ~159 call sites move to `contact_id`, then `repointOwnHistory`, the adoption arms and the provenance guard are deleted |
-| 07 | [Demote the identity columns](prds/07-retire-columns.md) | [ ] | 03, 05, 06 | **Rescoped: demote, do not drop.** `NOT NULL` where provable, stop READING the columns for resolution, inventory every straggler. The `contact_key` freeze and the column DROP are cut |
+| 07 | [Demote the identity columns](prds/07-retire-columns.md) | [x] | 03, 05, 06 | **Rescoped: demote, do not drop.** Shipped toward 0.61.0: guards + every residual resolution read on the identity table (closed a live stale-key feed leak in 0.60.0), merge folds stamp-only, `NOT NULL` proved unreachable on all five tables (comments + tests instead). The `contact_key` freeze and the column DROP are cut |
 
 ## Legend
 

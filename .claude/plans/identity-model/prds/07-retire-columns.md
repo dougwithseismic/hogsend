@@ -699,3 +699,46 @@ Alias parity: 1 external contact, aliased; every `*_unaliased` count 0; `anon_on
 is the reference instance (real traffic lives in the dogfood project's own Railway stack), so the
 census gates nothing — T4's scope came from the code audit (see Re-spec). Orphan population is
 zero, so risk #5 (a PRD 05 adoption defect) is clear and 07 may proceed.
+
+### Build notes (2026-07-29, shipped toward 0.61.0)
+
+- **T6b found a LIVE hole in 0.60.0**: the column guards are blind to soft-deleted merge losers,
+  so a publishable caller presenting a merged-away external key as `?anonymousId=` read that
+  person's pre-merge feed items, and could claim the stale key cross-kind (hijacking its
+  resolution edge). Both closed by the alias legs; proven by mutation (disable the legs → exactly
+  the three adversarial tests go red, the anti-lockout case stays green).
+- **Guards AUGMENT, not replace** (deviation from the rescope box's "rather than the columns"):
+  alias-only guards fail OPEN on a deployment whose alias backfill never ran. `keysAnotherContact`
+  keeps its canonical-column check for the same reason recon flagged — aliases hold non-canonical
+  keys, so the alias leg answers a *different* (stricter) question and the two compose.
+- **T4 verdict: NO table takes NOT NULL** — `journey_states` and `email_preferences` also have
+  reachable null writers (contactless enrollment; preference writes whose key lookup misses). No
+  migration exists in this PRD at all. Comments + `nullable-contact-id.test.ts` pin it.
+- **Merge folds are stamp-only now**: the fold write drops the `user_id` rewrite but KEEPS the
+  NULL-guarded stamp and the both-ways loser scope — the dedup (exit/leave/delete) still runs
+  before the wholesale `contact_id` re-point, which is what keeps the contact-scoped unique
+  indexes from tripping 23505 mid-merge. The `userEmail` denorms still update (address-level
+  send data, not identity). Two MECHANISM pins in `contacts-no-create.test.ts` (loser events
+  leave the loser key; journey state re-keyed to survivor) were deliberately inverted to the
+  frozen-key model; every OUTCOME pin passes unmodified.
+- **Sanctioned column readers** (the grep-to-zero carve-outs, all documented in place):
+  `findByKey` leg 2, `lookupContactIdByKey` leg 1, `resolveViaAlias` row read, both guards'
+  column legs, `resolveContact`/`findContacts`/`softDeleteContact`/`resolveRecipient` column-first
+  probes (each with an alias fallback), the feed's anon dual probe, and `checkBucketMembership`'s
+  coalesce fallback (load-bearing: the GDPR guard must see soft-deleted contacts, which the
+  live-only primitive filters out).
+- **Deliberately NOT flipped**: `identifiedContactFilter` (columns stay written mirrors — the
+  swap would empty the identified list on an unbackfilled deployment for zero benefit),
+  `cohort-sql` recipient joins + `attribution-backfill` (bridge/echo, annotated), the
+  `bucket-backfill` D8 cohort guards, `backfill-contact-id` (bridge by definition).
+- **Bonus fixes shipped**: `setContactTimezone` + the journey-run tz fetch used to read/write the
+  merged-away TOMBSTONE (no `deleted_at` filter) and missed anon-keyed contacts entirely;
+  `sms-inbound`'s channel flip derived `externalId ?? id` (skipping `anonymousId`) and now stamps
+  `contactId`; the admin revenue subquery joined history by derived key and now uses the PRD-05
+  subject idiom.
+- **Erasure semantics widened deliberately**: `DELETE /v1/contacts` by a stale (merged-away)
+  email/external id now erases the SURVIVOR — the person the data folded into. Named in the
+  changeset.
+- **Parked / deferred**: `campaign_recipients` re-keying (send-time echo keys, D9);
+  `send-campaign.ts` opt-in scan projecting bare `external_id` (possible latent D9 gap, recon
+  flag 7); `sms_sends` still has no `contact_id` column at all (PRD 05 deferral, unchanged).
