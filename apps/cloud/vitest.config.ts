@@ -22,8 +22,12 @@ export default defineConfig({
       // LAW: the default MUST be port 5434 — the repo's docker-compose
       // TimescaleDB — so CI works with no local env exported. An exported
       // CLOUD_DATABASE_URL on a dev machine would otherwise mask a wrong
-      // default and turn CI red with ECONNREFUSED.
+      // default and turn CI red with ECONNREFUSED. The explicit
+      // HOGSEND_CLOUD_TEST_DATABASE_URL override (mirroring the api suite's
+      // HOGSEND_TEST_DATABASE_URL) exists so a dev machine can point tests at
+      // a dedicated Postgres when several sessions contend for 5434.
       CLOUD_DATABASE_URL:
+        process.env.HOGSEND_CLOUD_TEST_DATABASE_URL ??
         "postgres://growthhog:growthhog@localhost:5434/hogsend_cloud",
     },
   },
