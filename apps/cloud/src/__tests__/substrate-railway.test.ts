@@ -317,6 +317,7 @@ const SPEC: StackSpec = {
   region: "eu",
   topology: "shared",
   initialImage: "hogsend-default:0.56.0",
+  preDeployCommand: "tsx scripts/migrate.ts",
   env: { LOG_LEVEL: "info" },
 };
 
@@ -548,6 +549,15 @@ describe("RailwaySubstrate topology", () => {
     // Six services: redis/api/worker for each environment.
     expect([...mock.projects.values()][0]?.services.size).toBe(6);
     expect(mock.find("staging-redis")?.image).toBe("redis:8-alpine");
+    // The migrations gate rides the app services and never the cache: an app
+    // service that boots before migrations crash-loops on the schema guard.
+    expect(mock.find("staging-api")?.preDeployCommand).toBe(
+      "tsx scripts/migrate.ts",
+    );
+    expect(mock.find("staging-worker")?.preDeployCommand).toBe(
+      "tsx scripts/migrate.ts",
+    );
+    expect(mock.find("staging-redis")?.preDeployCommand).toBeUndefined();
     expect(first.substrate).toBe(RAILWAY_SUBSTRATE_ID);
     expect(first.apiPublicUrl.startsWith("https://")).toBe(true);
   });

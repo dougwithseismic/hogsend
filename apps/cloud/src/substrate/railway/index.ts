@@ -117,6 +117,11 @@ export class RailwaySubstrate implements SubstrateProvider {
         }));
       await this.updateInstance(serviceIds[role], environmentId, {
         region: REGION_ZONES[spec.region],
+        // The migrations gate: app services must not boot an empty tenant
+        // database. Redis is a cache and gets no application concerns.
+        ...(role !== "redis" && spec.preDeployCommand
+          ? { preDeployCommand: spec.preDeployCommand }
+          : {}),
       });
     }
 

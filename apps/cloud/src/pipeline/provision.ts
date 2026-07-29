@@ -5,6 +5,7 @@ import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
+import { MIGRATE_PRE_DEPLOY_COMMAND } from "./build";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
@@ -384,6 +385,10 @@ export async function runProvisionPipeline(
         // able to PULL this, and a bare tag is only resolvable on a host that
         // already built it (dev, with the fake substrate).
         initialImage: qualifyImage(defaultImageTag(engineVersion)),
+        // The scaffold image's migrations gate (template Dockerfile law: tsx,
+        // never pnpm, at runtime). Without it the first boot meets an empty
+        // tenant database and the engine's schema guard crash-loops.
+        preDeployCommand: MIGRATE_PRE_DEPLOY_COMMAND,
         // Env is set as its own step: the values below are assembled from four
         // stores and a half-configured stack is easier to reason about than a
         // provision call that half-failed.

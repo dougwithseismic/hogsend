@@ -46,6 +46,13 @@ export interface StackSpec {
    * never a vendor deployment id.
    */
   initialImage: string;
+  /**
+   * Command run to completion before an app service's first boot — the
+   * migrations gate. Without it the initial deploy boots the engine against an
+   * EMPTY tenant database and the schema boot-guard crash-loops (found live
+   * 2026-07-29). Applied to api and worker, never redis.
+   */
+  preDeployCommand?: string;
   /** Initial environment for every service in the stack. */
   env: Record<string, string>;
 }
