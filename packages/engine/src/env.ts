@@ -28,6 +28,15 @@ export const env = createEnv({
       .enum(["error", "warn", "info", "http", "debug"])
       .default("info"),
     DATABASE_URL: z.string().min(1),
+    // Connection-pool size for `createDatabase` (`@hogsend/db`). Read RAW off
+    // process.env there (packages/db has no dependency on this module);
+    // declared here so it is part of the validated env contract — the
+    // OUTBOUND_WEBHOOK_* stance. Deliberately a loose string: `packages/db`
+    // owns the parse (integer 1-50, anything else warns once and falls back to
+    // 10) and must NEVER crash a boot over a bad value. Hogsend Cloud sets this
+    // low (e.g. 3) for tenant stacks sharing one Postgres cell — the DSN's own
+    // `?max=` param is silently ignored by postgres.js.
+    DATABASE_POOL_MAX: z.string().optional(),
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
@@ -264,6 +273,25 @@ export const env = createEnv({
     RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),
     ADMIN_API_KEY: z.string().min(1).optional(),
     API_PUBLIC_URL: z.string().url().default("http://localhost:3002"),
+    /**
+     * The Hogsend Cloud metering kill-switch. When "true", the PUBLIC event
+     * ingest surface (`POST /v1/events`) refuses new events with a 429
+     * `{ error: "ingest_suspended" }` BEFORE any DB write or Hatchet push —
+     * the soft-block the control plane flips (via the substrate's setEnv +
+     * redeploy) when a tenant breaches its plan limit or lands in a billing
+     * hold, and un-sets on the new period / upgrade.
+     *
+     * Deliberately scoped to that one surface. Provider webhooks (email/SMS
+     * status), the tracking endpoints (`/v1/t/*`, `/l/:slug`, `/s/:code`),
+     * unsubscribe/preferences and health are UNAFFECTED: suspending ingest
+     * must not lose delivery telemetry or break compliance surfaces. Events
+     * already accepted keep flowing through journeys.
+     *
+     * An enum, NOT z.coerce.boolean — an explicit "false" must actually
+     * disable (coerce treats the string "false" as true; SMS_LINK_TRACKING /
+     * HOGSEND_TEST_MODE precedent). Unset ⇒ "false" ⇒ behavior unchanged.
+     */
+    HOGSEND_INGEST_SUSPENDED: z.enum(["true", "false"]).default("false"),
     ENABLED_JOURNEYS: z.string().default("*"),
     // Buckets: same `"*"`-or-csv contract as ENABLED_JOURNEYS (Section 9.3).
     // Evaluated at worker boot — a toggle requires a worker restart; only the
