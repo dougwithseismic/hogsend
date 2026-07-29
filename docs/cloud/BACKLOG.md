@@ -3,10 +3,14 @@
 Ordered queue. Statuses: `[ ]` not started · `[~]` shipped-to-seam (human ask outstanding)
 · `[x]` shipped. Only the orchestrator edits this file.
 
-Launch readiness lives in [GO-LIVE.md](GO-LIVE.md) — the checklist of what blocks
-taking Hogsend Cloud live and which items need Doug. 2026-07-29: full customer path
-proven live end to end (signup → provision → healthy instance on cell us-1); nothing
-is publicly deployed.
+**Start here: [GUIDE.md](GUIDE.md)** — the definitive plan of record for getting
+Cloud going properly (identity and one-click sign-in, reliability, onboarding,
+money, ops, and the phase order). [GO-LIVE.md](GO-LIVE.md) is the short launch
+checklist; [RUNBOOK.md](RUNBOOK.md) is how to operate what exists.
+
+2026-07-29: the control plane is DEPLOYED and the full customer path works
+(signup → provision → healthy instance on cell us-1), but a provisioned tenant
+still has no admin and no API key — see GUIDE §1.
 
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|

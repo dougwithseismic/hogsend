@@ -1,8 +1,11 @@
 # Hogsend Cloud — Go-Live Gate
 
-Status date: 2026-07-29. This document is the single answer to "when can we take
-Hogsend Cloud live, and what is required of Doug". Nothing goes live until every
+Status date: 2026-07-29. This document is the checklist: when can we take
+Hogsend Cloud live, and what is required of Doug. Nothing goes live until every
 box in **Launch blockers** is checked and Doug gives the explicit go.
+
+For the reasoning behind these items — the identity architecture, the phase
+order, and the open decisions — read **[GUIDE.md](GUIDE.md)** first.
 
 ## Where we are
 
@@ -34,10 +37,14 @@ the offboarding path.
 - [x] **Control-plane email.** Already built (`CLOUD_RESEND_API_KEY` +
       `CLOUD_RESEND_FROM` in `lib/email-sender.ts`); dev-log fallback only when
       unset. Remaining work is setting the two vars on the deployed service.
-- [ ] **Mint customer credentials.** The `mint-credentials` provision step is a
-      recorded no-op (`credentialsMinted: false`); customers currently have no
-      way to get their instance API keys. `HOGSEND_BOOTSTRAP_API_KEY` exists on
-      the instance as the interim hook.
+- [ ] **Mint customer credentials** — with the reconciler, the other half of
+      Phase 0. `mint-credentials` is a recorded no-op, AND provisioning sets
+      `HOGSEND_BOOTSTRAP_API_KEY: "false"` while never setting
+      `STUDIO_ADMIN_EMAIL`, so a provisioned tenant has **no admin user and no
+      API key**: Studio says "needs setup" and ingest has no key to accept. The
+      instance is healthy and inert. Cloud already stores the tenant DSN and its
+      `BETTER_AUTH_SECRET`, so this is buildable with no engine change — see
+      GUIDE §3.3.
 - [ ] **Auto re-drive of parked provisions** (PRD 10 slice) — now the TOP
       blocker. Railway's API answers the worker's provisioning bursts with
       persistent `Problem processing request` 400s; the retry budget was widened
