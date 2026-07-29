@@ -749,3 +749,35 @@ the point of DECISIONS §4's "behaviour tests are the contract". Any test that C
 evidence the flip changed behaviour, and that is a stop-the-line signal, not a cleanup.
 
 ## Implementation Notes
+
+Shipped 2026-07-29 on `feat/identity-flip-reads` (T1–T3 landed earlier as PR #634).
+One commit per batch: T4 `421e5ec1`, T6 `a22b0f74`, T8 `d9808de3`, T7 `c4cb1e81`,
+T5 `d778a7b5`, T9 `61746366`. Full suite 2422 green on the private `prd05_test` DB.
+
+Deviations from spec, all documented in the code:
+
+- **T6 arbiter (`preferences.ts`):** the upsert arbiter deliberately STAYS on
+  `(user_id, email)` with a catch-and-convert for the contact-scoped 23505 —
+  T3 settled this after the PRD was written; the PRD's "move the arbiter" line
+  is superseded.
+- **`send-campaign.ts` opt-in list scan (T6's `:1064`):** annotated as a D9
+  recipient-key echo, not flipped — the scan is population-wide, there is no
+  subject to scope by, and the contact retains every key it ever held so the
+  per-send resolve still finds the owner.
+- **T5 D8 hold:** the backfill selectors keep `isNotNull(contacts.externalId)`
+  so the historically external-only matcher cohort does not silently widen.
+  Widening it is a real fix but a separate, observable change (OPEN ITEM).
+- **T9 mutation proof:** removing the `contact_id IS NULL` predicate turns the
+  CREATE-arm theft test red; the fill-in-link arm stays green because its
+  guard is the claim refusal (pinned by `contacts-many-keys.test.ts:148/:191/
+  :470`). Each arm has exactly one guard and each guard has a pinning test —
+  the PRD's "adoption pair goes red" assumed one shared guard.
+- **T10:** `demo-seed.ts` cleanup predicates confirmed staying on `user_id`
+  (the `demo_` prefix IS the seed's identity model). `smoke.ts` reads by the
+  same key it wrote seconds earlier in the same run — self-consistent forever,
+  left unchanged. The two repo docs that described the rewrite (CLAUDE.md,
+  `docs/posthog-identity-stitching.md`) now describe the stamp.
+- **Deferred to a later change:** widening the D8 cohort;
+  `mergeContacts`' loser folds keep their rewrite shape (in scope for the
+  PRD 07 string-machinery retirement, per D3/D6); `contactKeySql()` survives
+  as a contacts-table resolver + the backfill's tool and dies with PRD 07.
