@@ -10,7 +10,11 @@ import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
+import {
+  contactKeySql,
+  lookupContactIdByKey,
+  normalizeEmailOrNull,
+} from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -202,13 +206,26 @@ export async function checkBucketMembership(opts: {
     //      the GDPR guard below — "never (re-)evaluate or emit for a
     //      soft-deleted contact" — did not fire for them. A soft-deleted
     //      email-only contact could still transition buckets and emit.
+    //
+    // PRD 07 T7 — the presented key resolves through the alias-aware primitive
+    // FIRST, so a merged-away key reads the SURVIVOR's properties instead of
+    // the nothing-found arm the coalesce probe returned for it.
+    //
+    // The coalesce probe SURVIVES as the fallback, and it is load-bearing, not
+    // belt-and-braces: `lookupContactIdByKey` filters `deleted_at IS NULL`, so
+    // it returns null for exactly the soft-deleted contact that failure (2)
+    // above is about. Stopping at the null would leave `contactDeleted` false
+    // and silently re-open the GDPR guard for the rows it exists to protect.
+    const resolvedId = await lookupContactIdByKey(db, userId);
     const [contact] = await db
       .select({
         properties: contacts.properties,
         deletedAt: contacts.deletedAt,
       })
       .from(contacts)
-      .where(eq(contactKeySql(), userId))
+      .where(
+        resolvedId ? eq(contacts.id, resolvedId) : eq(contactKeySql(), userId),
+      )
       .limit(1);
     if (contact) {
       storedContactProps =

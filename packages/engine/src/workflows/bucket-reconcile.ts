@@ -41,7 +41,11 @@ import {
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
+import {
+  contactKeySql,
+  lookupContactIdByKey,
+  normalizeEmailOrNull,
+} from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import { toSleepDuration } from "../lib/hatchet-duration.js";
 import type { Logger } from "../lib/logger.js";
@@ -1270,19 +1274,28 @@ async function loadContactProperties(
  * which row a WRITE folds into, whereas this only decides whose history the
  * criteria re-confirm reads — and it reads the same key the task is already
  * keyed on.
+ *
+ * PRD 07 T7 — resolution goes through the alias-aware primitive instead of a
+ * `coalesce(external_id, anonymous_id, id) = :userKey` probe: an armed timer
+ * whose key was merged away between arming and waking now re-confirms against
+ * the SURVIVOR's properties rather than evaluating against `{}`. Live-only on
+ * both sides (`lookupContactIdByKey` filters `deleted_at IS NULL`, as the
+ * coalesce probe did), so an unowned key still returns null.
  */
 async function resolveLiveContact(
   db: Database,
   userKey: string,
 ): Promise<{ id: string; properties: Record<string, unknown> } | null> {
+  const contactId = await lookupContactIdByKey(db, userKey);
+  if (!contactId) return null;
   const [contact] = await db
-    .select({ id: contacts.id, properties: contacts.properties })
+    .select({ properties: contacts.properties })
     .from(contacts)
-    .where(and(eq(contactKeySql(), userKey), isNull(contacts.deletedAt)))
+    .where(eq(contacts.id, contactId))
     .limit(1);
   if (!contact) return null;
   return {
-    id: contact.id,
+    id: contactId,
     properties: (contact.properties as Record<string, unknown> | null) ?? {},
   };
 }

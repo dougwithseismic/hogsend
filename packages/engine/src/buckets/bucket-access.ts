@@ -1,6 +1,6 @@
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, count as countFn, eq, gt, isNull } from "drizzle-orm";
-import { contactKeySql } from "../lib/contacts.js";
+import { lookupContactIdByKey } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 
 /**
@@ -105,6 +105,20 @@ export function createBucketAccessor(
       // instead answers "false" for a member whose row was adopted under an
       // anon-era key — the person is in the bucket, `has()` says they are not,
       // and every gate built on it silently opens.
+      //
+      // PRD 07 T7 — the PRESENTED key goes through the alias-aware primitive
+      // rather than a `coalesce(external_id, anonymous_id, id) = :key` probe.
+      // That probe is blind to a merged loser's STALE key (its row is
+      // soft-deleted), so the survivor's membership read "false" for a key the
+      // survivor still owns through the identity table.
+      //
+      // The no-resolve arm is UNCHANGED: on live contacts a coalesce match
+      // implies one of the three identity columns equals the key, so the
+      // primitive's column leg is strictly wider — a `null` here is a key the
+      // old probe missed too, and the honest answer stays `false`.
+      const resolvedId = await lookupContactIdByKey(db, userId);
+      if (!resolvedId) return { data: false, error: null };
+
       const rows = await db
         .select({ id: bucketMemberships.id })
         .from(bucketMemberships)
@@ -112,7 +126,7 @@ export function createBucketAccessor(
         .where(
           and(
             eq(bucketMemberships.bucketId, bucketId),
-            eq(contactKeySql(), userId),
+            eq(contacts.id, resolvedId),
             eq(bucketMemberships.status, "active"),
             isNull(bucketMemberships.deletedAt),
             isNull(contacts.deletedAt),

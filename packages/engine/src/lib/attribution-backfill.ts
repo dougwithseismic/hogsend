@@ -156,6 +156,14 @@ export async function backfillAttributionBatch(opts: {
     // owner, so only the unstamped remainder needs the string lookup:
     // canonical keys are externalId or the contact row uuid. MATCH ONLY —
     // backfill never mints contacts.
+    //
+    // PRD 07 T7/D9 — BRIDGE MACHINERY: this deliberately string-matches the
+    // HISTORICAL `user_events.user_id` written before the dual-write, which is
+    // the very gap it exists to close. It is not a resolution read to flip onto
+    // `lookupContactIdByKey`: it is a set-based batch match over up to `limit`
+    // keys at once (a per-key alias-aware resolve would be N round trips), and
+    // widening it to alias-held keys would move which historical rows a
+    // recompute credits — a data change smuggled into a read flip.
     const keys = [
       ...new Set(rows.filter((row) => !row.contactId).map((row) => row.userId)),
     ];
