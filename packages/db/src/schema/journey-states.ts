@@ -72,6 +72,30 @@ export const journeyStates = pgTable(
     uniqueIndex("uq_user_journey_active")
       .on(table.userId, table.journeyId)
       .where(sql`status IN ('active', 'waiting')`),
+    // PRD 05 T3 — the CONTACT-scoped twin of uq_user_journey_active. Adoption
+    // stamps `contact_id` WITHOUT rewriting `user_id`, so a row keyed by an anon
+    // id and a row keyed by an external id can both become the same contact and
+    // both be live; the string index above permits that and a `contact_id` read
+    // would then see a double enrollment. This index is what forbids it.
+    //
+    // `contact_id IS NOT NULL` in the predicate is LOAD-BEARING, not decoration.
+    // Contactless enrollments are a permanent, supported state (the engine
+    // refuses to mint contacts on observation), so anonymous visitors MUST stay
+    // outside this index — their one-live-row rule keeps coming from
+    // uq_user_journey_active, which stays. Postgres' default NULLS DISTINCT
+    // would already exempt them; the predicate says so out loud and keeps the
+    // index to identified rows only. A NULLS NOT DISTINCT variant would be
+    // catastrophic: every anonymous visitor collapsed into one row per journey.
+    //
+    // NOTHING uses this as an ON CONFLICT arbiter. drizzle can only target
+    // columns, and a bare (contact_id, journey_id) arbiter would never fire for
+    // the NULL population — an anonymous re-trigger would insert a second row
+    // and die on the retained string index. `insertEnrollment` keeps the string
+    // arbiter and CATCHES this index's 23505, mapping it to the same
+    // `already_active` outcome.
+    uniqueIndex("uq_contact_journey_active")
+      .on(table.contactId, table.journeyId)
+      .where(sql`contact_id IS NOT NULL AND status IN ('active', 'waiting')`),
     index("journey_states_status_idx").on(table.status),
     index("journey_states_hatchet_run_idx").on(table.hatchetRunId),
     index("journey_states_user_id_idx").on(table.userId),

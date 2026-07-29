@@ -28,6 +28,10 @@ import { ingestEvent } from "../lib/ingestion.js";
 import { createLogger } from "../lib/logger.js";
 import { emitOutbound } from "../lib/outbound.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
+import {
+  isUniqueViolationOn,
+  UQ_CONTACT_JOURNEY_ACTIVE,
+} from "../lib/unique-violation.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
 import { JourneyExitedError } from "./errors.js";
 import {
@@ -171,6 +175,17 @@ async function resolveEnrollmentContactId(opts: {
  * CONFLICT specification") at runtime. The `where` reproduces the index
  * predicate (`status IN ('active','waiting')`) EXACTLY — see
  * journey-states.ts:uq_user_journey_active.
+ *
+ * PRD 05 T3 — the arbiter deliberately STAYS on the string key. The second live
+ * index, `uq_contact_journey_active`, cannot be an arbiter here: drizzle's
+ * `target` accepts columns only (no expression), and a bare
+ * `(contact_id, journey_id)` target would never fire for a NULL `contact_id` —
+ * i.e. for every anonymous visitor, a permanent supported state — so an
+ * anonymous re-trigger of a live journey would insert a second row and die on
+ * the string index. Instead its 23505 is caught below and mapped to the SAME
+ * zero-rows outcome, which the caller reads as `already_active`. That is the
+ * correct answer: the contact IS already live in this journey, under a different
+ * string key that adoption has since folded onto the same contact.
  */
 export async function insertEnrollment(opts: {
   db: Database;
@@ -224,24 +239,39 @@ export async function insertEnrollment(opts: {
     where: sql`status IN ('active', 'waiting')`,
   };
 
-  if (!opts.serializeWithGraphLock) {
-    const [row] = await opts.db
-      .insert(journeyStates)
-      .values(values)
-      .onConflictDoNothing(onConflict)
-      .returning();
-    return row;
-  }
+  try {
+    if (!opts.serializeWithGraphLock) {
+      const [row] = await opts.db
+        .insert(journeyStates)
+        .values(values)
+        .onConflictDoNothing(onConflict)
+        .returning();
+      return row;
+    }
 
-  return opts.db.transaction(async (tx) => {
-    await tx.execute(blueprintGraphLock(opts.journeyId));
-    const [row] = await tx
-      .insert(journeyStates)
-      .values(values)
-      .onConflictDoNothing(onConflict)
-      .returning();
-    return row;
-  });
+    // `await` (not a bare return) so a 23505 raised inside the transaction is
+    // caught HERE, after the transaction has already rolled back.
+    return await opts.db.transaction(async (tx) => {
+      await tx.execute(blueprintGraphLock(opts.journeyId));
+      const [row] = await tx
+        .insert(journeyStates)
+        .values(values)
+        .onConflictDoNothing(onConflict)
+        .returning();
+      return row;
+    });
+  } catch (err) {
+    if (!isUniqueViolationOn(err, UQ_CONTACT_JOURNEY_ACTIVE)) throw err;
+    // Same contact, DIFFERENT string key, already live in this journey. Zero
+    // rows is exactly what the string arbiter returns for the same situation,
+    // and the caller maps it to the `already_active` skip.
+    logger.info("journey enrollment skipped — contact already live", {
+      journeyId: opts.journeyId,
+      userId: opts.userId,
+      contactId: opts.contactId ?? null,
+    });
+    return undefined;
+  }
 }
 
 export interface ExecuteJourneyRunOptions {

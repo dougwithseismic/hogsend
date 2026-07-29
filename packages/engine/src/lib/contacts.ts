@@ -19,6 +19,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  not,
   or,
   type SQL,
   sql,
@@ -832,6 +833,52 @@ export function contactKeySql() {
  */
 function adoptedContactId(column: Column, contactId: string): SQL<string> {
   return sql<string>`coalesce(${column}, ${contactId}::uuid)`;
+}
+
+/**
+ * PRD 05 T3 — "which rows belong to the loser, and which to the survivor", for
+ * the three folds below.
+ *
+ * Migration 0071 adds a CONTACT-scoped partial unique index to `journey_states`,
+ * `bucket_memberships` and `email_preferences`. That makes a string-key-only
+ * fold unsafe: adoption stamps `contact_id` WITHOUT rewriting `user_id`, so a
+ * row the SURVIVOR already owns can sit under a stale key. A fold that looked
+ * only at `user_id = survivorKey` would not see it, would call the slot free,
+ * and would re-point (or NULL-stamp) a loser row into a second row satisfying
+ * the new index — a 23505 raised inside `resolveContact`'s transaction with no
+ * handler, which wedges identity resolution for that person permanently (every
+ * retry fails identically). So ownership is asked BOTH ways, `user_id` and
+ * `contact_id`.
+ *
+ * `loserId` is the mirror on the other side and is supplied only by the merge
+ * path: `repointOwnHistory` folds a contact onto its OWN new key, where the
+ * "loser" rows carry that same `contact_id` and matching on it would swallow the
+ * whole contact. The loser test wins the tie — a row is either being moved or
+ * being folded into, never both.
+ */
+function foldScopes(opts: {
+  userIdCol: Column;
+  contactIdCol: Column;
+  survivorKey: string;
+  survivorId: string;
+  loserKeys: string[];
+  loserId?: string;
+}): { isLoser: SQL; isSurvivor: SQL } {
+  // `IS NOT DISTINCT FROM`, never `=`. `contact_id` is nullable, and a plain
+  // equality against a NULL column is UNKNOWN, not false — which `NOT (… OR
+  // UNKNOWN)` then swallows, silently dropping EVERY contactless row out of the
+  // survivor set. That is the occupancy the folds dedupe against, so the folds
+  // would stop seeing the rows they exist to protect.
+  const sameContact = (id: string): SQL =>
+    sql`${opts.contactIdCol} IS NOT DISTINCT FROM ${id}::uuid`;
+
+  const byKey = inArray(opts.userIdCol, opts.loserKeys);
+  const isLoser = opts.loserId ? or(byKey, sameContact(opts.loserId)) : byKey;
+  const isSurvivor = and(
+    or(eq(opts.userIdCol, opts.survivorKey), sameContact(opts.survivorId)),
+    not(isLoser as SQL),
+  );
+  return { isLoser: isLoser as SQL, isSurvivor: isSurvivor as SQL };
 }
 
 /**
@@ -1678,7 +1725,13 @@ async function mergeContacts(
     // (iii) journey_states — exit the loser's duplicate active/waiting row when
     // the survivor already holds an active/waiting row in the same journey
     // (respect uq_user_journey_active), THEN rewrite user_id/user_email.
-    await foldJourneyStates(tx, survivorKey, loserKeysToRewrite, survivor);
+    await foldJourneyStates(
+      tx,
+      survivorKey,
+      loserKeysToRewrite,
+      survivor,
+      loser.id,
+    );
 
     // (iv) email_sends rewrite user_id + userEmail to survivor's.
     await tx
@@ -1698,6 +1751,7 @@ async function mergeContacts(
       survivorKey,
       loserKeysToRewrite,
       survivor.id,
+      loser.id,
     );
 
     // (vi) email_preferences FOLD (never blind-rewrite — risk 6).
@@ -1706,14 +1760,15 @@ async function mergeContacts(
       loserKeysToRewrite,
       survivorKey,
       survivor.id,
+      loser.id,
     );
 
     // (vi-b) deals + crm_links re-point: these carry contact_id uuid FKs
     // (not user keys), which the key rewrites above never touch. Without
     // this, the loser's open deal is orphaned on a soft-deleted row — the
     // survivor's next stage event/trigger would mint a SECOND deal (and a
-    // duplicate deal.sold). No unique index involves contact_id, so plain
-    // UPDATEs suffice.
+    // duplicate deal.sold). Neither table has a unique index on contact_id,
+    // so plain UPDATEs suffice.
     await tx
       .update(deals)
       .set({ contactId: survivor.id })
@@ -1724,10 +1779,18 @@ async function mergeContacts(
       .where(eq(crmLinks.contactId, loser.id));
 
     // (vi-b-hist) the five HISTORY tables' `contact_id` re-point (PRD 04 T3).
-    // Same shape and same reasoning as the deals/crm_links repoints above: a
-    // uuid column the string-key rewrites never touch, and no unique index
-    // involves `contact_id`, so plain UPDATEs suffice (no fold needed — unlike
-    // the (vi)/(vi-c) folds, which exist only to respect a unique index).
+    // Same shape as the deals/crm_links repoints above: a uuid column the
+    // string-key rewrites never touch.
+    //
+    // PRD 05 T3: `contact_id` IS now a unique-index column on three of these
+    // five (migration 0071), so "plain UPDATEs suffice" is no longer true on its
+    // own — it holds only because the folds above ran FIRST and already know
+    // about `contact_id`. {@link foldScopes} makes each fold read the survivor's
+    // occupancy AND the loser's rows by `user_id` OR `contact_id`, so by the
+    // time these statements run, every loser row that would have duplicated a
+    // survivor row inside a contact-scoped index has been exited, left or
+    // deleted. That is the invariant these three statements depend on; widen a
+    // fold's scope, never this.
     // Deliberately lands AHEAD of the dual-write that populates the column
     // (PRD 04 D9/D10): while every row is still NULL this is a pure no-op, and
     // the moment the dual-write starts, merges are already correct. Shipped in
@@ -1970,43 +2033,54 @@ async function mergeContacts(
  * the survivor key still collides whenever the survivor already holds a live row
  * for that journey.
  *
- * Fix: build the survivor's occupied (journey_id|status) set over ALL statuses.
- * For active/waiting collisions, EXIT the loser's row first (preserve the
+ * Fix: build the survivor's occupancy and route each loser row to exit / delete /
+ * rewrite. For a LIVE collision, EXIT the loser's row first (preserve the
  * survivor's live run) so the rewrite lands an 'exited' (out-of-predicate) row.
- * For any OTHER collision (terminal), DELETE the loser's duplicate — no longer
- * REQUIRED by the constraint (terminal rows are outside the predicate), but kept
- * as hygiene so the survivor doesn't carry two identical terminal rows (which
- * would inflate the count()-based ctx.history.journey.entryCount). Rewrite only
- * the non-colliding remainder onto the survivor key (+ survivor email). Re-check
+ * For a TERMINAL collision, DELETE the loser's duplicate — no longer REQUIRED by
+ * the constraint (terminal rows are outside the predicate), but kept as hygiene
+ * so the survivor doesn't carry two identical terminal rows (which would inflate
+ * the count()-based ctx.history.journey.entryCount). Rewrite only the
+ * non-colliding remainder onto the survivor key (+ survivor email). Re-check
  * 'exited' occupancy after exiting so a just-exited loser row that would now
  * duplicate a pre-existing survivor 'exited' row is dropped rather than rewritten.
+ *
+ * Occupancy is asked BOTH ways (see {@link foldScopes}), and LIVE occupancy is
+ * keyed on the journey ALONE: both unique indexes say `status IN ('active',
+ * 'waiting')`, i.e. the two live statuses share ONE slot, so a survivor 'active'
+ * row and a loser 'waiting' row in the same journey collide even though their
+ * (journey|status) pairs differ.
  */
 async function foldJourneyStates(
   tx: Tx,
   survivorKey: string,
   loserKeys: string[],
   survivor: ContactRow,
+  loserId?: string,
 ): Promise<void> {
   const ACTIVE = new Set<string>(["active", "waiting"]);
+  const { isLoser, isSurvivor } = foldScopes({
+    userIdCol: journeyStates.userId,
+    contactIdCol: journeyStates.contactId,
+    survivorKey,
+    survivorId: survivor.id,
+    loserKeys,
+    loserId,
+  });
 
-  // Every (journey_id|status) pair the survivor already holds (ALL statuses).
   const survivorRows = await tx
     .select({
       journeyId: journeyStates.journeyId,
       status: journeyStates.status,
     })
     .from(journeyStates)
-    .where(
-      and(
-        eq(journeyStates.userId, survivorKey),
-        isNull(journeyStates.deletedAt),
-      ),
-    );
-  // Running occupied set — mutated as we exit/rewrite loser rows so two loser
-  // rows in the same journey/status (3-way merge) can't collide with each other.
-  const occupied = new Set(
-    survivorRows.map((s) => `${s.journeyId}|${s.status}`),
+    .where(and(isSurvivor, isNull(journeyStates.deletedAt)));
+
+  // Both sets are mutated as loser rows are routed, so two loser rows from
+  // different keys (3-way merge) can't collide with each other either.
+  const live = new Set(
+    survivorRows.filter((s) => ACTIVE.has(s.status)).map((s) => s.journeyId),
   );
+  const slots = new Set(survivorRows.map((s) => `${s.journeyId}|${s.status}`));
 
   const loserRows = await tx
     .select({
@@ -2015,41 +2089,39 @@ async function foldJourneyStates(
       status: journeyStates.status,
     })
     .from(journeyStates)
-    .where(
-      and(
-        inArray(journeyStates.userId, loserKeys),
-        isNull(journeyStates.deletedAt),
-      ),
-    );
+    .where(and(isLoser, isNull(journeyStates.deletedAt)));
 
   const idsToExit: string[] = [];
   const idsToDelete: string[] = [];
   const idsToRewrite: string[] = [];
 
   for (const l of loserRows) {
-    const key = `${l.journeyId}|${l.status}`;
-    if (occupied.has(key)) {
-      if (ACTIVE.has(l.status)) {
-        // Survivor (or a prior loser) already holds a live row in this
-        // journey/status — exit the loser's so the live run continues. Only do
-        // so if the resulting 'exited' slot is itself free; otherwise drop it.
-        const exitedKey = `${l.journeyId}|exited`;
-        if (occupied.has(exitedKey)) {
-          idsToDelete.push(l.id);
-        } else {
-          idsToExit.push(l.id);
-          occupied.add(exitedKey);
-        }
-      } else {
-        // Terminal collision (both completed/failed/exited the same journey) —
-        // the survivor already records this state; drop the loser duplicate.
-        idsToDelete.push(l.id);
+    const slot = `${l.journeyId}|${l.status}`;
+    if (ACTIVE.has(l.status)) {
+      if (!live.has(l.journeyId)) {
+        // The one live slot for this journey is free — claim it.
+        idsToRewrite.push(l.id);
+        live.add(l.journeyId);
+        slots.add(slot);
+        continue;
       }
+      // Survivor (or a prior loser) already holds the live slot — exit the
+      // loser's row so the live run continues. Only do so if the resulting
+      // 'exited' slot is itself free; otherwise drop it.
+      const exitedSlot = `${l.journeyId}|exited`;
+      if (slots.has(exitedSlot)) {
+        idsToDelete.push(l.id);
+      } else {
+        idsToExit.push(l.id);
+        slots.add(exitedSlot);
+      }
+    } else if (slots.has(slot)) {
+      // Terminal collision (both completed/failed/exited the same journey) —
+      // the survivor already records this state; drop the loser duplicate.
+      idsToDelete.push(l.id);
     } else {
-      // Free slot — rewrite onto the survivor key. Claim it so a sibling loser
-      // row in the same journey/status routes to exit/delete instead.
       idsToRewrite.push(l.id);
-      occupied.add(key);
+      slots.add(slot);
     }
   }
 
@@ -2097,13 +2169,23 @@ async function foldBucketMemberships(
   survivorKey: string,
   loserKeys: string[],
   survivorId: string,
+  loserId?: string,
 ): Promise<void> {
+  const { isLoser, isSurvivor } = foldScopes({
+    userIdCol: bucketMemberships.userId,
+    contactIdCol: bucketMemberships.contactId,
+    survivorKey,
+    survivorId,
+    loserKeys,
+    loserId,
+  });
+
   const survivorActive = await tx
     .select({ bucketId: bucketMemberships.bucketId })
     .from(bucketMemberships)
     .where(
       and(
-        eq(bucketMemberships.userId, survivorKey),
+        isSurvivor,
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
       ),
@@ -2118,15 +2200,19 @@ async function foldBucketMemberships(
     .from(bucketMemberships)
     .where(
       and(
-        inArray(bucketMemberships.userId, loserKeys),
+        isLoser,
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
       ),
     );
 
-  const idsToLeave = loserActive
-    .filter((l) => occupied.has(l.bucketId))
-    .map((l) => l.id);
+  // Claim as we go, so two loser rows active in the SAME bucket (3-way merge)
+  // route the second to 'left' instead of both rewriting onto the survivor.
+  const idsToLeave: string[] = [];
+  for (const l of loserActive) {
+    if (occupied.has(l.bucketId)) idsToLeave.push(l.id);
+    else occupied.add(l.bucketId);
+  }
 
   if (idsToLeave.length > 0) {
     await tx
@@ -2142,7 +2228,7 @@ async function foldBucketMemberships(
       contactId: adoptedContactId(bucketMemberships.contactId, survivorId),
       updatedAt: new Date(),
     })
-    .where(inArray(bucketMemberships.userId, loserKeys));
+    .where(isLoser);
 }
 
 /**
@@ -2209,13 +2295,20 @@ async function foldEmailPreferences(
   loserKeys: string[],
   survivorKey: string,
   survivorId: string,
+  loserId?: string,
 ): Promise<void> {
   if (loserKeys.length === 0) return;
 
-  const loserPrefs = await tx
-    .select()
-    .from(emailPreferences)
-    .where(inArray(emailPreferences.userId, loserKeys));
+  const { isLoser, isSurvivor } = foldScopes({
+    userIdCol: emailPreferences.userId,
+    contactIdCol: emailPreferences.contactId,
+    survivorKey,
+    survivorId,
+    loserKeys,
+    loserId,
+  });
+
+  const loserPrefs = await tx.select().from(emailPreferences).where(isLoser);
 
   if (loserPrefs.length === 0) return;
 
@@ -2226,22 +2319,21 @@ async function foldEmailPreferences(
   };
 
   for (const lp of loserPrefs) {
-    // Re-read the CURRENT target row for (survivorKey, lp.email) — it may be the
-    // original survivor pref, a prior loser's just-folded pref, or absent.
+    // Re-read the CURRENT target row for this address — it may be the original
+    // survivor pref, a survivor row adoption stamped under a STALE key, a prior
+    // loser's just-folded pref, or absent. A stamped row is preferred when both
+    // exist: it is the row the contact-scoped read resolves, and the row whose
+    // uniqueness a re-point would violate.
     const targetRows = await tx
       .select()
       .from(emailPreferences)
-      .where(
-        and(
-          eq(emailPreferences.userId, survivorKey),
-          eq(emailPreferences.email, lp.email),
-        ),
-      )
+      .where(and(isSurvivor, eq(emailPreferences.email, lp.email)))
+      .orderBy(sql`${emailPreferences.contactId} IS NULL`)
       .limit(1);
     const target = targetRows[0];
 
     if (!target) {
-      // The (survivorKey, lp.email) slot is free — re-point the loser row.
+      // The slot is free on BOTH keys — re-point the loser row.
       await tx
         .update(emailPreferences)
         .set({

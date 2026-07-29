@@ -60,6 +60,7 @@ const backfillContactIdRoute = createRoute({
 
 const verifyCountsSchema = z.object({
   missing: z.number(),
+  duplicates: z.number(),
   mismatched: z.number(),
   orphaned: z.number(),
 });
@@ -77,7 +78,12 @@ const verifyContactIdRoute = createRoute({
     "all) — the corruption detector an FK could never give, since an FK " +
     "proves the uuid exists while this proves it is the RIGHT uuid; " +
     "`orphaned` = contact_id is NULL and no live contact owns the key, which " +
-    "is EXPECTED and permitted forever (PRD 04 D5) and is never a failure. " +
+    "is EXPECTED and permitted forever (PRD 04 D5) and is never a failure; " +
+    "`duplicates` = a live contact owns the key but stamping the row would " +
+    "violate a contact-scoped unique index (PRD 05 T3) because that contact " +
+    "already holds a row for the same live journey / live bucket / address — " +
+    "the backfill skips those on purpose rather than cancelling a live " +
+    "enrollment, so they are a triage list, not a failure. " +
     "`flipReady` is true iff every table reports missing = mismatched = 0 — " +
     "that is the entry gate for the release that flips reads onto the " +
     "column. Judge it only once `lastSweepAt` is non-null: before a sweep " +

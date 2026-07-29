@@ -1264,6 +1264,10 @@ async function reconcileJoinOne(opts: {
       // this is zero new queries. `undefined` stamps NULL.
       contactId: contactId ?? null,
     })
+    // PRD 05 T3 — ARBITER-LESS by design: it must absorb BOTH partial unique
+    // indexes on this table (uq_user_bucket_active and the contact-scoped
+    // uq_contact_bucket_active) into this one "already a member" branch. See
+    // `checkBucketMembership`'s insert for the full note.
     .onConflictDoNothing()
     .returning({ id: bucketMemberships.id });
 

@@ -647,6 +647,167 @@ describe("the per-statement bound", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// PRD 05 T3 — the sweep is a FOURTH writer to the three contact-scoped
+// uniqueness indexes migration 0071 adds. Stamping a stale-keyed NULL row whose
+// contact already owns a stamped twin moves that row INTO the partial index's
+// predicate; unguarded, that is a 23505 the blanket catch turns into a FAILED
+// job that aborts the whole sweep — and the boot / 24h re-enqueue deterministically
+// re-hits the same row, so `missing` never drains and `flipReady` can never pass.
+// ---------------------------------------------------------------------------
+
+describe("the sweep vs the contact-scoped uniqueness indexes (PRD 05 T3)", () => {
+  it("skips colliding stamps, folds the preference opt-out, and never aborts", async () => {
+    const canon = uid("t3-canon");
+    const stale = uid("t3-stale");
+    const journeyId = uid("t3-journey");
+    const bucketId = uid("t3-bucket");
+    const email = `${uid("t3")}@example.com`;
+
+    const contact = await seedContact({ externalId: canon });
+    await db.insert(contactAliases).values({
+      contactId: contact,
+      aliasKind: "anonymous",
+      aliasValue: stale,
+      reason: "promote",
+    });
+
+    // The STAMPED twins, filed under the canonical key — already inside each
+    // partial index.
+    const [jTwin] = await db
+      .insert(journeyStates)
+      .values({
+        userId: canon,
+        userEmail: email,
+        journeyId,
+        currentNodeId: "start",
+        status: "active",
+        contactId: contact,
+      })
+      .returning({ id: journeyStates.id });
+    const [bTwin] = await db
+      .insert(bucketMemberships)
+      .values({ userId: canon, bucketId, status: "active", contactId: contact })
+      .returning({ id: bucketMemberships.id });
+    const [pTwin] = await db
+      .insert(emailPreferences)
+      .values({
+        userId: canon,
+        email,
+        contactId: contact,
+        unsubscribedAll: false,
+        categories: { product: true, news: true },
+      })
+      .returning({ id: emailPreferences.id });
+
+    // ...and the pre-column-era rows under the STALE alias key, which pass 2 is
+    // about to try to stamp with the very same contact.
+    const [jStale] = await db
+      .insert(journeyStates)
+      .values({
+        userId: stale,
+        userEmail: email,
+        journeyId,
+        currentNodeId: "start",
+        status: "active",
+        contactId: null,
+      })
+      .returning({ id: journeyStates.id });
+    const [bStale] = await db
+      .insert(bucketMemberships)
+      .values({ userId: stale, bucketId, status: "active", contactId: null })
+      .returning({ id: bucketMemberships.id });
+    const [pStale] = await db
+      .insert(emailPreferences)
+      .values({
+        userId: stale,
+        email,
+        contactId: null,
+        // The opt-out that must survive the fold — and a grant the twin never
+        // heard of, which must ALSO survive (the merge-path category rule).
+        unsubscribedAll: true,
+        categories: { product: false, sms: true },
+      })
+      .returning({ id: emailPreferences.id });
+
+    if (!jTwin || !bTwin || !pTwin || !jStale || !bStale || !pStale) {
+      throw new Error("fixture insert returned no row");
+    }
+    seededIds.journey_states.push(jTwin.id, jStale.id);
+    seededIds.bucket_memberships.push(bTwin.id, bStale.id);
+    seededIds.email_preferences.push(pTwin.id, pStale.id);
+
+    const run = await backfillTask.fn({ pauseMs: 0 });
+    // INVARIANT 1: one colliding row never aborts the sweep.
+    expect(run.status).toBe("completed");
+
+    // journey_states / bucket_memberships — SKIPPED, never auto-cancelled: a
+    // sweep does not get to end someone's live enrollment or membership.
+    const [journeyRow] = await db
+      .select()
+      .from(journeyStates)
+      .where(eq(journeyStates.id, jStale.id));
+    expect(journeyRow?.contactId).toBeNull();
+    expect(journeyRow?.status).toBe("active");
+    const [bucketRow] = await db
+      .select()
+      .from(bucketMemberships)
+      .where(eq(bucketMemberships.id, bStale.id));
+    expect(bucketRow?.contactId).toBeNull();
+    expect(bucketRow?.status).toBe("active");
+
+    // INVARIANT 2: the preference opt-out is FOLDED into the stamped twin and
+    // the stale row is dropped — a row left NULL here would be invisible to the
+    // flipped (contact-scoped) read, i.e. a silently resurrected subscriber.
+    const [prefTwin] = await db
+      .select()
+      .from(emailPreferences)
+      .where(eq(emailPreferences.id, pTwin.id));
+    expect(prefTwin?.unsubscribedAll).toBe(true);
+    expect(prefTwin?.categories).toMatchObject({
+      product: false,
+      news: true,
+      sms: true,
+    });
+    expect(
+      await db
+        .select()
+        .from(emailPreferences)
+        .where(eq(emailPreferences.id, pStale.id)),
+    ).toHaveLength(0);
+
+    // INVARIANT 3: the probe calls the skipped rows `duplicates`, NOT `missing`
+    // — so the operator sees the triage population and the gate can still open.
+    const verdict = await verifyContactIdBackfill({
+      db,
+      userIds: [canon, stale],
+    });
+    expect(verdict.tables.journey_states).toEqual({
+      missing: 0,
+      duplicates: 1,
+      mismatched: 0,
+      orphaned: 0,
+    });
+    expect(verdict.tables.bucket_memberships).toEqual({
+      missing: 0,
+      duplicates: 1,
+      mismatched: 0,
+      orphaned: 0,
+    });
+    expect(verdict.tables.email_preferences).toEqual({
+      missing: 0,
+      duplicates: 0,
+      mismatched: 0,
+      orphaned: 0,
+    });
+    expect(verdict.flipReady).toBe(true);
+
+    // ...and the next sweep is not wedged on the same row either.
+    const second = await backfillTask.fn({ pauseMs: 0 });
+    expect(second.status).toBe("completed");
+  });
+});
+
 describe("enqueueContactIdBackfill (worker boot, D6 re-sweep)", () => {
   it("enqueues when no completed sweep exists, skips a fresh one, re-fires a stale one", async () => {
     await db
@@ -853,11 +1014,13 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
       });
       expect(result.tables.user_events).toEqual({
         missing: 0,
+        duplicates: 0,
         mismatched: 0,
         orphaned: 1,
       });
       expect(result.tables.bucket_memberships).toEqual({
         missing: 0,
+        duplicates: 0,
         mismatched: 0,
         orphaned: 1,
       });
@@ -867,7 +1030,12 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
 
     it("scopes to nothing on an empty key list (not to everything)", async () => {
       const result = await verifyContactIdBackfill({ db, userIds: [] });
-      expect(result.totals).toEqual({ missing: 0, mismatched: 0, orphaned: 0 });
+      expect(result.totals).toEqual({
+        missing: 0,
+        duplicates: 0,
+        mismatched: 0,
+        orphaned: 0,
+      });
     });
   });
 
@@ -948,6 +1116,7 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
       });
       expect(result.tables.user_events).toEqual({
         missing: 0,
+        duplicates: 0,
         mismatched: 0,
         orphaned: 0,
       });
@@ -965,6 +1134,7 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
       // it, which is why this fixture is seeded only after the sweeps above.)
       expect(result.tables.user_events).toEqual({
         missing: 1,
+        duplicates: 0,
         mismatched: 0,
         orphaned: 0,
       });
@@ -981,6 +1151,7 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
       });
       expect(result.tables.user_events).toEqual({
         missing: 0,
+        duplicates: 0,
         mismatched: 1,
         orphaned: 0,
       });
@@ -1109,10 +1280,10 @@ describe("verifyContactIdBackfill (PRD 04 T6)", () => {
         tables: Object.fromEntries(
           ALL_TABLES.map((t) => [
             t,
-            { missing: 0, mismatched: 0, orphaned: 7 },
+            { missing: 0, duplicates: 0, mismatched: 0, orphaned: 7 },
           ]),
         ),
-        totals: { missing: 0, mismatched: 0, orphaned: 35 },
+        totals: { missing: 0, duplicates: 0, mismatched: 0, orphaned: 35 },
         flipReady: true,
       };
 
