@@ -21,8 +21,14 @@ export const journeyStates = pgTable(
     // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     userEmail: text("user_email").notNull(),
-    // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
-    // column yet; no FK by design — see PRD 04 D1. Indexed partially below.
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away.
+    // Enrollment writes `contactId: opts.contactId ?? null`
+    // (`journeys/execute-journey-run.ts`), and a refused (contactless) event
+    // still reaches Hatchet — so a contactless subject enrolls and runs
+    // normally. Such a row is a string-keyed subject and reads scope it by
+    // `user_id` (the bySubject else-arm).
     contactId: uuid("contact_id"),
     journeyId: text("journey_id").notNull(),
     currentNodeId: text("current_node_id").notNull(),

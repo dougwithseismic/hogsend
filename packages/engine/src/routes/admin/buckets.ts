@@ -1,9 +1,9 @@
 import { bySubject } from "@hogsend/core";
-import { bucketConfigs, bucketMemberships, contacts } from "@hogsend/db";
+import { bucketConfigs, bucketMemberships } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { contactKeySql } from "../../lib/contacts.js";
+import { lookupContactIdByKey } from "../../lib/contacts.js";
 
 const bucketSchema = z.object({
   id: z.string(),
@@ -472,14 +472,16 @@ export const bucketsRouter = new OpenAPIHono<AppEnv>()
       // under an earlier key — the exact history Studio is being asked to show.
       // No live contact for the key → fall back to the string arm, which is
       // also the right answer for a contactless (anonymous) subject.
-      const [owner] = await db
-        .select({ id: contacts.id })
-        .from(contacts)
-        .where(and(eq(contactKeySql(), userId), isNull(contacts.deletedAt)))
-        .limit(1);
+      //
+      // PRD 07 T7 — resolution runs through the alias-aware primitive (same
+      // live-contact scope as the `coalesce(...) = :userId` probe it replaces),
+      // so an operator pasting a merged-away key sees the SURVIVOR's rows
+      // instead of dropping to the string arm and showing only the fragment
+      // still literally keyed on it.
+      const ownerId = await lookupContactIdByKey(db, userId);
       conditions.push(
         bySubject(bucketMemberships, {
-          contactId: owner?.id ?? null,
+          contactId: ownerId,
           userKey: userId,
         }),
       );

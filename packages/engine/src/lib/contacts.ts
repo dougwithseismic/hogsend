@@ -19,6 +19,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   not,
   or,
   type SQL,
@@ -94,11 +95,12 @@ export class UntrustedKeyKindError extends Error {
 }
 
 /**
- * True when `value` is the canonical key of an IDENTIFIED contact — i.e. a
- * live contact's `external_id`, or its `email` when that is its canonical key
- * (no `external_id`). Such a value names an identified person, so a
- * token-less publishable/unauthenticated caller must NOT be allowed to claim
- * it as an "anon id" (the feed-read and arrival-stamp forgery guard).
+ * True when `value` names an IDENTIFIED person: a live contact's canonical
+ * `external_id` (or its `email` when that is its canonical key), OR — via the
+ * identity table — any non-anonymous key a live contact holds, including a
+ * merged loser's STALE key (PRD 07 T6b). Such a value must NOT be claimable by
+ * a token-less publishable/unauthenticated caller as an "anon id" (the
+ * feed-read and arrival-stamp forgery guard).
  *
  * A genuine browser anon id only ever matches a contact via `anonymous_id`
  * whose canonical key is that same anon id (the contact has no `external_id`)
@@ -112,6 +114,30 @@ export async function collidesWithIdentified(
   db: Database,
   value: string,
 ): Promise<boolean> {
+  // Alias leg (PRD 07 T6b). The identity table sees what the columns cannot:
+  // a merged loser's STALE key stays aliased to its live survivor while the
+  // loser row is soft-deleted and invisible to the column probe below. Any
+  // non-anonymous alias on a live contact names an identified person — reject.
+  // (Deliberately stricter than the column leg in one case: an identified
+  // contact's email is rejected even when an `external_id` exists.)
+  const aliasHit = await db
+    .select({ id: contactAliases.id })
+    .from(contactAliases)
+    .innerJoin(contacts, eq(contacts.id, contactAliases.contactId))
+    .where(
+      and(
+        eq(contactAliases.aliasValue, value),
+        ne(contactAliases.aliasKind, "anonymous"),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (aliasHit.length > 0) return true;
+
+  // Column leg — the unbackfilled-registry backstop. A deployment that
+  // upgraded past 0.57 without running `identity-alias-backfill` holds
+  // pre-upgrade keys in the columns only; a guard that read aliases alone
+  // would fail OPEN there. Keep both legs (PRD 07 re-spec).
   const rows = await db
     .select({
       externalId: contacts.externalId,
@@ -164,6 +190,31 @@ async function keysAnotherContact(
   value: string,
   selfId: string,
 ): Promise<boolean> {
+  // Alias leg (PRD 07 T6b). A value claimed by ANOTHER live contact — under
+  // any kind — refuses the claim: same-kind re-claims are already blocked by
+  // the `(kind, value)` unique index, so what this leg actually stops is the
+  // CROSS-kind claim (someone else's key asserted as this caller's
+  // `anonymousId`), which is the adoption-theft setup. It also sees a merged
+  // loser's stale keys (aliased to the live survivor; the soft-deleted loser
+  // row is invisible to the column probe below). The live-contact join keeps
+  // the merge arm working: mid-merge, the loser is already soft-deleted, so
+  // its own alias rows don't refuse the survivor's claim of its keys.
+  const aliasHit = await tx
+    .select({ id: contactAliases.id })
+    .from(contactAliases)
+    .innerJoin(contacts, eq(contacts.id, contactAliases.contactId))
+    .where(
+      and(
+        eq(contactAliases.aliasValue, value),
+        ne(contactAliases.contactId, selfId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (aliasHit.length > 0) return true;
+
+  // Column leg — the unbackfilled-registry backstop (see
+  // `collidesWithIdentified`).
   const rows = await tx
     .select({
       id: contacts.id,
@@ -287,20 +338,26 @@ type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 type ContactRow = typeof contacts.$inferSelect;
 
-export function contactWhereClause(id: string) {
-  return UUID_REGEX.test(id)
-    ? eq(contacts.id, id)
-    : eq(contacts.externalId, id);
-}
-
 export async function resolveContact(opts: { db: Database; id: string }) {
   const { db, id } = opts;
+  // uuid → primary-key read (a merged-away row uuid stays a miss; that arm is
+  // a PK read, not an identity probe). Anything else is an EXTERNAL key:
+  // column probe first, then the identity table, so a stale (merged-away)
+  // external id resolves its SURVIVOR (PRD 07 T7).
+  if (UUID_REGEX.test(id)) {
+    const rows = await db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.id, id), isNull(contacts.deletedAt)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
   const rows = await db
     .select()
     .from(contacts)
-    .where(and(contactWhereClause(id), isNull(contacts.deletedAt)))
+    .where(and(eq(contacts.externalId, id), isNull(contacts.deletedAt)))
     .limit(1);
-  return rows[0] ?? null;
+  return rows[0] ?? (await resolveViaAlias(db, "external", id));
 }
 
 export interface SerializedContact {
@@ -361,11 +418,18 @@ export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
 }
 
 export function contactSearchFilter(search: string) {
+  // The alias leg (PRD 07 T6b) finds a contact by ANY of its historical keys —
+  // a merged loser's old email, a second device's anon id — which the one-slot
+  // columns cannot. The column legs stay: strictly-more-results, and they are
+  // the backstop on a deployment whose alias backfill never ran.
   return or(
     ilike(contacts.email, `%${search}%`),
     ilike(contacts.externalId, `%${search}%`),
     ilike(contacts.anonymousId, `%${search}%`),
     ilike(contacts.discordId, `%${search}%`),
+    sql`exists (select 1 from ${contactAliases}
+      where ${contactAliases.contactId} = ${contacts.id}
+        and ${contactAliases.aliasValue} ilike ${`%${search}%`})`,
   );
 }
 
@@ -406,6 +470,11 @@ export function contactSearchFilter(search: string) {
  * (phone is not yet a merge-participating `Kind`), so a phone-only contact has
  * no non-anonymous alias row. That leg retires only when phone joins the
  * identity table.
+ *
+ * PRD 07 verdict (2026-07-29): the swap is NOT taken. The rescope keeps the
+ * columns as written mirrors forever, so these `IS NOT NULL` legs stay exact —
+ * and the swap would empty the list on a deployment whose alias backfill never
+ * ran, for zero benefit. Revisit only if the columns ever actually die.
  */
 export function identifiedContactFilter(): SQL {
   // `or()` is typed `SQL | undefined` because it tolerates undefined operands.
@@ -836,16 +905,19 @@ function adoptedContactId(column: Column, contactId: string): SQL<string> {
 }
 
 /**
- * How a fold writes its routed rows (PRD 05 T9).
+ * How a fold writes its routed rows (PRD 05 T9, narrowed by PRD 07 T7).
  *
- * - Merge mode (default): the historical shape — rewrite `user_id` onto the
- *   survivor key, stamp `contact_id` under the {@link adoptedContactId} NULL
- *   guard, denormalize the survivor's email.
- * - `stampOnly` (the adoption path): one column. The loser scope is
- *   `orphansOnly` (see {@link foldScopes}), so every matched row carries
- *   `contact_id IS NULL` and a plain stamp cannot re-parent another person's
- *   history. `user_id` is frozen at its write-time value — reads no longer
- *   consult it, and D9 keeps writing it on inserts.
+ * `user_id` is frozen at its write-time value in BOTH modes — reads no longer
+ * consult it, and D9 keeps writing it on inserts. What differs is the stamp:
+ *
+ * - Merge mode (default): stamp `contact_id` under the {@link adoptedContactId}
+ *   NULL guard (loser-OWNED rows are re-pointed wholesale by the merge's
+ *   (vi-b-hist) statements, never here) and denormalize the survivor's email
+ *   where the table carries one.
+ * - `stampOnly` (the adoption path): a plain one-column stamp. The loser scope
+ *   is `orphansOnly` (see {@link foldScopes}), so every matched row carries
+ *   `contact_id IS NULL` and the stamp cannot re-parent another person's
+ *   history.
  */
 interface FoldWriteOpts {
   stampOnly?: boolean;
@@ -1721,12 +1793,11 @@ async function mergeContacts(
   const identifiedLoserKeys: string[] = [];
 
   for (const loser of losers) {
+    // The id is the last-resort key for a loser that has neither external nor
+    // anonymous id (its user_id rows were keyed on contacts.id).
     const loserStrKeys = [loser.externalId, loser.anonymousId, loser.id].filter(
       (k): k is string => Boolean(k),
     );
-    // The id is the last-resort key for a loser that has neither external nor
-    // anonymous id (its user_id rows were keyed on contacts.id).
-    const loserKeysToRewrite = loserStrKeys;
 
     // MF-2 split: the SAFE-to-absorb key is the loser's anonymous/uuid key —
     // `loser.anonymousId`, or `loser.id` ONLY when the loser was never
@@ -1741,41 +1812,37 @@ async function mergeContacts(
       safeLoserKeys.push(loser.anonymousId ?? loser.id);
     }
 
-    // (ii) user_events.user_id rewrite. The paired `contact_id` stamp is the
-    // ADOPTION half only (NULL rows — history the loser's keys accumulated
-    // before any contact existed). Rows already owned by the LOSER keep
-    // `loser.id` here and are re-pointed wholesale by (vi-b-hist) below, which
-    // is the one statement that may overwrite a non-NULL owner. Splitting it
-    // that way keeps a single rule in the fragment (never take a row from
-    // another contact) and one explicit, auditable place where a merge does.
+    // (ii) user_events `contact_id` stamp — the ADOPTION half only (NULL rows:
+    // history the loser's keys accumulated before any contact existed). PRD 07
+    // T7 deleted the paired `user_id` rewrite: the key stays frozen at its
+    // write-time value and ownership rides the FK. Rows already owned by the
+    // LOSER keep `loser.id` here and are re-pointed wholesale by (vi-b-hist)
+    // below, which is the one statement that may overwrite a non-NULL owner.
+    // Splitting it that way keeps a single rule in the fragment (never take a
+    // row from another contact) and one explicit, auditable place where a
+    // merge does.
     await tx
       .update(userEvents)
       .set({
-        userId: survivorKey,
         contactId: adoptedContactId(userEvents.contactId, survivor.id),
       })
-      .where(inArray(userEvents.userId, loserKeysToRewrite));
+      .where(inArray(userEvents.userId, loserStrKeys));
 
     // (iii) journey_states — exit the loser's duplicate active/waiting row when
     // the survivor already holds an active/waiting row in the same journey
     // (respect uq_user_journey_active), THEN rewrite user_id/user_email.
-    await foldJourneyStates(
-      tx,
-      survivorKey,
-      loserKeysToRewrite,
-      survivor,
-      loser.id,
-    );
+    await foldJourneyStates(tx, survivorKey, loserStrKeys, survivor, loser.id);
 
-    // (iv) email_sends rewrite user_id + userEmail to survivor's.
+    // (iv) email_sends: `contact_id` stamp (NULL-guarded, as (ii)) + the
+    // userEmail denorm. `user_id` frozen (PRD 07 T7); the address denorm still
+    // updates because it feeds person-level send history, not identity.
     await tx
       .update(emailSends)
       .set({
-        userId: survivorKey,
         contactId: adoptedContactId(emailSends.contactId, survivor.id),
         ...(survivor.email ? { userEmail: survivor.email } : {}),
       })
-      .where(inArray(emailSends.userId, loserKeysToRewrite));
+      .where(inArray(emailSends.userId, loserStrKeys));
 
     // (v) bucket_memberships — soft-leave the loser's duplicate active
     // membership when the survivor already holds one in the same bucket (respect
@@ -1783,7 +1850,7 @@ async function mergeContacts(
     await foldBucketMemberships(
       tx,
       survivorKey,
-      loserKeysToRewrite,
+      loserStrKeys,
       survivor.id,
       loser.id,
     );
@@ -1791,7 +1858,7 @@ async function mergeContacts(
     // (vi) email_preferences FOLD (never blind-rewrite — risk 6).
     await foldEmailPreferences(
       tx,
-      loserKeysToRewrite,
+      loserStrKeys,
       survivorKey,
       survivor.id,
       loser.id,
@@ -1814,7 +1881,7 @@ async function mergeContacts(
 
     // (vi-b-hist) the five HISTORY tables' `contact_id` re-point (PRD 04 T3).
     // Same shape as the deals/crm_links repoints above: a uuid column the
-    // string-key rewrites never touch.
+    // key stamps above never touch.
     //
     // PRD 05 T3: `contact_id` IS now a unique-index column on three of these
     // five (migration 0071), so "plain UPDATEs suffice" is no longer true on its
@@ -1831,14 +1898,14 @@ async function mergeContacts(
     // the other order, every merge in between would strand history rows
     // pointing at a soft-deleted loser contact.
     //
-    // It is also the OVERWRITE half of the key rewrites above: those stamp only
+    // It is also the OVERWRITE half of the stamps above: those touch only
     // rows nobody owned (the {@link adoptedContactId} NULL guard), so the
     // loser-OWNED rows arrive here still carrying `loser.id` and this is what
-    // moves them. Between the two halves, every row the merge leaves keyed to
-    // the survivor also carries the survivor's uuid. Runs after the rewrites
-    // rather than before because it filters on `contact_id`, not `user_id` —
-    // the order the key rewrites move is irrelevant to it — and re-running the
-    // pair changes nothing (`contact_id = loser.id` matches zero rows twice).
+    // moves them. Between the two halves, every row the merge folds carries
+    // the survivor's uuid while `user_id` stays frozen at its write-time
+    // value (PRD 07 T7). Runs after the stamps rather than before because it
+    // filters on `contact_id`, not `user_id`, and re-running the pair changes
+    // nothing (`contact_id = loser.id` matches zero rows twice).
     await tx
       .update(userEvents)
       .set({ contactId: survivor.id })
@@ -2186,7 +2253,10 @@ async function foldJourneyStates(
         opts?.stampOnly
           ? { contactId: survivor.id, updatedAt: new Date() }
           : {
-              userId: survivorKey,
+              // PRD 07 T7: `user_id` is FROZEN in merge mode too — ownership
+              // moves on the FK (NULL-guarded here; loser-owned rows re-point
+              // in (vi-b-hist)). The email denorm still updates: it is the
+              // live send address for a re-pointed run, not an identity key.
               contactId: adoptedContactId(journeyStates.contactId, survivor.id),
               ...(survivor.email ? { userEmail: survivor.email } : {}),
               updatedAt: new Date(),
@@ -2271,7 +2341,7 @@ async function foldBucketMemberships(
       opts?.stampOnly
         ? { contactId: survivorId, updatedAt: new Date() }
         : {
-            userId: survivorKey,
+            // PRD 07 T7: `user_id` frozen in merge mode (see foldJourneyStates).
             contactId: adoptedContactId(
               bucketMemberships.contactId,
               survivorId,
@@ -2386,16 +2456,15 @@ async function foldEmailPreferences(
     const target = targetRows[0];
 
     if (!target) {
-      // The slot is free on BOTH keys. Merge mode re-points the loser row;
-      // stamp mode (adoption) writes ownership only — the row is an orphan by
-      // scope, so a plain stamp cannot re-parent anything.
+      // The slot is free on BOTH keys. Both modes stamp ownership only (PRD 07
+      // T7: `user_id` frozen in merge mode too); merge mode NULL-guards the
+      // stamp, stamp mode's rows are orphans by scope so a plain stamp is safe.
       await tx
         .update(emailPreferences)
         .set(
           opts?.stampOnly
             ? { contactId: survivorId, updatedAt: new Date() }
             : {
-                userId: survivorKey,
                 contactId: adoptedContactId(
                   emailPreferences.contactId,
                   survivorId,
@@ -2770,10 +2839,26 @@ export async function findContacts(opts: {
   if (userId) clauses.push(eq(contacts.externalId, userId));
   if (clauses.length === 0) return [];
 
-  return db
+  const rows = await db
     .select()
     .from(contacts)
     .where(and(or(...clauses), isNull(contacts.deletedAt)));
+
+  // Identity-table fallback per supplied key (PRD 07 T7): a STALE
+  // (merged-away) email or external id finds its survivor.
+  const found = new Set(rows.map((r) => r.id));
+  if (email && !rows.some((r) => r.email === email)) {
+    const viaAlias = await resolveViaAlias(db, "email", email);
+    if (viaAlias && !found.has(viaAlias.id)) {
+      rows.push(viaAlias);
+      found.add(viaAlias.id);
+    }
+  }
+  if (userId && !rows.some((r) => r.externalId === userId)) {
+    const viaAlias = await resolveViaAlias(db, "external", userId);
+    if (viaAlias && !found.has(viaAlias.id)) rows.push(viaAlias);
+  }
+  return rows;
 }
 
 /**
@@ -2811,10 +2896,35 @@ export async function softDeleteContact(opts: {
   // back together, so a failure cannot leave identity keys stranded in the
   // alias table for a deleted person.
   const row = await db.transaction(async (tx) => {
+    // Alias-aware target resolution (PRD 07 T7): erasing by a STALE
+    // (merged-away) email or external id erases the SURVIVOR — the live row
+    // that person's data folded into. Resolved inside the tx so the lookup,
+    // the soft-delete and the erasure hook see one consistent state.
+    const direct = await tx
+      .select({
+        id: contacts.id,
+        externalId: contacts.externalId,
+        email: contacts.email,
+      })
+      .from(contacts)
+      .where(and(or(...clauses), isNull(contacts.deletedAt)));
+    const targetIds = new Set(direct.map((r) => r.id));
+    if (email && !direct.some((r) => r.email === email)) {
+      const viaAlias = await resolveViaAlias(tx, "email", email);
+      if (viaAlias) targetIds.add(viaAlias.id);
+    }
+    if (userId && !direct.some((r) => r.externalId === userId)) {
+      const viaAlias = await resolveViaAlias(tx, "external", userId);
+      if (viaAlias) targetIds.add(viaAlias.id);
+    }
+    if (targetIds.size === 0) return undefined;
+
     const updated = await tx
       .update(contacts)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(or(...clauses), isNull(contacts.deletedAt)))
+      .where(
+        and(inArray(contacts.id, [...targetIds]), isNull(contacts.deletedAt)),
+      )
       .returning({
         id: contacts.id,
         externalId: contacts.externalId,
@@ -3000,7 +3110,7 @@ export async function lookupContactIdByKey(
  * device's anon id lives ONLY as an identity row) both fall back to it after
  * their column probes miss. */
 export async function resolveViaAlias(
-  db: Database,
+  db: Database | Tx,
   kind: Kind,
   value: string,
 ): Promise<ContactRow | null> {

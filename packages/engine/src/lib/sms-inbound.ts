@@ -167,6 +167,7 @@ async function flipContactChannel(
     .select({
       id: contacts.id,
       externalId: contacts.externalId,
+      anonymousId: contacts.anonymousId,
       email: contacts.email,
     })
     .from(contacts)
@@ -174,10 +175,14 @@ async function flipContactChannel(
     .limit(1);
   const contact = rows[0];
   if (!contact?.email) return;
+  // PRD 07 T7: ownership rides `contactId`; the string key is a D9 echo of
+  // the full canonical derivation (the old inline `externalId ?? id` skipped
+  // `anonymousId`, mis-keying anon-only contacts onto their row uuid).
   await upsertEmailPreference({
     db,
-    externalId: contact.externalId ?? contact.id,
+    externalId: contact.externalId ?? contact.anonymousId ?? contact.id,
     email: contact.email,
+    contactId: contact.id,
     update: { categoryKey: SMS_CHANNEL_ID, categoryValue: subscribed },
     source,
   });

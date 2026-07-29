@@ -301,20 +301,22 @@ describe("resolveContactNoCreate", () => {
     expect(live[0]?.id).toBe(identified.id);
 
     // T2 — nothing may end this operation still pointing at the soft-deleted
-    // loser. Both the owned and the unowned event land on the survivor.
-    const eventsLoser = await db
-      .select({ id: userEvents.id })
-      .from(userEvents)
-      .where(eq(userEvents.userId, MERGE_ANON));
-    expect(eventsLoser).toHaveLength(0);
-    const eventsSurvivor = await db
+    // loser. PRD 07 T7: the string keys are FROZEN (the merge rewrite is
+    // deleted) — both events stay recorded under the key they happened under,
+    // and the survivor owns them through `contact_id` alone.
+    const eventsLoserKey = await db
       .select({ event: userEvents.event, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, MERGE_USER));
-    expect(eventsSurvivor).toHaveLength(2);
-    for (const e of eventsSurvivor) {
+      .where(eq(userEvents.userId, MERGE_ANON));
+    expect(eventsLoserKey).toHaveLength(2);
+    for (const e of eventsLoserKey) {
       expect(e.contactId).toBe(identified.id);
     }
+    const eventsSurvivorKey = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.userId, MERGE_USER));
+    expect(eventsSurvivorKey).toHaveLength(0);
 
     // The folded pref: one surviving row, the loser's unsubscribe preserved,
     // and the survivor's previously-unstamped row now names its owner.
@@ -335,7 +337,9 @@ describe("resolveContactNoCreate", () => {
       .from(journeyStates)
       .where(eq(journeyStates.journeyId, MERGE_JOURNEY));
     expect(states).toHaveLength(1);
-    expect(states[0]?.userId).toBe(MERGE_USER);
+    // Frozen key (PRD 07 T7): the run keeps the key it enrolled under; the
+    // wholesale contact_id re-point is what moved it to the survivor.
+    expect(states[0]?.userId).toBe(MERGE_ANON);
     expect(states[0]?.contactId).toBe(identified.id);
   });
 

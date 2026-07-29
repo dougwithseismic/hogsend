@@ -9,6 +9,7 @@ import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   ALL_IDENTITY_KINDS,
+  contactKeySql,
   contactSearchFilter,
   deleteIdentityAliasesForContact,
   identifiedContactFilter,
@@ -375,9 +376,17 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
                 : desc(contacts.lastSeenAt),
             ];
 
-    // Valued events are keyed by the contact's canonical event key
-    // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
-    // resolves. Served by the partial user_events_valued_user_idx.
+    // Valued events are owned the PRD 05 way: by `contact_id` when the row
+    // carries one, and only otherwise by the contact's canonical event key
+    // (external_id ?? anonymous_id ?? id — the same precedence `ingestEvent`
+    // resolves, served by the partial user_events_valued_user_idx). The FK arm
+    // is what the string arm cannot do: adoption stamps `contact_id` WITHOUT
+    // rewriting the frozen `user_id`, so a person's pre-identify (or
+    // merged-away) revenue sat under a key that no longer equals their
+    // canonical one and this filter never counted it. The `contact_id is null`
+    // guard on the string arm keeps it to rows nobody owns — an unowned row
+    // whose key happens to collide with another contact's is the bug PRD 05
+    // exists to close.
     // Exclusions come from lib/revenue.ts (static machinery events + funnel
     // milestone triggers + the browser trust gate): one deal's value rides
     // several rows, and pk_-minted values are forgeable.
@@ -386,7 +395,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         ? sql`(
             select coalesce(sum(ue.value), 0)
             from user_events ue
-            where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
+            where (
+                ue.contact_id = ${contacts.id}
+                or (ue.contact_id is null and ue.user_id = ${contactKeySql()})
+              )
               and ue.value is not null
               and ue.event not in (${sql.join(
                 revenueExcludedEvents().map((e) => sql`${e}`),

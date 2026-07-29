@@ -193,6 +193,11 @@ async function canonicalKey(
       .limit(1);
     if (rows[0])
       return { recipientKey: contactKey(rows[0]), contactId: rows[0].id };
+    // Identity-table fallback (PRD 07 T7): a STALE (merged-away) email keys
+    // the SURVIVOR's feed instead of stranding rows under the raw address.
+    const viaAlias = await resolveViaAlias(db, "email", email);
+    if (viaAlias)
+      return { recipientKey: contactKey(viaAlias), contactId: viaAlias.id };
     return { recipientKey: email };
   }
   if (ident.userId) {

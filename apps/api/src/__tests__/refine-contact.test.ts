@@ -51,6 +51,7 @@ const {
   refineContact,
   resetBucketRegistry,
   resetEnrichmentProviders,
+  resolveOrCreateContact,
   setBucketRegistry,
   setEnrichmentProviders,
 } = await import("@hogsend/engine");
@@ -724,4 +725,43 @@ it("D4b: a failed ingest returns a verdict instead of throwing, and the retry cl
   // Free: the stored patch is re-landed from the ledger, no second vendor call.
   expect(providerCalls).toBe(1);
   expect(await memberOf(userId, bucketId)).toBeDefined();
+});
+
+// ---------------------------------------------------------------------------
+// PRD 07 T7 — `findContactRow` resolves through the identity table. These two
+// live HERE (not in resolution-alias-flips.test.ts) because they spend real
+// ledger rows, and this file's monthly-cap tests count the WHOLE ledger: a
+// concurrent file spending lookups flips the cap tests red at random.
+// ---------------------------------------------------------------------------
+
+it("T7: a merged-away userId refines the SURVIVOR instead of skipping", async () => {
+  // Two identified contacts collide on the loser's email; the older survives
+  // and the loser's external key lives on ONLY as an identity row.
+  const survivorKey = uid("stale-survivor");
+  const staleKey = uid("stale-loser");
+  const loserEmail = mail("stale-loser");
+  const survivor = await resolveOrCreateContact({ db, userId: survivorKey });
+  await resolveOrCreateContact({ db, userId: staleKey, email: loserEmail });
+  const merged = await resolveOrCreateContact({
+    db,
+    userId: survivorKey,
+    email: loserEmail,
+  });
+  expect(merged.id).toBe(survivor.id);
+
+  // Before the flip both column probes missed the soft-deleted loser and the
+  // chain skipped with no_lookup_key; the alias leg now pins the survivor.
+  const result = await refineContact({ userId: staleKey });
+  expect(result.status).toBe("refined");
+  expect(providerCalls).toBe(1);
+  const row = await db.query.contacts.findFirst({
+    where: eq(contacts.id, survivor.id),
+  });
+  expect(row?.properties).toMatchObject({ seniority: "vp" });
+});
+
+it("T7: an unowned userId still resolves nothing (miss behaviour preserved)", async () => {
+  const result = await refineContact({ userId: uid("stale-nobody") });
+  expect(result).toMatchObject({ status: "skipped", reason: "no_lookup_key" });
+  expect(providerCalls).toBe(0);
 });
