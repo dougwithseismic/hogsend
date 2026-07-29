@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "worker": "node dist/worker.js",
     "check-types": "tsc --noEmit",
+    "preflight": "./scripts/preflight.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -52,6 +53,7 @@
     "resend": "^6.12.3",
     "svix": "^1.95.1",
     "ai": "^6.0.209",
+    "tsx": "^4.22.3",
     "winston": "^3.19.0",
     "zod": "^4.4.3"
   },
@@ -65,7 +67,6 @@
     "drizzle-kit": "^0.31.10",
     "react-email": "^6.3.2",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.3",
     "typescript": "5.9.2",
     "vitest": "^4.1.7"
   },

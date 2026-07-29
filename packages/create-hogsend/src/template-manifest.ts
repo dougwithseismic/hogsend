@@ -45,6 +45,10 @@ export const HOGSEND_PACKAGES = [
  */
 export const RENAME_MAP: Record<string, string> = {
   gitignore: ".gitignore",
+  // Dotfiles are authored undotted for the same reason as `gitignore`: npm's
+  // packer treats leading-dot files inconsistently, and an undotted source name
+  // guarantees the file actually travels in the published tarball.
+  dockerignore: ".dockerignore",
   npmrc: ".npmrc",
   "env.example": ".env.example",
   "node-version": ".node-version",

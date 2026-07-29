@@ -250,6 +250,7 @@ EXPECTED=(
   drizzle.config.ts migrations/0000_init.sql migrations/meta/_journal.json
   migrations/meta/0000_snapshot.json
   docker-compose.yml railway.toml railway.worker.toml
+  Dockerfile .dockerignore scripts/preflight.sh
   .env.example .node-version .gitignore pnpm-workspace.yaml
   biome.json vitest.config.ts tsconfig.json tsup.config.ts README.md
   CLAUDE.md .claude/README.md .claude/skills/hogsend-cli/SKILL.md

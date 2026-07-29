@@ -1,10 +1,25 @@
 [build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+# Same Dockerfile as the api service — one image, run as the worker (see below).
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "src/**",
+  "scripts/**",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.worker.toml",
+]
 
 [deploy]
 # No healthcheck — the worker has no HTTP port. Migrations are owned by the API
 # service's preDeployCommand; the worker just executes Hatchet tasks.
-startCommand = "pnpm worker"
+#
+# Run mode = worker, invoked as node DIRECTLY (never `pnpm worker` — pnpm at
+# runtime crash-loops on EACCES in the production image; see railway.toml and
+# the Dockerfile header). Asserted equal to preflight's `worker` mode command.
+startCommand = "node dist/worker.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

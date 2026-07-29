@@ -6,26 +6,39 @@ share the codebase but run different processes with different config.
 
 | Service | Config file | Process | Healthcheck | Migrations |
 |---------|-------------|---------|-------------|------------|
-| api    | `railway.toml`        | HTTP API (`pnpm start`)  | `/v1/health` | runs `db:migrate` (pre-deploy) |
-| worker | `railway.worker.toml` | Hatchet worker (`pnpm worker`) | none (no HTTP port) | never |
+| api    | `railway.toml`        | HTTP API (`node dist/index.js`)  | `/v1/health` | `tsx scripts/migrate.ts` (pre-deploy) |
+| worker | `railway.worker.toml` | Hatchet worker (`node dist/worker.js`) | none (no HTTP port) | never |
 
 Both are driven by `git push` — pushing to your deploy branch triggers a build
 for whichever services watch the changed paths.
+
+> **Never `pnpm <script>` at runtime.** Both services build from the scaffold's
+> `Dockerfile`, whose runner is a lean, root-owned tree executed as the
+> unprivileged `node` user. Running pnpm there triggers corepack plus a
+> deps-status check that tries to write into `/app` — an EACCES crash-loop, not
+> a start. Every deploy command is a direct `node` / `tsx` invocation, and
+> `pnpm preflight` asserts those strings match this config before it boots
+> anything.
 
 ## The api service (`railway.toml`)
 
 ```toml
 [build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "src/**", "migrations/**", "scripts/**",
+  "Dockerfile", ".dockerignore",
+  "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "railway.toml",
+]
 
 [deploy]
 # Two-track migrate: engine track first, then this repo's client track.
 # scripts/migrate.ts runs both in order and skips an empty client track
 # gracefully. Engine MUST succeed before the API boots (boot guard in
 # src/index.ts hard-requires the engine schema).
-preDeployCommand = "pnpm db:migrate"
-startCommand = "pnpm start"
+preDeployCommand = "tsx scripts/migrate.ts"
+startCommand = "node dist/index.js"
 healthcheckPath = "/v1/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
@@ -34,11 +47,17 @@ restartPolicyMaxRetries = 3
 
 Key points:
 
-- **`preDeployCommand = "pnpm db:migrate"`** runs BEFORE the new container takes
-  traffic. It is two-track: the engine schema migrates first (the api's boot
-  guard in `src/index.ts` hard-requires it), then your client track. An empty
-  client track is skipped gracefully, so this works whether or not you've added
-  your own migrations under `src/schema`.
+- **`builder = "DOCKERFILE"`** pins the build to the scaffold's `Dockerfile`, so
+  a local `docker build` (and `pnpm preflight`) produces the same image Railway
+  runs. Railway would prefer a root Dockerfile over railpack anyway once one
+  exists; pinning it makes that intentional instead of incidental.
+- **`preDeployCommand = "tsx scripts/migrate.ts"`** runs BEFORE the new
+  container takes traffic. It is two-track: the engine schema migrates first
+  (the api's boot guard in `src/index.ts` hard-requires it), then your client
+  track. An empty client track is skipped gracefully, so this works whether or
+  not you've added your own migrations under `src/schema`. `tsx` is a
+  *production* dependency for exactly this reason — it survives the image's
+  devDependency prune.
 - **`healthcheckPath = "/v1/health"`** — Railway holds traffic until this route
   returns healthy. The route reports component status (database, redis) and the
   two-track schema state, which is exactly what `hogsend doctor` reads.
@@ -52,13 +71,19 @@ When this service is healthy, point your public domain (e.g.
 
 ```toml
 [build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+# Same Dockerfile as the api service — one image, run as the worker.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "src/**", "scripts/**",
+  "Dockerfile", ".dockerignore",
+  "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "railway.worker.toml",
+]
 
 [deploy]
 # No healthcheck — the worker has no HTTP port. Migrations are owned by the API
 # service's preDeployCommand; the worker just executes Hatchet tasks.
-startCommand = "pnpm worker"
+startCommand = "node dist/worker.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 ```
@@ -72,8 +97,9 @@ Key points:
   The worker just connects to Hatchet and executes tasks (`sendEmailTask`,
   `importContactsTask`, `checkAlertsTask`, plus your enabled journey tasks and
   any `extraWorkflows`).
-- **`startCommand = "pnpm worker"`** runs the production worker entry
-  (`src/worker.ts` → `createWorker({ container, journeys })`).
+- **`startCommand = "node dist/worker.js"`** runs the production worker entry
+  (`src/worker.ts` → `createWorker({ container, journeys })`), invoked directly
+  rather than through `pnpm worker` — see the runtime note at the top.
 - **It scales independently** of the api — add worker replicas to process more
   Hatchet tasks in parallel without touching the api.
 
@@ -107,8 +133,8 @@ services need them.
 1. Set the required secrets on **both** services first (see
    `references/env-and-secrets.md`). The api won't pass its healthcheck without
    `DATABASE_URL` / `BETTER_AUTH_SECRET` / `RESEND_API_KEY`.
-2. Push to your deploy branch. Railway builds the api (runs `pnpm db:migrate`
-   pre-deploy) and the worker.
+2. Push to your deploy branch. Railway builds the api (runs `tsx
+   scripts/migrate.ts` pre-deploy) and the worker.
 3. Verify the live api with the CLI:
 
    ```bash

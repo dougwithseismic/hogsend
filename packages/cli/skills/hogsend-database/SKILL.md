@@ -49,7 +49,9 @@ pnpm db:migrate     # apply ENGINE track first, then your CLIENT track
 
 `scripts/migrate.ts` always runs engine-then-client (engine first so your client
 tables can reference engine tables). Railway's `preDeployCommand` runs the same
-`pnpm db:migrate` before every deploy.
+script before every deploy — as `tsx scripts/migrate.ts`, not `pnpm db:migrate`,
+because pnpm cannot run inside the production image (see the hogsend-deploy
+skill).
 
 ## Task playbooks — load the matching reference
 
