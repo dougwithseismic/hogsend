@@ -11,19 +11,26 @@ signup → email code → org create → Railway provision on shared cell `us-1`
 running managed instance reporting `healthy` (db + redis + worker heartbeat via
 the cell's shared Hatchet). PRDs 01–08 shipped (04/06/08 to a seam).
 
-**Nothing is publicly live.** The control plane runs only on localhost. There is
-no `cloud.hogsend.com`. The only deployed artifacts are the `us-1` cell
-(cell-postgres, hatchet-postgres, hatchet-lite) and one throwaway proof tenant
-(`Live Proof Co`, project `hs-org-YzNCCXJjsBCivA8xkzUzZH8dR`) on an unguessable
-Railway URL with no real data. It can be suspended or destroyed at any time —
-destroying it is also the natural test of the offboarding path.
+**The control plane is now DEPLOYED** (2026-07-29) at
+`https://cloud-app-production-2bc6.up.railway.app` — Railway project
+`hogsend-cloud`: `cloud-app`, `cloud-worker`, `cloud-postgres`. Real signup email
+via Resend, live Stripe, its own Hatchet tenant on the `us-1` cell. A second
+canary (`Launch Canary Co`) was signed up THROUGH the deployed dashboard and
+provisioned to a healthy instance at
+`https://production-api-production-59fb.up.railway.app`.
+
+**It is not announced and not on a hogsend.com domain.** The URL is unguessable,
+there is no `cloud.hogsend.com`, and signups are invite-only by obscurity until
+the blockers below clear. Two throwaway tenants exist (`Live Proof Co`,
+`Launch Canary Co`) with no real data; destroying them is the natural test of
+the offboarding path.
 
 ## Launch blockers — engineering (no Doug action needed)
 
-- [ ] **Deploy the control plane itself.** `apps/cloud` (Next.js app + its
-      worker) has no production deployment target. Needs a Railway service pair
-      in its own project, production env vars, and migrations gate — same
-      pattern we impose on tenants. This is the largest single gap.
+- [x] **Deploy the control plane itself.** DONE 2026-07-29. `Dockerfile.cloud`
+      (one image, three run modes) + per-service `railway.cloud*.toml`, deployed
+      as a GHCR image to project `hogsend-cloud`. Migrations run as the app's
+      pre-deploy; the worker executes provisioning through the cell's Hatchet.
 - [x] **Control-plane email.** Already built (`CLOUD_RESEND_API_KEY` +
       `CLOUD_RESEND_FROM` in `lib/email-sender.ts`); dev-log fallback only when
       unset. Remaining work is setting the two vars on the deployed service.
@@ -31,9 +38,16 @@ destroying it is also the natural test of the offboarding path.
       recorded no-op (`credentialsMinted: false`); customers currently have no
       way to get their instance API keys. `HOGSEND_BOOTSTRAP_API_KEY` exists on
       the instance as the interim hook.
-- [ ] **Stuck-provision reconciler** (PRD 10 slice). A provision that dies
-      mid-pipeline parks a stack in `provisioning` forever; needs the sweep to
-      reap/retry. We hit this repeatedly during live debugging.
+- [ ] **Auto re-drive of parked provisions** (PRD 10 slice) — now the TOP
+      blocker. Railway's API answers the worker's provisioning bursts with
+      persistent `Problem processing request` 400s; the retry budget was widened
+      to ~63s and still exhausted, parking the stack at `error` with nobody to
+      resume it. The same pipeline run from a laptop completed every call. So
+      calls FROM INSIDE Railway are the degraded path (shared egress, most
+      likely), and the fix is not a longer inline retry but a sweep that
+      re-drives `error`/`provisioning` stacks on a schedule — every step is
+      idempotent and each run demonstrably advances. Until it exists, a stuck
+      signup needs a manual re-drive (see RUNBOOK).
 - [x] **Stripe wiring** (PRD 06 seam) — DONE 2026-07-29 with the live keys from
       the course service (Doug's authorization). Products/prices created in the
       live catalog (lookup keys `hogsend_cloud_self_serve` $49/mo,
@@ -43,6 +57,9 @@ destroying it is also the natural test of the offboarding path.
       once the control plane has a public URL; and full payment completion was
       not exercised (live mode rejects test cards — grab the `sk_test`
       counterpart from the dashboard if we want a rehearsal payment).
+      UPDATE: the webhook endpoint now EXISTS against the deployed URL and its
+      secret is set on both services; a real subscription event has not yet been
+      observed end to end.
 - [ ] **Tenant image registry credentials.** `hogsend publish` builds work, but
       deploying private tenant images to Railway needs registry-credential
       support on the deploy call. Default (public scaffold) images work today.
@@ -64,9 +81,12 @@ on the substrate seam.
       over the `sk_test` counterpart for a test-card checkout rehearsal.
 - [ ] **DNS**: point `cloud.hogsend.com` at the control-plane Railway service
       (Cloudflare CNAME, same pattern as api.hogsend.com).
-- [ ] **Production secrets**: bless a production Railway workspace token for
-      the provisioner, plus a production `CLOUD_ENCRYPTION_SECRET` (both live
-      only in Railway service vars, never in the repo).
+- [ ] **Production secrets rotation**: the deployed control plane currently uses
+      the workspace token from `apps/cloud/.env.local` and freshly generated
+      auth/encryption secrets (set only as Railway service vars). Bless them, or
+      issue dedicated production ones. NOTE: `CLOUD_ENCRYPTION_SECRET` can never
+      be rotated casually once tenants exist — every stored provider key and
+      cell DSN is encrypted under it.
 - [ ] **Legal copy**: review/replace the Terms + Privacy stubs before real
       signups.
 - [ ] **Pricing/limits sign-off**: confirm plan limits (events/emails per tier)
@@ -74,13 +94,16 @@ on the substrate seam.
 - [ ] **Wave-end nod**: approve the PR from this worktree branch so the code
       reaches main and the release train (which also builds the default image
       per publish).
-- [ ] Decide the proof tenant's fate: keep as staging canary, or destroy
-      (recommended — exercises offboarding and stops the spend).
+- [ ] Decide the two throwaway tenants' fate: keep one as a staging canary, or
+      destroy both (recommended — exercises offboarding and stops the spend).
+- [ ] **Discord invite readiness**: the README now points beta hopefuls at the
+      Discord. Decide how invites are handled (a #cloud-beta channel, a pinned
+      message) before the README change reaches main.
 
 ## Sequence to live
 
-1. Doug: Stripe test keys + price IDs → engineering closes the billing seam.
-2. Engineering: control-plane deploy + email + mint-credentials + reconciler.
+1. ~~Stripe keys~~ · ~~control-plane deploy~~ — both done 2026-07-29.
+2. Engineering: auto re-drive, mint-credentials, kill switch, export.
 3. Wave-end PR → Doug review → merge → release.
 4. Doug: DNS + production secrets on the deployed control plane.
 5. Private beta: a handful of hand-invited signups on test-mode Stripe.
