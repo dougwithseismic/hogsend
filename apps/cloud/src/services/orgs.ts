@@ -63,8 +63,20 @@ const idInputSchema = z.object({
   actor: actorSchema.optional(),
 });
 
+/**
+ * Why a tenant is stopped. `billing` is the ONLY reason `PlanService` will lift
+ * on its own; every other stop (an ops/abuse one) is a human's to undo.
+ */
+export const SUSPENSION_REASONS = ["billing", "abuse"] as const;
+export type SuspensionReason = (typeof SUSPENSION_REASONS)[number];
+
+const suspendInputSchema = idInputSchema.extend({
+  reason: z.enum(SUSPENSION_REASONS).optional(),
+});
+
 export type CreateOrgInput = z.input<typeof createInputSchema>;
 export type OrgTargetInput = z.input<typeof idInputSchema>;
+export type SuspendOrgInput = z.input<typeof suspendInputSchema>;
 
 export type OrganizationRow = typeof organizations.$inferSelect;
 export type EnvironmentRow = typeof environments.$inferSelect;
@@ -239,8 +251,14 @@ export class OrgService {
     return { found: true, organization, environments: rows };
   }
 
-  /** Billing/ops stop. Data is kept; PRD 06 drives what suspension DOES. */
-  async suspend(input: OrgTargetInput): Promise<SuspendOrgResult> {
+  /**
+   * Billing/ops stop. Data is kept; PRD 06 drives what suspension DOES.
+   *
+   * `reason` is what makes the stop reversible by the right party — only
+   * `PlanService` lifts a `billing` one, and an ops stop (no reason) stays put
+   * however much the tenant pays.
+   */
+  async suspend(input: SuspendOrgInput): Promise<SuspendOrgResult> {
     return this.setSuspended(input, new Date());
   }
 
@@ -250,14 +268,20 @@ export class OrgService {
   }
 
   private async setSuspended(
-    input: OrgTargetInput,
+    input: SuspendOrgInput,
     suspendedAt: Date | null,
   ): Promise<SuspendOrgResult> {
-    const { id, actor } = idInputSchema.parse(input);
+    const { id, actor, reason } = suspendInputSchema.parse(input);
 
     const [organization] = await this.db
       .update(organizations)
-      .set({ suspendedAt, updatedAt: new Date() })
+      .set({
+        suspendedAt,
+        // The reason lives and dies WITH the suspension: a lifted stop that
+        // kept its reason would make the next `billing` check read a stale one.
+        suspendedReason: suspendedAt ? (reason ?? null) : null,
+        updatedAt: new Date(),
+      })
       .where(eq(organizations.id, id))
       .returning();
     if (!organization) throw new NotFoundError("Organization", id);
@@ -267,7 +291,10 @@ export class OrgService {
       organizationId: id,
       action: suspendedAt ? "org.suspended" : "org.unsuspended",
       subject: id,
-      detail: { suspendedAt: suspendedAt?.toISOString() ?? null },
+      detail: {
+        suspendedAt: suspendedAt?.toISOString() ?? null,
+        reason: organization.suspendedReason,
+      },
     });
 
     return { organization };

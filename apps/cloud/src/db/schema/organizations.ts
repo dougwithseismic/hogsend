@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { cloud, timestamps } from "./_shared";
 import { cells } from "./cells";
@@ -27,8 +28,32 @@ export const organizations = cloud.table(
     }),
     /** Set when billing/ops suspends the tenant; null = active. */
     suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    /**
+     * WHY the tenant is suspended — `billing` for a cancellation or an expired
+     * dunning grace, anything else (today: null) for an ops/abuse stop. Cleared
+     * with the suspension itself.
+     *
+     * It exists because a suspension has to be REVERSIBLE by exactly the party
+     * that caused it: a tenant who re-subscribes must come back automatically,
+     * and an abuse stop must not be liftable by paying an invoice. Without a
+     * reason the two are the same row and one of those rules has to break.
+     */
+    suspendedReason: text("suspended_reason"),
     /** now + 14d at creation for `trial`. */
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    /**
+     * When the FIRST failed payment landed; null = in good standing (PRD 06).
+     * The 14-day grace is measured from this instant, so a later failure must
+     * never overwrite it — a retry that restarted the clock would let a
+     * non-paying tenant run forever.
+     */
+    dunningSince: timestamp("dunning_since", { withTimezone: true }),
+    /**
+     * The billing provider's customer handle, recorded from the first completed
+     * checkout. OPAQUE to everything except the provider that issued it — it is
+     * what `getPortalUrl` opens a self-serve management session against.
+     */
+    billingCustomerId: text("billing_customer_id"),
     ...timestamps,
   },
   (table) => [
@@ -36,5 +61,11 @@ export const organizations = cloud.table(
     index("organizations_cell_id_idx").on(table.cellId),
     // Billing sweeps: expiring trials, plan rollups.
     index("organizations_plan_idx").on(table.plan),
+    // The dunning sweep reads ONLY the orgs with a running grace clock, which
+    // is a tiny minority — a partial index keeps that scan proportional to the
+    // problem rather than to the tenant count.
+    index("organizations_dunning_since_idx")
+      .on(table.dunningSince)
+      .where(sql`${table.dunningSince} is not null`),
   ],
 );
