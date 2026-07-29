@@ -3,6 +3,11 @@
 Ordered queue. Statuses: `[ ]` not started · `[~]` shipped-to-seam (human ask outstanding)
 · `[x]` shipped. Only the orchestrator edits this file.
 
+Launch readiness lives in [GO-LIVE.md](GO-LIVE.md) — the checklist of what blocks
+taking Hogsend Cloud live and which items need Doug. 2026-07-29: full customer path
+proven live end to end (signup → provision → healthy instance on cell us-1); nothing
+is publicly deployed.
+
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
 | 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [x] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
