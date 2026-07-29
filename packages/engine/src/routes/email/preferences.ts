@@ -1,3 +1,4 @@
+import { bySubject } from "@hogsend/core";
 import { emailPreferences } from "@hogsend/db";
 import type { UnsubscribeTokenPayload } from "@hogsend/email";
 import {
@@ -8,6 +9,7 @@ import {
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { lookupContactIdByKey } from "../../lib/contacts.js";
 import { htmlPage } from "../../lib/html.js";
 import { getListRegistry } from "../../lists/registry-singleton.js";
 
@@ -66,12 +68,27 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
 
     const { externalId, email } = payload;
 
+    // PRD 05 T6 — the token freezes whatever key the subject had when the mail
+    // left. Resolve it to the contact so a key adopted SINCE issuance still
+    // reaches the row; a stale/unresolvable key degrades to the string leg
+    // (bySubject's else-arm), which matches the old read exactly. D6-wrapped:
+    // a bookkeeping probe may never 500 the preference center.
+    let tokenContactId: string | null = null;
+    try {
+      tokenContactId = await lookupContactIdByKey(db, externalId);
+    } catch {
+      tokenContactId = null;
+    }
+
     const rows = await db
       .select()
       .from(emailPreferences)
       .where(
         and(
-          eq(emailPreferences.userId, externalId),
+          bySubject(emailPreferences, {
+            contactId: tokenContactId,
+            userKey: externalId,
+          }),
           eq(emailPreferences.email, email),
         ),
       )

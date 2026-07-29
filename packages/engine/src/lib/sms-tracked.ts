@@ -17,6 +17,7 @@ import {
 } from "../journeys/journey-boundary.js";
 import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import { lookupContactIdByKey } from "./contacts.js";
 import type { FrequencyCapConfig } from "./email-service-types.js";
 import { hatchet } from "./hatchet.js";
 import { isGlobalControl } from "./holdout.js";
@@ -582,8 +583,24 @@ async function checkSmsSuppression(
   if (phoneRow && phoneRow.resubscribedAt === null) return "suppressed";
   const phoneConsent = phoneRow != null;
 
+  // PRD 05 T6 — resolve the subject's contact so the preference read follows
+  // the contact when the string key has gone stale (`sms_sends` carries no
+  // dual-write stamp, so the resolve happens here). D6-wrapped: a bookkeeping
+  // probe may never fail the suppression gate it rides on — a throw degrades
+  // to the string-key leg, never to an unchecked send.
+  let prefContactId: string | null = null;
+  if (opts.userId) {
+    try {
+      prefContactId = await lookupContactIdByKey(db, opts.userId);
+    } catch {
+      prefContactId = null;
+    }
+  }
   const prefs = opts.userId
-    ? await readRecipientPreferences(db, { userId: opts.userId })
+    ? await readRecipientPreferences(db, {
+        userId: opts.userId,
+        contactId: prefContactId,
+      })
     : null;
   if (prefs?.unsubscribedAll) return "unsubscribed";
 

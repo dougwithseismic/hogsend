@@ -15,16 +15,30 @@ export interface RecipientPreferences {
  * Read the conservative preference verdict shared by email, feed, and
  * connector delivery. This module intentionally contains no Hatchet/runtime
  * imports so journey authoring modules remain safe to load in unit tests.
+ *
+ * The subject leg follows the `bySubject` law (PRD 05): when `contactId` is
+ * known, rows are matched by ownership stamp ONLY — never OR'd with the
+ * mutable string key, which goes stale the moment the contact adopts a new
+ * canonical key. `contactId` is REQUIRED (pass `null` explicitly for a
+ * contactless subject) so a new caller cannot silently default onto the
+ * string key. The email leg is orthogonal: address-scoped suppression
+ * (imports, bounces) predates the contact and stays an OR leg.
  */
 export async function readRecipientPreferences(
   db: Database,
-  keys: { email?: string | null; userId?: string | null },
+  keys: {
+    email?: string | null;
+    userId?: string | null;
+    contactId: string | null;
+  },
 ): Promise<RecipientPreferences> {
   const legs = [];
   if (typeof keys.email === "string" && keys.email.length > 0) {
     legs.push(eq(emailPreferences.email, keys.email));
   }
-  if (typeof keys.userId === "string" && keys.userId.length > 0) {
+  if (keys.contactId) {
+    legs.push(eq(emailPreferences.contactId, keys.contactId));
+  } else if (typeof keys.userId === "string" && keys.userId.length > 0) {
     legs.push(eq(emailPreferences.userId, keys.userId));
   }
 

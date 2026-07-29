@@ -410,13 +410,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     if ((userId || email) && !c.get("publishable")) {
       const recipient = await resolveRecipient({ db, userId, email });
       if (recipient) {
-        const extId = recipient.externalId ?? recipient.contactId;
+        // PRD 05 T6 — contact-scoped read; the `externalId ?? contactId`
+        // string derivation is retired.
         const rows = await db
           .select()
           .from(emailPreferences)
           .where(
             and(
-              eq(emailPreferences.userId, extId),
+              eq(emailPreferences.contactId, recipient.contactId),
               eq(emailPreferences.email, recipient.email),
             ),
           )
@@ -463,15 +464,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     if (!recipient) {
       return c.json({ categories: {}, unsubscribedAll: false }, 200);
     }
-    // `email_preferences.user_id` is keyed on `external_id ?? contact.id`
-    // (risk 10) — mirror `resolveRecipient`'s contactId fallback.
-    const extId = recipient.externalId ?? recipient.contactId;
+    // PRD 05 T6 — contact-scoped read; the `externalId ?? contactId` string
+    // derivation is retired.
     const rows = await db
       .select()
       .from(emailPreferences)
       .where(
         and(
-          eq(emailPreferences.userId, extId),
+          eq(emailPreferences.contactId, recipient.contactId),
           eq(emailPreferences.email, recipient.email),
         ),
       )

@@ -223,11 +223,11 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   const subject = options.subject ?? defaultSubject;
 
   if (!options.skipPreferenceCheck) {
-    const suppression = await checkSuppression(
-      db,
-      options.to,
-      effectiveCategory,
-    );
+    const suppression = await checkSuppression(db, {
+      email: options.to,
+      contactId: sendContactId,
+      category: effectiveCategory,
+    });
     if (suppression) {
       const rows = await db
         .insert(emailSends)
@@ -662,13 +662,24 @@ type SuppressionReason = EmailSuppressionError["reason"] | null;
 
 async function checkSuppression(
   db: Database,
-  email: string,
-  category?: string,
+  opts: {
+    email: string;
+    /**
+     * The send's resolved contact (the dual-write stamp already in hand at the
+     * call site). PRD 05 T6: an opt-out recorded under an earlier address or
+     * an earlier canonical key is reachable ONLY through the contact scope —
+     * the address leg alone would mail an unsubscribed person who changed
+     * email. Null for a journeyless/raw send (address leg only, unchanged).
+     */
+    contactId: string | null;
+    category?: string;
+  },
 ): Promise<SuppressionReason> {
+  const { email, contactId, category } = opts;
   // Aggregated across ALL `email_preferences` rows for this address by the shared
   // reader — an address can legitimately have MORE THAN ONE row (multi-row
   // (user_id, email) aggregation rationale lives in readRecipientPreferences).
-  const prefs = await readRecipientPreferences(db, { email });
+  const prefs = await readRecipientPreferences(db, { email, contactId });
 
   if (prefs.suppressed) return "suppressed";
   if (prefs.unsubscribedAll) return "unsubscribed";

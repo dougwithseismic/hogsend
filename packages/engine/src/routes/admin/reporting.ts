@@ -1,3 +1,4 @@
+import { bySubject } from "@hogsend/core";
 import { emailSends, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import {
@@ -12,7 +13,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { contactKey, resolveContact } from "../../lib/contacts.js";
+import { lookupContactIdByKey, resolveContact } from "../../lib/contacts.js";
 import { rate, TRUNC_SQL } from "../../lib/metrics-sql.js";
 import { errorSchema } from "../../lib/schemas.js";
 
@@ -283,9 +284,11 @@ export const reportingRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    // Denormalized identity makes this single-table; fall back to the contact's
-    // email so journeyless sends still surface.
-    const idConds = [eq(emailSends.userId, contactKey(contact))];
+    // PRD 05 T6 — sends are matched by ownership stamp (the send-time string
+    // key is frozen and goes stale on adoption). The email leg stays: a
+    // journeyless/raw send carries no userId, so its stamp is NULL by design
+    // (D7) and only the address can surface it.
+    const idConds = [eq(emailSends.contactId, contact.id)];
     if (contact.email) idConds.push(eq(emailSends.userEmail, contact.email));
     const where = or(...idConds);
 
@@ -417,7 +420,24 @@ reportingRouter.get("/sends/export", async (c) => {
       eq(emailSends.status, q.status as typeof emailSends.$inferSelect.status),
     );
   if (q.category) conditions.push(eq(emailSends.category, q.category));
-  if (q.userId) conditions.push(eq(emailSends.userId, q.userId));
+  if (q.userId) {
+    // PRD 05 T6 — resolve the caller's key to its contact so the export
+    // follows the subject across adoption; an unresolvable key degrades to
+    // the frozen string leg (bySubject's else-arm). D6-wrapped: a bookkeeping
+    // probe may never fail the export.
+    let exportContactId: string | null = null;
+    try {
+      exportContactId = await lookupContactIdByKey(db, q.userId);
+    } catch {
+      exportContactId = null;
+    }
+    conditions.push(
+      bySubject(emailSends, {
+        contactId: exportContactId,
+        userKey: q.userId,
+      }),
+    );
+  }
   if (q.engagement && q.engagement in engagementColumn)
     conditions.push(
       isNotNull(
