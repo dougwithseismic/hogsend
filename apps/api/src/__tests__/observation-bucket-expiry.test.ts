@@ -188,12 +188,26 @@ async function contactsForKey(key: string) {
 }
 
 /** Store the criteria-satisfying event directly (no ingest, no resolve). */
+/**
+ * PRD 05 T5 evaluates bucket criteria BY SUBJECT, so an event seeded for a
+ * subject that HAS a contact must carry the owner exactly as `ingestEvent`'s
+ * dual-write does. A NULL `contact_id` here describes a pre-PRD-04 row; the
+ * anon fixtures below own no contact, so they stamp NULL correctly.
+ */
 async function seedPulse(userId: string): Promise<void> {
+  const [owner] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userId}`,
+    )
+    .limit(1);
   await db.insert(userEvents).values({
     userId,
     event: PULSE_EVENT,
     properties: {},
     source: "test",
+    contactId: owner?.id ?? null,
     occurredAt: new Date(),
   });
 }

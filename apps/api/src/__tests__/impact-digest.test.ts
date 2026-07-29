@@ -70,15 +70,34 @@ const {
 const { db } = createDatabase({ url: process.env.DATABASE_URL as string });
 
 const RUN = `impd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-let contactId = "";
 
-beforeAll(async () => {
-  const [contact] = await db
+/**
+ * One contact per subject key, stamped onto `journey_states.contact_id`
+ * exactly as the engine's dual-write does. The digest's cohort SQL reads by
+ * SUBJECT (PRD 05): enrollments count
+ * `coalesce(js.contact_id::text, js.user_id)` and the outcome EXISTS joins
+ * `c.contact_id = js.contact_id`. A fixture pointing every conversion at ONE
+ * shared contact only passed because the old join compared `user_key`
+ * strings — it never described a real instance.
+ */
+const contactIdByKey = new Map<string, string>();
+
+async function ensureContacts(userIds: string[]): Promise<void> {
+  const missing = userIds.filter((u) => !contactIdByKey.has(u));
+  if (missing.length === 0) return;
+  const rows = await db
     .insert(contacts)
-    .values({ email: `${RUN}@example.com`, externalId: `${RUN}-contact` })
-    .returning({ id: contacts.id });
-  contactId = contact?.id ?? "";
-});
+    .values(
+      missing.map((userId) => ({
+        externalId: userId,
+        email: `${userId}@example.com`,
+      })),
+    )
+    .returning({ id: contacts.id, externalId: contacts.externalId });
+  for (const row of rows) {
+    if (row.externalId) contactIdByKey.set(row.externalId, row.id);
+  }
+}
 
 afterAll(async () => {
   await db.delete(conversions).where(like(conversions.userKey, `${RUN}-%`));
@@ -109,9 +128,11 @@ async function seedStates(opts: {
     { length: opts.count },
     (_, i) => `${RUN}-${opts.prefix}-${i}`,
   );
+  await ensureContacts(userIds);
   await db.insert(journeyStates).values(
     userIds.map((userId) => ({
       userId,
+      contactId: contactIdByKey.get(userId),
       userEmail: `${userId}@example.com`,
       journeyId: opts.journeyId,
       currentNodeId: "entry",
@@ -132,11 +153,13 @@ async function seedConversions(
   occurredAt: Date,
 ): Promise<void> {
   if (userIds.length === 0) return;
+  await ensureContacts(userIds);
   const eventRows = await db
     .insert(userEvents)
     .values(
       userIds.map((userId) => ({
         userId,
+        contactId: contactIdByKey.get(userId),
         event: "digest.converted",
         properties: {},
       })),
@@ -145,7 +168,7 @@ async function seedConversions(
   await db.insert(conversions).values(
     eventRows.map((row) => ({
       definitionId,
-      contactId,
+      contactId: contactIdByKey.get(row.userId) as string,
       userKey: row.userId,
       eventId: row.id,
       occurredAt,

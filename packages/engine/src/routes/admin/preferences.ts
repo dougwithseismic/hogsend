@@ -105,10 +105,12 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
+    // PRD 05 T6 — the contact is in hand: read by ownership stamp, never by
+    // the mutable string key (which goes stale on adoption).
     const rows = await db
       .select()
       .from(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+      .where(eq(emailPreferences.contactId, contact.id))
       .limit(1);
 
     if (rows.length === 0) {

@@ -29,6 +29,8 @@ export const emailSends = pgTable(
     // Denormalized recipient identity, set at send time. Lets reporting attribute
     // a send to a contact without joining journey_states, and captures journeyless
     // (raw/batch) sends that have no journey linkage. Both nullable.
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id"),
     userEmail: text("user_email"),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this

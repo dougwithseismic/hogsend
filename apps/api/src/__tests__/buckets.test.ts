@@ -355,7 +355,25 @@ function emptyJourneyRegistry() {
  * Invoke the documented seam with the standard wiring: real db + mocked hatchet
  * + an (optionally injected) journey registry. Returns the transition list.
  */
-function check(opts: {
+/**
+ * The contact a canonical key resolves to. PRD 05 T5 reads bucket membership
+ * and criteria history BY SUBJECT, and `ingestEvent` — the only production
+ * caller of `checkBucketMembership` — always hands over the contact it just
+ * resolved. Resolving it here keeps the seam fixture on that shape instead of
+ * the pin-less one, which describes a subject with no contact at all.
+ */
+async function contactIdFor(userKey: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id;
+}
+
+async function check(opts: {
   userId: string;
   event: string;
   /**
@@ -377,6 +395,7 @@ function check(opts: {
     hatchet: hatchet as any,
     logger,
     userId: opts.userId,
+    contactId: await contactIdFor(opts.userId),
     userEmail: opts.userEmail ?? `${opts.userId}@example.com`,
     event: opts.event,
     eventProperties: opts.eventProperties ?? {},
@@ -817,9 +836,12 @@ describe("contact-state-only property eval (Phase 1 #3, D2)", () => {
     // Drive the SIGNUP event through real ingest so the userEvents row exists,
     // then re-evaluate via the seam. (ingestEvent stores the row + already calls
     // checkBucketMembership, but we assert at the seam for determinism.)
-    await db
-      .insert(userEvents)
-      .values({ userId, event: SIGNUP_EVENT, properties: {} });
+    await db.insert(userEvents).values({
+      userId,
+      event: SIGNUP_EVENT,
+      properties: {},
+      contactId: await contactIdFor(userId),
+    });
 
     const transitions = await check({
       userId,
@@ -848,9 +870,12 @@ describe("membership email normalization", () => {
   it("stores the realtime-join email normalized (trim + lowercase)", async () => {
     const userId = uid("mixed-case-email");
     await seedContact(userId, { plan: "free" });
-    await db
-      .insert(userEvents)
-      .values({ userId, event: SIGNUP_EVENT, properties: {} });
+    await db.insert(userEvents).values({
+      userId,
+      event: SIGNUP_EVENT,
+      properties: {},
+      contactId: await contactIdFor(userId),
+    });
 
     // RUN-namespaced like every other identity in this file. A literal address
     // would be the ONE value stable across runs, so run 2 would resolve to run

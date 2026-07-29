@@ -153,6 +153,13 @@ async function versionCohort(opts: {
   const { db, journeyId, hash, goal, until } = opts;
   const untilTs = sql`${until.toISOString()}::timestamptz`;
   const goalCond = goal === null ? sql`` : sql` and c.definition_id = ${goal}`;
+  // Same subject/cohort pair as the /impact routes — see the rationale on
+  // `jsSubject`/`convBySubject` in `routes/admin/impact.ts`. The digest MUST
+  // count a cohort exactly the way the routes do, or the emailed number and
+  // the dashboard disagree. The coalesce is load-bearing: `count(distinct …)`
+  // skips NULLs, so a bare `js.contact_id` would drop contactless enrollments.
+  const jsSubject = sql`coalesce(js.contact_id::text, js.user_id)`;
+  const convBySubject = sql`c.contact_id = js.contact_id`;
   const rows = [
     ...(await db.execute<{
       enrollments: number;
@@ -161,12 +168,12 @@ async function versionCohort(opts: {
       version_label: string | null;
     }>(sql`
       select
-        count(distinct js.user_id)
+        count(distinct ${jsSubject})
           filter (where js.status != 'held_out')::int as enrollments,
-        (count(distinct js.user_id)
+        (count(distinct ${jsSubject})
           filter (where js.status != 'held_out' and exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at
               and c.occurred_at <= ${untilTs}${goalCond}
         )))::int as converters,

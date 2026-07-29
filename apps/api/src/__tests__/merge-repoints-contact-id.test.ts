@@ -414,9 +414,12 @@ describe("Case 2 — fill-in-link flips the key but never touches contact_id", (
     liveAfter = await liveC2Contacts();
   });
 
-  it("the key flip really happened (repointOwnHistory ran)", async () => {
-    // Guards the assertions below from being vacuous: if the string-key rewrite
-    // had not run, "contact_id unchanged" would prove nothing.
+  it("the key flip left the string keys FROZEN (T9 — the rewrite is deleted)", async () => {
+    // Guards the assertions below from being vacuous the other way around:
+    // since T9, a canonical-key flip must NOT touch history's `user_id` — the
+    // string is a frozen record of the key each row happened under, and
+    // ownership rides `contact_id` alone. If a rewrite had run, "contact_id
+    // unchanged" below would be certifying the wrong mechanism.
     const [ev] = await db
       .select({ userId: userEvents.userId })
       .from(userEvents)
@@ -429,9 +432,9 @@ describe("Case 2 — fill-in-link flips the key but never touches contact_id", (
       .select({ userId: bucketMemberships.userId })
       .from(bucketMemberships)
       .where(eq(bucketMemberships.id, seeded.bucketMembershipId));
-    expect(ev?.userId).toBe(freshExt);
-    expect(es?.userId).toBe(freshExt);
-    expect(bm?.userId).toBe(freshExt);
+    expect(ev?.userId).toBe(anonId);
+    expect(es?.userId).toBe(anonId);
+    expect(bm?.userId).toBe(anonId);
   });
 
   it("no merge happened — the contact set is unchanged", () => {

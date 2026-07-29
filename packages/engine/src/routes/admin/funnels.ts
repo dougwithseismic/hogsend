@@ -140,10 +140,15 @@ export const adminFunnelsRouter = new OpenAPIHono<AppEnv>().openapi(
     );
     // Exposure: ≥1 stamped touchpoint BEFORE the outcome instant (the next
     // stage's reach, or now for non-converters) — association framing.
+    // The exposure probe joins the contact FK, not the text key.
+    // `funnel_progress.contact_id` is NOT NULL, so there is always a contact
+    // to join to and no text fallback is needed — and the events a person
+    // emitted before they registered (stamped under an anonymous key) now
+    // count as exposure, which the `user_key` string compare missed.
     const exposed = scopeKey
       ? sql`exists (
           select 1 from user_events ue
-          where ue.user_id = ${funnelProgress.userKey}
+          where ue.contact_id = ${funnelProgress.contactId}
             and ue.event in (${touchEventList})
             and ue.properties->>${sql.raw(`'${scopeKey}'`)} = ${scopeValue}
             and ue.occurred_at <= coalesce(${next.reachedAt}, now())

@@ -235,7 +235,7 @@ describe("T4c — bucket_memberships.contact_id at the real-time join", () => {
     expect(rows[0]?.contactId).toBe(contact.id);
   });
 
-  it("a pin-less caller still records the join, stamped NULL", async () => {
+  it("a pin-less caller still records the join; the transition's own re-ingest then adopts it", async () => {
     const userId = uid("pinless");
 
     const transitions = await checkBucketMembership({
@@ -260,11 +260,21 @@ describe("T4c — bucket_memberships.contact_id at the real-time join", () => {
 
     const rows = await membershipsFor(userId);
     expect(rows).toHaveLength(1);
-    // The membership is FULLY recorded (text-keyed, no contact FK) — only the
-    // bookkeeping column is empty.
+    // The membership is FULLY recorded (text-keyed, no contact FK) — the
+    // pin-less join itself writes NO contact id (D6: bookkeeping degrades to
+    // NULL, it never fails the join).
     expect(rows[0]?.status).toBe("active");
     expect(rows[0]?.entryCount).toBe(1);
-    expect(rows[0]?.contactId).toBeNull();
+    // …but the transition emit re-ingests `bucket.entered` for this very key,
+    // which mints the contact — and PRD 05 T4's own-key adoption then stamps
+    // the row that predated it. A NULL here would mean a contact-scoped read
+    // could not see its own membership.
+    const [owner] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.externalId, userId));
+    expect(owner?.id).toBeTruthy();
+    expect(rows[0]?.contactId).toBe(owner?.id);
   });
 
   it("an explicit contactId param is written verbatim", async () => {
@@ -305,12 +315,33 @@ describe("T4c — bucket_memberships.contact_id at the BACKFILL insert", () => {
       userId: matcher,
       email: `${matcher}@example.com`,
     });
-    await resolveOrCreateContact({ db, userId: nonMatcher });
+    const nonMatcherContact = await resolveOrCreateContact({
+      db,
+      userId: nonMatcher,
+    });
+    // PRD 05 T5 reads matcher history by SUBJECT, so these fixtures carry the
+    // owning contact exactly as `ingestEvent`'s dual-write does — a hand-seeded
+    // event with a NULL `contact_id` describes a pre-PRD-04 row.
     await db.insert(userEvents).values([
-      { userId: matcher, event: BACKFILL_EVENT, properties: {} },
-      { userId: matcher, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: matcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
+      {
+        userId: matcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
       // 1 < 2 → not a matcher; guards against a blanket "everyone joins".
-      { userId: nonMatcher, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: nonMatcher,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: nonMatcherContact.id,
+      },
     ]);
 
     const [job] = await db
@@ -350,8 +381,18 @@ describe("T4c — bucket_memberships.contact_id at the BACKFILL insert", () => {
     const dead = uid("bf-dead");
     const contact = await resolveOrCreateContact({ db, userId: dead });
     await db.insert(userEvents).values([
-      { userId: dead, event: BACKFILL_EVENT, properties: {} },
-      { userId: dead, event: BACKFILL_EVENT, properties: {} },
+      {
+        userId: dead,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
+      {
+        userId: dead,
+        event: BACKFILL_EVENT,
+        properties: {},
+        contactId: contact.id,
+      },
     ]);
     await db
       .update(contacts)
@@ -387,23 +428,29 @@ describe("T4c — bucket_memberships.contact_id at the RECONCILE join", () => {
       userId,
       event: RECONCILE_EVENT,
       properties: {},
+      contactId: contact.id,
       occurredAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     });
 
     // Still active (fired inside the window) ⇒ excluded by present-in-all.
     const stillActive = uid("rc-active");
-    await resolveOrCreateContact({ db, userId: stillActive });
+    const stillActiveContact = await resolveOrCreateContact({
+      db,
+      userId: stillActive,
+    });
     await db.insert(userEvents).values([
       {
         userId: stillActive,
         event: RECONCILE_EVENT,
         properties: {},
+        contactId: stillActiveContact.id,
         occurredAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
       },
       {
         userId: stillActive,
         event: RECONCILE_EVENT,
         properties: {},
+        contactId: stillActiveContact.id,
         occurredAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
       },
     ]);

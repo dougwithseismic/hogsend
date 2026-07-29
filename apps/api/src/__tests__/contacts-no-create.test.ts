@@ -229,18 +229,14 @@ describe("resolveContactNoCreate", () => {
     expect(row?.externalId).toBe(LINK_USER);
     expect(row?.anonymousId).toBe(LINK_ANON);
 
-    // T2 — no residual under the old key, and the row now names its owner.
+    // T9 mechanism — the row stays frozen under the old key and now names its
+    // owner; that stamp is what the contact-scoped reads resolve.
     const eventsOld = await db
-      .select({ id: userEvents.id })
-      .from(userEvents)
-      .where(eq(userEvents.userId, LINK_ANON));
-    expect(eventsOld).toHaveLength(0);
-    const eventsNew = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, LINK_USER));
-    expect(eventsNew).toHaveLength(1);
-    expect(eventsNew[0]?.contactId).toBe(seeded.id);
+      .where(eq(userEvents.userId, LINK_ANON));
+    expect(eventsOld).toHaveLength(1);
+    expect(eventsOld[0]?.contactId).toBe(seeded.id);
   });
 
   it("collide-MERGEs two existing contacts exactly as the creating sibling does", async () => {
@@ -360,7 +356,7 @@ describe("resolveContactNoCreate", () => {
 // row keyed on the anon id would be orphaned. The create arm must now adopt it.
 // ===========================================================================
 describe("create-arm history adoption", () => {
-  it("repoints anon-keyed history onto the new canonical key and reports it in mergedKeys", async () => {
+  it("stamps anon-keyed history with its owning contact and reports it in mergedKeys", async () => {
     // (1) The contactless observation: refused, so NO contact row exists for A.
     const refused = await resolveContactNoCreate({ db, anonymousId: T2_ANON });
     expect(refused.id).toBeNull();
@@ -410,79 +406,55 @@ describe("create-arm history adoption", () => {
     // stays broken (ingestion fires `mergeAnalyticsIdentities` off mergedKeys).
     expect(created.mergedKeys).toEqual([T2_ANON]);
 
-    // (4) ZERO residual rows under A; every one of them now sits under U.
+    // (4) T9 mechanism: rows never move. Each stays FROZEN under the key it
+    // was written with (A) and is STAMPED with the adopting contact's uuid —
+    // `contact_id` IS ownership now; the string is a historical record. A row
+    // that followed the person by string but not by uuid would be a row the
+    // contact-scoped reads silently drop.
     const eventsA = await db
-      .select({ id: userEvents.id })
-      .from(userEvents)
-      .where(eq(userEvents.userId, T2_ANON));
-    expect(eventsA).toHaveLength(0);
-    const eventsU = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, T2_USER));
-    expect(eventsU).toHaveLength(1);
-    // T2 — the adopted row must also be STAMPED with the adopting contact's
-    // uuid. The `user_id` string is what the read path uses today; `contact_id`
-    // is what it moves onto next, so a row that follows the person by string
-    // but not by uuid is a row the read-flip silently drops.
-    expect(eventsU[0]?.contactId).toBe(created.id);
+      .where(eq(userEvents.userId, T2_ANON));
+    expect(eventsA).toHaveLength(1);
+    expect(eventsA[0]?.contactId).toBe(created.id);
 
     const statesA = await db
-      .select({ id: journeyStates.id })
-      .from(journeyStates)
-      .where(eq(journeyStates.userId, T2_ANON));
-    expect(statesA).toHaveLength(0);
-    const statesU = await db
       .select({ id: journeyStates.id, contactId: journeyStates.contactId })
       .from(journeyStates)
-      .where(eq(journeyStates.userId, T2_USER));
-    expect(statesU).toHaveLength(1);
-    expect(statesU[0]?.contactId).toBe(created.id);
+      .where(eq(journeyStates.userId, T2_ANON));
+    expect(statesA).toHaveLength(1);
+    expect(statesA[0]?.contactId).toBe(created.id);
 
     const membershipsA = await db
-      .select({ id: bucketMemberships.id })
-      .from(bucketMemberships)
-      .where(eq(bucketMemberships.userId, T2_ANON));
-    expect(membershipsA).toHaveLength(0);
-    const membershipsU = await db
       .select({
         id: bucketMemberships.id,
         contactId: bucketMemberships.contactId,
       })
       .from(bucketMemberships)
-      .where(eq(bucketMemberships.userId, T2_USER));
-    expect(membershipsU).toHaveLength(1);
-    expect(membershipsU[0]?.contactId).toBe(created.id);
+      .where(eq(bucketMemberships.userId, T2_ANON));
+    expect(membershipsA).toHaveLength(1);
+    expect(membershipsA[0]?.contactId).toBe(created.id);
 
     const sendsA = await db
-      .select({ id: emailSends.id })
-      .from(emailSends)
-      .where(eq(emailSends.userId, T2_ANON));
-    expect(sendsA).toHaveLength(0);
-    const sendsU = await db
       .select({ id: emailSends.id, contactId: emailSends.contactId })
       .from(emailSends)
-      .where(eq(emailSends.userId, T2_USER));
-    expect(sendsU).toHaveLength(1);
-    expect(sendsU[0]?.contactId).toBe(created.id);
+      .where(eq(emailSends.userId, T2_ANON));
+    expect(sendsA).toHaveLength(1);
+    expect(sendsA[0]?.contactId).toBe(created.id);
 
     const prefsA = await db
-      .select({ id: emailPreferences.id })
-      .from(emailPreferences)
-      .where(eq(emailPreferences.userId, T2_ANON));
-    expect(prefsA).toHaveLength(0);
-    const prefsU = await db
       .select()
       .from(emailPreferences)
-      .where(eq(emailPreferences.userId, T2_USER));
-    expect(prefsU).toHaveLength(1);
-    // The suppression the anon key carried must survive the adoption.
-    expect(prefsU[0]?.unsubscribedAll).toBe(true);
-    expect(prefsU[0]?.contactId).toBe(created.id);
+      .where(eq(emailPreferences.userId, T2_ANON));
+    expect(prefsA).toHaveLength(1);
+    // The suppression the anon key carried must survive the adoption, and the
+    // contact-scoped read (the one the mailer now uses) must reach it.
+    expect(prefsA[0]?.unsubscribedAll).toBe(true);
+    expect(prefsA[0]?.contactId).toBe(created.id);
 
-    // Re-running the SAME adoption is a no-op: the anon key is already the
-    // contact's, so nothing moves, nothing is re-stamped, and no phantom
-    // key-flip merge is reported to the analytics stitch.
+    // Re-running the SAME adoption is a no-op: every row already carries the
+    // stamp, so nothing matches the `contact_id IS NULL` predicate and no
+    // phantom key-flip merge is reported to the analytics stitch.
     const again = await resolveOrCreateContact({
       db,
       userId: T2_USER,
@@ -490,11 +462,11 @@ describe("create-arm history adoption", () => {
     });
     expect(again.id).toBe(created.id);
     expect(again.mergedKeys).toBeUndefined();
-    const eventsUAgain = await db
+    const eventsAAgain = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, T2_USER));
-    expect(eventsUAgain).toEqual(eventsU);
+      .where(eq(userEvents.userId, T2_ANON));
+    expect(eventsAAgain).toEqual(eventsA);
 
     // Exactly one contact, canonical key = U.
     const live = await liveContactsForKeys([T2_ANON]);
@@ -578,32 +550,22 @@ describe("fill-in-link history adoption", () => {
     // never fires for anyone who signs in through the docs.
     expect(linked.mergedKeys).toEqual([T3_ANON]);
 
-    // (5) The history must have followed the person onto their canonical key.
+    // (5) T9 mechanism: the history must have followed the PERSON — the rows
+    // stay frozen under A and carry the contact's stamp. Adopted by the
+    // claim-loop arm (no key flip), same stamp either way.
     const eventsA = await db
-      .select({ id: userEvents.id })
-      .from(userEvents)
-      .where(eq(userEvents.userId, T3_ANON));
-    expect(eventsA).toHaveLength(0);
-    const eventsU = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, T3_USER));
-    expect(eventsU).toHaveLength(1);
-    // T2 — adopted by the no-flip arm, so stamped by the adoption loop rather
-    // than by the canonical-key flip. Same requirement either way.
-    expect(eventsU[0]?.contactId).toBe(folded.id);
+      .where(eq(userEvents.userId, T3_ANON));
+    expect(eventsA).toHaveLength(1);
+    expect(eventsA[0]?.contactId).toBe(folded.id);
 
     const statesA = await db
-      .select({ id: journeyStates.id })
-      .from(journeyStates)
-      .where(eq(journeyStates.userId, T3_ANON));
-    expect(statesA).toHaveLength(0);
-    const statesU = await db
       .select({ id: journeyStates.id, contactId: journeyStates.contactId })
       .from(journeyStates)
-      .where(eq(journeyStates.userId, T3_USER));
-    expect(statesU).toHaveLength(1);
-    expect(statesU[0]?.contactId).toBe(folded.id);
+      .where(eq(journeyStates.userId, T3_ANON));
+    expect(statesA).toHaveLength(1);
+    expect(statesA[0]?.contactId).toBe(folded.id);
 
     // Still exactly one contact — adoption must not mint a second row.
     const live = await liveContactsForKeys([T3_ANON]);
@@ -666,19 +628,14 @@ describe("second-device anon id", () => {
     )[0];
     expect(row?.anonymousId).toBe(T4_LAPTOP_ANON);
 
-    // The phone's pre-sign-in history followed the person.
-    const orphaned = await db
-      .select({ id: userEvents.id })
-      .from(userEvents)
-      .where(eq(userEvents.userId, T4_PHONE_ANON));
-    expect(orphaned).toHaveLength(0);
+    // The phone's pre-sign-in history followed the person: the row stays
+    // frozen under the phone's anon key (T9 — rows never move) and is stamped
+    // with the ONE contact both devices resolve to.
     const adopted = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, T4_USER));
+      .where(eq(userEvents.userId, T4_PHONE_ANON));
     expect(adopted).toHaveLength(1);
-    // T2 — the second device's orphaned row is stamped with the ONE contact
-    // both devices resolve to.
     expect(adopted[0]?.contactId).toBe(laptop.id);
 
     // And the alias resolves: the phone's id now finds THIS contact rather than
@@ -696,7 +653,7 @@ describe("second-device anon id", () => {
     const afterRelookup = await db
       .select({ id: userEvents.id, contactId: userEvents.contactId })
       .from(userEvents)
-      .where(eq(userEvents.userId, T4_USER));
+      .where(eq(userEvents.userId, T4_PHONE_ANON));
     expect(afterRelookup).toEqual(adopted);
   });
 });

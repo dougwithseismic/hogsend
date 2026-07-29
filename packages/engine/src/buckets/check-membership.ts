@@ -1,6 +1,7 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import {
   type BucketMeta,
+  bySubject,
   collectPropertyNames,
   durationToMs,
   evaluateCondition,
@@ -235,10 +236,17 @@ export async function checkBucketMembership(opts: {
     if (!bucket.criteria) continue;
 
     // wasMember — current active, non-deleted membership row (cheap pre-filter;
-    // the authoritative guard is the RETURNING-gated mutation below).
+    // the authoritative guard is the RETURNING-gated mutation below). Read by
+    // SUBJECT: a membership adopted onto this contact under a since-stale key
+    // is invisible to a `user_id` probe, and missing it re-runs the JOIN path,
+    // which then loses the arbiter-less race and no-ops — a member who silently
+    // never re-emits and never leaves.
     const active = await db.query.bucketMemberships.findFirst({
       where: and(
-        eq(bucketMemberships.userId, userId),
+        bySubject(bucketMemberships, {
+          contactId: contactId ?? null,
+          userKey: userId,
+        }),
         eq(bucketMemberships.bucketId, bucket.id),
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
@@ -255,8 +263,11 @@ export async function checkBucketMembership(opts: {
       ctx: {
         db,
         userId,
-        // PRD 05: real contactId wired when this subsystem's read batch flips
-        contactId: null,
+        // `ingestEvent` resolved the subject before calling us, so the event /
+        // count legs read this person's whole history — including the rows
+        // adopted from an anon-era key — instead of only what the current
+        // string key happens to name.
+        contactId: contactId ?? null,
         journeyContext,
       },
     });
@@ -330,7 +341,12 @@ async function handleJoin(opts: {
   // this (user, bucket) (Section 6.3 / 8.2). priorCount also drives the entryLimit
   // gate. Shared with the reconcile-discovered join path so the ordinal can
   // never drift between the two writers.
-  const priorCount = await countPriorMemberships(db, bucket.id, userId);
+  const priorCount = await countPriorMemberships(
+    db,
+    bucket.id,
+    userId,
+    contactId ?? null,
+  );
   const epoch = priorCount + 1;
 
   // INSERT a FRESH active row. ON CONFLICT DO NOTHING covers the partial active
@@ -401,7 +417,15 @@ async function handleJoin(opts: {
   // The active row is always written (Studio size must reflect reality) and the
   // epoch always advances via the real insert; only the bucket:entered emission
   // is gated by the entryLimit policy (Section 6.3).
-  if (await shouldEmitJoin({ db, bucket, userId, priorCount })) {
+  if (
+    await shouldEmitJoin({
+      db,
+      bucket,
+      userId,
+      contactId: contactId ?? null,
+      priorCount,
+    })
+  ) {
     await emitBucketTransition({
       db,
       registry,
@@ -547,9 +571,17 @@ export async function shouldEmitJoin(opts: {
   db: Database;
   bucket: BucketMeta;
   userId: string;
+  /**
+   * The owning contact's `contacts.id`, or `null` when the caller has none.
+   * REQUIRED (not optional) on purpose: the prior-cycle lookup below is the
+   * cooldown gate, and an optional field a caller forgets silently drops it
+   * back onto the mutable text key — which misses the adopted prior cycle and
+   * re-emits a `once` join. Pass `null` explicitly for a contactless subject.
+   */
+  contactId: string | null;
   priorCount: number;
 }): Promise<boolean> {
-  const { db, bucket, userId, priorCount } = opts;
+  const { db, bucket, userId, contactId, priorCount } = opts;
   // First-ever join always emits.
   if (priorCount === 0) return true;
   switch (bucket.entryLimit ?? "unlimited") {
@@ -571,7 +603,7 @@ export async function shouldEmitJoin(opts: {
         .from(bucketMemberships)
         .where(
           and(
-            eq(bucketMemberships.userId, userId),
+            bySubject(bucketMemberships, { contactId, userKey: userId }),
             eq(bucketMemberships.bucketId, bucket.id),
             eq(bucketMemberships.status, "left"),
             isNotNull(bucketMemberships.leftAt),

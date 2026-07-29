@@ -252,17 +252,20 @@ export const bucketExpiryTask = hatchet.durableTask({
     // re-qualified (e.g. fired the event again), do not leave. Load merged
     // contact properties iff a property leg needs them so property predicates
     // match the real-time path instead of evaluating against undefined.
+    const owner = await resolveLiveContact(db, input.userId);
     const journeyContext =
       collectPropertyNames(bucket.criteria).length > 0
-        ? await loadContactProperties(db, input.userId)
+        ? (owner?.properties ?? {})
         : {};
     const stillMember = await evaluateCondition({
       condition: bucket.criteria,
       ctx: {
         db,
         userId: input.userId,
-        // PRD 05: real contactId wired when this subsystem's read batch flips
-        contactId: null,
+        // Resolved from the armed key. `null` for a contactless subject is
+        // correct and supported — `bySubject` then reads by the text key, which
+        // is the only history that subject has.
+        contactId: owner?.id ?? null,
         journeyContext,
       },
     });
@@ -396,32 +399,42 @@ async function selectEventLeavers(
     : null;
 
   // Active members of this bucket whose contact is live (GDPR — Section 8.6).
+  // The subject key of BOTH sides of this set-based join is now the owning
+  // contact, not the mutable text key: `user_id` rides along only because the
+  // leave emit re-ingests under it.
   const members = db
-    .select({ userId: bucketMemberships.userId })
+    .select({
+      userId: bucketMemberships.userId,
+      contactId: bucketMemberships.contactId,
+    })
     .from(bucketMemberships)
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
+        isNotNull(bucketMemberships.contactId),
       ),
     )
     .as("members");
 
-  // The windowed count of the criterion's event per member, set-based.
+  // The windowed count of the criterion's event per member, set-based. Grouped
+  // by the owning contact so a person's anon-era events count toward the window
+  // that decides whether they stay in the bucket.
   const counted = db
     .select({
-      userId: userEvents.userId,
+      contactId: userEvents.contactId,
       cnt: sql<number>`count(*)::int`.as("cnt"),
     })
     .from(userEvents)
     .where(
       and(
         eq(userEvents.event, criteria.eventName),
+        isNotNull(userEvents.contactId),
         cutoff ? gte(userEvents.occurredAt, cutoff) : undefined,
       ),
     )
-    .groupBy(userEvents.userId)
+    .groupBy(userEvents.contactId)
     .as("counted");
 
   // LEFT JOIN members → windowed counts. A missing/zero count is a 0. The
@@ -434,8 +447,8 @@ async function selectEventLeavers(
       cnt: sql<number>`coalesce(${counted.cnt}, 0)`,
     })
     .from(members)
-    .leftJoin(counted, eq(members.userId, counted.userId))
-    .innerJoin(contacts, eq(contactKeySql(), members.userId))
+    .leftJoin(counted, eq(members.contactId, counted.contactId))
+    .innerJoin(contacts, eq(contacts.id, members.contactId))
     .where(isNull(contacts.deletedAt));
 
   return rows
@@ -465,12 +478,12 @@ async function reconcileCompositeLeaves(opts: {
     .select({
       userId: bucketMemberships.userId,
       // Joined contact row → its id is the provenance pin for the leave emit
-      // (issue #608).
+      // (issue #608) AND the subject the per-member criteria evaluate for.
       contactId: contacts.id,
       properties: contacts.properties,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
+    .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
@@ -494,8 +507,9 @@ async function reconcileCompositeLeaves(opts: {
       ctx: {
         db,
         userId: member.userId,
-        // PRD 05: real contactId wired when this subsystem's read batch flips
-        contactId: null,
+        // The joined contact IS the subject, so the event/count legs read the
+        // whole person rather than whatever the membership's text key names.
+        contactId: member.contactId,
         journeyContext,
       },
     });
@@ -506,6 +520,11 @@ async function reconcileCompositeLeaves(opts: {
 
   // Bump lastEvaluatedAt for the whole chunk so the next tick advances the cursor
   // (including stable members, which are NOT leavers).
+  //
+  // NOT a subject read: `evaluatedIds` are the `user_id` values of the rows the
+  // SELECT above just returned, so this re-names those exact rows rather than
+  // asking who a person is. It stays exact because `uq_user_bucket_active` is
+  // retained (PRD 05 D5) — at most one active row per (user_id, bucket).
   if (evaluatedIds.length > 0) {
     await db
       .update(bucketMemberships)
@@ -554,7 +573,7 @@ async function reconcileBucketTtlLeaves(opts: {
       contactId: contacts.id,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
+    .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
@@ -596,8 +615,10 @@ async function bulkLeave(opts: {
   const { db, logger, journeyRegistry, bucket, leavers, reason } = opts;
   const userIds = leavers.map((l) => l.userId);
   // Membership key → resolved contact row id, for the emit's provenance pin.
-  // Safe to key by userId: the partial-active unique index guarantees one
-  // active row per (user, bucket), so a flipped row maps to exactly one leaver.
+  // Safe to key by userId, and safe for the `inArray` re-selection below: every
+  // leaver was read off `bucket_memberships` itself, and the retained
+  // `uq_user_bucket_active` (PRD 05 D5) guarantees one active row per
+  // (user_id, bucket) — so this names rows, it does not resolve identity.
   const contactIdByUser = new Map(
     leavers.map((l) => [l.userId, l.contactId] as const),
   );
@@ -735,10 +756,13 @@ async function claimCoalesceCohort(opts: {
   const now = new Date();
   const maxDwellMs = bucket.maxDwell ? durationToMs(bucket.maxDwell) : null;
 
-  // The cohort is exactly "resolves by the canonical key, but NOT by
-  // external_id" — the set the old join could not see. A correlated EXISTS
-  // keeps this a single UPDATE; the columns mirror the age clocks the
-  // dwell/TTL passes read (`coalesce(dwellAnchorAt, enteredAt)` and
+  // The cohort is exactly "owned by a live contact that has no external_id" —
+  // the set the pre-#625 `external_id` join could not see. The correlated
+  // EXISTS now matches on the owning contact (`bucket_memberships.contact_id`)
+  // rather than re-deriving the canonical key, which is the same cohort on
+  // undivergent data and additionally reaches a membership adopted under a
+  // stale key. A single UPDATE either way; the columns mirror the age clocks
+  // the dwell/TTL passes read (`coalesce(dwellAnchorAt, enteredAt)` and
   // `maxDwellAt`).
   const claimed = await db
     .update(bucketMemberships)
@@ -758,7 +782,7 @@ async function claimCoalesceCohort(opts: {
         isNull(bucketMemberships.deletedAt),
         sql`exists (
           select 1 from contacts c
-          where coalesce(c.external_id, c.anonymous_id, c.id::text) = ${bucketMemberships.userId}
+          where c.id = ${bucketMemberships.contactId}
             and c.deleted_at is null
             and c.external_id is null
         )`,
@@ -831,7 +855,7 @@ async function reconcileBucketDwell(opts: {
         dwellState: bucketMemberships.dwellState,
       })
       .from(bucketMemberships)
-      .innerJoin(contacts, eq(contactKeySql(), bucketMemberships.userId))
+      .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
       .where(
         and(
           eq(bucketMemberships.bucketId, bucket.id),
@@ -994,20 +1018,26 @@ async function reconcileBucketJoins(opts: {
   // never-active signups and bounds the scan to the once-active cohort.
   const everFiredEvents = Array.from(new Set(absenceLegs.map((l) => l.event)));
   const everFired = db
-    .selectDistinct({ userId: userEvents.userId })
+    .selectDistinct({ contactId: userEvents.contactId })
     .from(userEvents)
-    .where(inArray(userEvents.event, everFiredEvents))
+    .where(
+      and(
+        inArray(userEvents.event, everFiredEvents),
+        isNotNull(userEvents.contactId),
+      ),
+    )
     .as("ever_fired");
 
   // Users who already have an active membership (skip — they are members).
   const activeMembers = db
-    .select({ userId: bucketMemberships.userId })
+    .select({ contactId: bucketMemberships.contactId })
     .from(bucketMemberships)
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
+        isNotNull(bucketMemberships.contactId),
       ),
     )
     .as("active_members");
@@ -1031,41 +1061,41 @@ async function reconcileBucketJoins(opts: {
     ? selectPresentInAllWindows(db, absenceLegs)
     : null;
 
-  // The membership/event tables key on the RESOLVED string key (external_id ??
-  // anonymous_id ?? contact.id), NOT necessarily external_id — email-only /
-  // anonymous contacts have a NULL external_id and are keyed on their uuid /
-  // anonymous_id. Joining on contacts.externalId would force external_id NOT NULL
-  // for every candidate (the coalesce would collapse to external_id) and silently
-  // drop exactly the dormant email-only contacts this cron exists to reconcile.
-  // Join on the SAME coalesce expression so the projected key matches the join.
+  // Every join below is on the OWNING CONTACT (`contacts.id`), not on any
+  // string key. The scan starts from `contacts`, so history and membership are
+  // matched by the FK that names the person — a member whose events or
+  // membership sit under a since-stale key is neither missed as a candidate nor
+  // re-offered as one they already hold.
+  //
+  // `contactKeySql()` survives here as a PROJECTION only: `reconcileJoinOne`
+  // writes `bucket_memberships.user_id` and the join emit re-ingests under it,
+  // so the candidate still has to carry the canonical string key.
   const contactKey = contactKeySql();
 
   const baseQuery = db
     .select({
       userId: contactKey,
-      // The candidate scan reads straight off `contacts`, so the row id rides
-      // along as the provenance pin for the join emit (issue #608) —
-      // load-bearing for exactly the null-external_id contacts this coalesce
-      // join exists to include.
+      // The candidate scan reads straight off `contacts`, so the row id is both
+      // the join key and the provenance pin for the join emit (issue #608).
       contactId: contacts.id,
       email: contacts.email,
     })
     .from(contacts)
-    .innerJoin(everFired, eq(everFired.userId, contactKey))
-    .leftJoin(activeMembers, eq(activeMembers.userId, contactKey));
+    .innerJoin(everFired, eq(everFired.contactId, contacts.id))
+    .leftJoin(activeMembers, eq(activeMembers.contactId, contacts.id));
 
   const candidates = await (presentInAll
     ? baseQuery
-        .leftJoin(presentInAll, eq(presentInAll.userId, contactKey))
+        .leftJoin(presentInAll, eq(presentInAll.contactId, contacts.id))
         .where(
           and(
             isNull(contacts.deletedAt),
-            isNull(activeMembers.userId),
-            isNull(presentInAll.userId),
+            isNull(activeMembers.contactId),
+            isNull(presentInAll.contactId),
           ),
         )
     : baseQuery.where(
-        and(isNull(contacts.deletedAt), isNull(activeMembers.userId)),
+        and(isNull(contacts.deletedAt), isNull(activeMembers.contactId)),
       )
   )
     // Deterministic scan order for the bounded re-run (no keyset cursor; the
@@ -1109,15 +1139,16 @@ async function reconcileBucketJoins(opts: {
   for (const candidate of candidates) {
     if (!exact) {
       const journeyContext = needsProps
-        ? await loadContactProperties(db, candidate.userId)
+        ? await loadContactProperties(db, candidate.contactId)
         : {};
       const isMember = await evaluateCondition({
         condition: criteria,
         ctx: {
           db,
           userId: candidate.userId,
-          // PRD 05: real contactId wired when this subsystem's read batch flips
-          contactId: null,
+          // The scan reads straight off `contacts`, so the subject is exact and
+          // the confirm sees every event this person owns.
+          contactId: candidate.contactId,
           journeyContext,
         },
       });
@@ -1201,25 +1232,59 @@ function selectPresentInAllWindows(db: Database, legs: AbsenceLeg[]) {
     ),
   );
   return db
-    .select({ userId: userEvents.userId })
+    .select({ contactId: userEvents.contactId })
     .from(userEvents)
-    .where(or(...perLeg))
-    .groupBy(userEvents.userId)
+    .where(and(or(...perLeg), isNotNull(userEvents.contactId)))
+    .groupBy(userEvents.contactId)
     .having(sql`count(distinct ${userEvents.event}) >= ${legs.length}`)
     .as("present_all");
 }
 
-/** The merged stored properties of a contact (for property-leg evaluation). */
+/**
+ * The merged stored properties of a contact (for property-leg evaluation),
+ * looked up by the contact's own id.
+ *
+ * It used to look up `contacts.external_id = <canonical key>`, which never
+ * matched an email-only or anonymous contact (their `external_id` is NULL and
+ * their canonical key is the uuid / `anonymous_id`), so every property leg
+ * silently evaluated against `{}` for exactly the cohort the coalesce join was
+ * added to include. Both callers already hold the contact id.
+ */
 async function loadContactProperties(
   db: Database,
-  userId: string,
+  contactId: string,
 ): Promise<Record<string, unknown>> {
   const [contact] = await db
     .select({ properties: contacts.properties })
     .from(contacts)
-    .where(eq(contacts.externalId, userId))
+    .where(eq(contacts.id, contactId))
     .limit(1);
   return (contact?.properties as Record<string, unknown> | null) ?? {};
+}
+
+/**
+ * The live contact a canonical string key resolves to, or `null`. Used by the
+ * fast-expiry timer, which is handed only the key on its Hatchet payload and so
+ * has no contact row in scope. A READ-side lookup is admissible where the
+ * emit's provenance pin is not: the pin must be unforgeable because it decides
+ * which row a WRITE folds into, whereas this only decides whose history the
+ * criteria re-confirm reads — and it reads the same key the task is already
+ * keyed on.
+ */
+async function resolveLiveContact(
+  db: Database,
+  userKey: string,
+): Promise<{ id: string; properties: Record<string, unknown> } | null> {
+  const [contact] = await db
+    .select({ id: contacts.id, properties: contacts.properties })
+    .from(contacts)
+    .where(and(eq(contactKeySql(), userKey), isNull(contacts.deletedAt)))
+    .limit(1);
+  if (!contact) return null;
+  return {
+    id: contact.id,
+    properties: (contact.properties as Record<string, unknown> | null) ?? {},
+  };
 }
 
 /**
@@ -1244,7 +1309,12 @@ async function reconcileJoinOne(opts: {
 
   // entryCount ordinal = 1 + ALL prior memberships (active + left). Shared with
   // the real-time join path so the ordinal never drifts between the two writers.
-  const priorCount = await countPriorMemberships(db, bucket.id, userId);
+  const priorCount = await countPriorMemberships(
+    db,
+    bucket.id,
+    userId,
+    contactId ?? null,
+  );
   const epoch = priorCount + 1;
 
   const inserted = await db
@@ -1279,7 +1349,15 @@ async function reconcileJoinOne(opts: {
   // epoch always advances via the real insert; only the bucket:entered emission
   // is gated by the entryLimit policy — mirrors the real-time join path so the
   // cron-discovered join cannot bypass entryLimit (Section 6.3).
-  if (await shouldEmitJoin({ db, bucket, userId, priorCount })) {
+  if (
+    await shouldEmitJoin({
+      db,
+      bucket,
+      userId,
+      contactId: contactId ?? null,
+      priorCount,
+    })
+  ) {
     await emitBucketTransition({
       db,
       registry: journeyRegistry,

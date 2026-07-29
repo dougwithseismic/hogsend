@@ -16,6 +16,8 @@ export const userEvents = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id"),
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this
     // column yet; no FK by design — see PRD 04 D1. Indexed partially below.

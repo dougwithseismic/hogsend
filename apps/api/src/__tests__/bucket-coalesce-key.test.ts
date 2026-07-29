@@ -68,7 +68,7 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 const { bucketConfigs, bucketMemberships, contacts, userEvents } = await import(
   "@hogsend/db"
 );
-const { and, eq, inArray, like } = await import("drizzle-orm");
+const { and, eq, inArray, like, sql } = await import("drizzle-orm");
 const {
   bucketReconcileTask,
   computeCriteriaHash,
@@ -140,6 +140,23 @@ async function seedExternalContact(label: string): Promise<string> {
   return externalId;
 }
 
+/**
+ * The contact a canonical key resolves to. PRD 05 T5 flipped every cron join
+ * onto `bucket_memberships.contact_id`, and PRD 04 made a stamped id the
+ * invariant for any membership whose subject has a contact — so the fixture
+ * stamps it rather than describing a pre-04 row.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
 async function seedActiveMembership(opts: {
   userId: string;
   bucketId: string;
@@ -152,6 +169,7 @@ async function seedActiveMembership(opts: {
     status: "active",
     source: "reconcile",
     entryCount: 1,
+    contactId: await contactIdFor(opts.userId),
     enteredAt: new Date(Date.now() - opts.ageMs),
     dwellState: {},
     lastEvaluatedAt: new Date(Date.now() - DAY),

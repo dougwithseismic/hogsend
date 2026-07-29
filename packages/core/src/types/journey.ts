@@ -144,4 +144,13 @@ export interface JourneyUser {
   stateId: string;
   journeyId: string;
   journeyName: string;
+  /**
+   * The owning `contacts.id` this enrollment was stamped with, or `null` for a
+   * contactless subject (an anonymous visitor — the engine refuses to mint a
+   * contact on observation, so this is a permanent supported state). It is the
+   * enrollment row's own value, so it is replay-stable: a recovered run reads
+   * back exactly what the first entry wrote. Feed it to `bySubject` to scope a
+   * history read to the PERSON rather than to the mutable `id` text key.
+   */
+  contactId?: string | null;
 }

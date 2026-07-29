@@ -453,19 +453,20 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    // email_preferences.user_id uses external_id when present, else the contact
-    // uuid as the deterministic fallback (risk 10 — email-only contacts).
+    // PRD 05 T6 — preference rows are read by ownership stamp; the old
+    // `external_id ?? id` string derivation goes stale on adoption.
     const [prefRows, revenue, groupRows] = await Promise.all([
       db
         .select()
         .from(emailPreferences)
-        .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+        .where(eq(emailPreferences.contactId, contact.id))
         .limit(1),
       // Valued events are keyed by the contact's canonical event key — the
       // same precedence ingestEvent resolves (`external ?? anon ?? id`).
       getContactRevenue({
         db,
         key: contact.externalId ?? contact.anonymousId ?? contact.id,
+        contactId: contact.id,
       }),
       // The contact's live group memberships (mirrors the admin groups router's
       // join idiom): `group_memberships` → `groups`, live groups only, ordered

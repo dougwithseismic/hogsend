@@ -61,13 +61,25 @@ export async function computeJourneyLift(
 
   // Outcome: the contact fired ≥1 qualifying conversion AFTER their state
   // row was created (post-assignment — the intent-to-treat clock) and at
-  // or before the asOf snapshot instant.
+  // or before the asOf snapshot instant. Joined on the contact FK, not the
+  // text key: `conversions.contact_id` is NOT NULL, so a conversion always
+  // belongs to a resolved contact and no text fallback is needed — a
+  // contactless enrollment has no contact, therefore no conversion, and the
+  // NULL comparison correctly matches nothing. The old `c.user_key =
+  // js.user_id` string compare missed every conversion recorded under a key
+  // the person moved off after enrolling, under-counting converters.
   const convertedSql = sql`exists (
     select 1 from conversions c
-    where c.user_key = ${journeyStates.userId}
+    where c.contact_id = ${journeyStates.contactId}
       and c.occurred_at >= ${journeyStates.createdAt}
       and c.occurred_at <= ${asOfTs}${definitionSql}
   )`;
+
+  // WHO a row is about — the owning contact when stamped, else the mutable
+  // text key. The coalesce is load-bearing: `count(distinct …)` skips NULLs,
+  // so a bare `contact_id` would silently drop every contactless enrollment
+  // from the denominator and read as a quiet journey rather than a bug.
+  const subjectSql = sql`coalesce(${journeyStates.contactId}::text, ${journeyStates.userId})`;
 
   const cohort = async (control: boolean): Promise<LiftCohort> => {
     const statusFilter = control
@@ -75,8 +87,8 @@ export async function computeJourneyLift(
       : sql`${journeyStates.status} != 'held_out'`;
     const [row] = await db
       .select({
-        contacts: sql<number>`count(distinct ${journeyStates.userId})::int`,
-        converters: sql<number>`(count(distinct ${journeyStates.userId}) filter (where ${convertedSql}))::int`,
+        contacts: sql<number>`count(distinct ${subjectSql})::int`,
+        converters: sql<number>`(count(distinct ${subjectSql}) filter (where ${convertedSql}))::int`,
       })
       .from(journeyStates)
       .where(
@@ -125,7 +137,7 @@ export async function computeLiftValues(opts: LiftQueryOpts): Promise<{
               and js.created_at >= ${sinceTs}
               and js.created_at < ${asOfTs}
               and ${control ? sql`js.status = 'held_out'` : sql`js.status != 'held_out'`}
-              and js.user_id = c.user_key
+              and js.contact_id = c.contact_id
               and c.occurred_at >= js.created_at
           )${definitionSql}
         group by c.currency

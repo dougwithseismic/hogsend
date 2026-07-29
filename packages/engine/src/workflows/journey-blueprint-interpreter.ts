@@ -373,9 +373,9 @@ export async function walkBlueprintGraph(
               ctx: {
                 db,
                 userId: user.id,
-                // PRD 05: real contactId wired when this subsystem's read
-                // batch flips
-                contactId: null,
+                // The enrollment's own stamp — null for a contactless subject,
+                // which keeps the evaluator on the text key.
+                contactId: user.contactId ?? null,
                 journeyContext: user.properties,
               },
             });

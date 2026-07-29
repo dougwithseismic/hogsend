@@ -16,6 +16,8 @@ export const emailPreferences = pgTable(
   "email_preferences",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     email: text("email").notNull(),
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this

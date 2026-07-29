@@ -1,6 +1,6 @@
 import type { Conditions } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
-import { type DurationObject, durationToMs } from "@hogsend/core";
+import { bySubject, type DurationObject, durationToMs } from "@hogsend/core";
 import type {
   JourneyMeta,
   JourneyRunFn,
@@ -365,6 +365,26 @@ export async function executeJourneyRun(
 
   let state = recovered;
 
+  // The subject this run's ENTRY reads and writes history for, resolved AT MOST
+  // ONCE. PRD 05 T4 moved the entry guards off the mutable `user_id` string and
+  // onto `bySubject`, so the guards now need the same value the enrollment
+  // insert already stamped — memoizing it keeps that at one resolve per run
+  // rather than one per reader (`undefined` = not yet resolved; `null` = a
+  // resolved-to-nothing subject, which is a permanent supported state and must
+  // not re-probe).
+  let resolvedContactId: string | null | undefined;
+  const enrollmentContactId = async (): Promise<string | null> => {
+    if (resolvedContactId === undefined) {
+      resolvedContactId = await resolveEnrollmentContactId({
+        db,
+        userId,
+        journeyId: meta.id,
+        pushed: input.contactId,
+      });
+    }
+    return resolvedContactId;
+  };
+
   // FIRST ENTRY ONLY — the enrollment guards gate ENTRY, not resume. A
   // recovered enrollment already passed them on first entry, so it skips
   // straight to resuming the run. (Sends inside `run` still re-check
@@ -394,6 +414,7 @@ export async function executeJourneyRun(
       db,
       journey: meta,
       userId,
+      contactId: await enrollmentContactId(),
     });
     const entryPolicy = evaluateEnrollmentPolicy({
       journey: meta,
@@ -404,7 +425,11 @@ export async function executeJourneyRun(
       return { status: "skipped", reason: entryPolicy.reason };
     }
 
-    const prefs = await checkEmailPreferences({ db, userId });
+    const prefs = await checkEmailPreferences({
+      db,
+      userId,
+      contactId: await enrollmentContactId(),
+    });
     const preferencePolicy = evaluateEnrollmentPolicy({
       journey: meta,
       properties,
@@ -437,26 +462,23 @@ export async function executeJourneyRun(
       if (!holdoutPolicy.allowed) {
         const priorHoldout = await db.query.journeyStates.findFirst({
           where: and(
-            eq(journeyStates.userId, userId),
+            bySubject(journeyStates, {
+              contactId: await enrollmentContactId(),
+              userKey: userId,
+            }),
             eq(journeyStates.journeyId, meta.id),
             eq(journeyStates.status, "held_out"),
           ),
         });
         if (!priorHoldout) {
           const heldOutAt = new Date();
-          // PRD 04 dual-write. This is deliberately its OWN D6-wrapped resolve
-          // rather than a hoist of the `subjectContactId` compute below: that
-          // compute lives INSIDE the ingest try/catch, and lifting it out would
-          // change which failures skip the `journey.heldout` re-emit — a
-          // control-flow change to the identity-provenance path, made for
-          // bookkeeping. Cost on this once-ever-per-(user, journey) path: one
-          // live-PK validation probe with a pushed pin, 1-2 probes without.
-          const heldOutContactId = await resolveEnrollmentContactId({
-            db,
-            userId,
-            journeyId: meta.id,
-            pushed: input.contactId,
-          });
+          // PRD 04 dual-write, via the run-scoped memo the guard above already
+          // paid for (identical arguments, so identical value). Deliberately
+          // NOT the `subjectContactId` compute below: that one lives INSIDE the
+          // ingest try/catch, and hoisting it would change which failures skip
+          // the `journey.heldout` re-emit — a control-flow change to the
+          // identity-provenance path, made for bookkeeping.
+          const heldOutContactId = await enrollmentContactId();
           const inserted = await db
             .insert(journeyStates)
             .values({
@@ -590,7 +612,10 @@ export async function executeJourneyRun(
 
     const activeState = await db.query.journeyStates.findFirst({
       where: and(
-        eq(journeyStates.userId, userId),
+        bySubject(journeyStates, {
+          contactId: await enrollmentContactId(),
+          userKey: userId,
+        }),
         eq(journeyStates.journeyId, meta.id),
         inArray(journeyStates.status, ["active", "waiting"]),
       ),
@@ -603,6 +628,21 @@ export async function executeJourneyRun(
     if (!activePolicy.allowed) {
       return { status: "skipped", reason: activePolicy.reason };
     }
+
+    // PRD 04 dual-write — the pushed pin when ingest resolved one, else one
+    // D6-wrapped probe. NULL (unknown subject / refused resolve) is a legal
+    // stamp: the enrollment proceeds exactly as before. Resolved FRESH here
+    // (not via the guard-time memo): the guard chain is long enough for a
+    // concurrent identify to mint the subject's contact mid-window, and a
+    // stale NULL stamp on the insert would sit outside the contact-scoped
+    // unique index that backstops double-enrollment. The memo cache is
+    // refreshed with the result so later readers agree with the stamp.
+    resolvedContactId = await resolveEnrollmentContactId({
+      db,
+      userId,
+      journeyId: meta.id,
+      pushed: input.contactId,
+    });
 
     // A successful insert always returns exactly one row, so undefined here
     // can ONLY mean a burst-race conflict (see insertEnrollment's doc for
@@ -622,15 +662,7 @@ export async function executeJourneyRun(
       hatchetRunId: workflowRunId,
       journeyVersionHash: meta.versionHash ?? null,
       journeyVersionLabel: meta.version ?? null,
-      // PRD 04 dual-write — the pushed pin when ingest resolved one, else one
-      // D6-wrapped probe. NULL (unknown subject / refused resolve) is a legal
-      // stamp: the enrollment proceeds exactly as before.
-      contactId: await resolveEnrollmentContactId({
-        db,
-        userId,
-        journeyId: meta.id,
-        pushed: input.contactId,
-      }),
+      contactId: resolvedContactId,
       serializeWithGraphLock: options.serializeEnrollment,
     });
     if (!state) {
@@ -664,6 +696,9 @@ export async function executeJourneyRun(
     stateId,
     journeyId: meta.id,
     journeyName: meta.name,
+    // The enrollment row's OWN stamp — replay-stable (a recovered run reads
+    // back what first entry wrote) and NULL for a contactless subject.
+    contactId: state.contactId,
   };
 
   // The injected analytics instance (set by createHogsendClient). Same
@@ -738,14 +773,18 @@ export async function executeJourneyRun(
     journeyId: meta.id,
     entryLimit: meta.entryLimit,
     ...(meta.entryPeriod ? { entryPeriod: meta.entryPeriod } : {}),
-    // Group-scope resolution inputs: the trigger event's association map
-    // (rides the task input, replay-stable) and the subject contact id —
-    // the pushed contactId when present, else the contact row already
-    // fetched for timezone above (best-effort: undefined only defers the
-    // resolver's no-contact throw to the membership leg).
+    // The subject contact id — feeds BOTH the group-scope resolver and (PRD
+    // 05 T4) every bySubject history read on the context. `state.contactId`
+    // FIRST: it is the enrollment row's own stamp, validated by
+    // `resolveEnrollmentContactId` (a merged-away tombstone pin is rejected
+    // and re-resolved to the survivor) and replay-stable, where the raw
+    // pushed pin can be stale by the queue delay and the `contact` row here
+    // is an externalId-only best-effort fetch that misses anon-keyed
+    // contacts. The pin/row legs remain only as fallbacks for a NULL stamp
+    // (a pre-column-era recovered enrollment the sweep has not reached).
     ...(input.groups ? { triggerGroups: input.groups } : {}),
-    ...((input.contactId ?? contact?.id)
-      ? { contactId: input.contactId ?? contact?.id }
+    ...((state.contactId ?? input.contactId ?? contact?.id)
+      ? { contactId: state.contactId ?? input.contactId ?? contact?.id }
       : {}),
   });
 

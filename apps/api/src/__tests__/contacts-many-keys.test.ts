@@ -273,10 +273,13 @@ describe("T2 — uniform claim path preserves adoption and idempotence", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.contactId).toBe(contact.id);
 
-    // History adopted onto the canonical key; the orphan string is empty.
-    expect(await eventsUnder(device2)).toHaveLength(0);
-    const adopted = await eventsUnder(extId);
-    expect(adopted.some((e) => e.event === `${RUN}.browsed`)).toBe(true);
+    // History adopted by STAMP (T9 — rows never move): the row stays frozen
+    // under the second device's key and carries the contact's id, which is
+    // the axis every read now resolves.
+    const adopted = await eventsUnder(device2);
+    expect(adopted).toHaveLength(1);
+    expect(adopted[0]?.event).toBe(`${RUN}.browsed`);
+    expect(adopted[0]?.contactId).toBe(contact.id);
 
     // A later resolve on the second id alone lands on the same person.
     const reResolved = await resolveOrCreateContact({

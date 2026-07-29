@@ -224,9 +224,12 @@ export async function checkActionAudience(
       });
     }
 
+    // PRD 05 T6 — the contact row is in hand, so the read is contact-scoped
+    // directly; the old `externalId ?? id` string derivation is the idiom the
+    // flip retires.
     const prefs = await readRecipientPreferences(db, {
       email: contact.email,
-      userId: contact.externalId ?? contact.id,
+      contactId: contact.id,
     });
     if (prefs.unsubscribedAll) {
       return {

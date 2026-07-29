@@ -1,7 +1,9 @@
-import { bucketConfigs, bucketMemberships } from "@hogsend/db";
+import { bySubject } from "@hogsend/core";
+import { bucketConfigs, bucketMemberships, contacts } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { contactKeySql } from "../../lib/contacts.js";
 
 const bucketSchema = z.object({
   id: z.string(),
@@ -464,7 +466,23 @@ export const bucketsRouter = new OpenAPIHono<AppEnv>()
       isNull(bucketMemberships.deletedAt),
     ];
     if (userId) {
-      conditions.push(eq(bucketMemberships.userId, userId));
+      // The `userId` filter is a canonical key typed by an operator, so resolve
+      // it to the contact it names and scope by SUBJECT. A raw
+      // `user_id = :userId` filter hides every row this person accumulated
+      // under an earlier key — the exact history Studio is being asked to show.
+      // No live contact for the key → fall back to the string arm, which is
+      // also the right answer for a contactless (anonymous) subject.
+      const [owner] = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contactKeySql(), userId), isNull(contacts.deletedAt)))
+        .limit(1);
+      conditions.push(
+        bySubject(bucketMemberships, {
+          contactId: owner?.id ?? null,
+          userKey: userId,
+        }),
+      );
     }
 
     const where = and(...conditions);

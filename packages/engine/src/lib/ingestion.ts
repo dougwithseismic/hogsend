@@ -5,7 +5,7 @@ import type {
   GroupsAssociation,
   PropertyCondition,
 } from "@hogsend/core";
-import { evaluatePropertyConditions } from "@hogsend/core";
+import { bySubject, evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { JourneyMeta } from "@hogsend/core/types";
 import {
@@ -728,6 +728,7 @@ export async function ingestEvent(opts: {
     }),
     checkExits(db, registry, hatchet, logger, {
       userId: resolvedKey,
+      contactId,
       eventName: event.event,
       properties: event.eventProperties,
     }),
@@ -854,6 +855,7 @@ export async function ingestEvent(opts: {
             logger,
             conversionId: firedConversion.conversionId,
             userKey: resolvedKey,
+            contactId,
             value: firedConversion.value,
             currency: firedConversion.currency,
             occurredAt: insertedRow.occurredAt,
@@ -998,6 +1000,13 @@ async function checkExits(
   logger: Logger,
   event: {
     userId: string;
+    /**
+     * The subject's resolved `contacts.id`, or `null` when the resolve refused
+     * to mint one (an anonymous visitor — a permanent supported state). The
+     * scan MUST still exit that population's journeys, which is why this goes
+     * through `bySubject` rather than a bare `contact_id` predicate.
+     */
+    contactId: string | null;
     eventName: string;
     properties: Record<string, unknown>;
   },
@@ -1006,7 +1015,10 @@ async function checkExits(
 
   const activeStates = await db.query.journeyStates.findMany({
     where: and(
-      eq(journeyStates.userId, event.userId),
+      bySubject(journeyStates, {
+        contactId: event.contactId,
+        userKey: event.userId,
+      }),
       inArray(journeyStates.status, ["active", "waiting"]),
       isNull(journeyStates.deletedAt),
     ),

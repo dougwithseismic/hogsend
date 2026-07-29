@@ -312,7 +312,7 @@ export async function sendFeedItem(
   // channel list regardless of the item's own category.
   //
   // The preference read is the UNIFIED aggregated `readRecipientPreferences`
-  // keyed by BOTH the recipient's `external_id ?? contact_id` AND its email —
+  // keyed by BOTH the recipient's resolved `contact_id` AND its email —
   // NOT the old single-row `(extId, email)` lookup. This is a deliberate,
   // suppression-conservative behaviour change: an `unsubscribed_all` (or category
   // opt-out) imported before the contact existed and keyed `(email, email)` now
@@ -333,12 +333,12 @@ export async function sendFeedItem(
       userId: recipient.userId,
       email: recipient.email,
     });
-    // `external_id ?? contact_id` — the SAME identity key the old single-row read
-    // used (and that preference writes key on). Undefined for an anon recipient.
-    const extId = recip ? (recip.externalId ?? recip.contactId) : undefined;
+    // PRD 05 T6 — contact-scoped read (the resolved contact id IS the subject);
+    // the old `external_id ?? contact_id` string derivation is retired. Null
+    // for an anon recipient: email leg only, same as before.
     const prefs = await readRecipientPreferences(db, {
       email: recip?.email,
-      userId: extId,
+      contactId: recip?.contactId ?? null,
     });
     // `unsubscribed_all` on an IDENTIFIED recipient suppresses (consistent with
     // the email mailer's `checkEmailPreferences`); guarded on `recip` so an

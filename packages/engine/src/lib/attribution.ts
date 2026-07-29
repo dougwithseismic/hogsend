@@ -3,6 +3,7 @@ import {
   computeAllModels,
 } from "@hogsend/attribution";
 import {
+  bySubject,
   type DurationObject,
   durationToMs,
   TOUCHPOINT_EVENTS,
@@ -120,6 +121,16 @@ export async function recordAttributionCredits(opts: {
   conversionId: string;
   /** The contact's canonical event key (`user_events.user_id`). */
   userKey: string;
+  /**
+   * The trusted owner uuid (`conversions.contact_id`). REQUIRED (not
+   * optional) for the same reason the enrollment guards' is: an optional
+   * field silently defaults a new caller onto the mutable text key, and the
+   * touchpoint path is precisely the history written BEFORE the person was
+   * identified — a key-scoped read drops the anonymous half of every journey
+   * and credits the conversion to nothing. Pass `null` explicitly for a
+   * subject with no contact; `userKey` still serves that case.
+   */
+  contactId: string | null;
   value: number | null;
   currency: string | null;
   /** When the conversion happened. */
@@ -132,8 +143,16 @@ export async function recordAttributionCredits(opts: {
    */
   windows?: Partial<Record<TouchpointChannel, DurationObject>>;
 }): Promise<{ touchpoints: number }> {
-  const { db, logger, conversionId, userKey, value, currency, occurredAt } =
-    opts;
+  const {
+    db,
+    logger,
+    conversionId,
+    userKey,
+    contactId,
+    value,
+    currency,
+    occurredAt,
+  } = opts;
   const defaultWindowMs = opts.windowDays * 24 * 60 * 60 * 1000;
   const channelWindowMs = new Map<TouchpointChannel, number>(
     Object.entries(opts.windows ?? {}).map(([channel, duration]) => [
@@ -158,7 +177,7 @@ export async function recordAttributionCredits(opts: {
     .from(userEvents)
     .where(
       and(
-        eq(userEvents.userId, userKey),
+        bySubject(userEvents, { contactId, userKey }),
         inArray(userEvents.event, [...TOUCHPOINT_EVENTS]),
         gte(userEvents.occurredAt, windowStart),
         lte(userEvents.occurredAt, occurredAt),

@@ -307,19 +307,26 @@ beforeAll(async () => {
   await db.insert(emailSends).values({
     fromEmail: "hello@hogsend.com",
     toEmail: CONTACT_EMAIL,
+    contactId,
     subject: "Welcome",
     templateKey: WELCOME_TEMPLATE,
     status: "sent",
     openedAt: new Date(),
   });
 
+  // `contactId` is stamped on every contact-owned history row here, exactly as
+  // the dual-write does in production: a row whose `user_id` names a live
+  // contact while its `contact_id` is NULL is an invariant violation, and a
+  // contact-scoped read is entitled not to see it.
   await db.insert(bucketMemberships).values({
     userId: USER,
+    contactId,
     bucketId: BUCKET_ID,
     status: "active",
   });
   await db.insert(journeyStates).values({
     userId: USER,
+    contactId,
     userEmail: `${USER}@example.com`,
     journeyId: JOURNEY_ID,
     currentNodeId: "done",
@@ -333,7 +340,9 @@ beforeAll(async () => {
     stageRank: 5,
     soldAt: new Date(),
   });
-  await db.insert(userEvents).values({ userId: USER, event: "purchased" });
+  await db
+    .insert(userEvents)
+    .values({ userId: USER, contactId, event: "purchased" });
 
   await seedFlag(`${RUN}-bucket`, { type: "bucket", bucketId: BUCKET_ID });
   await seedFlag(`${RUN}-journey`, {

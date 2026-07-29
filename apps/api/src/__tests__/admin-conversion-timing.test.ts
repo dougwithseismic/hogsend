@@ -53,15 +53,23 @@ beforeAll(async () => {
     const contactId = contact?.id as string;
     contactIds.push(contactId);
 
-    // Anchor event + a journey enrollment, both at `base`.
+    // Anchor event + a journey enrollment, both at `base`. Both carry
+    // `contact_id`, stamped exactly as the engine's dual-write does: the
+    // /timing subjects CTE reads by SUBJECT (PRD 05), keying each anchor on
+    // `coalesce(<t>.contact_id::text, <t>.user_id)` and correlating that to
+    // `conversions.contact_id`. An unstamped fixture would key the anchors on
+    // text and match no conversion at all — a zero `converted` that reads as
+    // "nobody converted" rather than as a broken query.
     await db.insert(userEvents).values({
       userId: s.key,
+      contactId,
       event: ANCHOR_EVENT,
       properties: {},
       occurredAt: base,
     });
     await db.insert(journeyStates).values({
       userId: s.key,
+      contactId,
       userEmail: `${s.key}@example.com`,
       journeyId: JOURNEY,
       currentNodeId: "done",
@@ -75,6 +83,7 @@ beforeAll(async () => {
       .insert(userEvents)
       .values({
         userId: s.key,
+        contactId,
         event: `${RUN}-purchased`,
         properties: {},
         occurredAt: convAt,

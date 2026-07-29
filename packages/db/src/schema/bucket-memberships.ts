@@ -20,6 +20,8 @@ export const bucketMemberships = pgTable(
     organizationId: text("organization_id"),
     // logical join to contacts.externalId — NO FK (matches userEvents /
     // journeyStates; membership rows can predate a contacts row).
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     userEmail: text("user_email"), // denormalized so emitted events carry it
     // Owning contact, dual-written by the engine (PRD 04). NOTHING reads this

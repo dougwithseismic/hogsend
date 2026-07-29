@@ -243,6 +243,15 @@ export const journeyImpactRouter = new OpenAPIHono<AppEnv>().openapi(
       ? sql` and c.definition_id = ${definitionId}`
       : sql``;
     const sinceTs = sql`${since.toISOString()}::timestamptz`;
+    // Same subject/cohort pair as /impact/overview — see the long rationale on
+    // `jsSubject`/`convBySubject` in `routes/admin/impact.ts`. In short: the
+    // coalesce is load-bearing (a bare `count(distinct js.contact_id)` drops
+    // every contactless enrollment, since `count(distinct …)` skips NULLs),
+    // and the cohort side needs no fallback because `conversions.contact_id`
+    // is NOT NULL. Both readouts MUST use the identical pair or /impact and
+    // /journeys/:id/impact report different enrollments for one cohort.
+    const jsSubject = sql`coalesce(js.contact_id::text, js.user_id)`;
+    const convBySubject = sql`c.contact_id = js.contact_id`;
     const versionRows = await db.execute<{
       hash: string | null;
       label: string | null;
@@ -261,20 +270,20 @@ export const journeyImpactRouter = new OpenAPIHono<AppEnv>().openapi(
           as first_enrolled_at,
         max(js.created_at) filter (where js.status != 'held_out')
           as last_enrolled_at,
-        count(distinct js.user_id)
+        count(distinct ${jsSubject})
           filter (where js.status != 'held_out')::int as enrollments,
-        (count(distinct js.user_id) filter (where js.status != 'held_out'
+        (count(distinct ${jsSubject}) filter (where js.status != 'held_out'
           and exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at${definitionSql}
         )))::int as converters,
-        count(distinct js.user_id)
+        count(distinct ${jsSubject})
           filter (where js.status = 'held_out')::int as control_contacts,
-        (count(distinct js.user_id) filter (where js.status = 'held_out'
+        (count(distinct ${jsSubject}) filter (where js.status = 'held_out'
           and exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at${definitionSql}
         )))::int as control_converters
       from journey_states js
@@ -339,10 +348,10 @@ export const journeyImpactRouter = new OpenAPIHono<AppEnv>().openapi(
         select
           v.key as variant_key,
           v.arm as arm,
-          count(distinct js.user_id)::int as enrollments,
-          (count(distinct js.user_id) filter (where exists (
+          count(distinct ${jsSubject})::int as enrollments,
+          (count(distinct ${jsSubject}) filter (where exists (
             select 1 from conversions c
-            where c.user_key = js.user_id
+            where ${convBySubject}
               and c.occurred_at >= js.created_at${definitionSql}
           )))::int as converters
         from journey_states js

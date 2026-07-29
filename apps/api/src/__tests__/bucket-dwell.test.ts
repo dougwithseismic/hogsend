@@ -42,7 +42,7 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 const { bucketConfigs, bucketMemberships, contacts, userEvents } = await import(
   "@hogsend/db"
 );
-const { and, eq, like } = await import("drizzle-orm");
+const { and, eq, like, sql } = await import("drizzle-orm");
 const {
   bucketReconcileTask,
   computeCriteriaHash,
@@ -87,6 +87,23 @@ async function seedContact(userId: string): Promise<void> {
 }
 
 /**
+ * The contact a canonical key resolves to. PRD 05 T5 flipped the cron's
+ * `contacts` join onto `bucket_memberships.contact_id`, and PRD 04 made a
+ * stamped id the invariant for any membership whose subject has a contact —
+ * so the fixtures stamp it instead of describing a pre-04 row.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * Seed an ACTIVE membership row for (user, bucket) with a controlled dwell clock.
  * `enteredAt` defaults to `now - ageMs`; `dwellAnchorAt`/`dwellState` are optional
  * (the dwell gate reads coalesce(dwellAnchorAt, enteredAt)). Returns the row id.
@@ -108,6 +125,7 @@ async function seedActiveMembership(opts: {
       status: "active",
       source: "reconcile",
       entryCount: 1,
+      contactId: await contactIdFor(opts.userId),
       enteredAt,
       dwellAnchorAt: opts.dwellAnchorAt ?? null,
       dwellState: opts.dwellState ?? {},
@@ -354,6 +372,7 @@ describe("dwell continuous-membership gate (Test 18)", () => {
       status: "left",
       source: "reconcile",
       entryCount: 1,
+      contactId: await contactIdFor(leftUser),
       enteredAt: new Date(Date.now() - 30 * DAY),
       leftAt: new Date(Date.now() - DAY),
     });
@@ -413,6 +432,7 @@ describe("dwell maxDwell interop (Test 19)", () => {
       status: "active",
       source: "reconcile",
       entryCount: 1,
+      contactId: await contactIdFor(m),
       enteredAt: new Date(Date.now() - 10 * DAY),
       maxDwellAt: new Date(Date.now() - DAY),
       lastEvaluatedAt: new Date(Date.now() - DAY),
@@ -430,6 +450,7 @@ describe("dwell maxDwell interop (Test 19)", () => {
       status: "active",
       source: "reconcile",
       entryCount: 1,
+      contactId: await contactIdFor(survivor),
       enteredAt: new Date(Date.now() - 10 * DAY),
       maxDwellAt: new Date(Date.now() + DAY),
       lastEvaluatedAt: new Date(Date.now() - DAY),
