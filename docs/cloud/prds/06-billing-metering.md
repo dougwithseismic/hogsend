@@ -44,3 +44,17 @@ Seams: Stripe keys (test-mode first), price IDs.
    _Boundary:_ apps/cloud. _Depends:_ 1, 2.
 
 ## Implementation Notes
+Shipped in 4 commits (T1 engine, T2 billing seam, T3 metering, test-db chore); 506 cloud
+tests + 12 engine tests at close. Notables: T2 review caught the dunning clock being
+self-wiped (Stripe's `past_due` subscription.updated read as good standing — fixed with a
+status allowlist; invoice events are the sole dunning-clock writers) and prod falling back
+to FakeBilling (public webhook constant — prod now refuses `fake`, `disabled` mode 503s).
+`suspended_reason` column scopes what a payment may lift. T3 review caught: billing
+recovery never resumed stacks (added `resumeOrganizationStacks` in `recover()`), upgrade
+un-suspends ingest immediately via `reconcileIngestFlag` (not next cron), trial cap
+measured over the trial WINDOW not calendar month (`billingWindow`), month-close sweep
+re-meters the previous period within 48h of the boundary, and caps sum ALL environments
+(staging ingest was an unlimited bypass). Metering connects `default_transaction_read_only`
+at session start, max 1 conn, absolute upserts. Deferred: a dedicated `<db>_meter`
+read-only ROLE (GUC is belt-only today); `DATABASE_POOL_MAX` not yet passed to tenant
+stacks at provision (T1 built the engine side); sequential fleet sweep (fine small-fleet).

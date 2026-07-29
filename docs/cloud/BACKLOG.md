@@ -10,7 +10,7 @@ Ordered queue. Statuses: `[ ]` not started · `[~]` shipped-to-seam (human ask o
 | 03 | [auth-dashboard](prds/03-auth-dashboard.md) | [x] | 02 | signup/OTP/org-create, dashboard shell, members/roles, essentials (legal, API docs) |
 | 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [~] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
 | 05 | [onboarding-keys](prds/05-onboarding-keys.md) | [x] | 03, 04 | paste-your-keys flow, live validation, env sync |
-| 06 | [billing-metering](prds/06-billing-metering.md) | [ ] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page |
+| 06 | [billing-metering](prds/06-billing-metering.md) | [~] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page (seam: Stripe test keys + price IDs) |
 | 08 | [build-pipeline](prds/08-build-pipeline.md) | [ ] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (also builds the default scaffold image) |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [ ] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
 | 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
