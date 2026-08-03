@@ -23,6 +23,8 @@
  * `load-failed` is OUR bug and should be reported, not worked around.
  */
 
+import { recordBootDiagnostic } from "./boot-diagnostics.js";
+
 export type PluginLoadOutcome =
   | "not-installed"
   | "load-failed"
@@ -112,31 +114,35 @@ export async function loadOptionalPlugin<T>(opts: {
 }): Promise<T | null> {
   const { specifier, exportName, enabledBy, onFailure } = opts;
 
+  // Every failure path records a boot diagnostic HERE, unconditionally — not
+  // in the call sites' `onFailure` hooks. The hooks run once per process at
+  // module scope, gated on env at import time, so hook-side recording could
+  // never be exercised in-workspace (the real plugins are workspace-linked);
+  // this loader is the one seam an injected specifier can drive through all
+  // three outcomes. The code bakes in outcome + specifier so two broken
+  // plugins (or two outcomes) yield two entries, never a silent dedupe.
+  const fail = (outcome: PluginLoadOutcome, error?: unknown): null => {
+    const message = messageFor({
+      specifier,
+      exportName,
+      enabledBy,
+      outcome,
+      error,
+    });
+    recordBootDiagnostic({ code: `plugin.${outcome}:${specifier}`, message });
+    onFailure?.(message, outcome);
+    return null;
+  };
+
   let mod: Record<string, unknown>;
   try {
     mod = (await import(specifier)) as Record<string, unknown>;
   } catch (error) {
-    const outcome = classify(error, specifier);
-    onFailure?.(
-      messageFor({ specifier, exportName, enabledBy, outcome, error }),
-      outcome,
-    );
-    return null;
+    return fail(classify(error, specifier), error);
   }
 
   const factory = mod[exportName];
-  if (typeof factory !== "function") {
-    onFailure?.(
-      messageFor({
-        specifier,
-        exportName,
-        enabledBy,
-        outcome: "missing-export",
-      }),
-      "missing-export",
-    );
-    return null;
-  }
+  if (typeof factory !== "function") return fail("missing-export");
 
   return factory as T;
 }

@@ -428,22 +428,39 @@ echo "==> [7/10] pnpm build (scaffolded app)"
 [ -f "$APPDIR/dist/index.js" ] || fail "dist/index.js not produced"
 [ -f "$APPDIR/dist/worker.js" ] || fail "dist/worker.js not produced"
 
-# --- 7b. opt-in plugin loads under plain node -----------------------------
+# --- 7b. every opt-in plugin loads under plain node -----------------------
 # Reproduce EXACTLY what the engine does at runtime: a dynamic import whose
 # specifier is assembled at runtime (invisible to tsc AND the bundler), so it
-# resolves from the scaffolded app's own node_modules. MUST be plain `node`,
-# not tsx — tsx transpiles node_modules and would have masked the raw-.ts
-# runtime entry that shipped #611.
-echo "==> [7b] plugin-apollo dynamic import under plain node"
-(cd "$APPDIR" && node --input-type=module -e '
-  const specifier = ["@hogsend", "plugin-apollo"].join("/");
-  const mod = await import(specifier);
-  if (typeof mod.createApolloProvider !== "function") {
-    console.error("createApolloProvider is not a function export");
-    process.exit(1);
-  }
-') || fail "plugin-apollo did not load under plain node from the scaffolded app"
-echo "    engine-style dynamic import resolves + exports the factory"
+# resolves from the app's own node_modules. MUST be plain `node`, not tsx —
+# tsx transpiles node_modules and would have masked the raw-.ts runtime entry
+# that shipped #611.
+#
+# apollo is a `--with` dependency of this app; postmark and twilio are the other
+# two opt-in plugins. All three ship the same way (built dist/ runtime entry,
+# raw-.ts types) and regressed together in #611, so all three must be proven —
+# a load proof of one is not a load proof of the others. Install the two extra
+# LOCAL tarballs (which pulls their transitive deps, e.g. twilio externalizes
+# the `twilio` package) so the proof exercises the about-to-publish build, not a
+# registry copy the engine's optionalDependencies may have pulled in.
+echo "==> [7b] opt-in plugins load under plain node (apollo, postmark, twilio)"
+postmark_tgz="$(echo "$TARBALLS"/hogsend-plugin-postmark-*.tgz)"
+twilio_tgz="$(echo "$TARBALLS"/hogsend-plugin-twilio-*.tgz)"
+[ -f "$postmark_tgz" ] || fail "no local @hogsend/plugin-postmark tarball in $TARBALLS"
+[ -f "$twilio_tgz" ] || fail "no local @hogsend/plugin-twilio tarball in $TARBALLS"
+(cd "$APPDIR" && pnpm add "$postmark_tgz" "$twilio_tgz" >/dev/null 2>&1) \
+  || fail "installing plugin-postmark/plugin-twilio tarballs into the app failed"
+for plugin in apollo:createApolloProvider postmark:createPostmarkProvider twilio:createTwilioProvider; do
+  id="${plugin%%:*}"
+  (cd "$APPDIR" && PLUGIN_ID="$id" FACTORY="${plugin#*:}" node --input-type=module -e '
+    const specifier = ["@hogsend", "plugin-" + process.env.PLUGIN_ID].join("/");
+    const mod = await import(specifier);
+    if (typeof mod[process.env.FACTORY] !== "function") {
+      console.error(process.env.FACTORY + " is not a function export");
+      process.exit(1);
+    }
+  ') || fail "plugin-$id did not load under plain node from the scaffolded app"
+  echo "    plugin-$id: engine-style dynamic import resolves + exports its factory"
+done
 
 # --- 8. boot smoke --------------------------------------------------------
 # The AI-SDK bundling bug ("Dynamic require of X is not supported") throws at

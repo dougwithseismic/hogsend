@@ -55,9 +55,14 @@ const usage = `hogsend doctor [--url <baseUrl>] [--admin-key <key>] [--json]
 
 Probe a running Hogsend instance via GET /v1/health and report its health:
 component status (database, redis), two-track schema state (engine + client),
-and an overall verdict.
+boot-time config warnings, and an overall verdict.
 
 The health route is unauthenticated, so doctor works without an admin key.
+Health reports config warnings as a COUNT only; the messages live behind the
+admin-guarded GET /v1/admin/config. Doctor fetches that detail when warnings
+exist and a key is available — but an env/.env-derived key is never sent to
+an origin overridden via --url; only an explicit --admin-key authorizes that.
+Config warnings are advisory: they never change the verdict or exit code.
 
 Verdict:
   ok                 service healthy, all components up, schema in sync
@@ -69,7 +74,7 @@ Exit code: 0 when ok, 1 when unreachable / degraded / migration_pending.
 
 Options:
   --url <baseUrl>    Target instance (default HOGSEND_API_URL / .env / :3002).
-  --admin-key <key>  Unused by doctor (health is unauthenticated).
+  --admin-key <key>  List config-warning detail (GET /v1/admin/config).
   --json             Emit machine-readable JSON only.
   -h, --help         Show this help.`;
 
@@ -97,6 +102,21 @@ interface HealthResponse {
     engine: HealthTrack;
     client: HealthTrack;
   };
+  /**
+   * Boot-time config diagnostics, COUNT ONLY (message text is admin-gated).
+   * OPTIONAL: an older engine has no config block — doctor must still work.
+   */
+  config?: { warnings: number };
+}
+
+/** One boot diagnostic from GET /v1/admin/config, tagged by OS process. */
+interface ConfigWarning {
+  code: string;
+  message: string;
+  process: "api" | "worker";
+}
+interface AdminConfigResponse {
+  warnings: ConfigWarning[];
 }
 
 type Verdict = "ok" | "degraded" | "migration_pending" | "unreachable";
@@ -115,6 +135,37 @@ function toVerdict(status: HealthResponse["status"]): Verdict {
 
 function componentSymbol(status: "up" | "down"): string {
   return status === "up" ? color.green("up") : color.red("down");
+}
+
+/**
+ * Render the `Config` section body: the warning count (always available from
+ * /v1/health), the per-diagnostic detail when it was fetched, and otherwise a
+ * hint for how to see it. Warnings are advisory — the verdict never moves.
+ */
+function configLines(
+  count: number,
+  detail: ConfigWarning[] | null,
+  detailError: string | null,
+): string[] {
+  if (count === 0) return [`  ${color.green("no warnings")}`];
+  const plural = count === 1 ? "warning" : "warnings";
+  const lines = [
+    `  ${color.yellow(`${count} ${plural}`)} ${color.dim("(advisory — verdict unaffected)")}`,
+  ];
+  if (detail) {
+    for (const warning of detail) {
+      lines.push(
+        `    ${color.dim(`[${warning.process}]`.padEnd(8))} ${color.bold(warning.code)}  ${warning.message}`,
+      );
+    }
+  } else if (detailError) {
+    lines.push(`    ${color.dim(`detail unavailable: ${detailError}`)}`);
+  } else {
+    lines.push(
+      `    ${color.dim("pass --admin-key <key> to list them (GET /v1/admin/config)")}`,
+    );
+  }
+  return lines;
 }
 
 function trackLine(name: string, track: HealthTrack): string {
@@ -197,6 +248,46 @@ async function run(ctx: CommandContext): Promise<void> {
   const verdict = toVerdict(health.status);
   const ok = verdict === "ok";
 
+  // Config-warning detail (GET /v1/admin/config) is DOUBLE-GATED, because
+  // `resolveConfig` finds the admin key ambiently (env, then the cwd `.env`)
+  // and an unguarded fetch would transmit that full-admin bearer token to
+  // whatever origin `--url` named:
+  //
+  //  1. Only fetch when /v1/health actually reported a `config` block with a
+  //     non-zero count — an older engine has no such route, and sending the
+  //     key toward a guaranteed 404 still puts it on the wire.
+  //  2. Only send an ambiently-resolved key to an origin at least as trusted as
+  //     the key. Block it when the base URL was overridden via --url (the
+  //     `urlExplicit` rule), AND when the URL came from the cwd `.env` while the
+  //     key did NOT (`urlFromDotenv && !adminKeyFromDotenv`) — an untrusted
+  //     checkout's `.env` could point HOGSEND_API_URL at an attacker and
+  //     exfiltrate a shell-env admin key. A key + URL from the SAME `.env` are
+  //     paired and fine; an explicit --admin-key flag always authorizes.
+  //
+  // Warnings are advisory: fetched or not, they never move verdict/exit code.
+  const { cfg } = ctx.http;
+  const warningCount = health.config?.warnings;
+  const keySendAllowed =
+    cfg.adminKeyExplicit ||
+    (cfg.adminKey !== undefined &&
+      !cfg.urlExplicit &&
+      !(cfg.urlFromDotenv && !cfg.adminKeyFromDotenv));
+  let detail: ConfigWarning[] | null = null;
+  let detailError: string | null = null;
+  if (warningCount !== undefined && warningCount > 0 && keySendAllowed) {
+    try {
+      const res = await ctx.out.step(`GET ${baseUrl}/v1/admin/config`, () =>
+        ctx.http.get<AdminConfigResponse>("/v1/admin/config"),
+      );
+      detail = res.warnings;
+    } catch (error) {
+      // Best-effort: a failed detail fetch (bad key, older engine) degrades
+      // to the count-only view rather than failing doctor.
+      if (!isHttpError(error)) throw error;
+      detailError = error.message;
+    }
+  }
+
   if (ctx.json) {
     ctx.out.json({
       ok,
@@ -207,6 +298,13 @@ async function run(ctx: CommandContext): Promise<void> {
       timestamp: health.timestamp,
       components: health.components,
       schema: health.schema,
+      config:
+        warningCount === undefined
+          ? undefined
+          : {
+              warnings: warningCount,
+              ...(detail ? { detail } : {}),
+            },
       skills: skillsStaleness(process.cwd()) ?? undefined,
     });
     if (!ok) process.exit(1);
@@ -246,6 +344,14 @@ async function run(ctx: CommandContext): Promise<void> {
     `  ${trackLine("engine", health.schema.engine)}`,
     `  ${trackLine("client", health.schema.client)}`,
   ];
+
+  if (warningCount !== undefined) {
+    lines.push(
+      "",
+      color.bold("Config"),
+      ...configLines(warningCount, detail, detailError),
+    );
+  }
 
   ctx.out.note(lines.join("\n"), "Doctor");
 

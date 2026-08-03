@@ -78,6 +78,7 @@ import {
   setAnalyticsEventMirror,
 } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import { recordBootDiagnostic } from "./lib/boot-diagnostics.js";
 import {
   ConversionDestinationRegistry,
   setConversionDestinations,
@@ -784,9 +785,15 @@ function validateListCategory(opts: {
         `${owner} has category "${category}", an OPT-IN email list (defaultOptIn:false) that is DEFINED but EXCLUDED from the active registry by ENABLED_LISTS. At send time an excluded list falls back to the legacy opt-in default, which UN-GATES consent — the opt-in email would ship to recipients who never subscribed. Re-enable the list in ENABLED_LISTS (or change the category) — disabling an opt-in list must not silently flip its consent gate open.`,
       );
     }
-    logger.warn(
-      `${owner} has category "${category}", a DEFINED email list EXCLUDED from the active registry by ENABLED_LISTS. It is an opt-out list (defaultOptIn:true), so send-time gating is behavior-preserving — but its preference center entry is hidden while excluded. Re-enable the list in ENABLED_LISTS or change the category.`,
-    );
+    const excludedMessage = `${owner} has category "${category}", a DEFINED email list EXCLUDED from the active registry by ENABLED_LISTS. It is an opt-out list (defaultOptIn:true), so send-time gating is behavior-preserving — but its preference center entry is hidden while excluded. Re-enable the list in ENABLED_LISTS or change the category.`;
+    logger.warn(excludedMessage);
+    // Keyed per LIST, not per owner: the fix (re-enable in ENABLED_LISTS) is
+    // per-list, so N templates referencing the same excluded list are one
+    // problem — while two excluded lists stay two entries.
+    recordBootDiagnostic({
+      code: `email-list.excluded-opt-out:${category}`,
+      message: excludedMessage,
+    });
     return;
   }
   // Unknown category: neither a reserved built-in nor a defined list. At send
@@ -924,9 +931,13 @@ export function createHogsendClient(
   );
   const crmSugarPresent = Boolean(opts.crm?.stages || opts.crm?.stageMaps);
   if (authoredDefault && crmSugarPresent) {
-    logger.warn(
-      'crm.{stages,stageMaps} are IGNORED because a funnel with id "default" is authored — move that config into the funnel',
-    );
+    const crmSugarMessage =
+      'crm.{stages,stageMaps} are IGNORED because a funnel with id "default" is authored — move that config into the funnel';
+    logger.warn(crmSugarMessage);
+    recordBootDiagnostic({
+      code: "crm.sugar-ignored",
+      message: crmSugarMessage,
+    });
   }
   const defaultFunnel = authoredDefault
     ? undefined
@@ -1043,9 +1054,13 @@ export function createHogsendClient(
     // each send fails per-call with an actionable message. The stub is NOT
     // registered in the registry, so no webhook route resolves it.
     provider = createUnconfiguredEmailProvider();
-    logger.warn(
-      "no email provider configured — email sends will fail until RESEND_API_KEY (or POSTMARK_SERVER_TOKEN with EMAIL_PROVIDER=postmark) is set. Everything else works without one.",
-    );
+    const noProviderMessage =
+      "no email provider configured — email sends will fail until RESEND_API_KEY (or POSTMARK_SERVER_TOKEN with EMAIL_PROVIDER=postmark) is set. Everything else works without one.";
+    logger.warn(noProviderMessage);
+    recordBootDiagnostic({
+      code: "email.no-provider",
+      message: noProviderMessage,
+    });
   }
 
   // Tracking sovereignty: first-party open/click tracking is the single source
@@ -1055,11 +1070,15 @@ export function createHogsendClient(
   // in `dispatchWebhook` is the defence: a native open/click webhook only
   // touches DB status, never re-emits outbound.
   if (provider.capabilities?.nativeTracking === true) {
-    logger.warn(
-      `provider ${
-        provider.meta?.id ?? "resend"
-      } can't disable its native open/click tracking per-send (account-level setting) — if it's enabled in the provider dashboard, turn it off there; first-party tracking is Hogsend's source of truth.`,
-    );
+    const nativeTrackingId = provider.meta?.id ?? "resend";
+    const nativeTrackingMessage = `provider ${nativeTrackingId} can't disable its native open/click tracking per-send (account-level setting) — if it's enabled in the provider dashboard, turn it off there; first-party tracking is Hogsend's source of truth.`;
+    logger.warn(nativeTrackingMessage);
+    // Provider id in the code: the active provider can differ between the API
+    // and worker env, and the merged view must keep them distinct.
+    recordBootDiagnostic({
+      code: `email.native-tracking:${nativeTrackingId}`,
+      message: nativeTrackingMessage,
+    });
   }
 
   // Cached sending-domain status for the active provider. Constructed right
@@ -1454,12 +1473,19 @@ export function createHogsendClient(
     !analytics.capabilities.oauth &&
     !analytics.capabilities.personReads
   ) {
-    logger.info(
+    const personReadsMessage =
       `analytics provider "${analytics.meta.id}" has person reads DISABLED — ` +
-        "timezone resolution falls back to contact properties. For PostHog, " +
-        "set POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
-        "Docs: https://hogsend.com/docs/guides/analytics-access",
-    );
+      "timezone resolution falls back to contact properties. For PostHog, " +
+      "set POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
+      "Docs: https://hogsend.com/docs/guides/analytics-access";
+    logger.info(personReadsMessage);
+    // Same code as the async env-preset sibling (analytics-providers-from-env)
+    // — the two sites are mutually exclusive (sync = non-OAuth providers,
+    // async = OAuth-capable after prime settles), so the dedupe is a no-op.
+    recordBootDiagnostic({
+      code: "analytics.person-reads-disabled",
+      message: personReadsMessage,
+    });
   }
 
   // Expose the resolved analytics instance to the module-level task-execution
@@ -1592,10 +1618,16 @@ export function createHogsendClient(
       (env[src.auth.envKey as keyof typeof env] as string | undefined) ??
       process.env[src.auth.envKey];
     if (!secret) {
-      logger.warn(
+      const noSecretMessage =
         `Contact source "${src.meta.id}" has no secret set (env ${src.auth.envKey}) — ` +
-          "its webhook currently accepts UNAUTHENTICATED contact writes. Set the secret.",
-      );
+        "its webhook currently accepts UNAUTHENTICATED contact writes. Set the secret.";
+      logger.warn(noSecretMessage);
+      // Source id in the code so two unsecured sources yield two diagnostics
+      // rather than silently deduping into one.
+      recordBootDiagnostic({
+        code: `contact-source.no-secret:${src.meta.id}`,
+        message: noSecretMessage,
+      });
     }
   }
 

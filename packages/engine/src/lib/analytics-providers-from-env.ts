@@ -6,6 +6,7 @@ import {
   type PostHogAuthTokenAccessor,
 } from "@hogsend/plugin-posthog";
 import type { env as envSchema } from "../env.js";
+import { recordBootDiagnostic } from "./boot-diagnostics.js";
 import type { Logger } from "./logger.js";
 import { createTokenManager } from "./oauth-token-manager.js";
 import { getDerivedCredential } from "./provider-credentials.js";
@@ -74,12 +75,20 @@ function buildPosthogProvider(
       .prime()
       .then(() => {
         if (!personalKeySet && tokenManager.credentialState() !== "present") {
-          deps.logger?.info(
+          const message =
             'analytics provider "posthog" has person reads DISABLED — ' +
-              "timezone resolution falls back to contact properties. Set " +
-              "POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
-              "Docs: https://hogsend.com/docs/guides/analytics-access",
-          );
+            "timezone resolution falls back to contact properties. Set " +
+            "POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
+            "Docs: https://hogsend.com/docs/guides/analytics-access";
+          deps.logger?.info(message);
+          // Late recording is safe: the collector is process-global and read
+          // per-request by /v1/health, not snapshotted once at boot. Same
+          // code as the sync non-OAuth sibling in container.ts — the two
+          // sites are mutually exclusive, so the dedupe-by-code is a no-op.
+          recordBootDiagnostic({
+            code: "analytics.person-reads-disabled",
+            message,
+          });
         }
       })
       .catch(() => {});
