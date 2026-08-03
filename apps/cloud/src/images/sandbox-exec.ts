@@ -149,9 +149,38 @@ const HOST_MACHINE_ENV_KEYS = new Set([
  * ceiling when a caller passes no `timeoutMs`. */
 export const DEFAULT_SANDBOX_EXEC_TIMEOUT_SEC = 3600;
 
-/** Ceiling on the bootstrap (download + extract + login): a 64MB tarball on
- * a datacenter link plus a registry round trip, with a wide margin. */
+/** Ceiling on the bootstrap (download + extract + buildx install + login): a
+ * 64MB tarball plus a ~35MB buildx binary on a datacenter link plus a registry
+ * round trip, with a wide margin. */
 export const SANDBOX_BOOTSTRAP_TIMEOUT_SEC = 600;
+
+/**
+ * The buildx CLI plugin the bootstrap installs, pinned and checksum-verified.
+ *
+ * Why the sandbox needs it (observed live, build `NotFound: parent snapshot
+ * … does not exist` at `COPY . .`): the sandbox image ships Docker 29 with the
+ * containerd image store but WITHOUT buildx, so `docker build` falls back to
+ * the deprecated legacy builder. Some sandbox VMs arrive with stale docker
+ * state — classic-builder cache metadata from an earlier build whose
+ * snapshots are gone — and the legacy builder trusts that metadata blindly:
+ * it prints `---> Using cache` down the unchanged prefix, then dies at the
+ * first cache miss (`COPY . .`, the first tenant-content-dependent step) when
+ * it has to materialise the missing parent snapshot. A fresh, consistent
+ * daemon builds the same app fine; the legacy cache is the only consumer of
+ * the poisoned state. BuildKit keeps its own validated cache store and
+ * ignores classic-builder metadata entirely, so the same VM builds correctly.
+ *
+ * The checksum is the release's own (cross-checked against the signed
+ * provenance attestation for the tag), so a tampered or truncated download
+ * fails the bootstrap rather than installing an unverified binary that will
+ * run against every tenant build.
+ */
+export const BUILDX_VERSION = "0.36.0";
+export const BUILDX_SHA256 =
+  "07823fdfcd82a41be90155a8b16876c1a780a6462de805a9f3f63b3119ccfb99";
+export const BUILDX_URL =
+  `https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}` +
+  `/buildx-v${BUILDX_VERSION}.linux-amd64`;
 
 export interface SandboxRegistryLogin {
   /** The registry HOST, e.g. `ghcr.io` — not the namespaced prefix. */
@@ -236,6 +265,19 @@ export function buildBootstrapScript(opts: {
     "fi",
     'mkdir -p "$APP/scripts"',
     `printf %s '${preflightB64}' | base64 -d > "$APP/scripts/preflight.sh"`,
+    // Build with BuildKit, never the legacy builder — see the BUILDX_VERSION
+    // doc for the live failure this prevents. Install is fatal on any miss
+    // (download, checksum, plugin handshake): falling back to the legacy
+    // builder would reintroduce a nondeterministic corruption failure, which
+    // is worse than a loud bootstrap error the operator can retry. The
+    // `buildx install` alias makes the pipeline's unchanged `docker build`
+    // argv route to BuildKit, so the command seam stays untouched.
+    `curl -fsSL --retry 3 -o /tmp/docker-buildx ${quoteShellArg(BUILDX_URL)} || { echo 'buildx download failed'; exit 71; }`,
+    `echo "${BUILDX_SHA256}  /tmp/docker-buildx" | sha256sum -c - >/dev/null || { echo 'buildx checksum mismatch'; exit 72; }`,
+    "mkdir -p /usr/local/lib/docker/cli-plugins",
+    "install -m 0755 /tmp/docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx",
+    "docker buildx version >/dev/null || { echo 'buildx plugin did not register'; exit 73; }",
+    "docker buildx install 2>/dev/null || { echo 'buildx alias install failed'; exit 74; }",
   ].join("\n");
 }
 

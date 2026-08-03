@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { EXEC_NOT_STARTED } from "../images/exec";
 import {
+  BUILDX_SHA256,
+  BUILDX_VERSION,
   buildBootstrapScript,
   buildLoginCommand,
   createSandboxBuildSession,
@@ -230,6 +232,27 @@ describe("createSandboxBuildSession", () => {
     expect(script).toContain("2>/dev/null");
     // File contents travel as shell-inert base64, not as raw text.
     expect(script).not.toContain("FROM node");
+  });
+
+  it("bootstrap installs pinned, checksum-verified buildx and aliases build", () => {
+    const script = buildBootstrapScript({
+      workDir: "/artifacts/.work/b1",
+      artifactUrl: "https://x/y?sig=s",
+      templateDockerfile: "FROM node\n",
+      templatePreflight: "echo gate\n",
+    });
+    // The exact pinned release, never a floating "latest".
+    expect(script).toContain(`buildx-v${BUILDX_VERSION}.linux-amd64`);
+    // The download is verified against the pinned digest before install…
+    expect(script).toContain(`${BUILDX_SHA256}  /tmp/docker-buildx`);
+    expect(script).toContain("sha256sum -c");
+    // …lands where docker discovers CLI plugins…
+    expect(script).toContain("/usr/local/lib/docker/cli-plugins/docker-buildx");
+    // …and aliases `docker build` to BuildKit so the pipeline argv is
+    // untouched. Verification precedes the alias: never alias a broken plugin.
+    expect(script.indexOf("docker buildx version")).toBeLessThan(
+      script.indexOf("docker buildx install"),
+    );
   });
 
   it("a failed bootstrap surfaces as exit 127 without the presigned URL", async () => {
