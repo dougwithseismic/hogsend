@@ -1,6 +1,16 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { env } from "../env";
+import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  type GetObjectCommandOutput,
+  ListObjectsV2Command,
+  type ListObjectsV2CommandOutput,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { artifactBucketConfig, env } from "../env";
 
 /**
  * Where a publish tarball lives, and the one place a stored
@@ -66,11 +76,16 @@ export function buildArtifactKey(
 }
 
 /**
- * Absolute path for a stored key. Re-validates rather than trusting the row: a
- * key read back from the database is still an input, and the containment check
- * is what turns "a bad row" into an error instead of a write outside the root.
+ * Validate a stored key back into its components. THE key check every store
+ * shares: a key read back from the database is still an input, so both
+ * implementations re-validate rather than trusting the row — on local disk a
+ * bad key would be a path, on S3 an object name, and the refusal posture must
+ * be identical either way.
  */
-export function resolveArtifactPath(key: string): string {
+export function parseArtifactKey(key: string): {
+  environmentId: string;
+  buildId: string;
+} {
   if (isAbsolute(key)) throw new InvalidArtifactKeyError(key);
 
   const [environmentId, file, ...rest] = key.split("/");
@@ -83,6 +98,17 @@ export function resolveArtifactPath(key: string): string {
   if (!isUuid(environmentId) || !isUuid(buildId)) {
     throw new InvalidArtifactKeyError(key);
   }
+  return { environmentId, buildId };
+}
+
+/**
+ * Absolute path for a stored key, for the local-disk store. Validates via
+ * `parseArtifactKey`, then re-checks that the resolved path is still inside
+ * the root — the containment check is what turns "a bad row" into an error
+ * instead of a write outside the root.
+ */
+export function resolveArtifactPath(key: string): string {
+  parseArtifactKey(key);
 
   const root = artifactsRoot();
   const path = resolve(join(root, key));
@@ -169,17 +195,166 @@ export class LocalDiskArtifactStore implements ArtifactStore {
 }
 
 /**
+ * The one method this module uses from `S3Client`, as a structural seam.
+ *
+ * The real client satisfies it (method position keeps the parameter
+ * bivariant), and a test double implementing just these commands can stand in
+ * without mocking the SDK module — which is how the contract suite proves the
+ * pagination and not-found paths against real command objects.
+ */
+export interface S3ClientLike {
+  send(command: unknown): Promise<unknown>;
+}
+
+/**
+ * "This object is not there" in the several shapes the S3 API says it:
+ * `NoSuchKey` on a get, `NotFound` on a head, a bare 404 from an
+ * S3-compatible endpoint that names neither. Only `remove` tolerates these —
+ * a get of a missing artifact stays an error.
+ */
+function isS3NotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { name, $metadata } = error as {
+    name?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+  };
+  return (
+    name === "NoSuchKey" ||
+    name === "NotFound" ||
+    $metadata?.httpStatusCode === 404
+  );
+}
+
+/**
+ * The production store (PRD 14): artifacts as objects in an S3-compatible
+ * bucket, keys unchanged. This is what lets an upload received by cloud-app
+ * be read by a build executing on cloud-worker — two containers with no
+ * shared filesystem, one bucket.
+ *
+ * Every key is validated by `parseArtifactKey` BEFORE any request leaves the
+ * process: a bad key here is an object name rather than a filesystem path,
+ * but the refusal posture is identical to the local store's.
+ */
+export class S3ArtifactStore implements ArtifactStore {
+  private readonly client: S3ClientLike;
+  private readonly bucket: string;
+
+  constructor(opts: { client: S3ClientLike; bucket: string }) {
+    this.client = opts.client;
+    this.bucket = opts.bucket;
+  }
+
+  async put(key: string, bytes: Uint8Array): Promise<void> {
+    parseArtifactKey(key);
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentType: "application/gzip",
+      }),
+    );
+  }
+
+  async get(key: string): Promise<Uint8Array> {
+    parseArtifactKey(key);
+    const response = (await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    )) as GetObjectCommandOutput;
+    // A 200 with no body is not a thing S3 does, but "some bytes" is this
+    // method's whole contract — refuse rather than hand back an empty
+    // artifact a build would then fail on less legibly.
+    if (!response.Body) {
+      throw new Error(`artifact "${key}" came back with no body`);
+    }
+    return await response.Body.transformToByteArray();
+  }
+
+  async remove(key: string): Promise<void> {
+    parseArtifactKey(key);
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+    } catch (error) {
+      // Both callers are best-effort compensations (see the interface); an
+      // already-gone object is their success case, not a failure. Anything
+      // that is not a not-found still throws.
+      if (!isS3NotFound(error)) throw error;
+    }
+  }
+
+  async removeEnvironment(environmentId: string): Promise<void> {
+    if (!isUuid(environmentId)) {
+      throw new InvalidArtifactKeyError(environmentId);
+    }
+
+    // List → delete, page by page, until the listing is exhausted. The loop
+    // matters: ListObjectsV2 caps a page at 1000 keys, so an environment with
+    // many builds is only fully cleared if every continuation is followed.
+    let continuationToken: string | undefined;
+    do {
+      const page = (await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: `${environmentId}/`,
+          ContinuationToken: continuationToken,
+        }),
+      )) as ListObjectsV2CommandOutput;
+
+      const keys = (page.Contents ?? []).flatMap((object) =>
+        object.Key ? [{ Key: object.Key }] : [],
+      );
+      if (keys.length > 0) {
+        await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.bucket,
+            Delete: { Objects: keys, Quiet: true },
+          }),
+        );
+      }
+
+      continuationToken = page.IsTruncated
+        ? page.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+  }
+}
+
+/**
  * The active store, resolved lazily on first use and held for the process.
  *
  * A module-level singleton rather than per-call construction so "which store
- * is this deployment running" is answered exactly once — the place task 2's
- * configuration switch (and production's local-store refusal) will live.
+ * is this deployment running" is answered exactly once. The choice is the
+ * configuration's: a complete bucket set selects S3, none selects local disk,
+ * and the in-between cases are refused before this ever runs —
+ * `artifactBucketConfig` throws on a partial set, and `src/env.ts` refuses a
+ * production boot with no bucket at all.
  */
 let activeStore: ArtifactStore | undefined;
 
 export function getArtifactStore(): ArtifactStore {
-  activeStore ??= new LocalDiskArtifactStore();
+  activeStore ??= buildConfiguredStore();
   return activeStore;
+}
+
+function buildConfiguredStore(): ArtifactStore {
+  const bucket = artifactBucketConfig();
+  if (!bucket) return new LocalDiskArtifactStore();
+  return new S3ArtifactStore({
+    client: new S3Client({
+      endpoint: bucket.endpoint,
+      region: bucket.region,
+      credentials: {
+        accessKeyId: bucket.accessKeyId,
+        secretAccessKey: bucket.secretAccessKey,
+      },
+      // Path-style addressing: Railway Buckets (like most S3-compatible
+      // endpoints) serve `endpoint/bucket/key`, not a per-bucket subdomain.
+      forcePathStyle: true,
+    }),
+    bucket: bucket.bucket,
+  });
 }
 
 /**

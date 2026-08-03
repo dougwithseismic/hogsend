@@ -200,14 +200,31 @@ export const env = createEnv({
     // Recorded on the stack row at provision time, so a later bump does not
     // rewrite what an existing stack is actually running.
     CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.57.0"),
-    // Where `POST /api/publish/:environmentId` writes uploaded tarballs, and
-    // where the build task reads them from (PRD 08). Defaulted everywhere
-    // rather than withheld in production: an artifact directory is not a
-    // secret, and a control plane with no publish traffic must not fail its
-    // boot over a path nothing has used yet. A real deploy points it at the
-    // volume the build host mounts. Relative values resolve against the
-    // process's working directory.
+    // The local SCRATCH directory: the root of the `LocalDiskArtifactStore`
+    // (the dev/CI store) AND the build pipeline's `workRoot`, where a tarball
+    // is unpacked before the image build. Once a bucket is configured (below)
+    // this is NO LONGER artifact storage — artifacts live in the bucket and
+    // this directory holds only per-build working copies. Defaulted everywhere
+    // rather than withheld in production: a scratch path is not a secret, and
+    // the storage question is guarded separately (the bucket boot guard
+    // below). Relative values resolve against the process's working directory.
     CLOUD_ARTIFACTS_DIR: z.string().min(1).default("./artifacts"),
+    // The S3-compatible bucket artifacts live in (PRD 14): a Railway Bucket,
+    // wired by variable reference to its own BUCKET_ENDPOINT / BUCKET_NAME /
+    // BUCKET_ACCESS_KEY_ID / BUCKET_SECRET_ACCESS_KEY. All four OPTIONAL here
+    // because dev and CI run the local-disk store with no bucket at all — but
+    // NOT independently optional: the boot guard below refuses a partial set
+    // in every environment, and refuses "none" in production, where the
+    // upload lands on cloud-app and the build runs on cloud-worker (separate
+    // ephemeral filesystems, no shared volume) so local disk cannot work.
+    CLOUD_ARTIFACT_BUCKET_ENDPOINT: z.string().min(1).optional(),
+    CLOUD_ARTIFACT_BUCKET_NAME: z.string().min(1).optional(),
+    CLOUD_ARTIFACT_BUCKET_ACCESS_KEY_ID: z.string().min(1).optional(),
+    CLOUD_ARTIFACT_BUCKET_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // The SDK insists on a region even against endpoints that ignore one
+    // (Railway Buckets do). Defaulted so a Railway deploy sets only the four
+    // vars above.
+    CLOUD_ARTIFACT_BUCKET_REGION: z.string().min(1).default("us-east-1"),
     // The registry namespace built images are pushed to, e.g.
     // `ghcr.io/withseismic`. OPTIONAL, and its absence is a MODE rather than a
     // misconfiguration: with no registry the build pipeline keeps images local
@@ -244,3 +261,98 @@ export const env = createEnv({
   // fast on a missing CLOUD_DATABASE_URL.
   skipValidation: process.env.SKIP_ENV_VALIDATION === "true",
 });
+
+/** The four bucket variables that only make sense as a complete set. */
+const ARTIFACT_BUCKET_VAR_NAMES = [
+  "CLOUD_ARTIFACT_BUCKET_ENDPOINT",
+  "CLOUD_ARTIFACT_BUCKET_NAME",
+  "CLOUD_ARTIFACT_BUCKET_ACCESS_KEY_ID",
+  "CLOUD_ARTIFACT_BUCKET_SECRET_ACCESS_KEY",
+] as const;
+
+/** A fully-resolved artifact bucket: everything an S3 client needs. */
+export interface ArtifactBucketConfig {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}
+
+/**
+ * The bucket configuration, resolved all-or-nothing.
+ *
+ * Returns the full config when every variable is present, `undefined` when
+ * none are, and THROWS on anything in between — a half-configured bucket must
+ * never fall back to local disk, because silently falling back is exactly the
+ * cross-container failure PRD 14 exists to prevent. The error names the
+ * missing variables (names only; values are credentials and are never
+ * logged).
+ *
+ * Pure over its input so the boot guard below and its tests share one
+ * implementation; `artifactBucketConfig()` binds it to the validated env.
+ */
+export function resolveArtifactBucketConfig(vars: {
+  CLOUD_ARTIFACT_BUCKET_ENDPOINT?: string;
+  CLOUD_ARTIFACT_BUCKET_NAME?: string;
+  CLOUD_ARTIFACT_BUCKET_ACCESS_KEY_ID?: string;
+  CLOUD_ARTIFACT_BUCKET_SECRET_ACCESS_KEY?: string;
+  CLOUD_ARTIFACT_BUCKET_REGION?: string;
+}): ArtifactBucketConfig | undefined {
+  const missing = ARTIFACT_BUCKET_VAR_NAMES.filter((name) => !vars[name]);
+  if (missing.length === ARTIFACT_BUCKET_VAR_NAMES.length) return undefined;
+  if (missing.length > 0) {
+    throw new Error(
+      `artifact bucket configuration is incomplete — missing ${missing.join(
+        ", ",
+      )}. Set all of ${ARTIFACT_BUCKET_VAR_NAMES.join(
+        ", ",
+      )} or none: a partial set never falls back to the local-disk store.`,
+    );
+  }
+  return {
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    endpoint: vars.CLOUD_ARTIFACT_BUCKET_ENDPOINT!,
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    bucket: vars.CLOUD_ARTIFACT_BUCKET_NAME!,
+    region: vars.CLOUD_ARTIFACT_BUCKET_REGION ?? "us-east-1",
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    accessKeyId: vars.CLOUD_ARTIFACT_BUCKET_ACCESS_KEY_ID!,
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    secretAccessKey: vars.CLOUD_ARTIFACT_BUCKET_SECRET_ACCESS_KEY!,
+  };
+}
+
+/** The validated env's bucket config — what `getArtifactStore()` selects on. */
+export function artifactBucketConfig(): ArtifactBucketConfig | undefined {
+  return resolveArtifactBucketConfig(env);
+}
+
+// The artifact-store boot guard, in the same place every other production
+// misconfiguration fails: at env import, before a single request or task
+// runs. Two refusals:
+//
+//  - a PARTIAL bucket set throws in EVERY environment (inside
+//    `resolveArtifactBucketConfig`), because "three of four vars" is always a
+//    mistake, never a mode;
+//  - NO bucket in production throws, because the local-disk store cannot work
+//    there — the upload is received by cloud-app and the build executes on
+//    cloud-worker, separate containers with separate ephemeral filesystems
+//    and no shared volume, so the builder would never find the artifact.
+//
+// Dev and test run with no bucket and never reach the second throw; `next
+// build` is covered by the same `skipValidation` escape hatch as the schema
+// (build-time evaluation carries none of the deploy's runtime secrets).
+if (process.env.SKIP_ENV_VALIDATION !== "true") {
+  const bucket = resolveArtifactBucketConfig(env);
+  if (env.NODE_ENV === "production" && !bucket) {
+    throw new Error(
+      `NODE_ENV=production requires an artifact bucket: set ${ARTIFACT_BUCKET_VAR_NAMES.join(
+        ", ",
+      )}. The local-disk artifact store cannot work in production — uploads ` +
+        "land on cloud-app and builds execute on cloud-worker, separate " +
+        "containers with separate ephemeral filesystems and no shared " +
+        "volume, so the builder would never find the artifact.",
+    );
+  }
+}
