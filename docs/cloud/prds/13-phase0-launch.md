@@ -123,7 +123,7 @@ existing cloud email or connector wiring rather than adding a dependency.
 
 Effort: 1h.
 
-### T4 — Environment page: the first five minutes
+### T4 — Environment page: the first five minutes `[x]`
 
 Today the environment page shows topology, engine version, tenant database and
 Hatchet namespace. That is an operator's view of infrastructure, not a
