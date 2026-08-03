@@ -6,6 +6,10 @@ import {
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
+import {
+  PUBLISH_REPLACES_NOTE,
+  SCAFFOLD_COMMANDS,
+} from "@/src/lib/cloud-onboarding";
 import type {
   ProvisionProgress,
   TenantAccessView,
@@ -149,6 +153,8 @@ export function TenantAccessSection({
         )}
       </Card>
 
+      <NoRepoCard />
+
       <Card className="flex flex-col gap-5 p-0">
         <div className="flex flex-col gap-1.5 px-6 pt-6">
           <h2 className="font-medium text-white tracking-[-0.02em]">
@@ -226,6 +232,38 @@ export function TenantAccessSection({
         ) : null}
       </Card>
     </div>
+  );
+}
+
+/**
+ * The web-first signup's missing half.
+ *
+ * "Point your code at it" assumes code. Someone who signed up on hogsend.com
+ * before they had a repo has none, and the dashboard's `EmptyState` cannot
+ * tell them — an environment is created WITH the organization, so that state
+ * is unreachable for a new signup. This card sits directly under the .env
+ * snippet, where the question actually occurs, and is the ONE home for this
+ * copy; the welcome email links here rather than repeating it.
+ */
+function NoRepoCard(): JSX.Element {
+  return (
+    <Card className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1.5">
+        <h2 className="font-medium text-white tracking-[-0.02em]">
+          No repo yet?
+        </h2>
+        <p className="max-w-prose text-sm text-white/60 leading-6">
+          A Hogsend app is a repository you own — journeys, email templates and
+          schema as TypeScript. These four commands make one and ship it here.
+        </p>
+      </div>
+      <pre className="overflow-x-auto rounded-[10px] border border-white/[0.08] bg-white/[0.03] px-4 py-3 font-mono text-white/80 text-xs leading-6">
+        {SCAFFOLD_COMMANDS.join("\n")}
+      </pre>
+      <p className="max-w-prose text-sm text-white/60 leading-6">
+        {PUBLISH_REPLACES_NOTE}
+      </p>
+    </Card>
   );
 }
 

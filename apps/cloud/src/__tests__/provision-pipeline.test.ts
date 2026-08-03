@@ -13,8 +13,14 @@ import {
 import { member, organization, user } from "../db/schema/auth";
 import { env } from "../env";
 import { createCloudAuth } from "../lib/auth";
+import {
+  buildEnvironmentUrl,
+  PUBLISH_REPLACES_NOTE,
+  SCAFFOLD_COMMANDS,
+  welcomeEmailSubject,
+} from "../lib/cloud-onboarding";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
-import type { EmailSender } from "../lib/email-sender";
+import type { EmailMessage, EmailSender } from "../lib/email-sender";
 import { provisionOrganization } from "../lib/org-provision";
 import {
   configureProvisioning,
@@ -169,6 +175,15 @@ async function seedStack(
   });
 
   return { stackId, environmentId: environment.id, dbName };
+}
+
+async function environmentRow(environmentId: string) {
+  const [row] = await db
+    .select()
+    .from(environments)
+    .where(eq(environments.id, environmentId));
+  if (!row) throw new Error(`environment ${environmentId} vanished`);
+  return row;
 }
 
 async function stackRow(stackId: string) {
@@ -765,6 +780,171 @@ describe("mint-credentials", () => {
     expect(
       await scripted.liveKeys(fakeApiPublicUrl(fixture.stackId)),
     ).toHaveLength(0);
+  });
+});
+
+/**
+ * The welcome email (PRD 13 T5). It exists to tell a web-first signup — one who
+ * has an instance but no repo — what to run, so the assertions are about WHEN
+ * it is sent and WHAT it says, not that a send happened.
+ */
+describe("welcome email", () => {
+  function recordingSender(opts: { fail?: boolean } = {}): {
+    sender: EmailSender;
+    sent: EmailMessage[];
+  } {
+    const sent: EmailMessage[] = [];
+    return {
+      sent,
+      sender: {
+        id: "recording",
+        async send(message) {
+          if (opts.fail) throw new Error("scripted transport failure");
+          sent.push(message);
+        },
+      },
+    };
+  }
+
+  it("reaches the owner once the stack is really running, and only once", async () => {
+    const fixture = await seedStack("production");
+    const mail = recordingSender();
+    const deps = {
+      substrate: new FakeSubstrate(),
+      hatchetTenant: stubHatchet().service,
+      emailSender: mail.sender,
+    };
+
+    const first = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(first.status).toBe("running");
+
+    expect(mail.sent).toHaveLength(1);
+    const message = mail.sent[0];
+    if (!message) throw new Error("unreachable");
+    expect(message.to).toBe(AUTH_EMAIL);
+    expect(message.subject).toBe(
+      welcomeEmailSubject({
+        organizationName: "Provision Pipeline Test",
+        environmentName: (await environmentRow(fixture.environmentId)).name,
+        environmentId: fixture.environmentId,
+      }),
+    );
+    // The four commands and the link to THIS environment — the whole point of
+    // the mail. A change that drops either is a customer who cannot start.
+    for (const command of SCAFFOLD_COMMANDS) {
+      expect(message.text).toContain(command);
+    }
+    expect(message.text).toContain(buildEnvironmentUrl(fixture.environmentId));
+    // The non-obvious fact: they already have an instance.
+    expect(message.text).toContain(PUBLISH_REPLACES_NOTE);
+
+    const afterFirst = await stackRow(fixture.stackId);
+    expect(afterFirst.substrateRefs).toMatchObject({
+      credentialsMinted: true,
+    });
+    expect(
+      (afterFirst.substrateRefs as { welcomeEmailSentAt?: string })
+        .welcomeEmailSentAt,
+    ).toEqual(expect.any(String));
+
+    // Park it and re-drive, the way the provision sweep would. A resumed stack
+    // must not welcome the same customer twice.
+    await db
+      .update(stacks)
+      .set({ status: "error", lastError: "[finish] forced" })
+      .where(eq(stacks.id, fixture.stackId));
+    const second = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(second.status).toBe("running");
+    expect(mail.sent).toHaveLength(1);
+  });
+
+  it("is not sent before the instance is running, and a dead transport does not park the stack", async () => {
+    const fixture = await seedStack("staging");
+    const substrate = new FakeSubstrate();
+    const mail = recordingSender();
+    const deps = {
+      substrate,
+      hatchetTenant: stubHatchet().service,
+      emailSender: mail.sender,
+    };
+
+    substrate.failNext(
+      "setEnv",
+      new SubstrateError("scripted set-env failure", { retryable: false }),
+    );
+    const failed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(failed.status).toBe("error");
+    // Nothing promising a running instance left the building while it is
+    // parked at `error`.
+    expect(mail.sent).toHaveLength(0);
+
+    const dead = recordingSender({ fail: true });
+    const resumed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { ...deps, emailSender: dead.sender },
+    );
+    // The stack IS running; a mail transport being down is not grounds to say
+    // otherwise, and the unsent mail is not recorded as sent.
+    expect(resumed.status).toBe("running");
+    const row = await stackRow(fixture.stackId);
+    expect(row.status).toBe("running");
+    expect(
+      (row.substrateRefs as { welcomeEmailSentAt?: string }).welcomeEmailSentAt,
+    ).toBeUndefined();
+  });
+
+  it("still reports running when the send AND the marker write both fail", async () => {
+    const fixture = await seedStack("production");
+    const mail = recordingSender();
+
+    // The marker leg failing AFTER a successful send is the dangerous shape:
+    // inside the pipeline's try it would reach `recordError` with step
+    // `finish`, and `running` is not a failable status — so `recordError`
+    // would itself throw `IllegalTransitionError` and take the whole provision
+    // task down for a customer whose instance is perfectly healthy.
+    let sent = false;
+    const wall = Date.now();
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        emailSender: {
+          id: "recording-then-broken",
+          async send(message) {
+            mail.sent.push(message);
+            sent = true;
+          },
+        },
+        // Read once by the marker write, and only then. Everything earlier
+        // (the health wait) gets a real clock.
+        now: () => {
+          if (sent) throw new Error("scripted clock failure");
+          return wall;
+        },
+      },
+    );
+
+    // The status, not merely the absence of a rejection.
+    expect(result.status).toBe("running");
+    expect(mail.sent).toHaveLength(1);
+    const row = await stackRow(fixture.stackId);
+    expect(row.status).toBe("running");
+    expect(row.lastError).toBeNull();
+    // Unmarked — and harmless, because a `running` stack short-circuits at
+    // `start` and never reaches the send a second time.
+    expect(
+      (row.substrateRefs as { welcomeEmailSentAt?: string }).welcomeEmailSentAt,
+    ).toBeUndefined();
   });
 });
 
