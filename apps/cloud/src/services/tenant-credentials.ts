@@ -98,6 +98,23 @@ function trimBase(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
 
+/**
+ * The machine `code` out of an engine error body, or null when there is none.
+ * Constants-only by construction: the value is accepted only when it matches
+ * the SCREAMING_SNAKE shape of better-auth's error vocabulary, so a body that
+ * echoes request material can never leak into a stored error message.
+ */
+async function errorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { code?: unknown };
+    return typeof body.code === "string" && /^[A-Z0-9_]{1,64}$/.test(body.code)
+      ? body.code
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function call(
   fetchImpl: typeof fetch,
   url: string,
@@ -117,10 +134,16 @@ async function call(
     );
   }
   if (!res.ok) {
-    // The status only. A tenant error body can echo the request, and this
-    // request carries a password.
+    // The status plus the body's machine `code` ONLY. A tenant error body can
+    // echo the request, and this request carries a password — but the engine's
+    // error `code` is a constant from a fixed vocabulary (better-auth's
+    // `INVALID_ORIGIN`, `MISSING_OR_NULL_ORIGIN`, …), never request material.
+    // Without it, two very different 403s — "the edge stripped the Origin
+    // header" and "the engine does not trust this origin" — park a stack with
+    // the same message, and the operator diagnoses the wrong one.
+    const code = await errorCode(res);
     throw new TenantCredentialError(
-      `${what} failed with HTTP ${res.status}`,
+      `${what} failed with HTTP ${res.status}${code ? ` (${code})` : ""}`,
       res.status,
     );
   }
