@@ -128,6 +128,57 @@ Bucket `hogsend-artifacts` created in the hogsend-cloud project, region `ams`
 — the us-1 cell actually runs in EU West, so artifacts sit beside the
 instances they build for. All five vars set on cloud-app and cloud-worker.
 
-Deferred / seams: end-to-end verification against a live sandbox;
-`CLOUD_BUILD_HOST=sandbox` not yet enabled in production; sandbox checkpoints
-for a warm layer cache; Railway Sandboxes are still beta.
+Deferred / seams: sandbox checkpoints for a warm layer cache; Railway
+Sandboxes are still beta.
+
+## T4 — BuildKit, not the legacy builder
+
+The first live sandbox build failed at `COPY . .`:
+
+```
+NotFound: parent snapshot sha256:e17c3853f8a6... does not exist: not found
+```
+
+The sandbox image ships Docker 29 with the containerd image store but WITHOUT
+the buildx plugin, so `docker build` fell back to the deprecated legacy
+builder. Some sandbox VMs arrive carrying classic-builder cache metadata whose
+backing snapshots are gone. The legacy builder trusts that metadata: it
+reports `---> Using cache` down the unchanged prefix, then dies at the first
+cache MISS — `COPY . .`, the first tenant-content-dependent step — when it
+must materialise the missing parent.
+
+The bootstrap now installs buildx (pinned, checksum-verified against the
+release digest) and aliases `docker build` to it. BuildKit validates its own
+cache store and ignores classic-builder metadata, so a poisoned VM builds
+correctly. The pipeline argv and all seven stages are unchanged. Install
+failure is fatal and named (exit 71–74: download / checksum / plugin
+handshake / alias) — there is deliberately NO fallback to the legacy builder,
+because the fallback is the bug.
+
+Honesty on the root cause: the terminal error was **not reproduced on
+demand**. A real scaffolded app built cleanly, cold and warm, in fresh
+sandboxes. What the evidence establishes is that the failing logs cache-hit on
+a `pnpm fetch` step keyed to the tenant's own lockfile — which only a prior
+hogsend build could seed — while the pipeline uses a fresh sandbox per
+attempt. So that docker state predated the build. A healthy daemon was shown
+live to be unable to self-inflict the split: committed snapshots are
+lease-protected, and `docker rmi` removes metadata and snapshots together.
+The provisioning-side actor is Railway-internal. This fix makes us immune
+rather than dependent on their hygiene.
+
+If it recurs, capture `docker images -a` together with
+`ctr --address /run/docker/containerd/containerd.sock -n moby snapshots ls`
+BEFORE teardown — that pair confirms or kills the recycling theory.
+
+## Status
+
+`CLOUD_BUILD_HOST=sandbox` is live in production. A real scaffolded app now
+travels laptop → bucket → cloud-worker → sandbox → unpack → `docker build`
+→ tenant image, verified end to end against the live control plane.
+
+The remaining gate is deploy-config drift, working as designed: the published
+`create-hogsend` template still carried `pnpm start` / `pnpm worker`, which
+EACCES crash-loop in the production image, so preflight refused the image and
+nothing was pushed or deployed. The repo template was already correct; it had
+never been published. That is what the accompanying `create-hogsend` release
+ships.

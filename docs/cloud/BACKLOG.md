@@ -12,11 +12,17 @@ checklist; [RUNBOOK.md](RUNBOOK.md) is how to operate what exists.
 provisioned instance, and receive working admin credentials and an API key —
 verified live end to end against a real tenant. `cloud.hogsend.com` is up.
 
-**The one thing standing between here and a usable product is `hogsend publish`.**
-The pipeline exists and works on a single machine (PRD 08), but in the deployed
-control plane the upload lands on `cloud-app`'s disk while the build runs on
-`cloud-worker`, and `cloud-worker` has no Docker daemon. **[PRD 14](prds/14-publish-build-host.md)**
-closes both. Everything below it is post-launch.
+2026-08-03: `hogsend publish` runs end to end in the deployed control plane.
+A real scaffolded app travels laptop → Railway Bucket → `cloud-worker` →
+per-build sandbox → `docker build` → tenant image ([PRD 14](prds/14-publish-build-host.md)).
+The artifact no longer depends on a shared disk, and the build no longer
+depends on a daemon `cloud-worker` does not have.
+
+The last gate is the preflight refusal working as designed: the published
+`create-hogsend` template carried `pnpm start` / `pnpm worker`, which EACCES
+crash-loop in the production image. The repo template is already correct and
+has simply never been published — the pending `create-hogsend` release ships
+it. Everything below is post-launch.
 
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
@@ -29,7 +35,7 @@ closes both. Everything below it is post-launch.
 | 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (works single-machine; deployed-path seam moved to PRD 14) |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
 | 13 | [phase0-launch](prds/13-phase0-launch.md) | [x] | 04, 05, 07, 08 | provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
-| 14 | [publish-build-host](prds/14-publish-build-host.md) | [~] | 08 | ArtifactStore seam + Railway Buckets (bucket live, vars set), production boot guard, Railway-Sandbox build host (seam: live end-to-end run; sandbox not yet enabled in prod) |
+| 14 | [publish-build-host](prds/14-publish-build-host.md) | [x] | 08 | ArtifactStore seam + Railway Buckets, production boot guard, Railway-Sandbox build host on BuildKit — live in prod, verified end to end |
 | 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
 | 10 | [fleet-health](prds/10-fleet-health.md) | [ ] | 04 | operator console, fleet rollups, abuse suspend |
 | 11 | [dedicated-tier](prds/11-dedicated-tier.md) | [ ] | 04, 06 | rung-0 topology, custom tracking domains, EU region |
