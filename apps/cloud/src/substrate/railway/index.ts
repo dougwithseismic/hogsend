@@ -507,10 +507,14 @@ export class RailwaySubstrate implements SubstrateProvider {
     const found = existing.domains.serviceDomains[0]?.domain;
     if (found) return found;
 
+    // ServiceDomainCreateInput takes environmentId/serviceId/targetPort ONLY.
+    // Railway answers an unknown input field with a bare HTTP 400 "Problem
+    // processing request" rather than a field error, so a stray projectId here
+    // reads as an API outage. Do not add one back.
     const created = await this.client.request<{
       serviceDomainCreate: { domain: string };
     }>(Q.SERVICE_DOMAIN_CREATE, {
-      input: { projectId, environmentId, serviceId },
+      input: { environmentId, serviceId, targetPort: Number(API_PORT) },
     });
     return created.serviceDomainCreate.domain;
   }

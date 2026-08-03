@@ -242,6 +242,26 @@ class RailwayMock {
       }
 
       case "ServiceDomainCreate": {
+        // Railway's ServiceDomainCreateInput accepts environmentId, serviceId
+        // and targetPort ONLY, and answers an unknown field with a bare HTTP
+        // 400 "Problem processing request" that reads like an outage. The fake
+        // used to accept anything, so a stray projectId passed here and failed
+        // only in production. Enforce the real schema.
+        const allowed = new Set(["environmentId", "serviceId", "targetPort"]);
+        for (const key of Object.keys(input)) {
+          if (!allowed.has(key)) {
+            throw new Error(
+              `Railway API error (HTTP 400): unknown ServiceDomainCreateInput field ${key}`,
+            );
+          }
+        }
+        if (input.targetPort !== undefined) {
+          if (typeof input.targetPort !== "number") {
+            throw new Error(
+              "Railway API error (HTTP 400): targetPort must be an Int",
+            );
+          }
+        }
         const service = this.service(input.serviceId);
         service.serviceDomain ??= `${service.name}-${service.id}.up.railway.app`;
         return { serviceDomainCreate: { domain: service.serviceDomain } };

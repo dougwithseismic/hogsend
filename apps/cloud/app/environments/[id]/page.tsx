@@ -193,24 +193,6 @@ export default async function EnvironmentDetailPage({
           </Row>
         </Card>
 
-        {stack?.status === "error" && stack.lastError ? (
-          <Card className="flex flex-col gap-2 border-accent/30">
-            <h2 className="font-medium text-sm text-white tracking-[-0.02em]">
-              Provisioning stopped
-            </h2>
-            <p className="font-mono text-sm text-white/70 leading-6">
-              {stack.lastError}
-            </p>
-            <p className="max-w-prose text-sm text-white/60 leading-6">
-              The message names the step it stopped at. Attempts since the last
-              success: {stack.retryCount}.
-              {operations.allowed.includes("retry")
-                ? " Retry below resumes from that step."
-                : ""}
-            </p>
-          </Card>
-        ) : null}
-
         <ProvisionSteps steps={detail.steps} now={now} />
 
         <HealthStrip
