@@ -298,6 +298,10 @@ beforeAll(async () => {
   }
 });
 
+// Dropping one real tenant database per fixture is IO measured in seconds, and
+// a CI runner is slower than a laptop: vitest's 10s default hook timeout failed
+// this suite in CI while passing locally. The work is teardown, not an
+// assertion, so give it room rather than leave orphaned databases behind.
 afterAll(async () => {
   resetProvisioning();
   for (const name of createdDatabases) {
@@ -307,7 +311,7 @@ afterAll(async () => {
   }
   await cleanup();
   await sqlClient.end();
-});
+}, 120_000);
 
 describe("runProvisionPipeline", () => {
   it("walks requested → running, audit-logging every step", async () => {
