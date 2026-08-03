@@ -199,6 +199,20 @@ Cut on advice, with the reason:
 Per repo law, every task ends with: simplify pass, review, a **real** smoke test
 against running infrastructure (not just vitest), then one commit.
 
+**Run tests against the dedicated databases**, not the shared dev ones:
+
+```
+HOGSEND_TEST_DATABASE_URL=postgres://growthhog:growthhog@localhost:5434/growthhog_test
+HOGSEND_CLOUD_TEST_DATABASE_URL=postgres://growthhog:growthhog@localhost:5434/hogsend_cloud_test
+```
+
+Both are set in `.claude/settings.local.json` so every session inherits them.
+The shared `growthhog` / `hogsend_cloud` databases accumulate rows from killed
+runs and from local development, which collide with deterministic fixtures
+(`api_keys_key_hash_unique`) and inflate the unscoped health sweep. On a clean
+database the suites are 2266/2266 and 720/720 green. If a suite suddenly fails
+on duplicate keys or an off-by-one count, suspect the database before the diff.
+
 T1, T2 and T6 are not provable by unit tests alone. Each needs a real run
 against the deployed control plane and a real tenant. The two throwaway tenants
 (`Live Proof Co`, `Launch Canary Co`) exist for exactly this.
