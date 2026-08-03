@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { cells, environments, organizations, stacks } from "../db/schema";
+import { member, user } from "../db/schema/auth";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
@@ -17,6 +18,12 @@ import {
 } from "../services/provider-env";
 import { ProviderKeyService } from "../services/provider-keys";
 import { StackService } from "../services/stacks";
+import {
+  createHttpTenantCredentialClient,
+  getFakeTenantCredentialClient,
+  TENANT_INGEST_KEY_NAME,
+  type TenantCredentialClient,
+} from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
 import {
   getSubstrate,
@@ -93,6 +100,11 @@ export interface ProvisionDeps {
   defaultEngineVersion: string;
   /** Fresh `BETTER_AUTH_SECRET` material. Injected only for determinism tests. */
   generateSecret: () => string;
+  /**
+   * The HTTP leg of `mint-credentials`, against the tenant's own admin API.
+   * Injected because the fake substrate hosts no engine to mint against.
+   */
+  tenantCredentials: TenantCredentialClient;
 }
 
 export interface ProvisionStepReport {
@@ -127,12 +139,31 @@ function defaultDeps(): ProvisionDeps {
     healthPollBaseMs: HEALTH_POLL_BASE_MS,
     defaultEngineVersion: env.CLOUD_DEFAULT_ENGINE_VERSION,
     generateSecret: () => randomBytes(32).toString("base64url"),
+    // A fake substrate serves no engine on `apiPublicUrl`, so the real HTTP
+    // client would only ever time out there. Same choice `getSubstrate()`
+    // already makes, read from the same env var.
+    tenantCredentials:
+      env.CLOUD_SUBSTRATE === "fake"
+        ? getFakeTenantCredentialClient()
+        : createHttpTenantCredentialClient(),
   };
 }
 
 /** Secrets the CONTROL PLANE mints for a stack (`stack_secrets_encrypted`). */
 interface StackSecrets {
   betterAuthSecret: string;
+  /**
+   * The tenant's first Studio admin password, generated HERE rather than by the
+   * engine. When `STUDIO_ADMIN_PASSWORD` is set the engine uses it verbatim and
+   * never logs it; left unset, the engine would generate one and print it to
+   * the instance's log, where the control plane cannot read it and anyone with
+   * log access can.
+   */
+  studioAdminPassword: string;
+  /** The ingest key minted by `mint-credentials`. Absent until it lands. */
+  ingestApiKey?: string;
+  /** The instance-side id of that key, so a retry can recognise its own. */
+  ingestApiKeyId?: string;
 }
 
 /** Everything one run reads once, up front. */
@@ -148,6 +179,37 @@ interface ProvisionContext {
   cellHatchetUrl: string | null;
   /** The cell's explicit Hatchet HTTP API base, when its ports differ. */
   cellHatchetApiUrl: string | null;
+  /**
+   * The organization owner's email — the tenant's Studio admin. Null only for a
+   * control-plane org with no membership rows, which the real signup path
+   * cannot produce.
+   */
+  ownerEmail: string | null;
+}
+
+/**
+ * The owner's email, or the earliest member's when no row carries the `owner`
+ * role. Roles are a comma-separated list ("owner,admin" is legal), so the match
+ * is a substring test over the list rather than an equality check.
+ */
+async function findOwnerEmail(
+  db: CloudDb,
+  organizationId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ email: user.email, role: member.role })
+    .from(member)
+    .innerJoin(user, eq(user.id, member.userId))
+    .where(eq(member.organizationId, organizationId))
+    .orderBy(member.createdAt, member.id);
+
+  const owner = rows.find((row) =>
+    row.role
+      .split(",")
+      .map((value) => value.trim())
+      .includes("owner"),
+  );
+  return owner?.email ?? rows[0]?.email ?? null;
 }
 
 async function loadContext(
@@ -183,6 +245,7 @@ async function loadContext(
     cellDsn: row.cellDsn ? decryptSecretPayload<string>(row.cellDsn) : null,
     cellHatchetUrl: row.cellHatchetUrl,
     cellHatchetApiUrl: row.cellHatchetApiUrl,
+    ownerEmail: await findOwnerEmail(db, row.stack.organizationId),
   };
 }
 
@@ -424,6 +487,7 @@ export async function runProvisionPipeline(
       hatchetHostPort,
       namespace,
       betterAuthSecret: secrets.secrets.betterAuthSecret,
+      studioAdminPassword: secrets.secrets.studioAdminPassword,
     });
     await deps.substrate.setEnv(refs, vars);
     steps.push({ step: "set-env", skipped: false });
@@ -441,24 +505,44 @@ export async function runProvisionPipeline(
     });
 
     // ---- mint-credentials -------------------------------------------------
-    // STUB (PRD 04 task 6 territory). The real step mints the tenant's first
-    // Studio admin + an ingest-scoped API key against the RUNNING instance, and
-    // FakeSubstrate hosts no engine to mint against. The step keeps its name
-    // and its audit row so the gap is visible in the trail rather than implied
-    // by an absence, and records `credentialsMinted: false` on the stack so the
-    // dashboard can say "no keys yet" instead of guessing.
+    // The instance answered `health-wait` a moment ago, so its boot-time
+    // first-admin bootstrap has already run off the env `set-env` pushed. This
+    // step signs in as that admin and takes an ingest key out of the instance's
+    // own admin API — the only place the full key is ever readable.
+    //
+    // It runs BEFORE `finish`, and it THROWS on failure, which is the ordering
+    // that matters: a stack only reaches `running` with `credentialsMinted:
+    // true` already on the row. A failed mint parks the stack at `error` with
+    // this step's name, which the provision sweep re-drives on its first
+    // condition — recovery, not just detection. (The sweep's third condition
+    // still covers a `running` stack whose refs lost the flag some other way,
+    // and T3 alerts on it.)
     current = "mint-credentials";
+    if (!context.ownerEmail) {
+      throw new Error(
+        `Organization ${organizationId} has no member to make the tenant's Studio admin`,
+      );
+    }
+    const minted = await mintTenantCredentials({
+      deps,
+      stackId,
+      refs,
+      email: context.ownerEmail,
+      secrets: secrets.secrets,
+    });
     stack = await patchStack(deps.db, stackId, {
       substrateRefs: {
         ...(stack.substrateRefs ?? {}),
-        credentialsMinted: false,
+        credentialsMinted: true,
       },
     });
-    steps.push({ step: "mint-credentials", skipped: false });
+    steps.push({ step: "mint-credentials", skipped: minted.reused });
+    // The key's id and the count of orphans cleaned up. Never the key itself.
     await audit("mint-credentials", organizationId, {
-      credentialsMinted: false,
-      reason:
-        "tenant credential minting lands with the dashboard (PRD 04 task 6)",
+      credentialsMinted: true,
+      apiKeyId: minted.keyId,
+      reused: minted.reused,
+      revokedOrphans: minted.revokedOrphans,
     });
 
     // ---- finish -----------------------------------------------------------
@@ -527,19 +611,114 @@ async function ensureStackSecrets(
   stackId: string,
   stack: StackRow,
 ): Promise<{ stack: StackRow; secrets: StackSecrets }> {
-  if (stack.stackSecretsEncrypted) {
-    const stored = decryptSecretPayload<Partial<StackSecrets>>(
-      stack.stackSecretsEncrypted,
-    );
-    if (typeof stored?.betterAuthSecret === "string") {
-      return { stack, secrets: { betterAuthSecret: stored.betterAuthSecret } };
-    }
-  }
-  const secrets: StackSecrets = { betterAuthSecret: deps.generateSecret() };
+  const stored = stack.stackSecretsEncrypted
+    ? decryptSecretPayload<Partial<StackSecrets>>(stack.stackSecretsEncrypted)
+    : undefined;
+
+  const secrets: StackSecrets = {
+    betterAuthSecret:
+      typeof stored?.betterAuthSecret === "string"
+        ? stored.betterAuthSecret
+        : deps.generateSecret(),
+    // Filled in per FIELD, not per object: a stack provisioned before the admin
+    // password existed must gain one without losing its auth secret.
+    studioAdminPassword:
+      typeof stored?.studioAdminPassword === "string"
+        ? stored.studioAdminPassword
+        : deps.generateSecret(),
+    ingestApiKey: stored?.ingestApiKey,
+    ingestApiKeyId: stored?.ingestApiKeyId,
+  };
+
+  const unchanged =
+    stored?.betterAuthSecret === secrets.betterAuthSecret &&
+    stored?.studioAdminPassword === secrets.studioAdminPassword;
+  if (unchanged) return { stack, secrets };
+
   const updated = await patchStack(deps.db, stackId, {
     stackSecretsEncrypted: encryptSecretPayload(secrets),
   });
   return { stack: updated, secrets };
+}
+
+/** Merge new material into `stack_secrets_encrypted` without dropping the rest. */
+async function persistStackSecrets(
+  deps: ProvisionDeps,
+  stackId: string,
+  secrets: StackSecrets,
+): Promise<StackRow> {
+  return patchStack(deps.db, stackId, {
+    stackSecretsEncrypted: encryptSecretPayload(secrets),
+  });
+}
+
+/**
+ * Bring the stack to "exactly one live ingest key, and the control plane holds
+ * it" from whatever state a previous attempt left behind.
+ *
+ * The recoverable states, and what each one does:
+ *
+ *  - **Nothing minted yet.** Mint, persist, done.
+ *  - **Minted and persisted.** The stored id is still live on the instance ⇒
+ *    reuse it. Nothing is rotated: the customer may already be sending with it.
+ *  - **Minted but the persist failed.** A live key under our own name that the
+ *    stored id does not match is an ORPHAN — valid forever, held by nobody.
+ *    Revoke it and mint a replacement. This is why the name is a constant: it
+ *    is the only handle a later run has on a key it never learned the id of.
+ *  - **Persisted but the key was revoked from Studio.** Same path as an orphan:
+ *    the stored key is dead, so a fresh one is minted.
+ *
+ * Order inside the mint: revoke orphans, mint, PERSIST, and only then does the
+ * caller set `credentialsMinted`. A crash at any point leaves a state the list
+ * above already covers.
+ */
+async function mintTenantCredentials(args: {
+  deps: ProvisionDeps;
+  stackId: string;
+  refs: StackRefs;
+  email: string;
+  secrets: StackSecrets;
+}): Promise<{ keyId: string; reused: boolean; revokedOrphans: number }> {
+  const { deps, refs, secrets } = args;
+  const client = deps.tenantCredentials;
+  const baseUrl = refs.apiPublicUrl;
+
+  const session = await client.signIn({
+    baseUrl,
+    email: args.email,
+    password: secrets.studioAdminPassword,
+  });
+
+  const live = (await client.listKeys({ baseUrl, session })).filter(
+    (key) => key.name === TENANT_INGEST_KEY_NAME && key.revokedAt === null,
+  );
+
+  const held =
+    secrets.ingestApiKey && secrets.ingestApiKeyId
+      ? live.find((key) => key.id === secrets.ingestApiKeyId)
+      : undefined;
+
+  // Every OTHER key under our name is an orphan whether or not one is held.
+  const orphans = live.filter((key) => key.id !== held?.id);
+  for (const orphan of orphans) {
+    await client.revokeKey({ baseUrl, session, keyId: orphan.id });
+  }
+
+  if (held) {
+    return { keyId: held.id, reused: true, revokedOrphans: orphans.length };
+  }
+
+  const created = await client.createKey({
+    baseUrl,
+    session,
+    name: TENANT_INGEST_KEY_NAME,
+  });
+  await persistStackSecrets(deps, args.stackId, {
+    ...secrets,
+    ingestApiKey: created.key,
+    ingestApiKeyId: created.id,
+  });
+  return { keyId: created.id, reused: false, revokedOrphans: orphans.length };
 }
 
 /**
@@ -557,6 +736,7 @@ async function assembleStackEnv(args: {
   hatchetHostPort: string;
   namespace: string;
   betterAuthSecret: string;
+  studioAdminPassword: string;
 }): Promise<Record<string, string>> {
   const { deps, context, refs } = args;
 
@@ -581,6 +761,17 @@ async function assembleStackEnv(args: {
     // reached it a working credential.
     HOGSEND_BOOTSTRAP_API_KEY: "false",
   };
+
+  // The engine's first-admin bootstrap: on boot, with the user table EMPTY, it
+  // mints this admin and no other. Idempotent by construction, so a re-provision
+  // never produces a second one. The password is generated and held by the
+  // control plane so `mint-credentials` can sign in as this admin — that is the
+  // whole reason a data-plane key can be minted without the instance issuing one
+  // to itself (`HOGSEND_BOOTSTRAP_API_KEY` stays `false` above).
+  if (context.ownerEmail) {
+    vars.STUDIO_ADMIN_EMAIL = context.ownerEmail;
+    vars.STUDIO_ADMIN_PASSWORD = args.studioAdminPassword;
+  }
 
   // A Redis the substrate provisioned alongside the services. Optional: a
   // substrate that provides none leaves the engine on its own default rather

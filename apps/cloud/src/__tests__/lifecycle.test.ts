@@ -251,6 +251,23 @@ beforeAll(async () => {
     role: "member",
   });
 
+  // The bare `ORG_ID` org needs a membership too: provisioning reads the
+  // owner's email to seed the tenant's Studio admin, and refuses without one.
+  const [ownerUser] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, OWNER_EMAIL));
+  if (!ownerUser) throw new Error("fixture owner user missing");
+  await db
+    .insert(organization)
+    .values({ id: ORG_ID, name: `${AUTH_ORG_PREFIX} Bare` });
+  await db.insert(member).values({
+    id: randomUUID(),
+    organizationId: ORG_ID,
+    userId: ownerUser.id,
+    role: "owner",
+  });
+
   // The control-plane mirror the environments hang off. `plan: dedicated`
   // buys enough environment allowance for the several this suite creates.
   await db.insert(organizations).values({

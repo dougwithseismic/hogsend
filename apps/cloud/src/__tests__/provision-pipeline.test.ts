@@ -30,6 +30,10 @@ import {
 } from "../pipeline/provision";
 import type { HatchetTenantService } from "../services/hatchet-tenant";
 import { ProviderKeyService } from "../services/provider-keys";
+import {
+  createFakeTenantCredentialClient,
+  type TenantCredentialClient,
+} from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
 import { SubstrateError } from "../substrate/types";
@@ -256,6 +260,26 @@ beforeAll(async () => {
       password: AUTH_PASSWORD,
     },
   });
+
+  // Provisioning reads the org OWNER's email to seed the tenant's Studio admin,
+  // so both fixture orgs need a membership row. Named with the suite prefix so
+  // `cleanup` sweeps them with everything else.
+  const [ownerUser] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, AUTH_EMAIL));
+  if (!ownerUser) throw new Error("fixture owner user missing");
+  for (const orgId of [ORG_ID, SPLIT_ORG_ID]) {
+    await db
+      .insert(organization)
+      .values({ id: orgId, name: `${AUTH_ORG_PREFIX} ${orgId}` });
+    await db.insert(member).values({
+      id: randomUUID(),
+      organizationId: orgId,
+      userId: ownerUser.id,
+      role: "owner",
+    });
+  }
 });
 
 afterAll(async () => {
@@ -305,7 +329,7 @@ describe("runProvisionPipeline", () => {
     expect(row.substrateRefs).toMatchObject({
       substrate: "fake",
       apiPublicUrl: fakeApiPublicUrl(fixture.stackId),
-      credentialsMinted: false,
+      credentialsMinted: true,
     });
 
     // Every step left a row in the trail — the EARS "with each step
@@ -331,6 +355,17 @@ describe("runProvisionPipeline", () => {
     expect(applied.BETTER_AUTH_URL).toBe(fakeApiPublicUrl(fixture.stackId));
     expect(applied.BETTER_AUTH_SECRET).toEqual(expect.any(String));
     expect(applied.HOGSEND_BOOTSTRAP_API_KEY).toBe("false");
+    // The engine's first-admin bootstrap, driven by the control plane: the
+    // owner's email, and a password the control plane generated and kept.
+    expect(applied.STUDIO_ADMIN_EMAIL).toBe(AUTH_EMAIL);
+    const storedSecrets = decryptSecretPayload<{
+      studioAdminPassword: string;
+      ingestApiKey: string;
+    }>(row.stackSecretsEncrypted ?? "");
+    expect(applied.STUDIO_ADMIN_PASSWORD).toBe(
+      storedSecrets.studioAdminPassword,
+    );
+    expect(storedSecrets.ingestApiKey).toEqual(expect.any(String));
     expect(applied.HATCHET_CLIENT_TOKEN).toBe(`tok_${fixture.stackId}`);
     expect(applied.HATCHET_CLIENT_HOST_PORT).toBe(
       "hatchet.provision.test:8888",
@@ -560,6 +595,176 @@ describe("runProvisionPipeline", () => {
     expect(
       substrate.calls.filter((call) => call.method === "provisionStack"),
     ).toHaveLength(1);
+  });
+});
+
+describe("mint-credentials", () => {
+  /**
+   * A credential client that records every call and can be scripted to fail,
+   * over the same in-memory key store the fake client uses. The whole point of
+   * this step is what a SECOND run does with what a first run left behind, so
+   * the store outlives the run and the assertions are about its contents.
+   */
+  function scriptedClient() {
+    const inner = createFakeTenantCredentialClient();
+    const calls: string[] = [];
+    let failCreate = false;
+    let failPersistAfterCreate = false;
+    const client: TenantCredentialClient = {
+      async signIn(args) {
+        calls.push("signIn");
+        return inner.signIn(args);
+      },
+      async listKeys(args) {
+        calls.push("listKeys");
+        return inner.listKeys(args);
+      },
+      async createKey(args) {
+        calls.push("createKey");
+        // Refused outright: nothing is minted, so there is no orphan either.
+        if (failCreate) throw new Error("scripted create failure");
+        const created = await inner.createKey(args);
+        if (failPersistAfterCreate) {
+          // The key is LIVE on the instance and the control plane is about to
+          // lose it — exactly the orphan the retry has to recognise.
+          throw new Error("scripted persist failure");
+        }
+        return created;
+      },
+      async revokeKey(args) {
+        calls.push(`revokeKey:${args.keyId}`);
+        return inner.revokeKey(args);
+      },
+    };
+    return {
+      client,
+      calls,
+      liveKeys: (baseUrl: string) =>
+        inner.listKeys({ baseUrl, session: { cookie: "" } }),
+      failCreate: (value: boolean) => {
+        failCreate = value;
+      },
+      failPersistAfterCreate: (value: boolean) => {
+        failPersistAfterCreate = value;
+      },
+    };
+  }
+
+  it("run twice leaves exactly one live key and one stored key", async () => {
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const deps = {
+      substrate: new FakeSubstrate(),
+      hatchetTenant: stubHatchet().service,
+      tenantCredentials: scripted.client,
+    };
+
+    const first = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(first.status).toBe("running");
+    const afterFirst = await stackRow(fixture.stackId);
+    const firstKey = decryptSecretPayload<{ ingestApiKey: string }>(
+      afterFirst.stackSecretsEncrypted ?? "",
+    ).ingestApiKey;
+
+    // A `running` stack short-circuits at `start`, so the honest second run is
+    // the sweep's: park it, then re-drive the whole pipeline.
+    await db
+      .update(stacks)
+      .set({ status: "error", lastError: "[mint-credentials] forced" })
+      .where(eq(stacks.id, fixture.stackId));
+
+    const second = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(second.status).toBe("running");
+
+    const live = await scripted.liveKeys(fakeApiPublicUrl(fixture.stackId));
+    expect(live).toHaveLength(1);
+    const afterSecond = await stackRow(fixture.stackId);
+    const stored = decryptSecretPayload<{ ingestApiKey: string }>(
+      afterSecond.stackSecretsEncrypted ?? "",
+    );
+    // Not rotated: the customer may already be sending with the first key.
+    expect(stored.ingestApiKey).toBe(firstKey);
+    expect(scripted.calls.filter((call) => call === "createKey")).toHaveLength(
+      1,
+    );
+    expect(afterSecond.substrateRefs).toMatchObject({
+      credentialsMinted: true,
+    });
+  });
+
+  it("revokes the orphan when the store write failed, then re-mints", async () => {
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const deps = {
+      substrate: new FakeSubstrate(),
+      hatchetTenant: stubHatchet().service,
+      tenantCredentials: scripted.client,
+    };
+
+    scripted.failPersistAfterCreate(true);
+    const failed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(failed.status).toBe("error");
+    if (failed.status !== "error") throw new Error("unreachable");
+    expect(failed.failedStep).toBe("mint-credentials");
+
+    // Parked, never `running`: the customer is not told a keyless stack is
+    // ready, and the sweep's first condition picks this up.
+    const parked = await stackRow(fixture.stackId);
+    expect(parked.status).toBe("error");
+    expect(parked.substrateRefs).not.toMatchObject({ credentialsMinted: true });
+    const orphan = (
+      await scripted.liveKeys(fakeApiPublicUrl(fixture.stackId))
+    )[0];
+    expect(orphan).toBeDefined();
+
+    scripted.failPersistAfterCreate(false);
+    const resumed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(resumed.status).toBe("running");
+
+    // The credential nobody held is dead, and its replacement is stored.
+    expect(scripted.calls).toContain(`revokeKey:${orphan?.id}`);
+    const live = await scripted.liveKeys(fakeApiPublicUrl(fixture.stackId));
+    expect(live).toHaveLength(1);
+    expect(live[0]?.id).not.toBe(orphan?.id);
+    const stored = decryptSecretPayload<{ ingestApiKeyId: string }>(
+      (await stackRow(fixture.stackId)).stackSecretsEncrypted ?? "",
+    );
+    expect(stored.ingestApiKeyId).toBe(live[0]?.id);
+  });
+
+  it("parks the stack when the instance refuses, leaving no live key", async () => {
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    scripted.failCreate(true);
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: scripted.client,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    const row = await stackRow(fixture.stackId);
+    expect(row.status).toBe("error");
+    expect(row.lastError).toContain("mint-credentials");
+    expect(
+      await scripted.liveKeys(fakeApiPublicUrl(fixture.stackId)),
+    ).toHaveLength(0);
   });
 });
 
