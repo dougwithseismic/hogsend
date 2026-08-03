@@ -145,7 +145,7 @@ Make it:
 
 Effort: 3-4h.
 
-### T5 — The CLI seam (scaffold ↔ Cloud)
+### T5 — The CLI seam (scaffold ↔ Cloud) `[x]`
 
 Advisory verdict: **the PostHog cloud-vs-self-host fork is the wrong analogy.**
 PostHog asks because the choice decides which product you use, and cloud users
