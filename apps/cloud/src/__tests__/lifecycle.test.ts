@@ -279,6 +279,11 @@ beforeAll(async () => {
   });
 });
 
+// Dropping one real tenant database per fixture is IO measured in seconds, and
+// a CI runner is slower than a laptop: vitest's 10s default hook timeout failed
+// this suite in CI while passing locally (as it did provision-pipeline's). The
+// work is teardown, not an assertion, so give it room rather than leave
+// orphaned databases behind.
 afterAll(async () => {
   for (const name of createdDatabases) {
     await tenantDb
@@ -287,7 +292,7 @@ afterAll(async () => {
   }
   await cleanup();
   await sqlClient.end();
-});
+}, 120_000);
 
 describe("suspendStack / resumeStack", () => {
   it("suspends a running stack, reports unhealthy, then resumes it healthy", async () => {
