@@ -12,6 +12,11 @@ checklist; [RUNBOOK.md](RUNBOOK.md) is how to operate what exists.
 (signup → provision → healthy instance on cell us-1), but a provisioned tenant
 still has no admin and no API key — see GUIDE §1.
 
+2026-08-03: Phase 0 is scoped as **[PRD 13](prds/13-phase0-launch.md)** and is
+the next thing to build. It folds in the CLI seam: no cloud-vs-self-host prompt
+in the scaffolder, copy pointing both ways, and `hogsend env pull`. Suspend and
+export moved from launch blockers to money blockers.
+
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
 | 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [x] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
@@ -22,6 +27,7 @@ still has no admin and no API key — see GUIDE §1.
 | 06 | [billing-metering](prds/06-billing-metering.md) | [~] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page (live keys + prices wired 2026-07-29; seam: webhook secret needs deployed URL) |
 | 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (seam: registry credential + CLOUD_IMAGE_REGISTRY) |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
+| 13 | [phase0-launch](prds/13-phase0-launch.md) | [ ] | 04, 05, 07, 08 | **NEXT** — provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
 | 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
 | 10 | [fleet-health](prds/10-fleet-health.md) | [ ] | 04 | operator console, fleet rollups, abuse suspend |
 | 11 | [dedicated-tier](prds/11-dedicated-tier.md) | [ ] | 04, 06 | rung-0 topology, custom tracking domains, EU region |
