@@ -6,7 +6,9 @@ import { cells, environments, organizations, stacks } from "../db/schema";
 import { member, user } from "../db/schema/auth";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
+import { welcomeEmailBody, welcomeEmailSubject } from "../lib/cloud-onboarding";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
+import { type EmailSender, resolveEmailSender } from "../lib/email-sender";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
@@ -19,8 +21,7 @@ import {
 import { ProviderKeyService } from "../services/provider-keys";
 import { StackService } from "../services/stacks";
 import {
-  createHttpTenantCredentialClient,
-  getFakeTenantCredentialClient,
+  resolveTenantCredentialClient,
   TENANT_INGEST_KEY_NAME,
   type TenantCredentialClient,
 } from "../services/tenant-credentials";
@@ -70,6 +71,34 @@ export const PROVISION_STEPS = [
 
 export type ProvisionStep = (typeof PROVISION_STEPS)[number];
 
+const PROVISION_STEP_NAMES = new Set<string>(PROVISION_STEPS);
+
+/**
+ * The provision step named by `last_error`'s `[step] …` prefix, or null when
+ * the failure came from somewhere else.
+ *
+ * `last_error` is written by `StackService.recordError`, and this pipeline
+ * prefixes it with the failed step (`[set-env] …`). Other writers park stacks
+ * in `error` too — the build sweep's `[build …]` reap, most notably — and those
+ * are not the provisioner's: a stack parked by a failed PUBLISH has an image
+ * problem, and re-provisioning it would re-run substrate steps that all skip
+ * and then declare it `running` on the old image, hiding the failure the
+ * operator needs to see.
+ *
+ * Declared HERE, next to the steps it matches against, and shared by all three
+ * readers — the provision sweep's re-drive filter, the alert sweep's
+ * `provision_exhausted` condition, and the environment page's copy. Those three
+ * must name exactly the same set of stacks, and three hand-kept copies of one
+ * regex is how two of them quietly drift apart. Returning the NAME rather than
+ * a boolean lets the page say which step stopped.
+ */
+export function failedProvisionStep(
+  lastError: string | null,
+): ProvisionStep | null {
+  const name = /^\[([^\]]+)\]/.exec(lastError ?? "")?.[1] ?? "";
+  return PROVISION_STEP_NAMES.has(name) ? (name as ProvisionStep) : null;
+}
+
 /** The audit `action` a step writes. `stack.provision.set-env`, … */
 export function provisionAuditAction(step: ProvisionStep): string {
   return `stack.provision.${step}`;
@@ -105,6 +134,11 @@ export interface ProvisionDeps {
    * Injected because the fake substrate hosts no engine to mint against.
    */
   tenantCredentials: TenantCredentialClient;
+  /**
+   * How the "your instance is running" mail leaves the building. Same seam the
+   * OTP uses, so a test gets a spy and a fresh clone gets the log transport.
+   */
+  emailSender: EmailSender;
 }
 
 export interface ProvisionStepReport {
@@ -142,15 +176,19 @@ function defaultDeps(): ProvisionDeps {
     // A fake substrate serves no engine on `apiPublicUrl`, so the real HTTP
     // client would only ever time out there. Same choice `getSubstrate()`
     // already makes, read from the same env var.
-    tenantCredentials:
-      env.CLOUD_SUBSTRATE === "fake"
-        ? getFakeTenantCredentialClient()
-        : createHttpTenantCredentialClient(),
+    tenantCredentials: resolveTenantCredentialClient(),
+    emailSender: resolveEmailSender(),
   };
 }
 
-/** Secrets the CONTROL PLANE mints for a stack (`stack_secrets_encrypted`). */
-interface StackSecrets {
+/**
+ * Secrets the CONTROL PLANE mints for a stack (`stack_secrets_encrypted`).
+ *
+ * Exported because the dashboard reads the same blob back to show the customer
+ * their Studio password and their ingest key. One declaration, so a field added
+ * here cannot be silently missed by the reader.
+ */
+export interface StackSecrets {
   betterAuthSecret: string;
   /**
    * The tenant's first Studio admin password, generated HERE rather than by the
@@ -172,6 +210,7 @@ interface ProvisionContext {
   environmentName: string;
   environmentKind: "production" | "staging" | "test";
   organizationId: string;
+  organizationName: string;
   plan: "trial" | "self_serve" | "dedicated";
   /** Decrypted cell admin DSN. Null for a dedicated (cell-less) org. */
   cellDsn: string | null;
@@ -192,7 +231,7 @@ interface ProvisionContext {
  * role. Roles are a comma-separated list ("owner,admin" is legal), so the match
  * is a substring test over the list rather than an equality check.
  */
-async function findOwnerEmail(
+export async function findOwnerEmail(
   db: CloudDb,
   organizationId: string,
 ): Promise<string | null> {
@@ -222,6 +261,7 @@ async function loadContext(
       environmentName: environments.name,
       environmentKind: environments.kind,
       plan: organizations.plan,
+      organizationName: organizations.name,
       cellDsn: cells.sharedClusterDsn,
       cellHatchetUrl: cells.sharedHatchetUrl,
       cellHatchetApiUrl: cells.sharedHatchetApiUrl,
@@ -240,6 +280,7 @@ async function loadContext(
     environmentName: row.environmentName,
     environmentKind: row.environmentKind,
     organizationId: row.stack.organizationId,
+    organizationName: row.organizationName,
     plan: row.plan,
     // Cell DSNs live encrypted at rest; this is the only place they are opened.
     cellDsn: row.cellDsn ? decryptSecretPayload<string>(row.cellDsn) : null,
@@ -315,6 +356,10 @@ export async function runProvisionPipeline(
 
   const context = await loadContext(deps.db, stackId);
   const { organizationId } = context;
+
+  /** Set only on the run that actually reaches `finish`. */
+  let welcome: { stack: StackRow; context: ProvisionContext } | null = null;
+  let result: ProvisionResult;
 
   try {
     // ---- start ------------------------------------------------------------
@@ -557,7 +602,10 @@ export async function runProvisionPipeline(
     steps.push({ step: "finish", skipped: false });
     await audit("finish", organizationId, { status: "running" });
 
-    return { stackId, status: "running", steps };
+    // Everything the welcome mail needs, handed to the SEND SITE BELOW — which
+    // is outside this try on purpose (see there).
+    welcome = { stack, context };
+    result = { stackId, status: "running", steps };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // `recordError` owns the status, the message and the retry counter in one
@@ -576,6 +624,83 @@ export async function runProvisionPipeline(
       failedStep: current,
       error: message,
     };
+  }
+
+  // OUTSIDE the try, and therefore outside the pipeline's failure contract.
+  // This is the first instant the mail's own subject line is true: credentials
+  // are minted and the stack is `running`. Sending any earlier — at signup, or
+  // at `substrate-provision` — would promise a running instance that is still
+  // provisioning.
+  //
+  // Placement is load-bearing, not stylistic. Inside the try, ANY throw from
+  // here would land in the catch above and call `recordError` with
+  // `current === "finish"` — and `running` is not a failable status, so that
+  // call would itself throw `IllegalTransitionError` out of the whole
+  // pipeline. A blipped row update would fail the provision task for a
+  // customer whose instance is perfectly healthy.
+  //
+  // `sendWelcomeEmail` is additionally total (it catches its own errors), so
+  // this is belt and braces on a path where the customer is already served.
+  // A failed send is DROPPED, not retried: an already-`running` stack returns
+  // at `start`, so nothing reaches this line twice. The environment page
+  // carries every fact the mail does, so the cost is a missed nudge, not a
+  // customer who cannot proceed.
+  if (welcome) await sendWelcomeEmail(deps, welcome);
+
+  return result;
+}
+
+/**
+ * Tell the owner their instance is running, once.
+ *
+ * Once is enforced by a marker on `substrate_refs` rather than by the caller's
+ * position in the pipeline: a stack that was parked and resumed can reach
+ * `finish` more than once over its life, and a customer must not be welcomed
+ * twice.
+ *
+ * TOTAL: it never throws, for any reason. It is called after the stack is
+ * already `running`, and there is no failure in here worth walking that back
+ * for — least of all the marker write, whose only job is to stop a second
+ * copy of a mail the customer has already had.
+ */
+async function sendWelcomeEmail(
+  deps: ProvisionDeps,
+  input: { stack: StackRow; context: ProvisionContext },
+): Promise<void> {
+  const { stack, context } = input;
+  const refs = stack.substrateRefs ?? {};
+  if (refs.welcomeEmailSentAt) return;
+  if (!context.ownerEmail) return;
+
+  const facts = {
+    organizationName: context.organizationName,
+    environmentName: context.environmentName,
+    environmentId: stack.environmentId,
+  };
+
+  // ONE try around the send AND the marker write. The marker is not more
+  // important than the send it records: a row update that blips must not
+  // become an exception the caller has to think about.
+  try {
+    await deps.emailSender.send({
+      to: context.ownerEmail,
+      subject: welcomeEmailSubject(facts),
+      text: welcomeEmailBody(facts),
+    });
+    // Only after the transport returned, so a mail that never left is never
+    // recorded as sent.
+    await patchStack(deps.db, stack.id, {
+      substrateRefs: {
+        ...refs,
+        welcomeEmailSentAt: new Date(deps.now()).toISOString(),
+      },
+    });
+  } catch (error) {
+    console.warn(
+      `[cloud:provision] welcome email failed for stack ${stack.id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 # PRD 13 — Phase 0: the smallest truthful launch
 
-Status: `[ ]` not started. Depends on 04, 05, 07, 08.
+Status: `[x]` all six tasks done. Depends on 04, 05, 07, 08.
 
 This PRD is the execution plan for **Phase 0** in [GUIDE.md](../GUIDE.md) §10,
 plus the CLI seam Doug asked about on 2026-08-03. When every task here is done,
@@ -123,7 +123,7 @@ existing cloud email or connector wiring rather than adding a dependency.
 
 Effort: 1h.
 
-### T4 — Environment page: the first five minutes
+### T4 — Environment page: the first five minutes `[x]`
 
 Today the environment page shows topology, engine version, tenant database and
 Hatchet namespace. That is an operator's view of infrastructure, not a
@@ -145,7 +145,7 @@ Make it:
 
 Effort: 3-4h.
 
-### T5 — The CLI seam (scaffold ↔ Cloud)
+### T5 — The CLI seam (scaffold ↔ Cloud) `[x]`
 
 Advisory verdict: **the PostHog cloud-vs-self-host fork is the wrong analogy.**
 PostHog asks because the choice decides which product you use, and cloud users
@@ -174,7 +174,7 @@ Already shipped and unchanged: `hogsend login` (device flow), `whoami`,
 
 Effort: 2-3h.
 
-### T6 — `hogsend env pull`
+### T6 — `hogsend env pull` `[x]`
 
 The command that makes "I signed up on the web, now point my repo at it" a
 one-liner. Fetches the tenant instance URL and API key from Cloud and merges

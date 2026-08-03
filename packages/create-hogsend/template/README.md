@@ -40,6 +40,26 @@ Using npm / yarn / bun? Swap `pnpm` for `npm run` / `yarn` / `bun run`
 API docs: `http://localhost:3002/docs`. Health: `GET /v1/health`. Full docs:
 [docs.hogsend.com](https://docs.hogsend.com).
 
+## Hosting
+
+This repo is the product wherever it runs, so hosting is a decision you can
+make later with nothing to migrate. The managed path is **Hogsend Cloud** — it
+runs the instance (Postgres, Redis, Hatchet, the API and the worker) and gives
+you a Studio URL and an API key:
+
+```bash
+pnpm hogsend login     # signs THIS machine in; the session lives in ~/.hogsend
+pnpm hogsend env pull  # merges your instance URL + API key into .env (never printed)
+pnpm hogsend publish   # ships this app to your Cloud environment
+pnpm hogsend open      # open the environment's dashboard page
+```
+
+Self-hosting is the equal alternative and needs nothing from Cloud: the
+`Dockerfile` builds one image you run three ways (see
+[Docker image & preflight](#docker-image--preflight)), and `railway.toml` /
+`railway.worker.toml` declare those commands for Railway. Either way the
+journeys, templates and schema in `src/` are the same files.
+
 ## Sending domain & test mode
 
 Set a real `RESEND_API_KEY` in `.env` to send email — and note that while your

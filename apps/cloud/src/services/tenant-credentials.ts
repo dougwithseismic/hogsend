@@ -1,3 +1,4 @@
+import { env } from "../env";
 import { CloudServiceError } from "./errors";
 
 /**
@@ -233,8 +234,23 @@ export function createHttpTenantCredentialClient(
  * the pipeline depends on: a revoked key stays listed as revoked, and a live
  * key stays live, so a second run can see what the first one left behind.
  */
-export function createFakeTenantCredentialClient(): TenantCredentialClient {
+export function createFakeTenantCredentialClient(): FakeTenantCredentialClient {
   return buildFakeClient();
+}
+
+/**
+ * The fake, plus the one affordance tests need: `failNext(method, error)`
+ * scripts the NEXT call to that method to throw.
+ *
+ * Same shape as `FakeSubstrate.failNext` deliberately — a rejected credential
+ * and a dead instance are rules the control plane has to diagnose apart, and
+ * the only honest way to prove that is to make the instance fail on cue.
+ */
+export interface FakeTenantCredentialClient extends TenantCredentialClient {
+  failNext(
+    method: keyof TenantCredentialClient,
+    error?: TenantCredentialError,
+  ): void;
 }
 
 /**
@@ -243,16 +259,26 @@ export function createFakeTenantCredentialClient(): TenantCredentialClient {
  * pipeline run would forget the key the previous run minted and the step would
  * stop being idempotent exactly where it matters most.
  */
-let fakeSingleton: TenantCredentialClient | undefined;
+let fakeSingleton: FakeTenantCredentialClient | undefined;
 
-export function getFakeTenantCredentialClient(): TenantCredentialClient {
+export function getFakeTenantCredentialClient(): FakeTenantCredentialClient {
   fakeSingleton ??= buildFakeClient();
   return fakeSingleton;
 }
 
-function buildFakeClient(): TenantCredentialClient {
+function buildFakeClient(): FakeTenantCredentialClient {
   const keysByUrl = new Map<string, TenantKeySummary[]>();
   const counters = new Map<string, number>();
+  const scriptedFailures = new Map<
+    keyof TenantCredentialClient,
+    TenantCredentialError[]
+  >();
+
+  /** Throws the next scripted failure for `method`, if one is queued. */
+  const checkScripted = (method: keyof TenantCredentialClient): void => {
+    const queued = scriptedFailures.get(method)?.shift();
+    if (queued) throw queued;
+  };
 
   const keysFor = (baseUrl: string): TenantKeySummary[] => {
     const existing = keysByUrl.get(baseUrl);
@@ -263,13 +289,26 @@ function buildFakeClient(): TenantCredentialClient {
   };
 
   return {
+    failNext(method, error) {
+      const queue = scriptedFailures.get(method) ?? [];
+      queue.push(
+        error ??
+          new TenantCredentialError(
+            `fake tenant instance: scripted failure in ${method}`,
+          ),
+      );
+      scriptedFailures.set(method, queue);
+    },
     async signIn({ baseUrl, email }) {
+      checkScripted("signIn");
       return { cookie: `fake-session=${encodeURIComponent(email)}@${baseUrl}` };
     },
     async listKeys({ baseUrl }) {
+      checkScripted("listKeys");
       return keysFor(baseUrl).filter((key) => key.revokedAt === null);
     },
     async createKey({ baseUrl, name }) {
+      checkScripted("createKey");
       const next = (counters.get(baseUrl) ?? 0) + 1;
       counters.set(baseUrl, next);
       const id = `fake-key-${next}`;
@@ -277,8 +316,24 @@ function buildFakeClient(): TenantCredentialClient {
       return { id, key: `hsk_fake_${next}` };
     },
     async revokeKey({ baseUrl, keyId }) {
+      checkScripted("revokeKey");
       const key = keysFor(baseUrl).find((entry) => entry.id === keyId);
       if (key) key.revokedAt = "revoked";
     },
   };
+}
+
+/**
+ * The client every caller should use: the real HTTP one, except under the fake
+ * substrate, where no engine is listening on `apiPublicUrl` at all and the real
+ * client could only ever time out.
+ *
+ * Shared by the provisioning pipeline and the dashboard's key management so the
+ * two cannot disagree about which instance they are talking to — and so local
+ * dev and the control-plane test suite exercise both through the same fake.
+ */
+export function resolveTenantCredentialClient(): TenantCredentialClient {
+  return env.CLOUD_SUBSTRATE === "fake"
+    ? getFakeTenantCredentialClient()
+    : createHttpTenantCredentialClient();
 }

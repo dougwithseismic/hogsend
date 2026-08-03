@@ -14,10 +14,16 @@ import { useState } from "react";
 export function CopyValue({
   value,
   label,
+  buttonOnly = false,
 }: {
   value: string;
   /** Accessible name for the button, e.g. "organization id". */
   label: string;
+  /**
+   * Render the button alone. For a value already shown above it — a multi-line
+   * `.env` fragment in a `<pre>` — where repeating it inline would be noise.
+   */
+  buttonOnly?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -34,9 +40,11 @@ export function CopyValue({
 
   return (
     <span className="inline-flex items-center gap-2">
-      <code className="select-all font-mono text-sm text-white/80">
-        {value}
-      </code>
+      {buttonOnly ? null : (
+        <code className="select-all font-mono text-sm text-white/80">
+          {value}
+        </code>
+      )}
       <button
         type="button"
         onClick={onCopy}

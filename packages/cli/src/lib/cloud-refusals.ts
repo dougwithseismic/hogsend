@@ -68,6 +68,15 @@ export function describeCloudRefusal(
         hint: "Ask an owner or admin of this organization to grant you the developer role.",
       };
     }
+    if (error.code === "forbidden_role_credentials") {
+      // Separate from `forbidden_role` because the remedy is a DIFFERENT role:
+      // publishing needs developer, releasing a live credential needs owner or
+      // admin, and pointing the caller at the wrong one wastes an ask.
+      return {
+        headline: error.message,
+        hint: "Ask an owner or admin of this organization to run it, or to copy the values from the environment page.",
+      };
+    }
     if (error.code === "forbidden_organization") {
       return {
         headline: error.message,
@@ -97,6 +106,13 @@ export function describeCloudRefusal(
     return {
       headline: `Engine version mismatch${target}: the stack runs ${stackVersion}, this upload is built against ${manifestVersion}.`,
       hint: `If that change is intentional, re-run with --allow-upgrade. Otherwise align your @hogsend/engine dependency with ${stackVersion} and reinstall.`,
+    };
+  }
+
+  if (error.status === 409 && error.code === "tenant_access_unavailable") {
+    return {
+      headline: error.message,
+      hint: "Run `hogsend open --env <name>` to watch provisioning finish, then try again.",
     };
   }
 

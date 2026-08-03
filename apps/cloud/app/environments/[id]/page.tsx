@@ -7,6 +7,7 @@ import { EnvironmentOperations } from "@/components/cloud/environment-operations
 import { HealthStrip } from "@/components/cloud/health-strip";
 import { ProvisionSteps } from "@/components/cloud/provision-steps";
 import { StackStatusChip } from "@/components/cloud/stack-status-chip";
+import { TenantAccessSection } from "@/components/cloud/tenant-access-section";
 import { TimeAgo } from "@/components/cloud/time-ago";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
@@ -17,6 +18,11 @@ import { readBuildsView } from "@/src/lib/build-views";
 import { readEnvironmentDetail } from "@/src/lib/environment-detail";
 import { canOperateEnvironments } from "@/src/lib/environment-ops";
 import { requireActiveOrganization } from "@/src/lib/session";
+import {
+  deriveProvisionProgress,
+  readTenantAccess,
+  readTenantKeys,
+} from "@/src/lib/tenant-access";
 
 export const metadata: Metadata = {
   title: "Environment",
@@ -24,8 +30,15 @@ export const metadata: Metadata = {
 };
 
 /**
- * One environment: what it is, how far its provisioning got, what the health
- * poll has seen, and the operations this caller may run on it.
+ * One environment, read as the CUSTOMER's first five minutes and then as the
+ * operator's infrastructure: open Studio, sign in, paste a key into your repo
+ * — and below that, how far provisioning got, what the health poll has seen,
+ * and the operations this caller may run on it.
+ *
+ * The order is deliberate. Topology, engine version, tenant database and
+ * Hatchet namespace are still here (an operator wants them) but they answer a
+ * question nobody has in their first five minutes, so they sit under the
+ * material that does.
  *
  * The tenancy guard is `readEnvironmentDetail`'s: it scopes the query to the
  * caller's own organization, so another tenant's id and a made-up one both
@@ -78,10 +91,32 @@ export default async function EnvironmentDetailPage({
     environmentId: id,
   });
 
+  // Both re-run the same tenancy scope `readEnvironmentDetail` just passed, so
+  // neither can be the one place a foreign id slips through.
+  const access = await readTenantAccess(requestHeaders, { environmentId: id });
+  // Live HTTP against the tenant instance, which can be down: this returns an
+  // error STRING rather than throwing, so a key list that timed out does not
+  // take the rest of the page's status down with it.
+  const keys = access?.ready
+    ? await readTenantKeys(requestHeaders, { environmentId: id })
+    : { keys: [], error: null };
+
   const { environment, stack, operations } = detail;
   const now = new Date();
   const refs = (stack?.substrateRefs as Record<string, unknown>) ?? null;
   const apiUrl = readApiUrl(refs);
+  const progress = deriveProvisionProgress({
+    stack: stack
+      ? {
+          status: stack.status,
+          lastError: stack.lastError,
+          retryCount: stack.retryCount,
+          updatedAt: stack.updatedAt,
+        }
+      : null,
+    steps: detail.steps,
+    now,
+  });
 
   return (
     <main className="flex flex-1 flex-col">
@@ -96,6 +131,16 @@ export default async function EnvironmentDetailPage({
       />
 
       <Section divider={false} containerClassName="flex flex-col gap-4">
+        {access ? (
+          <TenantAccessSection
+            access={access}
+            progress={progress}
+            keys={keys.keys}
+            keysError={keys.error}
+            now={now}
+          />
+        ) : null}
+
         <Card className="p-0">
           <Row label="Status">
             <StackStatusChip status={stack?.status ?? null} />
