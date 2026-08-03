@@ -18,21 +18,25 @@ per-build sandbox → `docker build` → tenant image ([PRD 14](prds/14-publish-
 The artifact no longer depends on a shared disk, and the build no longer
 depends on a daemon `cloud-worker` does not have.
 
-The last gate is the preflight refusal working as designed: the published
-`create-hogsend` template carried `pnpm start` / `pnpm worker`, which EACCES
-crash-loop in the production image. The repo template is already correct and
-has simply never been published — the pending `create-hogsend` release ships
-it. Everything below is post-launch.
+2026-08-04: **launch scope is closed.** `create-hogsend` 0.62.0 ships the
+corrected Railway run commands, and a freshly scaffolded app published end to
+end — build, preflight, GHCR push, deploy — onto a stack that answers
+`/v1/health` healthy with database, redis, and worker all up.
+`hogsend-default:0.62.0` is built and `CLOUD_DEFAULT_ENGINE_VERSION` points at
+it, so new stacks provision on the current engine line.
+
+PRDs 01–08, 13 and 14 are done. Everything below (09–12) is post-launch.
+Known non-blocking deferrals are named in each row rather than left implicit.
 
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
 | 01 | [cloud-scaffold](prds/01-cloud-scaffold.md) | [x] | — | apps/cloud Next.js app, ds port, cloud DB + migrations, health, worker entry, gates |
 | 02 | [tenant-model](prds/02-tenant-model.md) | [x] | 01 | org→env→stack schema, state machine, encrypted provider keys, plan limits, audit |
 | 03 | [auth-dashboard](prds/03-auth-dashboard.md) | [x] | 02 | signup/OTP/org-create, dashboard shell, members/roles, essentials (legal, API docs) |
-| 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [~] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
+| 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [x] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI — live: real stacks provisioned on Railway, `mint-credentials` no longer a stub |
 | 05 | [onboarding-keys](prds/05-onboarding-keys.md) | [x] | 03, 04 | paste-your-keys flow, live validation, env sync |
-| 06 | [billing-metering](prds/06-billing-metering.md) | [~] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page (live keys + prices wired 2026-07-29; seam: webhook secret needs deployed URL) |
-| 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (works single-machine; deployed-path seam moved to PRD 14) |
+| 06 | [billing-metering](prds/06-billing-metering.md) | [x] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page — webhook live at `cloud.hogsend.com` and verified fail-closed in prod. Deferred (not launch-blocking): dedicated `<db>_meter` role, `DATABASE_POOL_MAX` to tenant stacks |
+| 08 | [build-pipeline](prds/08-build-pipeline.md) | [x] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage — GHCR push proven live; deployed path closed by PRD 14. Deferred (not launch-blocking): multi-arch images, `waitForDeploy` on the substrate seam |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
 | 13 | [phase0-launch](prds/13-phase0-launch.md) | [x] | 04, 05, 07, 08 | provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
 | 14 | [publish-build-host](prds/14-publish-build-host.md) | [x] | 08 | ArtifactStore seam + Railway Buckets, production boot guard, Railway-Sandbox build host on BuildKit — live in prod, verified end to end |
