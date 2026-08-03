@@ -218,6 +218,15 @@ export const env = createEnv({
     // the build host), never this app's: a registry password in the control
     // plane's env would be one more secret to rotate for no gain.
     CLOUD_IMAGE_REGISTRY: z.string().min(1).optional(),
+    // PULL credentials for that registry, handed to Railway
+    // (`registryCredentials` on service create/update) so a tenant service can
+    // pull a PRIVATE image. Distinct from the build host's own `docker login`
+    // (push side, above): Railway pulls from its side and knows nothing of the
+    // build host. Optional as a PAIR — a public registry needs neither, and
+    // `getSubstrate` refuses a half-configured pair rather than shipping
+    // services that fail their first pull. NEVER logged, never audited.
+    CLOUD_REGISTRY_USERNAME: z.string().min(1).optional(),
+    CLOUD_REGISTRY_PASSWORD: z.string().min(1).optional(),
     // Where `packages/create-hogsend/template/` lives, for the two files the
     // build pipeline falls back to (the generic `Dockerfile` and the
     // parameterized `scripts/preflight.sh`). Defaults to the monorepo path

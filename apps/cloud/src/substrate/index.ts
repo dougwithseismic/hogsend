@@ -44,9 +44,28 @@ export function getSubstrate(): SubstrateProvider {
           "CLOUD_SUBSTRATE=railway requires CLOUD_RAILWAY_TOKEN; refusing to start (a missing token never falls back to the fake substrate)",
         );
       }
+      // Same fail-closed stance for pull credentials: half a pair is a
+      // misconfiguration, and shipping services that fail their first private
+      // pull would surface as a vendor outage instead of the real cause.
+      if (
+        Boolean(env.CLOUD_REGISTRY_USERNAME) !==
+        Boolean(env.CLOUD_REGISTRY_PASSWORD)
+      ) {
+        throw new SubstrateError(
+          "CLOUD_REGISTRY_USERNAME and CLOUD_REGISTRY_PASSWORD must be set together (or neither); refusing to start with half a credential pair",
+        );
+      }
       railwaySingleton ??= new RailwaySubstrate({
         token: env.CLOUD_RAILWAY_TOKEN,
         workspaceId: env.CLOUD_RAILWAY_WORKSPACE_ID,
+        ...(env.CLOUD_REGISTRY_USERNAME && env.CLOUD_REGISTRY_PASSWORD
+          ? {
+              registryCredentials: {
+                username: env.CLOUD_REGISTRY_USERNAME,
+                password: env.CLOUD_REGISTRY_PASSWORD,
+              },
+            }
+          : {}),
       });
       return railwaySingleton;
   }

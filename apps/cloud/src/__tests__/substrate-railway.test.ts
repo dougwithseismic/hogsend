@@ -35,6 +35,7 @@ interface MockService {
   preDeployCommand?: string;
   startCommand?: string;
   variables: Record<string, string>;
+  registryCredentials?: { username: string; password: string };
   deploymentStatus: string;
   deployCount: number;
   serviceDomain?: string;
@@ -50,6 +51,40 @@ interface MockProject {
 }
 
 class UnknownOperationError extends Error {}
+
+/**
+ * Enforce Railway's real `RegistryCredentialsInput` shape: exactly
+ * `{ username: String!, password: String! }`. A fake that accepts anything is
+ * how a bogus `projectId` reached production — reject unknown fields and
+ * non-string values the way the live schema would.
+ */
+function parseRegistryCredentials(
+  value: unknown,
+): { username: string; password: string } | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object") {
+    throw new Error(
+      "Railway API error (HTTP 400): registryCredentials must be an object",
+    );
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== "username" && key !== "password") {
+      throw new Error(
+        `Railway API error (HTTP 400): unknown RegistryCredentialsInput field ${key}`,
+      );
+    }
+  }
+  if (
+    typeof record.username !== "string" ||
+    typeof record.password !== "string"
+  ) {
+    throw new Error(
+      "Railway API error (HTTP 400): registryCredentials.username and .password must be String!",
+    );
+  }
+  return { username: record.username, password: record.password };
+}
 
 /**
  * A minimal, honest Railway. It models exactly the fields the substrate reads
@@ -167,6 +202,9 @@ class RailwayMock {
           image: String(source.image ?? ""),
           numReplicas: 1,
           variables: {},
+          registryCredentials: parseRegistryCredentials(
+            input.registryCredentials,
+          ),
           deploymentStatus: "SUCCESS",
           deployCount: 1,
           customDomains: [],
@@ -195,6 +233,8 @@ class RailwayMock {
         if (typeof input.startCommand === "string") {
           service.startCommand = input.startCommand;
         }
+        const credentials = parseRegistryCredentials(input.registryCredentials);
+        if (credentials) service.registryCredentials = credentials;
         return { serviceInstanceUpdate: true };
       }
 
@@ -684,16 +724,20 @@ describe("RailwaySubstrate topology", () => {
     });
   });
 
-  it("counts a SLEEPING deployment as healthy", async () => {
+  it("reports a SLEEPING deployment as unhealthy, naming the service", async () => {
+    // App-sleep is disqualified for this product: the worker has no inbound
+    // surface, so a sleeping worker never wakes and expired journey sleeps sit
+    // unclaimed. SLEEPING must surface as a problem, consistent with the
+    // `numReplicas < 1` "scaled to zero" verdict.
     const mock = new RailwayMock();
     const provider = makeSubstrate(mock);
     const refs = await provider.provisionStack(SPEC);
-    for (const name of ["staging-api", "staging-worker"]) {
-      const service = mock.find(name);
-      if (service) service.deploymentStatus = "SLEEPING";
-    }
+    const worker = mock.find("staging-worker");
+    if (worker) worker.deploymentStatus = "SLEEPING";
 
-    expect((await provider.getHealth(refs)).healthy).toBe(true);
+    const health = await provider.getHealth(refs);
+    expect(health.healthy).toBe(false);
+    expect(health.detail).toContain("worker: SLEEPING");
   });
 
   it("deploys an image with a pre-deploy command and redeploys that service", async () => {
@@ -712,6 +756,50 @@ describe("RailwaySubstrate topology", () => {
     expect(api?.image).toBe("ghcr.io/acme/app:sha");
     expect(api?.preDeployCommand).toBe("pnpm db:migrate");
     expect(api?.deployCount).toBe(before + 1);
+  });
+
+  it("sends registry credentials for app services only, never redis", async () => {
+    const mock = new RailwayMock();
+    const credentials = { username: "puller", password: "pull-secret" };
+    const provider = new RailwaySubstrate({
+      token: "test-token",
+      transport: mock.transport,
+      sleep: recordingSleep([]),
+      registryCredentials: credentials,
+    });
+
+    const refs = await provider.provisionStack(SPEC);
+
+    expect(mock.find("staging-api")?.registryCredentials).toEqual(credentials);
+    expect(mock.find("staging-worker")?.registryCredentials).toEqual(
+      credentials,
+    );
+    // Redis pulls a public Docker Hub image; foreign-registry credentials on
+    // that pull would fail auth against the wrong host.
+    expect(mock.find("staging-redis")?.registryCredentials).toBeUndefined();
+
+    // deployImage carries them too — the customer's built image is private.
+    await provider.deployImage(refs, {
+      imageUrl: "ghcr.io/acme/app:sha",
+      service: "worker",
+    });
+    expect(mock.find("staging-worker")?.registryCredentials).toEqual(
+      credentials,
+    );
+  });
+
+  it("omits registryCredentials entirely when none are configured", async () => {
+    const mock = new RailwayMock();
+    const provider = makeSubstrate(mock);
+    const refs = await provider.provisionStack(SPEC);
+    await provider.deployImage(refs, {
+      imageUrl: "ghcr.io/acme/app:sha",
+      service: "api",
+    });
+
+    for (const name of ["staging-api", "staging-worker", "staging-redis"]) {
+      expect(mock.find(name)?.registryCredentials).toBeUndefined();
+    }
   });
 
   it("returns the CNAME and TXT records Railway requires for a custom domain", async () => {
@@ -767,6 +855,18 @@ describe("getSubstrate with CLOUD_SUBSTRATE=railway", () => {
 
     expect(() => getSubstrate()).toThrow(/CLOUD_RAILWAY_TOKEN/);
     expect(() => getSubstrate()).not.toBeInstanceOf(FakeSubstrate);
+  });
+
+  it("refuses half a registry credential pair", async () => {
+    vi.resetModules();
+    vi.stubEnv("CLOUD_SUBSTRATE", "railway");
+    vi.stubEnv("CLOUD_RAILWAY_TOKEN", "wt-token");
+    vi.stubEnv("CLOUD_REGISTRY_USERNAME", "puller");
+    // No CLOUD_REGISTRY_PASSWORD: services would fail their first private
+    // pull, which reads as a vendor outage instead of the real cause.
+    const { getSubstrate } = await import("../substrate/index");
+
+    expect(() => getSubstrate()).toThrow(/CLOUD_REGISTRY_/);
   });
 
   it("builds ONE RailwaySubstrate when the token is present", async () => {
