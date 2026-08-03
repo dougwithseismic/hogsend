@@ -244,6 +244,55 @@ Contacts opt into a list with `hs.lists.subscribe({ list: "product-updates", use
 - `pnpm test` — vitest
 - `pnpm check-types` — tsc
 - `pnpm build` — tsup bundle to `dist/` (`pnpm start` / `pnpm worker` run it)
+- `pnpm preflight` — build the Docker image and boot every run mode (below)
+
+## Docker image & preflight
+
+`Dockerfile` builds **one image you run three ways** by overriding the command:
+
+```bash
+docker build -t my-app .
+docker run --env-file .env -p 3002:3002 my-app             # api (default)
+docker run --env-file .env my-app node dist/worker.js      # worker
+docker run --env-file .env my-app tsx scripts/migrate.ts   # migrate (one-shot)
+```
+
+It installs from `pnpm-lock.yaml` when you have one (cached, offline, frozen)
+and resolves from the registry when you don't, builds with tsup, then rebuilds
+`node_modules` with `--prod` so the runner carries only the **production
+dependency graph** — plus `scripts/migrate.ts` and `migrations/`, which are not
+bundled. Note that "production graph" is not the same as "no dev-flavoured
+packages": `better-auth` declares `vitest`, `typescript`, `drizzle-kit` and
+`react-email` as production `optionalDependencies`, so those legitimately
+remain. It runs as the unprivileged `node` user and writes nothing to disk.
+
+The three run commands are `node` / `tsx` invocations, never `pnpm <script>`,
+and `railway.toml` / `railway.worker.toml` declare those same strings. pnpm at
+runtime triggers corepack plus a deps-status check that tries to mutate the
+read-only, root-owned `/app` as the non-root user — an EACCES crash-loop, not a
+start. (That is also why `tsx` is a *dependency*, not a devDependency — it is a
+production entry point.)
+
+`pnpm preflight` is the gate between "it builds" and "it deploys". It first
+asserts that each run mode's command is byte-identical to what the Railway
+configs declare (so the gate can't test something the platform never runs), then
+builds the image and boots each run mode against synthetic env with **unreachable**
+Postgres/Redis/Hatchet, and asserts that each one gets past env validation and
+container init into real startup — failing on structural markers (EACCES,
+missing module, missing binary, corepack, invalid env) and on a mode that never
+reaches its startup line. Failing on *connect* is the expected, passing outcome.
+It catches the "builds fine, crash-loops on start" class that `check-types` and
+tests cannot. Run it before shipping anything that touches the runtime, the
+build or dependencies.
+
+```bash
+pnpm preflight                                    # build + all three modes
+pnpm preflight -- --image ghcr.io/me/app:sha --no-build
+pnpm preflight -- --modes "api worker" --timeout 20
+pnpm preflight -- --help                          # every flag + env var
+```
+
+Per-mode logs are written to a temp dir and their paths printed, pass or fail.
 
 ## Adding a journey
 
@@ -357,7 +406,9 @@ pnpm db:migrate     # apply engine track, then client track (scripts/migrate.ts)
 ```
 
 `scripts/migrate.ts` always runs engine-then-client. The Railway
-`preDeployCommand` (`pnpm db:migrate`) does the same before each deploy.
+`preDeployCommand` does the same before each deploy — but invokes it as `tsx
+scripts/migrate.ts`, not `pnpm db:migrate`, because pnpm cannot run inside the
+production image (see "Docker image & preflight" above).
 
 > **`db:push` ledger gotcha:** `pnpm db:push` writes schema objects directly
 > WITHOUT recording a row in the migration ledger. Convenient for fast local

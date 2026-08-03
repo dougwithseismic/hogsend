@@ -1,0 +1,45 @@
+{
+  "name": "@hogsend/cloud",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3004",
+    "build": "SKIP_ENV_VALIDATION=true next build",
+    "start": "next start -p 3004",
+    "check-types": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "worker": "tsx src/worker.ts",
+    "worker:dev": "tsx watch src/worker.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "build:default-image": "tsx scripts/build-default-image.ts",
+    "seed:dev": "tsx scripts/seed-dev.ts"
+  },
+  "dependencies": {
+    "@hatchet-dev/typescript-sdk": "^1.28.0",
+    "@t3-oss/env-core": "^0.13.11",
+    "better-auth": "^1.6.25",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
+    "lucide-react": "^1.27.0",
+    "next": "^16.2.12",
+    "postgres": "^3.4.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "tsx": "^4.23.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.5.23",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -30,6 +30,8 @@ ${list}
 
 ${color.dim("Global options:")}
   --url <baseUrl>     Target instance (default HOGSEND_API_URL or http://localhost:3002)
+                      Note: the cloud commands (login/whoami/logout/publish/open)
+                      take --cloud <url> instead — a control plane is not an instance.
   --admin-key <key>   Admin bearer token (default HOGSEND_ADMIN_KEY / ADMIN_API_KEY)
   --data-key <key>    Ingest bearer token for writes (default HOGSEND_DATA_KEY / HOGSEND_API_KEY)
   --json              Emit machine-readable JSON only (for agents)

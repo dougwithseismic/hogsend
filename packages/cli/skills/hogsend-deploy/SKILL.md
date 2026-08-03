@@ -28,8 +28,15 @@ This is the **consumer** deploy guide — for shipping the app you scaffolded wi
   **api**) and `railway.worker.toml` (the Hatchet **worker**). Same codebase,
   two Railway services with different config files.
 - **api owns migrations + healthcheck.** The api's `preDeployCommand` runs
-  `pnpm db:migrate` (two-track: engine then client) before boot; it exposes
-  `/v1/health`. The worker has no HTTP port, no healthcheck, and never migrates.
+  `tsx scripts/migrate.ts` (two-track: engine then client) before boot; it
+  exposes `/v1/health`. The worker has no HTTP port, no healthcheck, and never
+  migrates.
+- **Both services build from the scaffold's `Dockerfile`** (`builder =
+  "DOCKERFILE"`) and every deploy command is a direct `node` / `tsx`
+  invocation. Never `pnpm <script>` at runtime: pnpm's corepack + deps-status
+  check writes to the read-only, root-owned `/app` as the unprivileged `node`
+  user and crash-loops on EACCES. `pnpm preflight` builds that image, asserts
+  the run-mode commands match the Railway configs, and boots each one.
 - **Hatchet-Lite is your orchestration engine.** The worker connects to it over
   gRPC with `HATCHET_CLIENT_TOKEN` + `HATCHET_CLIENT_HOST_PORT`. Locally it runs
   via `docker-compose.yml`; in prod it's its own service.

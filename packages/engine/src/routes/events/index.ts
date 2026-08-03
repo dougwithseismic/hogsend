@@ -50,6 +50,11 @@ const eventRequestSchema = z.object({
   userToken: z.string().optional(),
 });
 
+const suspendedSchema = z.object({
+  error: z.literal("ingest_suspended"),
+  message: z.string(),
+});
+
 const eventResponseSchema = z.object({
   stored: z.boolean(),
   exits: z.array(
@@ -101,8 +106,23 @@ const eventRoute = createRoute({
       description:
         "Publishable key attempted to act on another identity without a verified userToken",
     },
+    429: {
+      content: { "application/json": { schema: suspendedSchema } },
+      description:
+        "Event ingest is suspended for this instance (HOGSEND_INGEST_SUSPENDED)",
+    },
   },
 });
+
+/**
+ * The documented soft-block body. Verbatim contract — the Hogsend Cloud
+ * dashboard and the SDKs match on `error === "ingest_suspended"`.
+ */
+export const INGEST_SUSPENDED_BODY = {
+  error: "ingest_suspended",
+  message:
+    "Event ingest is suspended for this instance (plan limit reached or billing hold). Already-accepted events are unaffected.",
+} as const;
 
 export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
   eventRoute,
@@ -110,6 +130,15 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
     const { db, registry, hatchet, logger, analytics, env } =
       c.get("container");
     const body = c.req.valid("json");
+
+    // Cloud metering soft-block (PRD 06 §Tasks 1). Checked FIRST — before the
+    // identity gate, before `ingestEvent` writes `user_events`, before the
+    // Hatchet push — so a suspended instance costs the tenant DB nothing. Only
+    // this public ingest surface is gated: delivery webhooks, tracking and the
+    // compliance/preference routes stay live.
+    if (env.HOGSEND_INGEST_SUSPENDED === "true") {
+      return c.json(INGEST_SUSPENDED_BODY, 429);
+    }
 
     const guard = gatePublishableIdentity(c, body, env.BETTER_AUTH_SECRET);
     if (guard) return guard;

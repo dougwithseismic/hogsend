@@ -1,0 +1,68 @@
+# Hogsend Cloud control plane — one image, run three ways via command override:
+#   web      (default)  ->  node apps/cloud/server.js            (Next standalone)
+#   worker               ->  tsx src/worker.ts                    (Hatchet tasks)
+#   migrate              ->  tsx scripts/migrate.ts               (pre-deploy)
+#
+# Same skeleton as the root Dockerfile (node:22-bookworm-slim, corepack pnpm
+# 11.12.0, fetch → build → runner). apps/cloud has no @hogsend/* runtime
+# dependency, so the runner is the Next standalone output plus one `pnpm deploy`
+# bundle whose prod node_modules carry tsx/drizzle/postgres for the worker and
+# the migration gate.
+#
+# The worker's `hogsend publish` build step needs a Docker daemon, which a
+# Railway container does not have — tenant image builds fail with a clear error
+# there; default-image provisioning (the whole signup path) never touches it.
+
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME/bin:$PNPM_HOME:$PATH"
+ENV PNPM_STORE_DIR="/pnpm/store"
+RUN corepack enable && corepack prepare pnpm@11.12.0 --activate \
+  && pnpm config set store-dir "$PNPM_STORE_DIR" --global
+WORKDIR /app
+
+FROM base AS fetch
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+FROM base AS build
+COPY --from=fetch /pnpm/store /pnpm/store
+COPY . .
+RUN pnpm install --frozen-lockfile --offline --filter @hogsend/cloud...
+RUN pnpm --filter @hogsend/cloud build
+RUN pnpm --offline --config.inject-workspace-packages=true \
+    --filter @hogsend/cloud deploy --prod /deploy/cloud
+
+FROM base AS runner
+ENV NODE_ENV=production
+
+# Next standalone: a traced monorepo mirror rooted at /app (its own pruned
+# node_modules at /app/node_modules, the server at /app/apps/cloud/server.js).
+COPY --from=build /app/apps/cloud/.next/standalone ./
+# Static assets + public are not traced into standalone and are served by the
+# same server, from paths relative to server.js.
+COPY --from=build /app/apps/cloud/.next/static ./apps/cloud/.next/static
+COPY --from=build /app/apps/cloud/public ./apps/cloud/public
+
+# Worker/migrate: the deploy bundle's prod node_modules (tsx, drizzle-orm,
+# postgres, the Hatchet SDK) laid over the app dir, plus the TS source those
+# entry points execute — src/ also carries db/migrations/*.sql, which the
+# migrator resolves relative to its own module URL.
+COPY --from=build /deploy/cloud/node_modules ./apps/cloud/node_modules
+COPY --from=build /deploy/cloud/package.json ./apps/cloud/package.json
+COPY --from=build /app/apps/cloud/src ./apps/cloud/src
+COPY --from=build /app/apps/cloud/scripts ./apps/cloud/scripts
+COPY --from=build /app/apps/cloud/drizzle.config.ts ./apps/cloud/drizzle.config.ts
+
+USER node
+WORKDIR /app/apps/cloud
+ENV PATH="/app/apps/cloud/node_modules/.bin:$PATH"
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3004
+
+# Railway injects PORT; standalone's server reads it. Overrides:
+#   worker   ->  tsx src/worker.ts
+#   migrate  ->  tsx scripts/migrate.ts
+CMD ["node", "server.js"]
+
+# build-stamp: 2026-07-29T1

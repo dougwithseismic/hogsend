@@ -1,0 +1,2 @@
+DROP INDEX "cloud"."builds_environment_active_unique_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "builds_environment_running_unique_idx" ON "cloud"."builds" USING btree ("environment_id") WHERE "cloud"."builds"."status" not in ('queued', 'succeeded', 'failed');

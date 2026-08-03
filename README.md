@@ -35,6 +35,12 @@ One command boots the lot — infra, migrations, API, worker, and Studio at `loc
 
 > Full guide: **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[hogsend dev](https://docs.hogsend.com/docs/cli/dev)** | **[hogsend domain](https://docs.hogsend.com/docs/cli/domain)** | **[Test mode](https://docs.hogsend.com/docs/operating/test-mode)**
 
+## Hogsend Cloud (early beta)
+
+Prefer not to host it yourself? **Hogsend Cloud** provisions a managed instance for you — API, worker, Postgres, Redis, and durable task execution on shared US infrastructure. You sign up, create an organization, paste your provider keys (Resend, PostHog) in the dashboard, and get a running Hogsend engine with its own URL in a few minutes.
+
+It's in early, invite-only beta and setup is guided personally while the rough edges are still being sanded: **[join the Discord](https://discord.gg/rv6eZNvYrr)** and ask for a Cloud invite.
+
 > **A note from Doug** — I built Hogsend to do more for my clients, faster. I kept rebuilding the same PostHog + Resend lifecycle plumbing for every team, so I built it properly once and opened it up for everyone. If you'd like a hand getting it running — PostHog setup, journeys, templates, deploy — I can have you live in days. It's source-available and yours to run solo; the offer to help is there if you want it.
 >
 > → **[About Hogsend & how to get in touch](https://docs.hogsend.com/docs/about)** — _Doug Silkstone_

@@ -1,0 +1,5 @@
+.next
+next-env.d.ts
+# Uploaded publish tarballs — CLOUD_ARTIFACTS_DIR's dev default is ./artifacts.
+# They are tenant source code, and must never become committable by accident.
+/artifacts

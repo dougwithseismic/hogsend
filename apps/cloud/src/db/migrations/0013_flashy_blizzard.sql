@@ -1,0 +1,1 @@
+ALTER TABLE "cloud"."cells" ADD COLUMN "shared_hatchet_api_url" text;

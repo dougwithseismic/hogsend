@@ -1,0 +1,1 @@
+ALTER TABLE "cloud"."stacks" ADD COLUMN "ingest_suspended_at" timestamp with time zone;
