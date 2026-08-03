@@ -121,6 +121,24 @@ describe("EnvironmentService.create", () => {
     ).toHaveLength(1);
   });
 
+  it("frees the slot a destroyed stack held", async () => {
+    // `destroyed` is terminal and holds no substrate. Counting it against the
+    // allowance stranded a trial org for good: the limit refused every create
+    // and no operation could revive the dead stack.
+    await db
+      .update(stacks)
+      .set({ status: "destroyed" })
+      .where(eq(stacks.organizationId, TRIAL_ORG));
+
+    const created = await service.create({
+      organizationId: TRIAL_ORG,
+      name: "staging",
+      kind: "staging",
+    });
+
+    expect(created.stack.status).toBe("requested");
+  });
+
   it("allows a self-serve org exactly two environments, with a requested stack", async () => {
     const created = await service.create({
       organizationId: SELF_SERVE_ORG,

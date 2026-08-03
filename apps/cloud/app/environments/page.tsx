@@ -28,6 +28,11 @@ export default async function EnvironmentsPage() {
     getStackAlerts({ organizationId: record.id }),
   ]);
   const limit = PLAN_ENVIRONMENT_LIMITS[record.plan];
+  // Must match what `create` counts: a destroyed stack holds no slot, so the
+  // list still shows the row for its history but the allowance ignores it.
+  const used = environments.filter(
+    (environment) => environment.stack?.status !== "destroyed",
+  ).length;
   const canCreate = canOperateEnvironments(context.role);
   const alertingStackIds = new Set(alerts.map((alert) => alert.stackId));
 
@@ -35,7 +40,7 @@ export default async function EnvironmentsPage() {
     <main className="flex flex-1 flex-col">
       <PageHeader
         title="Environments"
-        description={`Each environment is one isolated Hogsend instance with its own database, worker and API URL. The ${record.plan} plan allows ${limit}; ${environments.length} in use. Production is created with the organization.`}
+        description={`Each environment is one isolated Hogsend instance with its own database, worker and API URL. The ${record.plan} plan allows ${limit}; ${used} in use. Production is created with the organization.`}
         actions={
           canCreate ? (
             <Button href="#new-environment" variant="solid">
@@ -64,7 +69,7 @@ export default async function EnvironmentsPage() {
             <CreateEnvironmentForm
               plan={record.plan}
               limit={limit}
-              used={environments.length}
+              used={used}
             />
           </div>
         ) : null}
