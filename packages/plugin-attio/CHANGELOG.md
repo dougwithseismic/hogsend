@@ -1,5 +1,13 @@
 # @hogsend/plugin-attio
 
+## 0.43.16
+
+### Patch Changes
+
+- Updated dependencies [a52f9b1]
+- Updated dependencies [766e7f8]
+  - @hogsend/core@0.62.0
+
 ## 0.43.15
 
 ### Patch Changes
