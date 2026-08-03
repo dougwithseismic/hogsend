@@ -39,6 +39,7 @@ import { ProviderKeyService } from "../services/provider-keys";
 import {
   createFakeTenantCredentialClient,
   type TenantCredentialClient,
+  TenantCredentialError,
 } from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
@@ -297,6 +298,10 @@ beforeAll(async () => {
   }
 });
 
+// Dropping one real tenant database per fixture is IO measured in seconds, and
+// a CI runner is slower than a laptop: vitest's 10s default hook timeout failed
+// this suite in CI while passing locally. The work is teardown, not an
+// assertion, so give it room rather than leave orphaned databases behind.
 afterAll(async () => {
   resetProvisioning();
   for (const name of createdDatabases) {
@@ -306,7 +311,7 @@ afterAll(async () => {
   }
   await cleanup();
   await sqlClient.end();
-});
+}, 120_000);
 
 describe("runProvisionPipeline", () => {
   it("walks requested → running, audit-logging every step", async () => {
@@ -664,6 +669,111 @@ describe("mint-credentials", () => {
       },
     };
   }
+
+  it("rides out the container swap instead of parking the stack", async () => {
+    // `set-env` restarts the instance, so this step can arrive while the
+    // substrate is still swapping containers and nothing answers yet.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    let refusals = 2;
+    const flaky: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn(args) {
+        if (refusals > 0) {
+          refusals -= 1;
+          throw new TenantCredentialError(
+            "Studio sign-in failed with HTTP 503",
+            503,
+          );
+        }
+        return scripted.client.signIn(args);
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: flaky,
+        sleep: async () => {},
+      },
+    );
+
+    expect(result.status).toBe("running");
+    expect(refusals).toBe(0);
+  });
+
+  it("waits out the whole rate-limit window on a 429", async () => {
+    // The tenant limits /sign-in/email to 10 per 60s. A 429 means the bucket
+    // is spent — a short doubling retry would keep re-burning it (and, while
+    // all callers shared one bucket, extend the customer's own lockout). The
+    // retry must sleep past the 60s window instead.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const sleeps: number[] = [];
+    let refusals = 1;
+    const limited: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn(args) {
+        if (refusals > 0) {
+          refusals -= 1;
+          throw new TenantCredentialError(
+            "Studio sign-in failed with HTTP 429",
+            429,
+          );
+        }
+        return scripted.client.signIn(args);
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: limited,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+    );
+
+    expect(result.status).toBe("running");
+    expect(refusals).toBe(0);
+    // Longer than the tenant's 60s sign-in window, not the 1s doubling step.
+    expect(sleeps).toEqual([65_000]);
+  });
+
+  it("still parks the stack when the instance itself refuses", async () => {
+    // 401 (wrong password) and 403 (Better Auth's CSRF guard) are the
+    // instance's own considered answers, not the moment's. Re-driving either
+    // is futile, so the retry must not swallow them.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const rejecting: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn() {
+        throw new TenantCredentialError(
+          "Studio sign-in failed with HTTP 401",
+          401,
+        );
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: rejecting,
+        sleep: async () => {},
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result).toMatchObject({ failedStep: "mint-credentials" });
+  });
 
   it("run twice leaves exactly one live key and one stored key", async () => {
     const fixture = await seedStack("production");

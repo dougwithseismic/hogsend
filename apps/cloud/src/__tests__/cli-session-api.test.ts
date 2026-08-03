@@ -12,6 +12,8 @@ import { env } from "../env";
 import { createCloudAuth } from "../lib/auth";
 import type { EmailSender } from "../lib/email-sender";
 import { provisionOrganization } from "../lib/org-provision";
+import { configureProvisioning, resetProvisioning } from "../pipeline/enqueue";
+import type { ProvisionDeps } from "../pipeline/provision";
 import { CliSessionService } from "../services/cli-sessions";
 import { OrgService } from "../services/orgs";
 
@@ -103,6 +105,17 @@ beforeAll(async () => {
   await runCloudMigrations(env.CLOUD_DATABASE_URL);
   await cleanup();
 
+  // `provisionOrganization` fires provisioning off in the background. This file
+  // asserts the CLI ROUTES' shape, not provisioning, and a real run against the
+  // fake substrate parks the stack in `error` — so the "still requested"
+  // assertion below was really a race this suite happened to win. A substrate
+  // that never returns keeps the stack in `requested` deterministically.
+  configureProvisioning({
+    substrate: {
+      provisionStack: () => new Promise(() => {}),
+    } as unknown as ProvisionDeps["substrate"],
+  });
+
   for (const email of EMAILS) {
     await auth.api.signUpEmail({
       body: { name: email.split("@")[0] as string, email, password: PASSWORD },
@@ -161,6 +174,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  resetProvisioning();
   await cleanup();
   await sqlClient.end();
 });

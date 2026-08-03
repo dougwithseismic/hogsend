@@ -90,6 +90,32 @@ export function createAuth(opts: {
     // "hogsend" → prod cookie `__Secure-hogsend.session_token`.
     advanced: {
       cookiePrefix: cookiePrefix ?? "hogsend",
+      /**
+       * Client-IP resolution for better-auth's rate limiter. Without this,
+       * better-auth (>=1.6.25) reads only `x-forwarded-for` and — with no
+       * `trustedProxies` configured — REFUSES any multi-valued XFF
+       * (`getIPFromHeader`: `if (forwardedIps.length !== 1) return null`).
+       * Railway's edge always sends two values (`<client>, <edge-hop>`), so on
+       * Railway every request resolved to null and ALL callers collapsed onto
+       * one shared per-path bucket: ten failed logins by anyone locked the
+       * `/sign-in/email` path for everyone (observed live 2026-08-03 — the
+       * control plane's mint-credentials retries and a customer's Studio
+       * sign-ins 429'd each other).
+       *
+       * `x-real-ip` goes first because it is single-valued and OVERWRITTEN by
+       * Railway's edge (verified empirically 2026-08-03 against a Railway echo
+       * service: a spoofed `X-Real-Ip: 7.7.7.7` arrived as the caller's true
+       * IP, and a spoofed `X-Forwarded-For: 6.6.6.6` was stripped too) — so a
+       * direct client cannot forge it to dodge the limiter. Do NOT add
+       * `x-envoy-external-address`: Railway passes it through UNTOUCHED (the
+       * spoofed value survived), so trusting it would let anyone mint
+       * per-request buckets and bypass rate limiting entirely.
+       * `x-forwarded-for` stays as the fallback for non-Railway deploys where
+       * a single-hop proxy sends a single-valued XFF.
+       */
+      ipAddress: {
+        ipAddressHeaders: ["x-real-ip", "x-forwarded-for"],
+      },
     },
     ...(trustedOrigins && trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     // Passing `secondaryStorage` flips better-auth's rate-limit storage from the

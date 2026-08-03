@@ -68,8 +68,18 @@ const REGION_ZONES: Record<SubstrateRegion, string> = {
   eu: "europe-west4",
 };
 
-/** Deployment statuses that mean "this service is doing its job". */
-const HEALTHY_DEPLOYMENT_STATUSES = new Set(["SUCCESS", "SLEEPING"]);
+/**
+ * Deployment statuses that mean "this service is doing its job".
+ *
+ * `SLEEPING` is deliberately NOT here. App-sleep is disqualified for this
+ * product: the worker has no inbound surface (`railway.worker.toml` declares
+ * no port), so a sleeping worker never wakes and a journey's expired
+ * multi-week `ctx.sleep` sits unclaimed. A sleeping service is therefore a
+ * problem to surface, not a healthy state — the same verdict `getHealth`
+ * already gives `numReplicas < 1` ("scaled to zero"), which this set used to
+ * contradict.
+ */
+const HEALTHY_DEPLOYMENT_STATUSES = new Set(["SUCCESS"]);
 
 /** The three services of a rung-1 stack; `redis` is infra, not a seam role. */
 type StackServiceRole = SubstrateService | "redis";
@@ -86,14 +96,52 @@ interface RailwayRefsData {
   region: SubstrateRegion;
 }
 
-export type RailwaySubstrateOptions = RailwayClientOptions;
+/**
+ * Pull credentials for a PRIVATE image registry, passed to Railway verbatim
+ * (`RegistryCredentialsInput`) so a tenant service can pull the customer's
+ * built image. This module's law applies with full force: the password is
+ * NEVER logged, never audited, never persisted into `StackRefs.data` — it goes
+ * onto the wire and nowhere else.
+ */
+export interface RailwayRegistryCredentials {
+  username: string;
+  password: string;
+}
+
+export type RailwaySubstrateOptions = RailwayClientOptions & {
+  /** Set when tenant images live in a private registry; omitted → public. */
+  registryCredentials?: RailwayRegistryCredentials;
+};
 
 export class RailwaySubstrate implements SubstrateProvider {
   private readonly client: RailwayClient;
+  private readonly registryCredentials?: RailwayRegistryCredentials;
 
-  constructor(options: RailwaySubstrateOptions | { client: RailwayClient }) {
+  constructor(
+    options:
+      | RailwaySubstrateOptions
+      | {
+          client: RailwayClient;
+          registryCredentials?: RailwayRegistryCredentials;
+        },
+  ) {
     this.client =
       "client" in options ? options.client : new RailwayClient(options);
+    this.registryCredentials = options.registryCredentials;
+  }
+
+  /**
+   * Registry credentials for pulling an APP image — and only an app image.
+   * Redis pulls `redis:8-alpine` from Docker Hub; attaching credentials for a
+   * different registry to that pull is at best noise and at worst a failed
+   * auth against the wrong host.
+   */
+  private appRegistryCredentials(): {
+    registryCredentials?: RailwayRegistryCredentials;
+  } {
+    return this.registryCredentials
+      ? { registryCredentials: this.registryCredentials }
+      : {};
   }
 
   // -------------------------------------------------------------------------
@@ -114,9 +162,15 @@ export class RailwaySubstrate implements SubstrateProvider {
           projectId,
           name,
           image: role === "redis" ? REDIS_IMAGE : spec.initialImage,
+          // The app image may live in a private registry; redis never does.
+          ...(role === "redis" ? {} : this.appRegistryCredentials()),
         }));
       await this.updateInstance(serviceIds[role], environmentId, {
         region: REGION_ZONES[spec.region],
+        // Also set on the instance config (not just ServiceCreateInput) so an
+        // ADOPTED service — one a prior half-run created before credentials
+        // were configured — gains pull access on the re-run.
+        ...(role === "redis" ? {} : this.appRegistryCredentials()),
         // The migrations gate: app services must not boot an empty tenant
         // database. Redis is a cache and gets no application concerns.
         ...(role !== "redis" && spec.preDeployCommand
@@ -216,6 +270,7 @@ export class RailwaySubstrate implements SubstrateProvider {
 
     await this.updateInstance(serviceId, data.environmentId, {
       source: { image: options.imageUrl },
+      ...this.appRegistryCredentials(),
       ...(options.preDeployCommand
         ? { preDeployCommand: options.preDeployCommand }
         : {}),
@@ -406,6 +461,7 @@ export class RailwaySubstrate implements SubstrateProvider {
     projectId: string;
     name: string;
     image: string;
+    registryCredentials?: RailwayRegistryCredentials;
   }): Promise<string> {
     const result = await this.client.request<{
       serviceCreate: { id: string };
@@ -414,6 +470,9 @@ export class RailwaySubstrate implements SubstrateProvider {
         projectId: input.projectId,
         name: input.name,
         source: { image: input.image },
+        ...(input.registryCredentials
+          ? { registryCredentials: input.registryCredentials }
+          : {}),
       },
     });
     return result.serviceCreate.id;
@@ -507,10 +566,14 @@ export class RailwaySubstrate implements SubstrateProvider {
     const found = existing.domains.serviceDomains[0]?.domain;
     if (found) return found;
 
+    // ServiceDomainCreateInput takes environmentId/serviceId/targetPort ONLY.
+    // Railway answers an unknown input field with a bare HTTP 400 "Problem
+    // processing request" rather than a field error, so a stray projectId here
+    // reads as an API outage. Do not add one back.
     const created = await this.client.request<{
       serviceDomainCreate: { domain: string };
     }>(Q.SERVICE_DOMAIN_CREATE, {
-      input: { projectId, environmentId, serviceId },
+      input: { environmentId, serviceId, targetPort: Number(API_PORT) },
     });
     return created.serviceDomainCreate.domain;
   }

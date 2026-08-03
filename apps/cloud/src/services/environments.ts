@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
@@ -121,10 +121,22 @@ export class EnvironmentService {
         }
 
         const limit = PLAN_ENVIRONMENT_LIMITS[organization.plan];
+        // A destroyed stack holds no substrate and costs nothing, so it must
+        // not hold a slot either. Counting it did: a trial org whose only
+        // environment was destroyed hit the limit on every create, and since
+        // `destroyed` is terminal it could never provision again.
         const [existing] = await tx
           .select({ total: count() })
           .from(environments)
-          .where(eq(environments.organizationId, organizationId));
+          .leftJoin(stacks, eq(stacks.environmentId, environments.id))
+          .where(
+            and(
+              eq(environments.organizationId, organizationId),
+              // A row with no stack at all still occupies a slot; only an
+              // explicitly destroyed one is free.
+              or(isNull(stacks.id), ne(stacks.status, "destroyed")),
+            ),
+          );
         const current = existing?.total ?? 0;
         if (current >= limit) {
           throw new PlanLimitError(organization.plan, limit, current);
