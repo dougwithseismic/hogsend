@@ -151,7 +151,15 @@ export function createHttpTenantCredentialClient(
         `${trimBase(baseUrl)}/api/auth/sign-in/email`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            // Better Auth's CSRF guard refuses a request that carries no
+            // Origin at all — `403 MISSING_OR_NULL_ORIGIN` — and a
+            // server-to-server fetch sends none by default. The instance's own
+            // base URL is what it trusts (the engine sets BETTER_AUTH_URL to
+            // exactly this), so naming it is honest rather than a bypass.
+            origin: trimBase(baseUrl),
+          },
           body: JSON.stringify({ email, password }),
         },
         "Studio sign-in",

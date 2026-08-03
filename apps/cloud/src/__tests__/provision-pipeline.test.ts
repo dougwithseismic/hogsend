@@ -666,11 +666,9 @@ describe("mint-credentials", () => {
     };
   }
 
-  it("rides out the container swap's 403 instead of parking the stack", async () => {
-    // `set-env` restarts the instance, so this step can arrive while the edge
-    // is still swapping containers and answers 403 before the engine sees the
-    // request. Observed live: a healthy stack parked at `error` with a working
-    // password, 17 seconds before the same sign-in succeeded by hand.
+  it("rides out the container swap instead of parking the stack", async () => {
+    // `set-env` restarts the instance, so this step can arrive while the
+    // substrate is still swapping containers and nothing answers yet.
     const fixture = await seedStack("production");
     const scripted = scriptedClient();
     let refusals = 2;
@@ -680,8 +678,8 @@ describe("mint-credentials", () => {
         if (refusals > 0) {
           refusals -= 1;
           throw new TenantCredentialError(
-            "Studio sign-in failed with HTTP 403",
-            403,
+            "Studio sign-in failed with HTTP 503",
+            503,
           );
         }
         return scripted.client.signIn(args);
@@ -702,9 +700,10 @@ describe("mint-credentials", () => {
     expect(refusals).toBe(0);
   });
 
-  it("still parks the stack when the password is genuinely wrong", async () => {
-    // 401 is the engine's own answer to a bad password. Re-driving it would be
-    // futile, so the retry must not swallow it.
+  it("still parks the stack when the instance itself refuses", async () => {
+    // 401 (wrong password) and 403 (Better Auth's CSRF guard) are the
+    // instance's own considered answers, not the moment's. Re-driving either
+    // is futile, so the retry must not swallow them.
     const fixture = await seedStack("production");
     const scripted = scriptedClient();
     const rejecting: TenantCredentialClient = {

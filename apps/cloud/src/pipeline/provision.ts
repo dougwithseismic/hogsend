@@ -809,20 +809,20 @@ const SIGN_IN_BACKOFF_MAX_MS = 15_000;
  * A sign-in failure that is the MOMENT's, not the credential's.
  *
  * `set-env` restarts the instance, so `mint-credentials` can arrive while the
- * substrate is still swapping containers: the edge answers 403 (or a 5xx)
- * before the new container is routable, and the request never reaches the
- * engine at all. Parking the stack on that stranded a fully healthy instance
- * at `error` with a working password — observed live, 17 seconds before the
- * same sign-in succeeded by hand.
+ * substrate is still swapping containers and the new one is not yet routable.
  *
- * 401 is EXCLUDED on purpose: the engine answers a genuinely wrong password
- * with 401, and re-driving that is both futile and a lockout risk.
+ * 401 and 403 are both EXCLUDED, and for the same reason: each is the
+ * instance's own considered answer, not the moment's. 401 is a wrong password;
+ * 403 is Better Auth's CSRF guard (`MISSING_OR_NULL_ORIGIN` — see the Origin
+ * header in `createHttpTenantCredentialClient`). Re-driving either is futile,
+ * and retrying 403 once cost eight attempts and a misdiagnosis before the
+ * response BODY was read.
  */
 function isTransientSignIn(error: unknown): boolean {
   if (!(error instanceof TenantCredentialError)) return false;
   // No status at all means the request never got an answer — a reach failure.
   if (error.status === undefined) return true;
-  return error.status === 403 || error.status === 408 || error.status >= 500;
+  return error.status === 408 || error.status >= 500;
 }
 
 async function signInWithRetry(args: {
