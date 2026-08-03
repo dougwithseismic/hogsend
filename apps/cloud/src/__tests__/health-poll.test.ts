@@ -157,7 +157,13 @@ describe("sweepStackHealth", () => {
     substrate.failNext("getHealth");
 
     const result = await sweepStackHealth({ substrate, now: tick });
-    expect(result.checked).toBe(2);
+    // `>=`, not `toBe(2)`, for the reason the sibling test above gives: the
+    // sweep is UNSCOPED, and the `beforeEach` only clears THIS org. A dev
+    // machine whose cloud database also holds a hand-made `running` stack
+    // (they share port 5434) would otherwise fail here for no defect. What
+    // this test actually certifies is asserted below, scoped to the two
+    // stacks it seeded.
+    expect(result.checked).toBeGreaterThanOrEqual(2);
 
     // The scripted failure hit ONE of the two; the other was still checked.
     const all = [
