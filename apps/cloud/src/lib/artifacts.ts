@@ -1,10 +1,16 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { env } from "../env";
 
 /**
- * Where a publish tarball lives on disk, and the one place a stored
- * `builds.artifact_path` is turned into a real path.
+ * Where a publish tarball lives, and the one place a stored
+ * `builds.artifact_path` is turned into something real.
+ *
+ * Storage is behind the `ArtifactStore` seam (PRD 14): the upload is received
+ * by `cloud-app` and the build executes on `cloud-worker`, so the backing
+ * store must be swappable for one both containers can reach. Local disk is
+ * the default and the dev/CI path; an object-store implementation selects on
+ * configuration (task 2).
  *
  * Two decisions worth stating:
  *
@@ -88,51 +94,98 @@ export function resolveArtifactPath(key: string): string {
   return path;
 }
 
-/** Write one artifact, creating its environment directory. */
-export async function writeArtifact(
-  key: string,
-  bytes: Uint8Array,
-): Promise<string> {
-  const path = resolveArtifactPath(key);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, bytes);
-  return path;
+/**
+ * The storage seam every artifact byte crosses (PRD 14).
+ *
+ * Keys are the SAME `<environmentId>/<buildId>.tar.gz` values the rows store,
+ * and every implementation validates them by the same uuid rules before any
+ * I/O — on an object store a bad key is an object name rather than a
+ * filesystem path, but the posture is identical.
+ */
+export interface ArtifactStore {
+  /** Store one artifact under its key, overwriting any previous bytes. */
+  put(key: string, bytes: Uint8Array): Promise<void>;
+  /** The stored bytes for a key. Rejects when the artifact is absent. */
+  get(key: string): Promise<Uint8Array>;
+  /**
+   * Delete one artifact, tolerating its absence.
+   *
+   * Two callers, both compensating:
+   *  - the intake route's "a rejected upload leaves no file and no row" — the
+   *    file is written before the build row is inserted (so a refused insert
+   *    cannot strand a row that points at nothing), and this undoes the write;
+   *  - `BuildService.transition`, retiring the tarball of a build that reached
+   *    a terminal status. A finished build never reads its artifact again.
+   */
+  remove(key: string): Promise<void>;
+  /**
+   * Delete EVERY artifact belonging to one environment, tolerating their
+   * absence.
+   *
+   * The last owner of a tenant's uploaded source is the environment: once it
+   * is deleted the `builds` rows cascade away, and with them the only pointers
+   * to the files. Called when an environment is removed, so the source leaves
+   * with it rather than living forever under an id nothing references.
+   */
+  removeEnvironment(environmentId: string): Promise<void>;
 }
 
 /**
- * Delete one artifact, tolerating its absence.
- *
- * Two callers, both compensating:
- *  - the intake route's "a rejected upload leaves no file and no row" — the
- *    file is written before the build row is inserted (so a refused insert
- *    cannot strand a row that points at nothing), and this undoes the write;
- *  - `BuildService.transition`, retiring the tarball of a build that reached a
- *    terminal status. A finished build never reads its artifact again.
+ * The store today's deployments actually run: files under
+ * `CLOUD_ARTIFACTS_DIR`, exactly as the pre-seam free functions wrote them.
+ * Every path it touches goes through `resolveArtifactPath`, so the uuid rules
+ * and the containment belt hold for reads the same as writes.
  */
-export async function removeArtifact(key: string): Promise<void> {
-  await rm(resolveArtifactPath(key), { force: true });
-}
-
-/**
- * Delete EVERY artifact belonging to one environment, tolerating their absence.
- *
- * The last owner of a tenant's uploaded source is the environment: once it is
- * deleted the `builds` rows cascade away, and with them the only pointers to
- * the files. Called when an environment is removed, so the source leaves with
- * it rather than living forever under an id nothing references.
- */
-export async function removeEnvironmentArtifacts(
-  environmentId: string,
-): Promise<void> {
-  if (!isUuid(environmentId)) throw new InvalidArtifactKeyError(environmentId);
-
-  const root = artifactsRoot();
-  const dir = resolve(join(root, environmentId));
-  // The uuid check already makes traversal impossible; this is the same belt
-  // `resolveArtifactPath` wears, because the cost of being wrong here is an
-  // `rm -r` outside the artifacts tree.
-  if (!dir.startsWith(root + sep)) {
-    throw new InvalidArtifactKeyError(environmentId);
+export class LocalDiskArtifactStore implements ArtifactStore {
+  async put(key: string, bytes: Uint8Array): Promise<void> {
+    const path = resolveArtifactPath(key);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, bytes);
   }
-  await rm(dir, { recursive: true, force: true });
+
+  async get(key: string): Promise<Uint8Array> {
+    return await readFile(resolveArtifactPath(key));
+  }
+
+  async remove(key: string): Promise<void> {
+    await rm(resolveArtifactPath(key), { force: true });
+  }
+
+  async removeEnvironment(environmentId: string): Promise<void> {
+    if (!isUuid(environmentId)) {
+      throw new InvalidArtifactKeyError(environmentId);
+    }
+
+    const root = artifactsRoot();
+    const dir = resolve(join(root, environmentId));
+    // The uuid check already makes traversal impossible; this is the same belt
+    // `resolveArtifactPath` wears, because the cost of being wrong here is an
+    // `rm -r` outside the artifacts tree.
+    if (!dir.startsWith(root + sep)) {
+      throw new InvalidArtifactKeyError(environmentId);
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The active store, resolved lazily on first use and held for the process.
+ *
+ * A module-level singleton rather than per-call construction so "which store
+ * is this deployment running" is answered exactly once — the place task 2's
+ * configuration switch (and production's local-store refusal) will live.
+ */
+let activeStore: ArtifactStore | undefined;
+
+export function getArtifactStore(): ArtifactStore {
+  activeStore ??= new LocalDiskArtifactStore();
+  return activeStore;
+}
+
+/**
+ * Substitute the active store — tests only. `undefined` restores the default
+ * resolution on next `getArtifactStore()`.
+ */
+export function setArtifactStore(store: ArtifactStore | undefined): void {
+  activeStore = store;
 }
