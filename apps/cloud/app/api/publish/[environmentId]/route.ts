@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import {
-  buildArtifactKey,
-  removeArtifact,
-  writeArtifact,
-} from "@/src/lib/artifacts";
+import { buildArtifactKey, getArtifactStore } from "@/src/lib/artifacts";
 import {
   authorizePublishEnvironment,
   bearerToken,
@@ -294,7 +290,7 @@ export async function POST(
 
   const buildId = randomUUID();
   const key = buildArtifactKey(environmentId, buildId);
-  await writeArtifact(key, bytes);
+  await getArtifactStore().put(key, bytes);
 
   try {
     const build = await createAndEnqueueBuild({
@@ -310,8 +306,10 @@ export async function POST(
       { status: 202, headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
-    // Nothing was queued, so nothing may be left on disk.
-    await removeArtifact(key).catch(() => {});
+    // Nothing was queued, so nothing may be left in the store.
+    await getArtifactStore()
+      .remove(key)
+      .catch(() => {});
     if (error instanceof BuildQueueFullError) {
       // Backpressure, not breakage: the queue drains one build at a time and
       // the sweep ticks every minute, so a retry a minute later gets in.

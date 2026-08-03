@@ -6,7 +6,7 @@ import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
 import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
 import { ALERT_SWEEP_CRON, sweepStackAlerts } from "./alert-sweep";
-import { runBuildPipeline } from "./build";
+import { runBuildOnHost } from "./build-host";
 import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
@@ -277,7 +277,7 @@ function buildRunBuildTask(client: HatchetClient) {
       if (typeof buildId !== "string" || buildId.length === 0) {
         throw new Error(`${RUN_BUILD_TASK} requires a string "buildId" input`);
       }
-      const result = await runBuildPipeline({ buildId });
+      const result = await runBuildOnHost({ buildId });
       return {
         buildId: result.buildId,
         status: result.status,

@@ -10,7 +10,7 @@ import {
   RUNNING_BUILD_STATUSES,
 } from "../services/builds";
 import { StackService } from "../services/stacks";
-import { runBuildPipeline } from "./build";
+import { runBuildOnHost } from "./build-host";
 
 /**
  * The build sweep: the pipeline's backstop, and its reaper.
@@ -125,8 +125,7 @@ export async function sweepBuilds(
   const limit = options.limit ?? DEFAULT_SWEEP_LIMIT;
   const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const now = options.now ?? (() => Date.now());
-  const run =
-    options.run ?? ((buildId: string) => runBuildPipeline({ buildId }));
+  const run = options.run ?? ((buildId: string) => runBuildOnHost({ buildId }));
 
   const result: BuildSweepResult = {
     started: [],

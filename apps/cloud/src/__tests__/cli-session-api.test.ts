@@ -12,8 +12,6 @@ import { env } from "../env";
 import { createCloudAuth } from "../lib/auth";
 import type { EmailSender } from "../lib/email-sender";
 import { provisionOrganization } from "../lib/org-provision";
-import { configureProvisioning, resetProvisioning } from "../pipeline/enqueue";
-import type { ProvisionDeps } from "../pipeline/provision";
 import { CliSessionService } from "../services/cli-sessions";
 import { OrgService } from "../services/orgs";
 
@@ -58,6 +56,23 @@ let outsiderId = "";
 let envA = "";
 let envB = "";
 let stagingA = "";
+
+/**
+ * `provisionOrganization` fires provisioning off in the background. This file
+ * asserts the CLI ROUTES' shape, not provisioning, and any real pipeline run —
+ * even with the substrate stubbed to hang — still mints the tenant database and
+ * Hatchet namespace against this suite's fake cell DSN first, parking the stack
+ * in `error` on a slow runner. So the "still requested" assertion below was a
+ * race this suite happened to win locally. The honest seam is one level up:
+ * `provisionOrganization` takes an `enqueueProvision` dep, and swallowing the
+ * enqueue means NO background work runs at all — the stack stays `requested`
+ * because nothing ever touches it. The intercepted stack ids are recorded so
+ * the environments test can prove the pipeline was bypassed, not merely slow.
+ */
+const enqueuedStacks: string[] = [];
+const swallowEnqueue = async (stackId: string): Promise<void> => {
+  enqueuedStacks.push(stackId);
+};
 
 async function signIn(email: string): Promise<Headers> {
   const response = await auth.api.signInEmail({
@@ -105,17 +120,6 @@ beforeAll(async () => {
   await runCloudMigrations(env.CLOUD_DATABASE_URL);
   await cleanup();
 
-  // `provisionOrganization` fires provisioning off in the background. This file
-  // asserts the CLI ROUTES' shape, not provisioning, and a real run against the
-  // fake substrate parks the stack in `error` — so the "still requested"
-  // assertion below was really a race this suite happened to win. A substrate
-  // that never returns keeps the stack in `requested` deterministically.
-  configureProvisioning({
-    substrate: {
-      provisionStack: () => new Promise(() => {}),
-    } as unknown as ProvisionDeps["substrate"],
-  });
-
   for (const email of EMAILS) {
     await auth.api.signUpEmail({
       body: { name: email.split("@")[0] as string, email, password: PASSWORD },
@@ -139,7 +143,7 @@ beforeAll(async () => {
 
   const a = await provisionOrganization(
     { name: `${ORG_PREFIX} Alpha`, region: "us", headers: await signIn(OWNER) },
-    { auth, orgService },
+    { auth, orgService, enqueueProvision: swallowEnqueue },
   );
   orgA = a.organizationId;
   envA = a.environmentId;
@@ -150,7 +154,7 @@ beforeAll(async () => {
       region: "us",
       headers: await signIn(OUTSIDER),
     },
-    { auth, orgService },
+    { auth, orgService, enqueueProvision: swallowEnqueue },
   );
   orgB = b.organizationId;
   envB = b.environmentId;
@@ -174,7 +178,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  resetProvisioning();
   await cleanup();
   await sqlClient.end();
 });
@@ -350,6 +353,9 @@ describe("GET /api/cli/environments", () => {
     const production = body.environments.find((row) => row.id === envA);
     expect(production?.kind).toBe("production");
     // A freshly provisioned stack is `requested` and has deployed nothing.
+    // Deterministic BECAUSE the enqueue was intercepted (one per org, proven
+    // here) — no pipeline ever ran to move the stack off `requested`.
+    expect(enqueuedStacks).toHaveLength(2);
     expect(production?.stackStatus).toBe("requested");
     expect(production?.engineVersion).toBeNull();
   });

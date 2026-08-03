@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, rm } from "node:fs/promises";
+import { access, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
@@ -10,7 +10,11 @@ import { type ExecFn, spawnExec } from "../images/exec";
 import { getImageStore } from "../images/index";
 import { tenantImageTag } from "../images/tags";
 import type { ImageStore } from "../images/types";
-import { artifactsRoot, resolveArtifactPath } from "../lib/artifacts";
+import {
+  type ArtifactStore,
+  artifactsRoot,
+  getArtifactStore,
+} from "../lib/artifacts";
 import { readStackRefs } from "../lib/stack-refs";
 import { extractTarball, resolveAppRoot } from "../lib/tarball";
 import { writeAudit } from "../services/audit";
@@ -118,8 +122,12 @@ export interface BuildDeps {
    * see {@link installPreflightScript}).
    */
   templateDir: string;
-  /** Absolute path for a stored artifact key. Injected so tests can repoint. */
-  resolveArtifact: (key: string) => string;
+  /**
+   * Where artifact bytes come from. Injected so tests can substitute a store;
+   * the seam is also what lets the upload land on `cloud-app` and the build
+   * run on `cloud-worker` once the store is not this container's disk.
+   */
+  artifacts: ArtifactStore;
   /** Where unpack directories are created. One per build, removed after. */
   workRoot: string;
   /** Ceiling on the preflight gate. See {@link DEFAULT_PREFLIGHT_TIMEOUT_MS}. */
@@ -181,7 +189,7 @@ function defaultDeps(): BuildDeps {
     images: getImageStore(),
     exec: spawnExec,
     templateDir: scaffoldTemplateDir(),
-    resolveArtifact: resolveArtifactPath,
+    artifacts: getArtifactStore(),
     workRoot: join(artifactsRoot(), ".work"),
     preflightTimeoutMs: DEFAULT_PREFLIGHT_TIMEOUT_MS,
   };
@@ -268,6 +276,10 @@ export async function runBuildPipeline(
   }
 
   const workDir = join(deps.workRoot, buildId);
+  // The store's bytes staged as a real file for `extractTarball` — a sibling
+  // of the unpack tree, NOT inside it, so the archive never sits in the docker
+  // build context it produced. Removed in the same `finally` as the tree.
+  const archiveScratch = `${workDir}.artifact.tar.gz`;
   const log = new BuildLog(deps.buildService, buildId);
   const steps: BuildStep[] = [];
   const transitions: BuildStatus[] = [];
@@ -345,10 +357,15 @@ export async function runBuildPipeline(
     // ---- unpack -----------------------------------------------------------
     current = "unpack";
     steps.push(current);
-    const archive = deps.resolveArtifact(row.artifactPath);
+    // Bytes through the STORE, not a path: the artifact may live on another
+    // container's upload (or, task 2, in object storage), so the pipeline
+    // fetches and writes its own scratch copy before unpacking. `unpack`
+    // itself is unchanged — same extractor, same refusals.
+    const artifactBytes = await deps.artifacts.get(row.artifactPath);
     await mkdir(workDir, { recursive: true });
+    await writeFile(archiveScratch, artifactBytes);
     const extracted = await extractTarball({
-      archivePath: archive,
+      archivePath: archiveScratch,
       destDir: workDir,
     });
     const appRoot = await resolveAppRoot(workDir);
@@ -538,8 +555,10 @@ export async function runBuildPipeline(
       workDir,
     };
   } finally {
-    // Always, both paths: a build host does not keep tenants' source trees.
+    // Always, both paths: a build host does not keep tenants' source trees —
+    // neither the unpacked tree nor the staged archive copy.
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    await rm(archiveScratch, { force: true }).catch(() => {});
   }
 }
 

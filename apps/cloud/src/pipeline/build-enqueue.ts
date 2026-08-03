@@ -5,7 +5,7 @@ import {
   type CreateBuildInput,
 } from "../services/builds";
 import type { BuildDeps, BuildPipelineResult } from "./build";
-import { runBuildPipeline } from "./build";
+import { runBuildOnHost } from "./build-host";
 import { getCloudHatchet, getRunBuildTask } from "./hatchet";
 
 /**
@@ -134,7 +134,7 @@ function schedule(buildId: string): Promise<BuildPipelineResult> {
   return new Promise<BuildPipelineResult>((resolve) => {
     setImmediate(() => {
       resolve(
-        runBuildPipeline({ buildId }, depsOverride)
+        runBuildOnHost({ buildId }, depsOverride)
           .then(async (result) => {
             // Only a run that actually finished frees the environment. A
             // `skipped` one did not hold it, and draining after it would loop.

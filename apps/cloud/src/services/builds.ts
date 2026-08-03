@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { builds, environments } from "../db/schema";
-import { removeArtifact } from "../lib/artifacts";
+import { getArtifactStore } from "../lib/artifacts";
 import { type CloudWriter, writeAudit } from "./audit";
 import {
   BuildInFlightError,
@@ -388,7 +388,9 @@ export class BuildService {
     // build that is still going to need it. Best-effort — a disk that refuses
     // the delete is a cleanup problem, never a reason to fail a status write.
     if (isTerminalBuildStatus(to)) {
-      await removeArtifact(updated.artifactPath).catch(() => {});
+      await getArtifactStore()
+        .remove(updated.artifactPath)
+        .catch(() => {});
     }
 
     return updated;

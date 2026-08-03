@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { environments, organizations, stacks } from "../db/schema";
-import { removeEnvironmentArtifacts } from "../lib/artifacts";
+import { getArtifactStore } from "../lib/artifacts";
 import { writeAudit } from "./audit";
 import {
   DuplicateNameError,
@@ -288,7 +288,9 @@ export class EnvironmentService {
 
     // Best-effort: a disk that refuses the delete leaves files an operator can
     // sweep, and must not turn a completed removal into an error.
-    await removeEnvironmentArtifacts(environmentId).catch(() => {});
+    await getArtifactStore()
+      .removeEnvironment(environmentId)
+      .catch(() => {});
 
     return result;
   }

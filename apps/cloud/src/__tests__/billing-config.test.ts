@@ -26,6 +26,12 @@ const PRODUCTION_BASE = {
   CLOUD_ENCRYPTION_SECRET: "e".repeat(48),
   CLOUD_AUTH_SECRET: "a".repeat(48),
   CLOUD_SUBSTRATE: "fake",
+  // A production boot also requires an artifact bucket (PRD 14) — supplied
+  // here so `CLOUD_BILLING` stays the only variable under test.
+  CLOUD_ARTIFACT_BUCKET_ENDPOINT: "https://bucket.example.test",
+  CLOUD_ARTIFACT_BUCKET_NAME: "artifacts",
+  CLOUD_ARTIFACT_BUCKET_ACCESS_KEY_ID: "AKIA-test",
+  CLOUD_ARTIFACT_BUCKET_SECRET_ACCESS_KEY: "secret-test",
 } as const;
 
 async function loadEnv(overrides: Record<string, string | undefined>) {

@@ -8,14 +8,15 @@ Cloud going properly (identity and one-click sign-in, reliability, onboarding,
 money, ops, and the phase order). [GO-LIVE.md](GO-LIVE.md) is the short launch
 checklist; [RUNBOOK.md](RUNBOOK.md) is how to operate what exists.
 
-2026-07-29: the control plane is DEPLOYED and the full customer path works
-(signup → provision → healthy instance on cell us-1), but a provisioned tenant
-still has no admin and no API key — see GUIDE §1.
+2026-08-03: Phase 0 SHIPPED (#640, #641). A customer can sign up, get a
+provisioned instance, and receive working admin credentials and an API key —
+verified live end to end against a real tenant. `cloud.hogsend.com` is up.
 
-2026-08-03: Phase 0 is scoped as **[PRD 13](prds/13-phase0-launch.md)** and is
-the next thing to build. It folds in the CLI seam: no cloud-vs-self-host prompt
-in the scaffolder, copy pointing both ways, and `hogsend env pull`. Suspend and
-export moved from launch blockers to money blockers.
+**The one thing standing between here and a usable product is `hogsend publish`.**
+The pipeline exists and works on a single machine (PRD 08), but in the deployed
+control plane the upload lands on `cloud-app`'s disk while the build runs on
+`cloud-worker`, and `cloud-worker` has no Docker daemon. **[PRD 14](prds/14-publish-build-host.md)**
+closes both. Everything below it is post-launch.
 
 | # | PRD | Status | Depends | Scope |
 |---|---|---|---|---|
@@ -25,9 +26,10 @@ export moved from launch blockers to money blockers.
 | 04 | [substrate-provisioner](prds/04-substrate-provisioner.md) | [~] | 02, 03 | SubstrateProvider Fake+Railway, tenant DB + Hatchet minting, provision pipeline, ops UI |
 | 05 | [onboarding-keys](prds/05-onboarding-keys.md) | [x] | 03, 04 | paste-your-keys flow, live validation, env sync |
 | 06 | [billing-metering](prds/06-billing-metering.md) | [~] | 04 | Stripe tiers + trial, usage counters, limit enforcement, Usage page (live keys + prices wired 2026-07-29; seam: webhook secret needs deployed URL) |
-| 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (seam: registry credential + CLOUD_IMAGE_REGISTRY) |
+| 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (works single-machine; deployed-path seam moved to PRD 14) |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
-| 13 | [phase0-launch](prds/13-phase0-launch.md) | [ ] | 04, 05, 07, 08 | **NEXT** — provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
+| 13 | [phase0-launch](prds/13-phase0-launch.md) | [x] | 04, 05, 07, 08 | provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
+| 14 | [publish-build-host](prds/14-publish-build-host.md) | [~] | 08 | ArtifactStore seam + Railway Buckets (bucket live, vars set), production boot guard, Railway-Sandbox build host (seam: live end-to-end run; sandbox not yet enabled in prod) |
 | 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
 | 10 | [fleet-health](prds/10-fleet-health.md) | [ ] | 04 | operator console, fleet rollups, abuse suspend |
 | 11 | [dedicated-tier](prds/11-dedicated-tier.md) | [ ] | 04, 06 | rung-0 topology, custom tracking domains, EU region |
