@@ -94,3 +94,40 @@ Seams: a Railway Bucket + its credentials (human ask); Railway Sandbox beta acce
    _Boundary:_ apps/cloud. _Depends:_ 1, 2
 
 ## Implementation Notes
+Shipped in 3 commits (T1 `ArtifactStore` seam; T2 S3 store + boot guard; T3
+sandbox build host). 891 cloud tests at close, from 829.
+
+T1 is a pure refactor plus a `get` capability: the free functions became
+`LocalDiskArtifactStore`, every containment check carried over verbatim, and
+the pipeline now stages the fetched bytes at `${workDir}.artifact.tar.gz` — a
+SIBLING of the unpack tree, so a tenant's archive never sits inside the docker
+build context it produced.
+
+T2 shares one `parseArtifactKey` between both stores, so a bad key is refused
+before any request leaves the process on either backend. The contract suite
+runs both implementations unchanged; the S3 fake is deliberately STRICTER than
+real S3 (it throws on deleting an absent key, which real S3 answers 204) so
+"remove tolerates absence" proves the store's tolerance rather than the
+backend's. Boot guard: a partial bucket set throws in EVERY environment, and
+production with no bucket refuses to boot — the local store cannot work when
+the upload lands on cloud-app and the build runs on cloud-worker.
+
+T3 keeps the seven stages untouched: `runBuildOnHost` selects local (default)
+or a per-build Railway Sandbox session, injecting its `ExecFn` into both
+command seams. `sandboxExec` takes a single command STRING while `ExecFn` is
+argv, so `quoteShellArg` single-quote-wraps every argument (a complete defence,
+not a denylist) and refuses NUL; the property is proven against a real bash.
+`docker login` is `--password-stdin` and no command string is ever logged.
+Always-destroy in a `finally` that never throws.
+
+Live config, read from a real Railway Bucket rather than assumed: `urlStyle`
+is **virtual-host**, NOT path-style (the code's first guess was wrong and
+would have failed on the first upload), and `region` is `auto`.
+
+Bucket `hogsend-artifacts` created in the hogsend-cloud project, region `ams`
+— the us-1 cell actually runs in EU West, so artifacts sit beside the
+instances they build for. All five vars set on cloud-app and cloud-worker.
+
+Deferred / seams: end-to-end verification against a live sandbox;
+`CLOUD_BUILD_HOST=sandbox` not yet enabled in production; sandbox checkpoints
+for a warm layer cache; Railway Sandboxes are still beta.

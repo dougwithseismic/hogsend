@@ -29,7 +29,7 @@ closes both. Everything below it is post-launch.
 | 08 | [build-pipeline](prds/08-build-pipeline.md) | [~] | 04 | scaffold Dockerfile, cloud build + preflight gate, GHCR, deployImage (works single-machine; deployed-path seam moved to PRD 14) |
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
 | 13 | [phase0-launch](prds/13-phase0-launch.md) | [x] | 04, 05, 07, 08 | provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
-| 14 | [publish-build-host](prds/14-publish-build-host.md) | [ ] | 08 | **NEXT — the launch blocker** — ArtifactStore seam + Railway Buckets, production boot guard, Railway-Sandbox build host |
+| 14 | [publish-build-host](prds/14-publish-build-host.md) | [~] | 08 | ArtifactStore seam + Railway Buckets (bucket live, vars set), production boot guard, Railway-Sandbox build host (seam: live end-to-end run; sandbox not yet enabled in prod) |
 | 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
 | 10 | [fleet-health](prds/10-fleet-health.md) | [ ] | 04 | operator console, fleet rollups, abuse suspend |
 | 11 | [dedicated-tier](prds/11-dedicated-tier.md) | [ ] | 04, 06 | rung-0 topology, custom tracking domains, EU region |
