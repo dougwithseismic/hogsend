@@ -24,6 +24,8 @@ import {
   resolveTenantCredentialClient,
   TENANT_INGEST_KEY_NAME,
   type TenantCredentialClient,
+  TenantCredentialError,
+  type TenantSession,
 } from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
 import {
@@ -797,6 +799,60 @@ async function persistStackSecrets(
  * caller set `credentialsMinted`. A crash at any point leaves a state the list
  * above already covers.
  */
+/** Sign-in attempts before `mint-credentials` gives up and parks the stack. */
+const SIGN_IN_ATTEMPTS = 8;
+/** First backoff step; each retry doubles it, capped at 15s. */
+const SIGN_IN_BACKOFF_BASE_MS = 1_000;
+const SIGN_IN_BACKOFF_MAX_MS = 15_000;
+
+/**
+ * A sign-in failure that is the MOMENT's, not the credential's.
+ *
+ * `set-env` restarts the instance, so `mint-credentials` can arrive while the
+ * substrate is still swapping containers: the edge answers 403 (or a 5xx)
+ * before the new container is routable, and the request never reaches the
+ * engine at all. Parking the stack on that stranded a fully healthy instance
+ * at `error` with a working password — observed live, 17 seconds before the
+ * same sign-in succeeded by hand.
+ *
+ * 401 is EXCLUDED on purpose: the engine answers a genuinely wrong password
+ * with 401, and re-driving that is both futile and a lockout risk.
+ */
+function isTransientSignIn(error: unknown): boolean {
+  if (!(error instanceof TenantCredentialError)) return false;
+  // No status at all means the request never got an answer — a reach failure.
+  if (error.status === undefined) return true;
+  return error.status === 403 || error.status === 408 || error.status >= 500;
+}
+
+async function signInWithRetry(args: {
+  deps: ProvisionDeps;
+  baseUrl: string;
+  email: string;
+  password: string;
+}): Promise<TenantSession> {
+  const { deps } = args;
+  let delay = SIGN_IN_BACKOFF_BASE_MS;
+  let last: unknown;
+
+  for (let attempt = 1; attempt <= SIGN_IN_ATTEMPTS; attempt += 1) {
+    try {
+      return await deps.tenantCredentials.signIn({
+        baseUrl: args.baseUrl,
+        email: args.email,
+        password: args.password,
+      });
+    } catch (error) {
+      last = error;
+      if (!isTransientSignIn(error)) throw error;
+      if (attempt === SIGN_IN_ATTEMPTS) break;
+      await deps.sleep(delay);
+      delay = Math.min(delay * 2, SIGN_IN_BACKOFF_MAX_MS);
+    }
+  }
+  throw last;
+}
+
 async function mintTenantCredentials(args: {
   deps: ProvisionDeps;
   stackId: string;
@@ -808,7 +864,8 @@ async function mintTenantCredentials(args: {
   const client = deps.tenantCredentials;
   const baseUrl = refs.apiPublicUrl;
 
-  const session = await client.signIn({
+  const session = await signInWithRetry({
+    deps,
     baseUrl,
     email: args.email,
     password: secrets.studioAdminPassword,

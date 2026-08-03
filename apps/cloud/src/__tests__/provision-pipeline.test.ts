@@ -39,6 +39,7 @@ import { ProviderKeyService } from "../services/provider-keys";
 import {
   createFakeTenantCredentialClient,
   type TenantCredentialClient,
+  TenantCredentialError,
 } from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
@@ -664,6 +665,71 @@ describe("mint-credentials", () => {
       },
     };
   }
+
+  it("rides out the container swap's 403 instead of parking the stack", async () => {
+    // `set-env` restarts the instance, so this step can arrive while the edge
+    // is still swapping containers and answers 403 before the engine sees the
+    // request. Observed live: a healthy stack parked at `error` with a working
+    // password, 17 seconds before the same sign-in succeeded by hand.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    let refusals = 2;
+    const flaky: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn(args) {
+        if (refusals > 0) {
+          refusals -= 1;
+          throw new TenantCredentialError(
+            "Studio sign-in failed with HTTP 403",
+            403,
+          );
+        }
+        return scripted.client.signIn(args);
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: flaky,
+        sleep: async () => {},
+      },
+    );
+
+    expect(result.status).toBe("running");
+    expect(refusals).toBe(0);
+  });
+
+  it("still parks the stack when the password is genuinely wrong", async () => {
+    // 401 is the engine's own answer to a bad password. Re-driving it would be
+    // futile, so the retry must not swallow it.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const rejecting: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn() {
+        throw new TenantCredentialError(
+          "Studio sign-in failed with HTTP 401",
+          401,
+        );
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: rejecting,
+        sleep: async () => {},
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result).toMatchObject({ failedStep: "mint-credentials" });
+  });
 
   it("run twice leaves exactly one live key and one stored key", async () => {
     const fixture = await seedStack("production");
