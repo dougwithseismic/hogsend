@@ -1,5 +1,21 @@
 # @hogsend/js
 
+## 0.62.0
+
+### Minor Changes
+
+- 766e7f8: `hogsend login` now opens your browser at the approval page with the code
+  prefilled, so approving is one click. The code and a bare URL are still always
+  printed — a headless machine, an SSH session, or `--no-browser` completes the
+  same flow by hand, and a failed browser open never fails the login. The cloud
+  approve page renders the code as an eight-box segmented input: prefilled from
+  the link, paste-aware (dashed `XXXX-XXXX` or bare), fully keyboard-navigable,
+  and screen-reader labelled per character.
+
+### Patch Changes
+
+- a52f9b1: Resolve the client IP for Better Auth's rate limiter behind Railway's edge. Better Auth ≥1.6.25 refuses a multi-valued `x-forwarded-for` when no `trustedProxies` are configured, and Railway always sends two values — so every caller collapsed onto one shared `/sign-in/email` bucket, and ten failed logins by anyone locked the endpoint for everyone. The engine now sets `advanced.ipAddress.ipAddressHeaders` to `["x-real-ip", "x-forwarded-for"]`; `x-real-ip` is single-valued and overwritten by Railway's edge, so it cannot be forged to dodge the limiter.
+
 ## 0.61.0
 
 ### Minor Changes
