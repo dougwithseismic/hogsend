@@ -1,4 +1,7 @@
-import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import {
+  ConcurrencyLimitStrategy,
+  HatchetClient,
+} from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
 import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
@@ -6,6 +9,7 @@ import { runBuildPipeline } from "./build";
 import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
+import { PROVISION_SWEEP_CRON, sweepProvisions } from "./provision-sweep";
 
 /**
  * The CONTROL PLANE's Hatchet client and its durable tasks.
@@ -42,6 +46,9 @@ export const RUN_BUILD_TASK = "run-build";
 
 /** The minute sweep that picks up orphaned builds and reaps stale ones. */
 export const SWEEP_BUILDS_TASK = "sweep-builds";
+
+/** The sweep that re-drives provisions Railway's degraded API interrupted. */
+export const SWEEP_PROVISIONS_TASK = "sweep-provisions";
 
 export interface ProvisionStackInput extends JsonObject {
   stackId: string;
@@ -322,4 +329,89 @@ let buildSweepCache: BuildSweepTask | undefined;
 export function getBuildSweepTask(client: HatchetClient): BuildSweepTask {
   buildSweepCache ??= buildBuildSweepTask(client);
   return buildSweepCache;
+}
+
+/** The JSON summary a finished provision sweep leaves in Hatchet. */
+export interface ProvisionSweepTaskOutput extends JsonObject {
+  redriven: string[];
+  exhausted: string[];
+  needsCredentials: string[];
+}
+
+/**
+ * The `sweep-provisions` cron task — every five minutes.
+ *
+ * `retries: 0`, and here the reason is sharper than "the next tick is close".
+ * This sweep exists BECAUSE the substrate API is degrading under bursts; a
+ * Hatchet retry would answer a substrate failure by immediately making the same
+ * calls again, which is precisely the behaviour the sweep replaced. The next
+ * tick is the retry, deliberately minutes away.
+ *
+ * SINGLE-FLIGHT, and this is the task that needs it declaring. The body AWAITS
+ * a whole provision, so a tick that spends twenty minutes inside one is still
+ * running when the next four cron ticks fire — and unlike `sweep-builds`, the
+ * pipeline underneath offers no natural single-flight of its own:
+ * `runBuildPipeline` REFUSES a build that is not `queued`, whereas
+ * `runProvisionPipeline` deliberately TOLERATES a stack already in
+ * `provisioning` (that is what a replayed durable task looks like). So two
+ * overlapping ticks would both select the same stale row and drive it at once.
+ * Nothing corrupts — the steps are idempotent and every transition is a guarded
+ * write — but it reproduces the concurrent burst against Railway's API that the
+ * pacing exists to prevent, which is the whole point of the sweep.
+ *
+ * `CANCEL_NEWEST` is chosen EXPLICITLY, and the explicitness is the point.
+ * `limitStrategy` defaults to `CANCEL_IN_PROGRESS`, which here would be
+ * actively harmful: each five-minute tick would cancel the sweep already
+ * running, killing a live `runProvisionPipeline` mid-flight. A pipeline killed
+ * that way never reaches `recordError` — so it leaves a stack abandoned in
+ * `provisioning` with its attempt uncounted, which is EXACTLY the wreckage this
+ * sweep exists to clean up. Taking the default would have the sweep
+ * manufacturing its own workload, once every five minutes, forever. Do not
+ * "simplify" this line away.
+ *
+ * `CANCEL_NEWEST` keeps the incumbent and discards the tick that arrives while
+ * it is working, which is the right semantics for a singleton cron: if the
+ * previous sweep is still going, this one has nothing to add. The two
+ * strategies that also drop or defer the newcomer — `DROP_NEWEST` and
+ * `QUEUE_NEWEST` — are both marked deprecated in the SDK's enum, and queueing
+ * would anyway build a backlog of identical sweeps and fire them back to back:
+ * the burst again, merely deferred. Dropping loses nothing, because the sweep
+ * is stateless and the next tick is five minutes away.
+ */
+function buildProvisionSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_PROVISIONS_TASK,
+    onCrons: [PROVISION_SWEEP_CRON],
+    retries: 0,
+    concurrency: {
+      // `expression` is required even though this task takes no input; a
+      // constant CEL key is what makes the limit GLOBAL rather than per-run.
+      expression: `'${SWEEP_PROVISIONS_TASK}'`,
+      maxRuns: 1,
+      // Never the default. See the note above.
+      limitStrategy: ConcurrencyLimitStrategy.CANCEL_NEWEST,
+    },
+    // The sweep AWAITS the pipeline it re-drives, so its ceiling is a
+    // provision's — the health wait alone is ten minutes.
+    executionTimeout: "30m",
+    fn: async (): Promise<ProvisionSweepTaskOutput> => {
+      const result = await sweepProvisions();
+      return {
+        redriven: result.redriven,
+        exhausted: result.exhausted,
+        needsCredentials: result.needsCredentials,
+      };
+    },
+  });
+}
+
+export type ProvisionSweepTask = ReturnType<typeof buildProvisionSweepTask>;
+
+let provisionSweepCache: ProvisionSweepTask | undefined;
+
+export function getProvisionSweepTask(
+  client: HatchetClient,
+): ProvisionSweepTask {
+  provisionSweepCache ??= buildProvisionSweepTask(client);
+  return provisionSweepCache;
 }
