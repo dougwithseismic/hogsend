@@ -69,7 +69,7 @@ Requirements:
 
 Effort: 4-6h.
 
-### T2 — Mint credentials for real
+### T2 — Mint credentials for real `[x]`
 
 GUIDE §3.3 is right that this needs **no engine change**. The control plane
 already stores each tenant's DSN and its `BETTER_AUTH_SECRET`, and the engine
@@ -98,7 +98,21 @@ system. Every half-completed state must be recoverable on a re-drive:
 
 Effort: 6-8h.
 
-### T3 — Non-running alert
+### T3 — Non-running alert `[x]`
+
+SEAM: set `CLOUD_OPERATOR_EMAIL=ops@hogsend.com` on the deployed control plane
+(both `cloud-app` and `cloud-worker`). Until it is set, notices go to the
+server log rather than to a human — the right default for a local run and the
+wrong one for production.
+
+`ops@hogsend.com` exists as of 2026-08-03: a Cloudflare Email Routing rule on
+the `hogsend.com` zone forwards it to doug@withseismic.com, alongside the
+pre-existing `hello@` rule and catch-all. Deliberately a separate address from
+`hello@` so fleet noise stays out of the inbox customers write to.
+
+Not set on Railway yet, on purpose: the alert code ships with this branch, so
+setting the variable now would redeploy the control plane for a variable
+nothing reads. Set it as part of the deploy.
 
 A sweep with no alert is a quieter version of the same bug. Some failure classes
 never converge, including the `Not Authorized` class already in the RUNBOOK.
