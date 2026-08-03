@@ -17,6 +17,7 @@ import {
   isColdChannelAllowed,
 } from "../sources/define-contact-source.js";
 import { getContactSourceRegistry } from "../sources/registry.js";
+import { lookupContactIdByKey } from "./contacts.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 import { readRecipientPreferences } from "./recipient-preferences.js";
@@ -26,15 +27,6 @@ import { readRecipientPreferences } from "./recipient-preferences.js";
 // from validating the complete production environment; the full container still
 // validates env at boot.
 const logger = createLogger(process.env.LOG_LEVEL);
-
-/**
- * Matches the canonical UUID form of `contacts.id` (8-4-4-4-12 hex). Gates the
- * `eq(contacts.id, ref)` leg so a uuid comparison only runs for a genuinely
- * uuid-shaped ref — an email/snowflake ref would otherwise raise a Postgres
- * `22P02 invalid input syntax for type uuid`.
- */
-const CONTACT_ID_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Matches a NAMESPACED platform ref (`telegram:<chatId>`, `discord:<id>`, …):
@@ -49,10 +41,10 @@ const NAMESPACED_REF = /^([a-z][a-z0-9_-]*):(.+)$/i;
  * when the ref is uuid-shaped — the contact's row `id`. Matching every canonical
  * key form (the journey subject key is `external_id ?? anonymous_id ?? id`) lets
  * `member: user.id` resolve a member who has NOT linked (an anonymous Discord
- * contact keyed by its uuid) or an email-only member. The uuid `id` leg is
- * shape-gated: `contacts.id` is a uuid column and an unguarded `eq(id, ref)`
- * against an email/snowflake text ref throws an invalid-uuid cast. First live
- * match wins.
+ * contact keyed by its uuid) or an email-only member. Those three canonical
+ * forms — plus a merged-away key that survives only as an identity row — are
+ * resolved by `lookupContactIdByKey` (which owns the uuid shape-gate: an
+ * unguarded `id = <text ref>` throws 22P02). First live match wins.
  *
  * NAMESPACED refs (`telegram:<chatId>`) ADDITIONALLY match the platform metadata
  * under `properties.<namespace>` (the `chat_id`/`id` fields). This is load-bearing
@@ -82,6 +74,13 @@ async function resolveContact(
         sql`${contacts.properties} -> ${nsMatch[1]}::text ->> 'id' = ${nsMatch[2]}`,
       ]
     : [];
+  // The three CANONICAL-key legs (external_id / anonymous_id / uuid id) are
+  // resolved by the alias-aware primitive instead of probed as columns: same
+  // row for a live key, same miss for an unknown one, and — new — the SURVIVOR
+  // for a merged-away key, which no column probe can see (the loser's row is
+  // soft-deleted). The email / discord / namespaced-jsonb legs stay columns:
+  // `lookupContactIdByKey` deliberately answers only for canonical keys.
+  const canonicalId = await lookupContactIdByKey(db, ref);
   const rows = await db
     .select({
       id: contacts.id,
@@ -96,11 +95,9 @@ async function resolveContact(
       and(
         isNull(contacts.deletedAt),
         or(
+          ...(canonicalId ? [eq(contacts.id, canonicalId)] : []),
           eq(contacts.email, ref),
-          eq(contacts.externalId, ref),
           eq(contacts.discordId, ref),
-          eq(contacts.anonymousId, ref),
-          ...(CONTACT_ID_UUID.test(ref) ? [eq(contacts.id, ref)] : []),
           ...namespacedLegs,
         ),
       ),
@@ -224,9 +221,12 @@ export async function checkActionAudience(
       });
     }
 
+    // PRD 05 T6 — the contact row is in hand, so the read is contact-scoped
+    // directly; the old `externalId ?? id` string derivation is the idiom the
+    // flip retires.
     const prefs = await readRecipientPreferences(db, {
       email: contact.email,
-      userId: contact.externalId ?? contact.id,
+      contactId: contact.id,
     });
     if (prefs.unsubscribedAll) {
       return {

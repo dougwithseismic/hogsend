@@ -58,6 +58,27 @@ async function seedContact(
     });
 }
 
+/**
+ * The contact a canonical key resolves to, or `null` when nobody owns it.
+ *
+ * PRD 05 T5 flipped the accessor's `contacts` join onto
+ * `bucket_memberships.contact_id`, so a fixture that writes a membership with a
+ * NULL `contact_id` while a contact DOES exist for the key is describing a
+ * state PRD 04 removed (every writer dual-writes the id and the backfill
+ * stamped the historical rows). Resolving it here keeps these fixtures on the
+ * production shape instead of a pre-04 one.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
 async function seedMembership(opts: {
   userId: string;
   status: "active" | "left";
@@ -69,6 +90,7 @@ async function seedMembership(opts: {
     status: opts.status,
     source: "event",
     entryCount: 1,
+    contactId: await contactIdFor(opts.userId),
     leftAt: opts.status === "left" ? new Date() : null,
   });
 }
@@ -308,5 +330,63 @@ describe("overrides.db seam (Test 28b)", () => {
     expect(res.error).toBeNull();
     expect(res.data).toBe(42);
     expect(calls).toContain("select");
+  });
+});
+
+// ===========================================================================
+// Canonical-key consistency
+//
+// `bucket_memberships.user_id` holds the canonical key
+// (`external_id ?? anonymous_id ?? id`), but the accessor joined
+// `contacts.external_id`. An email-only or anonymous member was therefore
+// INVISIBLE to count(), has() and members() while still being a real, active
+// member the cron and the criteria evaluator act on.
+//
+// The invariant asserted here is CONSISTENCY, not the four join sites: what the
+// accessor reports must agree with what actually exists. That is what makes the
+// difference between a consistent blind spot (wrong, but coherent) and a
+// divergence where the reconciler acts on people Studio says are not there —
+// "40 members shown, 55 got the email".
+// ===========================================================================
+describe("canonical-key consistency", () => {
+  it("counts, finds and lists a member whose canonical key is not its external_id", async () => {
+    // An ANONYMOUS contact: no external_id, so its canonical key — and hence
+    // its membership user_id — is its anonymous_id.
+    const anonKey = uid("anon-member");
+    await db.insert(contacts).values({ anonymousId: anonKey, properties: {} });
+    await seedMembership({ userId: anonKey, status: "active" });
+
+    // An ordinary external-id member alongside it, so the assertions below
+    // distinguish "sees everyone" from "sees nobody".
+    const extKey = uid("ext-member");
+    await seedContact(extKey);
+    await seedMembership({ userId: extKey, status: "active" });
+
+    const { data: count } = await accessor.count();
+    expect(count).toBe(2);
+
+    const { data: hasAnon } = await accessor.has(anonKey);
+    expect(hasAnon).toBe(true);
+
+    const { data: rows } = await accessor.members({ limit: 50 });
+    expect(rows.map((r) => r.userId).sort()).toEqual([anonKey, extKey].sort());
+  });
+
+  it("still excludes a soft-deleted contact keyed on anonymous_id", async () => {
+    // The live-contact filter must survive the join change — a member whose
+    // contact is soft-deleted stays invisible, exactly as for an external-id
+    // member. Without this the join fix would silently widen GDPR exposure.
+    const deadKey = uid("anon-dead");
+    await db.insert(contacts).values({
+      anonymousId: deadKey,
+      properties: {},
+      deletedAt: new Date(),
+    });
+    await seedMembership({ userId: deadKey, status: "active" });
+
+    const { data: count } = await accessor.count();
+    expect(count).toBe(0);
+    const { data: has } = await accessor.has(deadKey);
+    expect(has).toBe(false);
   });
 });

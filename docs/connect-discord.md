@@ -97,14 +97,22 @@ Go to <https://discord.com/developers/applications>, **select your existing
 application** (or create one). Do the steps in this order — the intents must be
 on **before** the worker gets the token, or the socket login crash-loops.
 
-1. **Bot tab → toggle the three Privileged Gateway Intents FIRST:**
+1. **Bot tab → toggle the two Privileged Gateway Intents the worker requests
+   FIRST:**
    - **SERVER MEMBERS INTENT**
    - **MESSAGE CONTENT INTENT**
-   - **PRESENCE INTENT**
 
-   If any is off, `discord.js` `login()` rejects with a **disallowed-intents**
+   If either is off, `discord.js` `login()` rejects with a **disallowed-intents**
    error and the worker's runtime fails to start (it releases the lease and
-   surfaces the error). Toggle all three before copying the token.
+   surfaces the error). Toggle both before copying the token.
+
+   **PRESENCE INTENT** is a third privileged toggle, and the worker does **not**
+   request `GUILD_PRESENCES` by default, so leave it off. Toggling it in the
+   portal alone changes nothing: opting back into `discord.presence_active` also
+   means passing an explicit `intents` bitfield containing
+   `DISCORD_INTENTS.GUILD_PRESENCES` to `createDiscordGatewayWorker`, which
+   `createDiscordRuntime` does not expose (you would supply your own
+   `ConnectorRuntime`).
 
 2. **Bot tab → Reset Token → copy the BOT TOKEN.** This is `DISCORD_BOT_TOKEN`.
    It is shown once — copy it now. Resetting it invalidates any prior copy
@@ -385,8 +393,10 @@ What to trust:
 | ~~`ingressSecretConfigured`~~ | **STALE — ignore.** Keys on the unused `CONNECTOR_INGRESS_SECRET`; reports `false` on a healthy worker-hosted deploy. |
 
 To prove the end-to-end loop, in a channel the bot can see: post a message
-(`discord.message_sent`), add a reaction (`discord.reaction_added`), have someone
-join (`discord.member_joined`), or come online (`discord.presence_active`). Then
+(`discord.message_sent`), add a reaction (`discord.reaction_added`), or have
+someone join (`discord.member_joined`). Coming online
+(`discord.presence_active`) only fires on a deploy that opted into
+`GUILD_PRESENCES`, so it is not a default-path check. Then
 query `user_events` for `event like 'discord.%'` and `contacts` for a non-null
 `discord_id` with `properties->'discord'` metadata (query with your own DB
 client — this runbook runs no DB queries for you).
@@ -421,7 +431,7 @@ a brief socket outage between reset and redeploy.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| **`Disallowed intents` / worker socket crash-loops on start** | One of the three privileged intents is off in the portal | Bot tab → enable SERVER MEMBERS + MESSAGE CONTENT + PRESENCE, then redeploy the worker. The runtime releases the lease on a failed start, so another replica (or a fixed redeploy) re-races cleanly. |
+| **`Disallowed intents` / worker socket crash-loops on start** | A privileged intent the worker requests is off in the portal | Bot tab → enable SERVER MEMBERS + MESSAGE CONTENT, then redeploy the worker. Also enable PRESENCE if (and only if) you passed an explicit `intents` bitfield containing `GUILD_PRESENCES`. The runtime releases the lease on a failed start, so another replica (or a fixed redeploy) re-races cleanly. |
 | **`workerOnline` / "Worker Online" stays `false`** | No bot token on the worker, no Redis on the worker, or the leader lease can't be held | Check the worker has `DISCORD_BOT_TOKEN` AND `REDIS_URL` pointing at the **same** Redis the API reads. `createDiscordRuntime` returns `null` (silent no-op) with no token; the heartbeat lives in Redis, so a worker that can't reach it never lights green even with a working socket. |
 | **Interactions endpoint won't save in the portal / `/wire` 400s** | The API wasn't live behind the public URL when Discord PINGed it, OR `API_PUBLIC_URL` is loopback | Boot the API behind the public HTTPS URL first; `/wire` refuses loopback with `409 api_public_url_unreachable`. A successful save proves env-only signature verification (`DISCORD_PUBLIC_KEY`) works. |
 | **CLI 404s at the `/secrets` step** | The consumer hasn't mounted `/secrets` + `/wire` | Mount both via `createApp({ routes })` — see [Consumer routes spec](#consumer-routes-spec). |

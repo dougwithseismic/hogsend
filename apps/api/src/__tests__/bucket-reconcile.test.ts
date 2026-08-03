@@ -45,7 +45,7 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 const { bucketConfigs, bucketMemberships, contacts, userEvents } = await import(
   "@hogsend/db"
 );
-const { and, eq, like } = await import("drizzle-orm");
+const { and, eq, inArray, like, sql } = await import("drizzle-orm");
 const {
   buildBucketRegistry,
   bucketReconcileTask,
@@ -156,6 +156,23 @@ async function seedContact(userId: string): Promise<void> {
     .onConflictDoNothing();
 }
 
+/**
+ * The contact a canonical key resolves to. PRD 05 T5 flipped the cron's event
+ * and membership joins onto `contact_id`, and PRD 04 dual-writes that column on
+ * every real write — so these fixtures stamp it rather than describing a
+ * pre-04 row the engine can no longer produce.
+ */
+async function contactIdFor(userKey: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
 /** Insert one userEvents row at a controlled `occurredAt`. */
 async function seedEvent(
   userId: string,
@@ -166,6 +183,7 @@ async function seedEvent(
     userId,
     event,
     properties: {},
+    contactId: await contactIdFor(userId),
     occurredAt: new Date(Date.now() - agoMs),
   });
 }
@@ -194,6 +212,14 @@ async function seedActiveCohort(
       })),
     )
     .onConflictDoNothing();
+  const owners = new Map(
+    (
+      await db
+        .select({ id: contacts.id, externalId: contacts.externalId })
+        .from(contacts)
+        .where(inArray(contacts.externalId, ids))
+    ).map((r) => [r.externalId as string, r.id]),
+  );
   // Two events each: one 30d ago (ever-fired) and one inside the 7d window
   // (present), so each is a member-failing active user, not a join candidate.
   await db.insert(userEvents).values(
@@ -202,12 +228,14 @@ async function seedActiveCohort(
         userId,
         event,
         properties: {},
+        contactId: owners.get(userId) ?? null,
         occurredAt: new Date(Date.now() - 30 * DAY),
       },
       {
         userId,
         event,
         properties: {},
+        contactId: owners.get(userId) ?? null,
         occurredAt: new Date(Date.now() - 1 * DAY),
       },
     ]),
@@ -242,6 +270,7 @@ async function seedPriorLeave(
     status: "left",
     source: "event",
     entryCount,
+    contactId: await contactIdFor(userId),
     enteredAt: new Date(Date.now() - 60 * DAY),
     leftAt: new Date(Date.now() - 40 * DAY),
     lastEvaluatedAt: new Date(Date.now() - 40 * DAY),

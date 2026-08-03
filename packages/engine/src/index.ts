@@ -37,14 +37,18 @@ export type {
 // types) so content can import everything from `@hogsend/engine`.
 export * from "@hogsend/core";
 // --- Capability-provider contracts (canonical origin: @hogsend/core) ---
-// Email provider contract + analytics contract, re-exported so consumers can
-// import them from `@hogsend/engine`. (`SendEmailOptions` is intentionally
-// omitted here: the engine's public `SendEmailOptions` is the high-level
-// journey-facing send options from `./lib/email.js`; the provider-contract
-// `SendEmailOptions` remains available via `@hogsend/core`.)
+// Email provider contract + analytics contract, plus `bySubject` (the
+// either/or history scope every engine-side history read is expected to move
+// onto), re-exported so consumers can import them from `@hogsend/engine`.
+// (`SendEmailOptions` is intentionally omitted here: the engine's public
+// `SendEmailOptions` is the high-level journey-facing send options from
+// `./lib/email.js`; the provider-contract `SendEmailOptions` remains available
+// via `@hogsend/core`.)
 export {
+  bySubject,
   defineAnalyticsProvider,
   defineEmailProvider,
+  type Subject,
   WebhookHandshakeSignal,
 } from "@hogsend/core";
 export {
@@ -394,7 +398,25 @@ export {
   verifyConnectorState,
 } from "./lib/connector-state.js";
 // --- Contacts identity (resolve/create — used by connector member-link) ---
-export { resolveOrCreateContact } from "./lib/contacts.js";
+// `resolveContactNoCreate` is the refuse-on-miss sibling (D1): same resolution,
+// but pure observation never mints a `contacts` row.
+// `identifiedContactFilter` is the read-side counterpart (PRD 01): the single
+// "has this person ever identified?" predicate behind `?identity=`.
+// `deleteIdentityAliasesForContact` is the erasure hook (PRD 02 T1): a
+// consumer-built deletion flow that soft-deletes `contacts` rows directly must
+// call it too, or the erased person's identity keys survive in
+// `contact_aliases`.
+// `ResolvePolicy`/`IdentityKind` (PRD 06): the explicit caller-declared trust
+// shape both resolver entry points accept via `policy` — the additive
+// replacement for the deprecated `restrictToAnonymous`/`allowCreate` booleans.
+export {
+  deleteIdentityAliasesForContact,
+  type IdentityKind,
+  identifiedContactFilter,
+  type ResolvePolicy,
+  resolveContactNoCreate,
+  resolveOrCreateContact,
+} from "./lib/contacts.js";
 // --- Conversion dispatch (plan §5.2): destinations registry + delivery ---
 export {
   ConversionDestinationRegistry,
@@ -564,6 +586,7 @@ export {
   type IngestEvent,
   type IngestResult,
   ingestEvent,
+  ingestTransformResult,
 } from "./lib/ingestion.js";
 // --- Reconciled journey-lift helper (impact experiments D4.1) — the ONE
 // implementation of the causal cohort math, shared by /lift (2a), /impact
@@ -897,6 +920,22 @@ export {
   createWorker,
   type Worker,
 } from "./worker.js";
+// --- History contact_id backfill (PRD 04): periodic reconcile sweep + enqueue,
+// --- plus T6's invariant probe (`flipReady` = the read-flip entry gate) ---
+export {
+  CONTACT_ID_BACKFILL_FORMAT,
+  type ContactIdBackfillCounts,
+  type ContactIdBackfillInput,
+  type ContactIdBackfillResult,
+  type ContactIdBackfillTable,
+  type ContactIdVerifyCounts,
+  type ContactIdVerifyResult,
+  contactIdBackfillTask,
+  contactIdResweepIntervalMs,
+  enqueueContactIdBackfill,
+  runContactIdBackfill,
+  verifyContactIdBackfill,
+} from "./workflows/backfill-contact-id.js";
 export {
   type BucketBackfillInput,
   bucketBackfillTask,
@@ -921,6 +960,17 @@ export {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
+// --- Identity alias backfill (PRD 02): task + boot enqueue + parity probe ---
+export {
+  type AliasParityRow,
+  enqueueIdentityAliasBackfill,
+  IDENTITY_ALIAS_BACKFILL_FORMAT,
+  type IdentityAliasBackfillInput,
+  type IdentityAliasBackfillResult,
+  identityAliasBackfillTask,
+  identityAliasParity,
+  runIdentityAliasBackfill,
+} from "./workflows/identity-alias-backfill.js";
 export {
   buildImpactDigest,
   detectLiftCrossings,

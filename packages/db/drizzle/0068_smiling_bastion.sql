@@ -1,0 +1,1 @@
+ALTER TABLE "bucket_configs" ADD COLUMN "coalesce_claimed_at" timestamp with time zone;

@@ -21,6 +21,7 @@ import {
 } from "../journeys/journey-boundary.js";
 import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import { lookupContactIdByKey } from "./contacts.js";
 import type { TestModeState } from "./domain-status.js";
 import {
   type FrequencyCapConfig,
@@ -180,6 +181,33 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     }
   }
 
+  // PRD 04 dual-write — resolved ONCE here and reused by all three
+  // `email_sends` insert sites below (suppressed, test-mode-blocked, real).
+  //
+  // D7 — keyed on `options.userId` ONLY, never on `options.to`. A raw send
+  // (public /v1/emails, password reset, any journeyless dispatch) carries no
+  // userId, so its row stamps NULL. Resolving by recipient ADDRESS instead
+  // would make that send visible to per-contact queries that cannot see it
+  // today — a read-shape change smuggled in through a write.
+  //
+  // D6 — wrapped: a bookkeeping resolve may never fail the send it rides on.
+  // Placed AFTER the idempotency short-circuit so a deduped retry pays nothing.
+  let sendContactId: string | null = null;
+  if (options.userId) {
+    try {
+      sendContactId = await lookupContactIdByKey(db, options.userId);
+    } catch (err) {
+      (logger ?? emitLogger).warn(
+        "email_sends contact_id dual-write resolve failed",
+        {
+          userId: options.userId,
+          templateKey: String(options.templateKey),
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
+  }
+
   // Resolve the template ONCE up front so its default category is available to
   // the suppression check (a public /v1/emails send may omit `category`, in
   // which case the per-category suppression must still consult the template's
@@ -195,11 +223,11 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   const subject = options.subject ?? defaultSubject;
 
   if (!options.skipPreferenceCheck) {
-    const suppression = await checkSuppression(
-      db,
-      options.to,
-      effectiveCategory,
-    );
+    const suppression = await checkSuppression(db, {
+      email: options.to,
+      contactId: sendContactId,
+      category: effectiveCategory,
+    });
     if (suppression) {
       const rows = await db
         .insert(emailSends)
@@ -213,6 +241,7 @@ async function sendTrackedEmailInner<K extends TemplateName>(
           campaignId: options.campaignId,
           userId: options.userId,
           userEmail: options.userEmail ?? options.to,
+          contactId: sendContactId,
           // First-class "suppressed" status: a provider dispatch failure
           // releases its idempotency key (catch block below), making it
           // byte-identical to this row EXCEPT for the status — so campaign
@@ -403,6 +432,7 @@ async function sendTrackedEmailInner<K extends TemplateName>(
         campaignId: options.campaignId,
         userId: options.userId,
         userEmail: options.userEmail ?? options.to,
+        contactId: sendContactId,
         // Policy-gated like suppression (the provider is never reached), so it
         // shares the "suppressed" status; metadata.testMode marks the cause.
         status: "suppressed",
@@ -460,6 +490,7 @@ async function sendTrackedEmailInner<K extends TemplateName>(
       campaignId: options.campaignId,
       userId: options.userId,
       userEmail: options.userEmail ?? options.to,
+      contactId: sendContactId,
       status: "queued",
       idempotencyKey: options.idempotencyKey,
       ...(redirect
@@ -631,13 +662,24 @@ type SuppressionReason = EmailSuppressionError["reason"] | null;
 
 async function checkSuppression(
   db: Database,
-  email: string,
-  category?: string,
+  opts: {
+    email: string;
+    /**
+     * The send's resolved contact (the dual-write stamp already in hand at the
+     * call site). PRD 05 T6: an opt-out recorded under an earlier address or
+     * an earlier canonical key is reachable ONLY through the contact scope —
+     * the address leg alone would mail an unsubscribed person who changed
+     * email. Null for a journeyless/raw send (address leg only, unchanged).
+     */
+    contactId: string | null;
+    category?: string;
+  },
 ): Promise<SuppressionReason> {
+  const { email, contactId, category } = opts;
   // Aggregated across ALL `email_preferences` rows for this address by the shared
   // reader — an address can legitimately have MORE THAN ONE row (multi-row
   // (user_id, email) aggregation rationale lives in readRecipientPreferences).
-  const prefs = await readRecipientPreferences(db, { email });
+  const prefs = await readRecipientPreferences(db, { email, contactId });
 
   if (prefs.suppressed) return "suppressed";
   if (prefs.unsubscribedAll) return "unsubscribed";

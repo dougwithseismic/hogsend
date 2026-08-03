@@ -116,7 +116,7 @@ it("counts each behaviour event independently, within the window", async () => {
 });
 
 it("a contact with no events reports null recency, which decays behaviour to zero", async () => {
-  const { contactId } = await seed("silent", { refined_seniority: "vp" }, []);
+  const { contactId } = await seed("silent", { seniority: "vp" }, []);
 
   const row = await rowFor(contactId);
 
@@ -126,7 +126,7 @@ it("a contact with no events reports null recency, which decays behaviour to zer
   // Fit still counts — only the behaviour half decays.
   expect(
     computeGtmScore({
-      refinedSeniority: row?.properties?.refined_seniority,
+      refinedSeniority: row?.properties?.seniority,
       keyActions: row?.key_actions ?? 0,
       featureUses: row?.feature_uses ?? 0,
       paidFeatureAttempts: row?.paid_feature_attempts ?? 0,

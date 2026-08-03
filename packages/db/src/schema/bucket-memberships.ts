@@ -20,8 +20,18 @@ export const bucketMemberships = pgTable(
     organizationId: text("organization_id"),
     // logical join to contacts.externalId — NO FK (matches userEvents /
     // journeyStates; membership rows can predate a contacts row).
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
     userEmail: text("user_email"), // denormalized so emitted events carry it
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away.
+    // Bucket evaluation needs no contact row — `checkBucketMembership` →
+    // `handleJoin` runs on a refused (contactless) event and joins the subject
+    // by its canonical key. Such a row is a string-keyed subject and reads
+    // scope it by `user_id` (the bySubject else-arm).
+    contactId: uuid("contact_id"),
     bucketId: text("bucket_id").notNull(),
     status: bucketMembershipStatusEnum("status").notNull().default("active"),
     enteredAt: timestamp("entered_at", { withTimezone: true })
@@ -71,6 +81,28 @@ export const bucketMemberships = pgTable(
     uniqueIndex("uq_user_bucket_active")
       .on(table.userId, table.bucketId)
       .where(sql`status = 'active' AND deleted_at IS NULL`),
+    // PRD 05 T3 — the CONTACT-scoped twin of uq_user_bucket_active. Adoption
+    // stamps `contact_id` WITHOUT rewriting `user_id`, so two string keys can
+    // both become the same contact and hold two ACTIVE rows for one bucket; the
+    // string index above permits that and a `contact_id` read would then see a
+    // double membership. Same partial predicate, same re-entrancy: "left" rows
+    // sit outside it, so oscillating join → leave → join stays legal.
+    //
+    // `contact_id IS NOT NULL` in the predicate is LOAD-BEARING: contactless
+    // memberships are permanent and supported (`bucket_memberships` is
+    // text-keyed with no contact FK — a contactless subject is a first-class
+    // member), so anonymous visitors must stay outside this index and keep
+    // getting their uniqueness from uq_user_bucket_active.
+    //
+    // All three writers (`checkBucketMembership`, `bucket-reconcile`,
+    // `bucket-backfill`) insert with an ARBITER-LESS `ON CONFLICT DO NOTHING`,
+    // which absorbs a violation of EITHER index into the same "lost the race /
+    // already a member" branch. Do not narrow those to a column target.
+    uniqueIndex("uq_contact_bucket_active")
+      .on(table.contactId, table.bucketId)
+      .where(
+        sql`contact_id IS NOT NULL AND status = 'active' AND deleted_at IS NULL`,
+      ),
     index("bucket_memberships_bucket_id_status_idx").on(
       table.bucketId,
       table.status,
@@ -98,5 +130,10 @@ export const bucketMemberships = pgTable(
       table.status,
       table.lastEvaluatedAt,
     ),
+    // PRD 04 D2 — PARTIAL btree on the owning contact; see the twin on
+    // user_events for why the predicate is not a barrier to `contact_id = $1`.
+    index("bucket_memberships_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );

@@ -113,8 +113,8 @@ export interface OutboundPayloads {
    * ONLY on a genuine `status: "refined"` — never on `cached`, `not_found` or
    * `skipped`, because a cache hit is a spend decision, not a change.
    *
-   * `traits` carries the mapped trait KEY NAMES only — `["refined_title",
-   * "refined_company_domain"]` — never their values. That is deliberate: the
+   * `traits` carries the canonical trait KEY NAMES only — `["title",
+   * "company_domain"]` — never their values. That is deliberate: the
    * payload says WHAT CHANGED, and a subscriber that wants the values reads
    * the contact (`GET /v1/contacts`). So vendor-licensed person data never
    * leaves the building inside a webhook body, and the envelope stays a fixed
@@ -132,7 +132,7 @@ export interface OutboundPayloads {
     provider: string;
     /** Mapped trait key NAMES, sorted. Values are deliberately absent. */
     traits: string[];
-    /** ISO — the lookup instant (the same value as `refined_at`). */
+    /** ISO — the lookup instant (the same value as `enrichment.at`). */
     at: string;
   };
   "email.sent": {

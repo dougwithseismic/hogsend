@@ -1,0 +1,19 @@
+# Railway config for the Hogsend Cloud control-plane APP service (cloud-app).
+# Selected per-service via the service's railwayConfigFile setting — the root
+# railway.toml is the hogsend-api config and MUST NOT apply here (it hijacks
+# the start command, pre-deploy and watch paths; found live 2026-07-29).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.cloud"
+watchPatterns = [
+  "apps/cloud/**",
+  "Dockerfile.cloud",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+# Migration gate: schema moves before the new code serves.
+preDeployCommand = "tsx scripts/migrate.ts"
+restartPolicyType = "ON_FAILURE"

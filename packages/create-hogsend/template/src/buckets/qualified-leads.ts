@@ -5,9 +5,11 @@ import { Events } from "../journeys/constants/index.js";
  * Example bucket + enter reaction: REFINEMENT. The moment someone hands you a
  * work email — a signup form, a waitlist, one curl to POST /v1/events with
  * `lead.captured` — this bucket admits them and the reaction below asks an
- * enrichment vendor who they are. The answer lands as flat `refined_*`
- * properties on the contact: open the contact in Studio and the job title,
- * company, and employee count are there.
+ * enrichment vendor who they are. The answer lands on the contact's CANONICAL
+ * properties (`title`, `company`, `company_employees`, …), fill-if-absent so it
+ * never overwrites data you already set; provenance goes under a nested
+ * `enrichment` object. Open the contact in Studio and the job title, company,
+ * and employee count are there.
  *
  * Refinement is OPT-IN and completely inert until a provider is configured.
  * Turning it on is two steps:
@@ -76,7 +78,7 @@ export const qualifiedLeads = defineBucket({
   switch (result.status) {
     case "refined":
     case "cached":
-      // The `refined_*` traits are already on the contact — `refineContact`
+      // The canonical traits are already on the contact — `refineContact`
       // lands them through the ingest pipeline itself.
       await ctx.checkpoint(`refined:${result.status}`);
       break;

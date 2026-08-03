@@ -317,6 +317,17 @@ async function applyListSubscription(opts: {
       db,
       userId,
       email,
+      // PRD 06 T3 (L5 row 12): a subscribe/unsubscribe reaches here only
+      // server-trusted or token-proven (`gatePublishableIdentity` at both call
+      // sites) and the body carries no `anonymousId`, so the clamp would be
+      // inert — `allowMerge: "any"` is behaviour-identical, and the narrow
+      // `trustedKinds` is the honest statement of what this caller may
+      // assert. Declared now, enforced by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
@@ -399,13 +410,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     if ((userId || email) && !c.get("publishable")) {
       const recipient = await resolveRecipient({ db, userId, email });
       if (recipient) {
-        const extId = recipient.externalId ?? recipient.contactId;
+        // PRD 05 T6 — contact-scoped read; the `externalId ?? contactId`
+        // string derivation is retired.
         const rows = await db
           .select()
           .from(emailPreferences)
           .where(
             and(
-              eq(emailPreferences.userId, extId),
+              eq(emailPreferences.contactId, recipient.contactId),
               eq(emailPreferences.email, recipient.email),
             ),
           )
@@ -452,15 +464,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     if (!recipient) {
       return c.json({ categories: {}, unsubscribedAll: false }, 200);
     }
-    // `email_preferences.user_id` is keyed on `external_id ?? contact.id`
-    // (risk 10) — mirror `resolveRecipient`'s contactId fallback.
-    const extId = recipient.externalId ?? recipient.contactId;
+    // PRD 05 T6 — contact-scoped read; the `externalId ?? contactId` string
+    // derivation is retired.
     const rows = await db
       .select()
       .from(emailPreferences)
       .where(
         and(
-          eq(emailPreferences.userId, extId),
+          eq(emailPreferences.contactId, recipient.contactId),
           eq(emailPreferences.email, recipient.email),
         ),
       )
@@ -499,6 +510,16 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       db,
       userId,
       email,
+      // PRD 06 T3 (L5 row 13): same trust statement as the subscribe path —
+      // server or token-proven caller, no `anonymousId` in the body (the
+      // handler 400s without an email/userId), so `allowMerge: "any"` is
+      // behaviour-identical and the narrow `trustedKinds` is honest. Enforced
+      // by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     emitContactCreatedIfNew({ db, hatchet, logger, contactId, created });
@@ -520,6 +541,11 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
       externalId,
       email: recipient.email,
       update: { unsubscribedAll },
+      // PRD 04 dual-write: the id is ALREADY in hand from the
+      // `resolveOrCreateContact` above (this handler resolves/creates the row
+      // before writing preferences), so pass it rather than making
+      // `upsertEmailPreference` re-probe the same contact.
+      contactId,
     });
 
     return c.json({ unsubscribedAll }, 200);

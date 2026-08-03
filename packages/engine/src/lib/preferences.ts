@@ -1,10 +1,14 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences } from "@hogsend/db";
-import { sql } from "drizzle-orm";
-import { resolveRecipient } from "./contacts.js";
+import { and, eq, sql } from "drizzle-orm";
+import { lookupContactIdByKey, resolveRecipient } from "./contacts.js";
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
+import {
+  isUniqueViolationOn,
+  UQ_CONTACT_EMAIL_PREFERENCES,
+} from "./unique-violation.js";
 
 export {
   type RecipientPreferences,
@@ -54,10 +58,46 @@ export async function upsertEmailPreference(opts: {
    * TCPA record-keeping is the "how" as much as the "when".
    */
   source?: string;
+  /**
+   * PRD 04 dual-write: the `contacts.id` owning `externalId`.
+   *
+   * `undefined` (the default, and every caller that has nothing in hand) ⇒ this
+   * function does ONE D6-wrapped lookup itself. An EXPLICIT value — including
+   * an explicit `null` — is used verbatim, so a caller that already resolved
+   * the contact (the lists route, one line after `resolveOrCreateContact`) pays
+   * no second query and cannot disagree with itself.
+   */
+  contactId?: string | null;
 }): Promise<void> {
   const { db, externalId, email, update } = opts;
 
-  const setClause: Record<string, unknown> = { updatedAt: new Date() };
+  // D6 — the resolve may never fail the preference write it rides on: a throw
+  // degrades to NULL + a warn. The probe is paid ONLY when the caller supplied
+  // nothing; the discriminant is `undefined` (not falsiness), so an EXPLICIT
+  // null stays an explicit null rather than triggering a lookup.
+  let contactId: string | null = null;
+  if (opts.contactId !== undefined) {
+    contactId = opts.contactId;
+  } else {
+    try {
+      contactId = await lookupContactIdByKey(db, externalId);
+    } catch (err) {
+      logger.warn("email_preferences contact_id dual-write resolve failed", {
+        externalId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const setClause: Record<string, unknown> = {
+    updatedAt: new Date(),
+    // FILL-IF-KNOWN, NEVER NULL-OUT (house precedent: the fill-if-absent
+    // refinement, PR #615). The conflict arm takes the incoming id when there is
+    // one and otherwise KEEPS what the row already carries — so a failed or
+    // impossible resolve on a later write can never erase a `contact_id` an
+    // earlier write successfully stamped.
+    contactId: sql`coalesce(excluded.contact_id, ${emailPreferences.contactId})`,
+  };
 
   if (update.unsubscribedAll !== undefined) {
     setClause.unsubscribedAll = update.unsubscribedAll;
@@ -77,33 +117,79 @@ export async function upsertEmailPreference(opts: {
     setClause.categories = sql`jsonb_set(COALESCE(${emailPreferences.categories}, '{}'::jsonb), ${`{${update.categoryKey}}`}, ${jsonValue}::jsonb)`;
   }
 
-  await db
-    .insert(emailPreferences)
-    .values({
-      userId: externalId,
-      email,
-      ...(update.unsubscribedAll !== undefined
-        ? { unsubscribedAll: update.unsubscribedAll }
-        : {}),
-      ...(update.suppressed !== undefined
-        ? { suppressed: update.suppressed }
-        : {}),
-      ...(update.suppressedAt !== undefined
-        ? { suppressedAt: update.suppressedAt }
-        : {}),
-      ...(update.recordBounce
-        ? { bounceCount: 1, lastBounceAt: new Date() }
-        : {}),
-      ...(update.categoryKey !== undefined
-        ? {
-            categories: { [update.categoryKey]: update.categoryValue ?? false },
-          }
-        : {}),
-    })
-    .onConflictDoUpdate({
-      target: [emailPreferences.userId, emailPreferences.email],
-      set: setClause,
-    });
+  const upsertOnStringKey = () =>
+    db
+      .insert(emailPreferences)
+      .values({
+        userId: externalId,
+        email,
+        contactId,
+        ...(update.unsubscribedAll !== undefined
+          ? { unsubscribedAll: update.unsubscribedAll }
+          : {}),
+        ...(update.suppressed !== undefined
+          ? { suppressed: update.suppressed }
+          : {}),
+        ...(update.suppressedAt !== undefined
+          ? { suppressedAt: update.suppressedAt }
+          : {}),
+        ...(update.recordBounce
+          ? { bounceCount: 1, lastBounceAt: new Date() }
+          : {}),
+        ...(update.categoryKey !== undefined
+          ? {
+              categories: {
+                [update.categoryKey]: update.categoryValue ?? false,
+              },
+            }
+          : {}),
+      })
+      .onConflictDoUpdate({
+        target: [emailPreferences.userId, emailPreferences.email],
+        set: setClause,
+      });
+
+  try {
+    await upsertOnStringKey();
+  } catch (err) {
+    // PRD 05 T3 — the arbiter STAYS on (user_id, email); the contact-scoped
+    // index is a pure constraint (drizzle targets columns only, and a bare
+    // (contact_id, email) arbiter would never fire for the contactless
+    // population — a D6-degraded NULL resolve is legal and permanent). So the
+    // one collision the string arbiter cannot see — SAME contact, SAME address,
+    // DIFFERENT `user_id` string, which is exactly what adoption produces when
+    // it stamps `contact_id` without rewriting `user_id` — arrives here as a
+    // 23505 and is converted into the update path by hand.
+    if (!contactId || !isUniqueViolationOn(err, UQ_CONTACT_EMAIL_PREFERENCES)) {
+      throw err;
+    }
+    // `contactId` is dropped from the set: it only existed to carry the
+    // `excluded.contact_id` coalesce, which has no meaning outside ON CONFLICT,
+    // and the row we are about to update already holds THIS id (that is how it
+    // collided). Every other entry references the table column, which is legal
+    // on the right-hand side of a plain UPDATE.
+    const { contactId: _excludedCoalesce, ...contactScopedSet } = setClause;
+    const converted = await db
+      .update(emailPreferences)
+      .set(contactScopedSet)
+      .where(
+        and(
+          eq(emailPreferences.contactId, contactId),
+          eq(emailPreferences.email, email),
+        ),
+      )
+      .returning({ id: emailPreferences.id });
+
+    // ZERO rows means the conflicting row vanished between the INSERT and this
+    // UPDATE — a concurrent merge folded it away (`foldEmailPreferences` hard-
+    // deletes the row it absorbed) or re-pointed its `contact_id`. Accepting
+    // that silently DROPS the write while the emit below still announces an
+    // opt-out that never landed. The conflicting row is gone, so the original
+    // arbiter INSERT now has somewhere to go: retry it ONCE. A second 23505
+    // means another writer re-created the row in this same gap — that throws,
+    // which is the loud answer, not a silent loss.
+    if (converted.length === 0) await upsertOnStringKey();
+  }
 
   // OUTBOUND `contact.unsubscribed` — this is the SINGLE choke for ALL preference
   // writes (token unsub, preference center, list-membership flips), so the emit

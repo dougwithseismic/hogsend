@@ -77,3 +77,21 @@ describe("engine auth cookie namespace (advanced.cookiePrefix)", () => {
     expect(sessionCookieName(ctx)).not.toBe("better-auth.session_token");
   });
 });
+
+describe("engine auth client-IP resolution (advanced.ipAddress)", () => {
+  it("reads x-real-ip first, then x-forwarded-for — and never x-envoy-external-address", async () => {
+    // Better Auth >=1.6.25 refuses a MULTI-valued x-forwarded-for when no
+    // trustedProxies are configured, and Railway's edge always sends two
+    // values ("<client>, <edge-hop>") — so with the default headers every
+    // request resolved to null and ALL callers shared ONE /sign-in/email
+    // bucket (observed live 2026-08-03: mint-credentials retries and a
+    // customer's Studio sign-ins 429'd each other). `x-real-ip` is
+    // single-valued and OVERWRITTEN by Railway's edge (spoof verified), so it
+    // goes first. `x-envoy-external-address` passes through UNMODIFIED
+    // (forgeable) and must never appear here.
+    const auth = createAuth(baseAuthOpts);
+    const ctx = await auth.$context;
+    const headers = ctx.options.advanced?.ipAddress?.ipAddressHeaders;
+    expect(headers).toEqual(["x-real-ip", "x-forwarded-for"]);
+  });
+});

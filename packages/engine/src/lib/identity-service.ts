@@ -4,7 +4,7 @@ import {
   logResidualTwins,
   mergeAnalyticsIdentities,
 } from "./analytics-identity.js";
-import { resolveOrCreateContact } from "./contacts.js";
+import { ALL_IDENTITY_KINDS, resolveOrCreateContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
 /**
@@ -68,7 +68,20 @@ export function createIdentityService(deps: {
 
   return {
     async linkContact(args) {
-      const result = await resolveOrCreateContact({ db, ...args });
+      // PRD 06 T4 (L5 row 19): the connector entry point (Discord/Telegram
+      // `/link`) declares full server trust — a `discord` key is the whole
+      // point of this service, so all four kinds, create-on-miss, no clamp.
+      // Declared now, enforced by T5. `args` cannot carry a policy
+      // ({@link LinkContactArgs} omits it), so nothing is clobbered.
+      const result = await resolveOrCreateContact({
+        db,
+        ...args,
+        policy: {
+          create: "on-miss",
+          allowMerge: "any",
+          trustedKinds: ALL_IDENTITY_KINDS,
+        },
+      });
 
       const {
         id: contactId,

@@ -9,6 +9,15 @@ export interface ConditionContext {
   db: Database;
   userId: string;
   /**
+   * The owning contact's `contacts.id`, or `null` when the caller has none
+   * resolved. REQUIRED (not optional) on purpose: the adjacent optional
+   * `email` below is the exact failure mode this avoids — an optional field a
+   * new caller silently forgets, leaving the evaluator on a fallback nobody
+   * chose. History leaves scope by contact when it is set and by the mutable
+   * `userId` text key only when it is null.
+   */
+  contactId: string | null;
+  /**
    * The contact's email, for `email_engagement` leaves (they look up
    * `email_sends.to_email`, which is an address — NOT `userId`, which is the
    * contactKey external_id/anonymous_id/id). When omitted the evaluator falls

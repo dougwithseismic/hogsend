@@ -1,3 +1,4 @@
+import { bySubject } from "@hogsend/core";
 import {
   type Database,
   emailSends,
@@ -21,6 +22,7 @@ import {
   or,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { lookupContactIdByKey } from "../../lib/contacts.js";
 
 const emailSchema = z.object({
   id: z.string(),
@@ -282,10 +284,17 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
       conditions.push(eq(emailSends.campaignId, campaignId));
     }
     // Match the denormalized identity OR the journey-state join, so journeyless
-    // sends (which only carry the denormalized userId) are still filterable.
+    // sends (which only carry the denormalized identity) are still filterable.
+    // Both legs go through `bySubject` off ONE resolved contact: the operator
+    // typed a text key, and the person's sends may be split across the keys
+    // they held over time. The `or` here is across two TABLES (send row vs.
+    // its enrollment), not two arms of one subject — `bySubject` still picks
+    // exactly one predicate per table.
     if (userId) {
+      const contactId = await lookupContactIdByKey(db, userId);
+      const subject = { contactId, userKey: userId };
       conditions.push(
-        or(eq(emailSends.userId, userId), eq(journeyStates.userId, userId)),
+        or(bySubject(emailSends, subject), bySubject(journeyStates, subject)),
       );
     }
     if (engagement) conditions.push(isNotNull(engagementColumn[engagement]));
@@ -305,6 +314,10 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
     const [rows, totalRows] = await Promise.all([
       db
         .select({
+          // Display echo of the text key this send was stamped under, NOT a
+          // scoping predicate — the response's `userId` field is a string by
+          // contract. Deliberately left on `user_id`; PRD 05 flips scoping
+          // reads, not the wire format.
           ...getTableColumns(emailSends),
           identityUserId: journeyStates.userId,
           identityJourneyId: journeyStates.journeyId,
@@ -360,6 +373,8 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
         ? db
             .select({
               journeyId: journeyStates.journeyId,
+              // Display echo of the stamped text key (see the list route) —
+              // `journeyContext.userId` is a string by contract.
               userId: journeyStates.userId,
               status: journeyStates.status,
               currentNodeId: journeyStates.currentNodeId,

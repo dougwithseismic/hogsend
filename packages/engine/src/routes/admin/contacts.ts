@@ -5,10 +5,14 @@ import {
   groups,
 } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
+  ALL_IDENTITY_KINDS,
+  contactKeySql,
   contactSearchFilter,
+  deleteIdentityAliasesForContact,
+  identifiedContactFilter,
   resolveContact,
   resolveOrCreateContact,
   serializeContact as serializeContactRow,
@@ -78,12 +82,33 @@ const listRoute = createRoute({
   path: "/",
   tags: ["Admin"],
   summary: "List contacts",
+  description:
+    "Paginated contact list. `identity` narrows the list by whether the " +
+    "contact has EVER identified — i.e. holds an `externalId`, `email`, " +
+    "`discordId` or `phone` (`anonymousId` alone does not count). It " +
+    "defaults to `all`, so existing callers (`hogsend contacts list`, the " +
+    "Studio contact picker) are unaffected; only Studio's contacts screen " +
+    "opts in to `identified`. `identified` and `anonymous` are exact " +
+    "complements under the same other filters, and `total` reflects the " +
+    "filter.",
   request: {
     query: z
       .object({
         limit: z.coerce.number().min(1).max(100).default(50),
         offset: z.coerce.number().min(0).default(0),
         search: z.string().optional(),
+        /**
+         * Display filter (PRD 01) over "has this person ever identified?".
+         *
+         * The default is `all` ON PURPOSE and must stay that way: two
+         * consumers other than Studio's contacts list call this route and
+         * neither should silently change — the published `hogsend contacts
+         * list` CLI (output is scripted against) and Studio's contact
+         * picker (an anonymous contact is a legitimate pick when a journey
+         * or test is aimed at an anon key). Flipping this default is an
+         * API behaviour change, not a display tweak.
+         */
+        identity: z.enum(["all", "identified", "anonymous"]).default("all"),
         // Long-tail value filters (plan §4b.3): the "find my value customers"
         // query surface.
         minRevenue: z.coerce.number().optional(),
@@ -293,6 +318,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       limit,
       offset,
       search,
+      identity,
       minRevenue,
       dealStage,
       orderBy,
@@ -350,9 +376,17 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
                 : desc(contacts.lastSeenAt),
             ];
 
-    // Valued events are keyed by the contact's canonical event key
-    // (external_id ?? anonymous_id ?? id) — same precedence ingestEvent
-    // resolves. Served by the partial user_events_valued_user_idx.
+    // Valued events are owned the PRD 05 way: by `contact_id` when the row
+    // carries one, and only otherwise by the contact's canonical event key
+    // (external_id ?? anonymous_id ?? id — the same precedence `ingestEvent`
+    // resolves, served by the partial user_events_valued_user_idx). The FK arm
+    // is what the string arm cannot do: adoption stamps `contact_id` WITHOUT
+    // rewriting the frozen `user_id`, so a person's pre-identify (or
+    // merged-away) revenue sat under a key that no longer equals their
+    // canonical one and this filter never counted it. The `contact_id is null`
+    // guard on the string arm keeps it to rows nobody owns — an unowned row
+    // whose key happens to collide with another contact's is the bug PRD 05
+    // exists to close.
     // Exclusions come from lib/revenue.ts (static machinery events + funnel
     // milestone triggers + the browser trust gate): one deal's value rides
     // several rows, and pk_-minted values are forgeable.
@@ -361,7 +395,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         ? sql`(
             select coalesce(sum(ue.value), 0)
             from user_events ue
-            where ue.user_id = coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)
+            where (
+                ue.contact_id = ${contacts.id}
+                or (ue.contact_id is null and ue.user_id = ${contactKeySql()})
+              )
               and ue.value is not null
               and ue.event not in (${sql.join(
                 revenueExcludedEvents().map((e) => sql`${e}`),
@@ -378,8 +415,20 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         )`
       : undefined;
 
+    // PRD 01 — one conjunct, one predicate (`identifiedContactFilter`), so
+    // `identified` and `anonymous` stay exact complements. It rides the SAME
+    // `where` as every other filter below, which is what keeps the page query
+    // and the `count()` in lockstep.
+    const identityFilter =
+      identity === "identified"
+        ? identifiedContactFilter()
+        : identity === "anonymous"
+          ? not(identifiedContactFilter())
+          : undefined;
+
     const where = and(
       isNull(contacts.deletedAt),
+      ...(identityFilter ? [identityFilter] : []),
       ...(searchFilter ? [searchFilter] : []),
       ...(revenueFilter ? [revenueFilter] : []),
       ...(dealStageFilter ? [dealStageFilter] : []),
@@ -416,19 +465,20 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    // email_preferences.user_id uses external_id when present, else the contact
-    // uuid as the deterministic fallback (risk 10 — email-only contacts).
+    // PRD 05 T6 — preference rows are read by ownership stamp; the old
+    // `external_id ?? id` string derivation goes stale on adoption.
     const [prefRows, revenue, groupRows] = await Promise.all([
       db
         .select()
         .from(emailPreferences)
-        .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
+        .where(eq(emailPreferences.contactId, contact.id))
         .limit(1),
       // Valued events are keyed by the contact's canonical event key — the
       // same precedence ingestEvent resolves (`external ?? anon ?? id`).
       getContactRevenue({
         db,
         key: contact.externalId ?? contact.anonymousId ?? contact.id,
+        contactId: contact.id,
       }),
       // The contact's live group memberships (mirrors the admin groups router's
       // join idiom): `group_memberships` → `groups`, live groups only, ordered
@@ -488,6 +538,14 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       userId: body.externalId,
       email: body.email,
       contactProperties: body.properties,
+      // PRD 06 T4 (L5 row 14): an admin create asserts identity — the body
+      // carries `externalId`/`email` ONLY, so the narrow `trustedKinds` is the
+      // honest statement; create-on-miss, no clamp. Enforced by T5.
+      policy: {
+        create: "on-miss",
+        allowMerge: "any",
+        trustedKinds: ["external", "email"],
+      },
     });
 
     const created = await resolveContact({ db, id });
@@ -540,6 +598,15 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
         email: body.email ?? current.email ?? undefined,
         anonymousId: current.anonymousId ?? undefined,
         contactProperties: body.properties,
+        // PRD 06 T4 (L5 row 15): an admin update re-supplies the row's OWN
+        // identity keys (externalId/anonymousId/email) to ride the
+        // fill-in-link path — an admin may assert any kind, so the full grant
+        // is the honest statement; create-on-miss, no clamp. Enforced by T5.
+        policy: {
+          create: "on-miss",
+          allowMerge: "any",
+          trustedKinds: ALL_IDENTITY_KINDS,
+        },
       });
     } else {
       // Degenerate contact with no identity keys (resolver requires >=1 key):
@@ -591,10 +658,16 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    await db
-      .update(contacts)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(contacts.id, contact.id));
+    // Soft-delete + erasure hook in ONE transaction (PRD 02 T1): every
+    // contact_aliases row keyed to the erased contact is that person's own
+    // identity data, whatever `reason`/`from_contact_id` it carries.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(contacts)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(contacts.id, contact.id));
+      await deleteIdentityAliasesForContact(tx, contact.id);
+    });
 
     return c.json({ deleted: true }, 200);
   });

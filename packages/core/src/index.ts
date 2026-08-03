@@ -72,4 +72,9 @@ export {
   groupTypeSchema,
   journeyMetaSchema,
 } from "./schemas/index.js";
+export {
+  bySubject,
+  type Subject,
+  type SubjectScopedTable,
+} from "./subject.js";
 export * from "./types/index.js";

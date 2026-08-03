@@ -102,6 +102,12 @@ const seedState = async (opts: {
     .insert(journeyStates)
     .values({
       userId: opts.userId,
+      // Stamped as the engine's dual-write does. The /impact cohort SQL reads
+      // by SUBJECT (PRD 05) — enrollments count
+      // `coalesce(js.contact_id::text, js.user_id)` and the outcome EXISTS
+      // joins `c.contact_id = js.contact_id` — so an unstamped fixture would
+      // report zero converters and look like a quiet journey.
+      contactId: await ensureContact(opts.userId),
       userEmail: `${opts.userId}@example.test`,
       journeyId: opts.journeyId,
       currentNodeId: "start",

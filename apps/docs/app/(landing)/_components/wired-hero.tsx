@@ -41,7 +41,7 @@ const PILLARS = [
   {
     icon: Radio,
     title: "Event-powered",
-    body: "React to any event from your product, your warehouse or any webhook source.",
+    body: "React to any event from PostHog, your product, your warehouse or any webhook source.",
   },
   {
     icon: LineChart,
@@ -82,10 +82,11 @@ export function WiredHeroSection({
                 className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 py-1 pr-3 pl-1 text-[12px] backdrop-blur-md sm:text-[13px]"
               >
                 <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium">
-                  New
+                  New course
                 </span>
-                <span className="font-medium">Measure → Keep → Grow</span>
-                <span className="text-white/50">· Live Now</span>
+                <span className="font-medium">
+                  Measure → Keep → Grow with PostHog
+                </span>
               </a>
 
               <h1
@@ -95,13 +96,13 @@ export function WiredHeroSection({
                 )}
                 style={{ textShadow: "0 2px 44px rgba(5,1,1,0.55)" }}
               >
-                Your customer lifecycle belongs in your repo.
+                Superpowers for growth engineers.
               </h1>
 
               <p className="mt-6 max-w-[520px] text-[16px] leading-relaxed text-white/80 md:text-lg">
-                The lifecycle automation framework for growth engineering teams
-                that ship code. Journeys live in your repo, reviewed and
-                versioned like the rest of your product.
+                Hogsend is a TypeScript framework for growth teams that code.
+                Identify and enrich the people on your product, react to their
+                events, message them where they are, and measure what moved.
               </p>
 
               {/* the copy column is a third of the stage, so the CTAs stack
@@ -119,12 +120,20 @@ export function WiredHeroSection({
                     />
                   </span>
                 </ThermalHover>
-                <a
-                  href="/docs"
-                  className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
-                >
-                  View docs →
-                </a>
+                <div className="flex items-center gap-5">
+                  <a
+                    href="https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie"
+                    className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
+                  >
+                    Deploy on Railway →
+                  </a>
+                  <a
+                    href="/docs"
+                    className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
+                  >
+                    View docs →
+                  </a>
+                </div>
               </div>
             </div>
 

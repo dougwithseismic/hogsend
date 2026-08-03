@@ -1,5 +1,6 @@
 import {
   type BucketMeta,
+  bySubject,
   type ConditionEval,
   type DurationObject,
   durationToMs,
@@ -25,18 +26,27 @@ export const BUCKET_EVENT_PREFIX = "bucket:";
  *
  * The predicate MUST stay status-agnostic — narrowing it (e.g. to active-only)
  * would corrupt entryCount and the entryLimit cooldown.
+ *
+ * `contactId` is REQUIRED (not optional) for the same reason
+ * `checkEntryLimit`'s is: an optional field silently defaults a new caller onto
+ * the mutable text key, and here that under-counts the epoch — a person whose
+ * anon-era memberships were adopted would re-enter at ordinal 1 and slip the
+ * `once`/`once_per_period` gate. Pass `null` explicitly for a subject with no
+ * contact; that is a permanent, supported state (memberships are text-keyed
+ * with no contact FK).
  */
 export async function countPriorMemberships(
   db: Database,
   bucketId: string,
   userId: string,
+  contactId: string | null,
 ): Promise<number> {
   const [counted] = await db
     .select({ priorCount: sql<number>`count(*)::int` })
     .from(bucketMemberships)
     .where(
       and(
-        eq(bucketMemberships.userId, userId),
+        bySubject(bucketMemberships, { contactId, userKey: userId }),
         eq(bucketMemberships.bucketId, bucketId),
       ),
     );

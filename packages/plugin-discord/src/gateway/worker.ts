@@ -18,7 +18,11 @@ export interface DiscordGatewayWorkerConfig {
   botToken: string;
   apiPublicUrl: string;
   ingressSecret: string;
-  /** Which intents to request. Defaults to the privileged trio + base. */
+  /**
+   * Which intents to request. Defaults to base + the GUILD_MEMBERS /
+   * MESSAGE_CONTENT privileged pair. GUILD_PRESENCES is NOT requested by
+   * default — pass it here to opt back into the presence feed.
+   */
   intents?: number;
   /**
    * Called with the guild id observed at `GUILD_CREATE` — lets the consumer fold
@@ -39,8 +43,8 @@ export interface DiscordGatewayWorker {
   stop(): Promise<void>;
   /**
    * The resolved intents bitfield this worker requests at login (the configured
-   * value, else the default privileged trio + base). Lets the consumer fold the
-   * live intents into the gateway heartbeat for Studio's intents chip.
+   * value, else the presence-free default). Lets the consumer fold the live
+   * intents into the gateway heartbeat for Studio's intents chip.
    */
   getIntents(): number;
 }
@@ -97,13 +101,17 @@ export async function forwardDispatch(
 export function createDiscordGatewayWorker(
   config: DiscordGatewayWorkerConfig,
 ): DiscordGatewayWorker {
+  // GUILD_PRESENCES is deliberately NOT in the default: every member flipping
+  // offline→online is a `discordId`-keyed ingest, which is the highest-volume,
+  // lowest-value feed the bot can subscribe to. An operator who wants it passes
+  // it explicitly via `config.intents` — the PRESENCE_UPDATE transform arm is
+  // intact, so re-enabling the intent restores the event with no code change.
   const intents =
     config.intents ??
     DISCORD_INTENTS.GUILDS |
       DISCORD_INTENTS.GUILD_MEMBERS |
       DISCORD_INTENTS.GUILD_MESSAGES |
       DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
-      DISCORD_INTENTS.GUILD_PRESENCES |
       DISCORD_INTENTS.MESSAGE_CONTENT;
 
   // Structural holder — keeps zero `discord.js` type coupling at module load

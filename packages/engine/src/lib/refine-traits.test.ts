@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { EnrichmentResult } from "@hogsend/core";
-import { flattenTraits, pickRefinedTraits } from "./refine-traits.js";
+import { canonicalizeStoredTraits, flattenTraits } from "./refine-traits.js";
 
 const REFINED_AT = new Date("2026-07-25T10:00:00.000Z");
 const META = { provider: "fake", refinedAt: REFINED_AT };
+const ENRICHMENT = { provider: "fake", at: "2026-07-25T10:00:00.000Z" };
 
-test("flattenTraits maps every documented field to a flat refined_* key", () => {
+test("flattenTraits maps every documented field to a canonical key", () => {
   const result: EnrichmentResult = {
     found: true,
     person: {
@@ -28,20 +29,50 @@ test("flattenTraits maps every documented field to a flat refined_* key", () => 
   };
 
   assert.deepEqual(flattenTraits(result, META), {
-    refined_title: "VP of Engineering",
-    refined_seniority: "vp",
-    refined_department: "engineering",
-    refined_linkedin_url: "https://linkedin.com/in/x",
-    refined_country: "US",
-    refined_company_name: "Acme",
-    refined_company_domain: "acme.com",
-    refined_company_industry: "software",
-    refined_company_employees: 250,
-    refined_company_revenue: 12_000_000,
-    refined_company_country: "US",
-    refined_at: "2026-07-25T10:00:00.000Z",
-    refined_provider: "fake",
+    title: "VP of Engineering",
+    seniority: "vp",
+    department: "engineering",
+    linkedin_url: "https://linkedin.com/in/x",
+    country: "US",
+    company: "Acme",
+    company_domain: "acme.com",
+    company_industry: "software",
+    company_employees: 250,
+    company_revenue: 12_000_000,
+    company_country: "US",
+    enrichment: ENRICHMENT,
   });
+});
+
+// The facts are FLAT top-level keys, never nested: `evaluatePropertyConditions`
+// does `properties[condition.property]` with no dotted-path traversal, so a
+// bucket must be able to author `b.prop("company_industry")` verbatim.
+test("facts are flat top-level keys; only provenance nests under `enrichment`", () => {
+  const patch = flattenTraits(
+    {
+      found: true,
+      person: { seniority: "vp" },
+      company: { industry: "software", employeeCount: 250 },
+      raw: {},
+    },
+    META,
+  );
+
+  assert.equal(patch.seniority, "vp");
+  assert.equal(patch.company_industry, "software");
+  assert.equal(patch.company_employees, 250);
+  // No parallel `refined_*` vocabulary, no dotted keys.
+  for (const key of Object.keys(patch)) {
+    assert.ok(
+      !key.startsWith("refined_"),
+      `${key} must not be refined_-prefixed`,
+    );
+    assert.ok(
+      key === "enrichment" || !key.includes("."),
+      `${key} must be flat`,
+    );
+  }
+  assert.deepEqual(patch.enrichment, ENRICHMENT);
 });
 
 // AC 8 — the numeric traits must be REAL JSON numbers. `conditions/property.ts`
@@ -52,12 +83,12 @@ test("AC 8: employee count is a real JSON number, and survives JSON round-trip",
     META,
   );
 
-  assert.equal(typeof patch.refined_company_employees, "number");
-  assert.equal(patch.refined_company_employees, 250);
+  assert.equal(typeof patch.company_employees, "number");
+  assert.equal(patch.company_employees, 250);
   // jsonb storage is a JSON round-trip — the type must survive it.
   const roundTripped = JSON.parse(JSON.stringify(patch));
-  assert.equal(typeof roundTripped.refined_company_employees, "number");
-  assert.ok((roundTripped.refined_company_employees as number) >= 100);
+  assert.equal(typeof roundTripped.company_employees, "number");
+  assert.ok((roundTripped.company_employees as number) >= 100);
 });
 
 test("AC 8: a numeric STRING from an untyped provider is coerced to a number", () => {
@@ -72,8 +103,8 @@ test("AC 8: a numeric STRING from an untyped provider is coerced to a number", (
     META,
   );
 
-  assert.equal(patch.refined_company_employees, 250);
-  assert.equal(typeof patch.refined_company_employees, "number");
+  assert.equal(patch.company_employees, 250);
+  assert.equal(typeof patch.company_employees, "number");
 });
 
 // AC 9 — an absent field must be OMITTED, never written as null: the patch is
@@ -84,13 +115,9 @@ test("AC 9: absent fields are omitted from the patch entirely (never null)", () 
     META,
   );
 
-  assert.deepEqual(Object.keys(patch).sort(), [
-    "refined_at",
-    "refined_provider",
-    "refined_title",
-  ]);
-  assert.equal("refined_seniority" in patch, false);
-  assert.equal("refined_company_name" in patch, false);
+  assert.deepEqual(Object.keys(patch).sort(), ["enrichment", "title"]);
+  assert.equal("seniority" in patch, false);
+  assert.equal("company" in patch, false);
   for (const value of Object.values(patch)) {
     assert.notEqual(value, null);
   }
@@ -114,28 +141,34 @@ test("AC 9: null / empty-string / non-finite fields are omitted, not written", (
     META,
   );
 
-  assert.deepEqual(Object.keys(patch).sort(), [
-    "refined_at",
-    "refined_department",
-    "refined_provider",
-  ]);
+  assert.deepEqual(Object.keys(patch).sort(), ["department", "enrichment"]);
 });
 
-test("a not-found result still stamps only the two synthetic traits", () => {
+test("a not-found result still stamps only the provenance object", () => {
   assert.deepEqual(flattenTraits({ found: false, raw: null }, META), {
-    refined_at: "2026-07-25T10:00:00.000Z",
-    refined_provider: "fake",
+    enrichment: ENRICHMENT,
   });
 });
 
-test("pickRefinedTraits returns only the refined_* subset", () => {
+test("canonicalizeStoredTraits translates a pre-canonical (refined_*) ledger patch", () => {
   assert.deepEqual(
-    pickRefinedTraits({
-      plan: "pro",
+    canonicalizeStoredTraits({
       refined_title: "CTO",
+      refined_company_name: "Acme",
       refined_company_employees: 250,
+      refined_at: "2026-01-01T00:00:00.000Z",
+      refined_provider: "apollo",
     }),
-    { refined_title: "CTO", refined_company_employees: 250 },
+    { title: "CTO", company: "Acme", company_employees: 250 },
   );
-  assert.deepEqual(pickRefinedTraits(undefined), {});
+});
+
+test("canonicalizeStoredTraits leaves an already-canonical patch untouched (by reference)", () => {
+  const canonical = {
+    title: "CTO",
+    company_employees: 250,
+    enrichment: ENRICHMENT,
+  };
+  // No legacy key → returns the SAME object, no needless copy.
+  assert.equal(canonicalizeStoredTraits(canonical), canonical);
 });

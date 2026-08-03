@@ -1,8 +1,8 @@
+import { bySubject } from "@hogsend/core";
 import { type Database, userEvents } from "@hogsend/db";
 import {
   and,
   count,
-  eq,
   isNotNull,
   isNull,
   max,
@@ -77,13 +77,20 @@ export interface ContactRevenue {
 }
 
 /**
- * Sum a contact's valued events, per currency. `key` is the contact's
- * canonical event key (`external_id ?? anonymous_id ?? id`) — the same key
- * `ingestEvent` stamps on `user_events.user_id`.
+ * Sum a contact's valued events, per currency. `contactId` is the trusted
+ * owner uuid and is REQUIRED (not optional) for the same reason the
+ * enrollment guards' is: an optional field silently defaults a new caller
+ * onto the mutable text key, so a contact whose valued events were ingested
+ * under an earlier key reports zero revenue. Pass `null` explicitly for a
+ * subject with no contact — a permanent, supported state (the engine refuses
+ * to mint a contact on observation), and the case `key` still serves. `key`
+ * is the canonical event key (`external_id ?? anonymous_id ?? id`) — the same
+ * key `ingestEvent` stamps on `user_events.user_id`.
  */
 export async function getContactRevenue(opts: {
   db: Database;
   key: string;
+  contactId: string | null;
 }): Promise<ContactRevenue> {
   const rows = await opts.db
     .select({
@@ -93,7 +100,15 @@ export async function getContactRevenue(opts: {
       lastAt: max(userEvents.occurredAt),
     })
     .from(userEvents)
-    .where(and(eq(userEvents.userId, opts.key), trustedValuedEventFilter()))
+    .where(
+      and(
+        bySubject(userEvents, {
+          contactId: opts.contactId,
+          userKey: opts.key,
+        }),
+        trustedValuedEventFilter(),
+      ),
+    )
     .groupBy(userEvents.currency);
 
   let lastValuedAt: Date | null = null;

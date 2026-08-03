@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DISCORD_INTENTS } from "../constants.js";
 import { DiscordEvents } from "../events.js";
 import {
+  createDiscordGatewayWorker,
   type DiscordGatewayWorkerConfig,
   forwardDispatch,
 } from "../gateway/worker.js";
@@ -90,5 +92,37 @@ describe("forwardDispatch", () => {
       "discord ingress forward failed:",
       "network down",
     );
+  });
+});
+
+/**
+ * `getIntents()` reads the resolved bitfield without a socket — `discord.js` is
+ * only pulled by the dynamic import inside `start()`, so constructing the worker
+ * here touches no WebSocket.
+ */
+describe("createDiscordGatewayWorker intents", () => {
+  it("omits GUILD_PRESENCES from the default bitfield", () => {
+    const intents = createDiscordGatewayWorker(config).getIntents();
+
+    expect(intents & DISCORD_INTENTS.GUILD_PRESENCES).toBe(0);
+    expect(intents).toBe(
+      DISCORD_INTENTS.GUILDS |
+        DISCORD_INTENTS.GUILD_MEMBERS |
+        DISCORD_INTENTS.GUILD_MESSAGES |
+        DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
+        DISCORD_INTENTS.MESSAGE_CONTENT,
+    );
+  });
+
+  it("passes an explicit bitfield through unchanged, presence included", () => {
+    // An operator who asks for presence gets it — intents stay configurable.
+    const requested = DISCORD_INTENTS.GUILDS | DISCORD_INTENTS.GUILD_PRESENCES;
+    const intents = createDiscordGatewayWorker({
+      ...config,
+      intents: requested,
+    }).getIntents();
+
+    expect(intents).toBe(requested);
+    expect(intents & DISCORD_INTENTS.GUILD_PRESENCES).not.toBe(0);
   });
 });

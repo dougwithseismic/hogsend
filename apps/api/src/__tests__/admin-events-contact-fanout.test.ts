@@ -49,7 +49,7 @@ afterAll(async () => {
 });
 
 describe("GET /v1/admin/events — cross-kind contact-key collision", () => {
-  it("returns each event ONCE, resolved to the externalId-keyed contact", async () => {
+  it("returns each event ONCE, resolved by the contact_id FK, never fanned out", async () => {
     const [real] = await db
       .insert(contacts)
       .values({
@@ -64,58 +64,52 @@ describe("GET /v1/admin/events — cross-kind contact-key collision", () => {
       .returning({ id: contacts.id });
     if (!real || !phantom) throw new Error("contact seed failed");
 
+    // The event names its owner via the FK the engine dual-writes. The
+    // phantom still holds KEY in its `anonymous_id`, so the old three-way
+    // key guess would have had TWO candidates for this one row.
     const [event] = await db
       .insert(userEvents)
-      .values({ userId: KEY, event: `${RUN}.opened`, source: "test" })
+      .values({
+        userId: KEY,
+        contactId: real.id,
+        event: `${RUN}.opened`,
+        source: "test",
+      })
       .returning({ id: userEvents.id });
     if (!event) throw new Error("event seed failed");
-
-    const listRes = await app.request(
-      `/v1/admin/events?userId=${encodeURIComponent(KEY)}`,
-      { headers: AUTH_HEADER },
-    );
-    expect(listRes.status).toBe(200);
-    const list = (await listRes.json()) as {
-      events: Array<{ id: string; contactId: string; userEmail: string }>;
-      total: number;
-    };
-
-    // The bare OR-join fanned this out into one row per matching contact
-    // (same event id twice — once per person). Exactly one row must survive,
-    // and it must be the externalId match (ingest's resolution precedence),
-    // never the phantom.
-    expect(list.events).toHaveLength(1);
-    expect(list.total).toBe(1);
-    expect(list.events[0]?.id).toBe(event.id);
-    expect(list.events[0]?.contactId).toBe(real.id);
-    expect(list.events[0]?.userEmail).toBe(EMAIL);
 
     const getRes = await app.request(`/v1/admin/events/${event.id}`, {
       headers: AUTH_HEADER,
     });
     expect(getRes.status).toBe(200);
     const detail = (await getRes.json()) as {
-      event: { contactId: string; userEmail: string };
+      event: { id: string; contactId: string | null; userEmail: string | null };
     };
+    // PRD 05 T7: the LATERAL that OR-matched user_id against external_id /
+    // anonymous_id / id::text under a priority `case` is DELETED — the FK
+    // names the owner, so the collision cannot produce a second candidate.
+    expect(detail.event.id).toBe(event.id);
     expect(detail.event.contactId).toBe(real.id);
     expect(detail.event.userEmail).toBe(EMAIL);
 
-    // Soft-delete the real contact: resolution falls through to the live
-    // anonymousId match instead of surfacing a deleted contact.
+    // Soft-delete the owner. The join keeps `deleted_at IS NULL` inside its
+    // condition, so the event survives with NO contact rather than surfacing
+    // a tombstone — and, unlike the old lateral, it does NOT fall through to
+    // the phantom that merely happens to share the key string.
     await db
       .update(contacts)
       .set({ deletedAt: new Date() })
       .where(eq(contacts.id, real.id));
 
-    const fallbackRes = await app.request(
-      `/v1/admin/events?userId=${encodeURIComponent(KEY)}`,
-      { headers: AUTH_HEADER },
-    );
-    const fallback = (await fallbackRes.json()) as {
-      events: Array<{ contactId: string | null; userEmail: string | null }>;
+    const afterRes = await app.request(`/v1/admin/events/${event.id}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(afterRes.status).toBe(200);
+    const after = (await afterRes.json()) as {
+      event: { id: string; contactId: string | null; userEmail: string | null };
     };
-    expect(fallback.events).toHaveLength(1);
-    expect(fallback.events[0]?.contactId).toBe(phantom.id);
-    expect(fallback.events[0]?.userEmail).toBeNull();
+    expect(after.event.id).toBe(event.id);
+    expect(after.event.contactId).toBeNull();
+    expect(after.event.userEmail).toBeNull();
   });
 });

@@ -355,7 +355,25 @@ function emptyJourneyRegistry() {
  * Invoke the documented seam with the standard wiring: real db + mocked hatchet
  * + an (optionally injected) journey registry. Returns the transition list.
  */
-function check(opts: {
+/**
+ * The contact a canonical key resolves to. PRD 05 T5 reads bucket membership
+ * and criteria history BY SUBJECT, and `ingestEvent` — the only production
+ * caller of `checkBucketMembership` — always hands over the contact it just
+ * resolved. Resolving it here keeps the seam fixture on that shape instead of
+ * the pin-less one, which describes a subject with no contact at all.
+ */
+async function contactIdFor(userKey: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      sql`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text) = ${userKey}`,
+    )
+    .limit(1);
+  return row?.id;
+}
+
+async function check(opts: {
   userId: string;
   event: string;
   /**
@@ -377,6 +395,7 @@ function check(opts: {
     hatchet: hatchet as any,
     logger,
     userId: opts.userId,
+    contactId: await contactIdFor(opts.userId),
     userEmail: opts.userEmail ?? `${opts.userId}@example.com`,
     event: opts.event,
     eventProperties: opts.eventProperties ?? {},
@@ -817,9 +836,12 @@ describe("contact-state-only property eval (Phase 1 #3, D2)", () => {
     // Drive the SIGNUP event through real ingest so the userEvents row exists,
     // then re-evaluate via the seam. (ingestEvent stores the row + already calls
     // checkBucketMembership, but we assert at the seam for determinism.)
-    await db
-      .insert(userEvents)
-      .values({ userId, event: SIGNUP_EVENT, properties: {} });
+    await db.insert(userEvents).values({
+      userId,
+      event: SIGNUP_EVENT,
+      properties: {},
+      contactId: await contactIdFor(userId),
+    });
 
     const transitions = await check({
       userId,
@@ -848,15 +870,22 @@ describe("membership email normalization", () => {
   it("stores the realtime-join email normalized (trim + lowercase)", async () => {
     const userId = uid("mixed-case-email");
     await seedContact(userId, { plan: "free" });
-    await db
-      .insert(userEvents)
-      .values({ userId, event: SIGNUP_EVENT, properties: {} });
+    await db.insert(userEvents).values({
+      userId,
+      event: SIGNUP_EVENT,
+      properties: {},
+      contactId: await contactIdFor(userId),
+    });
 
+    // RUN-namespaced like every other identity in this file. A literal address
+    // would be the ONE value stable across runs, so run 2 would resolve to run
+    // 1's contact and write the membership under run 1's user key — the test
+    // then passes exactly once per fresh database and is red forever after.
     const transitions = await check({
       userId,
       event: SIGNUP_EVENT,
       // The shape ingestEvent forwards verbatim from a raw payload.
-      userEmail: "  Mixed.Case+Tag@Example.COM  ",
+      userEmail: `  Mixed.Case+${RUN}@Example.COM  `,
     });
 
     expect(
@@ -865,7 +894,7 @@ describe("membership email normalization", () => {
       ),
     ).toHaveLength(1);
     const row = await activeRow(userId, EVENT_BUCKET_ID);
-    expect(row?.userEmail).toBe("mixed.case+tag@example.com");
+    expect(row?.userEmail).toBe(`mixed.case+${RUN}@example.com`);
   });
 });
 
@@ -1499,5 +1528,84 @@ describe("journeyMetaSchema reaction-field round-trip (Test 13b)", () => {
       label: `after-${24 * 7 * 60 * 60 * 1000}`,
       after: 24 * 7 * 60 * 60 * 1000,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical-key contact lookup (email-only / anonymous contacts)
+//
+// Memberships and events key on `coalesce(external_id, anonymous_id, id)`
+// (`contactKeySql`), but the real-time property lookup in `checkBucketMembership`
+// matched `external_id` ALONE. An email-only contact is keyed on its uuid and an
+// anonymous one on its `anonymous_id` — both carry a NULL `external_id`, so the
+// lookup found nothing for them and two things went wrong:
+//
+//   1. property criteria evaluated against `{}` rather than the contact's real
+//      state, so every property leg silently answered "absent";
+//   2. `contactDeleted` stayed false because no row was found, so the GDPR guard
+//      ("never re-evaluate or emit for a soft-deleted contact") never fired.
+//
+// The cron's join scan already made this exact correction, and its comment says
+// why: joining on `external_id` "would silently drop exactly the dormant
+// email-only contacts this cron exists to reconcile". This is that fix on the
+// real-time path.
+// ---------------------------------------------------------------------------
+describe("canonical-key contact lookup", () => {
+  it("evaluates property criteria against a contact keyed by anonymous_id", async () => {
+    // An ANONYMOUS contact: no external_id, so its canonical key is its
+    // anonymous_id — the shape the old `external_id` lookup could never find.
+    const anonKey = `${RUN}-anon-props`;
+    const [row] = await db
+      .insert(contacts)
+      .values({ anonymousId: anonKey, properties: { plan: "pro" } })
+      .returning({ id: contacts.id });
+    expect(row?.id).toBeTruthy();
+
+    // PROPERTY_BUCKET requires plan === "pro" (and converted !== true), which is
+    // true of this contact's REAL state and false of the `{}` the old lookup
+    // produced. The event payload deliberately carries no properties, so the
+    // verdict can only come from the contact row.
+    const transitions = await check({
+      userId: anonKey,
+      event: SIGNUP_EVENT,
+      eventProperties: { plan: "pro" },
+    });
+
+    const entered = transitions.filter((t) => t.transition === "entered");
+    expect(entered.map((t) => t.bucketId)).toContain(PROP_BUCKET_ID);
+  });
+
+  it("honours the soft-delete guard for a contact keyed by anonymous_id", async () => {
+    // The serious half. A soft-deleted contact must never transition or emit —
+    // but the guard reads `deletedAt` off the row the lookup returns, so when
+    // the lookup missed, a soft-deleted email-only/anon contact sailed straight
+    // past it.
+    const anonKey = `${RUN}-anon-deleted`;
+    await db.insert(contacts).values({
+      anonymousId: anonKey,
+      properties: { plan: "pro" },
+      deletedAt: new Date(),
+    });
+
+    // The this-ingest patch satisfies the criteria on its own (plan "pro",
+    // converted absent ⇒ neq true), so criteria evaluation CANNOT be what
+    // produces an empty result. That isolates the guard: the only reason this
+    // person does not transition is that they are soft-deleted. Without the
+    // patch the test passes for the wrong reason — the old lookup missed, left
+    // properties `{}`, and the criteria simply failed to match.
+    const transitions = await check({
+      userId: anonKey,
+      event: SIGNUP_EVENT,
+      eventProperties: { plan: "pro" },
+      contactProperties: { plan: "pro" },
+    });
+
+    expect(transitions).toEqual([]);
+    // And nothing may have been written for them either.
+    const rows = await db
+      .select({ id: bucketMemberships.id })
+      .from(bucketMemberships)
+      .where(eq(bucketMemberships.userId, anonKey));
+    expect(rows).toHaveLength(0);
   });
 });

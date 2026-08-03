@@ -1,5 +1,69 @@
 # @hogsend/course
 
+## 0.0.23
+
+### Patch Changes
+
+- Updated dependencies [a52f9b1]
+- Updated dependencies [766e7f8]
+  - @hogsend/js@0.62.0
+  - @hogsend/react@0.62.0
+  - @hogsend/video@0.62.0
+
+## 0.0.22
+
+### Patch Changes
+
+- Updated dependencies [b8429d6]
+  - @hogsend/js@0.61.0
+  - @hogsend/react@0.61.0
+  - @hogsend/video@0.61.0
+
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies [76da7e4]
+  - @hogsend/js@0.60.0
+  - @hogsend/react@0.60.0
+  - @hogsend/video@0.60.0
+
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [84c0fe9]
+  - @hogsend/js@0.59.0
+  - @hogsend/react@0.59.0
+  - @hogsend/video@0.59.0
+
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies [aa24d2a]
+  - @hogsend/js@0.58.0
+  - @hogsend/react@0.58.0
+  - @hogsend/video@0.58.0
+
+## 0.0.18
+
+### Patch Changes
+
+- Updated dependencies [baa18a2]
+  - @hogsend/js@0.57.0
+  - @hogsend/react@0.57.0
+  - @hogsend/video@0.57.0
+
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [0a453d3]
+  - @hogsend/js@0.56.0
+  - @hogsend/react@0.56.0
+  - @hogsend/video@0.56.0
+
 ## 0.0.16
 
 ### Patch Changes

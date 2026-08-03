@@ -16,7 +16,7 @@
  * secret-resolution fix, and the scaffold ships the Tier-1 AI onboarding
  * journey (Vercel AI SDK). Published to npm.
  */
-export const ENGINE_VERSION = "0.55.0";
+export const ENGINE_VERSION = "0.62.0";
 
 /** pnpm version pinned into pnpm-based scaffolds and the release smoke test. */
 export const PNPM_VERSION = "11.12.0";
@@ -45,6 +45,10 @@ export const HOGSEND_PACKAGES = [
  */
 export const RENAME_MAP: Record<string, string> = {
   gitignore: ".gitignore",
+  // Dotfiles are authored undotted for the same reason as `gitignore`: npm's
+  // packer treats leading-dot files inconsistently, and an undotted source name
+  // guarantees the file actually travels in the published tarball.
+  dockerignore: ".dockerignore",
   npmrc: ".npmrc",
   "env.example": ".env.example",
   "node-version": ".node-version",

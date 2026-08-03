@@ -28,8 +28,9 @@ import {
  *    a concrete userId. `visitor_kind = 'token'`.
  *  - a raw `anonymousId` is PROVENANCE-ONLY: rejected if it collides with an
  *    identified contact's canonical key (`collidesWithIdentified`), and the
- *    bus ingest runs under `restrictToAnonymous` — it can never attach to /
- *    merge into an identified contact. `visitor_kind = 'anon'`.
+ *    bus ingest declares the anon-clamped policy (`allowMerge:
+ *    "anonymous-only"`) — it can never attach to / merge into an identified
+ *    contact. `visitor_kind = 'anon'`.
  *  - a bare asserted email/userId is not even in the schema.
  *  - INVARIANT: nothing the ref resolves to (above all `links.distinct_id`)
  *    ever enters the contact resolver as a subject — identity inputs come
@@ -198,7 +199,45 @@ export const arriveRouter = new OpenAPIHono<AppEnv>().openapi(
         hatchet,
         logger,
         analytics,
-        restrictToAnonymous: !isToken,
+        // PRD 06 T3 (L5 rows 6-7): trust is DECLARED by this caller, not
+        // re-inferred inside the resolver.
+        //
+        // `create` — the D1 creation guard. An anon arrival is pure
+        // OBSERVATION — a visitor landing from a tracked hit with nothing but
+        // a browser id is not grounds for a CRM row. The stamp, the
+        // `link.arrived` event and the outbound emit all still happen (D2);
+        // only the `contacts` INSERT is refused. A token leg is a
+        // server-minted identity assertion and creates exactly as before. D8
+        // holds on both legs: the ingest key below is `userId` on the token
+        // leg and `anonymousId` on the anon one, and `stamp.visitorDistinctId`
+        // is guaranteed non-empty by the guard above — both are canonical-key
+        // shapes, so the refusal keys history on the same string the create
+        // arm would have.
+        //
+        // POLARITY — the one place in this stack where the two legs are
+        // OPPOSITES rather than coinciding: the anon leg clamps merges
+        // (`allowMerge: "anonymous-only"`, no token) while REFUSING creation;
+        // the token leg permits creation while never clamping. They read as
+        // complements here only because the token is simultaneously what makes
+        // a merge safe and what makes creation warranted; collapsing the two
+        // legs into one is forbidden (they answer different questions and
+        // diverge at every other call site).
+        //
+        // `trustedKinds` — derived from the first-write-wins STAMP, never the
+        // current request: exactly one key per leg, matching the declared
+        // kinds (`userId`/external on the token leg, `anonymousId` on the anon
+        // one). Declared now, enforced by T5.
+        policy: isToken
+          ? {
+              create: "on-miss",
+              allowMerge: "any",
+              trustedKinds: ["anonymous", "external"],
+            }
+          : {
+              create: "refuse-on-miss",
+              allowMerge: "anonymous-only",
+              trustedKinds: ["anonymous"],
+            },
         event: {
           event: LINK_ARRIVED,
           ...(isToken

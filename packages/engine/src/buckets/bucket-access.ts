@@ -1,5 +1,6 @@
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, count as countFn, eq, gt, isNull } from "drizzle-orm";
+import { lookupContactIdByKey } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 
 /**
@@ -56,10 +57,14 @@ function toError(err: unknown): Error {
  * container re-binds the accessors with a `dbResolver` that returns its own
  * `db`; the `getDb()` default bypasses the container.
  *
- * Every query `innerJoin`s `contacts` on `externalId` and filters
- * `isNull(deletedAt)` on both tables — GDPR parity with every reconcile/admin
- * query. No method throws (except the iterator on a page error); failures are
- * carried in the result's `error`.
+ * Every query `innerJoin`s `contacts` on the membership's OWNING CONTACT
+ * (`bucket_memberships.contact_id`) and filters `isNull(deletedAt)` on both
+ * tables — GDPR parity with every reconcile/admin query. The join used to run
+ * on the mutable text key (`coalesce(external_id, anonymous_id, id) =
+ * user_id`); it now runs on the FK, so a membership adopted onto a contact
+ * under a since-stale key stays visible instead of dropping out of every count
+ * and page. No method throws (except the iterator on a page error); failures
+ * are carried in the result's `error`.
  */
 export function createBucketAccessor(
   bucketId: string,
@@ -74,7 +79,7 @@ export function createBucketAccessor(
       const rows = await db
         .select({ value: countFn() })
         .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+        .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
         .where(
           and(
             eq(bucketMemberships.bucketId, bucketId),
@@ -94,15 +99,34 @@ export function createBucketAccessor(
   ): Promise<{ data: boolean; error: Error | null }> {
     try {
       const db = dbResolver();
-      // O(1) probe on the partial active unique index (uq_user_bucket_active).
+      // The subject predicate moves to the CONTACT side: `userId` is the caller's
+      // canonical key, so we name the contact it resolves to and let the FK join
+      // find that contact's membership. Probing `bucket_memberships.user_id`
+      // instead answers "false" for a member whose row was adopted under an
+      // anon-era key — the person is in the bucket, `has()` says they are not,
+      // and every gate built on it silently opens.
+      //
+      // PRD 07 T7 — the PRESENTED key goes through the alias-aware primitive
+      // rather than a `coalesce(external_id, anonymous_id, id) = :key` probe.
+      // That probe is blind to a merged loser's STALE key (its row is
+      // soft-deleted), so the survivor's membership read "false" for a key the
+      // survivor still owns through the identity table.
+      //
+      // The no-resolve arm is UNCHANGED: on live contacts a coalesce match
+      // implies one of the three identity columns equals the key, so the
+      // primitive's column leg is strictly wider — a `null` here is a key the
+      // old probe missed too, and the honest answer stays `false`.
+      const resolvedId = await lookupContactIdByKey(db, userId);
+      if (!resolvedId) return { data: false, error: null };
+
       const rows = await db
         .select({ id: bucketMemberships.id })
         .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+        .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
         .where(
           and(
             eq(bucketMemberships.bucketId, bucketId),
-            eq(bucketMemberships.userId, userId),
+            eq(contacts.id, resolvedId),
             eq(bucketMemberships.status, "active"),
             isNull(bucketMemberships.deletedAt),
             isNull(contacts.deletedAt),
@@ -144,10 +168,7 @@ export function createBucketAccessor(
             entryCount: bucketMemberships.entryCount,
           })
           .from(bucketMemberships)
-          .innerJoin(
-            contacts,
-            eq(contacts.externalId, bucketMemberships.userId),
-          )
+          .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
           .where(and(...conditions))
           .orderBy(bucketMemberships.id)
           // +1 peek to detect a next page.
@@ -155,10 +176,7 @@ export function createBucketAccessor(
         db
           .select({ value: countFn() })
           .from(bucketMemberships)
-          .innerJoin(
-            contacts,
-            eq(contacts.externalId, bucketMemberships.userId),
-          )
+          .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
           .where(
             and(
               eq(bucketMemberships.bucketId, bucketId),

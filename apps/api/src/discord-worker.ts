@@ -11,8 +11,9 @@ import { discordEnv } from "./env.js";
  * because THIS process resolves the gateway worker's dynamic import.
  *
  * Boot requirements (fail loudly if missing): `DISCORD_BOT_TOKEN` (Gateway
- * login — the three privileged intents must be toggled ON in the Developer
- * Portal or `login()` rejects), and `CONNECTOR_INGRESS_SECRET` (≥32 chars; the
+ * login — every privileged intent the worker requests must be toggled ON in the
+ * Developer Portal or `login()` rejects; by default that is SERVER MEMBERS and
+ * MESSAGE CONTENT, not PRESENCE), and `CONNECTOR_INGRESS_SECRET` (≥32 chars; the
  * ingress route fail-closes without it, so a worker that forwards into an
  * unconfigured route would 401 every event).
  */
@@ -45,7 +46,9 @@ async function main() {
     botToken,
     apiPublicUrl: discordEnv.API_PUBLIC_URL,
     ingressSecret,
-    // intents default to the privileged trio + base inside the worker.
+    // intents default to base + the GUILD_MEMBERS / MESSAGE_CONTENT privileged
+    // pair inside the worker. GUILD_PRESENCES is NOT requested by default —
+    // pass an explicit bitfield here to opt back into `discord.presence_active`.
     onGuildObserved: (gid) => heartbeat.state.setGuildId(gid),
   });
 

@@ -93,6 +93,10 @@ interface Harness {
   ingests: number;
   /** Every outbound `contact.refined` emit, in order. */
   emits: RefineEmitInput[];
+  /** The `contactProperties` each `ingest` received, in order. */
+  ingested: Record<string, unknown>[];
+  /** The `touchProperties` each `ingest` received, in order. */
+  touched: (string[] | undefined)[];
 }
 
 function harness(overrides: {
@@ -116,6 +120,8 @@ function harness(overrides: {
     ledgerWrites: 0,
     ingests: 0,
     emits: [] as RefineEmitInput[],
+    ingested: [] as Record<string, unknown>[],
+    touched: [] as (string[] | undefined)[],
   };
 
   const deps: RefineChainDeps = {
@@ -135,15 +141,16 @@ function harness(overrides: {
               contactId: "c1",
               userId: "u1",
               email: "a@acme.com",
-              refinedProperties: { refined_title: "old" },
             },
     findLedgerRow: async () => overrides.ledgerRow ?? null,
     countLookupsSince: async () => overrides.usedThisMonth ?? 0,
     writeLedgerRow: async () => {
       state.ledgerWrites += 1;
     },
-    ingest: async () => {
+    ingest: async (input) => {
       state.ingests += 1;
+      state.ingested.push(input.contactProperties);
+      state.touched.push(input.touchProperties);
       if (overrides.ingest) await overrides.ingest();
     },
     emitRefined: (input) => {
@@ -162,6 +169,12 @@ function harness(overrides: {
     },
     get emits() {
       return state.emits;
+    },
+    get ingested() {
+      return state.ingested;
+    },
+    get touched() {
+      return state.touched;
     },
   };
 }
@@ -470,7 +483,7 @@ test("D2: a cache hit lands the STORED patch on a contact that never received it
   // The shared-domain case: contact B hits the row contact A paid for. The
   // ledger has no contact dimension, so "already paid for" says nothing about
   // whether THIS contact has the traits.
-  const stored = { refined_title: "CTO", refined_company_employees: 250 };
+  const stored = { title: "CTO", company_employees: 250 };
   const h = harness({
     ledgerRow: unexpired("found", stored),
     target: { contactId: "c2", userId: "u2", domain: "acme.com" },
@@ -491,14 +504,14 @@ test("D2: a cache hit re-runs the ingest even when the contact already holds the
   // buckets: only the ingest path re-runs `checkBucketMembership`, and a
   // contact can carry the traits with no membership (exactly what a failed
   // ingest leaves behind). So the cached verdict always re-lands.
-  const stored = { refined_title: "CTO", refined_company_employees: 250 };
+  const stored = { title: "CTO", company_employees: 250 };
   const h = harness({
     ledgerRow: unexpired("found", stored),
     target: {
       contactId: "c1",
       userId: "u1",
       domain: "acme.com",
-      refinedProperties: { ...stored },
+      existingProperties: { ...stored },
     },
   });
 
@@ -506,21 +519,72 @@ test("D2: a cache hit re-runs the ingest even when the contact already holds the
 
   assert.deepEqual(result, { status: "cached", properties: stored });
   assert.equal(h.ingests, 1);
+  // The contact already held every fact, so the WRITE patch is empty (nothing
+  // first-party is clobbered) — but the ingest still runs and TOUCHES both keys,
+  // so bucket membership re-evaluates against live contact state.
+  assert.deepEqual(h.ingested, [{}]);
+  assert.deepEqual([...(h.touched[0] ?? [])].sort(), [
+    "company_employees",
+    "title",
+  ]);
   assert.equal(h.providerCalls(), 0);
   assert.equal(h.ledgerWrites, 0);
 });
 
-test("D2: a legacy row with no stored patch falls back to the caller's own traits", async () => {
+test("D2: a legacy row with no stored patch returns cached with an empty patch", async () => {
   const h = harness({ ledgerRow: unexpired("found", null) });
 
   const result = await runRefineChain(h.deps, SUBJECT);
 
   assert.deepEqual(result, {
     status: "cached",
-    properties: { refined_title: "old" },
+    properties: {},
   });
   assert.equal(h.ingests, 0);
   assert.equal(h.providerCalls(), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Fill-if-absent — a paid answer fills gaps, never overwrites first-party data
+// ---------------------------------------------------------------------------
+
+test("fill-if-absent: a fresh lookup fills gaps but never overwrites a first-party value", async () => {
+  // FOUND carries title / seniority / company / company_employees. This contact
+  // already has a first-party `title` and `company`, so the paid answer must
+  // leave those two alone and only fill what was missing.
+  const h = harness({
+    target: {
+      contactId: "c1",
+      userId: "u1",
+      email: "a@acme.com",
+      existingProperties: { title: "First-party VP", company: "First Co" },
+    },
+  });
+
+  const result = await runRefineChain(h.deps, SUBJECT);
+
+  assert.equal(result.status, "refined");
+  // The vendor's FULL answer is still reported on the result...
+  assert.equal(result.properties?.title, "CTO");
+  // ...but the WRITE patch OMITS the already-held title + company entirely (so
+  // the additive merge leaves the live first-party value untouched — atomic, no
+  // stale write-back) and carries the vendor's value only for the gaps.
+  const landed = h.ingested[0] ?? {};
+  assert.equal("title" in landed, false);
+  assert.equal("company" in landed, false);
+  assert.equal(landed.seniority, "c_suite");
+  assert.equal(landed.company_employees, 250);
+  assert.ok(landed.enrichment, "provenance always lands");
+  // ...yet every returned fact is TOUCHED, so a fit bucket on the already-held
+  // title/company still re-evaluates against live contact state.
+  assert.deepEqual([...(h.touched[0] ?? [])].sort(), [
+    "company",
+    "company_employees",
+    "seniority",
+    "title",
+  ]);
+  // The outbound reports only the facts that actually CHANGED on this contact.
+  assert.deepEqual(h.emits[0]?.traitKeys, ["company_employees", "seniority"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -543,7 +607,7 @@ test("D4b: a failed ingest does not throw out of the chain and does not report s
 });
 
 test("D4b: the retry after a failed ingest re-lands the stored patch for FREE", async () => {
-  const stored = { refined_title: "CTO" };
+  const stored = { title: "CTO" };
   const h = harness({ ledgerRow: unexpired("found", stored) });
 
   const result = await runRefineChain(h.deps, SUBJECT);
@@ -558,16 +622,11 @@ test("D4b: the retry after a failed ingest re-lands the stored patch for FREE", 
 // ---------------------------------------------------------------------------
 
 /**
- * The sorted trait key names FOUND flattens to — NAMES, never values, and
- * VENDOR facts only: `refined_at` / `refined_provider` are provenance, already
- * carried as the envelope's `at` / `provider`, so they are not traits.
+ * The sorted canonical trait key names FOUND flattens to — NAMES, never values,
+ * and FACTS only: the nested `enrichment` provenance is already carried as the
+ * envelope's `at` / `provider`, so it is not a trait.
  */
-const FOUND_TRAIT_KEYS = [
-  "refined_company_employees",
-  "refined_company_name",
-  "refined_seniority",
-  "refined_title",
-];
+const FOUND_TRAIT_KEYS = ["company", "company_employees", "seniority", "title"];
 
 /** NOW as the dedupe key serializes it. */
 const NOW_ISO = NOW.toISOString();
@@ -595,14 +654,13 @@ test("AC 1: a `refined` verdict emits contact.refined with the contact key, prov
   assert.ok(!JSON.stringify(emitted.traitKeys).includes("CTO"));
   assert.ok(!JSON.stringify(emitted.traitKeys).includes("Acme"));
   // Provenance is NOT a trait — it rides as `provider` / `refinedAt` instead.
-  assert.ok(!emitted.traitKeys.includes("refined_at"));
-  assert.ok(!emitted.traitKeys.includes("refined_provider"));
+  assert.ok(!emitted.traitKeys.includes("enrichment"));
 });
 
-test("AC 1: a found-but-empty vendor answer reports NO traits rather than two metadata keys", async () => {
-  // `flattenTraits` stamps refined_at/refined_provider unconditionally, so if
-  // provenance counted as a trait this payload would claim two changes for an
-  // answer that told us nothing about the person.
+test("AC 1: a found-but-empty vendor answer reports NO traits rather than a metadata key", async () => {
+  // `flattenTraits` stamps the `enrichment` provenance unconditionally, so if it
+  // counted as a trait this payload would claim a change for an answer that told
+  // us nothing about the person.
   const empty: EnrichmentProvider = {
     meta: { id: "fake", name: "Fake" },
     capabilities: { personLookup: true, companyLookup: true },
@@ -627,7 +685,7 @@ test("AC 1: a domain-keyed refinement emits with the domain lookup in its dedupe
 
 test("AC 2: `cached`, `not_found` and `skipped` emit NOTHING — a cache hit is not an event", async () => {
   const cached = harness({
-    ledgerRow: unexpired("found", { refined_title: "CTO" }),
+    ledgerRow: unexpired("found", { title: "CTO" }),
   });
   const notFoundCached = harness({ ledgerRow: unexpired("not_found") });
   const notFoundLive = harness({ provider: fakeProvider("miss").provider });
@@ -728,7 +786,7 @@ test("AC 3: a re-drive never reaches the emit anyway — the LEDGER GATE returns
   // wrote and returns `cached` (refine-chain.ts step 3), which has no emit at
   // all — so a duplicate delivery needs a concurrent race, not a retry.
   const redrive = harness({
-    ledgerRow: unexpired("found", { refined_title: "CTO" }),
+    ledgerRow: unexpired("found", { title: "CTO" }),
   });
 
   assert.equal((await runRefineChain(redrive.deps, SUBJECT)).status, "cached");

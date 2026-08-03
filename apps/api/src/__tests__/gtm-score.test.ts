@@ -80,7 +80,7 @@ const CASES: Array<{ name: string; input: GtmScoreInput; expected: number }> = [
     expected: 97,
   },
   {
-    name: "a non-numeric refined_company_employees contributes nothing",
+    name: "a non-numeric company_employees contributes nothing",
     // A jsonb bag can hold anything. `"250"` is a STRING, and neither this
     // function nor `conditions/property.ts` coerces — so the size band pays 0
     // and the fit half drops from 47 to 35.
@@ -92,7 +92,7 @@ const CASES: Array<{ name: string; input: GtmScoreInput; expected: number }> = [
     expected: 35,
   },
   {
-    name: "a null refined_company_employees contributes nothing",
+    name: "a null company_employees contributes nothing",
     input: { ...EMPTY, ...FULL_FIT, refinedCompanyEmployees: null },
     expected: 35,
   },

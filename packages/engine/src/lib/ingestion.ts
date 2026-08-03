@@ -5,7 +5,7 @@ import type {
   GroupsAssociation,
   PropertyCondition,
 } from "@hogsend/core";
-import { evaluatePropertyConditions } from "@hogsend/core";
+import { bySubject, evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { JourneyMeta } from "@hogsend/core/types";
 import {
@@ -29,6 +29,8 @@ import {
 import { recordAttributionCredits } from "./attribution.js";
 import {
   ContactProvenanceLostError,
+  type ResolvePolicy,
+  resolveContactNoCreate,
   resolveOrCreateContact,
 } from "./contacts.js";
 import {
@@ -72,6 +74,14 @@ export interface IngestEvent {
   /** D2: → `contacts.properties` merge ONLY. */
   contactProperties?: Record<string, unknown>;
   /**
+   * Extra property NAMES to re-evaluate buckets for — candidate-narrowing ONLY,
+   * NOT written and NOT in value eval. Lets a producer whose write patch omits a
+   * key (e.g. refinement's fill-if-absent, which drops already-held facts so it
+   * never clobbers first-party data) still trigger a fit bucket that references
+   * that key. Off by default; only engine-internal callers set it.
+   */
+  touchProperties?: string[];
+  /**
    * The groupType→groupKey association map for this event — persisted on
    * `user_events.groups`, drives group membership (each group row is ensured +
    * a `group_memberships` row upserted for the resolved contact), and forwards
@@ -103,6 +113,19 @@ export interface IngestEvent {
    */
   source?: string;
 }
+
+/**
+ * The shape `ingestEvent` reads a resolve through, whichever entry point
+ * produced it: `resolveOrCreateContact`'s result widened at `id` ONLY, so
+ * `resolveContactNoCreate`'s refusal (`id: null`) is assignable while the
+ * published create-on-miss return type never widens (D3 — three sites annotate
+ * on `Awaited<ReturnType<typeof resolveOrCreateContact>>`, one of them the
+ * exported `IdentityService.linkContact`).
+ */
+type ResolvedIdentity = Omit<
+  Awaited<ReturnType<typeof resolveOrCreateContact>>,
+  "id"
+> & { id: string | null };
 
 export interface ExitResult {
   journeyId: string;
@@ -141,8 +164,38 @@ export async function ingestTransformResult(opts: {
   logger: Logger;
   source: string;
   analytics?: AnalyticsProvider;
+  /**
+   * D1 creation guard, forwarded VERBATIM to every element (see
+   * {@link ingestEvent}). A PER-CALL parameter that defaults to `true` — never
+   * a default flip: `routes/webhooks/sources.ts` shares this helper, and a
+   * webhook source is a server-side caller that legitimately mints contacts.
+   * Only a caller that knows its events are pure OBSERVATION passes `false`.
+   */
+  allowCreate?: boolean;
+  /**
+   * Explicit caller trust (PRD 06 T4, L5 row 28), forwarded VERBATIM to every
+   * element's {@link ingestEvent} — including its `create` leg, so a
+   * transform-sourced refusal is never silently lost. This helper is a
+   * PASS-THROUGH, not a trust boundary: the caller of `ingestTransformResult`
+   * IS the caller of the resolve, so the whole declaration travels, not just
+   * one leg. Mutually exclusive with the legacy `allowCreate` field —
+   * supplying both shapes throws (no precedence rule exists). Absent ⇒ the
+   * legacy field (or its default) applies unchanged.
+   */
+  policy?: ResolvePolicy;
 }): Promise<{ ingested: number; exits: number }> {
   const { result, db, registry, hatchet, logger, source, analytics } = opts;
+  // PRD 06: EITHER trust shape, never both — enforced HERE, before the loop.
+  // `ingestEvent` would throw the same complaint per element, but this
+  // helper's per-element error isolation would swallow that into a warn and
+  // return `{ ingested: 0 }`, silently converting a caller bug into "no
+  // events". A misdeclared trust shape must fail loudly instead.
+  if (opts.policy && opts.allowCreate !== undefined) {
+    throw new Error(
+      "ingestTransformResult: pass either `policy` or the legacy " +
+        "`allowCreate`, never both — no precedence rule exists",
+    );
+  }
   if (!result) return { ingested: 0, exits: 0 };
   const events = Array.isArray(result) ? result : [result];
   let ingested = 0;
@@ -168,6 +221,11 @@ export async function ingestTransformResult(opts: {
         logger,
         event: { ...event, source },
         analytics,
+        // Exactly one of these is ever set (the mix threw above); an
+        // explicit-`undefined` sibling key does not trip `ingestEvent`'s own
+        // mutual-exclusion guard (it checks `!== undefined`).
+        allowCreate: opts.allowCreate,
+        policy: opts.policy,
       });
       ingested++;
       exits += r.exits.length;
@@ -302,8 +360,51 @@ export async function ingestEvent(opts: {
    * their behavior is unchanged.
    */
   restrictToAnonymous?: boolean;
+  /**
+   * D1 CREATION GUARD. Defaults to `true` (create-on-miss — every existing
+   * caller is byte-for-byte unchanged). `false` resolves the identity WITHOUT
+   * minting a `contacts` row: seeing traffic from an unidentified browser is
+   * not grounds for a CRM row. Set by callers whose write is pure OBSERVATION.
+   *
+   * A refusal is NOT an error and loses NO observation (D2): the event still
+   * stores in `user_events` under the same canonical key, the Hatchet push and
+   * `checkExits` still run, and buckets are still evaluated. What a refused
+   * ingest skips is exactly the work that needs a `contacts` row: group
+   * association, and — because `conversions.contact_id` / `deals.contact_id` /
+   * `funnel_progress.contact_id` are `.notNull()` FKs with no degraded write
+   * available — conversions, attribution credits, and funnel progress (D9).
+   *
+   * PRECONDITION (D8, inherited from `resolveContactNoCreate`): THROWS unless
+   * the event's highest-precedence key is `userId` or `anonymousId`. An
+   * email-only / discordId-only event has no stable refusal key.
+   */
+  allowCreate?: boolean;
+  /**
+   * Explicit caller trust (PRD 06 T3), forwarded VERBATIM into the identity
+   * resolve. The `create` leg also selects the resolver entry point (the D1
+   * branch below), replacing `allowCreate` for policy-declaring callers.
+   * Mutually exclusive with the legacy `restrictToAnonymous`/`allowCreate`
+   * fields — supplying both shapes throws (no precedence rule exists). Absent
+   * ⇒ the legacy fields (or their defaults) apply unchanged.
+   */
+  policy?: ResolvePolicy;
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event, analytics, eventMirror } = opts;
+
+  // PRD 06: EITHER trust shape, never both. The resolver enforces the same rule
+  // for `restrictToAnonymous`, but `allowCreate` is consumed HERE (it selects
+  // the entry point and never reaches the resolver), so the ingest layer must
+  // refuse the mix itself rather than silently letting `policy` win the branch.
+  if (
+    opts.policy &&
+    (opts.restrictToAnonymous !== undefined || opts.allowCreate !== undefined)
+  ) {
+    throw new Error(
+      "ingestEvent: pass either `policy` or the legacy fields " +
+        "(`restrictToAnonymous` / `allowCreate`), never both — no precedence " +
+        "rule exists",
+    );
+  }
 
   // (1) Resolve identity FIRST (awaited — no longer fire-and-forget). The
   // contact-referencing tables join on a NOT NULL text key, so an email-only /
@@ -312,9 +413,9 @@ export async function ingestEvent(opts: {
   // `contacts.properties` (D2 split) and returns BOTH the canonical contact id
   // AND its resolved string key (external_id ?? anonymous_id ?? contact.id —
   // risk 1/6), so no second read-back of the contact row is needed.
-  let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>>;
+  let resolved: ResolvedIdentity;
   try {
-    resolved = await resolveOrCreateContact({
+    const resolveArgs = {
       db,
       userId: event.userId,
       email: event.userEmail || undefined,
@@ -326,11 +427,28 @@ export async function ingestEvent(opts: {
       contactId: event.contactId,
       contactProperties: event.contactProperties,
       restrictToAnonymous: opts.restrictToAnonymous,
+      // Explicit caller trust (PRD 06). Verbatim; `undefined` ⇒ legacy shape.
+      policy: opts.policy,
       // First-touch contact provenance from the event's pipeline origin — a
       // Contact Source ("clay"/"attio") or "api"/"posthog"/…; only stamped when
       // the contact is created (or first fill-in-linked) with no prior source.
       source: event.source,
-    });
+    };
+    // D1: BRANCH between the two sibling entry points rather than passing a flag
+    // down into one. Two reasons, both load-bearing. (a) `resolveOrCreateContact`
+    // must keep `id: string` in its published type (D3), so the refusal lives in
+    // a separate function — not an overload, which widens it. (b) A `boolean`
+    // VARIABLE cannot select an overload/conditional signature (TS2769), so the
+    // branch has to be here, at the one site that knows the literal.
+    // (PRD 06: a declared `policy` selects the same branch via its `create`
+    // leg — reason (a) keeps this a two-entry branch either way.)
+    resolved = (
+      opts.policy
+        ? opts.policy.create !== "on-miss"
+        : opts.allowCreate === false
+    )
+      ? await resolveContactNoCreate(resolveArgs)
+      : await resolveOrCreateContact(resolveArgs);
   } catch (err) {
     // Provenance pin pointed at a hard-deleted/unfollowable subject: drop the
     // internal re-emit (do NOT value-fall-back — that could mint the very twin
@@ -349,6 +467,10 @@ export async function ingestEvent(opts: {
     }
     throw err;
   }
+  // `contactId` is NULL exactly when the resolve REFUSED (allowCreate: false and
+  // no live row owned any supplied key). `resolvedKey` is always a real string —
+  // that is the whole point of D8 — so every history table below keys the same
+  // way it always did; only the eight contact-row consumers change shape.
   const {
     id: contactId,
     resolvedKey,
@@ -408,6 +530,12 @@ export async function ingestEvent(opts: {
         currency,
         source: event.source ?? null,
         idempotencyKey: event.idempotencyKey,
+        // PRD 04 dual-write. The resolve ABOVE already produced this — zero new
+        // queries, and no D6 wrapper is needed because there is no new failure
+        // mode to swallow. A REFUSED resolve stamps NULL here BY DESIGN: the
+        // observation is kept (same canonical key, same row) while the CRM row
+        // it would point at deliberately does not exist.
+        contactId,
         ...(occurredAt ? { occurredAt } : {}),
       })
       .onConflictDoNothing({
@@ -431,6 +559,9 @@ export async function ingestEvent(opts: {
         value,
         currency,
         source: event.source ?? null,
+        // PRD 04 dual-write — same already-resolved value as the idempotent
+        // branch above, NULL on a refused resolve by design.
+        contactId,
         ...(occurredAt ? { occurredAt } : {}),
       })
       .returning({ id: userEvents.id, occurredAt: userEvents.occurredAt });
@@ -453,7 +584,10 @@ export async function ingestEvent(opts: {
         survivorKey: resolvedKey,
         loserKeys: mergedKeys,
         reason: merged ? "collide_merge" : "key_flip",
-        contactId,
+        // Sites 3/4: `contactId` is an OPTIONAL observability field on both, so
+        // a refusal degrades to `undefined`. Unreachable in practice — a merge
+        // or key flip means a row matched, which means nothing was refused.
+        contactId: contactId ?? undefined,
         logger,
       });
     }
@@ -461,7 +595,7 @@ export async function ingestEvent(opts: {
       logResidualTwins({
         survivorKey: resolvedKey,
         identifiedLoserKeys: mergedIdentifiedKeys,
-        contactId,
+        contactId: contactId ?? undefined,
         logger,
       });
     }
@@ -521,7 +655,23 @@ export async function ingestEvent(opts: {
   // path has NO idempotency key, so a thrown error + ingest retry would
   // DOUBLE-insert the event) — a group-write hiccup must never fail an
   // already-stored event.
-  if (event.groups && Object.keys(event.groups).length > 0) {
+  // The `contactId !== null` arm is a TYPE guard, not a policy one:
+  // `group_memberships.contact_id` is a uuid FK, so there is nothing to join a
+  // refusal to. It must never BECOME the policy, because a silently-dropped
+  // association is exactly the regression D10 exists to prevent. What keeps it
+  // a type guard is enforced at the BOUNDARIES, not here: `/v1/events` is the
+  // only producer that can carry a `groups` map into an ingest that may refuse,
+  // and it carves `groups` out of `observationOnly` (routes/events/index.ts) so
+  // such an event keeps creating. Every other refusing caller — `/v1/t/arrive`
+  // and the D11 derived re-ingests (bucket emits, feed marks / `feed_cleared`,
+  // `ctx.trigger`, the holdout emit) — builds its own event and carries no
+  // `groups` map at all. ANY new refusing caller that can carry `groups` must
+  // carve it out at its own boundary rather than leaning on this branch.
+  if (
+    contactId !== null &&
+    event.groups &&
+    Object.keys(event.groups).length > 0
+  ) {
     try {
       await associateGroups({ db, contactId, groups: event.groups });
     } catch (err) {
@@ -562,7 +712,13 @@ export async function ingestEvent(opts: {
       // enrolling on this event can re-emit for the SAME subject by row id
       // (folds, never mints a twin). Additive/optional — consumers ignoring it
       // are unaffected.
-      contactId,
+      //
+      // Site 2 — the ONE consumer the compiler cannot catch, because the push
+      // payload is an untyped JSON envelope. On a refusal the key is OMITTED
+      // ENTIRELY: a JSON `null` down the journey wire is NOT the same as absent
+      // (`execute-journey-run` falls back to `contact?.id` only for a missing
+      // key), and it would ride into every durable input the run replays from.
+      ...(contactId !== null ? { contactId } : {}),
       // The event's group association map (groupType → groupKey), so a
       // group-scoped wait can match on membership straight off the wire.
       // Always present ({} when the event carries none) so downstream CEL
@@ -572,6 +728,7 @@ export async function ingestEvent(opts: {
     }),
     checkExits(db, registry, hatchet, logger, {
       userId: resolvedKey,
+      contactId,
       eventName: event.event,
       properties: event.eventProperties,
     }),
@@ -647,7 +804,16 @@ export async function ingestEvent(opts: {
 
   // (5c) Conversion-point evaluation (plan §5.1) — the unique
   // (definition, event) index makes any replay a no-op.
-  if (insertedRow && hookEvent) {
+  //
+  // Site 5 — SKIPPED WHOLE on a refusal (D9). `conversions.contact_id` is
+  // `.notNull().references(contacts.id)` and `packages/db` is out of boundary,
+  // so no degraded write exists; the conversion, its ad-platform dispatches
+  // (which key on `conversionEventId({ contactId, … })`) and its attribution
+  // credits all go together. Consequence, stated plainly: an anonymous event
+  // that fires a revenue conversion today stops firing under a refusal — which
+  // is why a browser event carrying `value` is treated as an identity assertion
+  // upstream and keeps creating (PRD 02 site 1).
+  if (insertedRow && hookEvent && contactId !== null) {
     try {
       const fired = await evaluateConversionsAtIngest({
         db,
@@ -689,6 +855,7 @@ export async function ingestEvent(opts: {
             logger,
             conversionId: firedConversion.conversionId,
             userKey: resolvedKey,
+            contactId,
             value: firedConversion.value,
             currency: firedConversion.currency,
             occurredAt: insertedRow.occurredAt,
@@ -716,7 +883,11 @@ export async function ingestEvent(opts: {
   // money events it mints (`deal.quoted`/`deal.sold`) recurse through
   // ingestEvent, bounded at define time: `deal.`/`funnel.`/`crm.` events
   // cannot be stage triggers.
-  if (insertedRow && hookEvent) {
+  //
+  // Sites 6 + 7 — SKIPPED on a refusal (D9), same reasoning as site 5:
+  // `deals.contact_id` (the mover's target) and `funnel_progress.contact_id`
+  // (the reporting projection's unique key) are both `.notNull()` FKs.
+  if (insertedRow && hookEvent && contactId !== null) {
     const funnelRegistry = getCrmSyncConfig()?.funnels;
     if (funnelRegistry) {
       try {
@@ -778,15 +949,32 @@ export async function ingestEvent(opts: {
       hatchet,
       logger,
       userId: resolvedKey,
-      // The resolved row id rides along as the ENGINE-INTERNAL provenance pin
-      // for the bucket transition re-ingests: `resolvedKey` may be the
-      // contact's `anonymous_id`, which a bare re-ingest would treat as an
-      // external key and mint a phantom twin for (issue #608).
-      contactId,
+      // Site 8 — the one consumer that must NOT skip. `bucket_memberships` is
+      // text-keyed on the canonical key with no contact FK, so an anon key stays
+      // fully eligible for event/count buckets and D2 holds: observation is
+      // never lost.
+      //
+      // What it must ALSO not do is degrade the pin to `contactId ?? undefined`.
+      // That compiles (the param is `contactId?: string`) and looks like the
+      // obvious null-guard, but it re-opens issue #608 from the other side:
+      // `emitBucketTransition` would re-ingest `bucket:entered:<id>` with
+      // `userId = <anon id>`, `findByKey` misses on `external_id`, and the CREATE
+      // arm mints a row with `external_id = <anonId>, email NULL` — a ghost
+      // strictly WORSE than the one being removed, because
+      // `collidesWithIdentified` then returns true for it and
+      // `resolveFeedRecipient` starts 403-ing the visitor out of their own bell.
+      //
+      // So the refusal is INHERITED instead: pass the pin when there is a row,
+      // and `allowCreate: false` when there is not, forwarded into BOTH of
+      // `emitBucketTransition`'s re-ingests.
+      ...(contactId !== null ? { contactId } : { allowCreate: false }),
       userEmail: event.userEmail || null,
       event: event.event,
       eventProperties: event.eventProperties,
       contactProperties: event.contactProperties ?? {},
+      ...(event.touchProperties
+        ? { touchProperties: event.touchProperties }
+        : {}),
     });
   } catch (err) {
     logger.warn("Bucket membership check failed", {
@@ -812,6 +1000,13 @@ async function checkExits(
   logger: Logger,
   event: {
     userId: string;
+    /**
+     * The subject's resolved `contacts.id`, or `null` when the resolve refused
+     * to mint one (an anonymous visitor — a permanent supported state). The
+     * scan MUST still exit that population's journeys, which is why this goes
+     * through `bySubject` rather than a bare `contact_id` predicate.
+     */
+    contactId: string | null;
     eventName: string;
     properties: Record<string, unknown>;
   },
@@ -820,7 +1015,10 @@ async function checkExits(
 
   const activeStates = await db.query.journeyStates.findMany({
     where: and(
-      eq(journeyStates.userId, event.userId),
+      bySubject(journeyStates, {
+        contactId: event.contactId,
+        userKey: event.userId,
+      }),
       inArray(journeyStates.status, ["active", "waiting"]),
       isNull(journeyStates.deletedAt),
     ),

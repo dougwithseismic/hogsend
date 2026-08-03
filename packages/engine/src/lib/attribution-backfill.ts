@@ -134,6 +134,7 @@ export async function backfillAttributionBatch(opts: {
         id: userEvents.id,
         event: userEvents.event,
         userId: userEvents.userId,
+        contactId: userEvents.contactId,
         properties: userEvents.properties,
         value: userEvents.value,
         currency: userEvents.currency,
@@ -151,9 +152,21 @@ export async function backfillAttributionBatch(opts: {
       .orderBy(asc(userEvents.id))
       .limit(limit);
 
-    // Batch contact resolution: canonical keys are externalId or the
-    // contact row uuid. MATCH ONLY — backfill never mints contacts.
-    const keys = [...new Set(rows.map((row) => row.userId))];
+    // Owner resolution. A row stamped with `contact_id` already names its
+    // owner, so only the unstamped remainder needs the string lookup:
+    // canonical keys are externalId or the contact row uuid. MATCH ONLY —
+    // backfill never mints contacts.
+    //
+    // PRD 07 T7/D9 — BRIDGE MACHINERY: this deliberately string-matches the
+    // HISTORICAL `user_events.user_id` written before the dual-write, which is
+    // the very gap it exists to close. It is not a resolution read to flip onto
+    // `lookupContactIdByKey`: it is a set-based batch match over up to `limit`
+    // keys at once (a per-key alias-aware resolve would be N round trips), and
+    // widening it to alias-held keys would move which historical rows a
+    // recompute credits — a data change smuggled into a read flip.
+    const keys = [
+      ...new Set(rows.filter((row) => !row.contactId).map((row) => row.userId)),
+    ];
     const uuidKeys = keys.filter((key) => UUID_RE.test(key));
     const contactRows =
       keys.length > 0
@@ -178,7 +191,7 @@ export async function backfillAttributionBatch(opts: {
     let conversionsFired = 0;
     let creditsWritten = 0;
     for (const row of rows) {
-      const contactId = contactByKey.get(row.userId);
+      const contactId = row.contactId ?? contactByKey.get(row.userId);
       if (!contactId) continue;
       const fired = await evaluateConversionsAtIngest({
         db,
@@ -206,6 +219,15 @@ export async function backfillAttributionBatch(opts: {
           logger,
           conversionId: conversion.conversionId,
           userKey: row.userId,
+          // Scope the touchpoint path by the OWNER only when the spine row
+          // itself carries the stamp. This function replays HISTORY, and
+          // pre-upgrade history predates the `contact_id` dual-write entirely:
+          // an unstamped trigger row sits among unstamped touchpoints, which a
+          // contact-scoped scan cannot reach at all. When the trigger IS
+          // stamped, everything older is too (PRD 04's sweep cursors ascending
+          // by id), so the contact arm is both safe and the point — it reaches
+          // the anon-era touches adoption moved onto this person.
+          contactId: row.contactId,
           value: conversion.value,
           currency: conversion.currency,
           occurredAt: row.occurredAt,
@@ -240,11 +262,17 @@ export async function backfillAttributionBatch(opts: {
       id: conversions.id,
       definitionId: conversions.definitionId,
       userKey: conversions.userKey,
+      contactId: conversions.contactId,
+      // The trigger row's own stamp — the same "is this spine stamped?" test
+      // stage 1 applies, joined in because a conversions row always names an
+      // owner even when the history behind it predates `contact_id`.
+      spineContactId: userEvents.contactId,
       value: conversions.value,
       currency: conversions.currency,
       occurredAt: conversions.occurredAt,
     })
     .from(conversions)
+    .leftJoin(userEvents, eq(conversions.eventId, userEvents.id))
     .where(
       and(
         inArray(conversions.definitionId, defIds),
@@ -265,6 +293,9 @@ export async function backfillAttributionBatch(opts: {
       logger,
       conversionId: row.id,
       userKey: row.userKey,
+      // See stage 1: the owner scopes the path only when the spine carries the
+      // stamp; unstamped (pre-upgrade) history is reachable by string key only.
+      contactId: row.spineContactId ? row.contactId : null,
       value: row.value,
       currency: row.currency,
       occurredAt: row.occurredAt,

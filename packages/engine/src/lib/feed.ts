@@ -6,7 +6,13 @@ import {
 } from "../journeys/journey-boundary.js";
 import { IN_APP_LIST_ID } from "../lists/channels.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
-import { resolveOrCreateContact, resolveRecipient } from "./contacts.js";
+import {
+  ALL_IDENTITY_KINDS,
+  type ResolvePolicy,
+  resolveContactNoCreate,
+  resolveOrCreateContact,
+  resolveRecipient,
+} from "./contacts.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 import { readRecipientPreferences } from "./recipient-preferences.js";
@@ -136,12 +142,67 @@ export async function sendFeedItem(
   // (1) Resolve recipient → canonical key. Throws on a zero-key recipient (same
   // contract as `resolveOrCreateContact`). This is a server/journey-side send —
   // never a browser write — so no `restrictToAnonymous` clamp.
-  const { id: contactId, resolvedKey } = await resolveOrCreateContact({
+  //
+  // OBSERVATION, NOT ASSERTION (D1) — on the PURE-`anonymousId` arm, and only
+  // there. A browser anon id handed to a journey is not an identity anyone
+  // asserted; re-resolving it is observation. Left creating, an anonymous in-app
+  // visitor gets an `external_id = <anonId>` row — and `resolveFeedRecipient`
+  // then rejects a publishable `anonymousId` that collides with an identified
+  // contact's canonical key, so the ghost 403-LOCKS that visitor out of their
+  // own bell.
+  //
+  // So a MISS on a recipient carrying ONLY an `anonymousId` refuses to mint.
+  // Nothing is lost: `resolveContactNoCreate` returns the SAME `resolvedKey` the
+  // create arm would have made canonical (`external_id ?? anonymous_id`), which
+  // is byte-identical to the key the bell polls, and `feed_items.contact_id` is
+  // nullable with no foreign key (verified against the 0034 DDL), so the row
+  // still lands and still reads back. A HIT is untouched — it links/merges
+  // exactly as before.
+  //
+  // THE `userId` ARM KEEPS CREATING, and its mint is LOAD-BEARING FOR
+  // CONFIDENTIALITY — not merely a ghost. `sendFeedItem` stores an identified
+  // recipient's rows under that recipient's canonical key, and the minted row is
+  // the ONLY signal `collidesWithIdentified` (contacts.ts) has that the string is
+  // somebody's key. Refuse the mint and nothing collides, so the publishable ANON
+  // arm of `resolveFeedRecipient` (routes/feed/recipient.ts) accepts
+  // `?anonymousId=<that userId>` as a self-addressing anon id and hands the
+  // caller that recipient's feed items — plus mark / mark-all over them.
+  // Refusing here silently converts a private feed row into an anon-addressable
+  // one. D1 says the same thing from the other end: a server-asserted `userId`
+  // IS a minting trigger.
+  //
+  // The other two conjuncts are D8:
+  //   - an asserted `email` KEEPS CREATING. It is a durable identity the caller
+  //     is asserting (D1), and it is never a canonical key — so refusing it
+  //     would key history on a row uuid that was never minted, which is exactly
+  //     the misuse `resolveContactNoCreate` THROWS on.
+  //   - no `anonymousId` ⇒ there is no stable key to refuse WITH; same throw.
+  //     (A zero-key recipient already threw above.)
+  const refusable =
+    !recipient.email?.trim() &&
+    !recipient.userId?.trim() &&
+    !!recipient.anonymousId?.trim();
+  // PRD 06 T4 (L5 rows 10-11): trust is DECLARED by this caller. A feed send
+  // is a journey/server-side write, never a browser assertion, so it declares
+  // full server trust — `allowMerge: "any"` (no clamp) and all four kinds.
+  // Only the `create` leg varies, keyed off the SAME `refusable` verdict that
+  // selects the entry point below, so the policy and the entry point can
+  // never disagree (each entry point throws on a mismatched `create`).
+  const policy: ResolvePolicy = {
+    create: refusable ? "refuse-on-miss" : "on-miss",
+    allowMerge: "any",
+    trustedKinds: ALL_IDENTITY_KINDS,
+  };
+  const resolveOpts = {
     db,
     userId: recipient.userId,
     email: recipient.email,
     anonymousId: recipient.anonymousId,
-  });
+    policy,
+  };
+  const { id: contactId, resolvedKey } = refusable
+    ? await resolveContactNoCreate(resolveOpts)
+    : await resolveOrCreateContact(resolveOpts);
   const recipientKey = resolvedKey;
 
   // (2) Replay-safe idempotency key (mirrors `sendEmail`), derived
@@ -251,7 +312,7 @@ export async function sendFeedItem(
   // channel list regardless of the item's own category.
   //
   // The preference read is the UNIFIED aggregated `readRecipientPreferences`
-  // keyed by BOTH the recipient's `external_id ?? contact_id` AND its email —
+  // keyed by BOTH the recipient's resolved `contact_id` AND its email —
   // NOT the old single-row `(extId, email)` lookup. This is a deliberate,
   // suppression-conservative behaviour change: an `unsubscribed_all` (or category
   // opt-out) imported before the contact existed and keyed `(email, email)` now
@@ -272,12 +333,12 @@ export async function sendFeedItem(
       userId: recipient.userId,
       email: recipient.email,
     });
-    // `external_id ?? contact_id` — the SAME identity key the old single-row read
-    // used (and that preference writes key on). Undefined for an anon recipient.
-    const extId = recip ? (recip.externalId ?? recip.contactId) : undefined;
+    // PRD 05 T6 — contact-scoped read (the resolved contact id IS the subject);
+    // the old `external_id ?? contact_id` string derivation is retired. Null
+    // for an anon recipient: email leg only, same as before.
     const prefs = await readRecipientPreferences(db, {
       email: recip?.email,
-      userId: extId,
+      contactId: recip?.contactId ?? null,
     });
     // `unsubscribed_all` on an IDENTIFIED recipient suppresses (consistent with
     // the email mailer's `checkEmailPreferences`); guarded on `recip` so an

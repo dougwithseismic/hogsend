@@ -865,6 +865,10 @@ export const groupsRouter = new OpenAPIHono<AppEnv>()
             id: userEvents.id,
             event: userEvents.event,
             occurredAt: userEvents.occurredAt,
+            // Display echo of the key the event was stamped under — not a
+            // scoping predicate. The rows are already scoped by the group's
+            // jsonb association (`taggedEvents`), and the response field is a
+            // string by contract.
             userId: userEvents.userId,
           })
           .from(userEvents)

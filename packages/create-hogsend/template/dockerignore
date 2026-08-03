@@ -1,0 +1,26 @@
+# Emitted as .dockerignore. Keeps the build context small and the image clean —
+# the Dockerfile installs dependencies and builds inside the image, so nothing
+# host-built (and no secret) should ever enter the context.
+#
+# NOTE: pnpm-lock.yaml is deliberately NOT ignored. The Dockerfile uses it to
+# cache the dependency layer and to install offline + frozen.
+
+node_modules
+dist
+.turbo
+*.tsbuildinfo
+
+# Secrets — never bake an env file into an image layer. Pass env at run time
+# (`docker run --env-file .env …`). `.env.example` carries no values and is
+# harmless, but the build does not need it either.
+.env
+.env.*
+
+# Local/dev noise.
+.git
+.github
+logs
+*.log
+.DS_Store
+.claude
+coverage

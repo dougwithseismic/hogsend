@@ -7,6 +7,7 @@ import {
   PageHeader,
   TableSkeleton,
 } from "@/components/states";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -33,6 +34,13 @@ export function ContactsView({
   const [minRevenueInput, setMinRevenueInput] = useState("");
   const [minRevenue, setMinRevenue] = useState<number | undefined>(undefined);
   const [dealStage, setDealStage] = useState("");
+  // PRD 01 — this screen (and ONLY this screen) opts in to the identified-only
+  // view. The server default is `all`, so the CLI and the contact picker are
+  // untouched. Flipping this initial value back to "all" is the fastest kill
+  // switch if the predicate ever hides someone it shouldn't.
+  const [identity, setIdentity] = useState<"identified" | "anonymous" | "all">(
+    "identified",
+  );
   // PRD 06 leaderboard: a configurable property key ranks the list by that
   // property's NUMERIC value (server-guarded — non-numeric sorts last).
   const [scoreInput, setScoreInput] = useState("");
@@ -66,6 +74,7 @@ export function ContactsView({
 
   const filters = {
     search: search || undefined,
+    identity,
     minRevenue,
     dealStage: dealStage || undefined,
     // With no score property set, no ordering params are sent — the server
@@ -85,6 +94,18 @@ export function ContactsView({
   });
 
   const contacts = query.data?.contacts ?? [];
+
+  // Zero rows means something different under each filter value, and saying so
+  // is the difference between "the CRM is empty" and "the filter is on".
+  const emptyDescription = search
+    ? identity === "identified"
+      ? "No identified contacts match your search — anonymous visitors are hidden."
+      : "No contacts match your search."
+    : identity === "identified"
+      ? "No contact has identified yet. They appear here once an event asserts an email, user ID, Discord ID or phone."
+      : identity === "anonymous"
+        ? "Every contact has identified — there is no anonymous tail."
+        : "Contacts appear here as events are ingested.";
 
   return (
     <div className="space-y-6">
@@ -117,6 +138,19 @@ export function ContactsView({
         />
         <div className="w-48">
           <Select
+            value={identity}
+            onChange={(e) =>
+              setIdentity(e.target.value as "identified" | "anonymous" | "all")
+            }
+            aria-label="Filter by identity"
+          >
+            <option value="identified">Identified only</option>
+            <option value="anonymous">Never identified</option>
+            <option value="all">All contacts</option>
+          </Select>
+        </div>
+        <div className="w-48">
+          <Select
             value={dealStage}
             onChange={(e) => setDealStage(e.target.value)}
             aria-label="Filter by deal stage"
@@ -147,10 +181,17 @@ export function ContactsView({
       ) : contacts.length === 0 ? (
         <EmptyState
           title="No contacts found"
-          description={
-            search
-              ? "No contacts match your search."
-              : "Contacts appear here as events are ingested."
+          description={emptyDescription}
+          // The escape hatch. Search ALSO matches `anonymous_id`, so pasting
+          // an anon id into the box under the identified-only default returns
+          // nothing and looks broken — this widens the same search instead of
+          // making the operator hunt for the dropdown.
+          action={
+            search && identity === "identified" ? (
+              <Button variant="secondary" onClick={() => setIdentity("all")}>
+                Search all contacts
+              </Button>
+            ) : undefined
           }
         />
       ) : (

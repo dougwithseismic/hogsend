@@ -1,5 +1,154 @@
 # @hogsend/api
 
+## 0.0.61
+
+### Patch Changes
+
+- Updated dependencies [a52f9b1]
+- Updated dependencies [766e7f8]
+  - @hogsend/engine@0.62.0
+  - @hogsend/attribution@0.62.0
+  - @hogsend/core@0.62.0
+  - @hogsend/db@0.62.0
+  - @hogsend/email@0.62.0
+  - @hogsend/mcp@0.62.0
+  - @hogsend/plugin-apollo@0.62.0
+  - @hogsend/plugin-discord@0.62.0
+  - @hogsend/plugin-posthog@0.62.0
+  - @hogsend/plugin-resend@0.62.0
+  - @hogsend/plugin-telegram@0.62.0
+  - @hogsend/plugin-twilio@0.62.0
+  - @hogsend/sms@0.62.0
+
+## 0.0.60
+
+### Patch Changes
+
+- Updated dependencies [b8429d6]
+- Updated dependencies [b8429d6]
+  - @hogsend/attribution@0.61.0
+  - @hogsend/core@0.61.0
+  - @hogsend/db@0.61.0
+  - @hogsend/email@0.61.0
+  - @hogsend/mcp@0.61.0
+  - @hogsend/plugin-apollo@0.61.0
+  - @hogsend/plugin-discord@0.61.0
+  - @hogsend/plugin-posthog@0.61.0
+  - @hogsend/plugin-resend@0.61.0
+  - @hogsend/plugin-telegram@0.61.0
+  - @hogsend/plugin-twilio@0.61.0
+  - @hogsend/sms@0.61.0
+  - @hogsend/engine@0.61.0
+
+## 0.0.59
+
+### Patch Changes
+
+- Updated dependencies [76da7e4]
+- Updated dependencies [76da7e4]
+- Updated dependencies [8e2e098]
+  - @hogsend/attribution@0.60.0
+  - @hogsend/email@0.60.0
+  - @hogsend/mcp@0.60.0
+  - @hogsend/plugin-apollo@0.60.0
+  - @hogsend/plugin-discord@0.60.0
+  - @hogsend/plugin-posthog@0.60.0
+  - @hogsend/plugin-resend@0.60.0
+  - @hogsend/plugin-telegram@0.60.0
+  - @hogsend/plugin-twilio@0.60.0
+  - @hogsend/sms@0.60.0
+  - @hogsend/core@0.60.0
+  - @hogsend/db@0.60.0
+  - @hogsend/engine@0.60.0
+
+## 0.0.58
+
+### Patch Changes
+
+- Updated dependencies [84c0fe9]
+- Updated dependencies [84c0fe9]
+- Updated dependencies [84c0fe9]
+  - @hogsend/attribution@0.59.0
+  - @hogsend/core@0.59.0
+  - @hogsend/email@0.59.0
+  - @hogsend/mcp@0.59.0
+  - @hogsend/plugin-apollo@0.59.0
+  - @hogsend/plugin-discord@0.59.0
+  - @hogsend/plugin-posthog@0.59.0
+  - @hogsend/plugin-resend@0.59.0
+  - @hogsend/plugin-telegram@0.59.0
+  - @hogsend/plugin-twilio@0.59.0
+  - @hogsend/sms@0.59.0
+  - @hogsend/engine@0.59.0
+  - @hogsend/db@0.59.0
+
+## 0.0.57
+
+### Patch Changes
+
+- Updated dependencies [aa24d2a]
+- Updated dependencies [aa24d2a]
+  - @hogsend/db@0.58.0
+  - @hogsend/attribution@0.58.0
+  - @hogsend/core@0.58.0
+  - @hogsend/email@0.58.0
+  - @hogsend/engine@0.58.0
+  - @hogsend/mcp@0.58.0
+  - @hogsend/plugin-apollo@0.58.0
+  - @hogsend/plugin-discord@0.58.0
+  - @hogsend/plugin-posthog@0.58.0
+  - @hogsend/plugin-resend@0.58.0
+  - @hogsend/plugin-telegram@0.58.0
+  - @hogsend/plugin-twilio@0.58.0
+  - @hogsend/sms@0.58.0
+
+## 0.0.56
+
+### Patch Changes
+
+- Updated dependencies [baa18a2]
+- Updated dependencies [ac82f01]
+- Updated dependencies [199f4b2]
+- Updated dependencies [f118017]
+- Updated dependencies [baa18a2]
+- Updated dependencies [dab3005]
+- Updated dependencies [8bc5420]
+- Updated dependencies [dab3005]
+- Updated dependencies [dab3005]
+  - @hogsend/engine@0.57.0
+  - @hogsend/plugin-discord@0.57.0
+  - @hogsend/db@0.57.0
+  - @hogsend/attribution@0.57.0
+  - @hogsend/core@0.57.0
+  - @hogsend/email@0.57.0
+  - @hogsend/mcp@0.57.0
+  - @hogsend/plugin-apollo@0.57.0
+  - @hogsend/plugin-posthog@0.57.0
+  - @hogsend/plugin-resend@0.57.0
+  - @hogsend/plugin-telegram@0.57.0
+  - @hogsend/plugin-twilio@0.57.0
+  - @hogsend/sms@0.57.0
+
+## 0.0.55
+
+### Patch Changes
+
+- Updated dependencies [0a453d3]
+- Updated dependencies [0a453d3]
+  - @hogsend/attribution@0.56.0
+  - @hogsend/core@0.56.0
+  - @hogsend/db@0.56.0
+  - @hogsend/email@0.56.0
+  - @hogsend/mcp@0.56.0
+  - @hogsend/plugin-apollo@0.56.0
+  - @hogsend/plugin-discord@0.56.0
+  - @hogsend/plugin-posthog@0.56.0
+  - @hogsend/plugin-resend@0.56.0
+  - @hogsend/plugin-telegram@0.56.0
+  - @hogsend/plugin-twilio@0.56.0
+  - @hogsend/sms@0.56.0
+  - @hogsend/engine@0.56.0
+
 ## 0.0.54
 
 ### Patch Changes

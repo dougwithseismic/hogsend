@@ -50,8 +50,8 @@ export const enrichmentLookups = pgTable(
     // Provider's verbatim response, for debugging. Nullable so a deployment
     // can null it out for storage/privacy reasons without a schema change.
     raw: jsonb("raw").$type<Record<string, unknown>>(),
-    // The NORMALIZED `refined_*` patch the paid answer produced — the engine's
-    // `flattenTraits` output, verbatim. `raw` is vendor-shaped and cannot be
+    // The NORMALIZED canonical trait patch the paid answer produced — the
+    // engine's `flattenTraits` output, verbatim. `raw` is vendor-shaped and cannot be
     // re-flattened engine-side without the provider, so a cache HIT for a
     // DIFFERENT contact than the one that paid (the shared-domain case) has no
     // way to land the answer it already owns unless the patch itself is stored.

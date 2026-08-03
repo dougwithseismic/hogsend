@@ -1,0 +1,2 @@
+DROP INDEX "cloud"."provider_keys_environment_provider_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_keys_environment_provider_unique_idx" ON "cloud"."provider_keys" USING btree ("environment_id","provider");

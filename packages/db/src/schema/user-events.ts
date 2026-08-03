@@ -16,7 +16,17 @@ export const userEvents = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id"),
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id").notNull(),
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away. It
+    // means the writer had no contact row to point at: `lib/ingestion.ts`
+    // refused to mint one (`resolveContactNoCreate`), e.g. an anon-only
+    // POST /v1/events on a publishable key. Such a row is a string-keyed
+    // subject and reads scope it by `user_id` (the bySubject else-arm).
+    contactId: uuid("contact_id"),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
     // Group association map captured at event time (groupType → groupKey), e.g.
@@ -64,5 +74,16 @@ export const userEvents = pgTable(
       table.occurredAt,
     ),
     uniqueIndex("user_events_idempotency_key_idx").on(table.idempotencyKey),
+    // PRD 04 D2 — PARTIAL btree on the owning contact. Partial because the
+    // column is 100% NULL when the migration runs (so the build is a heap scan
+    // with zero index writes, the cheapest possible version of an expensive
+    // statement), it stays small through the additive era, and it permanently
+    // excludes the rows that legitimately have no contact. It still serves the
+    // `WHERE contact_id = $1` probes the merge repoint issues: the planner can
+    // prove `contact_id = $1` implies `contact_id IS NOT NULL`, so the
+    // predicate is not a barrier (asserted by an EXPLAIN test, not assumed).
+    index("user_events_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );

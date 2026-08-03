@@ -19,6 +19,10 @@ import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
 import { startWorkerHeartbeat } from "./lib/worker-heartbeat.js";
 import {
+  contactIdBackfillTask,
+  enqueueContactIdBackfill,
+} from "./workflows/backfill-contact-id.js";
+import {
   bucketBackfillTask,
   enqueueBucketBackfills,
 } from "./workflows/bucket-backfill.js";
@@ -31,6 +35,10 @@ import {
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
 import { dispatchConversionTask } from "./workflows/dispatch-conversion.js";
+import {
+  enqueueIdentityAliasBackfill,
+  identityAliasBackfillTask,
+} from "./workflows/identity-alias-backfill.js";
 import { impactDigestTask } from "./workflows/impact-digest.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { importSuppressionsTask } from "./workflows/import-suppressions.js";
@@ -132,6 +140,8 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     impactDigestTask,
     bucketReconcileTask,
     bucketBackfillTask,
+    identityAliasBackfillTask,
+    contactIdBackfillTask,
     crmReconcileTask,
     dispatchConversionTask,
     ...journeyTasks,
@@ -224,6 +234,34 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       logger: container.logger,
     }).catch((err) => {
       container.logger.warn("Bucket backfill enqueue (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // PRD 02: fill `contact_aliases` once per deployment (skipped when a
+    // non-failed job record exists). Same fire-and-forget, best-effort stance
+    // as the bucket backfills above; internally try/caught, `.catch` is the
+    // belt-and-suspenders.
+    enqueueIdentityAliasBackfill({
+      db: container.db,
+      logger: container.logger,
+    }).catch((err) => {
+      container.logger.warn("Identity alias backfill enqueue (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // PRD 04 T5: fill the five history tables' `contact_id` for rows the
+    // dual-write never saw. Unlike the alias backfill this is a PERIODIC
+    // reconcile sweep (D6) — the enqueue re-fires once the newest completed
+    // sweep is older than CONTACT_ID_BACKFILL_RESWEEP_HOURS (default 24h),
+    // because the dual-write is best-effort and a miss is otherwise permanent.
+    // Cheap by construction: every UPDATE is guarded by `contact_id IS NULL`.
+    enqueueContactIdBackfill({
+      db: container.db,
+      logger: container.logger,
+    }).catch((err) => {
+      container.logger.warn("Contact-id backfill enqueue (boot) failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     });

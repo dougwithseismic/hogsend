@@ -14,6 +14,14 @@ import { LINK_CLICKED } from "./tracking-event-names.js";
 interface EmailSendContext {
   userId: string;
   userEmail: string;
+  /**
+   * PRD 05 T6 — the send's owning contact (`email_sends.contact_id`, falling
+   * back to the enrollment's stamp). The denormalized `userId` string above is
+   * FROZEN at send time and goes stale when the contact adopts a new key; the
+   * re-ingest pins this id so tracking events land on the contact, not on
+   * whatever key happened to be canonical when the mail left.
+   */
+  contactId: string | null;
   templateKey: string | null;
   messageId: string | null;
   to: string;
@@ -41,9 +49,11 @@ export async function resolveEmailSendContext(
       templateKey: emailSends.templateKey,
       messageId: emailSends.messageId,
       campaignId: emailSends.campaignId,
+      sendContactId: emailSends.contactId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
       journeyId: journeyStates.journeyId,
+      enrollmentContactId: journeyStates.contactId,
     })
     .from(emailSends)
     .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
@@ -56,6 +66,7 @@ export async function resolveEmailSendContext(
   return {
     userId: row.userId ?? row.toEmail,
     userEmail: row.userEmail ?? row.toEmail,
+    contactId: row.sendContactId ?? row.enrollmentContactId ?? null,
     templateKey: row.templateKey,
     messageId: row.messageId,
     to: row.toEmail,
@@ -68,6 +79,8 @@ export interface EmailSendContextByMessageId {
   emailSendId: string;
   userId: string;
   userEmail: string;
+  /** See {@link EmailSendContext.contactId}. */
+  contactId: string | null;
   templateKey: string | null;
   to: string;
 }
@@ -99,8 +112,10 @@ export async function resolveEmailSendContextByMessageId(
       emailSendId: emailSends.id,
       toEmail: emailSends.toEmail,
       templateKey: emailSends.templateKey,
+      sendContactId: emailSends.contactId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
+      enrollmentContactId: journeyStates.contactId,
       sendUserId: emailSends.userId,
       sendUserEmail: emailSends.userEmail,
     })
@@ -116,6 +131,7 @@ export async function resolveEmailSendContextByMessageId(
     emailSendId: row.emailSendId,
     userId: row.userId ?? row.sendUserId ?? row.toEmail,
     userEmail: row.userEmail ?? row.sendUserEmail ?? row.toEmail,
+    contactId: row.sendContactId ?? row.enrollmentContactId ?? null,
     templateKey: row.templateKey,
     to: row.toEmail,
   };
@@ -193,6 +209,9 @@ export async function pushTrackingEvent(
       event,
       userId: ctx.userId,
       userEmail: ctx.userEmail,
+      // PRD 05 T6 — pin the send's owning contact so the tracking event
+      // resolves to the contact even when the frozen send-time key went stale.
+      contactId: ctx.contactId ?? undefined,
       eventProperties: properties,
       source: "tracking",
       idempotencyKey: opts.idempotencyKey,
@@ -235,12 +254,37 @@ export interface PushLinkClickEventOpts {
  * as the first-party `link.clicked` event so journeys can trigger / await a
  * click of a SPECIFIC managed link (filtered by `linkId`/`campaign`).
  *
- * IDENTITY GATE (crash-guard): `ingestEvent`→`resolveOrCreateContact` THROWS on
- * a zero-key event, so a broadcast/public link (`distinctId == null`) returns
- * `undefined` WITHOUT calling ingest. The click route ALSO suppresses
- * bot/prefetch hits upstream (`isBotOrPrefetch`), so an unfurl bot never reaches
- * here. All six payload keys are scalars (or null) so they survive ingest and
- * reach `trigger.where` + `waitForEvent.properties`.
+ * IDENTITY GATE (crash-guard): the resolve THROWS on a zero-key event, so a
+ * broadcast/public link (`distinctId == null`) returns `undefined` WITHOUT
+ * calling ingest. The click route ALSO suppresses bot/prefetch hits upstream
+ * (`isBotOrPrefetch`), so an unfurl bot never reaches here. All six payload
+ * keys are scalars (or null) so they survive ingest and reach `trigger.where` +
+ * `waitForEvent.properties`.
+ *
+ * NEVER MINTS (D11). This is a re-ingest DERIVED from an earlier observation,
+ * so it inherits that observation's refusal — `allowCreate: false`. `mintLink`
+ * copies whatever `distinctId` the caller passes for a `personal` link, so a
+ * link minted for a visitor who was never identified carries an ANON key; with
+ * creation allowed the create arm wrote `external_id = <anonId>`, the shape
+ * #621 calls strictly WORSE than the ghost it replaces (it then answers
+ * `collidesWithIdentified` (contacts.ts) and 403-locks the visitor out of their
+ * own feed). Safe by construction: a link carrying a `distinctId` was minted for
+ * someone already known, so either the key resolves — fill-in-link, unchanged —
+ * or it was refused at observation time and must STAY refused.
+ *
+ * Unlike `sendFeedItem`'s `userId` arm (lib/feed.ts), the mint here has no
+ * confidentiality role. There it is load-bearing: the minted row is the only
+ * signal `collidesWithIdentified` has, and refusing would convert a private
+ * feed row into an anon-addressable one. This is an event ingest, not a
+ * feed-read authorization — `collidesWithIdentified` is consulted only by
+ * `routes/feed/recipient.ts` and `routes/tracking/arrive.ts`, neither of which
+ * reads anything this function writes.
+ *
+ * Nothing is lost by the refusal: `resolvedKey` is always a real string (D8),
+ * so `user_events` still stores under the same key and journeys still trigger.
+ * `tracked_links` has no `contact_id` column (only `distinctId`), so inheriting
+ * the refusal is the correct fix rather than threading a provenance pin — if a
+ * later change adds `contact_id` there, revisit.
  *
  * Distinct from the per-hit OUTBOUND `link.clicked` webhook: that fires for
  * EVERY hit and carries `trackedLinks.id` + the raw mint distinctId; THIS bus
@@ -257,6 +301,8 @@ export async function pushLinkClickEvent(
     registry,
     hatchet,
     logger,
+    // D11 — see the header. A derived re-ingest never re-resolves into a mint.
+    allowCreate: false,
     event: {
       event: LINK_CLICKED,
       userId: distinctId,
@@ -283,6 +329,11 @@ export interface SmsSendContext {
    */
   userId: string | null;
   userEmail: string | null;
+  /**
+   * PRD 05 T6 — the enrollment's contact stamp (`sms_sends` itself carries no
+   * dual-write column). Null for a journeyless send.
+   */
+  contactId: string | null;
   templateKey: string | null;
   messageId: string | null;
   to: string;
@@ -313,6 +364,7 @@ export async function resolveSmsSendContext(
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
       journeyId: journeyStates.journeyId,
+      enrollmentContactId: journeyStates.contactId,
     })
     .from(smsSends)
     .leftJoin(journeyStates, eq(smsSends.journeyStateId, journeyStates.id))
@@ -325,6 +377,7 @@ export async function resolveSmsSendContext(
   return {
     userId: row.userId ?? row.sendUserId ?? null,
     userEmail: row.userEmail ?? null,
+    contactId: row.enrollmentContactId ?? null,
     templateKey: row.templateKey,
     messageId: row.messageId,
     to: row.toPhone,
@@ -372,6 +425,8 @@ export async function pushSmsTrackingEvent(
       event,
       userId: ctx.userId,
       userEmail: ctx.userEmail ?? undefined,
+      // PRD 05 T6 — see pushTrackingEvent.
+      contactId: ctx.contactId ?? undefined,
       eventProperties: {
         smsSendId,
         templateKey: ctx.templateKey,

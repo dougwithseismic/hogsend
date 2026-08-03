@@ -15,7 +15,17 @@ import {
   importJobs,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, gt, gte, inArray, isNull, max, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  max,
+  sql,
+} from "drizzle-orm";
 import {
   computeExpiresAt,
   computeMaxDwellAt,
@@ -32,6 +42,23 @@ import { stableStringify } from "../lib/stable-stringify.js";
 
 /** Insert chunk size, reusing the import-contacts precedent (Section 6.6). */
 const BATCH_SIZE = 500;
+
+/**
+ * One matcher this backfill will materialize as a membership.
+ *
+ * The set-based selectors used to return a bare `string[]` of canonical keys,
+ * and every downstream lookup (prior-membership counts, dwell anchors, the
+ * email/contact-id fill-in) re-keyed off that string. Carrying the resolved
+ * `contactId` instead makes the SUBJECT the join key end to end: the counts and
+ * anchors below read the whole person rather than whatever string a row happens
+ * to name today. `userKey` still rides along because
+ * `bucket_memberships.user_id` is still written (PRD 05 D9).
+ */
+interface BackfillMatcher {
+  contactId: string;
+  userKey: string;
+  email: string | null;
+}
 
 /** import_jobs.format discriminator for the reused status record (Section 6.6). */
 export const FIRST_TIME_FORMAT = "bucket-backfill";
@@ -181,14 +208,14 @@ async function backfillJoins(opts: {
   const { db, bucket, jobId } = opts;
   const criteria = bucket.criteria as ConditionEval;
 
-  const matcherIds =
+  const matchers =
     criteria.type === "event"
       ? await selectEventMatchers(db, criteria)
       : await selectCompositeMatchers(db, criteria);
 
   await db
     .update(importJobs)
-    .set({ totalRows: matcherIds.length, updatedAt: new Date() })
+    .set({ totalRows: matchers.length, updatedAt: new Date() })
     .where(eq(importJobs.id, jobId));
 
   // Unconditional max-dwell TTL deadline, stamped once at insert (mirrors the
@@ -216,23 +243,17 @@ async function backfillJoins(opts: {
   // omission: arming at backfill would fan out one durable task per inserted row.
 
   let inserted = 0;
-  for (let i = 0; i < matcherIds.length; i += BATCH_SIZE) {
-    const chunk = matcherIds.slice(i, i + BATCH_SIZE);
-
-    // userEmail backfilled from the contacts row where available. The chunk
-    // holds the RESOLVED key (coalesce(external_id, anonymous_id, id)) — for an
-    // email-only / anonymous contact that is the anonymous_id or the uuid id, NOT
-    // the (null) external_id. Looking up by `contacts.externalId` would miss
-    // those rows and write a NULL userEmail despite the contact having an email,
-    // so we key the lookup + the map by the SAME coalesce expression the chunk
-    // carries (matches reconcileBucketJoins, which reads userId + email off one
-    // contacts row).
-    const resolvedKey = contactKeySql();
-    const chunkContacts = await db
-      .select({ userKey: resolvedKey, email: contacts.email })
-      .from(contacts)
-      .where(and(inArray(resolvedKey, chunk), isNull(contacts.deletedAt)));
-    const emailByUser = new Map(chunkContacts.map((c) => [c.userKey, c.email]));
+  for (let i = 0; i < matchers.length; i += BATCH_SIZE) {
+    const chunk = matchers.slice(i, i + BATCH_SIZE);
+    // Every chunked lookup below is keyed on the OWNING CONTACT, so the chunk
+    // boundary and each aggregate's GROUP BY name the same subject. Keying them
+    // on the canonical string while the selectors resolve contacts is exactly
+    // the drift that makes a set-based job miss silently: an adopted row would
+    // land in no bucket of the map and read back as "no prior membership".
+    const chunkContactIds = chunk.map((m) => m.contactId);
+    // The selectors already read email + contact id off the same `contacts` row
+    // they matched on, so the per-chunk contacts lookup this loop used to issue
+    // is gone (one fewer query per chunk, and no second chance to key it wrong).
 
     // Fix A: entryCount = 1 + prior memberships for each (user, bucket), the
     // same monotonic ordinal the live join computes (check-membership.ts). On a
@@ -242,19 +263,23 @@ async function backfillJoins(opts: {
     // based path must not reintroduce the O(P) serial-query trap).
     const priorCounts = await db
       .select({
-        userId: bucketMemberships.userId,
+        contactId: bucketMemberships.contactId,
         cnt: sql<number>`count(*)::int`,
       })
       .from(bucketMemberships)
       .where(
         and(
           eq(bucketMemberships.bucketId, bucket.id),
-          inArray(bucketMemberships.userId, chunk),
+          inArray(bucketMemberships.contactId, chunkContactIds),
         ),
       )
-      .groupBy(bucketMemberships.userId);
-    const priorByUser = new Map(
-      priorCounts.map((r) => [r.userId, Number(r.cnt)]),
+      .groupBy(bucketMemberships.contactId);
+    const priorByContact = new Map(
+      priorCounts
+        .filter(
+          (r): r is { contactId: string; cnt: number } => r.contactId != null,
+        )
+        .map((r) => [r.contactId, Number(r.cnt)]),
     );
 
     // Batched dwell-anchor derivation (LOCKED DECISION 1): one GROUP BY
@@ -262,49 +287,57 @@ async function backfillJoins(opts: {
     // priorCounts GROUP BY above (never per-user serial queries). Only computed
     // when the criteria shape exposes a cheap per-matcher anchor event; an empty
     // map leaves dwellAnchorAt NULL → the dwell gate falls back to enteredAt.
-    let anchorByUser = new Map<string, Date>();
+    let anchorByContact = new Map<string, Date>();
     if (anchorEvent != null) {
       const anchors = await db
         .select({
-          userId: userEvents.userId,
+          contactId: userEvents.contactId,
           lastAt: max(userEvents.occurredAt),
         })
         .from(userEvents)
         .where(
           and(
             eq(userEvents.event, anchorEvent),
-            inArray(userEvents.userId, chunk),
+            inArray(userEvents.contactId, chunkContactIds),
           ),
         )
-        .groupBy(userEvents.userId);
-      anchorByUser = new Map(
+        .groupBy(userEvents.contactId);
+      anchorByContact = new Map(
         anchors
           .filter(
-            (r): r is { userId: string; lastAt: Date } => r.lastAt != null,
+            (r): r is { contactId: string; lastAt: Date } =>
+              r.contactId != null && r.lastAt != null,
           )
-          .map((r) => [r.userId, r.lastAt]),
+          .map((r) => [r.contactId, r.lastAt]),
       );
     }
 
-    const rows = chunk.map((userId) => ({
-      userId,
+    const rows = chunk.map((matcher) => ({
+      userId: matcher.userKey,
       // Normalized at the write site (audience-model.md wart #1) — belt and
       // braces on top of the contacts row already being normalized.
-      userEmail: normalizeEmailOrNull(emailByUser.get(userId)),
+      userEmail: normalizeEmailOrNull(matcher.email),
       bucketId: bucket.id,
       status: "active" as const,
       source: "backfill" as const,
-      entryCount: 1 + (priorByUser.get(userId) ?? 0),
+      entryCount: 1 + (priorByContact.get(matcher.contactId) ?? 0),
       expiresAt: computeExpiresAt(bucket),
       maxDwellAt,
       // Historical dwell anchor where derivable; NULL otherwise (→ enteredAt).
-      dwellAnchorAt: anchorByUser.get(userId) ?? null,
+      dwellAnchorAt: anchorByContact.get(matcher.contactId) ?? null,
       lastEvaluatedAt: new Date(),
+      contactId: matcher.contactId,
     }));
 
     const result = await db
       .insert(bucketMemberships)
       .values(rows)
+      // PRD 05 T3 — ARBITER-LESS by design: it must absorb BOTH partial unique
+      // indexes on this table (uq_user_bucket_active and the contact-scoped
+      // uq_contact_bucket_active). On a BATCH that matters twice over: two
+      // distinct `user_id`s in one chunk can resolve to the SAME contact, and
+      // DO NOTHING (unlike DO UPDATE) also collapses that intra-statement
+      // conflict instead of raising. See `checkBucketMembership`'s insert.
       .onConflictDoNothing()
       .returning({ id: bucketMemberships.id });
 
@@ -335,11 +368,15 @@ async function reevalLeaves(opts: {
   const criteria = bucket.criteria as ConditionEval;
 
   // The set of users who STILL match (so non-matching active members = leavers).
-  const matcherIds =
+  // Membership and matcher are compared by CONTACT: comparing canonical strings
+  // marks an adopted member as "no longer matching" purely because their key
+  // moved, and a criteria-change re-eval would then evict them and emit
+  // `bucket:left` into live journeys.
+  const matchers =
     criteria.type === "event"
       ? await selectEventMatchers(db, criteria)
       : await selectCompositeMatchers(db, criteria);
-  const matcherSet = new Set(matcherIds);
+  const matcherSet = new Set(matchers.map((m) => m.contactId));
 
   const activeMembers = await db
     .select({
@@ -353,7 +390,7 @@ async function reevalLeaves(opts: {
       entryCount: bucketMemberships.entryCount,
     })
     .from(bucketMemberships)
-    .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+    .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
     .where(
       and(
         eq(bucketMemberships.bucketId, bucket.id),
@@ -363,7 +400,7 @@ async function reevalLeaves(opts: {
       ),
     );
 
-  const leavers = activeMembers.filter((m) => !matcherSet.has(m.userId));
+  const leavers = activeMembers.filter((m) => !matcherSet.has(m.contactId));
   if (leavers.length === 0) return 0;
 
   // Membership key → contact row id for the emit's provenance pin. Keying by
@@ -425,11 +462,26 @@ async function reevalLeaves(opts: {
   return leftCount;
 }
 
-/** Set-based matcher user-ids for a single-event criterion (Section 6.6). */
+/**
+ * Set-based matchers for a single-event criterion (Section 6.6).
+ *
+ * D8 (cohort preservation): BOTH shapes below matched `contacts.external_id`
+ * against the event key, so a contact with a NULL `external_id` — email-only or
+ * anonymous — has never been materialized by this selector. Flipping the join
+ * to `user_events.contact_id` would silently admit that whole cohort and move
+ * every bucket's count on a release billed as a read flip, so the cohort is
+ * held EXACTLY where it was with an explicit `isNotNull(contacts.externalId)`.
+ * Widening it is a real fix (the cron's join path already reaches them) but it
+ * is a deliberate, separately-observable change — see OPEN ITEMS in the PR.
+ *
+ * What DOES change is per-contact: the events counted are now the ones the
+ * contact OWNS, so an anon-era event adopted onto them counts toward the
+ * window. That is the flip.
+ */
 async function selectEventMatchers(
   db: Database,
   criteria: Extract<ConditionEval, { type: "event" }>,
-): Promise<string[]> {
+): Promise<BackfillMatcher[]> {
   const cutoff = criteria.within
     ? new Date(Date.now() - durationToMs(criteria.within))
     : null;
@@ -446,32 +498,47 @@ async function selectEventMatchers(
     // mirroring the cron's `ever_fired` semi-join. Excludes never-active
     // contacts so the two writers select the same lapsed-only cohort.
     const everFired = db
-      .selectDistinct({ userId: userEvents.userId })
-      .from(userEvents)
-      .where(eq(userEvents.event, criteria.eventName))
-      .as("ever_fired");
-
-    const present = db
-      .select({ userId: userEvents.userId })
+      .selectDistinct({ contactId: userEvents.contactId })
       .from(userEvents)
       .where(
         and(
           eq(userEvents.event, criteria.eventName),
+          isNotNull(userEvents.contactId),
+        ),
+      )
+      .as("ever_fired");
+
+    const present = db
+      .select({ contactId: userEvents.contactId })
+      .from(userEvents)
+      .where(
+        and(
+          eq(userEvents.event, criteria.eventName),
+          isNotNull(userEvents.contactId),
           cutoff ? gte(userEvents.occurredAt, cutoff) : undefined,
         ),
       )
-      .groupBy(userEvents.userId)
+      .groupBy(userEvents.contactId)
       .as("present");
 
     const rows = await db
       .select({
-        userId: contactKeySql(),
+        contactId: contacts.id,
+        userKey: contactKeySql(),
+        email: contacts.email,
       })
       .from(contacts)
-      .innerJoin(everFired, eq(everFired.userId, contacts.externalId))
-      .leftJoin(present, eq(present.userId, contacts.externalId))
-      .where(and(isNull(contacts.deletedAt), isNull(present.userId)));
-    return rows.map((r) => r.userId);
+      .innerJoin(everFired, eq(everFired.contactId, contacts.id))
+      .leftJoin(present, eq(present.contactId, contacts.id))
+      .where(
+        and(
+          isNull(contacts.deletedAt),
+          isNull(present.contactId),
+          // D8: hold the cohort where the `external_id` join left it.
+          isNotNull(contacts.externalId),
+        ),
+      );
+    return rows;
   }
 
   // exists / count: group counts then filter by the operator. Fix B: innerJoin
@@ -482,23 +549,33 @@ async function selectEventMatchers(
   // or orphan-event userIds, diverging from the live/reconcile paths.
   const rows = await db
     .select({
-      userId: userEvents.userId,
+      contactId: contacts.id,
+      userKey: contactKeySql(),
+      email: contacts.email,
       cnt: sql<number>`count(*)::int`,
     })
     .from(userEvents)
-    .innerJoin(contacts, eq(contacts.externalId, userEvents.userId))
+    .innerJoin(contacts, eq(contacts.id, userEvents.contactId))
     .where(
       and(
         eq(userEvents.event, criteria.eventName),
         isNull(contacts.deletedAt),
+        // D8: hold the cohort where the `external_id` join left it.
+        isNotNull(contacts.externalId),
         cutoff ? gte(userEvents.occurredAt, cutoff) : undefined,
       ),
     )
-    .groupBy(userEvents.userId);
+    // Grouping on the contacts PK functionally determines the other projected
+    // contacts columns, so the canonical key and email need no aggregate.
+    .groupBy(contacts.id);
 
   return rows
     .filter((r) => matchesEventCount(criteria, Number(r.cnt)))
-    .map((r) => r.userId);
+    .map((r) => ({
+      contactId: r.contactId,
+      userKey: r.userKey,
+      email: r.email,
+    }));
 }
 
 /**
@@ -519,8 +596,8 @@ async function selectEventMatchers(
 async function selectCompositeMatchers(
   db: Database,
   criteria: ConditionEval,
-): Promise<string[]> {
-  const matchers: string[] = [];
+): Promise<BackfillMatcher[]> {
+  const matchers: BackfillMatcher[] = [];
   let cursor: string | null = null;
 
   for (;;) {
@@ -528,6 +605,7 @@ async function selectCompositeMatchers(
       .select({
         id: contacts.id,
         userId: contactKeySql(),
+        email: contacts.email,
         properties: contacts.properties,
       })
       .from(contacts)
@@ -546,11 +624,19 @@ async function selectCompositeMatchers(
         ctx: {
           db,
           userId: contact.userId,
+          // The scan IS a contacts scan, so the subject is exact.
+          contactId: contact.id,
           journeyContext:
             (contact.properties as Record<string, unknown> | null) ?? {},
         },
       });
-      if (isMember) matchers.push(contact.userId);
+      if (isMember) {
+        matchers.push({
+          contactId: contact.id,
+          userKey: contact.userId,
+          email: contact.email,
+        });
+      }
     }
 
     // A short page (fewer than a full batch) means the scan is exhausted.

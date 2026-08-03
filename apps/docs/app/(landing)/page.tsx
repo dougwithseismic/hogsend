@@ -27,6 +27,7 @@ import {
 import { isHogsendConfigured } from "@/components/hogsend/config";
 import { ManifestoVideo } from "@/components/hogsend/manifesto-video";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
+import { StackDeck } from "@/components/landing/stack-deck";
 import { cn } from "@/lib/cn";
 import { getEngineVersion } from "@/lib/engine-version";
 import { DEMO_URL, GITHUB_URL, NPM_URL } from "@/lib/site";
@@ -62,6 +63,8 @@ import { ScaffoldExplorer } from "./_components/scaffold-explorer";
 import { SCAFFOLD_FILES } from "./_components/scaffold-files";
 import { glossaryTransformer } from "./_components/scaffold-glossary";
 import { StudioGallery, type StudioShot } from "./_components/studio-gallery";
+import { SystemMap } from "./_components/system-map";
+import { ENGINE_CODE } from "./_components/system-map-code";
 import { TimingCard } from "./_components/timing-card";
 import { WiredHeroSection } from "./_components/wired-hero";
 import { WordReveal } from "./_components/word-reveal";
@@ -85,10 +88,10 @@ import { WordReveal } from "./_components/word-reveal";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Lifecycle automation in TypeScript",
+    absolute: "Hogsend — The growth stack for teams that code",
   },
   description:
-    "Lifecycle automation in TypeScript for growth engineering teams and their agents. Build onboarding, conversion, retention, and win-back journeys in your repo — with or without PostHog.",
+    "A TypeScript framework for growth teams that code. Identify and enrich the people on your product, react to their events, message them where they are, and measure what moved — with or without PostHog.",
   alternates: { canonical: "/" },
   keywords: [
     "lifecycle automation framework",
@@ -570,7 +573,19 @@ function PsHero({ engineVersion }: { engineVersion?: string }) {
 function PsProductDemo() {
   return (
     <section className="relative overflow-hidden tw-section">
-      <Container className="pt-20 text-center">
+      {/* The twilight atmosphere is the whole section's background — smoke
+          and halftone rise behind the headline and fade out toward the top,
+          so the band has no hard upper seam. The horizon glows stay anchored
+          to the bottom strip below. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,transparent_0%,rgba(0,0,0,0.5)_34%,black_68%)]"
+      >
+        <ThermalLayer strength={0.3} />
+        <HalftoneOverlay className="opacity-45" />
+      </div>
+
+      <Container className="relative pt-20 text-center">
         <Eyebrow>Try it live</Eyebrow>
         <h2
           className={cn(
@@ -591,9 +606,6 @@ function PsProductDemo() {
           Doug loves (halftone dots + a glow that reads warm against the
           purple ground), swapped in for the old hard-red planet. */}
       <div className="relative mt-12 h-[300px] md:h-[340px]">
-        {/* Thermal smoke bed under the horizon glow. */}
-        <ThermalLayer strength={0.3} />
-        <HalftoneOverlay className="opacity-45" />
         <div
           aria-hidden="true"
           className="absolute inset-0 mix-blend-screen"
@@ -650,7 +662,7 @@ function PsProofStrip() {
     <div className="border-[#f6483833] border-b">
       <Container className="flex flex-col gap-3 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3">
         <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
-          Open Source
+          Source-available
         </span>
         <Link
           href={NPM_URL}
@@ -782,9 +794,9 @@ function PsProblem() {
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-              Onboarding stalls. Trials cool off. Payments fail. Customers go
-              quiet. Hogsend turns each leak into a response your product can
-              ship.
+              Hogsend turns each leak into a response your product can ship.
+              Built for code-first teams that need a best-in-class growth
+              engine.
             </p>
             <div className="mt-6 flex items-center gap-6 opacity-80 grayscale">
               <BrandLogo
@@ -864,31 +876,78 @@ function PsProblem() {
 
 /* ------------------------------------------------------------ manifesto -- */
 
-/** The "why now" manifesto quote — a big centered display statement, two-tone
- * (white lede → faint body), mirroring the use-case ProblemStatement block. */
+/** The value band — a big centered display statement, two-tone (white lede →
+ * faint body), continuing the hero's claim: one inbound stream, responses in
+ * git, Studio to watch it all. */
 function PsManifesto() {
   return (
-    <section className="relative tw-section overflow-hidden">
+    // overflow-CLIP, not hidden: an overflow-hidden ancestor becomes the
+    // scrollport for position:sticky and silently kills the map's pinned
+    // engine stage. clip clips the same without creating a scroll container.
+    <section className="relative tw-section overflow-clip">
       <PlusGrid className="top-16 left-0 hidden h-40 w-56 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
-      <Container className="relative pt-24 pb-24 md:pt-28 md:pb-28">
+      {/* Slow full-bleed aurora drifting behind the whole system map —
+          two blurred colour fields on transform-only loops. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="ps-aurora-a absolute top-[15%] left-[-10%] h-[55vw] w-[55vw] rounded-full" />
+        <div className="ps-aurora-b absolute right-[-12%] bottom-[8%] h-[48vw] w-[48vw] rounded-full" />
+      </div>
+      {/* Full-bleed thermal horizon under the system map's channel fan-out —
+          the closing-CTA treatment, dialed WAY down so the channel chips and
+          captions stay readable over it. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[520px]"
+        style={{
+          maskImage:
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, transparent 0%, black 60%, black 100%)",
+        }}
+      >
+        <div
+          className="absolute inset-0 mix-blend-screen"
+          style={{
+            background:
+              "radial-gradient(70% 75% at 50% 100%, rgba(246,72,56,0.15) 0%, rgba(255,150,90,0.06) 45%, transparent 78%)",
+          }}
+        />
+        <ThermalLayer strength={0.12} />
+        <HalftoneOverlay className="opacity-[0.13]" size={9} />
+      </div>
+      <Container className="relative z-10 pt-24 pb-24 md:pt-28 md:pb-28">
         <Reveal className="flex flex-col items-center text-center">
-          <Eyebrow className="mb-8">Why now</Eyebrow>
+          <Eyebrow className="mb-8">How it works</Eyebrow>
           <p
             className={cn(
-              "mx-auto max-w-[920px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
+              "mx-auto max-w-[960px] font-normal text-[26px] leading-[36px] tracking-[-0.02em] md:text-[38px] md:leading-[50px]",
               DISPLAY,
             )}
           >
             <span className="text-white">
-              Go-to-market is an engineering discipline now, and “Marketing
-              Engineer” isn’t a dirty word. It’s the job.
+              Measure everything. React in TypeScript. Prove what moved revenue.
+              Steer it all from Studio.
             </span>{" "}
             <span className="text-white/40">
-              Hogsend is built upon a decade of product-led growth consulting,
-              handed to the scrappy teams who build it in code.
+              Review and ship marketing like the rest of your product, watched
+              live as every send, wait, and branch runs.
             </span>
           </p>
         </Reveal>
+        <SystemMap
+          className="mt-16 md:mt-20"
+          code={ENGINE_CODE.map((f) => (
+            <CodeHighlight
+              key={f.key}
+              code={f.source}
+              lang={f.lang}
+              className="text-[12.5px] leading-[1.65]"
+            />
+          ))}
+        />
       </Container>
     </section>
   );
@@ -2261,10 +2320,10 @@ function PsDiscord() {
           </h2>
           <p className="mt-6 max-w-[680px] text-[17px] text-white/60 leading-relaxed tracking-[-0.01em]">
             The bot verifies through their inbox — a one-click emailed confirm,
-            never the Discord-reported address. From then on presence, messages,
-            and reactions keep a last-seen on the contact, and a journey can
-            send a DM the same way it sends an email, gated on the
-            member&rsquo;s channel preference.
+            never the Discord-reported address. From then on messages and
+            reactions keep a last-seen on the contact, and a journey can send a
+            DM the same way it sends an email, gated on the member&rsquo;s
+            channel preference.
           </p>
         </Reveal>
 
@@ -2604,9 +2663,8 @@ function PsElephant() {
             <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
               Workflows is genuinely good. It lives in the PostHog UI your team
               already has open, consumes the events you already capture, and
-              needs nothing deployed. If you're a PostHog team — or about to
-              become one — it will cover a lot of your early automation, and you
-              should let it.
+              needs nothing deployed. And it isn't either/or — both run off the
+              same PostHog events. Hogsend amplifies everything PostHog does.
             </p>
           </div>
         </Reveal>
@@ -2666,9 +2724,9 @@ function PsElephant() {
           <p className="max-w-[640px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
             They scratch different itches. If you want a drag-and-drop editor,
             Workflows has you covered — you're here because you'd rather build
-            marketing in, as a developer or a product-first engineering team.
-            And it isn't either/or: both run off the same PostHog events, so use
-            each where it fits. Hogsend amplifies everything PostHog does.
+            marketing in, as a developer or a product-first engineering team. If
+            you're a PostHog team, or about to become one, use each where it
+            fits.
           </p>
           <Btn href="/docs/compare/posthog-workflows" variant="outline">
             Read the full comparison
@@ -4133,7 +4191,7 @@ function PsUseCases() {
           )}
         >
           <span className="text-white">
-            The messages every product should send
+            The journeys every product should run
           </span>{" "}
           <span className="text-white/40">— shipped by default.</span>
         </h2>
@@ -4524,7 +4582,7 @@ function PsFooter() {
         <div>
           <InkLogo light />
           <p className="mt-6 text-sm text-white/60 tracking-[-0.02em]">
-            Lifecycle automation, in code
+            The growth stack for teams that code
           </p>
           <p className="mt-2 text-sm text-white/40 tracking-[-0.02em]">
             © 2026 Hogsend. All rights reserved.
@@ -4653,16 +4711,31 @@ export default async function HomePage({
       <PsAgents />
       <PsUseCases />
       {/* Feature deep-dive stack — opened by the setup replay, then video
-          through timing, back to back. */}
+          through timing as a scroll-stacking deck: each card pins when its
+          bottom reaches the viewport and the next slides up over it. The
+          relative wrapper bounds the pinning to the deck. */}
       <PsGetStarted engineVersion={engineVersion} />
-      <PsVideo />
-      <PsFlags />
-      <PsGroups />
-      <PsEmailAnswers />
-      <PsLinks />
-      <PsDiscord />
-      <PsSources />
-      <PsImpact />
+      <StackDeck
+        cards={[
+          { label: "Video", anchor: "video" },
+          { label: "Feature flags", anchor: "flags" },
+          { label: "Groups", anchor: "groups" },
+          { label: "Email answers", anchor: "email-answers" },
+          { label: "Links", anchor: "links" },
+          { label: "Discord", anchor: "discord" },
+          { label: "Impact", anchor: "experiments" },
+          { label: "Event plugins", anchor: "sources" },
+        ]}
+      >
+        <PsVideo />
+        <PsFlags />
+        <PsGroups />
+        <PsEmailAnswers />
+        <PsLinks />
+        <PsDiscord />
+        <PsImpact />
+        <PsSources />
+      </StackDeck>
       <PsProductDemo />
       {/* Temporarily hidden: <_PsStats /> */}
       <PsElephant />

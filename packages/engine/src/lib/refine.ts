@@ -1,7 +1,11 @@
 import { contacts, type Database } from "@hogsend/db";
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
-import { contactKey, normalizeEmail } from "./contacts.js";
+import {
+  contactKey,
+  lookupContactIdByKey,
+  normalizeEmail,
+} from "./contacts.js";
 import { getDb } from "./db.js";
 import {
   countEnrichmentLookups,
@@ -25,7 +29,6 @@ import {
   type RefineTarget,
   runRefineChain,
 } from "./refine-chain.js";
-import { pickRefinedTraits } from "./refine-traits.js";
 
 export type {
   RefineContactOptions,
@@ -40,16 +43,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Refinement — the one new public function of this release. Resolves a contact,
- * spends AT MOST one provider lookup, and lands the vendor's answer as flat
- * `refined_*` contact properties THROUGH `ingestEvent`, so bucket membership
- * re-evaluates synchronously and the GTM loop closes:
+ * spends AT MOST one provider lookup, and lands the vendor's answer on the
+ * CANONICAL contact-property fields (fill-if-absent, so first-party data is
+ * never overwritten) THROUGH `ingestEvent`, so bucket membership re-evaluates
+ * synchronously and the GTM loop closes:
  *
  * ```
  * behaviour → bucket("gtm-high-intent").on("enter")
  *           → refineContact()
- *           → contacts.properties.refined_*        (via ingestEvent)
+ *           → contacts.properties.{company_employees, seniority, …} (via ingestEvent)
  *           → checkBucketMembership re-runs
- *           → bucket("gtm-qualified", b => b.prop("refined_company_employees").gte(100))
+ *           → bucket("gtm-qualified", b => b.prop("company_employees").gte(100))
  * ```
  *
  * A STANDALONE import, never a `ctx` method — the journey context stays
@@ -129,6 +133,9 @@ export async function refineContact(
           ...(input.contactId ? { contactId: input.contactId } : {}),
           eventProperties: input.eventProperties,
           contactProperties: input.contactProperties,
+          ...(input.touchProperties
+            ? { touchProperties: input.touchProperties }
+            : {}),
           source: "enrichment",
           ...(input.idempotencyKey
             ? { idempotencyKey: input.idempotencyKey }
@@ -145,8 +152,8 @@ export async function refineContact(
  * Resolve the refinement subject and everything the lookup needs from it: the
  * canonical key the ingest writes back under, the lookup key (email first, then
  * the contact's company domain), the vendor query's name/company hints, and the
- * `refined_*` traits already on the row (what a cache hit compares against to
- * decide whether this contact still needs the stored answer landed).
+ * row's existing properties (which fill-if-absent reads at landing time to
+ * decide which vendor facts to keep).
  *
  * An email with no contact row is still refinable — the ingest at the end of the
  * chain creates the contact — so a brand-new address is not a `no_lookup_key`.
@@ -171,24 +178,28 @@ async function resolveRefineTarget(
 
   const properties = row.properties ?? {};
   const resolvedEmail = row.email ?? email;
-  // REPLAY SAFETY: every key here must be one this function does NOT write.
-  // The domain becomes the `lookupKey`, which is the `enrichment_lookups`
+  // REPLAY SAFETY: the domain this picks must be STABLE across a run and its
+  // replay. The domain becomes the `lookupKey`, which is the `enrichment_lookups`
   // arbiter — Layer 2, the version-independent exactly-once backstop. (Layer 1,
   // the memo key, is derived from the caller's arguments alone and is immune.)
-  // A self-referential source would make a replay derive a DIFFERENT ledger key,
-  // miss the row it just wrote, and charge the vendor a second time.
+  // A source that refinement itself changes between the run and the replay would
+  // derive a DIFFERENT ledger key, miss the row it just wrote, and charge the
+  // vendor a second time.
   //
-  // `refined_company_domain` is deliberately EXCLUDED: `flattenTraits` writes it
-  // (refine-traits.ts) from the vendor's canonical domain, which need not equal
-  // the one we looked up by. A contact carrying only `domain` would resolve via
-  // `domain` on the original run, then — once `refined_company_domain` exists and
-  // outranks it — resolve differently on replay, deriving a different memo key.
-  // The three keys below are externally supplied and therefore replay-stable.
+  // `company_domain` is the key `flattenTraits` WRITES (the vendor's canonical
+  // domain, which need not equal the one we looked up by), so it is listed LAST.
+  // That ordering — externally-supplied `companyDomain`/`domain` before the
+  // refinement-written `company_domain` — is what keeps the pick stable: the only
+  // way refinement can FILL `company_domain` is fill-if-absent (it was absent),
+  // and whenever it is the pick it was already present (so fill-if-absent leaves
+  // it untouched). A domain-only contact looked up by `domain` keeps resolving
+  // via `domain` even after the vendor fills `company_domain`, because `domain`
+  // outranks it.
   const domain = readString(
     properties,
-    "company_domain",
     "companyDomain",
     "domain",
+    "company_domain",
   );
 
   return {
@@ -202,15 +213,9 @@ async function resolveRefineTarget(
     ...spread("lastName", readString(properties, "lastName", "last_name")),
     ...spread(
       "company",
-      readString(
-        properties,
-        "company",
-        "company_name",
-        "companyName",
-        "refined_company_name",
-      ),
+      readString(properties, "company", "company_name", "companyName"),
     ),
-    refinedProperties: pickRefinedTraits(properties),
+    existingProperties: properties,
   };
 }
 
@@ -239,15 +244,17 @@ async function findContactRow(
     if (row) return row;
   }
   if (keys.userId) {
-    // `userId` is the canonical key — external_id ?? anonymous_id ?? id — so
-    // try each leg in that same precedence.
-    const byExternal = await live(eq(contacts.externalId, keys.userId));
-    if (byExternal) return byExternal;
-    const byAnonymous = await live(eq(contacts.anonymousId, keys.userId));
-    if (byAnonymous) return byAnonymous;
-    if (UUID.test(keys.userId)) {
-      const byId = await live(eq(contacts.id, keys.userId));
-      if (byId) return byId;
+    // `userId` is the canonical key — external_id ?? anonymous_id ?? id — and
+    // `lookupContactIdByKey` owns that whole precedence: the three identity
+    // columns (uuid leg regex-guarded) and then the identity table. The alias
+    // leg is the new behaviour: a MERGED-AWAY key refines the SURVIVOR instead
+    // of missing (the loser's row is soft-deleted, invisible to any column
+    // probe). A key nothing owns still resolves nothing — the caller's
+    // email-only fallback above is untouched.
+    const contactId = await lookupContactIdByKey(db, keys.userId);
+    if (contactId) {
+      const row = await live(eq(contacts.id, contactId));
+      if (row) return row;
     }
   }
   return null;

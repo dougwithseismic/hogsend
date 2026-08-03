@@ -50,19 +50,40 @@ describe("resolveTimezone precedence + validation", () => {
 });
 
 describe("setContactTimezone", () => {
-  function makeDbStub(returnedRows: Array<{ id: string }>) {
+  /**
+   * `returnedRows` is what the UPDATE returns; `resolvedRows` is what the
+   * alias-aware key resolve finds first (PRD 07 T7 — `setContactTimezone` now
+   * resolves the contact id, then writes by row id, so the stub needs a
+   * `select` chain as well as the `update` one). They default to the same rows
+   * because the ordinary case is "the key resolves and the write lands".
+   */
+  function makeDbStub(
+    returnedRows: Array<{ id: string }>,
+    resolvedRows: Array<{ id: string }> = returnedRows,
+  ) {
     const returning = vi.fn().mockResolvedValue(returnedRows);
     const where = vi.fn().mockReturnValue({ returning });
     const set = vi.fn().mockReturnValue({ where });
     const update = vi.fn().mockReturnValue({ set });
+    // One chainable stub covers both of `lookupContactIdByKey`'s probes (the
+    // column one and the alias join); the first resolves, so the second is
+    // never reached in these cases.
+    const chain: Record<string, unknown> = {};
+    const limit = vi.fn().mockResolvedValue(resolvedRows);
+    for (const link of ["from", "where", "innerJoin", "orderBy"]) {
+      chain[link] = vi.fn().mockReturnValue(chain);
+    }
+    chain.limit = limit;
+    const select = vi.fn().mockReturnValue(chain);
     return {
-      db: { update } as unknown as Parameters<
+      db: { select, update } as unknown as Parameters<
         typeof setContactTimezone
       >[0]["db"],
       update,
       set,
       where,
       returning,
+      select,
     };
   }
 
@@ -93,12 +114,15 @@ describe("setContactTimezone", () => {
   });
 
   it("reports updated:false when no contact row matched", async () => {
-    const { db } = makeDbStub([]);
+    const { db, update } = makeDbStub([]);
     const result = await setContactTimezone({
       db,
       userId: "missing",
       timezone: "Europe/Berlin",
     });
     expect(result).toEqual({ updated: false });
+    // A key that owns no live contact resolves to nothing, so the write is
+    // never attempted — the miss behaviour the flip had to preserve.
+    expect(update).not.toHaveBeenCalled();
   });
 });

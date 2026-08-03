@@ -1,14 +1,39 @@
 [build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+# Build from this repo's Dockerfile (deterministic: local `docker build` ==
+# this build), not railpack/nixpacks auto-detection. Railway prefers a root
+# Dockerfile anyway once one exists — pinning it explicitly makes that
+# intentional rather than incidental, and `pnpm preflight` exercises the exact
+# same image.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "src/**",
+  "migrations/**",
+  "scripts/**",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.toml",
+]
 
 [deploy]
 # Two-track migrate: engine track first, then this repo's client track.
 # `scripts/migrate.ts` runs both in order and skips an empty client track
 # gracefully. Engine MUST succeed before the API boots (boot guard in
 # src/index.ts hard-requires the engine schema).
-preDeployCommand = "pnpm db:migrate"
-startCommand = "pnpm start"
+#
+# Run via tsx DIRECTLY (never `pnpm db:migrate`) — the lean runner image ships
+# tsx and the migrations, but running pnpm at runtime triggers corepack + a
+# deps-status check that writes to the read-only, root-owned /app as the
+# unprivileged `node` user (EACCES crash-loop). Same reason `startCommand` is
+# `node dist/index.js` and not `pnpm start`. See the Dockerfile header.
+#
+# These strings are asserted equal to preflight's run-mode commands by
+# `pnpm preflight`, so the gate always boots exactly what deploys.
+preDeployCommand = "tsx scripts/migrate.ts"
+startCommand = "node dist/index.js"
 healthcheckPath = "/v1/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

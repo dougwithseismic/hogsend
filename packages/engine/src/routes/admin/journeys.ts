@@ -1,4 +1,5 @@
 import {
+  bySubject,
   type JourneyGraph,
   journeyGraphSchema,
   resolveTemplateKeyFromConst,
@@ -24,6 +25,7 @@ import {
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
+import { lookupContactIdByKey } from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import {
   computeJourneyLift,
@@ -744,8 +746,13 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     if (status) {
       conditions.push(eq(journeyStates.status, status));
     }
+    // Resolve the operator-supplied text key to its owning contact so the
+    // filter finds enrollments stamped under keys that person has since moved
+    // off. Falls back to the literal string match when no contact owns the
+    // key (pre-flip behaviour).
     if (userId) {
-      conditions.push(eq(journeyStates.userId, userId));
+      const contactId = await lookupContactIdByKey(db, userId);
+      conditions.push(bySubject(journeyStates, { contactId, userKey: userId }));
     }
 
     const where = and(...conditions);

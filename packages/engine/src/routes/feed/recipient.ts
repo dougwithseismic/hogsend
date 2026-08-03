@@ -7,6 +7,7 @@ import {
   contactKey,
   normalizeEmail,
   resolveContact,
+  resolveViaAlias,
 } from "../../lib/contacts.js";
 import {
   InvalidUserTokenError,
@@ -14,7 +15,31 @@ import {
 } from "../../lib/user-token.js";
 
 export type FeedRecipient =
-  | { ok: true; recipientKey: string; contactId?: string }
+  | {
+      ok: true;
+      recipientKey: string;
+      contactId?: string;
+      /**
+       * D1 REFUSAL verdict for the feed's OWN re-ingests (`emitMarkEvents`,
+       * `inapp.feed_cleared`), threaded into their ingest policy's `create`
+       * leg (`false` ⇒ `create: "refuse-on-miss"` — PRD 06 L5 row 8). It is
+       * the ONLY thing those engine-internal re-emits inherit from the
+       * originating request: their `allowMerge`/`trustedKinds` stay full
+       * server trust, because the resolver's caller is the engine with a
+       * server-derived subject, not the pk_ HTTP caller (L4).
+       * `false` ⇒ this recipient is an UNSEEN anonymous visitor: no live contact
+       * owns their anon id, so a re-ingest keyed on it is pure OBSERVATION and
+       * must not mint. Omitted (⇒ create as before) on every identity-asserting
+       * arm — a token/secret `userId`/`email`, or an anon id that already owns a
+       * row (`contactId` is then set and the resolve pins to it).
+       *
+       * Set ONLY on the anon arm, where D8 holds: `recipientKey` IS the raw
+       * `anonymousId`, which is exactly the key the create arm would have made
+       * canonical, so a refused re-ingest and a creating one agree byte-for-byte
+       * and no history is stranded.
+       */
+      allowCreate?: boolean;
+    }
   | { ok: false; status: 400 | 403; error: string };
 
 export interface FeedRecipientParams {
@@ -116,10 +141,27 @@ export async function resolveFeedRecipient(
         ),
       )
       .limit(1);
+    // PRD 03 T5: a SECOND device's anon id lives ONLY as an identity row —
+    // the column holds the first device's. Without this fallback the resolver
+    // read the person as having no contact, forced `allowCreate: false`, and
+    // the device's mark/clear re-ingests were refused: the events stranded
+    // under the raw device id instead of folding into the contact. Trust-wise
+    // this is the same class as the column hit: the id is the caller's OWN
+    // browser id held by the contact, never an identified canonical key (those
+    // were 403'd by `collidesWithIdentified` above).
+    const contactId =
+      anonRow[0]?.id ??
+      (await resolveViaAlias(db, "anonymous", params.anonymousId))?.id;
     return {
       ok: true,
       recipientKey: params.anonymousId,
-      contactId: anonRow[0]?.id,
+      contactId,
+      // No row to pin to ⇒ the provenance pin cannot save us: an unpinned
+      // re-ingest keyed on this anon id would MINT `external_id = <anonId>`,
+      // the very ghost `sendFeedItem` just refused (D1/PRD 02 site 3), and the
+      // next poll would 403 on it. Refuse instead — legal here and only here,
+      // because `recipientKey` is the raw `anonymousId` (D8).
+      ...(contactId ? {} : { allowCreate: false }),
     };
   }
 
@@ -151,6 +193,11 @@ async function canonicalKey(
       .limit(1);
     if (rows[0])
       return { recipientKey: contactKey(rows[0]), contactId: rows[0].id };
+    // Identity-table fallback (PRD 07 T7): a STALE (merged-away) email keys
+    // the SURVIVOR's feed instead of stranding rows under the raw address.
+    const viaAlias = await resolveViaAlias(db, "email", email);
+    if (viaAlias)
+      return { recipientKey: contactKey(viaAlias), contactId: viaAlias.id };
     return { recipientKey: email };
   }
   if (ident.userId) {

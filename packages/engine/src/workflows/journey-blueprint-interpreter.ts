@@ -370,7 +370,14 @@ export async function walkBlueprintGraph(
           for (const condition of conditions) {
             const matched = await evaluateCondition({
               condition,
-              ctx: { db, userId: user.id, journeyContext: user.properties },
+              ctx: {
+                db,
+                userId: user.id,
+                // The enrollment's own stamp — null for a contactless subject,
+                // which keeps the evaluator on the text key.
+                contactId: user.contactId ?? null,
+                journeyContext: user.properties,
+              },
             });
             if (!matched) return false;
           }

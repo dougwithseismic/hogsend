@@ -1,0 +1,32 @@
+-- HAND-EDITED: drizzle emits plain `CREATE UNIQUE INDEX`; each statement below
+-- was rewritten to `CREATE UNIQUE INDEX IF NOT EXISTS` (the house pattern — see
+-- 0070_confused_mindworm.sql). drizzle's pg dialect wraps all pending migrations
+-- in ONE transaction, so `CONCURRENTLY` is impossible here (25001) and these
+-- builds hold a SHARE lock that blocks writes for their duration. An operator
+-- with large tables may pre-create them by hand, online — this migration then
+-- finds them and no-ops.
+--
+-- TIME IT TIGHTLY, or skip it. Do the CONCURRENTLY build IMMEDIATELY BEFORE
+-- deploying the release that carries this migration (or just deploy the engine
+-- first and let the migration build them). Between the index existing and that
+-- engine running, the indexes are LIVE against code that has no
+-- `isUniqueViolationOn` converts, so an adopted-contact collision surfaces raw:
+-- a failed Hatchet journey run, and a 500 on the public unsubscribe endpoint.
+--
+--   CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_contact_journey_active
+--     ON journey_states (contact_id, journey_id)
+--     WHERE contact_id IS NOT NULL AND status IN ('active', 'waiting');
+--
+-- ...and the two twins below. A CONCURRENTLY build of a UNIQUE index FAILS
+-- (leaving an INVALID index to drop and retry) if the table already violates it,
+-- so run packages/db/scripts/preflight-contact-uniqueness.sql FIRST: all three
+-- queries must return zero rows.
+--
+-- All three are PARTIAL on `contact_id IS NOT NULL`. That predicate is
+-- load-bearing, not an optimization: contactless rows (every anonymous visitor —
+-- the engine refuses to mint contacts on observation) must stay OUTSIDE these
+-- indexes and keep getting their uniqueness from the retained string-keyed
+-- indexes, which this migration does not touch.
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_contact_bucket_active" ON "bucket_memberships" USING btree ("contact_id","bucket_id") WHERE contact_id IS NOT NULL AND status = 'active' AND deleted_at IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "email_preferences_contact_email_idx" ON "email_preferences" USING btree ("contact_id","email") WHERE contact_id IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_contact_journey_active" ON "journey_states" USING btree ("contact_id","journey_id") WHERE contact_id IS NOT NULL AND status IN ('active', 'waiting');

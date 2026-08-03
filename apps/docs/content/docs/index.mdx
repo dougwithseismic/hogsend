@@ -1,13 +1,19 @@
 ---
 title: Introduction
-description: Lifecycle automation in TypeScript for product-led teams. Build onboarding, conversion, retention, and win-back journeys in your repo.
+description: A TypeScript framework for growth teams that code. Identify and enrich the people on your product, react to their events, message them where they are, and measure what moved.
 ---
 
 ## What is Hogsend?
 
-**Your customer lifecycle belongs in your repo.**
+**Superpowers for growth teams that code.**
 
-Hogsend is lifecycle automation in TypeScript for product-led teams. It is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A call from your own app, a Stripe event, a PostHog webhook — they all normalize to an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, CRM, or warehouse.
+<Callout title="TL;DR">
+One command scaffolds the whole stack, one command runs it: `pnpm dlx create-hogsend@latest my-app`, then `pnpm hogsend dev` — API, worker, Studio, and database in a single terminal. Already on PostHog? Point a webhook at your app and the events you capture today start triggering journeys.
+</Callout>
+
+Hogsend is a TypeScript framework for growth engineering. Identify and enrich the people on your product, react to the events they fire, message them where they are — email, SMS, Discord, Telegram — and measure what each journey moved. Buckets, tracked links, feature flags, funnels, groups, and a Studio to watch it all come built in.
+
+Under it all is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A call from your own app, a Stripe event, a PostHog webhook — they all normalize to an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, CRM, or warehouse.
 
 Journeys are written by you—or your coding agent—then reviewed in a PR, tested, versioned, and shipped like the rest of your product. Not drag-and-drop canvases. Code.
 

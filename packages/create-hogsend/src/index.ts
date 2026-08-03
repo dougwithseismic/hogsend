@@ -6,6 +6,7 @@ import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import color from "picocolors";
+import { CLOUD_HINT_NOTE, cloudPublishCmd, SELF_HOST_NOTE } from "./cloud.js";
 import {
   applyAdminToEnv,
   applyDomainToEnv,
@@ -209,6 +210,17 @@ function posthogHint(opts: CliOptions, withCd: boolean): string {
   return `${color.cyan(posthogNextStep(opts, withCd))}${color.dim(POSTHOG_HINT_NOTE)}`;
 }
 
+/**
+ * The two lines that say hosting exists. Printed in EVERY outro mode — a
+ * headless scaffold must not learn fewer facts than an interactive one.
+ */
+function cloudLines(opts: CliOptions): string[] {
+  return [
+    `${color.cyan(cloudPublishCmd(opts.packageManager))}   ${color.dim(CLOUD_HINT_NOTE)}`,
+    color.dim(SELF_HOST_NOTE),
+  ];
+}
+
 /** A dim, fixed-width label so the link rows line up under each other. */
 function linkRow(label: string, url: string, note: string): string {
   return `${color.dim(label.padEnd(8))}${color.cyan(url)}   ${color.dim(note)}`;
@@ -226,8 +238,12 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
   // after bootstrap — bootstrap only brings up the infra it depends on).
   // `hogsend dev` is the daily driver: API + worker + health + URLs, one
   // terminal (the manual `dev` + `worker:dev` pair is in the README).
+  // Run it here, hand it to Hogsend Cloud, or self-host it — three paths, same
+  // repo. Hosting is a later decision with no migration, so this is copy, not
+  // a fork in the flow.
   const run = [
     `${color.cyan(binCmd(pm, "hogsend dev"))}   ${color.dim("# API + worker + Studio on :3002, one terminal")}`,
+    ...cloudLines(opts),
   ];
 
   // Where to go next — the three touchpoints the onboarding hinges on.
@@ -440,8 +456,10 @@ async function main(): Promise<void> {
   const cdHint = isCurrentDir(opts) ? "" : `cd ${opts.dir} · `;
   if (interactive) {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
-    // Bootstrap's own summary can't know about PostHog — surface the connect
-    // hint here when the next-steps note was skipped.
+    // Bootstrap's own summary can't know about PostHog or about hosting —
+    // surface both here when the next-steps note was skipped, so a scaffold
+    // that ran setup learns the same facts as one that didn't.
+    if (setupDone) log.info(cloudLines(opts).join("\n"));
     if (setupDone && opts.usingPosthog) log.info(posthogHint(opts, true));
     outro(
       `${color.magenta("Welcome to Hogsend.")} ${color.dim(`${cdHint}${DOCS} · ${DISCORD}`)}`,
@@ -453,6 +471,12 @@ async function main(): Promise<void> {
     const skillsNote = opts.skills
       ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
+    // Same two facts as the interactive outro, in the plain-text shape this
+    // block uses. Present in BOTH branches below — an agent-driven scaffold
+    // that also ran setup must still be told hosting exists.
+    const cloudNote =
+      `    ${cloudPublishCmd(pm)}   ${CLOUD_HINT_NOTE}\n` +
+      `    ${SELF_HOST_NOTE}`;
     const posthogNote = opts.usingPosthog
       ? `\n  ${posthogNextStep(opts, setupDone)}${POSTHOG_HINT_NOTE}`
       : "";
@@ -464,7 +488,9 @@ async function main(): Promise<void> {
       // Bootstrap already streamed its full "Ready" summary — just add the
       // welcome + the `cd` hint it can't know about.
       console.log(`
-  Welcome to Hogsend. ${cdHint}Docs: ${DOCS} · Discord: ${DISCORD}${posthogNote}
+  Welcome to Hogsend. ${cdHint}Docs: ${DOCS} · Discord: ${DISCORD}
+
+${cloudNote}${posthogNote}
 `);
     } else {
       console.log(`
@@ -472,6 +498,7 @@ async function main(): Promise<void> {
 
 ${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap")}     # Docker infra + .env + Hatchet token + migrate
     ${dev}   # API + worker + Studio on :3002, one terminal
+${cloudNote}
 
 ${links}
 ${skillsNote}${posthogNote}

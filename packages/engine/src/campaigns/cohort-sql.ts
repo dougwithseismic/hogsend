@@ -62,6 +62,10 @@ const CONNECTOR_IDENTITY_COLUMNS: Record<string, PgColumn | undefined> = {
  * members. Failure direction here is under-delivery, never over-delivery.
  */
 export function cohortSuppressionSql(): SQL {
+  // PRD 07 T7/D9 — the erasure leg is NOT flipped onto the identity table:
+  // `campaign_recipients.user_id` is a SEND-TIME ECHO of the key the anchor
+  // wrote (the table has no `contact_id`), so joining it back to `contacts` is
+  // deliberate. Re-keying the recipient table is out of PRD 07's scope.
   return sql`not exists (
     select 1 from ${emailPreferences}
     where lower(${emailPreferences.email}) = ${campaignRecipients.email}
@@ -161,6 +165,9 @@ function eventSql(condition: EventCondition, startedAt: Date): SQL {
         Date.now() - durationToMs(condition.within),
       ).toISOString()}::timestamptz`
     : sql.empty();
+  // PRD 05 T8 — this correlation STAYS string-keyed: `campaign_recipients`
+  // has no `contact_id` column, so the text key is the only subject available
+  // on the outer side of the join.
   const positive = sql`exists (
     select 1 from ${userEvents}
     where ${userEvents.userId} = ${campaignRecipients.userId}
@@ -186,6 +193,9 @@ function channelIdentitySql(condition: ChannelIdentityCondition): SQL {
       `Campaign wave \`where\`: channel_identity connector "${condition.connector}" has no linked-identity source in v1 — only "discord" is supported.`,
     );
   }
+  // PRD 07 T7/D9 — same stance as `cohortSuppressionSql`: the recipient
+  // `user_id` is a send-time echo key, not a live identity key, so this join
+  // stays string-matched; re-keying `campaign_recipients` is out of scope.
   const positive = sql`exists (
     select 1 from ${contacts}
     where (${contacts.externalId} = ${campaignRecipients.userId}

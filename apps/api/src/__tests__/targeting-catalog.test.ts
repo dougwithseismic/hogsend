@@ -35,14 +35,19 @@ const EXTERNAL_ID = `${RUN}-contact`;
 const BUCKET_ID = `${RUN}-bucket`;
 
 beforeAll(async () => {
-  await db.insert(contacts).values({
-    externalId: EXTERNAL_ID,
-    properties: { [PROP_KEY]: PROP_VALUE },
-  });
-  // A live, active membership keyed on the contact's logical key so a `bucket`
-  // targeting leaf resolves for the count estimate.
+  const [contact] = await db
+    .insert(contacts)
+    .values({
+      externalId: EXTERNAL_ID,
+      properties: { [PROP_KEY]: PROP_VALUE },
+    })
+    .returning({ id: contacts.id });
+  // A live, active membership keyed on the contact's logical key AND stamped
+  // with its owner (as the dual-write does), so a `bucket` targeting leaf
+  // resolves for the count estimate.
   await db.insert(bucketMemberships).values({
     userId: EXTERNAL_ID,
+    contactId: contact?.id,
     bucketId: BUCKET_ID,
     status: "active",
   });

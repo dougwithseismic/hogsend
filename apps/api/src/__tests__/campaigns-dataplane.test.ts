@@ -255,16 +255,24 @@ beforeAll(async () => {
 
   // Bucket members: one active (a recipient), one left (must be ignored). Both
   // need a live contact for the email join.
-  await db.insert(contacts).values([
-    { externalId: BUCKET_USER, email: BUCKET_EMAIL },
-    { externalId: BUCKET_LEFT_USER, email: BUCKET_LEFT_EMAIL },
-  ]);
+  // PRD 05 T5 builds the bucket audience off `bucket_memberships.contact_id`,
+  // so these fixtures stamp the owner exactly as every membership writer does.
+  const bucketOwners = await db
+    .insert(contacts)
+    .values([
+      { externalId: BUCKET_USER, email: BUCKET_EMAIL },
+      { externalId: BUCKET_LEFT_USER, email: BUCKET_LEFT_EMAIL },
+    ])
+    .returning({ id: contacts.id, externalId: contacts.externalId });
+  const ownerOf = (key: string) =>
+    bucketOwners.find((c) => c.externalId === key)?.id ?? null;
   await db.insert(bucketMemberships).values([
     {
       userId: BUCKET_USER,
       userEmail: BUCKET_EMAIL,
       bucketId: BUCKET_ID,
       status: "active",
+      contactId: ownerOf(BUCKET_USER),
     },
     {
       userId: BUCKET_LEFT_USER,
@@ -272,6 +280,7 @@ beforeAll(async () => {
       bucketId: BUCKET_ID,
       status: "left",
       leftAt: new Date(),
+      contactId: ownerOf(BUCKET_LEFT_USER),
     },
   ]);
 });
@@ -519,6 +528,66 @@ describe("sendCampaignTask (bucket audience)", () => {
     expect(sends).toHaveLength(1);
     expect(sends[0]?.toEmail).toBe(BUCKET_EMAIL);
     expect(sends[0]?.status).toBe("sent");
+  });
+
+  // `bucket_memberships.user_id` holds the CANONICAL key
+  // (`external_id ?? anonymous_id ?? id`), but the audience query joined
+  // `contacts.external_id`. An email-only subscriber — someone who gave you
+  // their address but never created an account, so their canonical key is
+  // their uuid — was an active member the query could not see, and was
+  // silently dropped from every bucket-targeted broadcast. Nothing surfaced
+  // it: a report reading "1 of 1 delivered" looks complete either way.
+  it("sends to a member whose canonical key is not its external_id", async () => {
+    providerSend.mockClear();
+
+    // No external_id: the contact is keyed on its own uuid, which is what the
+    // membership row carries.
+    const emailOnlyAddress = `${RUN}-email-only@example.com`;
+    const [emailOnly] = await db
+      .insert(contacts)
+      .values({ email: emailOnlyAddress })
+      .returning({ id: contacts.id });
+    if (!emailOnly?.id) throw new Error("failed to seed email-only contact");
+    await db.insert(bucketMemberships).values({
+      userId: emailOnly.id,
+      userEmail: emailOnlyAddress,
+      bucketId: BUCKET_ID,
+      status: "active",
+      contactId: emailOnly.id,
+    });
+
+    const [campaign] = await db
+      .insert(campaigns)
+      .values({
+        name: "Bucket blast (canonical key)",
+        status: "queued",
+        audienceKind: "bucket",
+        audienceId: BUCKET_ID,
+        templateKey: "welcome",
+        props: { name: "Ada" },
+      })
+      .returning({ id: campaigns.id });
+    const campaignId = campaign?.id;
+    if (!campaignId) throw new Error("failed to seed campaign");
+
+    const result = await campaignTask.fn({ campaignId });
+    expect(result.status).toBe("sent");
+
+    const sentTo = providerSend.mock.calls.map(
+      (c) => (c[0] as SendEmailOptions).to,
+    );
+    // Both the external-id member and the email-only one — the fix WIDENS the
+    // audience rather than swapping which rows match.
+    expect(sentTo).toContain(emailOnlyAddress);
+    expect(sentTo).toContain(BUCKET_EMAIL);
+    expect(sentTo).not.toContain(BUCKET_LEFT_EMAIL);
+
+    // Cleanup so the earlier active-members-only test stays deterministic
+    // whatever order these run in.
+    await db
+      .delete(bucketMemberships)
+      .where(eq(bucketMemberships.userId, emailOnly.id));
+    await db.delete(contacts).where(eq(contacts.id, emailOnly.id));
   });
 });
 

@@ -973,18 +973,37 @@ async function* resolveBucketRecipients(
       ];
       if (cursor) conditions.push(gt(bucketMemberships.id, cursor));
 
-      return db
-        .select({
-          id: bucketMemberships.id,
-          userId: bucketMemberships.userId,
-          membershipEmail: bucketMemberships.userEmail,
-          contactEmail: contacts.email,
-        })
-        .from(bucketMemberships)
-        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
-        .where(and(...conditions))
-        .orderBy(bucketMemberships.id)
-        .limit(CHUNK_SIZE);
+      return (
+        db
+          .select({
+            id: bucketMemberships.id,
+            userId: bucketMemberships.userId,
+            membershipEmail: bucketMemberships.userEmail,
+            contactEmail: contacts.email,
+          })
+          .from(bucketMemberships)
+          // Join on the OWNING CONTACT, not on any string key. This join has
+          // been narrowed twice before: on `external_id` it dropped every
+          // contact with a NULL one (an email-only subscriber keyed on its
+          // uuid, an anonymous visitor keyed on its `anonymous_id`), and on the
+          // canonical `coalesce(external_id, anonymous_id, id)` it still drops
+          // a member whose membership was adopted under a since-stale key.
+          // Either way they are genuine active members who silently never
+          // receive the campaign, and nothing surfaces it: a send report
+          // showing 40 of 40 delivered looks complete whether or not the
+          // audience was built correctly.
+          //
+          // Suppression is unaffected by widening this join. Every gate lives in
+          // the same `conditions` array applied to this query and is keyed on
+          // `recipientEmail` (`coalesce(membership email, contact email)`, lowered
+          // and trimmed), not on the join column — so a newly-visible member is
+          // filtered by the identical unsubscribed/suppressed `NOT EXISTS` as
+          // everyone else, and the mailer re-checks preferences per send.
+          .innerJoin(contacts, eq(contacts.id, bucketMemberships.contactId))
+          .where(and(...conditions))
+          .orderBy(bucketMemberships.id)
+          .limit(CHUNK_SIZE)
+      );
     },
     cursorOf: (row) => row.id,
     map: (row) => {
@@ -1074,6 +1093,12 @@ async function* resolveOptInListRecipients(
     map: (row) => {
       const categories = (row.categories ?? {}) as Record<string, boolean>;
       if (!listRegistry.isSubscribed(categories, listId)) return undefined;
+      // PRD 05 T6 — deliberately NOT a subject read. This scan is
+      // population-wide (every opted-in row), so there is no subject to scope
+      // by; `row.userId` is the D9 recipient key the send writes back to
+      // `email_sends.user_id` and the idempotency namespace keys off. It may
+      // be frozen at opt-in time, but the contact RETAINS every key it ever
+      // held, so the mailer's per-send resolve still finds the owner.
       return { email: normalizeEmail(row.email), userId: row.userId };
     },
   });

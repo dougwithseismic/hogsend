@@ -62,6 +62,18 @@ export function CookieBanner(): JSX.Element | null {
   const [closing, setClosing] = useState(false);
 
   useEffect(() => {
+    // Sweep a key we no longer write. `hs-demo-email` used to be the "already
+    // signed up" flag; both demos read the session now, so it has no reader and
+    // is just an email address sitting in a visitor's browser. Browsers that
+    // signed up before that change still hold one, so the privacy page's claim
+    // that we do not store it is only true once this has run. Mounted app-wide
+    // in the root layout, so one page view anywhere clears it.
+    try {
+      window.localStorage.removeItem("hs-demo-email");
+    } catch {
+      // Private mode / storage blocked — nothing was stored to remove.
+    }
+
     const current = getConsentStatus();
     setStatus(current);
     // Auto-show only while undecided; afterwards the footer link reopens it.

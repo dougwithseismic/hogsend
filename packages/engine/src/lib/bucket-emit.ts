@@ -51,6 +51,17 @@ export async function emitBucketTransition(opts: {
    * the pin-less resolve (exactly the pre-pin behaviour).
    */
   contactId?: string;
+  /**
+   * D1 creation guard for BOTH re-ingests below, inherited from the originating
+   * ingest via `checkBucketMembership`. `false` ⇒ the transition event stores
+   * and routes exactly as always, but mints no `contacts` row. This is the
+   * ONLY correct behavior when the producer has no `contactId` to pin with:
+   * degrading the pin instead would make the resolver read this transition's
+   * `userId` (the subject's canonical key, often its `anonymous_id`) as an
+   * EXTERNAL key and mint a phantom `external_id` twin (issue #608). Producers
+   * that legitimately create (the reconcile cron, backfill) leave it unset.
+   */
+  allowCreate?: boolean;
   epoch: number;
   source?: BucketTransitionSource;
   /** Carried on a `left` transition's properties → `ctx.reason`. */
@@ -80,6 +91,7 @@ export async function emitBucketTransition(opts: {
     userId,
     userEmail,
     contactId,
+    allowCreate,
     epoch,
     source = "event",
     reason,
@@ -141,6 +153,7 @@ export async function emitBucketTransition(opts: {
     registry,
     hatchet,
     logger,
+    allowCreate,
     event: {
       event: eventName,
       userId,
@@ -161,6 +174,9 @@ export async function emitBucketTransition(opts: {
       registry,
       hatchet,
       logger,
+      // Same inherited refusal as the alias emit above — forwarding it on ONLY
+      // one leg would leave the ghost half-alive for generic-bound journeys.
+      allowCreate,
       event: {
         event: genericEvent,
         userId,

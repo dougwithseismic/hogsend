@@ -272,3 +272,297 @@
     transparent 70%
   );
 }
+
+/* System map ("One stream, one repo"): measured source→engine→channel paths
+   draw in on first view; crimzon pulse dots ride them on a shared 8s clock;
+   a channel chip flashes when its dot lands; the engine ticker is the one
+   merged stream. Transform/opacity/stroke only — no rAF. */
+@keyframes ps-map-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.ps-map-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.ps-map.is-active .ps-map-path {
+  animation: ps-map-draw 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Dot visibility window matches the animateMotion travel leg (first ~30% of
+   the cycle), so a dot never sits parked at the path end. */
+@keyframes ps-map-dot-blink {
+  0% {
+    opacity: 0;
+  }
+  2%,
+  26% {
+    opacity: 1;
+  }
+  31%,
+  100% {
+    opacity: 0;
+  }
+}
+.ps-map-dot {
+  opacity: 0;
+  animation: ps-map-dot-blink 8s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(246, 72, 56, 0.9));
+}
+
+/* Arrival flash on a channel chip — a brief crimzon border lift. */
+@keyframes ps-map-arrive-flash {
+  0%,
+  100% {
+    border-color: var(--tw-border);
+    box-shadow: none;
+  }
+  3% {
+    border-color: rgba(246, 72, 56, 0.55);
+    box-shadow: 0 0 18px rgba(246, 72, 56, 0.16);
+  }
+  14% {
+    border-color: var(--tw-border);
+    box-shadow: none;
+  }
+}
+.ps-map .ps-map-arrive {
+  animation: ps-map-arrive-flash 8s linear infinite;
+}
+
+/* Spine pulse train — always moving, so no blink window needed. */
+.ps-map-dot-solid {
+  filter: drop-shadow(0 0 4px rgba(246, 72, 56, 0.9));
+}
+
+/* Journey trace steps light in sequence on the shared clock. */
+@keyframes ps-map-step-light {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  6%,
+  24% {
+    opacity: 1;
+  }
+  34% {
+    opacity: 0.5;
+  }
+}
+.ps-map .ps-map-step {
+  opacity: 0.5;
+  animation: ps-map-step-light 8s linear infinite;
+}
+
+/* Apollo enrichment: the em-dash swaps for the found value, holds, resets.
+   Negative delays in JSX keep the loop mid-cycle from first paint. */
+@keyframes ps-map-fill-show {
+  0%,
+  8% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  13%,
+  86% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  93%,
+  100% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.ps-map .ps-map-fill {
+  opacity: 0;
+  animation: ps-map-fill-show 14s ease-out infinite;
+}
+@keyframes ps-map-fill-hide {
+  0%,
+  8% {
+    opacity: 1;
+  }
+  13%,
+  86% {
+    opacity: 0;
+  }
+  93%,
+  100% {
+    opacity: 1;
+  }
+}
+.ps-map .ps-map-fill-out {
+  animation: ps-map-fill-hide 14s ease-out infinite;
+}
+
+/* Conversion bars grow in once the map is on screen. */
+@keyframes ps-map-grow-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.ps-map-grow {
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.ps-map.is-active .ps-map-grow {
+  animation: ps-map-grow-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Buckets board: jo@ leaves `active` and lands in `dormant` on a slow loop. */
+@keyframes ps-map-card-leave {
+  0%,
+  38% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  48%,
+  88% {
+    opacity: 0.15;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ps-map .ps-map-card-out {
+  animation: ps-map-card-leave 12s ease-in-out infinite;
+}
+@keyframes ps-map-card-land {
+  0%,
+  42% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  52%,
+  90% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.ps-map .ps-map-card-in {
+  opacity: 0;
+  animation: ps-map-card-land 12s ease-in-out infinite;
+}
+
+/* The one stream — a seamless vertical ticker (list is doubled in JSX). */
+@keyframes ps-map-ticker-scroll {
+  to {
+    transform: translateY(-50%);
+  }
+}
+.ps-map-ticker {
+  animation: ps-map-ticker-scroll 16s linear infinite;
+}
+
+/* The engine band's own clock — how long the open moment holds. Duration is
+   set inline so the bar and the advance interval can't drift apart. */
+@keyframes ps-map-dwell-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+.ps-map-dwell {
+  width: 0%;
+  animation: ps-map-dwell-fill linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-map-path {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  /* No self-advance cue when motion is off — the moment reads as chosen. */
+  .ps-map .ps-map-dwell {
+    animation: none;
+    width: 100%;
+  }
+  .ps-map.is-active .ps-map-path,
+  .ps-map .ps-map-arrive,
+  .ps-map .ps-map-step,
+  .ps-map .ps-map-fill,
+  .ps-map .ps-map-fill-out,
+  .ps-map .ps-map-card-out,
+  .ps-map .ps-map-card-in,
+  .ps-map.is-active .ps-map-grow,
+  .ps-map-ticker {
+    animation: none;
+  }
+  /* Settle every loop in its "answered" state. */
+  .ps-map .ps-map-step,
+  .ps-map .ps-map-fill,
+  .ps-map .ps-map-card-in {
+    opacity: 1;
+  }
+  .ps-map .ps-map-fill-out {
+    opacity: 0;
+  }
+  .ps-map-grow {
+    transform: scaleX(1);
+  }
+  .ps-map-dots {
+    display: none;
+  }
+}
+
+/* System-map aurora: two blurred colour fields drifting on transform-only
+   loops behind the whole band — the "shader" without a shader. */
+@keyframes ps-aurora-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12vw, -6vh, 0) scale(1.25);
+  }
+}
+@keyframes ps-aurora-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.15);
+  }
+  50% {
+    transform: translate3d(-10vw, -10vh, 0) scale(0.95);
+  }
+}
+.ps-aurora-a {
+  background: radial-gradient(
+    circle at center,
+    rgba(246, 72, 56, 0.12) 0%,
+    rgba(255, 150, 90, 0.05) 45%,
+    transparent 70%
+  );
+  filter: blur(60px);
+  mix-blend-mode: screen;
+  animation: ps-aurora-drift-a 46s ease-in-out infinite;
+}
+.ps-aurora-b {
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 132, 78, 0.07) 0%,
+    rgba(246, 72, 56, 0.05) 50%,
+    transparent 72%
+  );
+  filter: blur(70px);
+  mix-blend-mode: screen;
+  animation: ps-aurora-drift-b 38s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-aurora-a,
+  .ps-aurora-b {
+    animation: none;
+  }
+}

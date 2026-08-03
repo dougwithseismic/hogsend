@@ -6,7 +6,11 @@ import type {
   FlagVariant,
   PropertyCondition,
 } from "@hogsend/core";
-import { evaluateCondition, evaluatePropertyConditions } from "@hogsend/core";
+import {
+  bySubject,
+  evaluateCondition,
+  evaluatePropertyConditions,
+} from "@hogsend/core";
 import {
   bucketMemberships,
   contacts,
@@ -72,12 +76,13 @@ export function emptySnapshot(
 }
 
 /**
- * Load the FIXED ~4-query targeting snapshot for a contact. `contactKey` is the
- * logical id `bucket_memberships`/`journey_states` are keyed on (their `userId`
- * is `external_id ?? anonymous_id ?? id`); `contactId` is the trusted uuid used
- * for the property + deal reads (see `evaluateFlagsForContact`'s security note).
- * An anon contact with no rows yields empty sets — correct (targeting-gated
- * flags fall to default).
+ * Load the FIXED ~4-query targeting snapshot for a contact. `contactId` is the
+ * trusted uuid: it scopes the property + deal reads (see
+ * `evaluateFlagsForContact`'s security note) AND, via `bySubject`, the bucket +
+ * journey history reads. `contactKey` (`external_id ?? anonymous_id ?? id`) is
+ * the fallback those two history reads use when NO contact is resolved — an
+ * anonymous visitor, whose rows are still text-keyed. An anon contact with no
+ * rows yields empty sets — correct (targeting-gated flags fall to default).
  */
 export async function loadTargetingSnapshot(opts: {
   db: Database;
@@ -99,7 +104,7 @@ export async function loadTargetingSnapshot(opts: {
       .from(bucketMemberships)
       .where(
         and(
-          eq(bucketMemberships.userId, contactKey),
+          bySubject(bucketMemberships, { contactId, userKey: contactKey }),
           eq(bucketMemberships.status, "active"),
           isNull(bucketMemberships.deletedAt),
         ),
@@ -110,7 +115,7 @@ export async function loadTargetingSnapshot(opts: {
         status: journeyStates.status,
       })
       .from(journeyStates)
-      .where(eq(journeyStates.userId, contactKey)),
+      .where(bySubject(journeyStates, { contactId, userKey: contactKey })),
     contactId
       ? db
           .select({
@@ -183,6 +188,14 @@ export interface TargetingEvalContext {
   mode: "browser" | "server";
   db?: Database;
   userId?: string;
+  /**
+   * The SERVER-TRUSTED `contacts.id` for `userId`, forwarded verbatim to
+   * `ConditionContext.contactId` so a scan leaf reads the PERSON's history
+   * rather than whatever the mutable `userId` text key happens to name. Absent
+   * / null for a subject with no contact (an anonymous visitor), which keeps
+   * the scan on the text key exactly as before.
+   */
+  contactId?: string | null;
 }
 
 /**
@@ -272,6 +285,7 @@ export async function evaluateTargeting(
     ctx: {
       db: ctx.db,
       userId: ctx.userId,
+      contactId: ctx.contactId ?? null,
       // `email_engagement` leaves look up `email_sends.to_email` — key it on the
       // contact's ACTUAL email (from the loaded snapshot), never the contactKey
       // (which is external_id/anonymous_id/id, never an address).
@@ -426,6 +440,7 @@ async function evaluateFlagResolved(
     mode: "browser" | "server";
     db?: Database;
     userId?: string;
+    contactId?: string | null;
   },
 ): Promise<unknown> {
   if (!flag.enabled) return flag.defaultValue;
@@ -435,6 +450,7 @@ async function evaluateFlagResolved(
     mode: ctx.mode,
     db: ctx.db,
     userId: ctx.userId,
+    contactId: ctx.contactId,
   };
   const sets = resolveConditionSets(flag);
   for (let i = 0; i < sets.length; i++) {
@@ -492,6 +508,7 @@ export async function evaluateFlagsForContact(opts: {
       mode,
       db: mode === "server" ? db : undefined,
       userId: mode === "server" ? contactKey : undefined,
+      contactId: mode === "server" ? (contactId ?? null) : null,
     });
   }
   return result;

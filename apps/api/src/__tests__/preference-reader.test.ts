@@ -53,7 +53,10 @@ describe("readRecipientPreferences", () => {
       { userId: `${RUN}-ext-multi`, email, unsubscribedAll: false },
     ]);
 
-    const prefs = await readRecipientPreferences(db, { email });
+    const prefs = await readRecipientPreferences(db, {
+      email,
+      contactId: null,
+    });
     expect(prefs.unsubscribedAll).toBe(true);
     expect(prefs.suppressed).toBe(false);
   });
@@ -67,7 +70,10 @@ describe("readRecipientPreferences", () => {
       { userId: `${RUN}-ext-cat`, email, categories: { x: false } },
     ]);
 
-    const prefs = await readRecipientPreferences(db, { email });
+    const prefs = await readRecipientPreferences(db, {
+      email,
+      contactId: null,
+    });
     expect(prefs.categories.x).toBe(false);
   });
 
@@ -78,7 +84,10 @@ describe("readRecipientPreferences", () => {
       { userId: `${RUN}-ext-supp`, email, suppressed: true },
     ]);
 
-    const prefs = await readRecipientPreferences(db, { email });
+    const prefs = await readRecipientPreferences(db, {
+      email,
+      contactId: null,
+    });
     expect(prefs.suppressed).toBe(true);
     expect(prefs.unsubscribedAll).toBe(false);
   });
@@ -91,7 +100,10 @@ describe("readRecipientPreferences", () => {
       .insert(emailPreferences)
       .values({ userId: extId, email, unsubscribedAll: true });
 
-    const prefs = await readRecipientPreferences(db, { userId: extId });
+    const prefs = await readRecipientPreferences(db, {
+      userId: extId,
+      contactId: null,
+    });
     expect(prefs.unsubscribedAll).toBe(true);
   });
 
@@ -109,13 +121,31 @@ describe("readRecipientPreferences", () => {
     const prefs = await readRecipientPreferences(db, {
       email: emailA,
       userId: userB,
+      contactId: null,
     });
     expect(prefs.suppressed).toBe(true); // from row A (matched by email)
     expect(prefs.unsubscribedAll).toBe(true); // from row B (matched by userId)
   });
 
+  it("drops the string leg entirely when contactId is supplied (bySubject law)", async () => {
+    // PRD 05 — the subject leg is either/or, never OR: a known contact reads by
+    // ownership stamp ONLY. A row matching the string key but stamped to a
+    // DIFFERENT (or no matching) contact must NOT surface.
+    const extId = `${RUN}-eitheror-ext`;
+    const email = `${RUN}-eitheror@example.com`;
+    await db
+      .insert(emailPreferences)
+      .values({ userId: extId, email, unsubscribedAll: true });
+
+    const prefs = await readRecipientPreferences(db, {
+      userId: extId,
+      contactId: "00000000-0000-4000-8000-000000000000",
+    });
+    expect(prefs.unsubscribedAll).toBe(false);
+  });
+
   it("returns clean defaults without querying when neither key is provided", async () => {
-    const prefs = await readRecipientPreferences(db, {});
+    const prefs = await readRecipientPreferences(db, { contactId: null });
     expect(prefs).toEqual({
       unsubscribedAll: false,
       suppressed: false,
@@ -129,6 +159,7 @@ describe("readRecipientPreferences", () => {
     const prefs = await readRecipientPreferences(db, {
       email: "",
       userId: null,
+      contactId: null,
     });
     expect(prefs).toEqual({
       unsubscribedAll: false,

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   jsonb,
@@ -28,8 +29,19 @@ export const emailSends = pgTable(
     // Denormalized recipient identity, set at send time. Lets reporting attribute
     // a send to a contact without joining journey_states, and captures journeyless
     // (raw/batch) sends that have no journey linkage. Both nullable.
+    // PRD 05 F5: the key AS OBSERVED AT WRITE TIME — frozen, never rewritten.
+    // Ownership rides contact_id; reads scope by it (bySubject).
     userId: text("user_id"),
     userEmail: text("user_email"),
+    // Owning contact, dual-written by the engine (PRD 04); no FK by design —
+    // see PRD 04 D1. Indexed partially below.
+    // PRD 07: NULL is LEGAL and permanent here, not a gap to migrate away. A
+    // raw-address send has no subject at all — `SendEmailOptions.userId` is
+    // optional, so a transactional/batch send to a bare address writes the row
+    // with neither a contact nor a key. Where a key IS present the row is a
+    // string-keyed subject and reads scope it by `user_id` (bySubject
+    // else-arm).
+    contactId: uuid("contact_id"),
     templateKey: text("template_key"),
     messageId: text("message_id"),
     fromEmail: text("from_email").notNull(),
@@ -86,5 +98,10 @@ export const emailSends = pgTable(
     // Idempotency dedup for POST /v1/emails (NULLs are distinct in Postgres, so
     // unkeyed journey/system sends never collide).
     uniqueIndex("email_sends_idempotency_key_idx").on(table.idempotencyKey),
+    // PRD 04 D2 — PARTIAL btree on the owning contact; see the twin on
+    // user_events for why the predicate is not a barrier to `contact_id = $1`.
+    index("email_sends_contact_id_idx")
+      .on(table.contactId)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );

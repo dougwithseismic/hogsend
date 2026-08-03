@@ -3,7 +3,7 @@ import type {
   ConversionDestination,
   ConversionDispatchInput,
 } from "@hogsend/core";
-import { CLICK_ID_PARAM_NAMES } from "@hogsend/core";
+import { bySubject, CLICK_ID_PARAM_NAMES } from "@hogsend/core";
 import {
   contacts,
   conversionDispatches,
@@ -98,6 +98,16 @@ export async function createConversionDispatches(opts: {
 export async function recoverClickContext(opts: {
   db: Database;
   userKey: string;
+  /**
+   * The trusted owner uuid. REQUIRED (not optional) for the same reason the
+   * enrollment guards' is: an optional field silently defaults a new caller
+   * onto the mutable text key, and an arrival recorded under the visitor's
+   * anon-era key would then be invisible — the click id the ad platform needs
+   * to match the conversion goes missing exactly when it matters (the click
+   * IS the anonymous era). Pass `null` explicitly for a subject with no
+   * contact; `userKey` still serves that case.
+   */
+  contactId: string | null;
   before: Date;
 }): Promise<ConversionDispatchInput["clicks"]> {
   const rows = await opts.db
@@ -108,7 +118,10 @@ export async function recoverClickContext(opts: {
     .from(userEvents)
     .where(
       and(
-        eq(userEvents.userId, opts.userKey),
+        bySubject(userEvents, {
+          contactId: opts.contactId,
+          userKey: opts.userKey,
+        }),
         eq(userEvents.event, "campaign.arrived"),
         lte(userEvents.occurredAt, opts.before),
       ),
@@ -209,6 +222,7 @@ export async function deliverConversionDispatch(opts: {
   const clicks = await recoverClickContext({
     db,
     userKey: row.conversion.userKey,
+    contactId: row.conversion.contactId,
     before: row.conversion.occurredAt,
   });
 

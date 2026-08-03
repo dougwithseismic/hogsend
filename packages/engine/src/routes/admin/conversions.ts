@@ -313,19 +313,35 @@ export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
     // Per subject: the anchor instant + its subject key. A journey subject is
     // one enrollment row (created_at); an event subject is a contact's FIRST
     // occurrence of the named event in the window.
+    //
+    // `subject_key` is the owning contact when the `contact_id` FK is stamped,
+    // else the mutable text key — `bySubject` written in SQL. Two things the
+    // coalesce is protecting, both of which fail SILENTLY:
+    //   (1) the event leg GROUPS BY this expression, so a bare `contact_id`
+    //       would collapse every contactless (anonymous) event into ONE group
+    //       and crush the `anchored` denominator to a single subject;
+    //   (2) the journey leg would drop nothing but would lose the row's
+    //       identity entirely for contactless enrollments.
+    // The correlated conversion probe below joins `c.contact_id::text` to it:
+    // `conversions.contact_id` is NOT NULL, so a text-keyed (contactless)
+    // subject correctly matches no conversion — it has no contact, therefore
+    // no conversion can belong to it — while still being COUNTED in the
+    // denominator, which is what makes the rate honest.
     const subjects =
       anchorType === "journey"
         ? sql`
-            select js.created_at as anchor_at, js.user_id as subject_key
+            select js.created_at as anchor_at,
+                   coalesce(js.contact_id::text, js.user_id) as subject_key
             from journey_states js
             where js.journey_id = ${anchorId}
               and js.created_at >= ${since}::timestamptz`
         : sql`
-            select min(ue.occurred_at) as anchor_at, ue.user_id as subject_key
+            select min(ue.occurred_at) as anchor_at,
+                   coalesce(ue.contact_id::text, ue.user_id) as subject_key
             from user_events ue
             where ue.event = ${anchorId}
               and ue.occurred_at >= ${since}::timestamptz
-            group by ue.user_id`;
+            group by coalesce(ue.contact_id::text, ue.user_id)`;
 
     // For each subject, the first conversion of this definition at/after the
     // anchor (correlated scalar). Latency = first_conv - anchor_at.
@@ -348,7 +364,7 @@ export const adminConversionsRouter = new OpenAPIHono<AppEnv>()
           (
             select min(c.occurred_at)
             from conversions c
-            where c.user_key = subj.subject_key
+            where c.contact_id::text = subj.subject_key
               and c.definition_id = ${definitionId}
               and c.occurred_at >= subj.anchor_at
           ) as first_conv

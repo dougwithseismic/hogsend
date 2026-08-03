@@ -9,6 +9,7 @@ import {
 } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
 import {
+  bySubject,
   durationToMs,
   evaluateEventCondition,
   evaluatePropertyConditions,
@@ -47,6 +48,7 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { ALL_IDENTITY_KINDS } from "../lib/contacts.js";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { countRecentSends } from "../lib/frequency-cap.js";
 import { toSleepDuration } from "../lib/hatchet-duration.js";
@@ -227,6 +229,15 @@ export function createJourneyContext(
     resolvedTimezone,
     defaultSendWindow,
   } = config;
+
+  // PRD 05 T4 — the subject a history read is about. The run's resolved
+  // `contactId` applies ONLY to the ENROLLED user: `ctx.history.*` takes an
+  // arbitrary `userId` from author code, and scoping someone else's key to THIS
+  // run's contact would read the wrong person. A key that is not the enrolled
+  // one has no contact in hand, so it keeps `bySubject`'s text-key arm — which
+  // is exactly today's behavior for it.
+  const subjectFor = (targetUserId: string): string | null =>
+    targetUserId === userId ? (config.contactId ?? null) : null;
 
   // Replay-stable clock: the real DurableContext.now() is memoized across
   // replays; a pre-eviction engine (or a test ctx without it) falls back to the
@@ -476,7 +487,10 @@ export function createJourneyContext(
             // association map; user scope keeps the enrolled-user predicate.
             groupScope
               ? sql`${userEvents.groups} ->> ${groupScope.type} = ${groupScope.key}`
-              : eq(userEvents.userId, userId),
+              : bySubject(userEvents, {
+                  contactId: config.contactId,
+                  userKey: userId,
+                }),
             eq(userEvents.event, event),
             gte(userEvents.occurredAt, scanSince),
             ...eqPreds,
@@ -675,7 +689,10 @@ export function createJourneyContext(
             .from(userEvents)
             .where(
               and(
-                eq(userEvents.userId, userId),
+                bySubject(userEvents, {
+                  contactId: config.contactId,
+                  userKey: userId,
+                }),
                 eq(userEvents.event, event),
                 gte(userEvents.occurredAt, since),
               ),
@@ -814,7 +831,10 @@ export function createJourneyContext(
       .from(userEvents)
       .where(
         and(
-          eq(userEvents.userId, userId),
+          bySubject(userEvents, {
+            contactId: config.contactId,
+            userKey: userId,
+          }),
           eq(userEvents.event, event),
           gte(userEvents.occurredAt, scanSince),
           lte(userEvents.occurredAt, flushInstant),
@@ -1262,16 +1282,74 @@ export function createJourneyContext(
         registerKey(boundary, idempotencyKey);
       }
 
+      // D11 — a `ctx.trigger` re-ingest is DERIVED from the run's own entry
+      // event, so it must inherit that event's creation verdict rather than
+      // re-resolve the key cold. Since PRD 02 site 1 a journey's `userId` is
+      // routinely a browser anon id owning NO contact row (`ingestEvent` pushes
+      // `userId: resolvedKey` and OMITS `contactId` on a refusal), and
+      // `findByKey` reads a bare `userId` as kind "external" — so a
+      // create-on-miss re-ingest here writes `external_id = <anonId>`, strictly
+      // WORSE than the ghost being removed: `collidesWithIdentified` returns
+      // true for it, so `resolveFeedRecipient` starts 403-ing the visitor out of
+      // their own bell.
+      //
+      // The verdict is per-ARM, because the two arms have different subjects.
+      //
+      // SELF arm (`targetUserId === userId`) — the re-ingest really is derived
+      // from this run's own entry event, so it inherits that event's verdict,
+      // DERIVED (never hardcoded) from two signals already in scope:
+      //   - `config.contactId` — the run's resolved subject row id (pushed by
+      //     the entry ingest, else the enrollment's own contact lookup).
+      //     Present ⇒ the subject HAS a row: pin to it so the re-emit folds
+      //     into that exact row instead of value-probing a canonical key that
+      //     could mint a phantom twin.
+      //   - an asserted email (`targetEmail ?? userEmail`) — a durable identity
+      //     the caller is asserting (D1), so it keeps creating. Anonymous runs
+      //     carry `""` here (`ingestEvent` pushes `userEmail ?? ""`), correctly
+      //     falsy.
+      // Neither ⇒ nothing resolved and nothing asserted: refuse, so re-ingesting
+      // the run's own anon key cold cannot re-resolve it as an EXTERNAL key and
+      // mint the `external_id = <anonId>` twin. The refusal only ever bites a
+      // total MISS — a subject that already owns a contact still links/merges
+      // exactly as before.
+      //
+      // CROSS-USER arm — the run's identity says NOTHING about the person the
+      // author named, so neither signal is in scope for the target: the pin is
+      // `undefined` BY CONSTRUCTION (pinning an author-overridden `userId` to
+      // the run's subject row would misattribute the event), and the run's own
+      // `userEmail` belongs to somebody else. Reading the verdict off them would
+      // make an anonymous run refuse to mint a NAMED target — inverting D1,
+      // under which `ctx.trigger({ userId })` is exactly the "server-side caller
+      // explicitly asks" case — and would strip that target of everything gated
+      // on a non-null `contact_id` (conversions, attribution credits, funnel
+      // progress, deals). So this arm keeps creating, unconditionally.
+      const isSelfTrigger = targetUserId === userId;
+      const pinnedContactId = isSelfTrigger ? config.contactId : undefined;
+      const assertsIdentity = isSelfTrigger
+        ? !!pinnedContactId || !!(targetEmail ?? userEmail)
+        : true;
+
       const runIngest = () =>
         ingestEvent({
           db,
           registry,
           hatchet,
           logger,
+          // PRD 06 T4 (L5 row 25): an engine-internal re-emit is a FULLY
+          // trusted caller regardless of what authenticated the originating
+          // request (L4) — full `trustedKinds`, never a clamp. The ONE thing
+          // it inherits from the verdict above is the `create` leg, keyed off
+          // the same `assertsIdentity` derivation as before.
+          policy: {
+            create: assertsIdentity ? "on-miss" : "refuse-on-miss",
+            allowMerge: "any",
+            trustedKinds: ALL_IDENTITY_KINDS,
+          },
           event: {
             event,
             userId: targetUserId,
             userEmail: targetEmail ?? userEmail,
+            ...(pinnedContactId ? { contactId: pinnedContactId } : {}),
             eventProperties: properties ?? {},
             value,
             currency,
@@ -1357,7 +1435,11 @@ export function createJourneyContext(
 
     guard: {
       async isSubscribed() {
-        const prefs = await checkEmailPreferences({ db, userId });
+        const prefs = await checkEmailPreferences({
+          db,
+          userId,
+          contactId: config.contactId ?? null,
+        });
         return !prefs.unsubscribed;
       },
     },
@@ -1403,7 +1485,12 @@ export function createJourneyContext(
             check: "exists",
             within,
           },
-          ctx: { db, userId: targetUserId, journeyContext },
+          ctx: {
+            db,
+            userId: targetUserId,
+            contactId: subjectFor(targetUserId),
+            journeyContext,
+          },
         });
         return { found: result.matched, count: result.count };
       },
@@ -1417,7 +1504,10 @@ export function createJourneyContext(
           .from(journeyStates)
           .where(
             and(
-              eq(journeyStates.userId, targetUserId),
+              bySubject(journeyStates, {
+                contactId: subjectFor(targetUserId),
+                userKey: targetUserId,
+              }),
               eq(journeyStates.journeyId, targetJourneyId),
             ),
           );
@@ -1490,7 +1580,12 @@ export function createJourneyContext(
         limit = 50,
         within,
       }): Promise<RecentEvent[]> {
-        const conditions = [eq(userEvents.userId, targetUserId)];
+        const conditions = [
+          bySubject(userEvents, {
+            contactId: subjectFor(targetUserId),
+            userKey: targetUserId,
+          }),
+        ];
         if (event) {
           conditions.push(eq(userEvents.event, event));
         }
