@@ -700,6 +700,47 @@ describe("mint-credentials", () => {
     expect(refusals).toBe(0);
   });
 
+  it("waits out the whole rate-limit window on a 429", async () => {
+    // The tenant limits /sign-in/email to 10 per 60s. A 429 means the bucket
+    // is spent — a short doubling retry would keep re-burning it (and, while
+    // all callers shared one bucket, extend the customer's own lockout). The
+    // retry must sleep past the 60s window instead.
+    const fixture = await seedStack("production");
+    const scripted = scriptedClient();
+    const sleeps: number[] = [];
+    let refusals = 1;
+    const limited: TenantCredentialClient = {
+      ...scripted.client,
+      async signIn(args) {
+        if (refusals > 0) {
+          refusals -= 1;
+          throw new TenantCredentialError(
+            "Studio sign-in failed with HTTP 429",
+            429,
+          );
+        }
+        return scripted.client.signIn(args);
+      },
+    };
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      {
+        substrate: new FakeSubstrate(),
+        hatchetTenant: stubHatchet().service,
+        tenantCredentials: limited,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+    );
+
+    expect(result.status).toBe("running");
+    expect(refusals).toBe(0);
+    // Longer than the tenant's 60s sign-in window, not the 1s doubling step.
+    expect(sleeps).toEqual([65_000]);
+  });
+
   it("still parks the stack when the instance itself refuses", async () => {
     // 401 (wrong password) and 403 (Better Auth's CSRF guard) are the
     // instance's own considered answers, not the moment's. Re-driving either

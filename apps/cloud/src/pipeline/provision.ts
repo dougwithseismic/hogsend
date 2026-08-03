@@ -799,11 +799,22 @@ async function persistStackSecrets(
  * caller set `credentialsMinted`. A crash at any point leaves a state the list
  * above already covers.
  */
-/** Sign-in attempts before `mint-credentials` gives up and parks the stack. */
-const SIGN_IN_ATTEMPTS = 8;
+/**
+ * Sign-in attempts before `mint-credentials` gives up and parks the stack.
+ * Five, not eight: the tenant limits `/sign-in/email` to 10 per 60s, and a
+ * burst that large is exactly what emptied the bucket for the CUSTOMER when
+ * every caller shared one (observed live 2026-08-03).
+ */
+const SIGN_IN_ATTEMPTS = 5;
 /** First backoff step; each retry doubles it, capped at 15s. */
 const SIGN_IN_BACKOFF_BASE_MS = 1_000;
 const SIGN_IN_BACKOFF_MAX_MS = 15_000;
+/**
+ * Backoff after a 429: the tenant's sign-in window is 60 seconds, so anything
+ * shorter just re-burns the same bucket and turns the retry loop into the
+ * attacker. Wait the whole window out (plus slack) before trying again.
+ */
+const SIGN_IN_RATE_LIMIT_BACKOFF_MS = 65_000;
 
 /**
  * A sign-in failure that is the MOMENT's, not the credential's.
@@ -817,12 +828,21 @@ const SIGN_IN_BACKOFF_MAX_MS = 15_000;
  * header in `createHttpTenantCredentialClient`). Re-driving either is futile,
  * and retrying 403 once cost eight attempts and a misdiagnosis before the
  * response BODY was read.
+ *
+ * 429 IS transient — the bucket refills — but it gets its own LONG backoff in
+ * `signInWithRetry`: retrying inside the 60s window is what created the
+ * lockout in the first place.
  */
 function isTransientSignIn(error: unknown): boolean {
   if (!(error instanceof TenantCredentialError)) return false;
   // No status at all means the request never got an answer — a reach failure.
   if (error.status === undefined) return true;
-  return error.status === 408 || error.status >= 500;
+  return error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
+/** The tenant's rate limiter answered: the sign-in budget is spent. */
+function isRateLimitedSignIn(error: unknown): boolean {
+  return error instanceof TenantCredentialError && error.status === 429;
 }
 
 async function signInWithRetry(args: {
@@ -846,8 +866,14 @@ async function signInWithRetry(args: {
       last = error;
       if (!isTransientSignIn(error)) throw error;
       if (attempt === SIGN_IN_ATTEMPTS) break;
-      await deps.sleep(delay);
-      delay = Math.min(delay * 2, SIGN_IN_BACKOFF_MAX_MS);
+      if (isRateLimitedSignIn(error)) {
+        // Sit out the whole rate-limit window; a short doubling retry would
+        // spend the refilling budget and extend the lockout for everyone.
+        await deps.sleep(SIGN_IN_RATE_LIMIT_BACKOFF_MS);
+      } else {
+        await deps.sleep(delay);
+        delay = Math.min(delay * 2, SIGN_IN_BACKOFF_MAX_MS);
+      }
     }
   }
   throw last;
