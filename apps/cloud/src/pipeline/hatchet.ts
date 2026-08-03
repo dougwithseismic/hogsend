@@ -5,6 +5,7 @@ import {
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
 import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
+import { ALERT_SWEEP_CRON, sweepStackAlerts } from "./alert-sweep";
 import { runBuildPipeline } from "./build";
 import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
@@ -49,6 +50,9 @@ export const SWEEP_BUILDS_TASK = "sweep-builds";
 
 /** The sweep that re-drives provisions Railway's degraded API interrupted. */
 export const SWEEP_PROVISIONS_TASK = "sweep-provisions";
+
+/** The sweep that tells a human when a stack needs one (PRD 13 T3). */
+export const SWEEP_STACK_ALERTS_TASK = "sweep-stack-alerts";
 
 export interface ProvisionStackInput extends JsonObject {
   stackId: string;
@@ -414,4 +418,74 @@ export function getProvisionSweepTask(
 ): ProvisionSweepTask {
   provisionSweepCache ??= buildProvisionSweepTask(client);
   return provisionSweepCache;
+}
+
+/** The JSON summary a finished alert sweep leaves in Hatchet. */
+export interface AlertSweepTaskOutput extends JsonObject {
+  scanned: number;
+  alerted: string[];
+  suppressed: number;
+  cleared: number;
+  failed: string[];
+}
+
+/**
+ * The `sweep-stack-alerts` cron task — every ten minutes.
+ *
+ * `retries: 0`, and here the reason is the dedupe record. The sweep SENDS
+ * before it records, so a run that died between the send and the write has
+ * already told the operator; a retry would tell them the same thing a second
+ * time, which is precisely the storm this feature exists to prevent. Losing one
+ * tick costs at most ten minutes of silence on a condition that has already
+ * lasted thirty.
+ *
+ * SINGLE-FLIGHT, for the same reason as `sweep-provisions` but with a sharper
+ * consequence. Two overlapping ticks would both read `stack_alerts` before
+ * either wrote to it, both conclude the condition was unsaid, and both send —
+ * the dedupe would be defeated by concurrency alone.
+ *
+ * `CANCEL_NEWEST` is chosen EXPLICITLY. `limitStrategy` defaults to
+ * `CANCEL_IN_PROGRESS`, which here would kill the incumbent sweep partway
+ * through its stack loop: the stacks it had already notified would be recorded,
+ * the rest would not, and every tick would cancel the previous one at a
+ * different point. `CANCEL_NEWEST` keeps the incumbent and discards the
+ * newcomer, which is right for a singleton cron — if the previous sweep is
+ * still working, this one has nothing to add. Do not "simplify" this line away.
+ */
+function buildAlertSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_STACK_ALERTS_TASK,
+    onCrons: [ALERT_SWEEP_CRON],
+    retries: 0,
+    concurrency: {
+      // A constant CEL key: the task takes no input, and a constant is what
+      // makes the limit GLOBAL rather than per-run.
+      expression: `'${SWEEP_STACK_ALERTS_TASK}'`,
+      maxRuns: 1,
+      // Never the default. See the note above.
+      limitStrategy: ConcurrencyLimitStrategy.CANCEL_NEWEST,
+    },
+    // Reads rows and sends a handful of emails; nothing here talks to a
+    // substrate. Generous only against a slow mail API.
+    executionTimeout: "10m",
+    fn: async (): Promise<AlertSweepTaskOutput> => {
+      const result = await sweepStackAlerts();
+      return {
+        scanned: result.scanned,
+        alerted: result.alerted.map((entry) => entry.stackId),
+        suppressed: result.suppressed,
+        cleared: result.cleared.length,
+        failed: result.failed,
+      };
+    },
+  });
+}
+
+export type AlertSweepTask = ReturnType<typeof buildAlertSweepTask>;
+
+let alertSweepCache: AlertSweepTask | undefined;
+
+export function getAlertSweepTask(client: HatchetClient): AlertSweepTask {
+  alertSweepCache ??= buildAlertSweepTask(client);
+  return alertSweepCache;
 }

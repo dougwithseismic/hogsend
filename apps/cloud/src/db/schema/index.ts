@@ -13,6 +13,7 @@ export * from "./environments";
 export * from "./organizations";
 export * from "./provider-keys";
 export * from "./publish-tokens";
+export * from "./stack-alerts";
 export * from "./stack-health";
 export * from "./stacks";
 export * from "./usage-counters";

@@ -7,6 +7,7 @@
  */
 import { env } from "./env";
 import {
+  getAlertSweepTask,
   getBillingSweepTask,
   getBuildSweepTask,
   getCloudHatchet,
@@ -19,6 +20,7 @@ import {
   SWEEP_BILLING_TASK,
   SWEEP_BUILDS_TASK,
   SWEEP_PROVISIONS_TASK,
+  SWEEP_STACK_ALERTS_TASK,
   SWEEP_STACK_HEALTH_TASK,
 } from "./pipeline/hatchet";
 import { startWorker } from "./worker-runtime";
@@ -35,6 +37,7 @@ const worker = startWorker({
     RUN_BUILD_TASK,
     SWEEP_BUILDS_TASK,
     SWEEP_PROVISIONS_TASK,
+    SWEEP_STACK_ALERTS_TASK,
   ],
   // Built here rather than inside the runtime so the runtime stays a plain
   // function over injected config — the Hatchet client is the one dependency
@@ -53,6 +56,7 @@ const worker = startWorker({
         getRunBuildTask(client),
         getBuildSweepTask(client),
         getProvisionSweepTask(client),
+        getAlertSweepTask(client),
       ],
     });
     // `start()` does not resolve until the worker stops — awaiting it here
@@ -82,6 +86,7 @@ process.stdout.write(
       RUN_BUILD_TASK,
       SWEEP_BUILDS_TASK,
       SWEEP_PROVISIONS_TASK,
+      SWEEP_STACK_ALERTS_TASK,
     ],
   })}\n`,
 );

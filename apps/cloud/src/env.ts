@@ -98,6 +98,26 @@ export const env = createEnv({
       .string()
       .min(1)
       .default("Hogsend <no-reply@hogsend.com>"),
+    // OPTIONAL. Where the stack alert sweep sends its notices. Absent → the
+    // notice goes to the server log through the same `logSender` the signup OTP
+    // falls back to, so a local run needs no configuration and cannot page a
+    // real human by accident. A deploy that wants to be told sets it.
+    CLOUD_OPERATOR_EMAIL: z.string().min(1).optional(),
+    // How long a stack may sit in any non-`running` status before the operator
+    // is told. Thirty minutes because a legitimate provision — including the
+    // pipeline's ten-minute health wait and up to a few sweep re-drives — fits
+    // comfortably inside it, so a stack that crosses it is no longer "slow",
+    // it is stuck.
+    CLOUD_ALERT_NON_RUNNING_AFTER_MINUTES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(30),
+    // How long the same unchanged condition stays quiet before it is repeated.
+    // A day, because the alert's job is to tell an operator something they do
+    // not already know: a stack still stuck tomorrow is worth one more line,
+    // and a stack still stuck in five minutes is not.
+    CLOUD_ALERT_COOLDOWN_HOURS: z.coerce.number().int().min(1).default(24),
     // Which `SubstrateProvider` backs every infrastructure operation. Dev/test
     // default to the in-memory fake so a fresh clone can walk a whole
     // provision → running → destroy with no cloud account. Production
