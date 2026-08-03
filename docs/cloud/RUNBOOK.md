@@ -101,8 +101,18 @@ on the `us-1` cell's engine; its token is `CLOUD_HATCHET_CLIENT_TOKEN`. That is
 separate from the per-tenant namespaces the provisioner mints.
 
 `hogsend publish` builds need a Docker daemon, which a Railway container does
-not have — tenant image builds must run somewhere with one. Default-image
-provisioning (the whole signup path) never touches Docker.
+not have. `CLOUD_BUILD_HOST=sandbox` runs each tenant build in a per-build
+Railway Sandbox, which does have one; the sandbox is always destroyed, on
+failure too. Default-image provisioning (the whole signup path) never touches
+Docker.
+
+The sandbox image ships Docker without the buildx plugin, so the bootstrap
+installs it (pinned + checksum-verified) and aliases `docker build` to
+BuildKit. Never let a build fall back to the legacy builder: it trusts
+classic-builder cache metadata that some recycled VMs carry without the
+backing snapshots, and dies at the first cache miss with `parent snapshot …
+does not exist`. A bootstrap that cannot install buildx fails loudly (exit
+71–74) rather than falling back. See [PRD 14](prds/14-publish-build-host.md).
 
 ## Bringing up a new cell (e.g. `eu-1`)
 
