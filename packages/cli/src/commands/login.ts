@@ -11,10 +11,10 @@ const usage = `hogsend login [options]
 
 Sign this machine in to Hogsend Cloud.
 
-Prints a short code and a URL. Open the URL in a browser where you are signed
-in to the dashboard, type the code, and approve — the code is typed rather than
-prefilled into a link on purpose: transcribing it is what binds the browser that
-approves to the machine that asked.
+Prints a short code and a URL, and opens your browser at the approval page
+with the code prefilled — you only confirm and approve. The printed code and
+URL always work on their own, so a machine with no browser (SSH, CI) completes
+the same flow by hand.
 
 The session is stored at ~/.hogsend/credentials.json (mode 0600, one entry per
 cloud host) and is never printed. Revoke it with \`hogsend logout\`, or from

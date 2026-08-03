@@ -10,15 +10,19 @@ import { CloudError } from "./cloud-http.js";
  * refused mint) is exercised with no network and no wall-clock wait. That is
  * the pattern `connect-flow.ts` set for `hogsend connect posthog`.
  *
- * THE ANTI-PHISHING RULE, which shapes this file more than anything else: the
+ * THE PHISHING BOUNDARY, which shapes this file more than anything else: the
  * mint response deliberately carries a BARE verification URL, never one with
  * the user code prefilled (RFC 8628 §5.4 — `apps/cli/device/route.ts` states
- * the reasoning at length). The human transcribing the code from this terminal
- * into that browser is the ONLY thing binding the machine that asked to the
- * session that gets approved. So the code is printed prominently, the URL is
- * printed too, and the browser is opened at the BARE url as a convenience that
- * the flow never depends on: if opening fails, nothing is lost, because what
- * matters was on screen either way.
+ * the reasoning at length). What changed, deliberately: the URL this file
+ * OPENS carries `?code=` so the approve page can prefill it. That is a small,
+ * bounded trade — the link never leaves this machine (it goes straight from
+ * this process to this machine's browser, so there is no stranger to phish),
+ * the code is short-lived and single-use, and it approves nothing without the
+ * signed-in dashboard session that confirms it. The SERVER still never pairs
+ * a URL with a code: a link that can be forwarded must stay bare. The code
+ * and the bare URL are always printed too, so the flow never depends on a
+ * browser existing: if opening fails, nothing is lost, because what matters
+ * was on screen either way.
  *
  * TOKEN HYGIENE INVARIANT: the approved token is RETURNED, never printed. No
  * `emit` call in this file receives it, and no error message carries it.
@@ -157,8 +161,12 @@ export async function runDeviceLogin(
   deps.emit("");
 
   if (!options.noBrowser) {
-    // Bare URL, never one carrying the code — see the module note.
-    const opened = deps.openBrowser(minted.verificationUrl);
+    // The OPENED url carries the code so the page can prefill it — safe only
+    // because this link goes from this process to this machine's own browser
+    // and nowhere else. The PRINTED url above stays bare. See the module note.
+    const approveUrl = new URL(minted.verificationUrl);
+    approveUrl.searchParams.set("code", minted.userCode);
+    const opened = deps.openBrowser(approveUrl.toString());
     if (!opened) {
       deps.emit("  (couldn't open your browser — open the URL above yourself)");
     }
