@@ -71,6 +71,34 @@ export const PROVISION_STEPS = [
 
 export type ProvisionStep = (typeof PROVISION_STEPS)[number];
 
+const PROVISION_STEP_NAMES = new Set<string>(PROVISION_STEPS);
+
+/**
+ * The provision step named by `last_error`'s `[step] …` prefix, or null when
+ * the failure came from somewhere else.
+ *
+ * `last_error` is written by `StackService.recordError`, and this pipeline
+ * prefixes it with the failed step (`[set-env] …`). Other writers park stacks
+ * in `error` too — the build sweep's `[build …]` reap, most notably — and those
+ * are not the provisioner's: a stack parked by a failed PUBLISH has an image
+ * problem, and re-provisioning it would re-run substrate steps that all skip
+ * and then declare it `running` on the old image, hiding the failure the
+ * operator needs to see.
+ *
+ * Declared HERE, next to the steps it matches against, and shared by all three
+ * readers — the provision sweep's re-drive filter, the alert sweep's
+ * `provision_exhausted` condition, and the environment page's copy. Those three
+ * must name exactly the same set of stacks, and three hand-kept copies of one
+ * regex is how two of them quietly drift apart. Returning the NAME rather than
+ * a boolean lets the page say which step stopped.
+ */
+export function failedProvisionStep(
+  lastError: string | null,
+): ProvisionStep | null {
+  const name = /^\[([^\]]+)\]/.exec(lastError ?? "")?.[1] ?? "";
+  return PROVISION_STEP_NAMES.has(name) ? (name as ProvisionStep) : null;
+}
+
 /** The audit `action` a step writes. `stack.provision.set-env`, … */
 export function provisionAuditAction(step: ProvisionStep): string {
   return `stack.provision.${step}`;

@@ -3,7 +3,7 @@ import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { stacks } from "../db/schema";
 import { StackService } from "../services/stacks";
-import { PROVISION_STEPS, runProvisionPipeline } from "./provision";
+import { failedProvisionStep, runProvisionPipeline } from "./provision";
 
 /**
  * The provision sweep: the thing that finishes what Railway interrupted.
@@ -28,7 +28,7 @@ import { PROVISION_STEPS, runProvisionPipeline } from "./provision";
  * Three conditions bring a stack here, and only the first two are dispatched:
  *
  *  - **Parked at a provision step.** `status = 'error'` with a `last_error`
- *    naming one of {@link PROVISION_STEPS}. `error → provisioning` is a legal
+ *    naming one of `PROVISION_STEPS`. `error → provisioning` is a legal
  *    edge and the pipeline's `start` step already handles the resume, so this
  *    is the dashboard's "retry" button on a timer.
  *  - **Abandoned mid-provision.** `status = 'provisioning'` with no write for
@@ -121,23 +121,15 @@ export interface ProvisionSweepOptions {
   run?: (stackId: string) => Promise<unknown>;
 }
 
-/** The `[step] message` shape `runProvisionPipeline` records on a failure. */
-const PROVISION_STEP_NAMES = new Set<string>(PROVISION_STEPS);
-
 /**
  * Did this stack fail INSIDE the provisioning pipeline?
  *
- * `last_error` is written by `StackService.recordError`, and the provisioner
- * prefixes it with the failed step (`[set-env] …`). Other writers park stacks
- * in `error` too — the build sweep's `[build …]` reap, most notably — and those
- * are not ours: a stack parked by a failed PUBLISH has an image problem, and
- * re-provisioning it would re-run substrate steps that all skip and then
- * declare it `running` on the old image, hiding the failure the operator needs
- * to see.
+ * The predicate itself lives with the steps it matches against
+ * ({@link failedProvisionStep}), because the alert sweep and the environment
+ * page have to name exactly the same set of stacks this one re-drives.
  */
 function failedInProvisioning(lastError: string | null): boolean {
-  const match = /^\[([^\]]+)\]/.exec(lastError ?? "");
-  return match ? PROVISION_STEP_NAMES.has(match[1] ?? "") : false;
+  return failedProvisionStep(lastError) !== null;
 }
 
 /** The actor recorded on every row the sweep writes. */

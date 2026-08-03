@@ -107,9 +107,12 @@ export function mergeEnv(
     // believes is in force. Editing an earlier shadowed one would change
     // nothing while looking like it had.
     let index = -1;
+    let current = "";
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if (assignmentOn(lines[i] ?? "", key)) {
+      const found = assignmentOn(lines[i] ?? "", key);
+      if (found) {
         index = i;
+        current = found.value;
         break;
       }
     }
@@ -121,7 +124,6 @@ export function mergeEnv(
       continue;
     }
 
-    const current = assignmentOn(lines[index] ?? "", key)?.value ?? "";
     if (current === value) {
       results.push({ key, outcome: "unchanged" });
       continue;

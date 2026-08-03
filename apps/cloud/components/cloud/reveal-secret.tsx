@@ -28,7 +28,6 @@ export function RevealSecret({
   revealLabel,
   pendingLabel,
   copyLabel,
-  children,
   /** Rendered next to the value once it is on screen — the "now change it" line. */
   warning,
   /** Multi-line secrets (the `.env` fragment) get a block, not an inline span. */
@@ -39,7 +38,6 @@ export function RevealSecret({
   revealLabel: string;
   pendingLabel: string;
   copyLabel: string;
-  children?: ReactNode;
   warning?: ReactNode;
   block?: boolean;
 }): JSX.Element {
@@ -50,7 +48,6 @@ export function RevealSecret({
 
   return (
     <div className="flex flex-col gap-3">
-      {children}
       {state.value ? null : (
         <form action={formAction} className="flex flex-col gap-3">
           <input type="hidden" name="environmentId" value={environmentId} />

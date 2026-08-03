@@ -3,8 +3,8 @@ import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { environments, stacks } from "../db/schema";
 import {
+  failedProvisionStep,
   findOwnerEmail,
-  PROVISION_STEPS,
   type ProvisionStep,
   type StackSecrets,
 } from "../pipeline/provision";
@@ -157,22 +157,6 @@ export interface ProvisionProgress {
   message: string;
 }
 
-/** The `[step] …` prefix `StackService.recordError` writes on a failure. */
-const PROVISION_STEP_NAMES = new Set<string>(PROVISION_STEPS);
-
-/**
- * The provision step named by `last_error`'s `[step] …` prefix, or null when
- * the failure came from somewhere else (a failed build, say). Returning the
- * NAME rather than a boolean lets the copy say which step stopped even when
- * the audit trail has not caught up — `last_error` is written on the stack row
- * itself, so it is the freshest thing there is.
- */
-function failedProvisionStep(lastError: string | null): ProvisionStep | null {
-  const match = /^\[([^\]]+)\]/.exec(lastError ?? "");
-  const name = match?.[1] ?? "";
-  return PROVISION_STEP_NAMES.has(name) ? (name as ProvisionStep) : null;
-}
-
 export interface ProvisionProgressInput {
   /** null when the environment has no stack row at all. */
   stack: {
@@ -221,6 +205,16 @@ export function deriveProvisionProgress(
   const step = errorStep ?? failed?.step ?? pending?.step ?? null;
   const since = failed?.at ?? stack.updatedAt;
 
+  // Reached from two conditions — a parked `error` and a `provisioning` row
+  // that has gone silent — and it is one sentence a customer reads, so it is
+  // written once.
+  const alerted = (): ProvisionProgress => ({
+    state: "alerted",
+    step,
+    since,
+    message: `We retried this ${stack.retryCount} times and stopped. A human at Hogsend has been alerted; you do not need to do anything.`,
+  });
+
   if (stack.status === "running") {
     return {
       state: "ready",
@@ -258,12 +252,7 @@ export function deriveProvisionProgress(
       };
     }
     if (stack.retryCount >= ceiling) {
-      return {
-        state: "alerted",
-        step,
-        since,
-        message: `We retried this ${stack.retryCount} times and stopped. A human at Hogsend has been alerted; you do not need to do anything.`,
-      };
+      return alerted();
     }
     return {
       state: "retrying",
@@ -280,12 +269,7 @@ export function deriveProvisionProgress(
   const silentFor = input.now.getTime() - stack.updatedAt.getTime();
   if (silentFor >= staleAfterMs) {
     if (stack.retryCount >= ceiling) {
-      return {
-        state: "alerted",
-        step,
-        since,
-        message: `We retried this ${stack.retryCount} times and stopped. A human at Hogsend has been alerted; you do not need to do anything.`,
-      };
+      return alerted();
     }
     return {
       state: "retrying",

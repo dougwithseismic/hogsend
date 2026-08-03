@@ -10,7 +10,7 @@ import type {
   StackAlertFacts,
 } from "../lib/stack-alert-notice";
 import { stackAlertBody, stackAlertSubject } from "../lib/stack-alert-notice";
-import { PROVISION_STEPS } from "./provision";
+import { failedProvisionStep } from "./provision";
 import {
   DEFAULT_PROVISION_ATTEMPT_CEILING,
   DEFAULT_PROVISION_STALE_AFTER_MS,
@@ -75,21 +75,18 @@ export const ALERT_SWEEP_CRON = "*/10 * * * *";
  */
 const UNALERTED_STATUSES = new Set(["suspended", "destroying", "destroyed"]);
 
-/** The `[step] message` prefix `runProvisionPipeline` records on a failure. */
-const PROVISION_STEP_NAMES = new Set<string>(PROVISION_STEPS);
-
 /**
  * Did this stack fail inside the provisioning pipeline?
  *
- * Mirrors the provision sweep's own predicate, because `provision_exhausted`
- * must name exactly the stacks that sweep gave up on — a stack parked in
- * `error` by a failed BUILD was never a provision candidate, so it was never
- * re-driven and its `retry_count` says nothing about a provision ceiling. It
- * still reaches an operator through `non_running`.
+ * The SAME predicate the provision sweep filters on, shared rather than
+ * mirrored, because `provision_exhausted` must name exactly the stacks that
+ * sweep gave up on — a stack parked in `error` by a failed BUILD was never a
+ * provision candidate, so it was never re-driven and its `retry_count` says
+ * nothing about a provision ceiling. It still reaches an operator through
+ * `non_running`.
  */
 function failedInProvisioning(lastError: string | null): boolean {
-  const match = /^\[([^\]]+)\]/.exec(lastError ?? "");
-  return match ? PROVISION_STEP_NAMES.has(match[1] ?? "") : false;
+  return failedProvisionStep(lastError) !== null;
 }
 
 export interface AlertSweepOptions {
@@ -310,19 +307,20 @@ export async function sweepStackAlerts(
     }
 
     for (const condition of fresh) {
+      const signature = fingerprint(condition, row);
       await db
         .insert(stackAlerts)
         .values({
           stackId,
           organizationId: row.organizationId,
           condition,
-          fingerprint: fingerprint(condition, row),
+          fingerprint: signature,
           lastAlertedAt: now,
         })
         .onConflictDoUpdate({
           target: [stackAlerts.stackId, stackAlerts.condition],
           set: {
-            fingerprint: fingerprint(condition, row),
+            fingerprint: signature,
             lastAlertedAt: now,
             // Cleared on purpose: this row is the memory of a condition that is
             // matching NOW, and leaving a clear stamp on it would make the very
