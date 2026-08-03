@@ -1,6 +1,6 @@
 # PRD 13 — Phase 0: the smallest truthful launch
 
-Status: `[ ]` not started. Depends on 04, 05, 07, 08.
+Status: `[x]` all six tasks done. Depends on 04, 05, 07, 08.
 
 This PRD is the execution plan for **Phase 0** in [GUIDE.md](../GUIDE.md) §10,
 plus the CLI seam Doug asked about on 2026-08-03. When every task here is done,
@@ -174,7 +174,7 @@ Already shipped and unchanged: `hogsend login` (device flow), `whoami`,
 
 Effort: 2-3h.
 
-### T6 — `hogsend env pull`
+### T6 — `hogsend env pull` `[x]`
 
 The command that makes "I signed up on the web, now point my repo at it" a
 one-liner. Fetches the tenant instance URL and API key from Cloud and merges
