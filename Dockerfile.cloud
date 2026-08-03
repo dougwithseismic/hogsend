@@ -54,6 +54,14 @@ COPY --from=build /app/apps/cloud/src ./apps/cloud/src
 COPY --from=build /app/apps/cloud/scripts ./apps/cloud/scripts
 COPY --from=build /app/apps/cloud/drizzle.config.ts ./apps/cloud/drizzle.config.ts
 
+# The scaffold template, which the build pipeline reads at RUN time: a tenant
+# tarball that carries no Dockerfile is built with this one, and the preflight
+# gate always overwrites the archive's own script with this copy (an uploaded
+# script must never execute on the build host). `scaffoldTemplateDir()` walks
+# up from apps/cloud/src/pipeline to the repo root, so the path must mirror the
+# workspace layout rather than sit beside the app.
+COPY --from=build /app/packages/create-hogsend/template ./packages/create-hogsend/template
+
 USER node
 WORKDIR /app/apps/cloud
 ENV PATH="/app/apps/cloud/node_modules/.bin:$PATH"
