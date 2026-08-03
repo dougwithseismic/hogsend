@@ -1,4 +1,7 @@
-import { USER_CODE_ALPHABET } from "@/src/services/cli-device-codes";
+import {
+  USER_CODE_ALPHABET,
+  USER_CODE_LENGTH,
+} from "@/src/lib/user-code-shape";
 
 /**
  * The input-side half of the user-code rules: what the segmented code boxes on
@@ -12,8 +15,8 @@ import { USER_CODE_ALPHABET } from "@/src/services/cli-device-codes";
  * punctuation, not code, so a pasted `KS66-XZSM` fills all eight boxes.
  */
 
-/** Eight characters, displayed as XXXX-XXXX. Mirrors the service constants. */
-export const USER_CODE_LENGTH = 8;
+// Re-exported so the input component reads shape and sanitizer from one place.
+export { USER_CODE_LENGTH };
 
 /**
  * Uppercase, drop display punctuation (whitespace and dashes), keep only

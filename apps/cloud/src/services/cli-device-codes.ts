@@ -4,6 +4,11 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { cliDeviceCodes } from "../db/schema";
+import {
+  USER_CODE_ALPHABET,
+  USER_CODE_GROUP,
+  USER_CODE_GROUPS,
+} from "../lib/user-code-shape";
 import { writeAudit } from "./audit";
 import { insertCliSession } from "./cli-sessions";
 import { isUniqueViolation } from "./errors";
@@ -72,20 +77,11 @@ export const DEVICE_CODE_RETENTION_MS = 24 * 60 * 60 * 1000;
  */
 export const DEVICE_CODE_REAP_BATCH = 500;
 
-/**
- * The user-code alphabet: no `I`, `L`, `O`, `U`, no `0` and no `1`.
- *
- * Read-aloud safety is the whole requirement — `0`/`O` and `1`/`I`/`L` are the
- * pairs a human transcribes wrong, and `U` is dropped so no random draw spells
- * something a support call has to apologise for. 30 symbols over 8 characters
- * is ~39 bits, which is not the security boundary (the device code is) but is
- * far past what the rate limiter admits.
- */
-export const USER_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-/** `XXXX-XXXX` — two groups of four, hyphenated for reading. */
-const USER_CODE_GROUP = 4;
-const USER_CODE_GROUPS = 2;
+// The alphabet and shape live in `../lib/user-code-shape` — a PURE module,
+// because the approve page's client-side code boxes need them and this file
+// drags the database into any bundle that imports it. One definition, re-
+// exported here so existing importers keep working.
+export { USER_CODE_ALPHABET, USER_CODE_GROUP, USER_CODE_GROUPS };
 
 /** How many collisions the generator will absorb before giving up. */
 const USER_CODE_ATTEMPTS = 8;
