@@ -35,11 +35,13 @@ import {
  *  1. **Approval requires a signed-in dashboard user.** A user code names a
  *     request; it never authorises one. That is why every function here starts
  *     from `readMemberContext`.
- *  2. **Approval requires an explicit confirmation.** The user code is typed,
- *     never prefilled from a link, and the caller must additionally confirm
- *     they started the login. Both exist to stop the one attack a device flow
- *     has: a stranger's pending login, sent to a signed-in victim as a URL, and
- *     bound to the victim's organization in one click (RFC 8628 §5.4).
+ *  2. **Approval requires an explicit confirmation.** The caller must confirm
+ *     they started the login themselves. That confirmation is what stops the
+ *     one attack a device flow has: a stranger's pending login, sent to a
+ *     signed-in victim as a URL, and bound to the victim's organization in
+ *     one click (RFC 8628 §5.4). The approve page MAY arrive with the code
+ *     prefilled — `hogsend login` opens the local browser that way — but the
+ *     SERVER never mints such a link, and nothing is approved unconfirmed.
  *  3. **Approval binds the caller's ACTIVE organization.** The session gets
  *     the same tenancy the pages resolve, so a CLI can never reach an org the
  *     human who approved it was not in.

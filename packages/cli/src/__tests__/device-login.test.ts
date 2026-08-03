@@ -91,7 +91,7 @@ function harness(script: Record<string, Scripted[]>) {
 }
 
 describe("hogsend login — device flow", () => {
-  it("prints the code, opens the BARE url, and returns the token without printing it", async () => {
+  it("prints the code, opens the prefilled url, and returns the token without printing it", async () => {
     const { deps, lines, opened } = harness({
       "/api/cli/device": [MINT],
       "/api/cli/device/poll": [
@@ -118,12 +118,43 @@ describe("hogsend login — device flow", () => {
     expect(printed).toContain("WXYZ-2468");
     expect(printed).toContain(`${BASE_URL}/cli/approve`);
 
-    // THE ANTI-PHISHING RULE: the URL that is opened carries no code. A link
-    // that prefills it turns a stranger's pending login into one click.
-    expect(opened).toEqual([`${BASE_URL}/cli/approve`]);
-    expect(opened[0]).not.toContain("WXYZ-2468");
+    // The PRINTED url stays bare — it is what a human might forward or retype,
+    // and a forwardable link must never carry a code. Only the url handed to
+    // THIS machine's browser is prefilled, so the page can fill the boxes.
+    expect(printed).not.toContain("code=WXYZ-2468");
+    expect(opened).toEqual([`${BASE_URL}/cli/approve?code=WXYZ-2468`]);
 
     // ...and the token is in NO printed line.
+    expect(printed).not.toContain(TOKEN);
+  });
+
+  it("degrades silently when the browser cannot open — the flow still completes by hand", async () => {
+    const { deps, lines } = harness({
+      "/api/cli/device": [MINT],
+      "/api/cli/device/poll": [
+        {
+          status: 200,
+          body: {
+            status: "approved",
+            token: TOKEN,
+            sessionId: "s",
+            organizationId: "o",
+            userId: "u",
+          },
+        },
+      ],
+    });
+    deps.openBrowser = () => false;
+
+    // A headless machine is not an error: the code and URL were printed, so
+    // the login proceeds exactly as if --no-browser had been passed.
+    const result = await runDeviceLogin({ label: "ssh-box" }, deps);
+    expect(result.token).toBe(TOKEN);
+
+    const printed = lines.join("\n");
+    expect(printed).toContain("WXYZ-2468");
+    expect(printed).toContain(`${BASE_URL}/cli/approve`);
+    expect(printed).toContain("couldn't open your browser");
     expect(printed).not.toContain(TOKEN);
   });
 

@@ -26,7 +26,9 @@ import {
  * into one click for whoever opens it, and the human transcribing the code is
  * the ONLY thing binding the browser that approves to the machine that asked.
  * The label below is attacker-chosen (this endpoint is unauthenticated), so it
- * can never be that binding. The CLI prints the code; the human types it.
+ * can never be that binding. The CLI prints the code and the bare URL; the
+ * ONLY prefilled link that exists is the one the CLI builds locally for the
+ * same machine's own browser, which no stranger ever holds.
  */
 
 /** The path the dashboard serves the approve page from. */

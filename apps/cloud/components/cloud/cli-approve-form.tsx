@@ -2,24 +2,24 @@
 
 import type { JSX } from "react";
 import { useActionState } from "react";
+import { CliCodeInput } from "@/components/cloud/cli-code-input";
 import { Button } from "@/components/ds/button";
-import { Field, FormError, Input } from "@/components/ds/field";
+import { Field, FormError } from "@/components/ds/field";
 import { EMPTY_ACTION_STATE, type FormAction } from "@/src/lib/action-state";
 
 /**
  * The one control on the CLI approve page: the code, the confirmation, and the
  * two verbs.
  *
- * The field starts EMPTY and is never prefilled from the URL. That friction is
- * the security property, not an oversight: transcribing the code is the only
- * thing tying the browser that approves to the machine that asked, so a link
- * that filled it in would let a stranger's pending login be bound to whoever
- * opens the link in one click (RFC 8628 §5.4). The label the page shows came
- * from the requesting machine and can say anything, so it cannot stand in.
- *
- * The confirmation is the same rule said out loud. It is `required` here for
- * the sake of a clear form, and REFUSED again on the server — a checkbox is
- * markup, and markup gates nothing.
+ * The code renders as eight boxes and MAY arrive prefilled from `?code=` —
+ * that link is minted by `hogsend login` for this machine's own browser, so
+ * prefilling it costs the human nothing they were protecting. The guard
+ * against a FORWARDED link (a stranger's pending login sent to a signed-in
+ * victim, RFC 8628 §5.4) is the confirmation below: an explicit "I started
+ * this login myself", `required` here for the sake of a clear form and
+ * REFUSED again on the server — a checkbox is markup, and markup gates
+ * nothing. The label the page shows came from the requesting machine and can
+ * say anything, so it can never stand in for that confirmation.
  *
  * Approve and Deny are two submit buttons over ONE form, so there is exactly
  * one code on screen and no way to approve one code while reading another. The
@@ -27,8 +27,11 @@ import { EMPTY_ACTION_STATE, type FormAction } from "@/src/lib/action-state";
  */
 export function CliApproveForm({
   action,
+  initialCode,
 }: {
   action: FormAction;
+  /** From `?code=` when the CLI opened this page. */
+  initialCode?: string;
 }): JSX.Element {
   const [state, formAction, pending] = useActionState(
     action,
@@ -38,20 +41,11 @@ export function CliApproveForm({
   return (
     <form action={formAction} className="flex flex-col gap-5">
       <Field
-        htmlFor="cli-user-code"
+        htmlFor="cli-user-code-0"
         label="Code from the terminal"
-        hint="Eight characters, shown as XXXX-XXXX. Case and spacing do not matter."
+        hint="Eight characters, shown as XXXX-XXXX. Paste the whole code into any box; case and spacing do not matter."
       >
-        <Input
-          id="cli-user-code"
-          name="userCode"
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          placeholder="XXXX-XXXX"
-          required
-          className="font-mono tracking-[0.2em]"
-        />
+        <CliCodeInput initialCode={initialCode} />
       </Field>
 
       <label

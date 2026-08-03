@@ -27,12 +27,13 @@ export const metadata: Metadata = {
  *  - the ORGANIZATION the session will be bound to — the caller's active org,
  *    which is what the approval actually hands over.
  *
- * `?code=` may be present (a shared or bookmarked link) and is used ONLY to
- * look the pending request up. It is deliberately NOT written into the field:
- * typing the code is the only thing binding the browser that approves to the
- * machine that asked, and a prefilled link would make a stranger's pending
- * login one click for whoever opens it (RFC 8628 §5.4). Nothing on this page
- * ever renders the code, for the same reason.
+ * `?code=` may be present — `hogsend login` opens this page with it so the
+ * boxes below arrive filled and the human only confirms. It is used to look
+ * the pending request up AND to prefill the input, a deliberate trade: the
+ * code is short-lived, single-use, and approves nothing without this
+ * signed-in session plus the explicit "I started this" confirmation, which
+ * remains the guard against a forwarded link (RFC 8628 §5.4). The SERVER
+ * still never mints a URL carrying a code.
  *
  * A signed-out visitor is bounced by the proxy and by `requireActiveOrganization`
  * alike, both of which carry the whole URL through the sign-in round trip.
@@ -63,8 +64,8 @@ export default async function CliApprovePage({ searchParams }: PageProps) {
   const raw = (await searchParams).code;
   const supplied = Array.isArray(raw) ? raw[0] : raw;
   // Normalized before it reaches the round trip, so the URL a signed-out
-  // visitor is sent back to survives sign-in unchanged. A LOOKUP key only —
-  // see the module note.
+  // visitor is sent back to survives sign-in unchanged. Used for the lookup
+  // AND the prefill — see the module note.
   const code = supplied ? (normalizeUserCode(supplied) ?? "") : "";
 
   const { record } = await requireActiveOrganization({
@@ -118,7 +119,7 @@ export default async function CliApprovePage({ searchParams }: PageProps) {
             organization's environments if your role allows it, and it never
             gains more than your role has.
           </p>
-          <CliApproveForm action={decideCliDeviceAction} />
+          <CliApproveForm action={decideCliDeviceAction} initialCode={code} />
         </Card>
       </Section>
     </main>
