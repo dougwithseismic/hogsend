@@ -107,11 +107,18 @@ beforeAll(async () => {
 /**
  * The sweep is deliberately UNSCOPED — it visits every `running` stack there
  * is, which is the whole point of a control-plane cron. So each test starts
- * from an empty stack table for this org (environments cascade to stacks, and
- * stacks to their health rows), and a count assertion below means what it says.
+ * from an empty stack table (environments cascade to stacks, and stacks to
+ * their health rows), and a count assertion below means what it says.
+ *
+ * Note the delete is GLOBAL, not scoped to `ORG_ID`. Scoping it was a latent
+ * bug: a `running` stack belonging to any other org — a hand-made row left in
+ * the cloud database by local development, say — is visited by the sweep like
+ * any other. That inflates the count, and worse, it is NOT registered with the
+ * per-test `FakeSubstrate`, so its `getHealth` throws and silently eats a
+ * `failNext` script intended for one of the stacks the test actually seeded.
  */
 beforeEach(async () => {
-  await db.delete(environments).where(eq(environments.organizationId, ORG_ID));
+  await db.delete(environments);
 });
 
 afterAll(async () => {
