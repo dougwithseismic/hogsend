@@ -33,7 +33,7 @@ Do not invent a new shape.
 
 ## Tasks
 
-### T1 — Provision re-drive sweep
+### T1 — Provision re-drive sweep `[x]`
 
 Railway's API degrades for calls made from inside Railway. Provisioning bursts
 draw persistent `Problem processing request` 400s. The retry budget was already
