@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
-import type { ActionState, PublishTokenState } from "@/src/lib/action-state";
+import type {
+  ActionState,
+  PublishTokenState,
+  SecretRevealState,
+} from "@/src/lib/action-state";
 import { rotatePublishToken } from "@/src/lib/build-views";
 import {
   ConfirmationMismatchError,
@@ -14,6 +18,13 @@ import {
   suspendEnvironment,
 } from "@/src/lib/environment-ops";
 import { NotPermittedError } from "@/src/lib/org-members";
+import {
+  createTenantKey,
+  revealIngestSnippet,
+  revealStudioPassword,
+  revokeTenantKey,
+  tenantErrorMessage,
+} from "@/src/lib/tenant-access";
 import {
   CloudServiceError,
   IllegalTransitionError,
@@ -243,4 +254,127 @@ export async function rotatePublishTokenAction(
     notice: "New publish token issued. The previous one no longer works.",
     token: issued.token,
   };
+}
+
+/**
+ * The four tenant-instance actions on the environment page: reveal the Studio
+ * password, reveal the `.env` snippet, mint a key, revoke a key.
+ *
+ * Adapters, like everything above. The tenancy scope, the operator-role gate,
+ * the readiness check, the audit write and the control-plane-key refusal all
+ * live in `src/lib/tenant-access.ts`, and `tenantErrorMessage` turns a tenant
+ * instance that did not answer into a sentence rather than a stack trace.
+ *
+ * NOTHING here revalidates on a reveal: a router refresh would discard the
+ * action state the secret is carried in, and the page has not changed anyway.
+ */
+
+const keyIdSchema = environmentSchema.extend({
+  keyId: z.string().min(1, "No key was named."),
+});
+
+const keyNameSchema = environmentSchema.extend({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Give the key a name.")
+    .max(64, "A key name is at most 64 characters."),
+});
+
+export async function revealStudioPasswordAction(
+  _previous: SecretRevealState,
+  formData: FormData,
+): Promise<SecretRevealState> {
+  const parsed = environmentSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the form.",
+      value: null,
+    };
+  }
+
+  try {
+    const revealed = await revealStudioPassword(await headers(), parsed.data);
+    return {
+      error: null,
+      notice: `Sign in as ${revealed.email}.`,
+      value: revealed.password,
+    };
+  } catch (error) {
+    return { error: tenantErrorMessage(error), value: null };
+  }
+}
+
+export async function revealIngestSnippetAction(
+  _previous: SecretRevealState,
+  formData: FormData,
+): Promise<SecretRevealState> {
+  const parsed = environmentSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the form.",
+      value: null,
+    };
+  }
+
+  try {
+    const revealed = await revealIngestSnippet(await headers(), parsed.data);
+    return { error: null, notice: null, value: revealed.snippet };
+  } catch (error) {
+    return { error: tenantErrorMessage(error), value: null };
+  }
+}
+
+export async function createTenantKeyAction(
+  _previous: SecretRevealState,
+  formData: FormData,
+): Promise<SecretRevealState> {
+  const parsed = keyNameSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the form.",
+      value: null,
+    };
+  }
+
+  try {
+    const created = await createTenantKey(await headers(), parsed.data);
+    revalidateEnvironment(parsed.data.environmentId);
+    return {
+      error: null,
+      notice: `Key "${parsed.data.name}" created.`,
+      value: created.key,
+    };
+  } catch (error) {
+    return { error: tenantErrorMessage(error), value: null };
+  }
+}
+
+export async function revokeTenantKeyAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = keyIdSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+    keyId: formData.get("keyId"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    await revokeTenantKey(await headers(), parsed.data);
+  } catch (error) {
+    return { error: tenantErrorMessage(error) };
+  }
+
+  revalidateEnvironment(parsed.data.environmentId);
+  return { error: null, notice: "Key revoked. It stops working immediately." };
 }

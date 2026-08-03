@@ -19,8 +19,7 @@ import {
 import { ProviderKeyService } from "../services/provider-keys";
 import { StackService } from "../services/stacks";
 import {
-  createHttpTenantCredentialClient,
-  getFakeTenantCredentialClient,
+  resolveTenantCredentialClient,
   TENANT_INGEST_KEY_NAME,
   type TenantCredentialClient,
 } from "../services/tenant-credentials";
@@ -142,15 +141,18 @@ function defaultDeps(): ProvisionDeps {
     // A fake substrate serves no engine on `apiPublicUrl`, so the real HTTP
     // client would only ever time out there. Same choice `getSubstrate()`
     // already makes, read from the same env var.
-    tenantCredentials:
-      env.CLOUD_SUBSTRATE === "fake"
-        ? getFakeTenantCredentialClient()
-        : createHttpTenantCredentialClient(),
+    tenantCredentials: resolveTenantCredentialClient(),
   };
 }
 
-/** Secrets the CONTROL PLANE mints for a stack (`stack_secrets_encrypted`). */
-interface StackSecrets {
+/**
+ * Secrets the CONTROL PLANE mints for a stack (`stack_secrets_encrypted`).
+ *
+ * Exported because the dashboard reads the same blob back to show the customer
+ * their Studio password and their ingest key. One declaration, so a field added
+ * here cannot be silently missed by the reader.
+ */
+export interface StackSecrets {
   betterAuthSecret: string;
   /**
    * The tenant's first Studio admin password, generated HERE rather than by the
@@ -192,7 +194,7 @@ interface ProvisionContext {
  * role. Roles are a comma-separated list ("owner,admin" is legal), so the match
  * is a substring test over the list rather than an equality check.
  */
-async function findOwnerEmail(
+export async function findOwnerEmail(
   db: CloudDb,
   organizationId: string,
 ): Promise<string | null> {

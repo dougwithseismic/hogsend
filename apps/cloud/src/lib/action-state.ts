@@ -45,3 +45,29 @@ export type PublishTokenFormAction = (
   state: PublishTokenState,
   formData: FormData,
 ) => Promise<PublishTokenState>;
+
+/**
+ * The shape the three revealing actions on the environment page return: the
+ * ordinary state plus ONE secret string.
+ *
+ * Same rule as `PublishTokenState` — the value travels in the action's return
+ * value and nowhere else, so a reload shows the hidden state again. It carries
+ * no `token` name because the three secrets are different things (a Studio
+ * password, an `.env` fragment, a freshly minted key) and the component that
+ * renders each one supplies its own label and its own warning.
+ */
+export type SecretRevealState = ActionState & {
+  /** The revealed value, or null when the action refused or has not run. */
+  value?: string | null;
+};
+
+export const EMPTY_SECRET_REVEAL_STATE: SecretRevealState = {
+  error: null,
+  notice: null,
+  value: null,
+};
+
+export type SecretRevealFormAction = (
+  state: SecretRevealState,
+  formData: FormData,
+) => Promise<SecretRevealState>;
