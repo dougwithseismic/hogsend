@@ -49,6 +49,7 @@ you a Studio URL and an API key:
 
 ```bash
 pnpm hogsend login     # signs THIS machine in; the session lives in ~/.hogsend
+pnpm hogsend env pull  # merges your instance URL + API key into .env (never printed)
 pnpm hogsend publish   # ships this app to your Cloud environment
 pnpm hogsend open      # open the environment's dashboard page
 ```

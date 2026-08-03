@@ -329,6 +329,25 @@ export interface TenantAccessView {
   controlPlaneKeyName: string;
 }
 
+/**
+ * A caller that has already been identified, with the tenancy and the role the
+ * gate below needs and nothing else.
+ *
+ * The reason this type exists: the SAME credential-release rules are reached
+ * from two doors. The dashboard resolves a browser session
+ * (`readMemberContext`); `GET /api/cli/environments/:id/credentials` resolves a
+ * `hogsend login` CLI session (`lib/cli-auth.ts`). Identity resolution is the
+ * ONLY difference between them — the tenancy scope, the operator-role check,
+ * the readiness check, the decrypt and the audit write are identical, and two
+ * copies of a credential-release gate is how one of them silently loses a
+ * check. So the gate takes a resolved caller and both doors pass through it.
+ */
+export interface TenantCaller {
+  organizationId: string;
+  userId: string;
+  role: string;
+}
+
 interface ResolvedAccess {
   organizationId: string;
   userId: string;
@@ -341,17 +360,13 @@ interface ResolvedAccess {
   client: TenantCredentialClient;
 }
 
-/** The environment + its stack, scoped to the caller's own organization. */
-async function loadOwnEnvironment(
-  headers: Headers,
+/** The environment + its stack, scoped to an already-resolved caller's org. */
+async function loadEnvironmentForCaller(
+  context: TenantCaller,
   environmentId: string,
   deps: TenantAccessDeps,
-): Promise<{
-  context: { organizationId: string; userId: string; role: string };
-  stack: StackRow | null;
-} | null> {
+): Promise<{ context: TenantCaller; stack: StackRow | null } | null> {
   const db = deps.db ?? defaultDb;
-  const context = await readMemberContext(headers, deps);
 
   const [row] = await db
     .select({ environment: environments, stack: stacks })
@@ -366,6 +381,16 @@ async function loadOwnEnvironment(
     .limit(1);
   if (!row) return null;
   return { context, stack: row.stack };
+}
+
+/** The same, for a browser session: resolve the caller, then scope. */
+async function loadOwnEnvironment(
+  headers: Headers,
+  environmentId: string,
+  deps: TenantAccessDeps,
+): Promise<{ context: TenantCaller; stack: StackRow | null } | null> {
+  const context = await readMemberContext(headers, deps);
+  return loadEnvironmentForCaller(context, environmentId, deps);
 }
 
 /**
@@ -416,13 +441,17 @@ export async function readTenantAccess(
  * (so a foreign id reads as "not found" and leaks nothing), then the operator
  * role, then the stack's own readiness.
  */
-async function resolveTenantAccess(
-  headers: Headers,
+async function resolveTenantAccessFor(
+  caller: TenantCaller,
   input: { environmentId: string },
   deps: TenantAccessDeps,
 ): Promise<ResolvedAccess> {
   const db = deps.db ?? defaultDb;
-  const loaded = await loadOwnEnvironment(headers, input.environmentId, deps);
+  const loaded = await loadEnvironmentForCaller(
+    caller,
+    input.environmentId,
+    deps,
+  );
   if (!loaded) throw new NotFoundError("Environment", input.environmentId);
 
   assertCanOperateEnvironments(loaded.context.role);
@@ -472,6 +501,16 @@ async function resolveTenantAccess(
     db,
     client: deps.credentials ?? resolveTenantCredentialClient(),
   };
+}
+
+/** The browser door onto {@link resolveTenantAccessFor}. */
+async function resolveTenantAccess(
+  headers: Headers,
+  input: { environmentId: string },
+  deps: TenantAccessDeps,
+): Promise<ResolvedAccess> {
+  const context = await readMemberContext(headers, deps);
+  return resolveTenantAccessFor(context, input, deps);
 }
 
 /**
@@ -542,7 +581,33 @@ export async function revealIngestSnippet(
   input: { environmentId: string },
   deps: TenantAccessDeps = {},
 ): Promise<{ snippet: string; apiUrl: string }> {
-  const access = await resolveTenantAccess(headers, input, deps);
+  const context = await readMemberContext(headers, deps);
+  const revealed = await revealIngestCredentials(context, input, deps);
+  return {
+    snippet: ingestEnvSnippet(revealed),
+    apiUrl: revealed.apiUrl,
+  };
+}
+
+/**
+ * The instance URL and the control-plane-minted ingest key, released to an
+ * already-identified caller.
+ *
+ * THE gate for this credential, for every door — the dashboard's
+ * {@link revealIngestSnippet} and `hogsend env pull`'s
+ * `GET /api/cli/environments/:id/credentials` both land here, so a check
+ * removed from it is removed from both rather than from one silently.
+ *
+ * The key material is the copy the control plane stored at mint time — the
+ * instance itself cannot hand it back, by design. The audit row names the actor
+ * and the stack and carries the key's ID, never the key.
+ */
+export async function revealIngestCredentials(
+  caller: TenantCaller,
+  input: { environmentId: string },
+  deps: TenantAccessDeps = {},
+): Promise<{ apiUrl: string; apiKey: string }> {
+  const access = await resolveTenantAccessFor(caller, input, deps);
   const apiKey = access.secrets.ingestApiKey;
   if (!apiKey) {
     throw new TenantAccessUnavailableError(
@@ -559,10 +624,7 @@ export async function revealIngestSnippet(
       apiKeyId: access.secrets.ingestApiKeyId ?? null,
     },
   });
-  return {
-    snippet: ingestEnvSnippet({ apiUrl: access.apiUrl, apiKey }),
-    apiUrl: access.apiUrl,
-  };
+  return { apiUrl: access.apiUrl, apiKey };
 }
 
 /** One key as the page lists it. Never carries key material — the list route
