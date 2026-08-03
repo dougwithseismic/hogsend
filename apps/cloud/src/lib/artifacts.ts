@@ -10,6 +10,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { artifactBucketConfig, env } from "../env";
 
 /**
@@ -157,6 +158,39 @@ export interface ArtifactStore {
 }
 
 /**
+ * How long a presigned artifact download URL stays valid. Short on purpose:
+ * the URL is a bearer credential for one tenant's uploaded source, minted
+ * moments before the sandbox `curl`s it — fifteen minutes covers a slow
+ * store-fetch-and-extract on the worker side with margin, and nothing more.
+ */
+export const PRESIGNED_ARTIFACT_URL_TTL_SECONDS = 15 * 60;
+
+/**
+ * The OPTIONAL presigning capability (PRD 14 task 3). A capability interface
+ * rather than an `ArtifactStore` method because presigning is an object-store
+ * fact, not a storage fact: a local-disk path has no URL a sandbox could
+ * fetch, and a local store that "implemented" this by throwing would turn a
+ * configuration error into a mid-build surprise. Callers narrow with
+ * {@link supportsPresignedDownload} and refuse loudly when it is absent.
+ */
+export interface PresignedDownloadCapable {
+  /** A time-limited GET URL for one stored artifact. The URL is a secret. */
+  presignArtifactDownload(
+    key: string,
+    expiresInSeconds?: number,
+  ): Promise<string>;
+}
+
+export function supportsPresignedDownload(
+  store: ArtifactStore,
+): store is ArtifactStore & PresignedDownloadCapable {
+  return (
+    typeof (store as Partial<PresignedDownloadCapable>)
+      .presignArtifactDownload === "function"
+  );
+}
+
+/**
  * The store today's deployments actually run: files under
  * `CLOUD_ARTIFACTS_DIR`, exactly as the pre-seam free functions wrote them.
  * Every path it touches goes through `resolveArtifactPath`, so the uuid rules
@@ -235,13 +269,53 @@ function isS3NotFound(error: unknown): boolean {
  * process: a bad key here is an object name rather than a filesystem path,
  * but the refusal posture is identical to the local store's.
  */
-export class S3ArtifactStore implements ArtifactStore {
+export class S3ArtifactStore
+  implements ArtifactStore, PresignedDownloadCapable
+{
   private readonly client: S3ClientLike;
   private readonly bucket: string;
+  private readonly presign: (
+    client: S3ClientLike,
+    command: GetObjectCommand,
+    expiresInSeconds: number,
+  ) => Promise<string>;
 
-  constructor(opts: { client: S3ClientLike; bucket: string }) {
+  constructor(opts: {
+    client: S3ClientLike;
+    bucket: string;
+    /**
+     * Injectable so the contract suite proves key validation and TTL wiring
+     * without a real signing config. The default is the SDK's signer, which
+     * needs the REAL `S3Client` (it reads credentials and endpoint off the
+     * client's config) — the cast is safe because the default is only ever
+     * paired with the real client `buildConfiguredStore` constructs.
+     */
+    presign?: (
+      client: S3ClientLike,
+      command: GetObjectCommand,
+      expiresInSeconds: number,
+    ) => Promise<string>;
+  }) {
     this.client = opts.client;
     this.bucket = opts.bucket;
+    this.presign =
+      opts.presign ??
+      ((client, command, expiresIn) =>
+        getSignedUrl(client as S3Client, command, { expiresIn }));
+  }
+
+  /** See {@link PresignedDownloadCapable}. Same key refusal as every other
+   * operation, BEFORE any signing — a bad key must never become a URL. */
+  async presignArtifactDownload(
+    key: string,
+    expiresInSeconds: number = PRESIGNED_ARTIFACT_URL_TTL_SECONDS,
+  ): Promise<string> {
+    parseArtifactKey(key);
+    return await this.presign(
+      this.client,
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      expiresInSeconds,
+    );
   }
 
   async put(key: string, bytes: Uint8Array): Promise<void> {
@@ -349,9 +423,13 @@ function buildConfiguredStore(): ArtifactStore {
         accessKeyId: bucket.accessKeyId,
         secretAccessKey: bucket.secretAccessKey,
       },
-      // Path-style addressing: Railway Buckets (like most S3-compatible
-      // endpoints) serve `endpoint/bucket/key`, not a per-bucket subdomain.
-      forcePathStyle: true,
+      // Virtual-host addressing (`bucket.endpoint/key`), NOT path-style.
+      // Read from a real Railway Bucket rather than assumed: its credentials
+      // payload reports `urlStyle: "virtual-host"` and `region: "auto"`. The
+      // SDK's default is virtual-host, so this is stated rather than set —
+      // the comment is the point, because the opposite guess fails only on
+      // the first real upload.
+      forcePathStyle: false,
     }),
     bucket: bucket.bucket,
   });

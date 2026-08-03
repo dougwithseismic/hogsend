@@ -8,7 +8,13 @@ import {
 } from "@aws-sdk/client-s3";
 import { describe, expect, it } from "vitest";
 import type { S3ClientLike } from "../lib/artifacts";
-import { buildArtifactKey, S3ArtifactStore } from "../lib/artifacts";
+import {
+  buildArtifactKey,
+  LocalDiskArtifactStore,
+  PRESIGNED_ARTIFACT_URL_TTL_SECONDS,
+  S3ArtifactStore,
+  supportsPresignedDownload,
+} from "../lib/artifacts";
 import { describeArtifactStoreContract } from "./helpers/artifact-store-contract";
 
 /**
@@ -159,5 +165,49 @@ describe("S3ArtifactStore — object-store behaviour", () => {
     await expect(
       store.remove(buildArtifactKey(randomUUID(), randomUUID())),
     ).rejects.toThrow("AccessDenied");
+  });
+});
+
+describe("S3ArtifactStore — presigned downloads (PRD 14 task 3)", () => {
+  it("presigns by key with the short default TTL", async () => {
+    const client = new FakeS3Client();
+    const signed: { key: string; expiresIn: number }[] = [];
+    const store = new S3ArtifactStore({
+      client,
+      bucket: BUCKET,
+      presign: async (_client, command, expiresIn) => {
+        signed.push({ key: String(command.input.Key), expiresIn });
+        return `https://signed.example/${command.input.Key}`;
+      },
+    });
+    const key = buildArtifactKey(randomUUID(), randomUUID());
+    const url = await store.presignArtifactDownload(key);
+    expect(url).toBe(`https://signed.example/${key}`);
+    expect(signed).toEqual([
+      { key, expiresIn: PRESIGNED_ARTIFACT_URL_TTL_SECONDS },
+    ]);
+    // Short by design: the URL is a bearer credential for tenant source.
+    expect(PRESIGNED_ARTIFACT_URL_TTL_SECONDS).toBeLessThanOrEqual(15 * 60);
+  });
+
+  it("rejects a bad key before any signing happens", async () => {
+    let signs = 0;
+    const store = new S3ArtifactStore({
+      client: new FakeS3Client(),
+      bucket: BUCKET,
+      presign: async () => {
+        signs += 1;
+        return "https://never";
+      },
+    });
+    await expect(
+      store.presignArtifactDownload("../etc/passwd.tar.gz"),
+    ).rejects.toThrow();
+    expect(signs).toBe(0);
+  });
+
+  it("only the S3 store claims the capability — local disk does not", () => {
+    expect(supportsPresignedDownload(makeStore().store)).toBe(true);
+    expect(supportsPresignedDownload(new LocalDiskArtifactStore())).toBe(false);
   });
 });

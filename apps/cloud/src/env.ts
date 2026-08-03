@@ -244,6 +244,30 @@ export const env = createEnv({
     // services that fail their first pull. NEVER logged, never audited.
     CLOUD_REGISTRY_USERNAME: z.string().min(1).optional(),
     CLOUD_REGISTRY_PASSWORD: z.string().min(1).optional(),
+    // Which host runs the build pipeline's commands (PRD 14 task 3).
+    // `local` — the default everywhere — is the existing `spawnExec` path:
+    // docker on THIS machine, which is right for dev and CI and for any
+    // deploy whose worker carries a daemon. `sandbox` runs every command in
+    // a per-build Railway Sandbox (create → exec → destroy), the only host
+    // in the deployed control plane that has Docker at all. Selection is
+    // explicit rather than inferred: silently picking a host is how a build
+    // ends up running tenant code somewhere nobody chose.
+    CLOUD_BUILD_HOST: z.enum(["local", "sandbox"]).default("local"),
+    // The Railway environment sandboxes are created in. OPTIONAL here;
+    // `sandbox` mode without it is refused by the boot guard below — a
+    // partial sandbox configuration is an error, never a fallback.
+    CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID: z.string().min(1).optional(),
+    // OPTIONAL region pin for the sandbox. Absent → Railway's default.
+    CLOUD_BUILD_SANDBOX_REGION: z.string().min(1).optional(),
+    // The leak backstop: if this process dies between creating a sandbox and
+    // destroying it, Railway reaps the idle VM after this long. An hour
+    // comfortably exceeds the longest legal build (the 60m task ceiling)
+    // without letting an orphan run all night.
+    CLOUD_BUILD_SANDBOX_IDLE_TIMEOUT_MINUTES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(60),
     // Where `packages/create-hogsend/template/` lives, for the two files the
     // build pipeline falls back to (the generic `Dockerfile` and the
     // parameterized `scripts/preflight.sh`). Defaults to the monorepo path
@@ -343,8 +367,92 @@ export function artifactBucketConfig(): ArtifactBucketConfig | undefined {
 // Dev and test run with no bucket and never reach the second throw; `next
 // build` is covered by the same `skipValidation` escape hatch as the schema
 // (build-time evaluation carries none of the deploy's runtime secrets).
+/** A fully-resolved sandbox build host: everything the session needs. */
+export interface SandboxBuildHostConfig {
+  /** The Railway workspace token the sandbox mutations authenticate with. */
+  token: string;
+  /** The Railway environment sandboxes are created in. */
+  environmentId: string;
+  region?: string;
+  idleTimeoutMinutes: number;
+}
+
+/**
+ * The sandbox build-host configuration, resolved all-or-nothing — the same
+ * posture `resolveArtifactBucketConfig` established. Returns `undefined`
+ * when `CLOUD_BUILD_HOST` is `local`, the full config when everything the
+ * sandbox needs is present, and THROWS on anything in between:
+ *
+ *  - no `CLOUD_RAILWAY_TOKEN` — the sandbox mutations have nothing to
+ *    authenticate with;
+ *  - no `CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID` — nowhere to create one;
+ *  - no artifact bucket (`hasBucket`) — the artifact enters the sandbox by
+ *    PRESIGNED DOWNLOAD, which only the S3 store can mint, so a sandbox
+ *    host over the local-disk store would fail on the first build's first
+ *    command. A configuration error must be a boot error, not a runtime
+ *    surprise.
+ *
+ * Pure over its inputs so the boot guard and the tests share one
+ * implementation; `sandboxBuildHostConfig()` binds it to the validated env.
+ */
+export function resolveSandboxBuildHostConfig(
+  vars: {
+    CLOUD_BUILD_HOST: "local" | "sandbox";
+    CLOUD_RAILWAY_TOKEN?: string;
+    CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID?: string;
+    CLOUD_BUILD_SANDBOX_REGION?: string;
+    CLOUD_BUILD_SANDBOX_IDLE_TIMEOUT_MINUTES?: number;
+  },
+  hasBucket: boolean,
+): SandboxBuildHostConfig | undefined {
+  if (vars.CLOUD_BUILD_HOST !== "sandbox") return undefined;
+
+  const missing = [
+    ...(vars.CLOUD_RAILWAY_TOKEN ? [] : ["CLOUD_RAILWAY_TOKEN"]),
+    ...(vars.CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID
+      ? []
+      : ["CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID"]),
+    ...(hasBucket
+      ? []
+      : [`an artifact bucket (${ARTIFACT_BUCKET_VAR_NAMES.join(", ")})`]),
+  ];
+  if (missing.length > 0) {
+    throw new Error(
+      `CLOUD_BUILD_HOST=sandbox is missing ${missing.join(
+        ", ",
+      )}. The sandbox build host needs a Railway token, an environment to ` +
+        "create sandboxes in, and an S3 artifact bucket (the sandbox " +
+        "downloads the artifact from a presigned URL). Set them all, or " +
+        "CLOUD_BUILD_HOST=local — a partial set never falls back silently.",
+    );
+  }
+  return {
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    token: vars.CLOUD_RAILWAY_TOKEN!,
+    // biome-ignore lint/style/noNonNullAssertion: emptiness checked above
+    environmentId: vars.CLOUD_BUILD_SANDBOX_ENVIRONMENT_ID!,
+    ...(vars.CLOUD_BUILD_SANDBOX_REGION
+      ? { region: vars.CLOUD_BUILD_SANDBOX_REGION }
+      : {}),
+    idleTimeoutMinutes: vars.CLOUD_BUILD_SANDBOX_IDLE_TIMEOUT_MINUTES ?? 60,
+  };
+}
+
+/** The validated env's sandbox build host — what the build runner selects
+ * on. `undefined` = the local `spawnExec` path, unchanged. */
+export function sandboxBuildHostConfig(): SandboxBuildHostConfig | undefined {
+  return resolveSandboxBuildHostConfig(
+    env,
+    resolveArtifactBucketConfig(env) !== undefined,
+  );
+}
+
 if (process.env.SKIP_ENV_VALIDATION !== "true") {
   const bucket = resolveArtifactBucketConfig(env);
+  // The sandbox build host fails at BOOT on a partial configuration, for the
+  // bucket guard's reason: every var here is load-bearing for the first real
+  // publish, and discovering the gap then means a customer discovered it.
+  resolveSandboxBuildHostConfig(env, bucket !== undefined);
   if (env.NODE_ENV === "production" && !bucket) {
     throw new Error(
       `NODE_ENV=production requires an artifact bucket: set ${ARTIFACT_BUCKET_VAR_NAMES.join(
