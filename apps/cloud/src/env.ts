@@ -136,6 +136,26 @@ export const env = createEnv({
     // correct for a single-workspace account; a multi-workspace account must
     // name one or the projects land somewhere nobody is watching.
     CLOUD_RAILWAY_WORKSPACE_ID: z.string().min(1).optional(),
+    // Which `DnsProvider` writes the hostname records.
+    //
+    // Defaults to the in-memory fake EVERYWHERE, unlike `CLOUD_SUBSTRATE`,
+    // and only until provisioning depends on it. Nothing calls this seam yet,
+    // so withholding the production default today would fail the boot of a
+    // running control plane over a feature that does no work. When the
+    // `ensure-hostname` step lands, production must withhold the default the
+    // same way the substrate does — a control plane that silently minted
+    // hostnames into an in-memory zone would report addresses that resolve
+    // nowhere.
+    CLOUD_DNS: z.enum(["fake", "cloudflare"]).default("fake"),
+    // The zone-scoped Cloudflare API token (DNS edit on ONE zone — never an
+    // account-wide token). OPTIONAL here and enforced at the point of use:
+    // `getDns()` refuses to build a Cloudflare provider without the trio.
+    CLOUD_CLOUDFLARE_TOKEN: z.string().min(1).optional(),
+    CLOUD_CLOUDFLARE_ZONE_ID: z.string().min(1).optional(),
+    // The zone's own name, e.g. `hogsend.com`. Held separately from the id
+    // because the provider refuses a hostname outside it, and comparing names
+    // is the only way to check that locally.
+    CLOUD_CLOUDFLARE_ZONE_NAME: z.string().min(1).optional(),
     // The account the provisioner logs into on a CELL's Hatchet to mint each
     // tenant's token (`services/hatchet-tenant.ts`). Dev/test default to
     // hatchet-lite's seeded admin so a fresh clone provisions with no setup;
