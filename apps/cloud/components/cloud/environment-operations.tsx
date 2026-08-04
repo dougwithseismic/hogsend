@@ -5,7 +5,6 @@ import {
   retryProvisioningAction,
   suspendEnvironmentAction,
 } from "@/app/environments/actions";
-import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import type { EnvironmentOperation } from "@/src/lib/environment-ops";
 import { ActionForm } from "./action-form";
@@ -49,21 +48,8 @@ export function EnvironmentOperations({
   const hidden = { environmentId };
 
   return (
-    <Card className="flex flex-col gap-5 p-0">
-      <div className="px-6 pt-6">
-        <h2 className="font-medium text-sm text-white tracking-[-0.02em]">
-          Operations
-        </h2>
-        <p className="mt-1.5 max-w-prose text-sm text-white/60 leading-6">
-          Each control appears only while the stack&rsquo;s status allows it.
-          The status is on this page; the rules are the same ones the server
-          enforces.
-        </p>
-      </div>
-
-      <Hairline />
-
-      <div className="flex flex-col gap-5 px-6 pb-6">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-5">
         {allowed.includes("retry") ? (
           <ActionForm
             action={retryProvisioningAction}
@@ -126,6 +112,6 @@ export function EnvironmentOperations({
           </p>
         ) : null}
       </div>
-    </Card>
+    </div>
   );
 }

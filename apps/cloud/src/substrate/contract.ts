@@ -221,7 +221,14 @@ export function describeSubstrateContract(
 
       // NEVER assumed verified: the tenant has not published DNS yet.
       expect(attachment.status).toBe("pending");
-      expect(attachment.records.length).toBeGreaterThan(0);
+      // At least a routing record AND an ownership record. A substrate that
+      // returns only the CNAME leaves a domain that resolves and then 404s
+      // forever, and a caller cannot tell the difference from a success.
+      expect(attachment.records.length).toBeGreaterThanOrEqual(2);
+      expect(attachment.records.map((record) => record.type)).toContain(
+        "CNAME",
+      );
+      expect(attachment.records.map((record) => record.type)).toContain("TXT");
       for (const record of attachment.records) {
         expect(record.type).toBeTruthy();
         expect(record.name).toBeTruthy();

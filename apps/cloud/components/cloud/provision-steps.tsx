@@ -3,19 +3,21 @@ import type { JSX, ReactNode } from "react";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
 import { cn } from "@/lib/cn";
-import type {
-  ProvisionStepState,
-  ProvisionStepView,
+import {
+  PROVISION_STEP_LABELS,
+  type ProvisionStepState,
+  type ProvisionStepView,
 } from "@/src/lib/environment-detail";
 import { TimeAgo } from "./time-ago";
 
 /**
  * The provisioning run, one step per row, read off the audit trail.
  *
- * Step names are the pipeline's own (`ensure-tenant-db`, `set-env`, …) rather
- * than a friendlier retelling: they are what `last_error` names when one fails,
- * and a customer reading "Provisioning stopped at set-env" needs to find that
- * word on this page.
+ * Each row leads with what the step is DOING and keeps the pipeline's own name
+ * (`ensure-tenant-db`, `set-env`, …) beside it. Both are needed: the sentence is
+ * the only half a customer can act on, and the slug is what `last_error` names
+ * when a step fails, so someone reading "Provisioning stopped at set-env" must
+ * still find that word on this page.
  *
  * `skipped` is its own state, not a shade of done. It means the pipeline found
  * a persisted artifact from an earlier attempt and did no work — which is
@@ -85,13 +87,18 @@ export function ProvisionSteps({
               <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-[4px] border border-white/[0.08] bg-white/[0.03]">
                 {STATE_ICON[step.state]}
               </span>
-              <span
-                className={cn(
-                  "font-mono text-sm tracking-[-0.01em]",
-                  STATE_TEXT[step.state],
-                )}
-              >
-                {step.step}
+              <span className="flex flex-col gap-0.5">
+                <span
+                  className={cn(
+                    "text-sm tracking-[-0.01em]",
+                    STATE_TEXT[step.state],
+                  )}
+                >
+                  {PROVISION_STEP_LABELS[step.step]}
+                </span>
+                <span className="font-mono text-white/35 text-xs">
+                  {step.step}
+                </span>
               </span>
             </span>
             <span className="flex items-center gap-3 text-xs">

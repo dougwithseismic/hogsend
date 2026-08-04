@@ -2,13 +2,29 @@ import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
-import { cells, environments, organizations, stacks } from "../db/schema";
-import { member, user } from "../db/schema/auth";
+import {
+  cells,
+  environments,
+  hostnames,
+  organizations,
+  stacks,
+} from "../db/schema";
+import {
+  organization as authOrganization,
+  member,
+  user,
+} from "../db/schema/auth";
+import { type DnsProvider, getDns } from "../dns";
 import { env } from "../env";
 import { defaultImageTag, qualifyImage } from "../images/index";
 import { welcomeEmailBody, welcomeEmailSubject } from "../lib/cloud-onboarding";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
 import { type EmailSender, resolveEmailSender } from "../lib/email-sender";
+import {
+  buildInstanceHostname,
+  isUsableSlug,
+  refuseTenantZone,
+} from "../lib/hostnames";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
@@ -65,6 +81,11 @@ export const PROVISION_STEPS = [
   "ensure-tenant-db",
   "mint-hatchet",
   "substrate-provision",
+  // Before `set-env`, and it has to be: `set-env` freezes `API_PUBLIC_URL` and
+  // `BETTER_AUTH_URL`, which mint every tracked link and sign the Studio
+  // cookie. An instance that learns its own name after that point would need a
+  // migration to change it; one that learns it here never knew another.
+  "ensure-hostname",
   "set-env",
   "health-wait",
   "mint-credentials",
@@ -118,6 +139,22 @@ const HEALTH_DEADLINE_MS = 600_000;
 export interface ProvisionDeps {
   db: CloudDb;
   substrate: SubstrateProvider;
+  /** Writes the managed hostname's record. The fake keeps an in-memory zone. */
+  dns: DnsProvider;
+  /**
+   * The zone managed hostnames are minted inside, e.g. `hogsend.com`. Null
+   * turns `ensure-hostname` into a no-op and leaves the instance on the
+   * substrate's own URL — the state every stack provisioned before this step
+   * existed is already in.
+   */
+  hostnameZone: string | null;
+  /**
+   * The domain our shared SSO cookie is scoped to. Not used to SET anything —
+   * it is the value `refuseTenantZone` checks the tenant zone against, so a
+   * misconfiguration that would leak our session cookie into tenant code is
+   * refused here rather than discovered in a request log.
+   */
+  ssoCookieDomain: string | null;
   tenantDb: TenantDbService;
   hatchetTenant: HatchetTenantService;
   providerKeys: ProviderKeyService;
@@ -165,6 +202,11 @@ function defaultDeps(): ProvisionDeps {
     // Resolved lazily per run: `getSubstrate()` throws under a misconfigured
     // railway substrate, and that must fail a PROVISION, not module import.
     substrate: getSubstrate(),
+    // Lazy for the same reason the substrate is: a misconfigured Cloudflare
+    // provider must fail a PROVISION, not a module import.
+    dns: getDns(),
+    hostnameZone: env.CLOUD_TENANT_ZONE ?? null,
+    ssoCookieDomain: env.CLOUD_SSO_COOKIE_DOMAIN ?? null,
     tenantDb: new TenantDbService(),
     hatchetTenant: new HatchetTenantService(),
     providerKeys: new ProviderKeyService(),
@@ -181,6 +223,131 @@ function defaultDeps(): ProvisionDeps {
     tenantCredentials: resolveTenantCredentialClient(),
     emailSender: resolveEmailSender(),
   };
+}
+
+/**
+ * The managed hostname for this stack, or null when there is not one to give.
+ *
+ * Null is an ordinary outcome, not a failure: a control plane with no zone
+ * configured (every deploy today) and an organization whose slug is unusable
+ * both land here, and both simply keep the substrate's own URL.
+ */
+function resolveManagedHostname(
+  deps: ProvisionDeps,
+  context: ProvisionContext,
+): string | null {
+  if (!deps.hostnameZone) return null;
+
+  // Refuse BEFORE naming anything. A tenant zone inside the SSO cookie's domain
+  // would hand our session cookie to code the customer controls, and the
+  // symptom is invisible — everything works.
+  const zoneRefusal = refuseTenantZone({
+    zone: deps.hostnameZone,
+    ssoCookieDomain: deps.ssoCookieDomain,
+  });
+  if (zoneRefusal) {
+    console.error(
+      `[cloud] refusing to mint a managed hostname: ${zoneRefusal}`,
+    );
+    return null;
+  }
+
+  const slug = context.organizationSlug;
+  if (!slug || !isUsableSlug(slug)) return null;
+
+  try {
+    return buildInstanceHostname({
+      slug,
+      environmentName: context.environmentName,
+      zone: deps.hostnameZone,
+    });
+  } catch {
+    // A tenant-chosen environment name that is not a legal DNS label. Not
+    // worth failing a provision over — the instance keeps the substrate URL.
+    return null;
+  }
+}
+
+/**
+ * Point the hostname at the instance: ask the substrate to serve it, publish
+ * every record it asks for, then remember what we published.
+ *
+ * Returns null when the hostname could not be attached, and does NOT throw:
+ * see the step's comment — a signup must not fail over a DNS blip. `reused`
+ * distinguishes a re-driven run from the one that did the work.
+ *
+ * ORDER: substrate FIRST, DNS second. The substrate is the only party that
+ * knows which records its custom domain needs — a CNAME to route it and an
+ * ownership TXT to prove it, and Railway 404s a domain whose TXT is missing
+ * even after the CNAME resolves. Computing the CNAME ourselves and publishing
+ * that alone produces a hostname that looks configured and never verifies, so
+ * we publish what we are TOLD rather than what we can guess.
+ */
+async function attachManagedHostname(input: {
+  deps: ProvisionDeps;
+  organizationId: string;
+  environmentId: string;
+  hostname: string;
+  refs: StackRefs;
+}): Promise<{ reused: boolean } | null> {
+  const { deps, hostname, refs } = input;
+
+  const [existing] = await deps.db
+    .select()
+    .from(hostnames)
+    .where(eq(hostnames.hostname, hostname))
+    .limit(1);
+
+  // Someone else's name. Never repointed — that record may be a live instance
+  // whose tracked links and Studio cookie both resolve through it.
+  if (existing && existing.environmentId !== input.environmentId) {
+    console.error(
+      `[cloud] hostname ${hostname} already belongs to environment ${existing.environmentId}; leaving this stack on the substrate URL`,
+    );
+    return null;
+  }
+
+  try {
+    const attachment = await deps.substrate.attachDomain(refs, hostname);
+    if (attachment.records.length === 0) {
+      // The substrate accepted the domain but has not said what it needs yet.
+      // Publishing nothing and recording success would strand the hostname
+      // half-configured, so treat it as not-yet and let the sweep re-drive.
+      throw new Error(
+        `substrate returned no DNS records for ${hostname}; nothing to publish yet`,
+      );
+    }
+
+    const published: string[] = [];
+    for (const record of attachment.records) {
+      const handle = await deps.dns.ensureRecord({
+        type: record.type,
+        hostname: record.name,
+        value: record.value,
+      });
+      published.push(handle.id);
+    }
+
+    if (existing) {
+      await deps.db
+        .update(hostnames)
+        .set({ dnsRecordIds: published, updatedAt: new Date() })
+        .where(eq(hostnames.id, existing.id));
+      return { reused: true };
+    }
+
+    await deps.db.insert(hostnames).values({
+      organizationId: input.organizationId,
+      environmentId: input.environmentId,
+      hostname,
+      kind: "managed",
+      dnsRecordIds: published,
+    });
+    return { reused: false };
+  } catch (error) {
+    console.error(`[cloud] could not attach hostname ${hostname}:`, error);
+    return null;
+  }
 }
 
 /**
@@ -213,6 +380,9 @@ interface ProvisionContext {
   environmentKind: "production" | "staging" | "test";
   organizationId: string;
   organizationName: string;
+  /** Better Auth's org slug — the hostname's first label. Null when there is
+   * no Better Auth row, which only a seed or a test can produce. */
+  organizationSlug: string | null;
   plan: "trial" | "self_serve" | "dedicated";
   /** Decrypted cell admin DSN. Null for a dedicated (cell-less) org. */
   cellDsn: string | null;
@@ -264,6 +434,10 @@ async function loadContext(
       environmentKind: environments.kind,
       plan: organizations.plan,
       organizationName: organizations.name,
+      // From Better Auth's own table, which is where the slug already lives.
+      // Mirroring it onto `cloud.organizations` would be a second source of
+      // truth for one identity, and the hostname is derived from it.
+      organizationSlug: authOrganization.slug,
       cellDsn: cells.sharedClusterDsn,
       cellHatchetUrl: cells.sharedHatchetUrl,
       cellHatchetApiUrl: cells.sharedHatchetApiUrl,
@@ -271,6 +445,11 @@ async function loadContext(
     .from(stacks)
     .innerJoin(environments, eq(environments.id, stacks.environmentId))
     .innerJoin(organizations, eq(organizations.id, stacks.organizationId))
+    // LEFT, not INNER: the mirror is keyed by Better Auth's id, but a test or a
+    // seed can create a control-plane org with no Better Auth row, and losing
+    // the whole context row over a missing slug would break provisioning for a
+    // hostname that is optional anyway.
+    .leftJoin(authOrganization, eq(authOrganization.id, organizations.id))
     .leftJoin(cells, eq(cells.id, organizations.cellId))
     .where(eq(stacks.id, stackId))
     .limit(1);
@@ -283,6 +462,7 @@ async function loadContext(
     environmentKind: row.environmentKind,
     organizationId: row.stack.organizationId,
     organizationName: row.organizationName,
+    organizationSlug: row.organizationSlug,
     plan: row.plan,
     // Cell DSNs live encrypted at rest; this is the only place they are opened.
     cellDsn: row.cellDsn ? decryptSecretPayload<string>(row.cellDsn) : null,
@@ -516,6 +696,55 @@ export async function runProvisionPipeline(
         substrate: refs.substrate,
         engineVersion,
         apiPublicUrl: refs.apiPublicUrl,
+      });
+    }
+
+    // ---- ensure-hostname --------------------------------------------------
+    // Give the instance its name on OUR zone before anything freezes a URL.
+    //
+    // The DNS write and the substrate attach are both idempotent, so a
+    // re-driven run re-derives the same hostname and finds its own record
+    // rather than failing on it. On any refusal the step is SKIPPED rather
+    // than fatal: the instance stays on the substrate's own URL, which is
+    // exactly where every stack provisioned before this step already lives.
+    // A hostname is an improvement to provisioning, not a precondition for it,
+    // and failing a signup over a DNS blip would be the wrong trade.
+    current = "ensure-hostname";
+    const hostname = resolveManagedHostname(deps, context);
+    if (!hostname) {
+      steps.push({ step: "ensure-hostname", skipped: true });
+      await audit("ensure-hostname", organizationId, {
+        skipped: true,
+        reason: deps.hostnameZone
+          ? "no usable slug, or the tenant zone was refused"
+          : "no tenant zone configured",
+      });
+    } else {
+      const attached = await attachManagedHostname({
+        deps,
+        organizationId,
+        environmentId: stack.environmentId,
+        hostname,
+        refs,
+      });
+      if (attached) {
+        // Set on EVERY successful pass, not only the one that created the
+        // record: a re-driven run finds its own row and must still point the
+        // env at the hostname, or `set-env` would freeze the substrate URL for
+        // an instance whose name already resolves.
+        refs = { ...refs, apiPublicUrl: `https://${hostname}` };
+        stack = await patchStack(deps.db, stackId, {
+          substrateRefs: { ...refs },
+        });
+      }
+      steps.push({
+        step: "ensure-hostname",
+        skipped: attached?.reused ?? true,
+      });
+      await audit("ensure-hostname", organizationId, {
+        hostname,
+        attached: attached !== null,
+        reused: attached?.reused ?? false,
       });
     }
 

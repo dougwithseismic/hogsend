@@ -232,11 +232,21 @@ export class FakeSubstrate implements SubstrateProvider {
       // Always pending: the substrate has not seen the tenant's DNS yet, and
       // claiming otherwise would let the dashboard lie.
       status: "pending",
+      // TWO records, mirroring what a real substrate demands: a CNAME to route
+      // the name and an ownership TXT to prove it. Railway 404s a custom domain
+      // whose TXT is missing, permanently — so a fake that returned only the
+      // CNAME would let a caller that publishes half the answer pass every test
+      // in the control plane and fail in production.
       records: [
         {
           type: "CNAME",
           name: domain,
           value: `${state.spec.stackId}.fake-substrate.localhost`,
+        },
+        {
+          type: "TXT",
+          name: `_fake-verify.${domain}`,
+          value: `fake-verify=${state.spec.stackId}`,
         },
       ],
     };

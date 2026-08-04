@@ -316,21 +316,65 @@ export class RailwaySubstrate implements SubstrateProvider {
     }));
 
     if (records.length === 0) {
-      // Railway occasionally answers before it has computed the records. The
-      // CNAME target is knowable without them, and a caller with zero records
-      // has nothing to publish — which would read on the dashboard as "no
-      // action needed" when the opposite is true.
-      const serviceDomain = await this.ensureServiceDomain(
-        data.projectId,
-        data.environmentId,
-        data.serviceIds.api,
+      // Railway occasionally answers before it has computed the records.
+      //
+      // Re-query rather than synthesize. A custom domain needs BOTH a CNAME and
+      // an ownership TXT — Railway 404s a domain whose TXT is missing, and it
+      // keeps doing so after the CNAME resolves — so the CNAME we could compute
+      // ourselves is exactly half of the answer. Publishing that half looks
+      // like success and never verifies.
+      records.push(
+        ...(await this.readCustomDomainRecords(
+          data.projectId,
+          data.environmentId,
+          data.serviceIds.api,
+          domain,
+        )),
       );
-      records.push({ type: "CNAME", name: domain, value: serviceDomain });
     }
 
     // ALWAYS pending: Railway has not seen the tenant's DNS yet, and claiming
     // otherwise would let the dashboard lie about a domain that never resolves.
     return { status: "pending", records };
+  }
+
+  /**
+   * The records one custom domain is still waiting on, read back from Railway.
+   *
+   * Returns whatever Railway has — including nothing, if it still has not
+   * computed them. An empty result is honest and the caller can retry; a
+   * fabricated one is not.
+   */
+  private async readCustomDomainRecords(
+    projectId: string,
+    environmentId: string,
+    serviceId: string,
+    domain: string,
+  ): Promise<DomainRecord[]> {
+    const result = await this.client.request<{
+      domains: {
+        customDomains?: {
+          domain: string;
+          status?: {
+            dnsRecords?: {
+              recordType: string;
+              hostlabel: string;
+              requiredValue: string;
+              zone?: string;
+            }[];
+          };
+        }[];
+      };
+    }>(Q.CUSTOM_DOMAINS, { projectId, environmentId, serviceId });
+
+    const match = (result.domains.customDomains ?? []).find(
+      (entry) => entry.domain === domain,
+    );
+    return (match?.status?.dnsRecords ?? []).map((record) => ({
+      type: record.recordType,
+      name: record.hostlabel || domain,
+      value: record.requiredValue,
+    }));
   }
 
   async getHealth(
