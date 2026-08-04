@@ -52,9 +52,14 @@ export interface DnsRecordHandle {
  * How full the zone is.
  *
  * This is on the seam because it is a real operational ceiling, not a curiosity:
- * a Cloudflare Free zone created after September 2024 holds 200 records, we
- * write one per instance, and the failure mode without this read is that
- * onboarding stops working at an unannounced number.
+ * a Cloudflare Free zone holds 200 records and an instance costs TWO of them (a
+ * CNAME to route it and an ownership TXT to verify it), so a free zone seats
+ * about 100 instances and the failure mode without this read is that onboarding
+ * stops working at an unannounced number.
+ *
+ * A gauge, not a receipt. An implementation may report a stale count right
+ * after a write — Cloudflare does — so never use this to confirm a record
+ * landed.
  */
 export interface DnsCapacity {
   used: number;

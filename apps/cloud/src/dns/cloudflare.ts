@@ -167,6 +167,15 @@ export class CloudflareDns implements DnsProvider {
     }
   }
 
+  /**
+   * Cloudflare's record list is EVENTUALLY CONSISTENT: measured live against
+   * hogsend.app, two records written back-to-back reported `total_count: 0`
+   * immediately and `2` about three seconds later.
+   *
+   * So this is a headroom gauge, not a post-write assertion. Use it to warn an
+   * operator that a zone is filling up; never to confirm a write landed, and
+   * never as a gate immediately after provisioning.
+   */
   async readCapacity(): Promise<DnsCapacity> {
     const response = await this.requestEnvelope<CloudflareRecord[]>({
       method: "GET",
