@@ -70,13 +70,12 @@ async function seed(
   if (!environment) throw new Error("fixture environment not created");
 
   const stackId = randomUUID();
-  const refs: StackRefs = await substrate.provisionStack({
+  const refs: StackRefs = await substrate.provisionRunningStack({
     stackId,
     organizationId,
     environmentName: environment.name,
     region: "us",
     topology: "shared",
-    initialImage: "hogsend-default:0.50.0",
     env: {},
   });
   const [stack] = await db

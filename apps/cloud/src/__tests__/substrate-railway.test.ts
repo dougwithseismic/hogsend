@@ -38,8 +38,16 @@ interface MockService {
   registryCredentials?: { username: string; password: string };
   /** Null once its deployment is removed — what Railway actually reports. */
   deploymentId: string | null;
-  deploymentStatus: string;
+  /** Null while the service has never deployed — no source, no status. */
+  deploymentStatus: string | null;
   deployCount: number;
+  /**
+   * Railway keeps deployment HISTORY, and `serviceInstanceRedeploy` replays it.
+   * A service that has never deployed has nothing to replay, so redeploy is a
+   * silent no-op on it — which is exactly how the fix for the crash-looping
+   * first boot shipped broken, with the right image and no deployment.
+   */
+  everDeployed: boolean;
   serviceDomain?: string;
   customDomains: MockCustomDomain[];
 }
@@ -213,18 +221,24 @@ class RailwayMock {
       case "ServiceCreate": {
         const project = this.project(input.projectId);
         const source = (input.source ?? {}) as Record<string, unknown>;
+        const image = String(source.image ?? "");
+        // A source at creation deploys IMMEDIATELY — that is the whole reason
+        // app services are now created without one. A service created bare has
+        // nothing to run, so it gets no deployment at all.
+        const deployed = image !== "";
         const service: MockService = {
           id: this.id("svc"),
           name: String(input.name),
-          image: String(source.image ?? ""),
+          image,
           numReplicas: 1,
           variables: {},
           registryCredentials: parseRegistryCredentials(
             input.registryCredentials,
           ),
-          deploymentId: this.id("dep"),
-          deploymentStatus: "SUCCESS",
-          deployCount: 1,
+          deploymentId: deployed ? this.id("dep") : null,
+          deploymentStatus: deployed ? "SUCCESS" : null,
+          deployCount: deployed ? 1 : 0,
+          everDeployed: deployed,
           customDomains: [],
         };
         project.services.set(service.id, service);
@@ -256,8 +270,25 @@ class RailwayMock {
         return { serviceInstanceUpdate: true };
       }
 
+      case "ServiceInstanceDeploy": {
+        const service = this.service(vars.serviceId);
+        if (service.image === "") {
+          throw new Error(
+            "Railway API error (HTTP 400): cannot deploy a service with no source",
+          );
+        }
+        service.deployCount += 1;
+        service.everDeployed = true;
+        service.deploymentId = this.id("dep");
+        service.deploymentStatus = "SUCCESS";
+        return { serviceInstanceDeployV2: service.deploymentId };
+      }
+
       case "ServiceInstanceRedeploy": {
         const service = this.service(vars.serviceId);
+        // REPLAYS the last deployment. With no history there is nothing to
+        // replay, and Railway answers success while starting nothing.
+        if (!service.everDeployed) return { serviceInstanceRedeploy: true };
         service.deployCount += 1;
         // Works from a REMOVED state — confirmed live, and the whole reason
         // redeploy is the resume mechanism.
@@ -457,7 +488,6 @@ const SPEC: StackSpec = {
   environmentName: "staging",
   region: "eu",
   topology: "shared",
-  initialImage: "hogsend-default:0.56.0",
   preDeployCommand: "tsx scripts/migrate.ts",
   workerStartCommand: "node dist/worker.js",
   env: { LOG_LEVEL: "info" },
@@ -690,6 +720,21 @@ describe("RailwayClient transport behaviour", () => {
   });
 });
 
+/** Provision AND start a stack — a substrate the pipeline has finished with. */
+async function provisionRunning(
+  provider: RailwaySubstrate,
+  spec: StackSpec = SPEC,
+): Promise<StackRefs> {
+  const refs = await provider.provisionStack(spec);
+  for (const service of ["worker", "api"] as const) {
+    await provider.deployImage(refs, {
+      imageUrl: "hogsend-default:0.56.0",
+      service,
+    });
+  }
+  return refs;
+}
+
 describe("RailwaySubstrate topology", () => {
   it("creates the org project once and reuses it for a second environment", async () => {
     const mock = new RailwayMock();
@@ -777,7 +822,7 @@ describe("RailwaySubstrate topology", () => {
   it("suspends by removing every deployment and resumes by redeploying", async () => {
     const mock = new RailwayMock();
     const provider = makeSubstrate(mock);
-    const refs = await provider.provisionStack(SPEC);
+    const refs = await provisionRunning(provider);
 
     await provider.suspend(refs);
     // REDIS TOO: a paused tenant should cost nothing anywhere.
@@ -796,7 +841,7 @@ describe("RailwaySubstrate topology", () => {
   it("reports a failed deployment as unhealthy, naming the service", async () => {
     const mock = new RailwayMock();
     const provider = makeSubstrate(mock);
-    const refs = await provider.provisionStack(SPEC);
+    const refs = await provisionRunning(provider);
     const worker = mock.find("staging-worker");
     if (!worker) throw new Error("mock: no worker");
     worker.deploymentStatus = "FAILED";
@@ -818,7 +863,7 @@ describe("RailwaySubstrate topology", () => {
     // `numReplicas < 1` "scaled to zero" verdict.
     const mock = new RailwayMock();
     const provider = makeSubstrate(mock);
-    const refs = await provider.provisionStack(SPEC);
+    const refs = await provisionRunning(provider);
     const worker = mock.find("staging-worker");
     if (worker) worker.deploymentStatus = "SLEEPING";
 

@@ -170,6 +170,30 @@ export class FakeSubstrate implements SubstrateProvider {
     };
   }
 
+  /**
+   * Provision AND start a stack — what the pipeline leaves behind once it has
+   * set env and run `start-services`.
+   *
+   * Test-only sugar for the many tests that are about something else entirely
+   * (health sweeps, metering, rollback) and just need a stack that is up. It is
+   * named for what it does so that no test can mistake it for `provisionStack`,
+   * which deliberately leaves app services idle.
+   */
+  async provisionRunningStack(
+    spec: StackSpec,
+    image = "hogsend-default:test",
+  ): Promise<StackRefs> {
+    const refs = await this.provisionStack(spec);
+    for (const service of SERVICES) {
+      await this.deployImage(refs, { imageUrl: image, service });
+    }
+    // This is SETUP, not behaviour under test. Leaving its deploys in `calls`
+    // would make every "deployed worker then api" assertion pass on the
+    // fixture's own calls rather than the pipeline's.
+    this.calls.length = 0;
+    return refs;
+  }
+
   async provisionStack(spec: StackSpec): Promise<StackRefs> {
     this.record("provisionStack", [spec]);
 
@@ -220,11 +244,17 @@ export class FakeSubstrate implements SubstrateProvider {
     this.record("redeploy", [refs, options]);
     const state = this.mustGet(refs);
     for (const service of servicesFor(options?.service)) {
+      // A redeploy REPLAYS the last deployment, so a service that has never
+      // had one is left exactly as it was. Railway reports success either way,
+      // which is how a stack shipped sitting on the right image with no
+      // deployment at all — a fake that started it here could not have caught
+      // that.
+      if (state.services[service].image === "") continue;
       state.services[service].deployCount += 1;
-      // A redeploy BRINGS A SERVICE UP, including a suspended one — because on
-      // the real substrate redeploy IS the resume mechanism now that suspend
-      // removes the deployment. Keeping it down while suspended would let this
-      // fake certify behaviour production no longer has.
+      // Otherwise a redeploy BRINGS A SERVICE UP, including a suspended one —
+      // because on the real substrate redeploy IS the resume mechanism now that
+      // suspend removes the deployment. Keeping it down while suspended would
+      // let this fake certify behaviour production no longer has.
       state.services[service].running = true;
     }
     // `suspended` stays as it is: it is the STACK's flag, and `resume` owns
@@ -402,12 +432,20 @@ export interface FakeStackSnapshot {
   env: Record<SubstrateService, Record<string, string>>;
 }
 
+/**
+ * A freshly provisioned app service: configured, holding its env, and NOT
+ * running. It has no image until `deployImage` gives it one.
+ *
+ * The empty image is the point. A fake that booted here would let a caller
+ * that never deploys pass its tests and then crash-loop in production on a
+ * missing `DATABASE_URL`, which is exactly what shipped before 2026-08-04.
+ */
 function newService(spec: StackSpec): FakeServiceState {
   return {
-    image: spec.initialImage,
+    image: "",
     env: { ...spec.env },
-    running: true,
-    deployCount: 1,
+    running: false,
+    deployCount: 0,
   };
 }
 

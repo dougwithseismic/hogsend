@@ -41,12 +41,6 @@ export interface StackSpec {
   region: SubstrateRegion;
   topology: SubstrateTopology;
   /**
-   * The image the stack boots on before the customer's first publish — the
-   * stock scaffold build (`hogsend-default:<engine-version>`). A tag string,
-   * never a vendor deployment id.
-   */
-  initialImage: string;
-  /**
    * Command run to completion before an app service's first boot — the
    * migrations gate. Without it the initial deploy boots the engine against an
    * EMPTY tenant database and the schema boot-guard crash-loops (found live
@@ -148,8 +142,22 @@ export interface HealthResult {
  * `describeSubstrateContract`.
  */
 export interface SubstrateProvider {
-  /** Idempotent by `spec.stackId`: re-provisioning an existing stack returns
-   * the same refs rather than creating a second one. */
+  /**
+   * Idempotent by `spec.stackId`: re-provisioning an existing stack returns
+   * the same refs rather than creating a second one.
+   *
+   * Creates the stack's services but deliberately does NOT RUN the app ones.
+   * Their environment is assembled from four stores and cannot exist yet — it
+   * needs `apiPublicUrl`, which only exists once this call returns — so a
+   * service started here would boot without `DATABASE_URL` and crash. That is
+   * not hypothetical: it is what every provision did until 2026-08-04, three
+   * dead deploys per stack, self-healing but indistinguishable in the dashboard
+   * from a stack that genuinely failed.
+   *
+   * So an app service leaves this call created, configured and idle. The
+   * caller sets env, then `deployImage`s it. Redis carries no application
+   * config, so it boots here.
+   */
   provisionStack(spec: StackSpec): Promise<StackRefs>;
   /** Tears down everything `provisionStack` created. After this, every other
    * method for these refs throws `SubstrateNotFoundError`. */

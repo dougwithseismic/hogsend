@@ -60,6 +60,22 @@ export const SERVICE_INSTANCE_UPDATE = `
   }
 `;
 
+/**
+ * Start a service instance on its CONFIGURED source.
+ *
+ * Distinct from `serviceInstanceRedeploy`, which replays the last deployment
+ * and is therefore a silent NO-OP on a service that has never deployed —
+ * verified live 2026-08-04, when both app services sat with a source set and
+ * `latestDeployment: null` after a redeploy returned success. Anything that
+ * must GUARANTEE a rollout uses this; resume, which by definition has a
+ * deployment to replay, keeps using redeploy.
+ */
+export const SERVICE_INSTANCE_DEPLOY = `
+  mutation ServiceInstanceDeploy($serviceId: String!, $environmentId: String!) {
+    serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
+  }
+`;
+
 export const SERVICE_INSTANCE_REDEPLOY = `
   mutation ServiceInstanceRedeploy($serviceId: String!, $environmentId: String!) {
     serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)

@@ -42,6 +42,9 @@ export interface SubstrateContractHarness {
 
 const SERVICES: SubstrateService[] = ["api", "worker"];
 
+/** The image `setupRunning` boots a stack on. */
+const BOOT_IMAGE = "hogsend-default:0.55.0";
+
 /** A fixed spec — no clock, no randomness, so failures are reproducible. */
 function makeSpec(overrides: Partial<StackSpec> = {}): StackSpec {
   return {
@@ -50,7 +53,6 @@ function makeSpec(overrides: Partial<StackSpec> = {}): StackSpec {
     environmentName: "production",
     region: "us",
     topology: "shared",
-    initialImage: "hogsend-default:0.55.0",
     env: { DATABASE_URL: "postgres://tenant/db", LOG_LEVEL: "info" },
     ...overrides,
   };
@@ -80,6 +82,26 @@ export function describeSubstrateContract(
       return { harness, provider: harness.provider, refs };
     }
 
+    /**
+     * A provisioned stack with both app services actually RUNNING — what the
+     * pipeline holds once it has set env and deployed, and the starting point
+     * for anything about the running lifecycle (redeploy, suspend, health).
+     */
+    async function setupRunning(spec: StackSpec = makeSpec()): Promise<{
+      harness: SubstrateContractHarness;
+      provider: SubstrateProvider;
+      refs: StackRefs;
+    }> {
+      const started = await setup(spec);
+      for (const service of SERVICES) {
+        await started.provider.deployImage(started.refs, {
+          imageUrl: BOOT_IMAGE,
+          service,
+        });
+      }
+      return started;
+    }
+
     it("provisions a stack whose refs carry a usable api public URL", async () => {
       const { refs } = await setup();
 
@@ -93,15 +115,57 @@ export function describeSubstrateContract(
       expect(JSON.parse(JSON.stringify(refs))).toEqual(refs);
     });
 
-    it("boots every service on the spec's initial image", async () => {
+    it("creates every service without running it", async () => {
       const { harness, refs } = await setup();
       const snapshot = await harness.inspect(refs);
 
       for (const service of SERVICES) {
-        expect(snapshot.services[service].image).toBe("hogsend-default:0.55.0");
-        expect(snapshot.services[service].running).toBe(true);
+        // NOT running, and on no image. An app service cannot have a usable
+        // env at provision time — it is assembled from four stores and needs
+        // the `apiPublicUrl` this very call returns — so anything started here
+        // boots without `DATABASE_URL` and dies. Every provision did exactly
+        // that until 2026-08-04: three dead deploys per stack, healed by the
+        // env write that followed, and indistinguishable in the dashboard from
+        // a stack that really had failed.
+        expect(snapshot.services[service].running).toBe(false);
+        expect(snapshot.services[service].image).toBe("");
         expect(snapshot.env[service].DATABASE_URL).toBe("postgres://tenant/db");
       }
+    });
+
+    it("starts a never-deployed service rather than replaying nothing", async () => {
+      const { harness, provider, refs } = await setup();
+
+      // `redeploy` REPLAYS: on a service with no deployment history there is
+      // nothing to replay, and Railway reports success while starting nothing.
+      // `deployImage` must therefore not be built on it — that shipped a stack
+      // sitting on the right image with no deployment at all.
+      await provider.redeploy(refs, { service: "api" });
+      expect((await harness.inspect(refs)).services.api.running).toBe(false);
+
+      await provider.deployImage(refs, {
+        imageUrl: BOOT_IMAGE,
+        service: "api",
+      });
+      expect((await harness.inspect(refs)).services.api.running).toBe(true);
+    });
+
+    it("runs a service only once an image is deployed to it", async () => {
+      const { harness, provider, refs } = await setup();
+
+      await provider.deployImage(refs, {
+        imageUrl: "hogsend-default:0.55.0",
+        service: "api",
+      });
+
+      const snapshot = await harness.inspect(refs);
+      expect(snapshot.services.api).toMatchObject({
+        image: "hogsend-default:0.55.0",
+        running: true,
+      });
+      // And ONLY that one — the sibling is still idle, which is what lets the
+      // pipeline deploy the worker and the api as separate, ordered steps.
+      expect(snapshot.services.worker.running).toBe(false);
     });
 
     it("is idempotent by stack id — re-provisioning returns the same stack", async () => {
@@ -111,9 +175,8 @@ export function describeSubstrateContract(
       const again = await provider.provisionStack(spec);
 
       expect(again.apiPublicUrl).toBe(refs.apiPublicUrl);
-      expect((await harness.inspect(again)).services.api.image).toBe(
-        spec.initialImage,
-      );
+      // Re-provisioning ADOPTS; it must not re-create or restart anything.
+      expect((await harness.inspect(again)).services.api.running).toBe(false);
     });
 
     it("merges env and unsets on null", async () => {
@@ -161,11 +224,11 @@ export function describeSubstrateContract(
         "ghcr.io/acme/app:sha-worker",
       );
       // The whole reason the selector exists (PRD 08 deploys worker, then api).
-      expect(snapshot.services.api.image).toBe("hogsend-default:0.55.0");
+      expect(snapshot.services.api.image).toBe("");
     });
 
     it("redeploys without changing the image, repeatedly and per service", async () => {
-      const { harness, provider, refs } = await setup();
+      const { harness, provider, refs } = await setupRunning();
 
       await provider.redeploy(refs);
       await provider.redeploy(refs);
@@ -173,13 +236,13 @@ export function describeSubstrateContract(
 
       const snapshot = await harness.inspect(refs);
       for (const service of SERVICES) {
-        expect(snapshot.services[service].image).toBe("hogsend-default:0.55.0");
+        expect(snapshot.services[service].image).toBe(BOOT_IMAGE);
         expect(snapshot.services[service].running).toBe(true);
       }
     });
 
     it("suspends to unhealthy and resumes to healthy", async () => {
-      const { harness, provider, refs } = await setup();
+      const { harness, provider, refs } = await setupRunning();
 
       expect(await provider.getHealth(refs)).toMatchObject({ healthy: true });
 
@@ -203,7 +266,7 @@ export function describeSubstrateContract(
     });
 
     it("suspend and resume are safe to repeat", async () => {
-      const { provider, refs } = await setup();
+      const { provider, refs } = await setupRunning();
 
       await provider.suspend(refs);
       await provider.suspend(refs);
