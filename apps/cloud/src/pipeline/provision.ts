@@ -136,6 +136,18 @@ const HEALTH_POLL_MAX_MS = 15_000;
 /** PRD 04: the whole health wait gives up after ten minutes. */
 const HEALTH_DEADLINE_MS = 600_000;
 
+/**
+ * How long to wait for a managed hostname's certificate.
+ *
+ * Five minutes because that is the shape of the thing being waited on: Railway
+ * observes the CNAME within a minute or so, then Let's Encrypt issues, and the
+ * whole dance took roughly that long on the first live provision. Exhausting
+ * this is NOT fatal to the hostname — the step throws retryable and the sweep
+ * re-drives, by which time the certificate is invariably issued.
+ */
+const DOMAIN_DEADLINE_MS = 300_000;
+const DOMAIN_POLL_MAX_MS = 15_000;
+
 export interface ProvisionDeps {
   db: CloudDb;
   substrate: SubstrateProvider;
@@ -164,6 +176,8 @@ export interface ProvisionDeps {
   sleep: (ms: number) => Promise<void>;
   healthDeadlineMs: number;
   healthPollBaseMs: number;
+  /** How long `ensure-hostname` waits for the certificate. */
+  domainDeadlineMs: number;
   /** Tag suffix for the stock scaffold image. */
   defaultEngineVersion: string;
   /** Fresh `BETTER_AUTH_SECRET` material. Injected only for determinism tests. */
@@ -215,6 +229,7 @@ function defaultDeps(): ProvisionDeps {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     healthDeadlineMs: HEALTH_DEADLINE_MS,
     healthPollBaseMs: HEALTH_POLL_BASE_MS,
+    domainDeadlineMs: DOMAIN_DEADLINE_MS,
     defaultEngineVersion: env.CLOUD_DEFAULT_ENGINE_VERSION,
     generateSecret: () => randomBytes(32).toString("base64url"),
     // A fake substrate serves no engine on `apiPublicUrl`, so the real HTTP
@@ -727,7 +742,12 @@ export async function runProvisionPipeline(
         hostname,
         refs,
       });
+      let certified: { attempts: number; waitedMs: number } | null = null;
       if (attached) {
+        // The domain exists; now wait for it to MEAN something. Deliberately
+        // before the URL swap: adopting a hostname that cannot serve HTTPS is
+        // how the first live provision died three steps later.
+        certified = await waitForDomain(deps, refs, hostname);
         // Set on EVERY successful pass, not only the one that created the
         // record: a re-driven run finds its own row and must still point the
         // env at the hostname, or `set-env` would freeze the substrate URL for
@@ -745,6 +765,7 @@ export async function runProvisionPipeline(
         hostname,
         attached: attached !== null,
         reused: attached?.reused ?? false,
+        certificateWaitMs: certified?.waitedMs ?? null,
       });
     }
 
@@ -1253,6 +1274,49 @@ async function assembleStackEnv(args: {
  * tight loop would be a self-inflicted denial of service on the substrate's
  * API for no earlier answer.
  */
+/**
+ * Block until the managed hostname will actually serve HTTPS.
+ *
+ * This exists because of a live failure, not a hypothetical: the first real
+ * provision attached the domain, published a correct CNAME, and marched on —
+ * so `mint-credentials`, the first step to make an HTTPS call, hit a hostname
+ * whose certificate was still `VALIDATING_OWNERSHIP` and died on "fetch
+ * failed". Attaching a domain is instant; making it serve takes minutes, and
+ * nothing downstream can tell the difference except by failing.
+ *
+ * Throws on exhaustion rather than falling back to the substrate URL. Falling
+ * back would freeze `up.railway.app` into `API_PUBLIC_URL`, signed cookies and
+ * every tracked link in every email that instance ever sends — permanently
+ * recreating the two-hostname world this whole step exists to end, and doing it
+ * for exactly the tenants unlucky enough to hit a slow certificate.
+ */
+async function waitForDomain(
+  deps: ProvisionDeps,
+  refs: StackRefs,
+  hostname: string,
+): Promise<{ attempts: number; waitedMs: number }> {
+  const startedAt = deps.now();
+  let delay = deps.healthPollBaseMs;
+  let attempts = 0;
+
+  for (;;) {
+    attempts += 1;
+    const attachment = await deps.substrate.checkDomain(refs, hostname);
+    if (attachment.status === "verified") {
+      return { attempts, waitedMs: deps.now() - startedAt };
+    }
+
+    const elapsed = deps.now() - startedAt;
+    if (elapsed + delay > deps.domainDeadlineMs) {
+      throw new Error(
+        `${hostname} did not finish certificate issuance within ${Math.round(deps.domainDeadlineMs / 1000)}s after ${attempts} checks`,
+      );
+    }
+    await deps.sleep(delay);
+    delay = Math.min(delay * 2, DOMAIN_POLL_MAX_MS);
+  }
+}
+
 async function waitForHealth(
   deps: ProvisionDeps,
   refs: StackRefs,

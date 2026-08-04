@@ -133,6 +133,12 @@ export const CUSTOM_DOMAINS = `
         id
         domain
         status {
+          verified
+          certificateStatus
+          certificateRetryable
+          certificateErrorMessage
+          verificationDnsHost
+          verificationToken
           dnsRecords {
             recordType
             hostlabel
@@ -144,6 +150,17 @@ export const CUSTOM_DOMAINS = `
     }
   }
 `;
+
+/**
+ * Railway's certificate lifecycle, verbatim from the live schema.
+ *
+ * Only `VALID` serves HTTPS. `VALIDATING_OWNERSHIP` and `ISSUING` are the
+ * normal path a fresh domain walks for a few minutes; `ISSUE_FAILED` is the
+ * one terminal state, and it carries `certificateRetryable` to say whether
+ * Railway will have another go by itself.
+ */
+export const CERTIFICATE_VALID = "CERTIFICATE_STATUS_TYPE_VALID";
+export const CERTIFICATE_FAILED = "CERTIFICATE_STATUS_TYPE_ISSUE_FAILED";
 
 export const SERVICE_DOMAIN_CREATE = `
   mutation ServiceDomainCreate($input: ServiceDomainCreateInput!) {
@@ -157,6 +174,8 @@ export const CUSTOM_DOMAIN_CREATE = `
       id
       domain
       status {
+        verificationDnsHost
+        verificationToken
         dnsRecords {
           recordType
           hostlabel

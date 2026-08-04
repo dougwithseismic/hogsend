@@ -238,6 +238,62 @@ export function describeSubstrateContract(
       }
     });
 
+    it("returns the ownership TXT, however the substrate reports it", async () => {
+      const { provider, refs } = await setup();
+
+      const attachment = await provider.attachDomain(refs, "app.acme.test");
+      const txt = attachment.records.filter((r) => r.type === "TXT");
+
+      // The bug this asserts against cost a whole live provision. Railway
+      // returns the routing CNAME in `status.dnsRecords` but keeps the
+      // ownership TXT in `verificationDnsHost`/`verificationToken`, and an
+      // adapter that maps only `dnsRecords` publishes half the answer. There is
+      // no error: `verified` stays false forever, no certificate is issued, and
+      // the hostname silently never serves.
+      expect(txt).toHaveLength(1);
+      expect(txt[0]?.name).toContain(".");
+      expect(txt[0]?.value).toBeTruthy();
+
+      // And the same complete set on a re-read, since that is what a re-driven
+      // provision republishes from.
+      const rechecked = await provider.checkDomain(refs, "app.acme.test");
+      expect(rechecked.records.filter((r) => r.type === "TXT")).toHaveLength(1);
+    });
+
+    it("re-reads an attached domain without changing it", async () => {
+      const { provider, refs } = await setup();
+      await provider.attachDomain(refs, "app.acme.test");
+
+      const first = await provider.checkDomain(refs, "app.acme.test");
+      const second = await provider.checkDomain(refs, "app.acme.test");
+
+      // Side-effect free and stable: the pipeline POLLS this, so a read that
+      // mutated or drifted would make the wait's own outcome unrepeatable.
+      expect(first.status).toBe("pending");
+      expect(second.status).toBe("pending");
+      expect(second.records).toEqual(first.records);
+    });
+
+    it("does not report a fresh domain as verified", async () => {
+      const { provider, refs } = await setup();
+      await provider.attachDomain(refs, "app.acme.test");
+
+      // The whole point of the wait. A substrate that ripens instantly would
+      // let a caller that never polls pass, and then fail in production the
+      // way the first live provision did.
+      expect((await provider.checkDomain(refs, "app.acme.test")).status).toBe(
+        "pending",
+      );
+    });
+
+    it("reports an unattached domain as a not-found", async () => {
+      const { provider, refs } = await setup();
+
+      await expect(
+        provider.checkDomain(refs, "never-attached.acme.test"),
+      ).rejects.toBeInstanceOf(SubstrateNotFoundError);
+    });
+
     it("makes destroy final — every later call is a not-found", async () => {
       const { provider, refs } = await setup();
 
@@ -253,6 +309,7 @@ export function describeSubstrateContract(
             service: "api",
           }),
         () => provider.attachDomain(refs, "app.acme.test"),
+        () => provider.checkDomain(refs, "app.acme.test"),
         () => provider.suspend(refs),
         () => provider.resume(refs),
         () => provider.destroyStack(refs),

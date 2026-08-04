@@ -118,7 +118,15 @@ export interface DomainRecord {
 }
 
 export interface DomainAttachment {
-  /** `pending` until the substrate observes the records; never assumed. */
+  /**
+   * `verified` means the ONE thing a caller can act on: this hostname will
+   * serve HTTPS. Both halves must hold — the substrate has observed the
+   * records AND the certificate is issued — because a domain that verifies
+   * without a certificate still fails the TLS handshake, which is how the
+   * first live provision broke (`mint-credentials`: "fetch failed").
+   *
+   * `pending` until then; never assumed.
+   */
   status: "pending" | "verified";
   records: DomainRecord[];
 }
@@ -158,6 +166,20 @@ export interface SubstrateProvider {
    */
   deployImage(refs: StackRefs, options: DeployImageOptions): Promise<void>;
   attachDomain(refs: StackRefs, domain: string): Promise<DomainAttachment>;
+  /**
+   * Re-read a domain attached by `attachDomain`. Idempotent and side-effect
+   * free, so the pipeline can poll it.
+   *
+   * Exists because `attachDomain` answers before the certificate is issued and
+   * can only ever report `pending`: the readiness a caller needs arrives
+   * MINUTES later, and the only honest way to learn it is to ask again.
+   *
+   * Throws `SubstrateNotFoundError` when the domain is not attached, and a
+   * non-retryable `SubstrateError` when the substrate reports the certificate
+   * permanently failed — a caller polling to a deadline must not spin on a
+   * verdict that will never change.
+   */
+  checkDomain(refs: StackRefs, domain: string): Promise<DomainAttachment>;
   getHealth(refs: StackRefs, options?: HealthOptions): Promise<HealthResult>;
   /** Stop the services, keep the state. Reversible with `resume`. */
   suspend(refs: StackRefs): Promise<void>;

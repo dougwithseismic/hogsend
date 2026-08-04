@@ -41,7 +41,22 @@ interface MockService {
   deploymentStatus: string;
   deployCount: number;
   serviceDomain?: string;
-  customDomains: string[];
+  customDomains: MockCustomDomain[];
+}
+
+/**
+ * A custom domain as Railway reports it, INCLUDING the certificate lifecycle.
+ *
+ * Modelled because leaving it out is what let the first live provision ship: a
+ * mock whose domains were bare strings could not express "attached but not yet
+ * serving", so the missing certificate wait had nothing to fail against.
+ */
+interface MockCustomDomain {
+  domain: string;
+  verified: boolean;
+  certificateStatus: string;
+  certificateRetryable?: boolean;
+  certificateErrorMessage?: string;
 }
 
 interface MockProject {
@@ -328,10 +343,49 @@ class RailwayMock {
         return { serviceDomainCreate: { domain: service.serviceDomain } };
       }
 
+      case "CustomDomains": {
+        const service = this.service(vars.serviceId);
+        return {
+          domains: {
+            customDomains: service.customDomains.map((entry) => ({
+              id: `dom-${entry.domain}`,
+              domain: entry.domain,
+              status: {
+                verified: entry.verified,
+                certificateStatus: entry.certificateStatus,
+                certificateRetryable: entry.certificateRetryable ?? null,
+                certificateErrorMessage: entry.certificateErrorMessage ?? null,
+                verificationDnsHost: `_railway-verify.${entry.domain.replace(".acme.test", "")}`,
+                verificationToken: "railway-verify=abc123",
+                // ONLY the CNAME. Railway keeps the ownership TXT out of
+                // `dnsRecords` entirely — a mock that put it here is what let
+                // the missing-TXT bug ship, since the adapter looked correct
+                // against a shape the vendor never produces.
+                dnsRecords: [
+                  {
+                    recordType: "DNS_RECORD_TYPE_CNAME",
+                    hostlabel: entry.domain.replace(".acme.test", ""),
+                    requiredValue: `${service.id}.up.railway.app`,
+                    zone: "acme.test",
+                  },
+                ],
+              },
+            })),
+          },
+        };
+      }
+
       case "CustomDomainCreate": {
         const service = this.service(input.serviceId);
         const domain = String(input.domain);
-        service.customDomains.push(domain);
+        service.customDomains.push({
+          domain,
+          // Born unverified with a certificate still being issued — which is
+          // what Railway actually does, and the state the pipeline must wait
+          // out rather than march past.
+          verified: false,
+          certificateStatus: "CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP",
+        });
         return {
           customDomainCreate: {
             id: this.id("dom"),
@@ -342,17 +396,13 @@ class RailwayMock {
               // `hostlabel`, which made a real bug untestable: the label was
               // published as if it were the name, and Cloudflare refused
               // `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
+              verificationDnsHost: `_railway-verify.${domain.replace(".acme.test", "")}`,
+              verificationToken: "railway-verify=abc123",
               dnsRecords: [
                 {
                   recordType: "DNS_RECORD_TYPE_CNAME",
                   hostlabel: domain.replace(".acme.test", ""),
                   requiredValue: `${service.id}.up.railway.app`,
-                  zone: "acme.test",
-                },
-                {
-                  recordType: "DNS_RECORD_TYPE_TXT",
-                  hostlabel: `_railway.${domain.replace(".acme.test", "")}`,
-                  requiredValue: "railway-verify=abc123",
                   zone: "acme.test",
                 },
               ],
@@ -858,7 +908,7 @@ describe("RailwaySubstrate topology", () => {
     // the DNS client refuses — and the domain then never verifies.
     expect(attachment.records.map((record) => record.name)).toEqual([
       "app.acme.test",
-      "_railway.app.acme.test",
+      "_railway-verify.app.acme.test",
     ]);
     for (const record of attachment.records) {
       expect(record.name.endsWith(".acme.test")).toBe(true);

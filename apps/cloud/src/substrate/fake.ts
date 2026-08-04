@@ -46,6 +46,9 @@ interface FakeDomainState {
   domain: string;
   status: DomainAttachment["status"];
   records: DomainAttachment["records"];
+  /** Set by `failDomainCertificate` — the terminal certificate verdict. */
+  certificateFailed?: boolean;
+  certificateRetryable?: boolean;
 }
 
 interface FakeStackState {
@@ -86,6 +89,10 @@ export class FakeSubstrate implements SubstrateProvider {
   /** Every call made, in order. Cleared with `reset()`. */
   readonly calls: FakeSubstrateCall[] = [];
 
+  /** Null → certificates never land on their own. See `certifyDomainsAfter`. */
+  private certifyAfterChecks: number | null = null;
+  private readonly domainChecks = new Map<string, number>();
+
   /**
    * Script the next call to `method` to throw. Queues, so two calls script two
    * consecutive failures. Default error is retryable — the pipeline is supposed
@@ -109,6 +116,20 @@ export class FakeSubstrate implements SubstrateProvider {
     return this;
   }
 
+  /**
+   * Let a certificate land after `checks` reads of `checkDomain`.
+   *
+   * Off by default, and deliberately so: a fake that certified on its own
+   * would let a caller that never waits pass its tests and then fail in
+   * production exactly the way the first live provision did. A test that wants
+   * the happy path has to say how long the wait takes, which also makes "did
+   * it actually poll?" an assertable fact.
+   */
+  certifyDomainsAfter(checks: number): this {
+    this.certifyAfterChecks = checks;
+    return this;
+  }
+
   /** Mark an attached domain verified — the DNS the tenant would publish. */
   verifyDomain(refs: StackRefs, domain: string): this {
     const state = this.mustGet(refs);
@@ -123,6 +144,8 @@ export class FakeSubstrate implements SubstrateProvider {
     this.stacks.clear();
     this.scriptedFailures.clear();
     this.calls.length = 0;
+    this.domainChecks.clear();
+    this.certifyAfterChecks = null;
     return this;
   }
 
@@ -257,6 +280,49 @@ export class FakeSubstrate implements SubstrateProvider {
     };
     state.domains.push(entry);
     return { status: entry.status, records: entry.records };
+  }
+
+  async checkDomain(
+    refs: StackRefs,
+    domain: string,
+  ): Promise<DomainAttachment> {
+    this.record("checkDomain", [refs, domain]);
+    const state = this.mustGet(refs);
+
+    const entry = state.domains.find((d) => d.domain === domain);
+    if (!entry) {
+      throw new SubstrateNotFoundError("Domain", domain);
+    }
+    if (entry.certificateFailed) {
+      throw new SubstrateError(
+        `certificate for ${domain} failed to issue: fake certificate failure`,
+        { retryable: entry.certificateRetryable },
+      );
+    }
+
+    const seen = (this.domainChecks.get(domain) ?? 0) + 1;
+    this.domainChecks.set(domain, seen);
+    if (this.certifyAfterChecks !== null && seen >= this.certifyAfterChecks) {
+      entry.status = "verified";
+    }
+
+    // Otherwise stays `pending`: a fake that ripened by itself would let a
+    // caller that never polls pass the poll's own test.
+    return { status: entry.status, records: entry.records };
+  }
+
+  /** Test hook: the substrate gave up on this domain's certificate. */
+  failDomainCertificate(
+    refs: StackRefs,
+    domain: string,
+    options: { retryable?: boolean } = {},
+  ): this {
+    const state = this.mustGet(refs);
+    const entry = state.domains.find((d) => d.domain === domain);
+    if (!entry) throw new SubstrateNotFoundError("Domain", domain);
+    entry.certificateFailed = true;
+    entry.certificateRetryable = options.retryable ?? false;
+    return this;
   }
 
   async getHealth(

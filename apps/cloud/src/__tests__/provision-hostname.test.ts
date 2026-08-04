@@ -155,7 +155,7 @@ function deps(
   ssoCookieDomain: string | null = null,
 ) {
   return {
-    substrate: new FakeSubstrate(),
+    substrate: new FakeSubstrate().certifyDomainsAfter(1),
     dns,
     hostnameZone: zone,
     ssoCookieDomain,
@@ -167,7 +167,7 @@ describe("ensure-hostname", () => {
   it("gives the instance its hostname before the env freezes it", async () => {
     const fixture = await seedStack("production");
     const dns = new FakeDns();
-    const substrate = new FakeSubstrate();
+    const substrate = new FakeSubstrate().certifyDomainsAfter(1);
 
     const run = await runProvisionPipeline(
       { stackId: fixture.stackId },
@@ -254,6 +254,69 @@ describe("ensure-hostname", () => {
     // zone's record cap twice per retry.
     expect((await dns.readCapacity()).used).toBe(2);
     expect(second[0]?.dnsRecordIds).toHaveLength(2);
+  });
+
+  // The bug this wait exists for, reproduced: the first live provision
+  // attached the domain, published a correct CNAME, and marched on — so
+  // `mint-credentials`, the first step to make an HTTPS call, hit a hostname
+  // whose certificate was still issuing and died on "fetch failed".
+  it("waits for the certificate before freezing the hostname into the env", async () => {
+    const fixture = await seedStack("production");
+    const dns = new FakeDns();
+    // Three reads: pending, pending, then certified.
+    const substrate = new FakeSubstrate().certifyDomainsAfter(3);
+
+    const run = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { ...deps(dns), substrate },
+    );
+
+    expect(run.status).toBe("running");
+
+    // It POLLED rather than assuming. Without this the step would pass on the
+    // first read and hand a dead hostname to everything downstream.
+    const checks = substrate.calls.filter(
+      (call) => call.method === "checkDomain",
+    );
+    expect(checks).toHaveLength(3);
+
+    // And every check happened BEFORE the env froze, which is the whole point
+    // of the step's position in the pipeline.
+    const firstSetEnv = substrate.calls.findIndex(
+      (call) => call.method === "setEnv",
+    );
+    const lastCheck = substrate.calls.findLastIndex(
+      (call) => call.method === "checkDomain",
+    );
+    expect(lastCheck).toBeLessThan(firstSetEnv);
+  });
+
+  // Exhaustion must NOT fall back to the substrate URL. Falling back would
+  // freeze `up.railway.app` into the env, the cookies and every tracked link
+  // that instance ever sends — permanently, and only for the tenants unlucky
+  // enough to draw a slow certificate.
+  it("parks the stack rather than settling for the substrate URL", async () => {
+    const fixture = await seedStack("production");
+    const dns = new FakeDns();
+    // Never certifies: the deadline is the only way out.
+    const substrate = new FakeSubstrate();
+
+    const run = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { ...deps(dns), substrate, domainDeadlineMs: 1_000 },
+    );
+
+    expect(run.status).toBe("error");
+
+    const [stack] = await db
+      .select()
+      .from(stacks)
+      .where(eq(stacks.id, fixture.stackId));
+    expect(stack?.lastError).toContain("ensure-hostname");
+    // The instance did NOT quietly adopt the substrate's own URL.
+    const refs = readStackRefs(stack!);
+    expect(refs?.apiPublicUrl).not.toContain(ZONE);
+    expect(stack?.status).toBe("error");
   });
 
   // The trade this step is built around: a name is an improvement to
