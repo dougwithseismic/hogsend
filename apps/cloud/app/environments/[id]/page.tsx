@@ -254,7 +254,19 @@ export default async function EnvironmentDetailPage({
               description="Every publish to this environment, newest first."
               summary={buildsSummary(buildsView)}
             >
-              <BuildsSection environmentId={id} view={buildsView} now={now} />
+              <BuildsSection
+                environmentId={id}
+                view={buildsView}
+                now={now}
+                liveDigest={stack?.imageDigest ?? null}
+                // Same gate the server enforces: an operator role, and a stack
+                // that is actually running. Drawing a control the action would
+                // refuse is a worse answer than not drawing it.
+                canRollBack={
+                  canOperateEnvironments(operations.role) &&
+                  stack?.status === "running"
+                }
+              />
             </Drawer>
           ) : null}
 

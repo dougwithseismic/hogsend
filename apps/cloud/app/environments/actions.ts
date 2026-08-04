@@ -15,6 +15,7 @@ import {
   destroyEnvironment,
   resumeEnvironment,
   retryEnvironmentProvisioning,
+  rollbackEnvironment,
   suspendEnvironment,
 } from "@/src/lib/environment-ops";
 import { NotPermittedError } from "@/src/lib/org-members";
@@ -115,6 +116,45 @@ export async function resumeEnvironmentAction(
 
   revalidateEnvironment(parsed.data.environmentId);
   return { error: null, notice: "Environment resumed." };
+}
+
+const rollbackSchema = z.object({
+  environmentId: z.uuid(),
+  buildId: z.uuid(),
+});
+
+/**
+ * Put a previous build back on this environment's stack.
+ *
+ * Unlike destroy, there is no typed confirmation: a rollback is reversible by
+ * rolling forward again, and the thing it CANNOT undo — database migrations —
+ * is not something a confirmation box would make safer. Saying so on the
+ * control is the honest guard; making the customer type a name would only
+ * imply we had it covered.
+ */
+export async function rollbackEnvironmentAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = rollbackSchema.safeParse({
+    environmentId: formData.get("environmentId"),
+    buildId: formData.get("buildId"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    await rollbackEnvironment(await headers(), parsed.data);
+  } catch (error) {
+    return { error: messageFrom(error, "The rollback did not run.") };
+  }
+
+  revalidateEnvironment(parsed.data.environmentId);
+  return {
+    error: null,
+    notice: "Rolled back. The new containers take a minute to come up.",
+  };
 }
 
 export async function destroyEnvironmentAction(

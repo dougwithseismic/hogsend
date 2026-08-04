@@ -14,6 +14,10 @@ import {
   resumeStack as defaultResumeStack,
   suspendStack as defaultSuspendStack,
 } from "../pipeline/lifecycle";
+import {
+  rollbackToBuild as defaultRollbackToBuild,
+  type RollbackResult,
+} from "../pipeline/rollback";
 import type { CreateEnvironmentResult } from "../services/environments";
 import { IllegalTransitionError, NotFoundError } from "../services/errors";
 import { legalSources, type StackStatus } from "../services/stacks";
@@ -154,6 +158,7 @@ export interface EnvironmentOpsDeps extends OrgMembersDeps {
   suspendStack?: typeof defaultSuspendStack;
   resumeStack?: typeof defaultResumeStack;
   destroyStack?: typeof defaultDestroyStack;
+  rollbackToBuild?: typeof defaultRollbackToBuild;
   enqueueProvision?: typeof defaultEnqueueProvision;
   /** Creation goes through `provisionEnvironment`, never the service alone. */
   provisionEnvironment?: typeof defaultProvisionEnvironment;
@@ -162,6 +167,8 @@ export interface EnvironmentOpsDeps extends OrgMembersDeps {
 
 interface ResolvedEnvironment {
   organizationId: string;
+  /** The CALLER, for audit attribution — never the organization id. */
+  userId: string;
   environmentId: string;
   environmentName: string;
   stackId: string;
@@ -199,7 +206,11 @@ async function resolveOperation(
     .limit(1);
   if (!row) throw new NotFoundError("Environment", input.environmentId);
 
-  return { organizationId: context.organizationId, ...row };
+  return {
+    organizationId: context.organizationId,
+    userId: context.userId,
+    ...row,
+  };
 }
 
 export async function suspendEnvironment(
@@ -220,6 +231,32 @@ export async function resumeEnvironment(
   const resolved = await resolveOperation(headers, input, deps);
   const resume = deps.resumeStack ?? defaultResumeStack;
   return resume({ stackId: resolved.stackId }, deps.lifecycle ?? {});
+}
+
+/**
+ * Put a previous build back on this environment's stack.
+ *
+ * Behind the SAME gate as suspend and destroy — `resolveOperation` checks the
+ * caller's role and scopes the environment to their organization — because
+ * this replaces the running code. A member may read builds; only an owner or
+ * admin may make one live again.
+ *
+ * The pipeline re-checks that the build belongs to this environment, so a build
+ * id borrowed from another tenant is refused twice over.
+ */
+export async function rollbackEnvironment(
+  headers: Headers,
+  input: { environmentId: string; buildId: string },
+  deps: EnvironmentOpsDeps = {},
+): Promise<RollbackResult> {
+  const resolved = await resolveOperation(headers, input, deps);
+  const rollback = deps.rollbackToBuild ?? defaultRollbackToBuild;
+  return rollback({
+    environmentId: resolved.environmentId,
+    buildId: input.buildId,
+    // The person who clicked it. An organization cannot roll anything back.
+    actor: resolved.userId,
+  });
 }
 
 export async function destroyEnvironment(
