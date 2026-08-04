@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
-import { cells, organizations, stacks } from "../db/schema";
+import { cells, hostnames, organizations, stacks } from "../db/schema";
+import { type DnsProvider, getDns } from "../dns";
 import { decryptSecretPayload } from "../lib/crypto";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
@@ -47,6 +48,10 @@ export const LIFECYCLE_ACTOR = "lifecycle";
 /** Destroy, in order. Exported so tests + the dashboard can name a step. */
 export const DESTROY_STEPS = [
   "start",
+  // Before the substrate goes: the record points AT the substrate, and a name
+  // left resolving to a destroyed service is a dangling delegation. Removing
+  // it first also frees the hostname for reuse the moment the row is gone.
+  "release-hostname",
   "substrate-destroy",
   "drop-tenant-db",
   "clear-secrets",
@@ -63,6 +68,8 @@ export function destroyAuditAction(step: DestroyStep): string {
 export interface LifecycleDeps {
   db: CloudDb;
   substrate: SubstrateProvider;
+  /** Deletes the managed hostname's record — the mirror of `ensure-hostname`. */
+  dns: DnsProvider;
   tenantDb: TenantDbService;
   stackService: StackService;
 }
@@ -73,6 +80,7 @@ function defaultDeps(): LifecycleDeps {
     // Resolved per run, like the provision pipeline: a misconfigured railway
     // substrate must fail THIS call, not module import.
     substrate: getSubstrate(),
+    dns: getDns(),
     tenantDb: new TenantDbService(),
     stackService: new StackService(),
   };
@@ -371,6 +379,33 @@ export async function destroyStack(
   await audit("start", { from: enteredFrom });
 
   try {
+    // ---- release-hostname --------------------------------------------------
+    // Delete exactly the records we created, named by the row rather than found
+    // by searching the zone. Deleting an absent record succeeds by contract, so
+    // a re-driven destroy passes straight through.
+    current = "release-hostname";
+    const owned = await deps.db
+      .select()
+      .from(hostnames)
+      .where(eq(hostnames.environmentId, stack.environmentId));
+
+    for (const row of owned) {
+      // A custom hostname's records live in the TENANT's zone. Ours to forget,
+      // never ours to delete.
+      if (row.dnsRecordId && row.kind === "managed") {
+        await deps.dns.deleteRecord({ id: row.dnsRecordId });
+      }
+    }
+    if (owned.length > 0) {
+      await deps.db
+        .delete(hostnames)
+        .where(eq(hostnames.environmentId, stack.environmentId));
+    }
+    steps.push({ step: "release-hostname", skipped: owned.length === 0 });
+    await audit("release-hostname", {
+      released: owned.map((row) => row.hostname),
+    });
+
     // ---- substrate-destroy -------------------------------------------------
     current = "substrate-destroy";
     const refs = readRefs(stack);

@@ -10,6 +10,7 @@ export * from "./cells";
 export * from "./cli-sessions";
 export * from "./enums";
 export * from "./environments";
+export * from "./hostnames";
 export * from "./organizations";
 export * from "./provider-keys";
 export * from "./publish-tokens";

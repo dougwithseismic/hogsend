@@ -4,6 +4,7 @@ import type { CloudPlan, CloudRegion, OrgService } from "../services/orgs";
 import { orgService as defaultOrgService } from "../services/orgs";
 import type { CloudAuth } from "./auth";
 import { auth as defaultAuth } from "./auth";
+import { isUsableSlug, SLUG_MAX_LENGTH } from "./hostnames";
 
 /**
  * Creating an organization spans TWO stores that have no shared transaction:
@@ -52,16 +53,43 @@ export interface ProvisionOrganizationResult {
   stackId: string;
 }
 
-/** URL-safe handle from a display name; never empty. */
+/**
+ * URL-safe handle from a display name; never empty, and always usable as a
+ * hostname label.
+ *
+ * The slug stopped being cosmetic the moment instances started answering at
+ * `<slug>.hogsend.com`: it is now a DNS label sharing a zone with our own
+ * marketing and tracking hosts. So it is held to `isUsableSlug` — length,
+ * shape, no double hyphen, and not a reserved name. A name that reduces to
+ * something unusable ("Docs", "A&B", "") gets a suffix rather than a refusal,
+ * because the signup form never asked the user for a slug and cannot sensibly
+ * reject them over one.
+ */
 export function slugifyOrgName(name: string): string {
-  const slug = name
+  const base = name
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
+    .slice(0, SLUG_MAX_LENGTH)
     .replace(/-+$/g, "");
-  return slug.length > 0 ? slug : "org";
+
+  // A name that reduces to nothing falls back to `org`, which is itself a
+  // usable slug — so an unnamed org gets a clean handle, and a collision is
+  // `createAuthOrganization`'s retry to resolve, exactly as before.
+  const stem = base.length > 0 ? base : "org";
+  if (isUsableSlug(stem)) return stem;
+
+  // Reserved or too short to stand alone. Suffixing keeps the recognisable
+  // stem and takes it out of the reserved namespace in one move.
+  const suffixed = `${stem}-${randomBytes(3).toString("hex")}`.slice(
+    0,
+    SLUG_MAX_LENGTH,
+  );
+  return isUsableSlug(suffixed)
+    ? suffixed
+    : `org-${randomBytes(3).toString("hex")}`;
 }
 
 function isSlugTaken(error: unknown): boolean {
