@@ -123,6 +123,20 @@ export type RailwaySubstrateOptions = RailwayClientOptions & {
  * `DomainRecord.name` is fully qualified by contract, so the qualification
  * happens HERE, at the vendor boundary, rather than in every caller.
  */
+/**
+ * Railway reports record types as a prefixed enum — `DNS_RECORD_TYPE_CNAME`,
+ * `DNS_RECORD_TYPE_TXT` — not as the DNS type itself. Confirmed live against
+ * the control plane's own `cloud.hogsend.com` domain.
+ *
+ * `DomainRecord.type` is the DNS type by contract, because that is what a DNS
+ * provider is handed verbatim. Passing the enum through would make Cloudflare
+ * reject the write with an opaque 400, and the hostname would silently never
+ * resolve.
+ */
+function normalizeRecordType(recordType: string): string {
+  return recordType.replace(/^DNS_RECORD_TYPE_/, "").toUpperCase();
+}
+
 function qualifyRecordName(
   record: { hostlabel?: string; zone?: string },
   domain: string,
@@ -332,7 +346,7 @@ export class RailwaySubstrate implements SubstrateProvider {
     const records: DomainRecord[] = (
       result.customDomainCreate.status?.dnsRecords ?? []
     ).map((record) => ({
-      type: record.recordType,
+      type: normalizeRecordType(record.recordType),
       name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
@@ -393,7 +407,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       (entry) => entry.domain === domain,
     );
     return (match?.status?.dnsRecords ?? []).map((record) => ({
-      type: record.recordType,
+      type: normalizeRecordType(record.recordType),
       name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));

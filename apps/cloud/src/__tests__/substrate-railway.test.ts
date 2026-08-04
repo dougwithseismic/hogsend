@@ -323,13 +323,13 @@ class RailwayMock {
               // `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
               dnsRecords: [
                 {
-                  recordType: "CNAME",
+                  recordType: "DNS_RECORD_TYPE_CNAME",
                   hostlabel: domain.replace(".acme.test", ""),
                   requiredValue: `${service.id}.up.railway.app`,
                   zone: "acme.test",
                 },
                 {
-                  recordType: "TXT",
+                  recordType: "DNS_RECORD_TYPE_TXT",
                   hostlabel: `_railway.${domain.replace(".acme.test", "")}`,
                   requiredValue: "railway-verify=abc123",
                   zone: "acme.test",
@@ -814,6 +814,9 @@ describe("RailwaySubstrate topology", () => {
     const attachment = await provider.attachDomain(refs, "app.acme.test");
 
     expect(attachment.status).toBe("pending");
+    // Railway answers with a prefixed enum (DNS_RECORD_TYPE_CNAME). The seam
+    // hands a DNS provider the DNS type, so the prefix is stripped here — a
+    // provider given the enum rejects the write and the name never resolves.
     expect(attachment.records.map((record) => record.type)).toEqual([
       "CNAME",
       "TXT",
