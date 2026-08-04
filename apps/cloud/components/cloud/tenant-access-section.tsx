@@ -10,11 +10,13 @@ import {
   PUBLISH_REPLACES_NOTE,
   SCAFFOLD_COMMANDS,
 } from "@/src/lib/cloud-onboarding";
+import { PROVISION_STEP_LABELS } from "@/src/lib/environment-detail";
 import type {
   ProvisionProgress,
   TenantAccessView,
   TenantKeyView,
 } from "@/src/lib/tenant-access";
+import { AdvancedDisclosure } from "./advanced-disclosure";
 import { RevealSecret } from "./reveal-secret";
 import { CreateTenantKeyForm, RevokeTenantKeyForm } from "./tenant-keys-form";
 import { TimeAgo } from "./time-ago";
@@ -53,33 +55,24 @@ export function TenantAccessSection({
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-5">
         <div className="flex flex-col gap-1.5">
-          <h2 className="font-medium text-white tracking-[-0.02em]">
-            Your instance is ready
-          </h2>
+          <h2 className="font-medium text-white tracking-[-0.02em]">Studio</h2>
           <p className="max-w-prose text-sm text-white/60 leading-6">
             Studio is the admin app for this instance — contacts, journeys,
             emails, events. It runs on your own instance, not on ours.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {access.studioUrl ? (
+        {access.studioUrl ? (
+          <div>
             <Button href={access.studioUrl} external icon>
               Open Studio
             </Button>
-          ) : null}
-          {access.apiUrl ? (
-            <span className="font-mono text-white/60 text-xs">
-              {access.apiUrl}
-            </span>
-          ) : null}
-        </div>
-      </Card>
-
-      <Card className="flex flex-col gap-5">
+          </div>
+        ) : null}
+        <Hairline />
         <div className="flex flex-col gap-1.5">
-          <h2 className="font-medium text-white tracking-[-0.02em]">
+          <h3 className="font-medium text-white tracking-[-0.02em]">
             Studio sign-in
-          </h2>
+          </h3>
           <p className="max-w-prose text-sm text-white/60 leading-6">
             Your Studio admin is{" "}
             <span className="font-mono text-white/80">
@@ -247,23 +240,20 @@ export function TenantAccessSection({
  */
 function NoRepoCard(): JSX.Element {
   return (
-    <Card className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1.5">
-        <h2 className="font-medium text-white tracking-[-0.02em]">
-          No repo yet?
-        </h2>
+    <AdvancedDisclosure summary="No repo yet?">
+      <div className="flex flex-col gap-5 px-6 pt-1 pb-6">
         <p className="max-w-prose text-sm text-white/60 leading-6">
           A Hogsend app is a repository you own — journeys, email templates and
           schema as TypeScript. These four commands make one and ship it here.
         </p>
+        <pre className="overflow-x-auto rounded-[10px] border border-white/[0.08] bg-white/[0.03] px-4 py-3 font-mono text-white/80 text-xs leading-6">
+          {SCAFFOLD_COMMANDS.join("\n")}
+        </pre>
+        <p className="max-w-prose text-sm text-white/60 leading-6">
+          {PUBLISH_REPLACES_NOTE}
+        </p>
       </div>
-      <pre className="overflow-x-auto rounded-[10px] border border-white/[0.08] bg-white/[0.03] px-4 py-3 font-mono text-white/80 text-xs leading-6">
-        {SCAFFOLD_COMMANDS.join("\n")}
-      </pre>
-      <p className="max-w-prose text-sm text-white/60 leading-6">
-        {PUBLISH_REPLACES_NOTE}
-      </p>
-    </Card>
+    </AdvancedDisclosure>
   );
 }
 
@@ -291,14 +281,14 @@ function ProvisioningCard({
       </h2>
       {progress.step ? (
         <p className="text-sm text-white/70 leading-6">
-          Currently on <span className="font-mono">{progress.step}</span>
+          {PROVISION_STEP_LABELS[progress.step]}
           {progress.since ? (
             <>
               {" "}
               — since <TimeAgo at={progress.since} now={now} />
             </>
           ) : null}
-          .
+          . <span className="font-mono text-white/45">({progress.step})</span>
         </p>
       ) : null}
       <p className="max-w-prose text-sm text-white/60 leading-6">

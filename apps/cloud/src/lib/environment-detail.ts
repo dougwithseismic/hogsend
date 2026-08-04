@@ -116,6 +116,25 @@ export function deriveProvisionSteps(input: {
   });
 }
 
+/**
+ * What each pipeline step is DOING, in the customer's terms.
+ *
+ * The slug stays the identifier — it is what `last_error` names when a step
+ * fails, so the page keeps showing it beside the sentence rather than instead
+ * of it. This map only adds the reading a customer can act on; nobody outside
+ * this codebase knows what `mint-hatchet` means.
+ */
+export const PROVISION_STEP_LABELS: Record<ProvisionStep, string> = {
+  start: "Starting",
+  "ensure-tenant-db": "Creating your database",
+  "mint-hatchet": "Setting up background jobs",
+  "substrate-provision": "Starting your services",
+  "set-env": "Applying your settings",
+  "health-wait": "Waiting for the first healthy check",
+  "mint-credentials": "Creating your login",
+  finish: "Finishing up",
+};
+
 export interface EnvironmentDetail {
   environment: EnvironmentRow;
   /** null when the environment has no stack row at all. */

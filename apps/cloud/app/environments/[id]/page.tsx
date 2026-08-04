@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { AdvancedDisclosure } from "@/components/cloud/advanced-disclosure";
 import { BuildsSection } from "@/components/cloud/builds-section";
 import { EnvironmentOperations } from "@/components/cloud/environment-operations";
 import { HealthStrip } from "@/components/cloud/health-strip";
+import { NetworkingPanel } from "@/components/cloud/networking-panel";
 import { ProvisionSteps } from "@/components/cloud/provision-steps";
 import { StackStatusChip } from "@/components/cloud/stack-status-chip";
 import { TenantAccessSection } from "@/components/cloud/tenant-access-section";
@@ -30,15 +32,16 @@ export const metadata: Metadata = {
 };
 
 /**
- * One environment, read as the CUSTOMER's first five minutes and then as the
- * operator's infrastructure: open Studio, sign in, paste a key into your repo
- * — and below that, how far provisioning got, what the health poll has seen,
- * and the operations this caller may run on it.
+ * One environment, read as the CUSTOMER's first five minutes: is it up, where
+ * does it answer, how do I get into it, and how do I turn it off.
  *
- * The order is deliberate. Topology, engine version, tenant database and
- * Hatchet namespace are still here (an operator wants them) but they answer a
- * question nobody has in their first five minutes, so they sit under the
- * material that does.
+ * Four panels in that order — status, networking, keys and connect, operations
+ * — and then one disclosure. Topology, engine version, the tenant database
+ * name, the Hatchet namespace and the raw provisioning trail are still here,
+ * because an operator debugging a stuck stack needs them, but they answer a
+ * question nobody has in their first five minutes and every one of them reads
+ * as an internal. So they sit inside `Advanced details`, collapsed, rather than
+ * as the second thing a new customer meets.
  *
  * The tenancy guard is `readEnvironmentDetail`'s: it scopes the query to the
  * caller's own organization, so another tenant's id and a made-up one both
@@ -131,16 +134,6 @@ export default async function EnvironmentDetailPage({
       />
 
       <Section divider={false} containerClassName="flex flex-col gap-4">
-        {access ? (
-          <TenantAccessSection
-            access={access}
-            progress={progress}
-            keys={keys.keys}
-            keysError={keys.error}
-            now={now}
-          />
-        ) : null}
-
         <Card className="p-0">
           <Row label="Status">
             <StackStatusChip status={stack?.status ?? null} />
@@ -152,20 +145,69 @@ export default async function EnvironmentDetailPage({
             {stack?.region ?? "decided when the stack is created"}
           </Row>
           <Hairline />
+          <Row label="Created">
+            <TimeAgo at={environment.createdAt} now={now} />
+          </Row>
+        </Card>
+
+        {/*
+          Before the instance is usable, `TenantAccessSection` is the
+          provisioning card and nothing else — so it leads. Once it is ready it
+          is the keys-and-connect material, which belongs after the address
+          those keys point at.
+        */}
+        {access && !access.ready ? (
+          <TenantAccessSection
+            access={access}
+            progress={progress}
+            keys={keys.keys}
+            keysError={keys.error}
+            now={now}
+          />
+        ) : null}
+
+        <HealthStrip
+          health={detail.health}
+          alert={detail.alert}
+          status={stack?.status ?? null}
+          now={now}
+        />
+
+        <NetworkingPanel
+          apiUrl={apiUrl}
+          studioUrl={access?.studioUrl ?? null}
+        />
+
+        {access?.ready ? (
+          <TenantAccessSection
+            access={access}
+            progress={progress}
+            keys={keys.keys}
+            keysError={keys.error}
+            now={now}
+          />
+        ) : null}
+
+        {buildsView ? (
+          <BuildsSection environmentId={id} view={buildsView} now={now} />
+        ) : null}
+
+        <EnvironmentOperations
+          environmentId={environment.id}
+          environmentName={environment.name}
+          status={stack?.status ?? null}
+          allowed={operations.allowed}
+          canOperate={canOperateEnvironments(operations.role)}
+        />
+
+        <AdvancedDisclosure summary="Advanced details">
+          <Hairline />
           <Row label="Topology">
             {detail.topology} (the {detail.plan} plan)
           </Row>
           <Hairline />
           <Row label="Engine version">
             {stack?.engineVersion ?? "not set until the stack is provisioned"}
-          </Row>
-          <Hairline />
-          <Row label="API URL">
-            {apiUrl ? (
-              <span className="font-mono text-white/70 text-xs">{apiUrl}</span>
-            ) : (
-              "issued by the substrate during provisioning"
-            )}
           </Row>
           <Hairline />
           <Row label="Tenant database">
@@ -188,31 +230,10 @@ export default async function EnvironmentDetailPage({
             )}
           </Row>
           <Hairline />
-          <Row label="Created">
-            <TimeAgo at={environment.createdAt} now={now} />
-          </Row>
-        </Card>
-
-        <ProvisionSteps steps={detail.steps} now={now} />
-
-        <HealthStrip
-          health={detail.health}
-          alert={detail.alert}
-          status={stack?.status ?? null}
-          now={now}
-        />
-
-        {buildsView ? (
-          <BuildsSection environmentId={id} view={buildsView} now={now} />
-        ) : null}
-
-        <EnvironmentOperations
-          environmentId={environment.id}
-          environmentName={environment.name}
-          status={stack?.status ?? null}
-          allowed={operations.allowed}
-          canOperate={canOperateEnvironments(operations.role)}
-        />
+          <div className="p-4">
+            <ProvisionSteps steps={detail.steps} now={now} />
+          </div>
+        </AdvancedDisclosure>
       </Section>
     </main>
   );
