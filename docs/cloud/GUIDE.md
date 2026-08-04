@@ -6,6 +6,11 @@ Doug can decide, and the order to do it in. [GO-LIVE.md](GO-LIVE.md) is the
 short checklist; [RUNBOOK.md](RUNBOOK.md) is how to operate it. This document is
 the reasoning.
 
+> **Partly historical as of 2026-08-04.** Several gaps it names have since been
+> closed — credential minting is real, and instances are named on `hogsend.app`.
+> For how the system works TODAY, read
+> [HOW-IT-WORKS.md](HOW-IT-WORKS.md); where the two disagree, that one is newer.
+
 ---
 
 ## 1. Where we actually are
