@@ -7,6 +7,7 @@ import { BuildsSection } from "@/components/cloud/builds-section";
 import { EnvironmentOperations } from "@/components/cloud/environment-operations";
 import { HealthStrip } from "@/components/cloud/health-strip";
 import { NetworkingPanel } from "@/components/cloud/networking-panel";
+import { OnboardingChecklist } from "@/components/cloud/onboarding-checklist";
 import { ProvisionSteps } from "@/components/cloud/provision-steps";
 import { StackStatusChip } from "@/components/cloud/stack-status-chip";
 import { TenantAccessSection } from "@/components/cloud/tenant-access-section";
@@ -20,6 +21,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { readBuildsView } from "@/src/lib/build-views";
 import { readEnvironmentDetail } from "@/src/lib/environment-detail";
 import { canOperateEnvironments } from "@/src/lib/environment-ops";
+import { readOnboarding } from "@/src/lib/onboarding";
 import { requireActiveOrganization } from "@/src/lib/session";
 import {
   deriveProvisionProgress,
@@ -111,6 +113,10 @@ export default async function EnvironmentDetailPage({
   // Both re-run the same tenancy scope `readEnvironmentDetail` just passed, so
   // neither can be the one place a foreign id slips through.
   const access = await readTenantAccess(requestHeaders, { environmentId: id });
+  // Same tenancy scope again, after the 404 gate above.
+  const onboarding = await readOnboarding(requestHeaders, {
+    environmentId: id,
+  });
   // Live HTTP against the tenant instance, which can be down: this returns an
   // error STRING rather than throwing, so a key list that timed out does not
   // take the rest of the page's status down with it.
@@ -179,6 +185,13 @@ export default async function EnvironmentDetailPage({
             now={now}
           />
         ) : null}
+
+        {/*
+          Above the drawers and below the status, because it is the only thing
+          on this page with a deadline. It removes itself once every step is
+          done — see `OnboardingChecklist`.
+        */}
+        {onboarding ? <OnboardingChecklist view={onboarding} /> : null}
 
         <HealthStrip
           health={detail.health}
