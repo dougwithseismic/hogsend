@@ -14,14 +14,27 @@ import { TimeAgo } from "./time-ago";
  *
  * A strip of bars rather than a chart: the sweep records a BOOLEAN and a
  * reason, so there is no magnitude to plot and any line would be inventing one.
- * Oldest on the left, newest on the right; every bar carries its exact instant
- * and, when unhealthy, the substrate's reason in the tooltip.
+ * Every bar is full height and reads by COLOUR, so a bad sweep is a red mark in
+ * a green run rather than a shorter bar the eye has to measure. Oldest on the
+ * left, newest on the right; every bar carries its exact instant and, when
+ * unhealthy, the substrate's reason in the tooltip.
+ *
+ * The big number is a share of the RECORDED sweeps, rounded to whole percent,
+ * and is labelled as that. It is not uptime: the poll samples every minute, a
+ * sweep is pass/fail, and nothing here knows how long an outage lasted. Whole
+ * percent is the most precision the count can carry.
  *
  * The alert is the derived 3-strike state (`getStackAlerts`), stated as what it
  * is: an observation streak. The poll never transitions a stack, so an alerting
  * environment is still `running` and this section says so rather than implying
  * an outage was acted on.
  */
+const TONE_TEXT = {
+  accent: "text-accent",
+  caution: "text-caution",
+  good: "text-good",
+} as const;
+
 export function HealthStrip({
   health,
   alert,
@@ -38,11 +51,41 @@ export function HealthStrip({
   const bars = [...health].reverse();
   const newest = health[0];
   const unhealthy = health.filter((row) => !row.healthy).length;
+  const healthyShare =
+    health.length > 0
+      ? Math.round(((health.length - unhealthy) / health.length) * 100)
+      : null;
+
+  // One tone for the whole card: red once the streak is alerting, amber for any
+  // bad sweep in the window, green for a clean window.
+  const tone = alert ? "accent" : unhealthy > 0 ? "caution" : "good";
 
   return (
-    <Card className="flex flex-col gap-4 p-0">
-      <div className="flex items-center justify-between gap-4 px-5 pt-5">
-        <span className="eyebrow text-white/40">Health</span>
+    <Card className="flex flex-col gap-5 p-0">
+      <div className="flex items-start justify-between gap-4 px-5 pt-5">
+        <div className="flex flex-col gap-1">
+          {healthyShare === null ? (
+            <span className="font-medium text-3xl text-white/40 tracking-[-0.03em]">
+              —
+            </span>
+          ) : (
+            <span
+              className={cn(
+                "font-medium text-3xl tracking-[-0.03em]",
+                TONE_TEXT[tone],
+              )}
+            >
+              {healthyShare}%
+            </span>
+          )}
+          <h2 className="eyebrow text-white/40">
+            {health.length > 0
+              ? `Healthy across the last ${health.length} ${
+                  health.length === 1 ? "sweep" : "sweeps"
+                }`
+              : "Health"}
+          </h2>
+        </div>
         {alert ? (
           <TagPill tone="accent">
             unhealthy {alert.streak} sweeps in a row
@@ -58,7 +101,7 @@ export function HealthStrip({
 
       {bars.length > 0 ? (
         <div className="flex flex-col gap-2 px-5">
-          <div className="flex h-10 items-end gap-1">
+          <div className="flex h-12 items-stretch gap-[3px]">
             {bars.map((row) => (
               <span
                 key={row.id}
@@ -68,17 +111,23 @@ export function HealthStrip({
                     : `unhealthy: ${row.detail ?? "no reason recorded"}`
                 }`}
                 className={cn(
-                  "flex-1 rounded-[2px]",
-                  row.healthy ? "h-full bg-good/70" : "h-1/3 bg-accent/80",
+                  "min-w-[3px] flex-1 rounded-[2px]",
+                  row.healthy ? "bg-good/60" : "bg-accent",
                 )}
               />
             ))}
           </div>
-          <p className="text-white/40 text-xs">
-            Last {bars.length} {bars.length === 1 ? "sweep" : "sweeps"},{" "}
-            {unhealthy} unhealthy. Newest{" "}
-            {newest ? <TimeAgo at={newest.checkedAt} now={now} /> : null}.
-          </p>
+          <div className="flex items-baseline justify-between gap-4 text-white/40 text-xs">
+            <span>
+              {unhealthy === 0
+                ? "no unhealthy sweeps"
+                : `${unhealthy} unhealthy`}
+            </span>
+            <span>
+              newest{" "}
+              {newest ? <TimeAgo at={newest.checkedAt} now={now} /> : null}
+            </span>
+          </div>
         </div>
       ) : (
         <p className="px-5 text-sm text-white/60 leading-6">

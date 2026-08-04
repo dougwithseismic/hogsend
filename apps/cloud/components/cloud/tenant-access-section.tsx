@@ -29,6 +29,11 @@ import { TimeAgo } from "./time-ago";
  * the password, the `.env` fragment and a freshly minted key each arrive only
  * as the return value of a server action the customer explicitly clicked.
  *
+ * Each card leads with the thing it is about — the button, the address, the
+ * snippet — under a small caption heading. Explanation sits under the value in
+ * the caption size, and only where it carries a fact you cannot read off the
+ * value itself.
+ *
  * When the stack is not ready the block does not render an empty shell: it
  * says, in plain language, which step provisioning is on and whether anything
  * is retrying it.
@@ -54,33 +59,26 @@ export function TenantAccessSection({
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
-          <h2 className="font-medium text-white tracking-[-0.02em]">Studio</h2>
-          <p className="max-w-prose text-sm text-white/60 leading-6">
-            Studio is the admin app for this instance — contacts, journeys,
-            emails, events. It runs on your own instance, not on ours.
+        <div className="flex flex-col gap-3">
+          <h2 className="eyebrow text-white/40">Studio</h2>
+          {access.studioUrl ? (
+            <div>
+              <Button href={access.studioUrl} external icon>
+                Open Studio
+              </Button>
+            </div>
+          ) : null}
+          <p className="max-w-prose text-white/45 text-xs leading-5">
+            Contacts, journeys, emails and events, running on your own instance
+            rather than on ours.
           </p>
         </div>
-        {access.studioUrl ? (
-          <div>
-            <Button href={access.studioUrl} external icon>
-              Open Studio
-            </Button>
-          </div>
-        ) : null}
         <Hairline />
-        <div className="flex flex-col gap-1.5">
-          <h3 className="font-medium text-white tracking-[-0.02em]">
-            Studio sign-in
-          </h3>
-          <p className="max-w-prose text-sm text-white/60 leading-6">
-            Your Studio admin is{" "}
-            <span className="font-mono text-white/80">
-              {access.adminEmail ?? "the organization owner"}
-            </span>
-            . Hogsend Cloud generated its password and still holds it — that is
-            how the key management below signs in to your instance.
-          </p>
+        <div className="flex flex-col gap-2">
+          <h3 className="eyebrow text-white/40">Studio sign-in</h3>
+          <span className="break-all font-mono text-base text-white">
+            {access.adminEmail ?? "the organization owner"}
+          </span>
         </div>
 
         {access.canReveal ? (
@@ -108,19 +106,10 @@ export function TenantAccessSection({
         )}
       </Card>
 
-      <Card className="flex flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
-          <h2 className="font-medium text-white tracking-[-0.02em]">
-            Point your code at it
-          </h2>
-          <p className="max-w-prose text-sm text-white/60 leading-6">
-            Paste this into your app&rsquo;s{" "}
-            <code className="font-mono">.env</code>.{" "}
-            <code className="font-mono">@hogsend/client</code> reads both
-            variables. This is a SECRET key — keep it server-side. Browser
-            (&ldquo;publishable&rdquo;) keys are not issued from this page yet.
-          </p>
-        </div>
+      <Card className="flex flex-col gap-4">
+        <h2 className="eyebrow text-white/40">
+          Your <code className="font-mono normal-case">.env</code>
+        </h2>
 
         {access.canReveal ? (
           <RevealSecret
@@ -132,9 +121,10 @@ export function TenantAccessSection({
             block
             warning={
               <>
-                This is the key Hogsend Cloud minted for you (
-                <span className="font-mono">{access.controlPlaneKeyName}</span>
-                ). It stays valid until you rotate it.
+                This is a SECRET key — keep it server-side. Hogsend Cloud minted
+                it for you (
+                <span className="font-mono">{access.controlPlaneKeyName}</span>)
+                and it stays valid until you rotate it.
               </>
             }
           />
@@ -144,16 +134,18 @@ export function TenantAccessSection({
             environment but not read its API key.
           </p>
         )}
+        <p className="max-w-prose text-white/45 text-xs leading-5">
+          Browser (&ldquo;publishable&rdquo;) keys are not issued from this page
+          yet.
+        </p>
       </Card>
 
       <NoRepoCard />
 
       <Card className="flex flex-col gap-5 p-0">
-        <div className="flex flex-col gap-1.5 px-6 pt-6">
-          <h2 className="font-medium text-white tracking-[-0.02em]">
-            API keys
-          </h2>
-          <p className="max-w-prose text-sm text-white/60 leading-6">
+        <div className="flex flex-col gap-2 px-6 pt-6">
+          <h2 className="eyebrow text-white/40">API keys</h2>
+          <p className="max-w-prose text-white/45 text-xs leading-5">
             Read live from your instance. Keys created here carry the{" "}
             <code className="font-mono">ingest</code> scope only — never admin.
           </p>
