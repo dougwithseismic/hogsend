@@ -73,9 +73,27 @@ export const SERVICE_INSTANCE_REDEPLOY = `
 export const SERVICE_INSTANCE_STATUS = `
   query ServiceInstanceStatus($serviceId: String!, $environmentId: String!) {
     serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
-      numReplicas
-      latestDeployment { status }
+      latestDeployment { id status }
     }
+  }
+`;
+
+/**
+ * Tear a service's container down while keeping the service, its variables,
+ * its domains and its instance config.
+ *
+ * This is what `railway down` does, and Railway's own answer to "pause a
+ * service": Remove "halts any further project resource consumption", so a
+ * suspended tenant stops costing money — which is the entire business point of
+ * suspend.
+ *
+ * Confirmed live: it is IDEMPOTENT (removing an already-removed id returns
+ * true), and afterwards `serviceInstance.latestDeployment` is NULL rather than
+ * carrying a removed status.
+ */
+export const DEPLOYMENT_REMOVE = `
+  mutation DeploymentRemove($id: String!) {
+    deploymentRemove(id: $id)
   }
 `;
 

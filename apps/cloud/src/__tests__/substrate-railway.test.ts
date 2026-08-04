@@ -36,6 +36,8 @@ interface MockService {
   startCommand?: string;
   variables: Record<string, string>;
   registryCredentials?: { username: string; password: string };
+  /** Null once its deployment is removed — what Railway actually reports. */
+  deploymentId: string | null;
   deploymentStatus: string;
   deployCount: number;
   serviceDomain?: string;
@@ -205,6 +207,7 @@ class RailwayMock {
           registryCredentials: parseRegistryCredentials(
             input.registryCredentials,
           ),
+          deploymentId: this.id("dep"),
           deploymentStatus: "SUCCESS",
           deployCount: 1,
           customDomains: [],
@@ -241,16 +244,34 @@ class RailwayMock {
       case "ServiceInstanceRedeploy": {
         const service = this.service(vars.serviceId);
         service.deployCount += 1;
+        // Works from a REMOVED state — confirmed live, and the whole reason
+        // redeploy is the resume mechanism.
+        service.deploymentId = this.id("dep");
         service.deploymentStatus = "SUCCESS";
         return { serviceInstanceRedeploy: true };
+      }
+
+      case "DeploymentRemove": {
+        for (const project of this.projects.values()) {
+          for (const service of project.services.values()) {
+            if (service.deploymentId === String(vars.id)) {
+              service.deploymentId = null;
+            }
+          }
+        }
+        // Idempotent even for an id that is already gone — confirmed live.
+        return { deploymentRemove: true };
       }
 
       case "ServiceInstanceStatus": {
         const service = this.service(vars.serviceId);
         return {
           serviceInstance: {
-            numReplicas: service.numReplicas,
-            latestDeployment: { status: service.deploymentStatus },
+            // NULL when the deployment was removed. Railway reports no
+            // "removed" status to read instead, so this is the suspend signal.
+            latestDeployment: service.deploymentId
+              ? { id: service.deploymentId, status: service.deploymentStatus }
+              : null,
           },
         };
       }
@@ -423,8 +444,13 @@ describeSubstrateContract("RailwaySubstrate (mocked transport)", () => {
       };
       return {
         services: {
-          api: { image: api.image, running: api.numReplicas > 0 },
-          worker: { image: worker.image, running: worker.numReplicas > 0 },
+          // "Running" is now "has a deployment": Railway removed
+          // scale-to-zero, so suspend removes the deployment instead.
+          api: { image: api.image, running: api.deploymentId !== null },
+          worker: {
+            image: worker.image,
+            running: worker.deploymentId !== null,
+          },
         },
         env: { api: strip(api), worker: strip(worker) },
       };
@@ -697,18 +723,24 @@ describe("RailwaySubstrate topology", () => {
     expect(mock.find("staging-worker")?.variables.EXTRA).toBe("1");
   });
 
-  it("suspends by scaling to zero and resumes to one replica", async () => {
+  // Railway removed scale-to-zero, so suspend removes each deployment instead.
+  it("suspends by removing every deployment and resumes by redeploying", async () => {
     const mock = new RailwayMock();
     const provider = makeSubstrate(mock);
     const refs = await provider.provisionStack(SPEC);
 
     await provider.suspend(refs);
-    expect(mock.find("staging-api")?.numReplicas).toBe(0);
-    expect(mock.find("staging-redis")?.numReplicas).toBe(0);
+    // REDIS TOO: a paused tenant should cost nothing anywhere.
+    expect(mock.find("staging-api")?.deploymentId).toBeNull();
+    expect(mock.find("staging-worker")?.deploymentId).toBeNull();
+    expect(mock.find("staging-redis")?.deploymentId).toBeNull();
 
     await provider.resume(refs);
-    expect(mock.find("staging-api")?.numReplicas).toBe(1);
-    expect(mock.find("staging-redis")?.numReplicas).toBe(1);
+    // And all three come back. The previous implementation scaled all three
+    // but redeployed only api and worker, so redis never returned.
+    expect(mock.find("staging-api")?.deploymentId).toBeTruthy();
+    expect(mock.find("staging-worker")?.deploymentId).toBeTruthy();
+    expect(mock.find("staging-redis")?.deploymentId).toBeTruthy();
   });
 
   it("reports a failed deployment as unhealthy, naming the service", async () => {

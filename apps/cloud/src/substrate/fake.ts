@@ -198,10 +198,14 @@ export class FakeSubstrate implements SubstrateProvider {
     const state = this.mustGet(refs);
     for (const service of servicesFor(options?.service)) {
       state.services[service].deployCount += 1;
-      // A redeploy is how an operator recovers a stopped service; it never
-      // means "stay down".
-      state.services[service].running = !state.suspended;
+      // A redeploy BRINGS A SERVICE UP, including a suspended one — because on
+      // the real substrate redeploy IS the resume mechanism now that suspend
+      // removes the deployment. Keeping it down while suspended would let this
+      // fake certify behaviour production no longer has.
+      state.services[service].running = true;
     }
+    // `suspended` stays as it is: it is the STACK's flag, and `resume` owns
+    // it. A redeploy of one service is not a decision about the whole stack.
   }
 
   async deployImage(
@@ -214,7 +218,8 @@ export class FakeSubstrate implements SubstrateProvider {
     service.image = options.imageUrl;
     service.deployCount += 1;
     service.lastPreDeployCommand = options.preDeployCommand;
-    service.running = !state.suspended;
+    // Same reasoning as `redeploy`: a deploy starts a container.
+    service.running = true;
   }
 
   async attachDomain(
