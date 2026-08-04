@@ -149,3 +149,17 @@ samp {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* The drawer's entrance. Declared here rather than inline because Tailwind's
+   arbitrary-animation syntax can name a keyframe but cannot define one.
+   The reduced-motion block above neutralises it automatically. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(1.5rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

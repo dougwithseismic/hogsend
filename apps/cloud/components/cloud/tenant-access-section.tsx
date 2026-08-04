@@ -4,8 +4,9 @@ import {
   revealStudioPasswordAction,
 } from "@/app/environments/actions";
 import { Button } from "@/components/ds/button";
-import { Card } from "@/components/ds/card";
+import { CARD_BARE, Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
+import { cn } from "@/lib/cn";
 import {
   PUBLISH_REPLACES_NOTE,
   SCAFFOLD_COMMANDS,
@@ -44,6 +45,7 @@ export function TenantAccessSection({
   keys,
   keysError,
   now,
+  bare = false,
 }: {
   access: TenantAccessView;
   progress: ProvisionProgress;
@@ -51,14 +53,16 @@ export function TenantAccessSection({
   /** Set when the tenant instance did not answer. Rendered as a sentence. */
   keysError: string | null;
   now: Date;
+  /** Rendered inside a drawer, which already supplies the surface and title. */
+  bare?: boolean;
 }): JSX.Element {
   if (!access.ready) {
     return <ProvisioningCard progress={progress} now={now} />;
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-5">
+    <div className={cn("flex flex-col", bare ? "gap-8" : "gap-4")}>
+      <Card className={cn("flex flex-col gap-5", bare && CARD_BARE)}>
         <div className="flex flex-col gap-3">
           <h2 className="eyebrow text-white/40">Studio</h2>
           {access.studioUrl ? (
@@ -106,7 +110,7 @@ export function TenantAccessSection({
         )}
       </Card>
 
-      <Card className="flex flex-col gap-4">
+      <Card className={cn("flex flex-col gap-4", bare && CARD_BARE)}>
         <h2 className="eyebrow text-white/40">
           Your <code className="font-mono normal-case">.env</code>
         </h2>
@@ -142,8 +146,10 @@ export function TenantAccessSection({
 
       <NoRepoCard />
 
-      <Card className="flex flex-col gap-5 p-0">
-        <div className="flex flex-col gap-2 px-6 pt-6">
+      <Card className={cn("flex flex-col gap-5 p-0", bare && CARD_BARE)}>
+        <div
+          className={cn("flex flex-col gap-2 px-6 pt-6", bare && "px-0 pt-0")}
+        >
           <h2 className="eyebrow text-white/40">API keys</h2>
           <p className="max-w-prose text-white/45 text-xs leading-5">
             Read live from your instance. Keys created here carry the{" "}
@@ -155,13 +161,23 @@ export function TenantAccessSection({
 
         <div className="flex flex-col">
           {keysError ? (
-            <p className="max-w-prose px-6 py-4 text-sm text-white/60 leading-6">
+            <p
+              className={cn(
+                "max-w-prose px-6 py-4 text-sm text-white/60 leading-6",
+                bare && "px-0",
+              )}
+            >
               {keysError}
             </p>
           ) : null}
 
           {!keysError && keys.length === 0 ? (
-            <p className="max-w-prose px-6 py-4 text-sm text-white/60 leading-6">
+            <p
+              className={cn(
+                "max-w-prose px-6 py-4 text-sm text-white/60 leading-6",
+                bare && "px-0",
+              )}
+            >
               This instance has no live keys.
             </p>
           ) : null}
@@ -169,7 +185,10 @@ export function TenantAccessSection({
           {keys.map((key) => (
             <div
               key={key.id}
-              className="flex flex-col gap-2 border-white/[0.06] border-t px-6 py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+              className={cn(
+                "flex flex-col gap-2 border-white/[0.06] border-t px-6 py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6",
+                bare && "px-0",
+              )}
             >
               <div className="flex flex-col gap-1">
                 <span className="font-medium text-sm text-white/80 tracking-[-0.02em]">
@@ -210,7 +229,7 @@ export function TenantAccessSection({
         {access.canReveal ? (
           <>
             <Hairline />
-            <div className="px-6 pb-6">
+            <div className={cn("px-6 pb-6", bare && "px-0 pb-0")}>
               <CreateTenantKeyForm environmentId={access.environmentId} />
             </div>
           </>

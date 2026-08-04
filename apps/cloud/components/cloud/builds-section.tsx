@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { JSX } from "react";
 import { rotatePublishTokenAction } from "@/app/environments/actions";
-import { Card } from "@/components/ds/card";
+import { CARD_BARE, Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
+import { cn } from "@/lib/cn";
 import type { BuildsView } from "@/src/lib/build-views";
 import { BuildStatusChip, shortDigest } from "./build-status-chip";
 import { RotatePublishTokenForm } from "./rotate-publish-token-form";
@@ -65,14 +66,17 @@ export function BuildsSection({
   environmentId,
   view,
   now,
+  bare = false,
 }: {
   environmentId: string;
   view: BuildsView;
   now: Date;
+  /** Rendered inside a drawer, which already supplies surface and title. */
+  bare?: boolean;
 }): JSX.Element {
   return (
     <>
-      <Card className="flex flex-col gap-0 p-0">
+      <Card className={cn("flex flex-col gap-0 p-0", bare && CARD_BARE)}>
         <div className="px-6 pt-6 pb-5">
           <h2 className="font-medium text-sm text-white tracking-[-0.02em]">
             Builds
@@ -103,7 +107,7 @@ export function BuildsSection({
         )}
       </Card>
 
-      <Card className="flex flex-col gap-5 p-0">
+      <Card className={cn("flex flex-col gap-5 p-0", bare && CARD_BARE)}>
         <div className="px-6 pt-6">
           <h2 className="font-medium text-sm text-white tracking-[-0.02em]">
             Publish token

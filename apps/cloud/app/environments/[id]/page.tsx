@@ -14,6 +14,7 @@ import { TimeAgo } from "@/components/cloud/time-ago";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
+import { Drawer } from "@/components/ds/drawer";
 import { Section } from "@/components/ds/section";
 import { PageHeader } from "@/components/shell/page-header";
 import { readBuildsView } from "@/src/lib/build-views";
@@ -64,6 +65,19 @@ function Row({
       <span className="text-sm text-white/60">{children}</span>
     </div>
   );
+}
+
+/** What the closed Builds row says, so the common question needs no click. */
+function buildsSummary(view: { builds: { status: string }[] }): string {
+  if (view.builds.length === 0) return "nothing published yet";
+  const latest = view.builds[0];
+  return `${view.builds.length} ${view.builds.length === 1 ? "build" : "builds"} — latest ${latest?.status ?? "unknown"}`;
+}
+
+/** What the closed Operations row says: the controls actually available now. */
+function operationsSummary(allowed: readonly string[]): string {
+  if (allowed.length === 0) return "nothing available right now";
+  return allowed.join(", ");
 }
 
 /** The API URL the pipeline recorded on the substrate handle, if it got there. */
@@ -152,9 +166,9 @@ export default async function EnvironmentDetailPage({
 
         {/*
           Before the instance is usable, `TenantAccessSection` is the
-          provisioning card and nothing else — so it leads. Once it is ready it
-          is the keys-and-connect material, which belongs after the address
-          those keys point at.
+          provisioning card and nothing else — so it leads, out of any drawer.
+          Someone waiting on a stack should not have to open something to find
+          out how it is going.
         */}
         {access && !access.ready ? (
           <TenantAccessSection
@@ -173,32 +187,77 @@ export default async function EnvironmentDetailPage({
           now={now}
         />
 
-        <NetworkingPanel
-          apiUrl={apiUrl}
-          studioUrl={access?.studioUrl ?? null}
-        />
+        {/*
+          Everything below opens in a drawer.
+          The page is a short list of what this environment HAS; a drawer is
+          where you go to work on one of them. Each row carries the answer most
+          visits are after, so the common question — "what is my URL" — never
+          needs a click.
+        */}
+        <div className="flex flex-col gap-2">
+          <Drawer
+            title="Networking"
+            description="The address your instance answers on. Your app sends events here, and the links in your emails are built from it."
+            summary={apiUrl ?? "issued while your instance is set up"}
+          >
+            <NetworkingPanel
+              apiUrl={apiUrl}
+              studioUrl={access?.studioUrl ?? null}
+              bare
+            />
+          </Drawer>
 
-        {access?.ready ? (
-          <TenantAccessSection
-            access={access}
-            progress={progress}
-            keys={keys.keys}
-            keysError={keys.error}
-            now={now}
-          />
-        ) : null}
+          {access?.ready ? (
+            <Drawer
+              title="Keys and access"
+              description="Open Studio, sign in, and paste a key into your own repository."
+              summary={`${keys.keys.filter((key) => !key.revokedAt).length} live ${
+                keys.keys.filter((key) => !key.revokedAt).length === 1
+                  ? "key"
+                  : "keys"
+              }`}
+            >
+              <TenantAccessSection
+                access={access}
+                progress={progress}
+                keys={keys.keys}
+                keysError={keys.error}
+                now={now}
+                bare
+              />
+            </Drawer>
+          ) : null}
 
-        {buildsView ? (
-          <BuildsSection environmentId={id} view={buildsView} now={now} />
-        ) : null}
+          {buildsView ? (
+            <Drawer
+              title="Builds"
+              description="Every publish to this environment, newest first."
+              summary={buildsSummary(buildsView)}
+            >
+              <BuildsSection
+                environmentId={id}
+                view={buildsView}
+                now={now}
+                bare
+              />
+            </Drawer>
+          ) : null}
 
-        <EnvironmentOperations
-          environmentId={environment.id}
-          environmentName={environment.name}
-          status={stack?.status ?? null}
-          allowed={operations.allowed}
-          canOperate={canOperateEnvironments(operations.role)}
-        />
+          <Drawer
+            title="Operations"
+            description="Suspend, resume, retry or destroy this environment. Each control appears only while the status allows it."
+            summary={operationsSummary(operations.allowed)}
+          >
+            <EnvironmentOperations
+              environmentId={environment.id}
+              environmentName={environment.name}
+              status={stack?.status ?? null}
+              allowed={operations.allowed}
+              canOperate={canOperateEnvironments(operations.role)}
+              bare
+            />
+          </Drawer>
+        </div>
 
         <AdvancedDisclosure summary="Advanced details">
           <Hairline />
