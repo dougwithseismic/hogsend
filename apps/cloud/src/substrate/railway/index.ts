@@ -115,16 +115,24 @@ export type RailwaySubstrateOptions = RailwayClientOptions & {
   registryCredentials?: RailwayRegistryCredentials;
 };
 
-/**
- * Railway reports a record's name in TWO fields — `hostlabel` (the label alone,
- * e.g. `acme-staging`) and `zone` (e.g. `hogsend.app`) — and a caller that
- * publishes the label as if it were the name writes a record outside the zone.
- * Found live: the DNS client correctly refused
- * `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
- *
- * `DomainRecord.name` is fully qualified by contract, so the qualification
- * happens HERE, at the vendor boundary, rather than in every caller.
- */
+/** One custom domain as Railway's `domains` query describes it. */
+interface RailwayCustomDomain {
+  id?: string;
+  domain: string;
+  status?: {
+    verified?: boolean;
+    certificateStatus?: string;
+    certificateRetryable?: boolean | null;
+    certificateErrorMessage?: string | null;
+    dnsRecords?: {
+      recordType: string;
+      hostlabel: string;
+      requiredValue: string;
+      zone?: string;
+    }[];
+  };
+}
+
 /**
  * Railway reports record types as a prefixed enum — `DNS_RECORD_TYPE_CNAME`,
  * `DNS_RECORD_TYPE_TXT` — not as the DNS type itself. Confirmed live against
@@ -139,6 +147,16 @@ function normalizeRecordType(recordType: string): string {
   return recordType.replace(/^DNS_RECORD_TYPE_/, "").toUpperCase();
 }
 
+/**
+ * Railway reports a record's name in TWO fields — `hostlabel` (the label alone,
+ * e.g. `acme-staging`) and `zone` (e.g. `hogsend.app`) — and a caller that
+ * publishes the label as if it were the name writes a record outside the zone.
+ * Found live: the DNS client correctly refused
+ * `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
+ *
+ * `DomainRecord.name` is fully qualified by contract, so the qualification
+ * happens HERE, at the vendor boundary, rather than in every caller.
+ */
 function qualifyRecordName(
   record: { hostlabel?: string; zone?: string },
   domain: string,
@@ -376,6 +394,52 @@ export class RailwaySubstrate implements SubstrateProvider {
     return { status: "pending", records };
   }
 
+  async checkDomain(
+    refs: StackRefs,
+    domain: string,
+  ): Promise<DomainAttachment> {
+    const data = await this.resolve(refs);
+    const match = await this.readCustomDomain(
+      data.projectId,
+      data.environmentId,
+      data.serviceIds.api,
+      domain,
+    );
+    if (!match) {
+      throw new SubstrateNotFoundError("Domain", domain);
+    }
+
+    const status = match.status;
+    // Terminal, and told apart from the slow-but-fine states on purpose: a
+    // caller polling to a deadline would otherwise burn its whole budget on a
+    // verdict Railway has already reached.
+    if (status?.certificateStatus === Q.CERTIFICATE_FAILED) {
+      const reason =
+        status.certificateErrorMessage ?? "no reason given by the substrate";
+      throw new SubstrateError(
+        `certificate for ${domain} failed to issue: ${reason}`,
+        // Railway's own read on whether ANOTHER attempt could differ. Absent is
+        // read as permanent — the safe direction, since a wrong `false` parks a
+        // stack a human then looks at, while a wrong `true` spins in silence.
+        { retryable: status.certificateRetryable === true },
+      );
+    }
+
+    const records = (status?.dnsRecords ?? []).map((record) => ({
+      type: normalizeRecordType(record.recordType),
+      name: qualifyRecordName(record, domain),
+      value: record.requiredValue,
+    }));
+
+    // BOTH halves. `verified` alone means Railway has seen the DNS, which says
+    // nothing about whether a TLS handshake would succeed.
+    const ready =
+      status?.verified === true &&
+      status?.certificateStatus === Q.CERTIFICATE_VALID;
+
+    return { status: ready ? "verified" : "pending", records };
+  }
+
   /**
    * The records one custom domain is still waiting on, read back from Railway.
    *
@@ -389,30 +453,33 @@ export class RailwaySubstrate implements SubstrateProvider {
     serviceId: string,
     domain: string,
   ): Promise<DomainRecord[]> {
-    const result = await this.client.request<{
-      domains: {
-        customDomains?: {
-          domain: string;
-          status?: {
-            dnsRecords?: {
-              recordType: string;
-              hostlabel: string;
-              requiredValue: string;
-              zone?: string;
-            }[];
-          };
-        }[];
-      };
-    }>(Q.CUSTOM_DOMAINS, { projectId, environmentId, serviceId });
-
-    const match = (result.domains.customDomains ?? []).find(
-      (entry) => entry.domain === domain,
+    const match = await this.readCustomDomain(
+      projectId,
+      environmentId,
+      serviceId,
+      domain,
     );
     return (match?.status?.dnsRecords ?? []).map((record) => ({
       type: normalizeRecordType(record.recordType),
       name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
+  }
+
+  /** One custom domain as Railway currently describes it, or undefined. */
+  private async readCustomDomain(
+    projectId: string,
+    environmentId: string,
+    serviceId: string,
+    domain: string,
+  ): Promise<RailwayCustomDomain | undefined> {
+    const result = await this.client.request<{
+      domains: { customDomains?: RailwayCustomDomain[] };
+    }>(Q.CUSTOM_DOMAINS, { projectId, environmentId, serviceId });
+
+    return (result.domains.customDomains ?? []).find(
+      (entry) => entry.domain === domain,
+    );
   }
 
   async getHealth(

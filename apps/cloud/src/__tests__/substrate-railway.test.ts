@@ -41,7 +41,22 @@ interface MockService {
   deploymentStatus: string;
   deployCount: number;
   serviceDomain?: string;
-  customDomains: string[];
+  customDomains: MockCustomDomain[];
+}
+
+/**
+ * A custom domain as Railway reports it, INCLUDING the certificate lifecycle.
+ *
+ * Modelled because leaving it out is what let the first live provision ship: a
+ * mock whose domains were bare strings could not express "attached but not yet
+ * serving", so the missing certificate wait had nothing to fail against.
+ */
+interface MockCustomDomain {
+  domain: string;
+  verified: boolean;
+  certificateStatus: string;
+  certificateRetryable?: boolean;
+  certificateErrorMessage?: string;
 }
 
 interface MockProject {
@@ -328,10 +343,49 @@ class RailwayMock {
         return { serviceDomainCreate: { domain: service.serviceDomain } };
       }
 
+      case "CustomDomains": {
+        const service = this.service(vars.serviceId);
+        return {
+          domains: {
+            customDomains: service.customDomains.map((entry) => ({
+              id: `dom-${entry.domain}`,
+              domain: entry.domain,
+              status: {
+                verified: entry.verified,
+                certificateStatus: entry.certificateStatus,
+                certificateRetryable: entry.certificateRetryable ?? null,
+                certificateErrorMessage: entry.certificateErrorMessage ?? null,
+                dnsRecords: [
+                  {
+                    recordType: "DNS_RECORD_TYPE_CNAME",
+                    hostlabel: entry.domain.replace(".acme.test", ""),
+                    requiredValue: `${service.id}.up.railway.app`,
+                    zone: "acme.test",
+                  },
+                  {
+                    recordType: "DNS_RECORD_TYPE_TXT",
+                    hostlabel: `_railway.${entry.domain.replace(".acme.test", "")}`,
+                    requiredValue: "railway-verify=abc123",
+                    zone: "acme.test",
+                  },
+                ],
+              },
+            })),
+          },
+        };
+      }
+
       case "CustomDomainCreate": {
         const service = this.service(input.serviceId);
         const domain = String(input.domain);
-        service.customDomains.push(domain);
+        service.customDomains.push({
+          domain,
+          // Born unverified with a certificate still being issued — which is
+          // what Railway actually does, and the state the pipeline must wait
+          // out rather than march past.
+          verified: false,
+          certificateStatus: "CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP",
+        });
         return {
           customDomainCreate: {
             id: this.id("dom"),
