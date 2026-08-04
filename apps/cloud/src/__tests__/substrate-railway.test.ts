@@ -41,6 +41,13 @@ interface MockService {
   /** Null while the service has never deployed — no source, no status. */
   deploymentStatus: string | null;
   deployCount: number;
+  /**
+   * Railway keeps deployment HISTORY, and `serviceInstanceRedeploy` replays it.
+   * A service that has never deployed has nothing to replay, so redeploy is a
+   * silent no-op on it — which is exactly how the fix for the crash-looping
+   * first boot shipped broken, with the right image and no deployment.
+   */
+  everDeployed: boolean;
   serviceDomain?: string;
   customDomains: MockCustomDomain[];
 }
@@ -231,6 +238,7 @@ class RailwayMock {
           deploymentId: deployed ? this.id("dep") : null,
           deploymentStatus: deployed ? "SUCCESS" : null,
           deployCount: deployed ? 1 : 0,
+          everDeployed: deployed,
           customDomains: [],
         };
         project.services.set(service.id, service);
@@ -262,11 +270,25 @@ class RailwayMock {
         return { serviceInstanceUpdate: true };
       }
 
+      case "ServiceInstanceDeploy": {
+        const service = this.service(vars.serviceId);
+        if (service.image === "") {
+          throw new Error(
+            "Railway API error (HTTP 400): cannot deploy a service with no source",
+          );
+        }
+        service.deployCount += 1;
+        service.everDeployed = true;
+        service.deploymentId = this.id("dep");
+        service.deploymentStatus = "SUCCESS";
+        return { serviceInstanceDeployV2: service.deploymentId };
+      }
+
       case "ServiceInstanceRedeploy": {
         const service = this.service(vars.serviceId);
-        // Nothing to roll out on a service with no source. Railway has no
-        // deployment to replay, and neither does this.
-        if (service.image === "") return { serviceInstanceRedeploy: true };
+        // REPLAYS the last deployment. With no history there is nothing to
+        // replay, and Railway answers success while starting nothing.
+        if (!service.everDeployed) return { serviceInstanceRedeploy: true };
         service.deployCount += 1;
         // Works from a REMOVED state — confirmed live, and the whole reason
         // redeploy is the resume mechanism.

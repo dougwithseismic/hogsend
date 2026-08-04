@@ -133,6 +133,23 @@ export function describeSubstrateContract(
       }
     });
 
+    it("starts a never-deployed service rather than replaying nothing", async () => {
+      const { harness, provider, refs } = await setup();
+
+      // `redeploy` REPLAYS: on a service with no deployment history there is
+      // nothing to replay, and Railway reports success while starting nothing.
+      // `deployImage` must therefore not be built on it — that shipped a stack
+      // sitting on the right image with no deployment at all.
+      await provider.redeploy(refs, { service: "api" });
+      expect((await harness.inspect(refs)).services.api.running).toBe(false);
+
+      await provider.deployImage(refs, {
+        imageUrl: BOOT_IMAGE,
+        service: "api",
+      });
+      expect((await harness.inspect(refs)).services.api.running).toBe(true);
+    });
+
     it("runs a service only once an image is deployed to it", async () => {
       const { harness, provider, refs } = await setup();
 

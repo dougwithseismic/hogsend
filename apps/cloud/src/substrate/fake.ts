@@ -244,11 +244,17 @@ export class FakeSubstrate implements SubstrateProvider {
     this.record("redeploy", [refs, options]);
     const state = this.mustGet(refs);
     for (const service of servicesFor(options?.service)) {
+      // A redeploy REPLAYS the last deployment, so a service that has never
+      // had one is left exactly as it was. Railway reports success either way,
+      // which is how a stack shipped sitting on the right image with no
+      // deployment at all — a fake that started it here could not have caught
+      // that.
+      if (state.services[service].image === "") continue;
       state.services[service].deployCount += 1;
-      // A redeploy BRINGS A SERVICE UP, including a suspended one — because on
-      // the real substrate redeploy IS the resume mechanism now that suspend
-      // removes the deployment. Keeping it down while suspended would let this
-      // fake certify behaviour production no longer has.
+      // Otherwise a redeploy BRINGS A SERVICE UP, including a suspended one —
+      // because on the real substrate redeploy IS the resume mechanism now that
+      // suspend removes the deployment. Keeping it down while suspended would
+      // let this fake certify behaviour production no longer has.
       state.services[service].running = true;
     }
     // `suspended` stays as it is: it is the STACK's flag, and `resume` owns

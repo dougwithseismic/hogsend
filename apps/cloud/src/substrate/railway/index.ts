@@ -383,12 +383,12 @@ export class RailwaySubstrate implements SubstrateProvider {
         ? { preDeployCommand: options.preDeployCommand }
         : {}),
     });
-    // `serviceInstanceUpdate` MAY roll a deploy by itself (it does when the
-    // source changes — verified against live deployment records, `reason:
-    // "deploy"`, 2026-08-04), but it is not documented to and it does not when
-    // the patch is a no-op. Asking explicitly is the only way to know a deploy
-    // happened, and a redundant redeploy is cheap next to a silent no-op.
-    await this.redeployService(serviceId, data.environmentId);
+    // DEPLOY, not redeploy. `serviceInstanceUpdate` sets the source but does
+    // not reliably roll it, and `serviceInstanceRedeploy` REPLAYS the last
+    // deployment — so on a freshly created service, which has none, it returns
+    // success and starts nothing (verified live 2026-08-04: both app services
+    // sat on the right image with `latestDeployment: null`).
+    await this.deployService(serviceId, data.environmentId);
   }
 
   async attachDomain(
@@ -731,6 +731,17 @@ export class RailwaySubstrate implements SubstrateProvider {
       serviceId,
       environmentId,
       input: patch,
+    });
+  }
+
+  /** Start a service on its configured source, deployed or not. */
+  private async deployService(
+    serviceId: string,
+    environmentId: string,
+  ): Promise<void> {
+    await this.client.request(Q.SERVICE_INSTANCE_DEPLOY, {
+      serviceId,
+      environmentId,
     });
   }
 
