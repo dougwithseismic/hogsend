@@ -7,18 +7,6 @@ type CardProps = {
 };
 
 /**
- * Strips a `Card` back to a plain container: no border, no fill, no padding.
- *
- * For a card rendered INSIDE something that already provides the surface — a
- * drawer, most of all. Nesting a bordered card inside a bordered panel reads as
- * two boxes saying the same thing, which is the noise this page was rebuilt to
- * remove. Exported as a class rather than a `bare` prop on `Card` so the
- * decision stays with the caller that knows its own context.
- */
-export const CARD_BARE =
-  "rounded-none border-0 bg-transparent p-0 hover:border-transparent";
-
-/**
  * Generic surface card: 6px radius, white/1.5% fill, white/8 hairline border,
  * 24px padding. Border brightens to white/15 on hover.
  */

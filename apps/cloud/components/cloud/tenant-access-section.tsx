@@ -4,23 +4,15 @@ import {
   revealStudioPasswordAction,
 } from "@/app/environments/actions";
 import { Button } from "@/components/ds/button";
-import { CARD_BARE, Card } from "@/components/ds/card";
 import { Hairline } from "@/components/ds/decor";
-import { cn } from "@/lib/cn";
 import {
   PUBLISH_REPLACES_NOTE,
   SCAFFOLD_COMMANDS,
 } from "@/src/lib/cloud-onboarding";
-import { PROVISION_STEP_LABELS } from "@/src/lib/environment-detail";
-import type {
-  ProvisionProgress,
-  TenantAccessView,
-  TenantKeyView,
-} from "@/src/lib/tenant-access";
+import type { TenantAccessView, TenantKeyView } from "@/src/lib/tenant-access";
 import { AdvancedDisclosure } from "./advanced-disclosure";
 import { RevealSecret } from "./reveal-secret";
 import { CreateTenantKeyForm, RevokeTenantKeyForm } from "./tenant-keys-form";
-import { TimeAgo } from "./time-ago";
 
 /**
  * The customer's first five minutes: open Studio, sign in, paste a key into
@@ -41,28 +33,19 @@ import { TimeAgo } from "./time-ago";
  */
 export function TenantAccessSection({
   access,
-  progress,
   keys,
   keysError,
   now,
-  bare = false,
 }: {
   access: TenantAccessView;
-  progress: ProvisionProgress;
   keys: TenantKeyView[];
   /** Set when the tenant instance did not answer. Rendered as a sentence. */
   keysError: string | null;
   now: Date;
-  /** Rendered inside a drawer, which already supplies the surface and title. */
-  bare?: boolean;
 }): JSX.Element {
-  if (!access.ready) {
-    return <ProvisioningCard progress={progress} now={now} />;
-  }
-
   return (
-    <div className={cn("flex flex-col", bare ? "gap-8" : "gap-4")}>
-      <Card className={cn("flex flex-col gap-5", bare && CARD_BARE)}>
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
           <h2 className="eyebrow text-white/40">Studio</h2>
           {access.studioUrl ? (
@@ -108,9 +91,9 @@ export function TenantAccessSection({
             environment but not read its Studio password. Ask an owner or admin.
           </p>
         )}
-      </Card>
+      </section>
 
-      <Card className={cn("flex flex-col gap-4", bare && CARD_BARE)}>
+      <section className="flex flex-col gap-4">
         <h2 className="eyebrow text-white/40">
           Your <code className="font-mono normal-case">.env</code>
         </h2>
@@ -142,14 +125,12 @@ export function TenantAccessSection({
           Browser (&ldquo;publishable&rdquo;) keys are not issued from this page
           yet.
         </p>
-      </Card>
+      </section>
 
       <NoRepoCard />
 
-      <Card className={cn("flex flex-col gap-5 p-0", bare && CARD_BARE)}>
-        <div
-          className={cn("flex flex-col gap-2 px-6 pt-6", bare && "px-0 pt-0")}
-        >
+      <section className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2">
           <h2 className="eyebrow text-white/40">API keys</h2>
           <p className="max-w-prose text-white/45 text-xs leading-5">
             Read live from your instance. Keys created here carry the{" "}
@@ -161,23 +142,13 @@ export function TenantAccessSection({
 
         <div className="flex flex-col">
           {keysError ? (
-            <p
-              className={cn(
-                "max-w-prose px-6 py-4 text-sm text-white/60 leading-6",
-                bare && "px-0",
-              )}
-            >
+            <p className="max-w-prose py-4 text-sm text-white/60 leading-6">
               {keysError}
             </p>
           ) : null}
 
           {!keysError && keys.length === 0 ? (
-            <p
-              className={cn(
-                "max-w-prose px-6 py-4 text-sm text-white/60 leading-6",
-                bare && "px-0",
-              )}
-            >
+            <p className="max-w-prose py-4 text-sm text-white/60 leading-6">
               This instance has no live keys.
             </p>
           ) : null}
@@ -185,10 +156,7 @@ export function TenantAccessSection({
           {keys.map((key) => (
             <div
               key={key.id}
-              className={cn(
-                "flex flex-col gap-2 border-white/[0.06] border-t px-6 py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6",
-                bare && "px-0",
-              )}
+              className="flex flex-col gap-2 border-white/[0.06] border-t py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
             >
               <div className="flex flex-col gap-1">
                 <span className="font-medium text-sm text-white/80 tracking-[-0.02em]">
@@ -229,12 +197,12 @@ export function TenantAccessSection({
         {access.canReveal ? (
           <>
             <Hairline />
-            <div className={cn("px-6 pb-6", bare && "px-0 pb-0")}>
+            <div>
               <CreateTenantKeyForm environmentId={access.environmentId} />
             </div>
           </>
         ) : null}
-      </Card>
+      </section>
     </div>
   );
 }
@@ -265,48 +233,5 @@ function NoRepoCard(): JSX.Element {
         </p>
       </div>
     </AdvancedDisclosure>
-  );
-}
-
-/**
- * What a customer sees before their instance is theirs to use.
- *
- * The state, the step and the "we are retrying" promise all come from
- * `deriveProvisionProgress`, which reads the sweeps' own constants — so this
- * card claims a retry only where a sweep would really re-drive, and claims a
- * human only where the alert sweep would really page one.
- */
-function ProvisioningCard({
-  progress,
-  now,
-}: {
-  progress: ProvisionProgress;
-  now: Date;
-}): JSX.Element {
-  return (
-    <Card className="flex flex-col gap-3">
-      <h2 className="font-medium text-white tracking-[-0.02em]">
-        {progress.state === "ready"
-          ? "Finishing your login"
-          : "Setting up your instance"}
-      </h2>
-      {progress.step ? (
-        <p className="text-sm text-white/70 leading-6">
-          {PROVISION_STEP_LABELS[progress.step]}
-          {progress.since ? (
-            <>
-              {" "}
-              — since <TimeAgo at={progress.since} now={now} />
-            </>
-          ) : null}
-          . <span className="font-mono text-white/45">({progress.step})</span>
-        </p>
-      ) : null}
-      <p className="max-w-prose text-sm text-white/60 leading-6">
-        {progress.state === "ready"
-          ? "Your instance is running, and we are still minting its Studio login. We re-drive that automatically; it appears here when it lands."
-          : progress.message}
-      </p>
-    </Card>
   );
 }

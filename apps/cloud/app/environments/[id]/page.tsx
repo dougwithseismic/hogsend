@@ -9,6 +9,7 @@ import { HealthStrip } from "@/components/cloud/health-strip";
 import { NetworkingPanel } from "@/components/cloud/networking-panel";
 import { OnboardingChecklist } from "@/components/cloud/onboarding-checklist";
 import { ProvisionSteps } from "@/components/cloud/provision-steps";
+import { ProvisioningCard } from "@/components/cloud/provisioning-card";
 import { StackStatusChip } from "@/components/cloud/stack-status-chip";
 import { TenantAccessSection } from "@/components/cloud/tenant-access-section";
 import { TimeAgo } from "@/components/cloud/time-ago";
@@ -196,13 +197,7 @@ export default async function EnvironmentDetailPage({
           out how it is going.
         */}
         {access && !access.ready ? (
-          <TenantAccessSection
-            access={access}
-            progress={progress}
-            keys={keys.keys}
-            keysError={keys.error}
-            now={now}
-          />
+          <ProvisioningCard progress={progress} now={now} />
         ) : null}
 
         {/*
@@ -235,7 +230,6 @@ export default async function EnvironmentDetailPage({
             <NetworkingPanel
               apiUrl={apiUrl}
               studioUrl={access?.studioUrl ?? null}
-              bare
             />
           </Drawer>
 
@@ -247,11 +241,9 @@ export default async function EnvironmentDetailPage({
             >
               <TenantAccessSection
                 access={access}
-                progress={progress}
                 keys={keys.keys}
                 keysError={keys.error}
                 now={now}
-                bare
               />
             </Drawer>
           ) : null}
@@ -262,12 +254,7 @@ export default async function EnvironmentDetailPage({
               description="Every publish to this environment, newest first."
               summary={buildsSummary(buildsView)}
             >
-              <BuildsSection
-                environmentId={id}
-                view={buildsView}
-                now={now}
-                bare
-              />
+              <BuildsSection environmentId={id} view={buildsView} now={now} />
             </Drawer>
           ) : null}
 
@@ -282,7 +269,6 @@ export default async function EnvironmentDetailPage({
               status={stack?.status ?? null}
               allowed={operations.allowed}
               canOperate={canOperateEnvironments(operations.role)}
-              bare
             />
           </Drawer>
         </div>
