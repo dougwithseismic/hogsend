@@ -70,6 +70,7 @@ export interface CloudflareDnsOptions {
 
 interface CloudflareRecord {
   id: string;
+  type: string;
   name: string;
   content: string;
 }
@@ -127,28 +128,29 @@ export class CloudflareDns implements DnsProvider {
   async ensureRecord(spec: DnsRecordSpec): Promise<DnsRecordHandle> {
     this.assertInZone(spec.hostname);
 
-    const existing = await this.findByName(spec.hostname);
+    const existing = await this.findRecord(spec.type, spec.hostname);
     if (existing) {
-      if (existing.content !== spec.target) {
+      if (existing.content !== spec.value) {
         throw new DnsRecordConflictError(spec.hostname, existing.content);
       }
-      return { id: existing.id, hostname: existing.name };
+      return { id: existing.id, hostname: existing.name, type: existing.type };
     }
 
     const created = await this.request<CloudflareRecord>({
       method: "POST",
       path: `/zones/${this.zoneId}/dns_records`,
       body: {
-        type: "CNAME",
+        type: spec.type,
         name: spec.hostname,
-        content: spec.target,
+        content: spec.value,
         // DNS-only, never proxied. Railway terminates TLS for these hostnames,
         // and a proxied record breaks its Let's Encrypt issuance outright.
+        // Meaningless on a TXT record, and harmless to send.
         proxied: false,
       },
     });
 
-    return { id: created.id, hostname: created.name };
+    return { id: created.id, hostname: created.name, type: created.type };
   }
 
   async deleteRecord(handle: Pick<DnsRecordHandle, "id">): Promise<void> {
@@ -193,14 +195,20 @@ export class CloudflareDns implements DnsProvider {
     }
   }
 
-  private async findByName(
+  /**
+   * Matched on (type, name) rather than name alone: a custom domain carries a
+   * CNAME and a TXT, and on some platforms they land on the SAME name — so
+   * looking up by name would find the wrong one and report a false conflict.
+   */
+  private async findRecord(
+    type: string,
     hostname: string,
   ): Promise<CloudflareRecord | undefined> {
     const records = await this.request<CloudflareRecord[]>({
       method: "GET",
-      path: `/zones/${this.zoneId}/dns_records?name=${encodeURIComponent(hostname)}`,
+      path: `/zones/${this.zoneId}/dns_records?name=${encodeURIComponent(hostname)}&type=${encodeURIComponent(type)}`,
     });
-    return records[0];
+    return records.find((record) => record.type === type) ?? records[0];
   }
 
   private async request<T>(input: {

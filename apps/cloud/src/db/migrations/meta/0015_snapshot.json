@@ -1,5 +1,5 @@
 {
-  "id": "861dae09-7d9a-4484-b1cd-c1cc8d723cbd",
+  "id": "90806698-ed0e-4cb7-ae9f-1be96ac8ce4b",
   "prevId": "750a2eee-4887-42be-8e60-47238d3879b2",
   "version": "7",
   "dialect": "postgresql",
@@ -1544,11 +1544,12 @@
           "notNull": true,
           "default": "'managed'"
         },
-        "dns_record_id": {
-          "name": "dns_record_id",
-          "type": "text",
+        "dns_record_ids": {
+          "name": "dns_record_ids",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "substrate_domain_id": {
           "name": "substrate_domain_id",

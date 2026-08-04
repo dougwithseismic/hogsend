@@ -20,7 +20,11 @@ import { defaultImageTag, qualifyImage } from "../images/index";
 import { welcomeEmailBody, welcomeEmailSubject } from "../lib/cloud-onboarding";
 import { decryptSecretPayload, encryptSecretPayload } from "../lib/crypto";
 import { type EmailSender, resolveEmailSender } from "../lib/email-sender";
-import { buildInstanceHostname, isUsableSlug } from "../lib/hostnames";
+import {
+  buildInstanceHostname,
+  isUsableSlug,
+  refuseTenantZone,
+} from "../lib/hostnames";
 import { readStackRefs } from "../lib/stack-refs";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
@@ -144,6 +148,13 @@ export interface ProvisionDeps {
    * existed is already in.
    */
   hostnameZone: string | null;
+  /**
+   * The domain our shared SSO cookie is scoped to. Not used to SET anything —
+   * it is the value `refuseTenantZone` checks the tenant zone against, so a
+   * misconfiguration that would leak our session cookie into tenant code is
+   * refused here rather than discovered in a request log.
+   */
+  ssoCookieDomain: string | null;
   tenantDb: TenantDbService;
   hatchetTenant: HatchetTenantService;
   providerKeys: ProviderKeyService;
@@ -194,7 +205,8 @@ function defaultDeps(): ProvisionDeps {
     // Lazy for the same reason the substrate is: a misconfigured Cloudflare
     // provider must fail a PROVISION, not a module import.
     dns: getDns(),
-    hostnameZone: env.CLOUD_CLOUDFLARE_ZONE_NAME ?? null,
+    hostnameZone: env.CLOUD_TENANT_ZONE ?? null,
+    ssoCookieDomain: env.CLOUD_SSO_COOKIE_DOMAIN ?? null,
     tenantDb: new TenantDbService(),
     hatchetTenant: new HatchetTenantService(),
     providerKeys: new ProviderKeyService(),
@@ -225,6 +237,21 @@ function resolveManagedHostname(
   context: ProvisionContext,
 ): string | null {
   if (!deps.hostnameZone) return null;
+
+  // Refuse BEFORE naming anything. A tenant zone inside the SSO cookie's domain
+  // would hand our session cookie to code the customer controls, and the
+  // symptom is invisible — everything works.
+  const zoneRefusal = refuseTenantZone({
+    zone: deps.hostnameZone,
+    ssoCookieDomain: deps.ssoCookieDomain,
+  });
+  if (zoneRefusal) {
+    console.error(
+      `[cloud] refusing to mint a managed hostname: ${zoneRefusal}`,
+    );
+    return null;
+  }
+
   const slug = context.organizationSlug;
   if (!slug || !isUsableSlug(slug)) return null;
 
@@ -242,17 +269,19 @@ function resolveManagedHostname(
 }
 
 /**
- * Point the hostname at the instance: our DNS record, then the substrate's
- * own domain attachment, then the row that remembers both.
+ * Point the hostname at the instance: ask the substrate to serve it, publish
+ * every record it asks for, then remember what we published.
  *
  * Returns null when the hostname could not be attached, and does NOT throw:
  * see the step's comment — a signup must not fail over a DNS blip. `reused`
  * distinguishes a re-driven run from the one that did the work.
  *
- * Order matters. The DNS record is written FIRST so that by the time the
- * substrate is asked to serve the name, the name already resolves to it; the
- * reverse order leaves a window where the substrate holds a domain nothing
- * points at, which is what a failed certificate issuance looks like.
+ * ORDER: substrate FIRST, DNS second. The substrate is the only party that
+ * knows which records its custom domain needs — a CNAME to route it and an
+ * ownership TXT to prove it, and Railway 404s a domain whose TXT is missing
+ * even after the CNAME resolves. Computing the CNAME ourselves and publishing
+ * that alone produces a hostname that looks configured and never verifies, so
+ * we publish what we are TOLD rather than what we can guess.
  */
 async function attachManagedHostname(input: {
   deps: ProvisionDeps;
@@ -279,16 +308,30 @@ async function attachManagedHostname(input: {
   }
 
   try {
-    const record = await deps.dns.ensureRecord({
-      hostname,
-      target: substrateHostname(refs.apiPublicUrl),
-    });
     const attachment = await deps.substrate.attachDomain(refs, hostname);
+    if (attachment.records.length === 0) {
+      // The substrate accepted the domain but has not said what it needs yet.
+      // Publishing nothing and recording success would strand the hostname
+      // half-configured, so treat it as not-yet and let the sweep re-drive.
+      throw new Error(
+        `substrate returned no DNS records for ${hostname}; nothing to publish yet`,
+      );
+    }
+
+    const published: string[] = [];
+    for (const record of attachment.records) {
+      const handle = await deps.dns.ensureRecord({
+        type: record.type,
+        hostname: record.name,
+        value: record.value,
+      });
+      published.push(handle.id);
+    }
 
     if (existing) {
       await deps.db
         .update(hostnames)
-        .set({ dnsRecordId: record.id, updatedAt: new Date() })
+        .set({ dnsRecordIds: published, updatedAt: new Date() })
         .where(eq(hostnames.id, existing.id));
       return { reused: true };
     }
@@ -298,22 +341,12 @@ async function attachManagedHostname(input: {
       environmentId: input.environmentId,
       hostname,
       kind: "managed",
-      dnsRecordId: record.id,
-      substrateDomainId: attachment.records[0]?.name ?? null,
+      dnsRecordIds: published,
     });
     return { reused: false };
   } catch (error) {
     console.error(`[cloud] could not attach hostname ${hostname}:`, error);
     return null;
-  }
-}
-
-/** The bare host of the substrate's own URL — what our CNAME points at. */
-function substrateHostname(apiPublicUrl: string): string {
-  try {
-    return new URL(apiPublicUrl).hostname;
-  } catch {
-    return apiPublicUrl;
   }
 }
 
@@ -683,8 +716,8 @@ export async function runProvisionPipeline(
       await audit("ensure-hostname", organizationId, {
         skipped: true,
         reason: deps.hostnameZone
-          ? "organization has no usable slug"
-          : "no hostname zone configured",
+          ? "no usable slug, or the tenant zone was refused"
+          : "no tenant zone configured",
       });
     } else {
       const attached = await attachManagedHostname({

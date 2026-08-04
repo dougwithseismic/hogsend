@@ -26,6 +26,7 @@ export interface DnsContractHarness {
 
 const HOSTNAME = "acme.hogsend.test";
 const TARGET = "stack-abc.example-substrate.test";
+const CNAME = { type: "CNAME", hostname: HOSTNAME, value: TARGET };
 
 export function describeDnsContract(
   name: string,
@@ -42,8 +43,7 @@ export function describeDnsContract(
       const provider = await setup();
 
       const handle = await provider.ensureRecord({
-        hostname: HOSTNAME,
-        target: TARGET,
+        ...CNAME,
       });
 
       expect(handle.hostname).toBe(HOSTNAME);
@@ -56,12 +56,10 @@ export function describeDnsContract(
       const provider = await setup();
 
       const first = await provider.ensureRecord({
-        hostname: HOSTNAME,
-        target: TARGET,
+        ...CNAME,
       });
       const second = await provider.ensureRecord({
-        hostname: HOSTNAME,
-        target: TARGET,
+        ...CNAME,
       });
 
       expect(second.id).toBe(first.id);
@@ -71,12 +69,13 @@ export function describeDnsContract(
     // would take their tracked links and Studio down to resolve our collision.
     it("refuses to repoint a hostname that resolves somewhere else", async () => {
       const provider = await setup();
-      await provider.ensureRecord({ hostname: HOSTNAME, target: TARGET });
+      await provider.ensureRecord(CNAME);
 
       await expect(
         provider.ensureRecord({
+          type: "CNAME",
           hostname: HOSTNAME,
-          target: "somewhere-else.example-substrate.test",
+          value: "somewhere-else.example-substrate.test",
         }),
       ).rejects.toBeInstanceOf(DnsRecordConflictError);
     });
@@ -84,8 +83,7 @@ export function describeDnsContract(
     it("deletes a record, and deleting it again still succeeds", async () => {
       const provider = await setup();
       const handle = await provider.ensureRecord({
-        hostname: HOSTNAME,
-        target: TARGET,
+        ...CNAME,
       });
 
       await provider.deleteRecord(handle);
@@ -97,14 +95,14 @@ export function describeDnsContract(
     it("frees the hostname once the record is deleted", async () => {
       const provider = await setup();
       const handle = await provider.ensureRecord({
-        hostname: HOSTNAME,
-        target: TARGET,
+        ...CNAME,
       });
       await provider.deleteRecord(handle);
 
       const reused = await provider.ensureRecord({
+        type: "CNAME",
         hostname: HOSTNAME,
-        target: "a-different-stack.example-substrate.test",
+        value: "a-different-stack.example-substrate.test",
       });
       expect(reused.hostname).toBe(HOSTNAME);
     });
@@ -113,13 +111,45 @@ export function describeDnsContract(
       const provider = await setup();
       const before = await provider.readCapacity();
 
-      await provider.ensureRecord({ hostname: HOSTNAME, target: TARGET });
+      await provider.ensureRecord(CNAME);
       const after = await provider.readCapacity();
 
       expect(after.used).toBe(before.used + 1);
       if (after.limit !== null) {
         expect(after.limit).toBeGreaterThan(0);
       }
+    });
+
+    // The behaviour the CNAME-only bug violated: a substrate custom domain
+    // needs BOTH records, and they coexist rather than collide.
+    it("holds a CNAME and a TXT for one domain at the same time", async () => {
+      const provider = await setup();
+
+      const cname = await provider.ensureRecord(CNAME);
+      const txt = await provider.ensureRecord({
+        type: "TXT",
+        hostname: `_verify.${HOSTNAME}`,
+        value: "verify=abc123",
+      });
+
+      expect(txt.id).not.toBe(cname.id);
+      expect((await provider.readCapacity()).used).toBe(2);
+    });
+
+    // Same name, different type, is two records — not a conflict. Some
+    // platforms put the ownership TXT on the domain itself.
+    it("does not confuse a TXT with a CNAME on the same name", async () => {
+      const provider = await setup();
+      await provider.ensureRecord(CNAME);
+
+      const txt = await provider.ensureRecord({
+        type: "TXT",
+        hostname: HOSTNAME,
+        value: "verify=abc123",
+      });
+
+      expect(txt.type).toBe("TXT");
+      expect((await provider.readCapacity()).used).toBe(2);
     });
 
     it("deleting an id it never issued is not an error", async () => {

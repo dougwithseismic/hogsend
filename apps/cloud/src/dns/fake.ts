@@ -25,8 +25,9 @@ const FAKE_RECORD_LIMIT = 200;
 
 interface FakeRecord {
   id: string;
+  type: string;
   hostname: string;
-  target: string;
+  value: string;
 }
 
 export class FakeDns implements DnsProvider {
@@ -36,22 +37,27 @@ export class FakeDns implements DnsProvider {
   private counter = 0;
 
   async ensureRecord(spec: DnsRecordSpec): Promise<DnsRecordHandle> {
-    const existing = this.find(spec.hostname);
+    const existing = this.find(spec.type, spec.hostname);
     if (existing) {
-      if (existing.target !== spec.target) {
-        throw new DnsRecordConflictError(spec.hostname, existing.target);
+      if (existing.value !== spec.value) {
+        throw new DnsRecordConflictError(spec.hostname, existing.value);
       }
-      return { id: existing.id, hostname: existing.hostname };
+      return {
+        id: existing.id,
+        hostname: existing.hostname,
+        type: existing.type,
+      };
     }
 
     this.counter += 1;
     const record: FakeRecord = {
       id: `fake-dns-${this.counter}`,
+      type: spec.type,
       hostname: spec.hostname,
-      target: spec.target,
+      value: spec.value,
     };
     this.records.set(record.id, record);
-    return { id: record.id, hostname: record.hostname };
+    return { id: record.id, hostname: record.hostname, type: record.type };
   }
 
   async deleteRecord(handle: Pick<DnsRecordHandle, "id">): Promise<void> {
@@ -69,9 +75,9 @@ export class FakeDns implements DnsProvider {
     this.counter = 0;
   }
 
-  private find(hostname: string): FakeRecord | undefined {
+  private find(type: string, hostname: string): FakeRecord | undefined {
     for (const record of this.records.values()) {
-      if (record.hostname === hostname) return record;
+      if (record.hostname === hostname && record.type === type) return record;
     }
     return undefined;
   }

@@ -152,10 +152,26 @@ export const env = createEnv({
     // `getDns()` refuses to build a Cloudflare provider without the trio.
     CLOUD_CLOUDFLARE_TOKEN: z.string().min(1).optional(),
     CLOUD_CLOUDFLARE_ZONE_ID: z.string().min(1).optional(),
-    // The zone's own name, e.g. `hogsend.com`. Held separately from the id
+    // The zone's own name, e.g. `hogsend.app`. Held separately from the id
     // because the provider refuses a hostname outside it, and comparing names
     // is the only way to check that locally.
     CLOUD_CLOUDFLARE_ZONE_NAME: z.string().min(1).optional(),
+    // The registrable domain tenant instances are named under, e.g.
+    // `hogsend.app`. Deliberately its own variable rather than reusing the
+    // Cloudflare zone name: they are the same string today, but they answer
+    // different questions ("which zone may we write to" vs "what are customers
+    // called"), and conflating them is how a tenant ends up named inside a zone
+    // that serves our own cookied sites.
+    //
+    // MUST NOT be a subdomain of, or equal to, the domain the SSO cookie is
+    // scoped to — see `refuseTenantZone`. Absent → no managed hostnames, and
+    // instances keep the substrate's own URL.
+    CLOUD_TENANT_ZONE: z.string().min(1).optional(),
+    // The domain the shared docs/course SSO cookie is set on, e.g.
+    // `.hogsend.com`. The control plane never SETS this cookie — it is declared
+    // here so the tenant-zone guard can refuse to name instances anywhere the
+    // browser would send it.
+    CLOUD_SSO_COOKIE_DOMAIN: z.string().min(1).optional(),
     // The account the provisioner logs into on a CELL's Hatchet to mint each
     // tenant's token (`services/hatchet-tenant.ts`). Dev/test default to
     // hatchet-lite's seeded admin so a fresh clone provisions with no setup;

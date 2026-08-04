@@ -26,6 +26,7 @@ const ZONE_NAME = "hogsend.test";
 
 interface StoredRecord {
   id: string;
+  type: string;
   name: string;
   content: string;
   proxied: boolean;
@@ -47,8 +48,11 @@ function makeCloudflareZone() {
       const query = path.split("?")[1] ?? "";
       const params = new URLSearchParams(query);
       const name = params.get("name");
+      const type = params.get("type");
       const all = [...records.values()];
-      const result = name ? all.filter((row) => row.name === name) : all;
+      const result = all.filter(
+        (row) => (!name || row.name === name) && (!type || row.type === type),
+      );
       return json({
         success: true,
         result: params.get("per_page") === "1" ? result.slice(0, 1) : result,
@@ -58,6 +62,7 @@ function makeCloudflareZone() {
 
     if (request.method === "POST") {
       const body = JSON.parse(request.body ?? "{}") as {
+        type: string;
         name: string;
         content: string;
         proxied: boolean;
@@ -65,6 +70,7 @@ function makeCloudflareZone() {
       counter += 1;
       const record: StoredRecord = {
         id: `cf-${counter}`,
+        type: body.type,
         name: body.name,
         content: body.content,
         proxied: body.proxied,
@@ -132,8 +138,9 @@ describe("CloudflareDns wire behaviour", () => {
     const { zone, provider } = make();
 
     await provider.ensureRecord({
+      type: "CNAME",
       hostname: `acme.${ZONE_NAME}`,
-      target: "stack.up.railway.app",
+      value: "stack.up.railway.app",
     });
 
     const created = [...zone.records.values()][0];
@@ -144,8 +151,9 @@ describe("CloudflareDns wire behaviour", () => {
     const { zone, provider } = make();
 
     await provider.ensureRecord({
+      type: "CNAME",
       hostname: `acme.${ZONE_NAME}`,
-      target: "stack.up.railway.app",
+      value: "stack.up.railway.app",
     });
 
     expect(zone.requests[0]?.headers.authorization).toBe("Bearer cf-token");
@@ -158,8 +166,9 @@ describe("CloudflareDns wire behaviour", () => {
 
     await expect(
       provider.ensureRecord({
+        type: "CNAME",
         hostname: "acme.someone-else.test",
-        target: "stack.up.railway.app",
+        value: "stack.up.railway.app",
       }),
     ).rejects.toBeInstanceOf(DnsError);
     expect(zone.requests).toHaveLength(0);
@@ -169,8 +178,9 @@ describe("CloudflareDns wire behaviour", () => {
     const { provider, sleeps } = makeFlaky(429, 2);
 
     const handle = await provider.ensureRecord({
+      type: "CNAME",
       hostname: `acme.${ZONE_NAME}`,
-      target: "stack.up.railway.app",
+      value: "stack.up.railway.app",
     });
 
     expect(handle.id).toBeTruthy();
@@ -184,8 +194,9 @@ describe("CloudflareDns wire behaviour", () => {
 
     await expect(
       provider.ensureRecord({
+        type: "CNAME",
         hostname: `acme.${ZONE_NAME}`,
-        target: "stack.up.railway.app",
+        value: "stack.up.railway.app",
       }),
     ).rejects.toBeInstanceOf(DnsError);
     expect(sleeps).toEqual([]);
@@ -194,14 +205,16 @@ describe("CloudflareDns wire behaviour", () => {
   it("reports a conflict rather than repointing a live hostname", async () => {
     const { provider } = make();
     await provider.ensureRecord({
+      type: "CNAME",
       hostname: `acme.${ZONE_NAME}`,
-      target: "first.up.railway.app",
+      value: "first.up.railway.app",
     });
 
     await expect(
       provider.ensureRecord({
+        type: "CNAME",
         hostname: `acme.${ZONE_NAME}`,
-        target: "second.up.railway.app",
+        value: "second.up.railway.app",
       }),
     ).rejects.toBeInstanceOf(DnsRecordConflictError);
   });
@@ -209,12 +222,14 @@ describe("CloudflareDns wire behaviour", () => {
   it("counts records against the zone's capacity", async () => {
     const { provider } = make();
     await provider.ensureRecord({
+      type: "CNAME",
       hostname: `one.${ZONE_NAME}`,
-      target: "a.up.railway.app",
+      value: "a.up.railway.app",
     });
     await provider.ensureRecord({
+      type: "CNAME",
       hostname: `two.${ZONE_NAME}`,
-      target: "b.up.railway.app",
+      value: "b.up.railway.app",
     });
 
     expect(await provider.readCapacity()).toEqual({ used: 2, limit: null });

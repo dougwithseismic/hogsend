@@ -19,12 +19,22 @@
  * nobody asked for.
  */
 
-/** A record to create, stated as the outcome rather than as a vendor payload. */
+/**
+ * A record to create, stated as the outcome rather than as a vendor payload.
+ *
+ * `type` is here because a substrate custom domain needs more than a CNAME: the
+ * platform also requires an ownership TXT, and publishing only the CNAME
+ * produces a hostname that resolves but 404s forever. The seam therefore
+ * publishes whatever the substrate asks for, verbatim, rather than assuming a
+ * shape.
+ */
 export interface DnsRecordSpec {
-  /** The fully-qualified name, e.g. `acme.hogsend.com`. */
+  /** `CNAME` or `TXT` today; passed through, never interpreted. */
+  type: string;
+  /** The fully-qualified name, e.g. `acme.hogsend.app`. */
   hostname: string;
-  /** What the name should resolve through — the substrate's own hostname. */
-  target: string;
+  /** The record's value — a CNAME target, or a TXT verification string. */
+  value: string;
 }
 
 /**
@@ -35,6 +45,7 @@ export interface DnsRecordSpec {
 export interface DnsRecordHandle {
   id: string;
   hostname: string;
+  type: string;
 }
 
 /**
@@ -62,10 +73,12 @@ export interface DnsProvider {
    * Create the record, or return the existing one unchanged when it already
    * points where it should.
    *
-   * Idempotent by hostname, and it has to be: the provisioning pipeline
+   * Idempotent by (type, hostname), and it has to be: the provisioning pipeline
    * re-drives a failed step, and the second pass must not fail on a record the
-   * first pass already wrote. A hostname that exists pointing somewhere ELSE is
-   * a conflict, not an update — see `DnsRecordConflictError`.
+   * first pass already wrote. The pair rather than the hostname alone, because
+   * a custom domain legitimately carries a CNAME and a TXT on related names.
+   * A record that exists with a DIFFERENT value is a conflict, not an update —
+   * see `DnsRecordConflictError`.
    */
   ensureRecord(spec: DnsRecordSpec): Promise<DnsRecordHandle>;
   /**

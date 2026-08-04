@@ -4,7 +4,7 @@ CREATE TABLE "cloud"."hostnames" (
 	"environment_id" uuid NOT NULL,
 	"hostname" text NOT NULL,
 	"kind" text DEFAULT 'managed' NOT NULL,
-	"dns_record_id" text,
+	"dns_record_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"substrate_domain_id" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL

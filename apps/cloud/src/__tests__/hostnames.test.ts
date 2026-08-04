@@ -4,6 +4,7 @@ import {
   isUsableSlug,
   RESERVED_SLUGS,
   refuseSlug,
+  refuseTenantZone,
   SLUG_MAX_LENGTH,
 } from "../lib/hostnames";
 import { slugifyOrgName } from "../lib/org-provision";
@@ -14,7 +15,7 @@ import { slugifyOrgName } from "../lib/org-provision";
  * tracked link in already-delivered mail resolves through it.
  */
 
-const ZONE = "hogsend.com";
+const ZONE = "hogsend.app";
 
 describe("refuseSlug", () => {
   it("accepts an ordinary tenant slug", () => {
@@ -57,7 +58,7 @@ describe("buildInstanceHostname", () => {
         environmentName: "production",
         zone: ZONE,
       }),
-    ).toBe("acme.hogsend.com");
+    ).toBe("acme.hogsend.app");
   });
 
   it("suffixes every other environment as one label", () => {
@@ -67,7 +68,7 @@ describe("buildInstanceHostname", () => {
         environmentName: "staging",
         zone: ZONE,
       }),
-    ).toBe("acme-staging.hogsend.com");
+    ).toBe("acme-staging.hogsend.app");
   });
 
   // A deeper label would need a multi-level wildcard certificate, which
@@ -103,6 +104,59 @@ describe("buildInstanceHostname", () => {
         zone: ZONE,
       }),
     ).toThrow(/not a usable DNS label/);
+  });
+});
+
+describe("refuseTenantZone", () => {
+  /**
+   * The rule that makes tenant isolation structural. Cookie domain-matching is
+   * suffix-based with no depth limit, so every one of these sits inside the
+   * cookie's reach and would receive our session token on every request.
+   */
+  it("refuses the cookie domain itself and anything under it, at any depth", () => {
+    for (const zone of [
+      "hogsend.com",
+      "cloud.hogsend.com",
+      "instances.cloud.hogsend.com",
+      "tenants.hogsend.com",
+    ]) {
+      expect(
+        refuseTenantZone({ zone, ssoCookieDomain: ".hogsend.com" }),
+      ).toMatch(/separate registrable domain/);
+    }
+  });
+
+  it("allows a separate registrable domain", () => {
+    expect(
+      refuseTenantZone({
+        zone: "hogsend.app",
+        ssoCookieDomain: ".hogsend.com",
+      }),
+    ).toBeNull();
+  });
+
+  // A domain that merely ENDS with the same letters is not inside it.
+  it("does not confuse a suffix of the string with a suffix of the domain", () => {
+    expect(
+      refuseTenantZone({
+        zone: "nothogsend.com",
+        ssoCookieDomain: ".hogsend.com",
+      }),
+    ).toBeNull();
+  });
+
+  it("tolerates the domain written with or without its leading dot", () => {
+    expect(
+      refuseTenantZone({ zone: "hogsend.com", ssoCookieDomain: "hogsend.com" }),
+    ).not.toBeNull();
+  });
+
+  // No SSO cookie configured is not a licence to skip the check by accident —
+  // it means there is nothing to leak.
+  it("allows anything when no SSO cookie domain is set", () => {
+    expect(
+      refuseTenantZone({ zone: "hogsend.com", ssoCookieDomain: null }),
+    ).toBeNull();
   });
 });
 

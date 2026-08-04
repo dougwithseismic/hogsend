@@ -40,7 +40,7 @@ const CLUSTER_DSN =
   process.env.CLOUD_TEST_CLUSTER_DSN ??
   "postgres://growthhog:growthhog@localhost:5434/postgres";
 const CELL_NAME = "provision-hostname-cell";
-const ZONE = "hogsend.test";
+const ZONE = "hogsend-tenants.test";
 const SLUG = "acmehostname";
 const OWNER_ID = "provision-hostname-owner";
 const OWNER_EMAIL = "hostname-owner@local.test";
@@ -149,11 +149,16 @@ function stubHatchet(): HatchetTenantService {
   } as unknown as HatchetTenantService;
 }
 
-function deps(dns: DnsProvider, zone: string | null = ZONE) {
+function deps(
+  dns: DnsProvider,
+  zone: string | null = ZONE,
+  ssoCookieDomain: string | null = null,
+) {
   return {
     substrate: new FakeSubstrate(),
     dns,
     hostnameZone: zone,
+    ssoCookieDomain,
     hatchetTenant: stubHatchet(),
   };
 }
@@ -203,8 +208,10 @@ describe("ensure-hostname", () => {
       .where(eq(hostnames.environmentId, fixture.environmentId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("managed");
-    // Without the record id, destroy could only search the zone by name.
-    expect(rows[0]?.dnsRecordId).toBeTruthy();
+    // BOTH records: a custom domain needs a CNAME to route and a TXT to verify,
+    // and the platform 404s a domain whose TXT is missing. Without every id,
+    // destroy would strand records in a zone with a hard cap.
+    expect(rows[0]?.dnsRecordIds).toHaveLength(2);
   });
 
   it("suffixes a non-production environment as one label", async () => {
@@ -242,7 +249,11 @@ describe("ensure-hostname", () => {
 
     expect(second).toHaveLength(1);
     expect(second[0]?.hostname).toBe(first[0]?.hostname);
-    expect((await dns.readCapacity()).used).toBe(1);
+    // Two records for one hostname (CNAME + ownership TXT), and the re-drive
+    // finds both rather than publishing a second pair — which would burn the
+    // zone's record cap twice per retry.
+    expect((await dns.readCapacity()).used).toBe(2);
+    expect(second[0]?.dnsRecordIds).toHaveLength(2);
   });
 
   // The trade this step is built around: a name is an improvement to
@@ -269,6 +280,31 @@ describe("ensure-hostname", () => {
       .from(stacks)
       .where(eq(stacks.id, fixture.stackId));
     expect(readStackRefs(stack!)?.apiPublicUrl).not.toContain(ZONE);
+    expect(
+      await db
+        .select()
+        .from(hostnames)
+        .where(eq(hostnames.environmentId, fixture.environmentId)),
+    ).toHaveLength(0);
+  });
+
+  // The structural half of the cookie fix: even if someone configures a tenant
+  // zone inside the SSO cookie's domain, no instance is ever named there.
+  it("refuses to name an instance inside the SSO cookie domain", async () => {
+    const fixture = await seedStack("production");
+    const dns = new FakeDns();
+
+    const run = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps(dns, "cloud.hogsend.com", ".hogsend.com"),
+    );
+
+    expect(run.status).toBe("running");
+    expect(
+      run.steps.find((step) => step.step === "ensure-hostname")?.skipped,
+    ).toBe(true);
+    // Nothing published, nothing recorded, instance stays on the substrate URL.
+    expect((await dns.readCapacity()).used).toBe(0);
     expect(
       await db
         .select()

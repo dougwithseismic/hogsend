@@ -9,8 +9,16 @@
  * inline at the one call site that happens to need them today.
  *
  * The scheme, decided with the owner:
- *  - production is bare        → `acme.hogsend.com`
- *  - every other environment   → `acme-staging.hogsend.com`
+ *  - production is bare        → `acme.hogsend.app`
+ *  - every other environment   → `acme-staging.hogsend.app`
+ *
+ * Tenants live on a SEPARATE registrable domain from hogsend.com, which is the
+ * same split Vercel, Railway, Netlify, Render, Fly and Heroku all make. The
+ * reason is not aesthetics: a cookie scoped to `.hogsend.com` is sent to every
+ * subdomain at every depth, so a tenant instance under hogsend.com would
+ * receive the shared docs/course SSO session cookie on every request. A
+ * different registrable domain is the only thing that stops that, and
+ * `refuseTenantZone` below makes it structural rather than remembered.
  *
  * Production is bare because it is the hostname customers actually see. The
  * suffix on the others is a plain label, not a deeper DNS level: a multi-level
@@ -62,6 +70,35 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "support",
   "test",
 ]);
+
+/**
+ * Why this zone cannot host tenants, or null when it can.
+ *
+ * The rule: a tenant zone must not be the SSO cookie's domain, nor anything
+ * under it. RFC 6265 domain-matching is suffix-based with NO depth limit, so
+ * `Domain=.hogsend.com` reaches `acme.hogsend.com` and `acme.cloud.hogsend.com`
+ * alike — a deeper label buys nothing. Only a different registrable domain
+ * keeps our session cookie away from code a customer controls.
+ *
+ * Enforced rather than documented because the failure is silent: everything
+ * works, and the only symptom is a valid session token arriving in a request
+ * to someone else's instance.
+ */
+export function refuseTenantZone(input: {
+  zone: string;
+  /** The SSO cookie's Domain, with or without its leading dot. */
+  ssoCookieDomain?: string | null;
+}): string | null {
+  const cookieDomain = (input.ssoCookieDomain ?? "").replace(/^\./, "");
+  if (!cookieDomain) return null;
+
+  const zone = input.zone.replace(/^\./, "").toLowerCase();
+  const scope = cookieDomain.toLowerCase();
+  if (zone === scope || zone.endsWith(`.${scope}`)) {
+    return `tenant zone "${input.zone}" is inside the SSO cookie domain "${input.ssoCookieDomain}": instances would receive our session cookie on every request. Tenants need a separate registrable domain.`;
+  }
+  return null;
+}
 
 export const SLUG_MIN_LENGTH = 3;
 export const SLUG_MAX_LENGTH = 30;

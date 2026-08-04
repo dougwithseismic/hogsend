@@ -1,4 +1,4 @@
-import { index, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, jsonb, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { cloud, timestamps } from "./_shared";
 import { environments } from "./environments";
 import { organizations } from "./organizations";
@@ -42,9 +42,22 @@ export const hostnames = cloud.table(
      * is built from it and every tracked link already sent resolves through it.
      */
     kind: text("kind").notNull().default("managed"),
-    /** The DNS provider's record id. Null for a custom hostname, whose records
-     * live in the tenant's own zone and are not ours to delete. */
-    dnsRecordId: text("dns_record_id"),
+    /**
+     * The DNS provider's record ids — every record we published for this
+     * hostname, so teardown deletes exactly what it created.
+     *
+     * A LIST, not one id, because a substrate custom domain needs more than one
+     * record: a CNAME to route and an ownership TXT to verify. Storing only the
+     * first would strand the rest in the zone on every destroy, and the zone has
+     * a hard record cap.
+     *
+     * Empty for a custom hostname, whose records live in the tenant's own zone
+     * and are not ours to delete.
+     */
+    dnsRecordIds: jsonb("dns_record_ids")
+      .$type<string[]>()
+      .default([])
+      .notNull(),
     /** The substrate's custom-domain id, for detaching on teardown. */
     substrateDomainId: text("substrate_domain_id"),
     ...timestamps,

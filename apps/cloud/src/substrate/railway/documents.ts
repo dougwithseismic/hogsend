@@ -99,6 +99,34 @@ export const SERVICE_DOMAINS = `
   }
 `;
 
+/**
+ * The custom domains on a service, WITH the records each one still needs.
+ *
+ * Exists for one reason: `customDomainCreate` sometimes answers before Railway
+ * has computed `dnsRecords`, and a custom domain needs BOTH a CNAME and an
+ * ownership TXT — a caller that publishes only the CNAME gets a domain that
+ * 404s forever. So an empty create response is re-queried here rather than
+ * guessed at.
+ */
+export const CUSTOM_DOMAINS = `
+  query CustomDomains($projectId: String!, $environmentId: String!, $serviceId: String!) {
+    domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
+      customDomains {
+        id
+        domain
+        status {
+          dnsRecords {
+            recordType
+            hostlabel
+            requiredValue
+            zone
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const SERVICE_DOMAIN_CREATE = `
   mutation ServiceDomainCreate($input: ServiceDomainCreateInput!) {
     serviceDomainCreate(input: $input) { domain }

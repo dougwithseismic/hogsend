@@ -392,8 +392,12 @@ export async function destroyStack(
     for (const row of owned) {
       // A custom hostname's records live in the TENANT's zone. Ours to forget,
       // never ours to delete.
-      if (row.dnsRecordId && row.kind === "managed") {
-        await deps.dns.deleteRecord({ id: row.dnsRecordId });
+      if (row.kind !== "managed") continue;
+      // EVERY record, not just the first: a custom domain needs a CNAME and an
+      // ownership TXT, and deleting one of the pair strands the other in a zone
+      // with a hard record cap.
+      for (const recordId of row.dnsRecordIds) {
+        await deps.dns.deleteRecord({ id: recordId });
       }
     }
     if (owned.length > 0) {
