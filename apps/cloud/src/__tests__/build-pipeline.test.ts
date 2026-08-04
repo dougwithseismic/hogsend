@@ -135,13 +135,12 @@ async function seed(tarball: Buffer = scaffoldTarball()): Promise<Fixture> {
     .returning();
   if (!stack) throw new Error("failed to seed stack");
 
-  const refs = await substrate.provisionStack({
+  const refs = await substrate.provisionRunningStack({
     stackId: stack.id,
     organizationId: ORG,
     environmentName: environment.name,
     region: "us",
     topology: "shared",
-    initialImage: "hogsend-default:0.57.0",
     env: {},
   });
   await db

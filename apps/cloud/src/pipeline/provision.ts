@@ -87,6 +87,10 @@ export const PROVISION_STEPS = [
   // migration to change it; one that learns it here never knew another.
   "ensure-hostname",
   "set-env",
+  // AFTER `set-env`, and it has to be: an app service is created idle and only
+  // starts here, so that its first boot is its first SUCCESSFUL boot. Starting
+  // it any earlier means starting it without `DATABASE_URL`.
+  "start-services",
   "health-wait",
   "mint-credentials",
   "finish",
@@ -686,10 +690,8 @@ export async function runProvisionPipeline(
         environmentName: context.environmentName,
         region: stack.region,
         topology: context.plan === "dedicated" ? "dedicated" : "shared",
-        // Registry-qualified when one is configured: the substrate has to be
-        // able to PULL this, and a bare tag is only resolvable on a host that
-        // already built it (dev, with the fake substrate).
-        initialImage: qualifyImage(defaultImageTag(engineVersion)),
+        // No image: the services are created idle and started by
+        // `start-services`, once there is an env for them to boot against.
         // The scaffold image's migrations gate (template Dockerfile law: tsx,
         // never pnpm, at runtime). Without it the first boot meets an empty
         // tenant database and the engine's schema guard crash-loops.
@@ -791,6 +793,22 @@ export async function runProvisionPipeline(
     // Audit the KEYS only. The names prove the env was assembled; the values
     // are exactly what must never reach a log.
     await audit("set-env", organizationId, { keys: Object.keys(vars).sort() });
+
+    // ---- start-services ---------------------------------------------------
+    // Worker first, then api. The worker registers its journey tasks with
+    // Hatchet on boot; bringing the api up first would open the front door on a
+    // stack that cannot yet execute anything it accepts.
+    current = "start-services";
+    const bootImage = qualifyImage(defaultImageTag(engineVersion));
+    for (const service of ["worker", "api"] as const) {
+      await deps.substrate.deployImage(refs, {
+        imageUrl: bootImage,
+        service,
+        preDeployCommand: MIGRATE_PRE_DEPLOY_COMMAND,
+      });
+    }
+    steps.push({ step: "start-services", skipped: false });
+    await audit("start-services", organizationId, { image: bootImage });
 
     // ---- health-wait ------------------------------------------------------
     current = "health-wait";

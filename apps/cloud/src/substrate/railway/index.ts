@@ -264,7 +264,12 @@ export class RailwaySubstrate implements SubstrateProvider {
         (await this.createService({
           projectId,
           name,
-          image: role === "redis" ? REDIS_IMAGE : spec.initialImage,
+          // Redis boots now: it is a cache, it takes no application config, and
+          // the app services need its address the moment they start. The app
+          // services get NO image here on purpose — `serviceCreate` with a
+          // source deploys IMMEDIATELY, and their env does not exist yet. They
+          // are given an image by `deployImage`, once `setEnv` has run.
+          ...(role === "redis" ? { image: REDIS_IMAGE } : {}),
           // The app image may live in a private registry; redis never does.
           ...(role === "redis" ? {} : this.appRegistryCredentials()),
         }));
@@ -378,8 +383,11 @@ export class RailwaySubstrate implements SubstrateProvider {
         ? { preDeployCommand: options.preDeployCommand }
         : {}),
     });
-    // `serviceInstanceUpdate` only changes CONFIGURATION; nothing rolls until
-    // a deploy is asked for.
+    // `serviceInstanceUpdate` MAY roll a deploy by itself (it does when the
+    // source changes — verified against live deployment records, `reason:
+    // "deploy"`, 2026-08-04), but it is not documented to and it does not when
+    // the patch is a no-op. Asking explicitly is the only way to know a deploy
+    // happened, and a redundant redeploy is cheap next to a silent no-op.
     await this.redeployService(serviceId, data.environmentId);
   }
 
@@ -686,10 +694,17 @@ export class RailwaySubstrate implements SubstrateProvider {
     );
   }
 
+  /**
+   * Create a service, optionally with a source image.
+   *
+   * Passing `image` makes Railway deploy it THERE AND THEN — which is why it is
+   * optional. A service created without one is inert until something sets its
+   * source, so it can be configured and given variables in peace.
+   */
   private async createService(input: {
     projectId: string;
     name: string;
-    image: string;
+    image?: string;
     registryCredentials?: RailwayRegistryCredentials;
   }): Promise<string> {
     const result = await this.client.request<{
@@ -698,7 +713,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       input: {
         projectId: input.projectId,
         name: input.name,
-        source: { image: input.image },
+        ...(input.image ? { source: { image: input.image } } : {}),
         ...(input.registryCredentials
           ? { registryCredentials: input.registryCredentials }
           : {}),

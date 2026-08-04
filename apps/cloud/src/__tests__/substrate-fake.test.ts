@@ -26,7 +26,6 @@ const SPEC: StackSpec = {
   environmentName: "staging",
   region: "eu",
   topology: "dedicated",
-  initialImage: "hogsend-default:0.55.0",
   env: { LOG_LEVEL: "info" },
 };
 
@@ -53,7 +52,7 @@ describe("FakeSubstrate specifics", () => {
 
     // The failed attempt left NO stack behind, so the retry is a clean first
     // provision rather than a resume of half-built state.
-    const refs = await fake.provisionStack(SPEC);
+    const refs = await fake.provisionRunningStack(SPEC);
     expect(refs.apiPublicUrl).toContain(SPEC.stackId);
     expect((await fake.getHealth(refs)).healthy).toBe(true);
   });
@@ -108,7 +107,7 @@ describe("FakeSubstrate specifics", () => {
 
   it("setUnhealthy makes a running stack report sick, with a detail", async () => {
     const fake = new FakeSubstrate();
-    const refs = await fake.provisionStack(SPEC);
+    const refs = await fake.provisionRunningStack(SPEC);
 
     fake.setUnhealthy(refs);
     expect(await fake.getHealth(refs)).toEqual({

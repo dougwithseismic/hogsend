@@ -416,6 +416,43 @@ describe("runProvisionPipeline", () => {
     expect(serialized).not.toContain(applied.BETTER_AUTH_SECRET);
   });
 
+  it("starts the app services only after their env exists, worker first", async () => {
+    const fixture = await seedStack("production");
+    const substrate = new FakeSubstrate();
+    const hatchet = stubHatchet();
+
+    await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { substrate, hatchetTenant: hatchet.service, providerKeys },
+    );
+
+    const order = substrate.calls
+      .map((call) => call.method)
+      .filter(
+        (method) =>
+          method === "provisionStack" ||
+          method === "setEnv" ||
+          method === "deployImage",
+      );
+    // provisionStack creates the services idle; setEnv gives them a
+    // DATABASE_URL; ONLY THEN does anything start. Any deploy before that
+    // setEnv boots the engine against nothing and crash-loops — which is what
+    // every provision did until 2026-08-04.
+    expect(order).toEqual([
+      "provisionStack",
+      "setEnv",
+      "deployImage",
+      "deployImage",
+    ]);
+
+    // Worker before api: the worker registers its journey tasks with Hatchet on
+    // boot, so an api that came up first would accept work nothing could run.
+    const deployed = substrate.calls
+      .filter((call) => call.method === "deployImage")
+      .map((call) => (call.args[1] as { service: string }).service);
+    expect(deployed).toEqual(["worker", "api"]);
+  });
+
   it("forces test mode on non-production environments only", async () => {
     const fixture = await seedStack("staging");
     const substrate = new FakeSubstrate();
