@@ -7,6 +7,7 @@ import {
 } from "../dns/cloudflare";
 import { describeDnsContract } from "../dns/contract";
 import { FakeDns } from "../dns/fake";
+import { refuseFakeDns } from "../dns/index";
 import { DnsError, DnsRecordConflictError } from "../dns/types";
 
 /**
@@ -244,3 +245,49 @@ function makeFlaky(status: number, failures: number) {
 
   return { provider, sleeps };
 }
+
+describe("refuseFakeDns", () => {
+  /**
+   * The guard exists because this misconfiguration is SILENT: instances come
+   * up, the dashboard shows a hostname, and only the customer's delivered mail
+   * reveals that none of it resolves.
+   */
+  it("refuses the fake in production once a zone is configured", () => {
+    expect(
+      refuseFakeDns({
+        nodeEnv: "production",
+        dns: "fake",
+        zoneName: "hogsend.com",
+      }),
+    ).toMatch(/resolve nowhere/);
+  });
+
+  it("allows the fake in production with no zone — the state every deploy is in today", () => {
+    expect(
+      refuseFakeDns({ nodeEnv: "production", dns: "fake", zoneName: null }),
+    ).toBeNull();
+  });
+
+  it("never gets in the way of dev or test", () => {
+    expect(
+      refuseFakeDns({
+        nodeEnv: "development",
+        dns: "fake",
+        zoneName: "hogsend.com",
+      }),
+    ).toBeNull();
+    expect(
+      refuseFakeDns({ nodeEnv: "test", dns: "fake", zoneName: "hogsend.com" }),
+    ).toBeNull();
+  });
+
+  it("says nothing about a real provider", () => {
+    expect(
+      refuseFakeDns({
+        nodeEnv: "production",
+        dns: "cloudflare",
+        zoneName: "hogsend.com",
+      }),
+    ).toBeNull();
+  });
+});

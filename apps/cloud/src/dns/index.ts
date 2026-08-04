@@ -34,11 +34,42 @@ let fakeSingleton: FakeDns | undefined;
 /** Stateless but holds a token; one instance keeps connection reuse. */
 let cloudflareSingleton: CloudflareDns | undefined;
 
+/**
+ * The one misconfiguration that would be silently wrong rather than loudly
+ * broken.
+ *
+ * A zone name is what switches `ensure-hostname` ON; the fake writes into
+ * memory. Together they hand a production instance an `API_PUBLIC_URL` on a
+ * hostname that resolves NOWHERE — and because that URL mints every tracked
+ * link and signs the Studio cookie, the damage is silent until a customer's
+ * mail goes out with dead links in it.
+ *
+ * Pure and exported so the rule is testable without re-importing the module
+ * under a mutated environment.
+ */
+export function refuseFakeDns(input: {
+  nodeEnv: string;
+  dns: string;
+  zoneName?: string | null;
+}): string | null {
+  if (input.nodeEnv !== "production") return null;
+  if (input.dns !== "fake") return null;
+  if (!input.zoneName) return null;
+  return 'CLOUD_CLOUDFLARE_ZONE_NAME is set with CLOUD_DNS="fake" in production: instances would be given hostnames that resolve nowhere. Set CLOUD_DNS="cloudflare", or unset the zone to keep instances on the substrate URL.';
+}
+
 export function getDns(): DnsProvider {
   switch (env.CLOUD_DNS) {
-    case "fake":
+    case "fake": {
+      const refusal = refuseFakeDns({
+        nodeEnv: env.NODE_ENV,
+        dns: env.CLOUD_DNS,
+        zoneName: env.CLOUD_CLOUDFLARE_ZONE_NAME,
+      });
+      if (refusal) throw new DnsError(refusal);
       fakeSingleton ??= new FakeDns();
       return fakeSingleton;
+    }
     case "cloudflare":
       // Fail CLOSED, and name which piece is missing. Falling back to the fake
       // would be the worst outcome available: a control plane reporting
