@@ -69,11 +69,29 @@ function Row({
   );
 }
 
-/** What the closed Builds row says, so the common question needs no click. */
+/**
+ * What the closed Builds row says, so the common question needs no click.
+ *
+ * The LATEST build only, never a count: `readBuildsView` caps its history, so a
+ * total read off that list would stop rising and quietly assert a wrong number
+ * forever. What anybody wants from a closed row is "did my last publish work".
+ */
 function buildsSummary(view: { builds: { status: string }[] }): string {
-  if (view.builds.length === 0) return "nothing published yet";
   const latest = view.builds[0];
-  return `${view.builds.length} ${view.builds.length === 1 ? "build" : "builds"} — latest ${latest?.status ?? "unknown"}`;
+  if (!latest) return "nothing published yet";
+  return `latest publish ${latest.status}`;
+}
+
+/**
+ * What the closed Keys row says.
+ *
+ * An unreachable instance must NOT read as "0 live keys": that is a factual
+ * claim about the tenant, and the truth is that we could not ask. The error
+ * sentence itself lives inside the drawer, where there is room for it.
+ */
+function keysSummary(liveCount: number, error: string | null): string {
+  if (error) return "could not reach your instance";
+  return `${liveCount} live ${liveCount === 1 ? "key" : "keys"}`;
 }
 
 /** What the closed Operations row says: the controls actually available now. */
@@ -125,6 +143,7 @@ export default async function EnvironmentDetailPage({
     : { keys: [], error: null };
 
   const { environment, stack, operations } = detail;
+  const liveKeys = keys.keys.filter((key) => !key.revokedAt);
   const now = new Date();
   const refs = (stack?.substrateRefs as Record<string, unknown>) ?? null;
   const apiUrl = readApiUrl(refs);
@@ -224,11 +243,7 @@ export default async function EnvironmentDetailPage({
             <Drawer
               title="Keys and access"
               description="Open Studio, sign in, and paste a key into your own repository."
-              summary={`${keys.keys.filter((key) => !key.revokedAt).length} live ${
-                keys.keys.filter((key) => !key.revokedAt).length === 1
-                  ? "key"
-                  : "keys"
-              }`}
+              summary={keysSummary(liveKeys.length, keys.error)}
             >
               <TenantAccessSection
                 access={access}

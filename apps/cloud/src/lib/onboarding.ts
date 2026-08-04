@@ -29,6 +29,16 @@ export interface OnboardingStep {
   hint?: string;
   /** A command to run, when the step is one. */
   command?: string;
+  /**
+   * How quickly this step's answer can change.
+   *
+   * `live` — written the moment it happens (the stack row, the build history),
+   * so a refresh can reveal it within a minute.
+   * `daily` — read from `usage_counters`, which the metering cron SETS at 03:00
+   * UTC. There is no faster source without new tenant admin endpoints, so the
+   * honest thing is to say so on the step and to stop refreshing for it.
+   */
+  freshness: "live" | "daily";
   done: boolean;
 }
 
@@ -36,6 +46,14 @@ export interface OnboardingView {
   steps: OnboardingStep[];
   /** True once every step is done — the panel stops rendering at that point. */
   complete: boolean;
+  /**
+   * Whether refreshing this page could still change anything.
+   *
+   * False once every `live` step is done: what remains is counter-backed and
+   * cannot move until the nightly sweep, so polling on would be 5,760 refreshes
+   * per signal — each one re-running a live HTTP call to the tenant instance.
+   */
+  worthRefreshing: boolean;
 }
 
 export interface OnboardingDeps extends OrgMembersDeps {
@@ -111,6 +129,7 @@ export function buildOnboardingView(input: {
     {
       id: "instance",
       title: "Your instance is running",
+      freshness: "live",
       done: input.running,
     },
     {
@@ -118,21 +137,30 @@ export function buildOnboardingView(input: {
       title: "Publish your app",
       hint: "Ship your own journeys and templates. Until you do, your instance runs the stock scaffold.",
       command: "pnpm hogsend publish",
+      freshness: "live",
       done: input.publishedBuilds > 0,
     },
     {
       id: "event",
       title: "Send your first event",
       hint: "Point your app at the instance URL and track something a customer does.",
+      freshness: "daily",
       done: input.events > 0,
     },
     {
       id: "email",
       title: "Send your first email",
       hint: "A journey that reaches a real person is the point of all of this.",
+      freshness: "daily",
       done: input.emails > 0,
     },
   ];
 
-  return { steps, complete: steps.every((step) => step.done) };
+  return {
+    steps,
+    complete: steps.every((step) => step.done),
+    worthRefreshing: steps.some(
+      (step) => !step.done && step.freshness === "live",
+    ),
+  };
 }

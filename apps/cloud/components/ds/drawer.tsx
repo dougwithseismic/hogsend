@@ -38,9 +38,14 @@ export function Drawer({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
+  // Where the press STARTED. A click's target is the common ancestor of its
+  // mousedown and mouseup, so selecting text inside the panel and releasing
+  // over the backdrop reports the dialog itself — closing the drawer and
+  // discarding whatever was half-typed in it.
+  const pressedBackdrop = useRef(false);
 
   // `showModal()` cannot be an attribute, so opening is an effect rather than
-  // JSX. Closing goes through the same state so the exit transition can run.
+  // JSX. Closing goes through the same state, so there is one source of truth.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -90,8 +95,14 @@ export function Drawer({
         // The backdrop is part of the dialog's own box, so a click lands here
         // when it misses the panel. Comparing the target to the dialog itself
         // is what distinguishes backdrop from content.
+        onPointerDown={(event) => {
+          pressedBackdrop.current = event.target === dialogRef.current;
+        }}
         onClick={(event) => {
-          if (event.target === dialogRef.current) setOpen(false);
+          if (pressedBackdrop.current && event.target === dialogRef.current) {
+            setOpen(false);
+          }
+          pressedBackdrop.current = false;
         }}
         className={cn(
           "m-0 ml-auto h-dvh max-h-dvh w-full max-w-[min(30rem,100vw)] bg-transparent p-0",

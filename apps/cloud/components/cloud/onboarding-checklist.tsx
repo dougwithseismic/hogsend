@@ -59,7 +59,7 @@ export function OnboardingChecklist({
               <span
                 className={cn(
                   "text-sm tracking-[-0.01em]",
-                  step.done ? "text-white/45 line-through" : "text-white",
+                  step.done ? "text-white/50 line-through" : "text-white",
                 )}
               >
                 {step.title}
@@ -67,8 +67,17 @@ export function OnboardingChecklist({
 
               {/* The how disappears once it is done — nobody needs it then. */}
               {!step.done && step.hint ? (
-                <span className="max-w-prose text-white/45 text-xs leading-5">
+                <span className="max-w-prose text-white/50 text-xs leading-5">
                   {step.hint}
+                  {/*
+                    Say the lag out loud. These two are counted by the nightly
+                    metering sweep, so someone who sends their first email at
+                    10am would otherwise sit watching an unticked box until
+                    03:00 the next morning and conclude it was broken.
+                  */}
+                  {step.freshness === "daily" ? (
+                    <span className="text-white/35"> Counted daily.</span>
+                  ) : null}
                 </span>
               ) : null}
 
@@ -89,7 +98,11 @@ export function OnboardingChecklist({
         ))}
       </ol>
 
-      <OnboardingRefresh />
+      {/*
+        Only while a refresh could actually reveal something. Once the live
+        steps are done, what is left cannot move until the nightly sweep.
+      */}
+      {view.worthRefreshing ? <OnboardingRefresh /> : null}
     </Card>
   );
 }

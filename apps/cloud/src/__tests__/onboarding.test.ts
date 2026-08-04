@@ -82,6 +82,43 @@ describe("buildOnboardingView", () => {
     expect(view.steps.find((step) => step.id === "email")?.done).toBe(true);
   });
 
+  /**
+   * The counter-backed steps are written by the metering cron at 03:00 UTC, so
+   * once the live steps are done a refresh cannot reveal anything. Polling on
+   * would be thousands of page re-renders per signal, each re-running a live
+   * HTTP call to the tenant.
+   */
+  it("stops being worth refreshing once the live steps are done", () => {
+    const liveOutstanding = buildOnboardingView({
+      running: true,
+      publishedBuilds: 0,
+      events: 0,
+      emails: 0,
+    });
+    expect(liveOutstanding.worthRefreshing).toBe(true);
+
+    const onlyDailyLeft = buildOnboardingView({
+      running: true,
+      publishedBuilds: 1,
+      events: 0,
+      emails: 0,
+    });
+    expect(onlyDailyLeft.complete).toBe(false);
+    expect(onlyDailyLeft.worthRefreshing).toBe(false);
+  });
+
+  it("marks each step with how fresh its answer can be", () => {
+    const byId = new Map(
+      buildOnboardingView(NOTHING).steps.map((step) => [step.id, step]),
+    );
+    // Written the moment they happen.
+    expect(byId.get("instance")?.freshness).toBe("live");
+    expect(byId.get("publish")?.freshness).toBe("live");
+    // Read from usage_counters, which a nightly cron sets.
+    expect(byId.get("event")?.freshness).toBe("daily");
+    expect(byId.get("email")?.freshness).toBe("daily");
+  });
+
   it("gives every unfinished step something to act on", () => {
     for (const step of buildOnboardingView(NOTHING).steps) {
       // The first step is the pipeline's job, not the customer's, so it is the
