@@ -113,6 +113,28 @@ export type RailwaySubstrateOptions = RailwayClientOptions & {
   registryCredentials?: RailwayRegistryCredentials;
 };
 
+/**
+ * Railway reports a record's name in TWO fields — `hostlabel` (the label alone,
+ * e.g. `acme-staging`) and `zone` (e.g. `hogsend.app`) — and a caller that
+ * publishes the label as if it were the name writes a record outside the zone.
+ * Found live: the DNS client correctly refused
+ * `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
+ *
+ * `DomainRecord.name` is fully qualified by contract, so the qualification
+ * happens HERE, at the vendor boundary, rather than in every caller.
+ */
+function qualifyRecordName(
+  record: { hostlabel?: string; zone?: string },
+  domain: string,
+): string {
+  const label = record.hostlabel?.trim();
+  const zone = record.zone?.trim();
+  if (!label) return domain;
+  // Already qualified (some records come back whole), or no zone to append.
+  if (!zone || label === zone || label.endsWith(`.${zone}`)) return label;
+  return `${label}.${zone}`;
+}
+
 export class RailwaySubstrate implements SubstrateProvider {
   private readonly client: RailwayClient;
   private readonly registryCredentials?: RailwayRegistryCredentials;
@@ -311,7 +333,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       result.customDomainCreate.status?.dnsRecords ?? []
     ).map((record) => ({
       type: record.recordType,
-      name: record.hostlabel || domain,
+      name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
 
@@ -372,7 +394,7 @@ export class RailwaySubstrate implements SubstrateProvider {
     );
     return (match?.status?.dnsRecords ?? []).map((record) => ({
       type: record.recordType,
-      name: record.hostlabel || domain,
+      name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
   }

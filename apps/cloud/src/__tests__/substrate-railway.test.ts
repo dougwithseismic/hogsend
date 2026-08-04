@@ -316,16 +316,21 @@ class RailwayMock {
             id: this.id("dom"),
             domain,
             status: {
+              // Railway reports the LABEL and the ZONE separately, and this
+              // mock says so. It used to return the fully-qualified name as
+              // `hostlabel`, which made a real bug untestable: the label was
+              // published as if it were the name, and Cloudflare refused
+              // `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
               dnsRecords: [
                 {
                   recordType: "CNAME",
-                  hostlabel: domain,
+                  hostlabel: domain.replace(".acme.test", ""),
                   requiredValue: `${service.id}.up.railway.app`,
                   zone: "acme.test",
                 },
                 {
                   recordType: "TXT",
-                  hostlabel: `_railway.${domain}`,
+                  hostlabel: `_railway.${domain.replace(".acme.test", "")}`,
                   requiredValue: "railway-verify=abc123",
                   zone: "acme.test",
                 },
@@ -813,6 +818,16 @@ describe("RailwaySubstrate topology", () => {
       "CNAME",
       "TXT",
     ]);
+    // FULLY QUALIFIED, always. Railway hands back a bare label plus a zone;
+    // publishing the label as the name writes a record outside the zone, which
+    // the DNS client refuses — and the domain then never verifies.
+    expect(attachment.records.map((record) => record.name)).toEqual([
+      "app.acme.test",
+      "_railway.app.acme.test",
+    ]);
+    for (const record of attachment.records) {
+      expect(record.name.endsWith(".acme.test")).toBe(true);
+    }
   });
 
   it("destroys the stack's services but keeps the org project", async () => {
