@@ -75,9 +75,11 @@ const REGION_ZONES: Record<SubstrateRegion, string> = {
  * product: the worker has no inbound surface (`railway.worker.toml` declares
  * no port), so a sleeping worker never wakes and a journey's expired
  * multi-week `ctx.sleep` sits unclaimed. A sleeping service is therefore a
- * problem to surface, not a healthy state — the same verdict `getHealth`
- * already gives `numReplicas < 1` ("scaled to zero"), which this set used to
- * contradict.
+ * problem to surface, not a healthy state.
+ *
+ * App-sleep is doubly wrong for suspend specifically: a sleeping service WAKES
+ * on any inbound request, so a tenant paused for non-payment would un-pause
+ * themselves by loading their own URL.
  */
 const HEALTHY_DEPLOYMENT_STATUSES = new Set(["SUCCESS"]);
 
@@ -123,6 +125,20 @@ export type RailwaySubstrateOptions = RailwayClientOptions & {
  * `DomainRecord.name` is fully qualified by contract, so the qualification
  * happens HERE, at the vendor boundary, rather than in every caller.
  */
+/**
+ * Railway reports record types as a prefixed enum — `DNS_RECORD_TYPE_CNAME`,
+ * `DNS_RECORD_TYPE_TXT` — not as the DNS type itself. Confirmed live against
+ * the control plane's own `cloud.hogsend.com` domain.
+ *
+ * `DomainRecord.type` is the DNS type by contract, because that is what a DNS
+ * provider is handed verbatim. Passing the enum through would make Cloudflare
+ * reject the write with an opaque 400, and the hostname would silently never
+ * resolve.
+ */
+function normalizeRecordType(recordType: string): string {
+  return recordType.replace(/^DNS_RECORD_TYPE_/, "").toUpperCase();
+}
+
 function qualifyRecordName(
   record: { hostlabel?: string; zone?: string },
   domain: string,
@@ -332,7 +348,7 @@ export class RailwaySubstrate implements SubstrateProvider {
     const records: DomainRecord[] = (
       result.customDomainCreate.status?.dnsRecords ?? []
     ).map((record) => ({
-      type: record.recordType,
+      type: normalizeRecordType(record.recordType),
       name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
@@ -393,7 +409,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       (entry) => entry.domain === domain,
     );
     return (match?.status?.dnsRecords ?? []).map((record) => ({
-      type: record.recordType,
+      type: normalizeRecordType(record.recordType),
       name: qualifyRecordName(record, domain),
       value: record.requiredValue,
     }));
@@ -411,11 +427,15 @@ export class RailwaySubstrate implements SubstrateProvider {
         data.serviceIds[service],
         data.environmentId,
       );
-      const replicas = instance.numReplicas ?? 1;
-      const status = instance.latestDeployment?.status ?? "UNKNOWN";
-      if (replicas < 1) {
-        details.push(`${service}: scaled to zero (suspended)`);
-      } else if (!HEALTHY_DEPLOYMENT_STATUSES.has(status)) {
+      // NO deployment at all is what a suspended service looks like now.
+      // Confirmed live: after `deploymentRemove`, `latestDeployment` is null —
+      // Railway does not report a "removed" status to read instead.
+      if (!instance.latestDeployment) {
+        details.push(`${service}: no deployment (suspended)`);
+        continue;
+      }
+      const status = instance.latestDeployment.status ?? "UNKNOWN";
+      if (!HEALTHY_DEPLOYMENT_STATUSES.has(status)) {
         details.push(`${service}: ${status}`);
       }
     }
@@ -427,22 +447,62 @@ export class RailwaySubstrate implements SubstrateProvider {
   }
 
   /**
-   * SUSPEND = scale to zero.
+   * SUSPEND = remove each service's deployment.
    *
-   * Railway has no public pause mutation for a service instance (the Go CLI
-   * never had one either, and `serviceInstanceUpdate` is what the public
-   * schema exposes), so the honest implementation is `numReplicas: 0` on every
-   * service in the stack, redis included: a suspended tenant should cost
-   * nothing. State survives — Railway keeps the service, its variables, its
-   * domain and its volumes — which is exactly the "stop the services, keep the
-   * state" the seam asks for.
+   * Railway REMOVED scale-to-zero: `numReplicas: 0` and a zeroed
+   * `multiRegionConfig` are both refused with "Number must be greater than or
+   * equal to 1" (found live 2026-08-04, breaking suspend and — because destroy
+   * requires a suspended stack — destroy with it).
+   *
+   * `deploymentRemove` is Railway's own answer to pausing a service: it tears
+   * the container down and "halts any further project resource consumption",
+   * while the service, its variables, its domains and its instance config all
+   * survive. That is exactly the seam's "stop the services, keep the state",
+   * and it is what makes suspend worth having — a suspended tenant costs
+   * nothing.
+   *
+   * Redis is suspended too: a paused tenant should cost nothing anywhere.
+   *
+   * Idempotent twice over — a service with no deployment is skipped, and
+   * `deploymentRemove` on an already-removed id returns true (both confirmed
+   * live). That skip is also the partial-failure story: if the third service
+   * fails, the stack stays honestly `running`, and a retry passes over the two
+   * already removed and finishes the third.
    */
   async suspend(refs: StackRefs): Promise<void> {
-    await this.scale(refs, 0);
+    const data = await this.resolve(refs);
+    // API first: stop taking traffic before stopping the thing that serves it.
+    for (const role of ["api", "worker", "redis"] as StackServiceRole[]) {
+      const instance = await this.instanceStatus(
+        data.serviceIds[role],
+        data.environmentId,
+      );
+      const deploymentId = instance.latestDeployment?.id;
+      if (!deploymentId) continue;
+      await this.client.request(Q.DEPLOYMENT_REMOVE, { id: deploymentId });
+    }
   }
 
+  /**
+   * RESUME = redeploy each service.
+   *
+   * `serviceInstanceRedeploy` works from a fully-removed state (confirmed
+   * live: `latestDeployment` null → redeploy → a new SUCCESS deployment), and
+   * it brings the service back on ITS OWN configured image — which
+   * `deployImage` keeps pointed at the customer's published build. That is the
+   * property that matters: a resumed stack must not come back on the stock
+   * scaffold.
+   *
+   * ALL three services, not just the seam pair. The previous implementation
+   * scaled all three but only redeployed api and worker, so a redis suspended
+   * this way would never have come back.
+   */
   async resume(refs: StackRefs): Promise<void> {
-    await this.scale(refs, 1);
+    const data = await this.resolve(refs);
+    // Redis first: the api and worker expect their cache to be there.
+    for (const role of ["redis", "api", "worker"] as StackServiceRole[]) {
+      await this.redeployService(data.serviceIds[role], data.environmentId);
+    }
   }
 
   /**
@@ -570,13 +630,11 @@ export class RailwaySubstrate implements SubstrateProvider {
     serviceId: string,
     environmentId: string,
   ): Promise<{
-    numReplicas?: number | null;
-    latestDeployment?: { status?: string } | null;
+    latestDeployment?: { id?: string; status?: string } | null;
   }> {
     const result = await this.client.request<{
       serviceInstance: {
-        numReplicas?: number | null;
-        latestDeployment?: { status?: string } | null;
+        latestDeployment?: { id?: string; status?: string } | null;
       } | null;
     }>(Q.SERVICE_INSTANCE_STATUS, { serviceId, environmentId });
     return result.serviceInstance ?? {};
@@ -642,19 +700,6 @@ export class RailwaySubstrate implements SubstrateProvider {
       input: { environmentId, serviceId, targetPort: Number(API_PORT) },
     });
     return created.serviceDomainCreate.domain;
-  }
-
-  private async scale(refs: StackRefs, numReplicas: number): Promise<void> {
-    const data = await this.resolve(refs);
-    for (const role of ALL_ROLES) {
-      await this.updateInstance(data.serviceIds[role], data.environmentId, {
-        numReplicas,
-      });
-    }
-    // Replica count is configuration; a deploy is what applies it.
-    for (const service of SEAM_SERVICES) {
-      await this.redeployService(data.serviceIds[service], data.environmentId);
-    }
   }
 
   // -------------------------------------------------------------------------

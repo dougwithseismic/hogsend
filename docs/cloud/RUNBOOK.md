@@ -167,6 +167,8 @@ stack → health poll.
 | `railway up` build SKIPPED "no changes detected" after a config-only change (e.g. dockerfilePath) | Railway skips identical content snapshots | bump the gitignored `.railway-nonce` file and re-run `railway up` |
 | control-plane build uses the wrong Dockerfile | `RAILWAY_DOCKERFILE_PATH` env var is not honored for CLI uploads | set `dockerfilePath` via `serviceInstanceUpdate` (a real service setting) |
 | a control-plane service runs the ENGINE's start command / pre-deploy | the repo-root `railway.toml` (the hogsend-api config) applies to every service in the repo | give each service its own `railwayConfigFile` (`railway.cloud.toml`, `railway.cloud-worker.toml`) |
+| suspend fails "Error in numReplicas - Invalid input" | Railway REMOVED scale-to-zero: `numReplicas: 0` and a zeroed `multiRegionConfig` are both refused (min 1). Fixed 2026-08-04 | suspend now `deploymentRemove`s each deployment; resume redeploys. If you see this again, something reintroduced `scale()` |
+| a suspended stack still shows a deployment | `deploymentRemove` skipped a service | it is idempotent and skips a service with no deployment — re-drive suspend; it finishes the ones left |
 | config OR IMAGE change (start command, config file, image tag) has no effect after a redeploy | `serviceInstanceRedeploy` REPLAYS the previous deployment's recorded manifest, image included | `serviceInstanceDeployV2` — the ONLY thing that deploys from the current source. Pushing a new tag and setting it via `serviceInstanceUpdate` is NOT enough on its own: the service `source` reads `:launch-4` while the container still runs `:launch-3`, so check the ACTIVE DEPLOYMENT's image, not the source, before believing a deploy landed |
 
 ## Suspend / destroy

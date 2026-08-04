@@ -230,8 +230,10 @@ export function describeSubstrateContract(
       );
       expect(attachment.records.map((record) => record.type)).toContain("TXT");
       for (const record of attachment.records) {
-        expect(record.type).toBeTruthy();
-        expect(record.name).toBeTruthy();
+        // A DNS type, never a vendor enum — a provider is handed this verbatim.
+        expect(record.type).toMatch(/^[A-Z]+$/);
+        // FULLY QUALIFIED. A bare label writes a record outside the zone.
+        expect(record.name).toContain(".");
         expect(record.value).toBeTruthy();
       }
     });
