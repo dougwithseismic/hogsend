@@ -53,7 +53,10 @@ export function HealthStrip({
   const unhealthy = health.filter((row) => !row.healthy).length;
   const healthyShare =
     health.length > 0
-      ? Math.round(((health.length - unhealthy) / health.length) * 100)
+      ? // FLOOR, not round: 199 of 200 rounds to "100%" while the footer beside
+        // it says "1 unhealthy". The headline number must never contradict the
+        // card it sits on.
+        Math.floor(((health.length - unhealthy) / health.length) * 100)
       : null;
 
   // One tone for the whole card: red once the streak is alerting, amber for any
@@ -101,7 +104,7 @@ export function HealthStrip({
 
       {bars.length > 0 ? (
         <div className="flex flex-col gap-2 px-5">
-          <div className="flex h-12 items-stretch gap-[3px]">
+          <div className="flex h-12 items-end gap-[3px]">
             {bars.map((row) => (
               <span
                 key={row.id}
@@ -111,8 +114,12 @@ export function HealthStrip({
                     : `unhealthy: ${row.detail ?? "no reason recorded"}`
                 }`}
                 className={cn(
-                  "min-w-[3px] flex-1 rounded-[2px]",
-                  row.healthy ? "bg-good/60" : "bg-accent",
+                  // Height AND colour, never colour alone. Red/green is the
+                  // classic colour-blind pair, and the tooltip below is
+                  // mouse-only — so a deuteranope reading a colour-only strip
+                  // would see a clean run of bars through a failing window.
+                  "min-w-[3px] flex-1 self-end rounded-[2px]",
+                  row.healthy ? "h-full bg-good/60" : "h-1/3 bg-accent",
                 )}
               />
             ))}

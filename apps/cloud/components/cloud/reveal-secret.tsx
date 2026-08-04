@@ -17,9 +17,14 @@ import { CopyValue } from "./copy-value";
  * again afterwards.
  *
  * The value is never in the page's HTML: it exists only after the server
- * action runs and only inside this component's action state, so a page render,
- * a screenshot of the dashboard and a browser back-navigation all show the
- * hidden form again.
+ * action runs and only inside this component's action state, so a fresh render
+ * or a reload shows the hidden form again.
+ *
+ * The one exception, stated rather than implied: the back/forward cache. Leave
+ * for an external site and press Back, and the browser restores the frozen JS
+ * heap — this component's state with it — so a revealed secret can reappear
+ * with no click and no audit row. That is a property of bfcache, not something
+ * this component can assert away, and it is why the toggle below exists.
  *
  * Once revealed it renders as a masked field with an eye toggle, so a customer
  * who has read it can put it back behind dots without reloading the page. The
@@ -93,6 +98,12 @@ export function RevealSecret({
             type={shown ? "text" : "password"}
             value={state.value}
             aria-label={copyLabel}
+            // Password managers inject into ANY type=password field and may
+            // offer to store this. It is a Cloud-managed credential, not the
+            // customer's, so keep the extensions out of it.
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
             className="min-w-0 flex-1 rounded-md border border-white/[0.08] bg-black/20 px-3 py-2 font-mono text-sm text-white/80 outline-none"
           />
         )}
@@ -143,7 +154,9 @@ function ToggleButton({
     <button
       type="button"
       onClick={onToggle}
-      aria-pressed={shown}
+      // A flipping LABEL only. Pairing it with aria-pressed makes a screen
+      // reader announce "Hide Studio password, pressed" — the state twice, in
+      // two directions.
       aria-label={shown ? `Hide ${label}` : `Show ${label}`}
       className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-white/[0.08] text-white/60 transition-colors hover:border-white/20 hover:text-white"
     >
