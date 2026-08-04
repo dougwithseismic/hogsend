@@ -124,6 +124,9 @@ interface RailwayCustomDomain {
     certificateStatus?: string;
     certificateRetryable?: boolean | null;
     certificateErrorMessage?: string | null;
+    /** The ownership TXT, which Railway keeps OUT of `dnsRecords`. */
+    verificationDnsHost?: string | null;
+    verificationToken?: string | null;
     dnsRecords?: {
       recordType: string;
       hostlabel: string;
@@ -167,6 +170,50 @@ function qualifyRecordName(
   // Already qualified (some records come back whole), or no zone to append.
   if (!zone || label === zone || label.endsWith(`.${zone}`)) return label;
   return `${label}.${zone}`;
+}
+
+/**
+ * Every record a custom domain needs, from Railway's TWO separate answers.
+ *
+ * `status.dnsRecords` carries only the routing CNAME. The ownership TXT lives
+ * in `status.verificationDnsHost` + `status.verificationToken` and is NOT in
+ * `dnsRecords` — confirmed live, and the cause of a stall that looked like
+ * nothing at all: without the TXT, `verified` stays false forever, no
+ * certificate is ever issued, and the hostname simply never serves. There is no
+ * error anywhere; the domain just sits in `VALIDATING_OWNERSHIP`.
+ *
+ * So the TXT is synthesized HERE, at the vendor boundary. `DomainRecord[]` is
+ * "everything you must publish" by contract, and a caller must not have to know
+ * that this vendor splits the answer across two shapes.
+ */
+function collectDomainRecords(
+  status: RailwayCustomDomain["status"],
+  domain: string,
+): DomainRecord[] {
+  const records: DomainRecord[] = (status?.dnsRecords ?? []).map((record) => ({
+    type: normalizeRecordType(record.recordType),
+    name: qualifyRecordName(record, domain),
+    value: record.requiredValue,
+  }));
+
+  const host = status?.verificationDnsHost?.trim();
+  const token = status?.verificationToken?.trim();
+  if (!host || !token) return records;
+
+  // `verificationDnsHost` is a LABEL (`_railway-verify.acme-staging`), like
+  // `hostlabel`. Borrow the zone the CNAME came back with; failing that, derive
+  // it from the domain by dropping its own leading label.
+  const zone =
+    status?.dnsRecords?.find((record) => record.zone?.trim())?.zone?.trim() ??
+    domain.split(".").slice(1).join(".");
+  const name = qualifyRecordName({ hostlabel: host, zone }, domain);
+
+  // Never a duplicate: an already-listed TXT wins over the synthesized one.
+  if (records.some((record) => record.type === "TXT" && record.name === name)) {
+    return records;
+  }
+  records.push({ type: "TXT", name, value: token });
+  return records;
 }
 
 export class RailwaySubstrate implements SubstrateProvider {
@@ -363,13 +410,10 @@ export class RailwaySubstrate implements SubstrateProvider {
       },
     });
 
-    const records: DomainRecord[] = (
-      result.customDomainCreate.status?.dnsRecords ?? []
-    ).map((record) => ({
-      type: normalizeRecordType(record.recordType),
-      name: qualifyRecordName(record, domain),
-      value: record.requiredValue,
-    }));
+    const records = collectDomainRecords(
+      result.customDomainCreate.status,
+      domain,
+    );
 
     if (records.length === 0) {
       // Railway occasionally answers before it has computed the records.
@@ -425,11 +469,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       );
     }
 
-    const records = (status?.dnsRecords ?? []).map((record) => ({
-      type: normalizeRecordType(record.recordType),
-      name: qualifyRecordName(record, domain),
-      value: record.requiredValue,
-    }));
+    const records = collectDomainRecords(status, domain);
 
     // BOTH halves. `verified` alone means Railway has seen the DNS, which says
     // nothing about whether a TLS handshake would succeed.
@@ -459,11 +499,7 @@ export class RailwaySubstrate implements SubstrateProvider {
       serviceId,
       domain,
     );
-    return (match?.status?.dnsRecords ?? []).map((record) => ({
-      type: normalizeRecordType(record.recordType),
-      name: qualifyRecordName(record, domain),
-      value: record.requiredValue,
-    }));
+    return collectDomainRecords(match?.status, domain);
   }
 
   /** One custom domain as Railway currently describes it, or undefined. */

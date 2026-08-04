@@ -137,6 +137,8 @@ export const CUSTOM_DOMAINS = `
           certificateStatus
           certificateRetryable
           certificateErrorMessage
+          verificationDnsHost
+          verificationToken
           dnsRecords {
             recordType
             hostlabel
@@ -172,6 +174,8 @@ export const CUSTOM_DOMAIN_CREATE = `
       id
       domain
       status {
+        verificationDnsHost
+        verificationToken
         dnsRecords {
           recordType
           hostlabel

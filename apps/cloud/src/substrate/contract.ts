@@ -238,6 +238,28 @@ export function describeSubstrateContract(
       }
     });
 
+    it("returns the ownership TXT, however the substrate reports it", async () => {
+      const { provider, refs } = await setup();
+
+      const attachment = await provider.attachDomain(refs, "app.acme.test");
+      const txt = attachment.records.filter((r) => r.type === "TXT");
+
+      // The bug this asserts against cost a whole live provision. Railway
+      // returns the routing CNAME in `status.dnsRecords` but keeps the
+      // ownership TXT in `verificationDnsHost`/`verificationToken`, and an
+      // adapter that maps only `dnsRecords` publishes half the answer. There is
+      // no error: `verified` stays false forever, no certificate is issued, and
+      // the hostname silently never serves.
+      expect(txt).toHaveLength(1);
+      expect(txt[0]?.name).toContain(".");
+      expect(txt[0]?.value).toBeTruthy();
+
+      // And the same complete set on a re-read, since that is what a re-driven
+      // provision republishes from.
+      const rechecked = await provider.checkDomain(refs, "app.acme.test");
+      expect(rechecked.records.filter((r) => r.type === "TXT")).toHaveLength(1);
+    });
+
     it("re-reads an attached domain without changing it", async () => {
       const { provider, refs } = await setup();
       await provider.attachDomain(refs, "app.acme.test");

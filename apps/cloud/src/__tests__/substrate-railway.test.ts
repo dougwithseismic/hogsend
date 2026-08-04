@@ -355,17 +355,17 @@ class RailwayMock {
                 certificateStatus: entry.certificateStatus,
                 certificateRetryable: entry.certificateRetryable ?? null,
                 certificateErrorMessage: entry.certificateErrorMessage ?? null,
+                verificationDnsHost: `_railway-verify.${entry.domain.replace(".acme.test", "")}`,
+                verificationToken: "railway-verify=abc123",
+                // ONLY the CNAME. Railway keeps the ownership TXT out of
+                // `dnsRecords` entirely — a mock that put it here is what let
+                // the missing-TXT bug ship, since the adapter looked correct
+                // against a shape the vendor never produces.
                 dnsRecords: [
                   {
                     recordType: "DNS_RECORD_TYPE_CNAME",
                     hostlabel: entry.domain.replace(".acme.test", ""),
                     requiredValue: `${service.id}.up.railway.app`,
-                    zone: "acme.test",
-                  },
-                  {
-                    recordType: "DNS_RECORD_TYPE_TXT",
-                    hostlabel: `_railway.${entry.domain.replace(".acme.test", "")}`,
-                    requiredValue: "railway-verify=abc123",
                     zone: "acme.test",
                   },
                 ],
@@ -396,17 +396,13 @@ class RailwayMock {
               // `hostlabel`, which made a real bug untestable: the label was
               // published as if it were the name, and Cloudflare refused
               // `"withseismic-hostcheck" is not inside the zone "hogsend.app"`.
+              verificationDnsHost: `_railway-verify.${domain.replace(".acme.test", "")}`,
+              verificationToken: "railway-verify=abc123",
               dnsRecords: [
                 {
                   recordType: "DNS_RECORD_TYPE_CNAME",
                   hostlabel: domain.replace(".acme.test", ""),
                   requiredValue: `${service.id}.up.railway.app`,
-                  zone: "acme.test",
-                },
-                {
-                  recordType: "DNS_RECORD_TYPE_TXT",
-                  hostlabel: `_railway.${domain.replace(".acme.test", "")}`,
-                  requiredValue: "railway-verify=abc123",
                   zone: "acme.test",
                 },
               ],
@@ -912,7 +908,7 @@ describe("RailwaySubstrate topology", () => {
     // the DNS client refuses — and the domain then never verifies.
     expect(attachment.records.map((record) => record.name)).toEqual([
       "app.acme.test",
-      "_railway.app.acme.test",
+      "_railway-verify.app.acme.test",
     ]);
     for (const record of attachment.records) {
       expect(record.name.endsWith(".acme.test")).toBe(true);
