@@ -44,39 +44,24 @@ const badge = `${color.bgMagenta(color.black(" hogsend "))} login`;
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-async function run(ctx: CommandContext): Promise<void> {
-  const { values } = parseArgs({
-    args: ctx.argv,
-    allowPositionals: true,
-    options: {
-      email: { type: "string" },
-      cloud: { type: "string" },
-      label: { type: "string" },
-      "no-browser": { type: "boolean", default: false },
-      help: { type: "boolean", short: "h", default: false },
-    },
-  });
+export interface DeviceLoginCommandValues {
+  cloud?: string;
+  label?: string;
+  noBrowser?: boolean;
+}
 
-  if (values.help) {
-    ctx.out.log(usage);
-    return;
-  }
-
-  // `--email` is a DIFFERENT flow, not a variation on this one: it never mints
-  // a device code, never opens a browser and never polls. The device flow
-  // stays the default and is untouched below.
-  if (values.email !== undefined) {
-    await runEmailLoginCommand(
-      ctx,
-      {
-        email: values.email,
-        ...(values.cloud === undefined ? {} : { cloud: values.cloud }),
-      },
-      { verb: "login", badge },
-    );
-    return;
-  }
-
+/**
+ * The browser device flow, as a function rather than only a command.
+ *
+ * Extracted so `hogsend publish` can offer it INLINE (PRD 16) without a second
+ * copy of the mint → print → poll → store sequence. A publish that logged you
+ * in slightly differently from `hogsend login` would be the kind of difference
+ * nobody notices until a session ends up unlabelled or unstored.
+ */
+export async function runDeviceLoginCommand(
+  ctx: CommandContext,
+  values: DeviceLoginCommandValues,
+): Promise<void> {
   const { cloud, client } = openCloudSession(
     values.cloud === undefined ? {} : { cloud: values.cloud },
   );
@@ -93,7 +78,7 @@ async function run(ctx: CommandContext): Promise<void> {
         label,
         // A json run has nobody watching a browser window, and a spawned
         // browser would be a side effect an agent never asked for.
-        noBrowser: values["no-browser"] === true || ctx.json,
+        noBrowser: values.noBrowser === true || ctx.json,
       },
       {
         client,
@@ -145,6 +130,46 @@ async function run(ctx: CommandContext): Promise<void> {
   const org = orgLabel ? ` in ${orgLabel}` : "";
   ctx.out.log(`${color.green("✓")} Signed in to ${cloud.host}${who}${org}.`);
   ctx.out.outro("Run `hogsend publish` from your app to deploy it.");
+}
+
+async function run(ctx: CommandContext): Promise<void> {
+  const { values } = parseArgs({
+    args: ctx.argv,
+    allowPositionals: true,
+    options: {
+      email: { type: "string" },
+      cloud: { type: "string" },
+      label: { type: "string" },
+      "no-browser": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+
+  if (values.help) {
+    ctx.out.log(usage);
+    return;
+  }
+
+  // `--email` is a DIFFERENT flow, not a variation on this one: it never mints
+  // a device code, never opens a browser and never polls. The device flow
+  // stays the default.
+  if (values.email !== undefined) {
+    await runEmailLoginCommand(
+      ctx,
+      {
+        email: values.email,
+        ...(values.cloud === undefined ? {} : { cloud: values.cloud }),
+      },
+      { verb: "login", badge },
+    );
+    return;
+  }
+
+  await runDeviceLoginCommand(ctx, {
+    ...(values.cloud === undefined ? {} : { cloud: values.cloud }),
+    ...(values.label === undefined ? {} : { label: values.label }),
+    noBrowser: values["no-browser"] === true,
+  });
 }
 
 export const loginCommand: Command = {

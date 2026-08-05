@@ -46,6 +46,7 @@ function makeCtx(
   options: { json?: boolean; interactive?: boolean } = {},
 ): { ctx: CommandContext; captured: Captured } {
   const json = options.json ?? false;
+  const interactive = options.interactive ?? false;
   const lines: string[] = [];
   const docs: unknown[] = [];
   let failed = "";
@@ -54,9 +55,13 @@ function makeCtx(
     isJson: json,
     // Non-interactive by default: a test suite has no terminal, and the code
     // therefore arrives the way CI supplies it.
-    interactive: options.interactive ?? false,
+    interactive,
+    // FAITHFUL to `createOutput`: clack chrome (intro/outro) is a NO-OP when
+    // stdout is not a TTY. A stub that recorded them anyway would make a test
+    // asserting "the build id was printed" pass for a build id that a piped
+    // run never sees — which is the exact bug this suite exists to catch.
     intro(title) {
-      if (!json) lines.push(title);
+      if (!json && interactive) lines.push(title);
     },
     async step(label, fn) {
       if (!json) lines.push(label);
@@ -74,7 +79,7 @@ function makeCtx(
       docs.push(payload);
     },
     outro(msg) {
-      if (!json) lines.push(msg);
+      if (!json && interactive) lines.push(msg);
     },
     fail(message): never {
       failed = message;

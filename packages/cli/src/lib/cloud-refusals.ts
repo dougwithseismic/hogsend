@@ -29,10 +29,17 @@ export interface RenderedRefusal {
   hint?: string;
 }
 
+/**
+ * How to get a session back.
+ *
+ * Names BOTH doors, because the two are for different situations and a reader
+ * with no browser (an SSH box, a container) needs to be told the email one
+ * exists rather than discovering it in --help. The browser flow stays first:
+ * it is what `hogsend login` does with no flags.
+ */
 function loginHint(ctx: RefusalContext): string {
-  return ctx.cloudExplicit
-    ? `Run \`hogsend login --cloud ${ctx.cloudHost}\`.`
-    : "Run `hogsend login`.";
+  const suffix = ctx.cloudExplicit ? ` --cloud ${ctx.cloudHost}` : "";
+  return `Run \`hogsend login${suffix}\` (or \`hogsend login --email you@example.com${suffix}\` on a machine with no browser).`;
 }
 
 /** Read a field the cloud sent alongside its message. */
@@ -55,8 +62,11 @@ export function describeCloudRefusal(
   }
 
   if (error.status === 401) {
+    // Said plainly, and as the two things it actually is: a machine that never
+    // signed in and one whose session was ended from the dashboard look
+    // identical from here, and both are fixed the same way.
     return {
-      headline: `Not signed in to ${ctx.cloudHost} (or the session was revoked).`,
+      headline: `That session is not valid for ${ctx.cloudHost} — it was revoked, it expired, or this machine never signed in.`,
       hint: loginHint(ctx),
     };
   }

@@ -25,9 +25,11 @@ export class NotLoggedInError extends Error {
     super(`Not signed in to ${cloud.host}.`);
     this.name = "NotLoggedInError";
     this.cloudHost = cloud.host;
-    this.hint = cloud.explicit
-      ? `Run \`hogsend login --cloud ${cloud.baseUrl}\`.`
-      : "Run `hogsend login`.";
+    // BOTH doors named, matching `cloud-refusals.ts`'s 401 hint: a reader on a
+    // machine with no browser must be told the email flow exists rather than
+    // being handed a command that cannot work there.
+    const suffix = cloud.explicit ? ` --cloud ${cloud.baseUrl}` : "";
+    this.hint = `Run \`hogsend login${suffix}\` (or \`hogsend login --email you@example.com${suffix}\` on a machine with no browser).`;
   }
 }
 

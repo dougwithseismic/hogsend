@@ -45,10 +45,26 @@ export interface BuildStatusResponse {
   imageDigest: string | null;
   error: string | null;
   logTail: string | null;
+  /**
+   * The STACK's phase, alongside the build's (PRD 15). Optional because a
+   * cloud older than that release does not send it, and a CLI that required it
+   * would break against one.
+   *
+   * It exists because the build status alone cannot describe the opening
+   * minutes of a FIRST publish: the build sits in `building` while the
+   * substrate it will deploy onto is still being created, and "building" for
+   * four minutes with no further output reads as a hang.
+   */
+  stack?: { status: string } | null;
 }
 
 export class PublishError extends Error {
-  readonly verdict: "no_environment" | "refused" | "build_failed" | "timeout";
+  readonly verdict:
+    | "no_environment"
+    | "refused"
+    | "build_failed"
+    | "provisioning_failed"
+    | "timeout";
   readonly hint: string | undefined;
   /** The build's tail, when a failure produced one. */
   readonly logTail: string | undefined;
@@ -163,15 +179,52 @@ export function asPublishRefusal(error: unknown, ctx: RefusalContext): unknown {
   });
 }
 
+/**
+ * What each provisioning phase reads like — the phases a first publish passes
+ * through before there is anything to deploy onto (PRD 15). These keys are the
+ * membership test too. `publishing` is deliberately absent: that is the stack
+ * RECEIVING this build, which is the deploy step and belongs to the build
+ * narrative. `running` is absent because it is the destination, not a phase.
+ *
+ * Deliberately worded so it cannot be mistaken for a build phase — the build
+ * prints bare status words (`building`, `pushing`), and these are sentences
+ * about the INSTANCE. Somebody watching should never have to work out which of
+ * the two machines a line came from.
+ */
+const PROVISIONING_LINES: Record<string, string> = {
+  deferred: "preparing your instance — this is its first publish",
+  requested: "provisioning your instance (a few minutes on a first publish)",
+  provisioning: "provisioning your instance — creating database, workers, DNS",
+};
+
 /** How often the status endpoint is asked. */
 export const POLL_INTERVAL_MS = 3_000;
 /** A build that has not reached a terminal state by here is reported as stuck. */
 export const DEFAULT_BUILD_TIMEOUT_MS = 20 * 60_000;
 
+/**
+ * And the ceiling on the provisioning that PRECEDES a first build. Matches the
+ * cloud's own bounded wait (`pipeline/build.ts`), so the CLI gives up at the
+ * same moment the server does rather than reporting a hang the server was
+ * about to resolve — or, worse, giving up first and leaving a build that then
+ * succeeds unnoticed.
+ */
+export const DEFAULT_PROVISION_TIMEOUT_MS = 20 * 60_000;
+
 export interface WatchOptions {
   buildId: string;
   timeoutMs?: number;
   intervalMs?: number;
+  /**
+   * Ceiling on the PROVISIONING phases, counted separately from the build's.
+   *
+   * They are two different waits and adding them into one number would be
+   * wrong in both directions: a first publish would trip the build timeout
+   * before it had built anything, and raising the single number would let a
+   * genuinely stuck build run twice as long. The build's own clock starts when
+   * the instance is ready.
+   */
+  provisionTimeoutMs?: number;
 }
 
 /**
@@ -189,8 +242,15 @@ export async function watchBuild(
   ctx: RefusalContext,
 ): Promise<BuildStatusResponse> {
   const interval = options.intervalMs ?? POLL_INTERVAL_MS;
-  const deadline = deps.now() + (options.timeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS);
+  const buildTimeout = options.timeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS;
+  const provisionTimeout =
+    options.provisionTimeoutMs ?? DEFAULT_PROVISION_TIMEOUT_MS;
+  let deadline = deps.now() + buildTimeout;
   let seen: string | null = null;
+  let seenStack: string | null = null;
+  let provisioned = false;
+  /** True while the instance itself is still being created. */
+  let provisioning = false;
 
   for (;;) {
     let build: BuildStatusResponse;
@@ -214,7 +274,53 @@ export async function watchBuild(
       throw asPublishRefusal(error, ctx);
     }
 
-    if (build.status !== seen) {
+    // The STACK first, because while it is being created the build's own
+    // status is standing still and says nothing useful. One line per PHASE, as
+    // with build statuses: a line every three seconds hides the one that
+    // matters.
+    const stackStatus = build.stack?.status ?? null;
+    if (stackStatus !== null && stackStatus !== seenStack) {
+      const line = PROVISIONING_LINES[stackStatus];
+      if (line) {
+        provisioned = true;
+        // The build's clock has not started yet — see `provisionTimeoutMs`.
+        provisioning = true;
+        deadline = deps.now() + provisionTimeout;
+        deps.emit(`  ${line}`);
+      } else if (provisioned && stackStatus === "running") {
+        // The handoff, printed ONCE and only for a publish that actually
+        // waited: it is the moment the narrative moves from "your instance"
+        // to "your code", and without it the build phases below look like
+        // they restarted.
+        deps.emit("  instance ready — deploying your app");
+        // The build's own ceiling starts HERE, so a publish that waited ten
+        // minutes for substrate still gets a full build window.
+        provisioning = false;
+        deadline = deps.now() + buildTimeout;
+      }
+      seenStack = stackStatus;
+    }
+
+    // A stack that PARKED is not a slow stack. The build's own precheck
+    // refuses an undriven status too, so this is the same verdict a few
+    // minutes earlier and with a sentence the build log cannot give.
+    if (stackStatus === "error") {
+      throw new PublishError(
+        "provisioning_failed",
+        `Provisioning failed for this environment, so build ${options.buildId} has nothing to deploy onto.`,
+        {
+          hint: "We have been alerted. Check the environment page for the failed step, or publish again once it reports running.",
+        },
+      );
+    }
+
+    // While the INSTANCE is being created the build's own status is not news:
+    // it says `building` because it is sitting in its precheck waiting for
+    // substrate, and printing that between two provisioning lines makes the
+    // narrative read as two things happening at once when only one is. Held
+    // back (and not recorded as seen) so it prints on the first poll AFTER the
+    // handoff, where it is true.
+    if (!provisioning && build.status !== seen) {
       seen = build.status;
       deps.emit(`  ${build.status}`);
     }
@@ -222,11 +328,22 @@ export async function watchBuild(
     if (build.terminal) return build;
 
     if (deps.now() >= deadline) {
-      throw new PublishError(
-        "timeout",
-        `Build ${options.buildId} is still ${build.status} after ${Math.round((options.timeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS) / 60_000)} minutes.`,
-        { hint: "Watch it in the dashboard; it may still finish." },
-      );
+      // Which of the two waits ran out decides the sentence: "your build is
+      // slow" and "your instance never came up" send a reader to different
+      // pages, and only one of them is about their code.
+      throw provisioning
+        ? new PublishError(
+            "timeout",
+            `This environment is still being provisioned after ${Math.round(provisionTimeout / 60_000)} minutes.`,
+            {
+              hint: "Provisioning continues without you — check the environment page, then publish again once it reports running.",
+            },
+          )
+        : new PublishError(
+            "timeout",
+            `Build ${options.buildId} is still ${build.status} after ${Math.round(buildTimeout / 60_000)} minutes.`,
+            { hint: "Watch it in the dashboard; it may still finish." },
+          );
     }
 
     await deps.sleep(interval);
