@@ -25,7 +25,12 @@ end — build, preflight, GHCR push, deploy — onto a stack that answers
 `hogsend-default:0.62.0` is built and `CLOUD_DEFAULT_ENGINE_VERSION` points at
 it, so new stacks provision on the current engine line.
 
-PRDs 01–08, 13 and 14 are done. Everything below (09–12) is post-launch.
+2026-08-05: backlog re-cut for the **seamless-cloud wave** — CLI-native signup,
+provision-on-first-publish, self-healing publish, scaffold `--cloud`, MCP cloud
+tools, docs (PRDs 15–19). The old post-launch queue (09–12) is cleared to the
+archive below; re-add rows deliberately if/when wanted.
+
+PRDs 01–08, 13 and 14 are done. Active queue is 15–19, in order.
 Known non-blocking deferrals are named in each row rather than left implicit.
 
 | # | PRD | Status | Depends | Scope |
@@ -40,7 +45,17 @@ Known non-blocking deferrals are named in each row rather than left implicit.
 | 07 | [cli-login-publish](prds/07-cli-login-publish.md) | [x] | 03, 08 | hogsend login/whoami/publish/open, device flow, credential store |
 | 13 | [phase0-launch](prds/13-phase0-launch.md) | [x] | 04, 05, 07, 08 | provision re-drive sweep, real mint-credentials, non-running alert, environment page, CLI seam copy, `hogsend env pull` |
 | 14 | [publish-build-host](prds/14-publish-build-host.md) | [x] | 08 | ArtifactStore seam + Railway Buckets, production boot guard, Railway-Sandbox build host on BuildKit — live in prod, verified end to end |
-| 09 | [environments](prds/09-environments.md) | [ ] | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
-| 10 | [fleet-health](prds/10-fleet-health.md) | [ ] | 04 | operator console, fleet rollups, abuse suspend |
-| 11 | [dedicated-tier](prds/11-dedicated-tier.md) | [ ] | 04, 06 | rung-0 topology, custom tracking domains, EU region |
-| 12 | [offboarding](prds/12-offboarding.md) | [ ] | 04 | export, deletion lifecycle, self-host eject |
+| 15 | [cli-signup-provision](prds/15-cli-signup-provision.md) | [ ] | 03, 04, 07 | `/api/cli/signup(+verify)` email-OTP auth, org auto-create, `deferred` stacks + provision-on-first-publish (`CLOUD_PROVISION_ON`), `hogsend signup` / `login --email` |
+| 16 | [publish-self-healing](prds/16-publish-self-healing.md) | [ ] | 15 | inline auth in `publish`, provisioning-phase status narrative, revoked-session re-auth, `--no-wait` build-id fix |
+| 17 | [scaffold-cloud-flag](prds/17-scaffold-cloud-flag.md) | [ ] | 15, 16 | `create-hogsend --cloud [--email]`: scaffold → signup → publish in one command, failure-isolated, outro variants |
+| 18 | [mcp-cloud-tools](prds/18-mcp-cloud-tools.md) | [ ] | 15, 16 | shared publish/auth libs, `cloud_signup/verify/whoami/publish/build_status` in `@hogsend/mcp` (stdio only) |
+| 19 | [cloud-docs](prds/19-cloud-docs.md) | [ ] | 15–18 | docs site: cloud quickstart, CLI cloud reference, Agents & MCP page, outro copy sync |
+
+### Archived (cleared 2026-08-05 — re-add deliberately if wanted)
+
+| # | PRD | Depends | Scope |
+|---|---|---|---|
+| 09 | [environments](prds/09-environments.md) | 05, 07, 08 | staging/test envs, TEST_MODE, publish --env, promote |
+| 10 | [fleet-health](prds/10-fleet-health.md) | 04 | operator console, fleet rollups, abuse suspend |
+| 11 | [dedicated-tier](prds/11-dedicated-tier.md) | 04, 06 | rung-0 topology, custom tracking domains, EU region |
+| 12 | [offboarding](prds/12-offboarding.md) | 04 | export, deletion lifecycle, self-host eject |
