@@ -6,7 +6,17 @@ import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import color from "picocolors";
-import { CLOUD_HINT_NOTE, cloudPublishCmd, SELF_HOST_NOTE } from "./cloud.js";
+import {
+  CLOUD_ENV_PULL_NOTE,
+  CLOUD_HINT_NOTE,
+  CLOUD_OPEN_NOTE,
+  CLOUD_RESUME_INTRO,
+  cloudNextCmds,
+  cloudPublishCmd,
+  cloudResumeCmds,
+  SELF_HOST_NOTE,
+} from "./cloud.js";
+import { type CloudDeployResult, runCloudDeploy } from "./cloud-deploy.js";
 import {
   applyAdminToEnv,
   applyDomainToEnv,
@@ -221,13 +231,58 @@ function cloudLines(opts: CliOptions): string[] {
   ];
 }
 
+/**
+ * What to print INSTEAD of the hosting hint once the app is actually live.
+ *
+ * The hint exists to tell somebody Cloud is an option; to a person whose app is
+ * already running there it would be noise at best and confusing at worst.
+ */
+function cloudSuccessLines(opts: CliOptions): string[] {
+  const [open, envPull] = cloudNextCmds(opts.packageManager);
+  return [
+    `${color.cyan(open ?? "")}   ${color.dim(CLOUD_OPEN_NOTE)}`,
+    `${color.cyan(envPull ?? "")}   ${color.dim(CLOUD_ENV_PULL_NOTE)}`,
+  ];
+}
+
+/** And what to print when the handoff did not finish: how to pick it back up. */
+function cloudResumeLines(opts: CliOptions): string[] {
+  if (!opts.cloud) return [];
+  return [
+    color.dim(CLOUD_RESUME_INTRO),
+    ...cloudResumeCmds(opts.packageManager, {
+      email: opts.cloud.email,
+      ...(opts.cloud.cloudUrl === undefined
+        ? {}
+        : { cloudUrl: opts.cloud.cloudUrl }),
+    }).map((cmd) => color.cyan(`  ${cmd}`)),
+  ];
+}
+
 /** A dim, fixed-width label so the link rows line up under each other. */
 function linkRow(label: string, url: string, note: string): string {
   return `${color.dim(label.padEnd(8))}${color.cyan(url)}   ${color.dim(note)}`;
 }
 
 /** The guided "what now" — the difference between a scaffold and an onboarding. */
-function nextSteps(opts: CliOptions, setupDone: boolean): string {
+/**
+ * The hosting block, in its three shapes: the hint (nobody asked for cloud),
+ * the live-instance next steps (it worked), or the resume commands (it did
+ * not). Exactly one of them is ever printed.
+ */
+function hostingLines(
+  opts: CliOptions,
+  cloudResult: CloudDeployResult | null,
+): string[] {
+  if (cloudResult === null) return cloudLines(opts);
+  return cloudResult.ok ? cloudSuccessLines(opts) : cloudResumeLines(opts);
+}
+
+function nextSteps(
+  opts: CliOptions,
+  setupDone: boolean,
+  cloudResult: CloudDeployResult | null,
+): string {
   const pm = opts.packageManager;
   const cd = isCurrentDir(opts) ? null : color.cyan(`cd ${opts.dir}`);
   const skillsLine = opts.skills
@@ -243,7 +298,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
   // a fork in the flow.
   const run = [
     `${color.cyan(binCmd(pm, "hogsend dev"))}   ${color.dim("# API + worker + Studio on :3002, one terminal")}`,
-    ...cloudLines(opts),
+    ...hostingLines(opts, cloudResult),
   ];
 
   // Where to go next — the three touchpoints the onboarding hinges on.
@@ -450,16 +505,57 @@ async function main(): Promise<void> {
     }
   }
 
+  // The cloud handoff (PRD 17). LAST, after everything that makes the app
+  // real, and only when it was explicitly asked for.
+  //
+  // The rules, in the order they matter:
+  //  - it needs an install: the CLI it drives is one of the app's own
+  //    dependencies, so without one there is nothing to drive;
+  //  - it NEVER throws. A failed deploy is a verdict the outro renders, not an
+  //    exception that skips the "here is your app" summary;
+  //  - and the scaffold on disk is complete either way. Whatever the control
+  //    plane did, the app is locally usable, which is why this runs after the
+  //    scaffold rather than as part of it.
+  let cloudResult: CloudDeployResult | null = null;
+  if (opts.cloud) {
+    if (!installed) {
+      cloudResult = {
+        ok: false,
+        step: "resolve-cli",
+        message:
+          "Dependencies were not installed, so the app's `hogsend` CLI was not there to deploy with.",
+      };
+    } else {
+      if (interactive) {
+        log.step(
+          `${color.dim("Deploying to Hogsend Cloud —")} ${opts.cloud.email}`,
+        );
+      } else {
+        console.log("\n  Deploying to Hogsend Cloud ...\n");
+      }
+      cloudResult = runCloudDeploy({
+        targetDir,
+        appName: opts.appName,
+        cloud: opts.cloud,
+      });
+      if (!cloudResult.ok && interactive) {
+        log.warn(`${color.yellow(cloudResult.message)}`);
+      } else if (!cloudResult.ok) {
+        console.warn(`\n  ${cloudResult.message}\n`);
+      }
+    }
+  }
+
   // When setup ran, bootstrap already printed the "✓ Ready / Next:" summary —
   // don't repeat the stack/next-steps block, just close out briefly (keeping
   // the `cd` hint, which bootstrap can't know about).
   const cdHint = isCurrentDir(opts) ? "" : `cd ${opts.dir} · `;
   if (interactive) {
-    if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
+    if (!setupDone) note(nextSteps(opts, setupDone, cloudResult), "Next steps");
     // Bootstrap's own summary can't know about PostHog or about hosting —
     // surface both here when the next-steps note was skipped, so a scaffold
     // that ran setup learns the same facts as one that didn't.
-    if (setupDone) log.info(cloudLines(opts).join("\n"));
+    if (setupDone) log.info(hostingLines(opts, cloudResult).join("\n"));
     if (setupDone && opts.usingPosthog) log.info(posthogHint(opts, true));
     outro(
       `${color.magenta("Welcome to Hogsend.")} ${color.dim(`${cdHint}${DOCS} · ${DISCORD}`)}`,
@@ -474,9 +570,30 @@ async function main(): Promise<void> {
     // Same two facts as the interactive outro, in the plain-text shape this
     // block uses. Present in BOTH branches below — an agent-driven scaffold
     // that also ran setup must still be told hosting exists.
+    // The same three shapes as the interactive outro (hint / live / resume),
+    // in the plain-text form this block uses. One string, interpolated into
+    // BOTH branches below — an agent-driven scaffold that also ran setup must
+    // still be told what happened to its deploy.
     const cloudNote =
-      `    ${cloudPublishCmd(pm)}   ${CLOUD_HINT_NOTE}\n` +
-      `    ${SELF_HOST_NOTE}`;
+      cloudResult === null
+        ? `    ${cloudPublishCmd(pm)}   ${CLOUD_HINT_NOTE}\n` +
+          `    ${SELF_HOST_NOTE}`
+        : cloudResult.ok
+          ? cloudNextCmds(pm)
+              .map(
+                (cmd, at) =>
+                  `    ${cmd}   ${at === 0 ? CLOUD_OPEN_NOTE : CLOUD_ENV_PULL_NOTE}`,
+              )
+              .join("\n")
+          : [
+              `  ${CLOUD_RESUME_INTRO}`,
+              ...cloudResumeCmds(pm, {
+                email: opts.cloud?.email ?? "",
+                ...(opts.cloud?.cloudUrl === undefined
+                  ? {}
+                  : { cloudUrl: opts.cloud.cloudUrl }),
+              }).map((cmd) => `    ${cmd}`),
+            ].join("\n");
     const posthogNote = opts.usingPosthog
       ? `\n  ${posthogNextStep(opts, setupDone)}${POSTHOG_HINT_NOTE}`
       : "";
@@ -505,6 +622,29 @@ ${skillsNote}${posthogNote}
 `);
     }
   }
+
+  applyCloudExitCode(cloudResult);
+}
+
+/**
+ * EXIT CODE, stated once because it is a real decision:
+ *
+ * a scaffold whose `--cloud` handoff failed exits NONZERO, even though the app
+ * on disk is complete and usable. `--cloud` is an explicit request to end up
+ * with a running instance, and a caller that asked for one — a CI job, an agent
+ * — must be able to tell that it did not get one. The resume commands are
+ * printed either way, so a human loses nothing.
+ *
+ * This deliberately differs from a failed `bootstrap`, which exits 0: that step
+ * is local, recoverable on the spot, and its failure is already loud on the
+ * screen of the person standing there. If we ever want the two to agree, the
+ * bootstrap one should move to nonzero — not this one back to zero.
+ *
+ * `process.exitCode` rather than `process.exit()`, so the outro above is
+ * actually flushed before the process ends.
+ */
+function applyCloudExitCode(result: CloudDeployResult | null): void {
+  if (result && !result.ok) process.exitCode = 1;
 }
 
 main().catch((err: unknown) => {

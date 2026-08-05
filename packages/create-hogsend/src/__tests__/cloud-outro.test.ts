@@ -116,8 +116,22 @@ describe("every output path", () => {
   it("covers the two setup-ran paths, which need Docker to run", () => {
     // Interactive + setup done: bootstrap prints its own summary and the
     // next-steps note is skipped, so the hosting lines are logged separately.
-    expect(source).toContain("if (setupDone) log.info(cloudLines(opts)");
+    //
+    // `hostingLines` rather than `cloudLines` since PRD 17: the block now has
+    // three shapes (the hint, the live-instance next steps, the resume
+    // commands) and one of them is always printed. The delegation is asserted
+    // below, so the no-cloud path is still held to the same copy.
+    expect(source).toContain("log.info(hostingLines(opts, cloudResult)");
     // Non-interactive: one `cloudNote`, interpolated into BOTH branches.
     expect(source.match(/\$\{cloudNote\}/g) ?? []).toHaveLength(2);
+  });
+
+  it("falls back to the plain hosting hint when no cloud deploy ran", () => {
+    // THE guard on "byte-identical outro when --cloud is absent": a null
+    // result is the no-cloud case, and it must reach `cloudLines` — the same
+    // helper, with the same copy, the four behavioural cases above assert.
+    expect(source).toContain(
+      "if (cloudResult === null) return cloudLines(opts)",
+    );
   });
 });

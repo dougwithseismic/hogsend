@@ -66,8 +66,31 @@ export interface CliOptions {
    * engine's env preset does the rest (see src/optional-plugins.ts).
    */
   withPlugins: OptionalPluginId[];
+  /**
+   * Deploy to Hogsend Cloud when the scaffold finishes (PRD 17).
+   *
+   * OPT-IN, always: nothing cloud-related runs unless this is true, which is
+   * why it is a discriminated object rather than a loose set of maybe-fields.
+   * `email` is REQUIRED here — a cloud run with nobody to mail a code to is
+   * not a thing that can happen, and making the type say so means the driver
+   * cannot forget to check.
+   */
+  cloud?: CloudDeployOptions;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
+}
+
+export interface CloudDeployOptions {
+  /** Where the OTP goes. The email is used for cloud auth and NOTHING else. */
+  email: string;
+  /** Organization name for a brand-new account; ignored if they have one. */
+  org?: string;
+  /**
+   * Control-plane URL, for pointing a scaffold at a local or self-hosted
+   * cloud. Absent → the CLI's own default (or its `HOGSEND_CLOUD_URL`, which
+   * the child process inherits either way).
+   */
+  cloudUrl?: string;
 }
 
 export interface PosthogOptions {
@@ -124,6 +147,14 @@ Options:
                              twilio) — repeatable or comma-separated. Pins
                              @hogsend/plugin-<id> as a direct dependency and
                              surfaces its credential block in .env.example
+  --cloud                    Deploy to Hogsend Cloud when the scaffold finishes.
+                             Headless runs MUST also pass --email (the code is
+                             mailed there and read from stdin)
+  --email <address>          Email for the cloud sign-in code (requires --cloud)
+  --org <name>               Name the cloud organization (requires --cloud; only
+                             used when the account has none yet)
+  --cloud-url <url>          Control plane to deploy to (default: the CLI's, or
+                             HOGSEND_CLOUD_URL). For local/self-hosted clouds
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -137,6 +168,15 @@ Docs: docs.hogsend.com
 `.trim();
 
 const APP_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** The shape an email must have before we bother the control plane with it. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateEmail(value: string): string | undefined {
+  return EMAIL_RE.test(value.trim())
+    ? undefined
+    : `Invalid email "${value}" — expected an address like you@example.com.`;
+}
 
 /** Pinned sending-domain validation regex (matches the engine's admin route). */
 const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
@@ -230,6 +270,10 @@ interface RawArgs {
     "admin-password"?: string;
     with?: string[];
     "use-tarballs"?: string;
+    cloud?: boolean;
+    email?: string;
+    org?: string;
+    "cloud-url"?: string;
     help?: boolean;
   };
   positionals: string[];
@@ -260,9 +304,31 @@ function parse(argv: string[]): RawArgs {
       // Repeatable; each value may itself be a comma-separated id list.
       with: { type: "string", multiple: true },
       "use-tarballs": { type: "string" },
+      cloud: { type: "boolean", default: false },
+      email: { type: "string" },
+      org: { type: "string" },
+      "cloud-url": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
+}
+
+/**
+ * "Deploy to Hogsend Cloud when we're done?"
+ *
+ * DEFAULT NO. Every other confirm in this flow defaults yes because it is
+ * about the user's own machine; this one creates an account somewhere else and
+ * sends them an email, so it is the one question that must be actively said
+ * yes to rather than passively accepted by somebody hitting enter.
+ */
+async function askDeployToCloud(): Promise<boolean> {
+  return bail(
+    await confirm({
+      message:
+        "Deploy to Hogsend Cloud when we're done? We'll email you a code.",
+      initialValue: false,
+    }),
+  );
 }
 
 /** Abort cleanly on Ctrl-C / Esc from any clack prompt. */
@@ -335,10 +401,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
   if (adminPassword !== undefined && adminEmail === undefined) {
     throw new Error("--admin-password requires --admin-email.");
   }
-  if (
-    adminEmail !== undefined &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)
-  ) {
+  if (adminEmail !== undefined && validateEmail(adminEmail)) {
     throw new Error(
       `Invalid --admin-email "${adminEmail}" — expected an email address.`,
     );
@@ -348,6 +411,24 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       "--admin-password must be at least 8 characters (the app's STUDIO_ADMIN_PASSWORD validation would reject it at every boot).",
     );
   }
+  // Cloud flags, validated UP FRONT — this function runs before the target
+  // directory is even checked, let alone written to, so a bad combination
+  // refuses before a scaffold exists (PRD 17: "refuse before scaffolding
+  // starts"). Nothing here reaches the network.
+  const cloudEmail = values.email;
+  if (!values.cloud && (cloudEmail !== undefined || values.org !== undefined)) {
+    throw new Error(
+      "--email and --org require --cloud (they configure the cloud deploy).",
+    );
+  }
+  if (!values.cloud && values["cloud-url"] !== undefined) {
+    throw new Error("--cloud-url requires --cloud.");
+  }
+  if (cloudEmail !== undefined) {
+    const err = validateEmail(cloudEmail);
+    if (err) throw new Error(err);
+  }
+
   // Opt-in provider plugins from flags (validated up front; an unknown id
   // throws naming the valid ones). A given --with also pre-answers the
   // interactive "Optional providers" multiselect.
@@ -377,6 +458,21 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
   const skipPrompts = !interactive || values.yes === true;
 
   if (skipPrompts) {
+    // THE headless cloud rule: --cloud with nowhere to mail the code is a
+    // refusal, and it happens HERE — before the target dir is checked, before
+    // a single file is written. A run that scaffolded and then discovered it
+    // could not deploy would leave the user with a half-done intention and a
+    // directory they did not ask about.
+    //
+    // No prompting fallback, deliberately: there is no terminal to ask in, and
+    // a prompt into a pipe is how a CI job burns its whole timeout.
+    if (values.cloud && cloudEmail === undefined) {
+      throw new Error(
+        "--cloud needs --email <address> when there is no terminal to ask in.\n" +
+          "  The sign-in code is mailed there; pipe it back on stdin:\n" +
+          "    echo 123456 | create-hogsend my-app -y --cloud --email you@example.com",
+      );
+    }
     if (!rawDir && defaultDirFromDomain) {
       rawDir = defaultDirFromDomain;
     }
@@ -410,6 +506,17 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       adminPassword,
       // --yes / headless never prompts: only an explicit --with selects any.
       withPlugins: withFromFlags ?? [],
+      ...(values.cloud && cloudEmail
+        ? {
+            cloud: {
+              email: cloudEmail.trim().toLowerCase(),
+              ...(values.org === undefined ? {} : { org: values.org }),
+              ...(values["cloud-url"] === undefined
+                ? {}
+                : { cloudUrl: values["cloud-url"] }),
+            },
+          }
+        : {}),
       useTarballs: values["use-tarballs"],
     };
   }
@@ -566,6 +673,30 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
             }),
           );
 
+  // The cloud question — ONE question, asked last, and only reached when no
+  // flag already answered it. Phrased as the whole deal ("we'll email you a
+  // code") because the next thing that happens to somebody who says yes is an
+  // email arriving, and a prompt that hid that would feel like a trick.
+  let cloud: CloudDeployOptions | undefined;
+  if (values.cloud || (await askDeployToCloud())) {
+    const email =
+      cloudEmail ??
+      bail(
+        await text({
+          message: "Email for your Hogsend Cloud sign-in code?",
+          placeholder: "you@example.com",
+          validate: (value) => validateEmail(value ?? ""),
+        }),
+      );
+    cloud = {
+      email: email.trim().toLowerCase(),
+      ...(values.org === undefined ? {} : { org: values.org }),
+      ...(values["cloud-url"] === undefined
+        ? {}
+        : { cloudUrl: values["cloud-url"] }),
+    };
+  }
+
   return {
     dir,
     appName,
@@ -577,6 +708,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain,
     posthog,
     usingPosthog,
+    cloud,
     // Pass-through, no interactive prompt: bootstrap step 8 owns the
     // interactive admin flow; these flags exist for headless/agent runs.
     adminEmail,
