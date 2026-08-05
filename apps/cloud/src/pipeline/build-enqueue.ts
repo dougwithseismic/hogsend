@@ -4,7 +4,7 @@ import {
   buildService,
   type CreateBuildInput,
 } from "../services/builds";
-import type { BuildDeps, BuildPipelineResult } from "./build";
+import type { BuildPipelineResult } from "./build";
 import { runBuildOnHost } from "./build-host";
 import { getCloudHatchet, getRunBuildTask } from "./hatchet";
 
@@ -39,21 +39,6 @@ export type BuildEnqueueMode = "hatchet" | "inline" | "joined";
 export interface BuildEnqueueResult {
   buildId: string;
   mode: BuildEnqueueMode;
-}
-
-/**
- * TEST/DEV SEAM, mirroring `configureProvisioning`. The inline runner has no
- * argument a caller can inject through — it is reached from a route handler —
- * so overrides live module-scoped. Empty in production.
- */
-let depsOverride: Partial<BuildDeps> = {};
-
-export function configureBuilds(overrides: Partial<BuildDeps>): void {
-  depsOverride = overrides;
-}
-
-export function resetBuilds(): void {
-  depsOverride = {};
 }
 
 /** In-flight in-process runs, keyed by build id. */
@@ -134,7 +119,7 @@ function schedule(buildId: string): Promise<BuildPipelineResult> {
   return new Promise<BuildPipelineResult>((resolve) => {
     setImmediate(() => {
       resolve(
-        runBuildOnHost({ buildId }, depsOverride)
+        runBuildOnHost({ buildId })
           .then(async (result) => {
             // Only a run that actually finished frees the environment. A
             // `skipped` one did not hold it, and draining after it would loop.
@@ -163,12 +148,4 @@ function schedule(buildId: string): Promise<BuildPipelineResult> {
       );
     });
   });
-}
-
-/** Await the in-process run for `buildId`, if there is one. Dev/test only. */
-export async function waitForBuild(
-  buildId: string,
-): Promise<BuildPipelineResult | null> {
-  const run = inflight.get(buildId);
-  return run ? await run : null;
 }

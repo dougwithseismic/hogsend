@@ -6,8 +6,8 @@
  * pipeline never learns that images are built by docker, tagged by a registry
  * prefix, or pushed with a credential — it asks for a reference and gets one.
  *
- * The interface is small on purpose. Three verbs (build, push, exists) plus the
- * one pure function that turns a bare `name:tag` into the reference a substrate
+ * The interface is small on purpose. Two verbs (build, push) plus the one pure
+ * function that turns a bare `name:tag` into the reference a substrate
  * can actually pull. Anything else — layer caching, scanning, garbage
  * collection — is an implementation's business, not a caller's.
  */
@@ -52,7 +52,6 @@ export interface ImageStore {
   reference(tag: string): string;
   build(input: BuildImageInput): Promise<BuildImageResult>;
   push(input: PushImageInput): Promise<PushImageResult>;
-  exists(tag: string): Promise<boolean>;
 }
 
 /**

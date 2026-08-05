@@ -143,15 +143,6 @@ export class DockerImageStore implements ImageStore {
     };
   }
 
-  async exists(tag: string): Promise<boolean> {
-    const result = await this.exec(
-      this.docker,
-      ["image", "inspect", this.reference(tag)],
-      { timeoutMs: this.timeoutMs },
-    );
-    return result.code === 0;
-  }
-
   /** The local content id — the registry-less stand-in for a push digest. */
   private async localImageId(reference: string): Promise<string | null> {
     const result = await this.exec(

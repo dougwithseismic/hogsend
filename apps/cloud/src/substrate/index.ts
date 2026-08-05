@@ -70,15 +70,3 @@ export function getSubstrate(): SubstrateProvider {
       return railwaySingleton;
   }
 }
-
-/** Test/dev helper: the process-wide fake, or a throw if it is not the active
- * substrate. Lets a dev-only route inspect state without re-reading env. */
-export function getFakeSubstrate(): FakeSubstrate {
-  const provider = getSubstrate();
-  if (!(provider instanceof FakeSubstrate)) {
-    throw new SubstrateError(
-      `the active substrate is "${env.CLOUD_SUBSTRATE}", not the fake`,
-    );
-  }
-  return provider;
-}

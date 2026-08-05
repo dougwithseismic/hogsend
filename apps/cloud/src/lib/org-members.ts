@@ -13,10 +13,6 @@ import { resolveDashboardAccess } from "./session-guard";
  * actually use. The UI gate is a courtesy; `assertCanManageMembers` is the
  * enforcement, and it runs in the action, not the component.
  */
-
-/** The roles Better Auth's organization plugin ships with. */
-export type OrgRole = "owner" | "admin" | "member";
-
 /** Roles an invite may be sent for. `owner` is not transferable from this UI. */
 export const INVITABLE_ROLES = ["member", "admin"] as const;
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];

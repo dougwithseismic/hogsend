@@ -155,12 +155,6 @@ export const PROVIDER_FORMS: readonly ProviderForm[] = [
     inert: inertFeatures("twilio"),
   },
 ];
-
-/** Providers with an add/rotate form, in render order. */
-export const PROVIDER_IDS: readonly string[] = PROVIDER_FORMS.map(
-  (form) => form.id,
-);
-
 export function providerForm(id: string): ProviderForm | undefined {
   return PROVIDER_FORMS.find((form) => form.id === id);
 }

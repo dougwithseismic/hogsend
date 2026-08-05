@@ -24,7 +24,6 @@ import {
   type ProviderForm,
   type ProviderProof,
   proofOf,
-  providerForm,
   SENDER_IDENTITY_FIELD,
 } from "./provider-catalog";
 
@@ -412,13 +411,6 @@ export async function removeProviderKey(
     provider: input.provider,
     actor: target.actor,
   });
-}
-
-/** Whether a provider id is one this surface offers a form for. */
-export function isKnownProvider(provider: string): boolean {
-  return (
-    provider === SENDER_IDENTITY_PROVIDER || Boolean(providerForm(provider))
-  );
 }
 
 export { SENDER_IDENTITY_FIELD, SENDER_IDENTITY_PROVIDER };

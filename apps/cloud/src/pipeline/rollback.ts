@@ -31,10 +31,6 @@ import { MIGRATE_PRE_DEPLOY_COMMAND } from "./build";
  * stack through exactly the same motion. A second, subtly different deploy path
  * is how the two drift until only one of them works.
  */
-
-/** The actor recorded on every row a rollback writes. */
-export const ROLLBACK_ACTOR = "rollback";
-
 /** Worker first: it takes no inbound traffic, so a bad image is found there. */
 const DEPLOY_ORDER = ["worker", "api"] as const;
 

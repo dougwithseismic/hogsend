@@ -36,7 +36,8 @@ export function getImageStore(): ImageStore {
 
 /**
  * The reference a substrate pulls for a bare `name:tag`, WITHOUT constructing a
- * store. Provisioning needs it for `initialImage` before any build exists, and
+ * store. Provisioning needs it for `start-services` before any build exists,
+ * and
  * `getImageStore()` would be a docker dependency in a code path that never runs
  * a command.
  */

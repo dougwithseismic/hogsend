@@ -13,31 +13,6 @@ export function Eyebrow({ children, className }: EyebrowProps): JSX.Element {
   return <span className={cn("kicker block", className)}>{children}</span>;
 }
 
-type PillBadgeProps = {
-  children: ReactNode;
-  className?: string;
-};
-
-/**
- * Pill badge: red-tint fill, white/20 hairline border, 40px radius.
- */
-export function PillBadge({
-  children,
-  className,
-}: PillBadgeProps): JSX.Element {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 rounded-[40px] border border-white/20",
-        "bg-accent-tint px-3 py-1.5 text-sm text-white",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
 type TagPillTone = "neutral" | "accent" | "good" | "caution";
 
 const TAG_TONE: Record<TagPillTone, string> = {
