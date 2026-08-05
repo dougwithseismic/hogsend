@@ -101,9 +101,16 @@ export async function GET(
   // index's predicate for a phase that is not the build's at all. This is the
   // minimal honest answer: one more field, no schema change, and the CLI can
   // render "provisioning your instance" from the pair.
-  const stack = await new StackService().getByEnvironment({
-    environmentId: build.environmentId,
-  });
+  //
+  // Skipped once the build is TERMINAL: nothing renders a provisioning phase
+  // for a build that has finished, and this is the endpoint `hogsend publish`
+  // polls every three seconds — a read per poll that no caller reads is just
+  // load on the busiest row in the table.
+  const stack = terminal
+    ? null
+    : await new StackService().getByEnvironment({
+        environmentId: build.environmentId,
+      });
 
   return Response.json(
     {

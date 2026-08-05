@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DEFAULT_CLOUD_PUBLIC_URL, env } from "@/src/env";
 import { clientIp, consumeRateLimit } from "@/src/lib/rate-limit";
+import { fail } from "@/src/lib/route-response";
 import {
   cliDeviceCodeService,
   DEVICE_CODE_TTL_MS,
@@ -50,18 +51,6 @@ const bodySchema = z.object({
 });
 
 export const dynamic = "force-dynamic";
-
-function fail(
-  status: number,
-  error: string,
-  message: string,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json(
-    { error, message },
-    { status, headers: { "cache-control": "no-store", ...headers } },
-  );
-}
 
 export async function POST(request: Request): Promise<Response> {
   const limit = await consumeRateLimit({

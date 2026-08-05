@@ -117,22 +117,21 @@ describe("every output path", () => {
   it("covers the two setup-ran paths, which need Docker to run", () => {
     // Interactive + setup done: bootstrap prints its own summary and the
     // next-steps note is skipped, so the hosting lines are logged separately.
-    //
-    // `hostingLines` rather than `cloudLines` since PRD 17: the block now has
-    // three shapes (the hint, the live-instance next steps, the resume
-    // commands) and one of them is always printed. The delegation is asserted
-    // below, so the no-cloud path is still held to the same copy.
     expect(source).toContain("log.info(hostingLines(opts, cloudResult)");
     // Non-interactive: one `cloudNote`, interpolated into BOTH branches.
     expect(source.match(/\$\{cloudNote\}/g) ?? []).toHaveLength(2);
   });
 
-  it("falls back to the plain hosting hint when no cloud deploy ran", () => {
-    // THE guard on "byte-identical outro when --cloud is absent": a null
-    // result is the no-cloud case, and it must reach `cloudLines` — the same
-    // helper, with the same copy, the four behavioural cases above assert.
-    expect(source).toContain(
-      "if (cloudResult === null) return cloudLines(opts)",
-    );
+  it("makes the hosting decision ONCE for both renderers", () => {
+    // The colour-vs-plain split used to duplicate the three-shape choice, and
+    // the copies drifted: the plain one fell back to an empty email address
+    // where the coloured one printed nothing. Now both ask the same function
+    // and only differ in how they paint the answer.
+    expect(source).toContain("function hostingBlock(");
+    const asks = source.match(/hostingBlock\(opts, cloudResult\)/g) ?? [];
+    expect(asks).toHaveLength(2);
+    // ...and the hint shape still comes from the shared copy helpers, so a
+    // scaffold that asked for no cloud reads exactly as it always did.
+    expect(source).toContain("cloudPublishCmd(pm), note: CLOUD_HINT_NOTE");
   });
 });

@@ -209,6 +209,26 @@ describe("a cloud handoff that FAILS", () => {
     expect(looksComplete("cloud-fail-exit-app")).toBe(true);
   });
 
+  it("never prints a command with a blank address in it", () => {
+    // The divergence the shared decision fixed: the plain-text outro used to
+    // fall back to `opts.cloud?.email ?? ""`, so a resume block could read
+    // `hogsend signup --email ` with nothing after the flag — a command that
+    // looks copy-pasteable and is not. The coloured branch printed nothing at
+    // all in the same case, which is worse than either: two outros, two
+    // behaviours.
+    const result = scaffold([
+      "cloud-blank-email-app",
+      "--cloud",
+      "--email",
+      "me@acme.test",
+    ]);
+
+    expect(result.stdout).toContain("--email me@acme.test");
+    // No `--email` left dangling at a line end or followed only by spaces.
+    expect(result.stdout).not.toMatch(/--email\s*$/m);
+    expect(looksComplete("cloud-blank-email-app")).toBe(true);
+  });
+
   it("carries a custom --cloud-url into the resume commands", () => {
     const result = scaffold([
       "cloud-fail-host-app",

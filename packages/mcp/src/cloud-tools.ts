@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { toContent } from "./lib/tool.js";
 import {
   createCloudBuildStatusTool,
   createCloudPublishTool,
@@ -32,13 +33,6 @@ import {
  * the operator's own credentials file and the cloud URL from the environment —
  * the same funnel the `hogsend` CLI uses, so the two are interchangeable.
  */
-
-/** Serialize a tool's discriminated `ok` result into a text content block. */
-function toContent(result: unknown): CallToolResult {
-  return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-  };
-}
 
 /** The names registered here, for tests and for the hosted-absence assertion. */
 export const CLOUD_TOOL_NAMES = [

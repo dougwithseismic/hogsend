@@ -2,6 +2,7 @@ import type { ResolvedCloud } from "./cloud-config.js";
 import { resolveCloud } from "./cloud-config.js";
 import type { CloudClient, FetchLike } from "./cloud-http.js";
 import { createCloudClient } from "./cloud-http.js";
+import { signInHint } from "./cloud-refusals.js";
 import type { CloudCredential } from "./credentials.js";
 import { readCloudCredential, writeCloudCredential } from "./credentials.js";
 
@@ -25,11 +26,8 @@ export class NotLoggedInError extends Error {
     super(`Not signed in to ${cloud.host}.`);
     this.name = "NotLoggedInError";
     this.cloudHost = cloud.host;
-    // BOTH doors named, matching `cloud-refusals.ts`'s 401 hint: a reader on a
-    // machine with no browser must be told the email flow exists rather than
-    // being handed a command that cannot work there.
-    const suffix = cloud.explicit ? ` --cloud ${cloud.baseUrl}` : "";
-    this.hint = `Run \`hogsend login${suffix}\` (or \`hogsend login --email you@example.com${suffix}\` on a machine with no browser).`;
+    // ONE sentence, owned by `cloud-refusals.ts` — see `signInHint`.
+    this.hint = signInHint(cloud.explicit ? cloud.baseUrl : undefined);
   }
 }
 

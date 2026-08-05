@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AdminClient } from "./lib/admin-client.js";
+import { toContent } from "./lib/tool.js";
 import { findAndFixPrompt } from "./prompts/find-and-fix.js";
 import { authoringGuideResource } from "./resources/authoring-guide.js";
 import { createManageBlueprintTool } from "./tools/manage-blueprint.js";
@@ -40,13 +41,6 @@ export interface CreateHogsendMcpServerOptions {
    * The hosted transport always passes one.
    */
   client?: AdminClient;
-}
-
-/** Serialize a tool's discriminated `ok` result into a text content block. */
-function toContent(result: unknown): CallToolResult {
-  return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-  };
 }
 
 /** Build a fresh `McpServer` with all tools/resource/prompt registered. */

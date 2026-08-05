@@ -6,6 +6,7 @@ import {
   organizations,
   stackAlerts,
   stackHealth,
+  stackStatusEnum,
   stacks,
 } from "../db/schema";
 import { getStackAlerts, type StackAlert } from "../pipeline/health-poll";
@@ -28,17 +29,17 @@ import type { StackStatus } from "../services/stacks";
 
 type CloudPlan = (typeof cloudPlanEnum.enumValues)[number];
 
-const STACK_STATUSES = [
-  "deferred",
-  "requested",
-  "provisioning",
-  "running",
-  "publishing",
-  "suspended",
-  "destroying",
-  "destroyed",
-  "error",
-] as const satisfies readonly StackStatus[];
+/**
+ * Every stack status, taken FROM THE SCHEMA rather than retyped here.
+ *
+ * `satisfies readonly StackStatus[]` on a hand-written list catches a wrong
+ * value but not a MISSING one — which is the failure that matters, because the
+ * payload's whole promise is that its shape does not depend on the fleet's
+ * current state. Reading `stackStatusEnum.enumValues` makes a new status
+ * zero-filled automatically, exactly as `cloudPlanEnum.enumValues` already
+ * does for plans one line below its use.
+ */
+const STACK_STATUSES: readonly StackStatus[] = stackStatusEnum.enumValues;
 
 /** Stacks the provision sweep is still responsible for finishing. */
 const IN_FLIGHT_STATUSES: readonly StackStatus[] = [

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { auth, OTP_EXPIRES_IN_SECONDS } from "@/src/lib/auth";
-import { clientIp, consumeRateLimit } from "@/src/lib/rate-limit";
+import { clientIp, consumeDualRateLimit } from "@/src/lib/rate-limit";
+import { fail } from "@/src/lib/route-response";
 
 /**
  * `POST /api/cli/signup` — the front door for `hogsend signup`, and the same
@@ -53,18 +54,6 @@ const bodySchema = z.object({
 
 export const dynamic = "force-dynamic";
 
-function fail(
-  status: number,
-  error: string,
-  message: string,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json(
-    { error, message },
-    { status, headers: { "cache-control": "no-store", ...headers } },
-  );
-}
-
 export async function POST(request: Request): Promise<Response> {
   let email: string;
   try {
@@ -84,27 +73,20 @@ export async function POST(request: Request): Promise<Response> {
     return fail(400, "invalid_request", "The request body must be JSON.");
   }
 
-  // The email bucket first: it is the one an attacker cannot rotate.
-  const perEmail = await consumeRateLimit({
-    bucket: `cli_signup_email:${email}`,
-    limit: SIGNUP_EMAIL_RATE_LIMIT,
+  const limit = await consumeDualRateLimit({
+    email,
+    ip: clientIp(request.headers),
+    emailLimit: SIGNUP_EMAIL_RATE_LIMIT,
+    ipLimit: SIGNUP_IP_RATE_LIMIT,
     windowMs: SIGNUP_RATE_WINDOW_MS,
+    prefix: "cli_signup",
   });
-  const perIp = await consumeRateLimit({
-    bucket: `cli_signup_ip:${clientIp(request.headers)}`,
-    limit: SIGNUP_IP_RATE_LIMIT,
-    windowMs: SIGNUP_RATE_WINDOW_MS,
-  });
-  if (!perEmail.allowed || !perIp.allowed) {
-    const retryAfter = Math.max(
-      perEmail.allowed ? 0 : perEmail.retryAfterSeconds,
-      perIp.allowed ? 0 : perIp.retryAfterSeconds,
-    );
+  if (!limit.allowed) {
     return fail(
       429,
       "rate_limited",
       "Too many codes requested. Wait for the retry-after window and try again.",
-      { "retry-after": String(retryAfter) },
+      { "retry-after": String(limit.retryAfterSeconds) },
     );
   }
 

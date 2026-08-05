@@ -197,6 +197,24 @@ const PROVISIONING_LINES: Record<string, string> = {
   provisioning: "provisioning your instance — creating database, workers, DNS",
 };
 
+/**
+ * The stack statuses that mean "your instance is being built", derived from
+ * the renderer above so the two cannot disagree about which is which.
+ *
+ * Exported because `@hogsend/mcp`'s `derivePhase` needs the same set to report
+ * a `provisioning` phase; it renders its own wording for an agent, but the
+ * membership question has one answer.
+ *
+ * AUTHORITATIVE LIST LIVES IN THE CONTROL PLANE: `STACK_WAIT_STATUSES` in
+ * `apps/cloud/src/pipeline/build.ts` decides what the BUILD is willing to wait
+ * for, and a status it waits on that is missing here would render as a stalled
+ * build rather than a provisioning one. Different package, no import — so if
+ * one changes, change both.
+ */
+export const PROVISIONING_STACK_STATUSES: ReadonlySet<string> = new Set(
+  Object.keys(PROVISIONING_LINES),
+);
+
 /** How often the status endpoint is asked. */
 export const POLL_INTERVAL_MS = 3_000;
 /** A build that has not reached a terminal state by here is reported as stuck. */
@@ -248,8 +266,12 @@ export async function watchBuild(
   let deadline = deps.now() + buildTimeout;
   let seen: string | null = null;
   let seenStack: string | null = null;
-  let provisioned = false;
-  /** True while the instance itself is still being created. */
+  /**
+   * True while the instance itself is still being created. Doubles as "did we
+   * ever provision?" — the handoff below reads it BEFORE clearing it, so a
+   * publish onto an already-running stack (which never set it) prints no
+   * handoff line, and one that waited prints exactly one.
+   */
   let provisioning = false;
 
   for (;;) {
@@ -282,12 +304,11 @@ export async function watchBuild(
     if (stackStatus !== null && stackStatus !== seenStack) {
       const line = PROVISIONING_LINES[stackStatus];
       if (line) {
-        provisioned = true;
         // The build's clock has not started yet — see `provisionTimeoutMs`.
         provisioning = true;
         deadline = deps.now() + provisionTimeout;
         deps.emit(`  ${line}`);
-      } else if (provisioned && stackStatus === "running") {
+      } else if (provisioning && stackStatus === "running") {
         // The handoff, printed ONCE and only for a publish that actually
         // waited: it is the moment the narrative moves from "your instance"
         // to "your code", and without it the build phases below look like

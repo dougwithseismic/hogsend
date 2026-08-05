@@ -7,6 +7,7 @@ import {
   type EnvironmentListResponse,
   findScaffoldRoot,
   openCloudSession,
+  PROVISIONING_STACK_STATUSES,
   requireCloudSession,
   resolveEngineVersion,
   selectEnvironment,
@@ -16,7 +17,11 @@ import {
   verifyEmailCode,
 } from "@hogsend/cli/cloud";
 import { z } from "zod";
-import { cloudFailure, mapCloudError, needsAuth } from "../lib/cloud-result.js";
+import {
+  type CloudFailure,
+  cloudFailure,
+  mapCloudError,
+} from "../lib/cloud-result.js";
 import { defineTool, type McpTool } from "../lib/tool.js";
 
 /**
@@ -66,6 +71,38 @@ const email = z
 /** Open a session WITHOUT requiring one — for the unauthenticated tools. */
 function anonymousSession(cloud?: string): CloudSession {
   return openCloudSession(cloud === undefined ? {} : { cloud });
+}
+
+/**
+ * The stored session, or the `needs_auth` failure — as a value rather than a
+ * thrown-and-caught preamble repeated by every authenticated tool.
+ *
+ * Returning the failure instead of throwing keeps each tool's happy path flat
+ * AND keeps the refusal on the same contract as every other one. The host
+ * lookup on the failing branch goes through `anonymousSession` because
+ * `requireCloudSession` threw before it could tell us which host it resolved,
+ * and the refusal has to name one.
+ */
+function authedSession(
+  cloudUrl: string | undefined,
+):
+  | { ok: true; session: ReturnType<typeof requireCloudSession> }
+  | { ok: false; failure: CloudFailure; cloudHost: string } {
+  try {
+    return {
+      ok: true,
+      session: requireCloudSession(
+        cloudUrl === undefined ? {} : { cloud: cloudUrl },
+      ),
+    };
+  } catch (error) {
+    const cloudHost = anonymousSession(cloudUrl).cloud.host;
+    return {
+      ok: false,
+      failure: mapCloudError(error, { cloudHost }),
+      cloudHost,
+    };
+  }
 }
 
 /**
@@ -202,16 +239,9 @@ export function createCloudWhoamiTool(): McpTool<{
       "Who this machine is signed in to Hogsend Cloud as, plus the organization's environments and their stack status.",
     inputSchema: { cloudUrl },
     run: async (input) => {
-      let session: ReturnType<typeof requireCloudSession>;
-      try {
-        session = requireCloudSession(
-          input.cloudUrl === undefined ? {} : { cloud: input.cloudUrl },
-        );
-      } catch (error) {
-        return mapCloudError(error, {
-          cloudHost: anonymousSession(input.cloudUrl).cloud.host,
-        });
-      }
+      const opened = authedSession(input.cloudUrl);
+      if (!opened.ok) return opened.failure;
+      const { session } = opened;
 
       try {
         // ASKED, not read from the file: a session revoked in the dashboard
@@ -287,17 +317,9 @@ export function createCloudPublishTool(): McpTool<{
         ...(input.env === undefined ? {} : { envName: input.env }),
       });
 
-      let session: ReturnType<typeof requireCloudSession>;
-      try {
-        session = requireCloudSession(
-          input.cloudUrl === undefined ? {} : { cloud: input.cloudUrl },
-        );
-      } catch (error) {
-        return mapCloudError(
-          error,
-          refusalCtx(anonymousSession(input.cloudUrl)),
-        );
-      }
+      const opened = authedSession(input.cloudUrl);
+      if (!opened.ok) return opened.failure;
+      const { session } = opened;
 
       try {
         // The app, then the target, then the archive — the CLI's order, so a
@@ -372,18 +394,16 @@ export function createCloudPublishTool(): McpTool<{
  * during a first publish the build sits in `building` while the substrate it
  * will deploy onto is still being created (PRD 15/16), so reporting the build
  * status by itself would say "building" for minutes and mean "waiting".
+ *
+ * WHICH statuses count as provisioning comes from `@hogsend/cli/cloud` — the
+ * CLI renders its own sentences for a human and this renders its own for an
+ * agent, but the membership question has exactly one answer.
  */
 export type CloudBuildPhase =
   | "provisioning"
   | "building"
   | "succeeded"
   | "failed";
-
-const PROVISIONING_STACK_STATUSES = new Set([
-  "deferred",
-  "requested",
-  "provisioning",
-]);
 
 export function derivePhase(build: {
   status: string;
@@ -429,16 +449,9 @@ export function createCloudBuildStatusTool(): McpTool<{
       cloudUrl,
     },
     run: async (input) => {
-      let session: ReturnType<typeof requireCloudSession>;
-      try {
-        session = requireCloudSession(
-          input.cloudUrl === undefined ? {} : { cloud: input.cloudUrl },
-        );
-      } catch (error) {
-        return mapCloudError(error, {
-          cloudHost: anonymousSession(input.cloudUrl).cloud.host,
-        });
-      }
+      const opened = authedSession(input.cloudUrl);
+      if (!opened.ok) return opened.failure;
+      const { session } = opened;
 
       try {
         const build = await session.client.get<BuildStatusResponse>(
@@ -469,5 +482,3 @@ export function createCloudBuildStatusTool(): McpTool<{
     },
   });
 }
-
-export { needsAuth };

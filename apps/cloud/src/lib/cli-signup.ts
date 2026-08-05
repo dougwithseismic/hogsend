@@ -184,20 +184,24 @@ export async function completeCliSignup(
   // The production environment is what `hogsend publish` targets by default.
   // Read rather than assumed: an org created before this flow existed, or one
   // whose production environment was renamed, still answers correctly.
-  const owned = await db
-    .select({ id: environments.id, kind: environments.kind })
-    .from(environments)
-    .where(eq(environments.organizationId, organizationId))
-    .orderBy(asc(environments.createdAt), asc(environments.id));
+  // Independent of each other — the environment read does not inform the
+  // session, and the session does not inform the read — so they overlap rather
+  // than queue. Both are inside the same already-committed organization.
+  const [owned, issued] = await Promise.all([
+    db
+      .select({ id: environments.id, kind: environments.kind })
+      .from(environments)
+      .where(eq(environments.organizationId, organizationId))
+      .orderBy(asc(environments.createdAt), asc(environments.id)),
+    sessions.create({
+      userId,
+      organizationId,
+      label: input.label ?? "email-otp",
+      actor: userId,
+    }),
+  ]);
   const environment =
     owned.find((row) => row.kind === "production") ?? owned[0];
-
-  const issued = await sessions.create({
-    userId,
-    organizationId,
-    label: input.label ?? "email-otp",
-    actor: userId,
-  });
 
   return {
     ok: true,

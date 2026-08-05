@@ -30,16 +30,39 @@ export interface RenderedRefusal {
 }
 
 /**
- * How to get a session back.
+ * How to get a session back — THE sentence, built in one place.
  *
  * Names BOTH doors, because the two are for different situations and a reader
  * with no browser (an SSH box, a container) needs to be told the email one
- * exists rather than discovering it in --help. The browser flow stays first:
+ * exists rather than discovering it in `--help`. The browser flow stays first:
  * it is what `hogsend login` does with no flags.
+ *
+ * Every surface that tells somebody to sign in composes from this:
+ * `NotLoggedInError` (no session stored), the 401 branch below (a session the
+ * cloud rejected), and `inline-auth`'s `authRemedy` (which appends the signup
+ * clause for a caller who may have no account yet). They used to be three
+ * hand-synced copies with a comment asking the next person to keep them in
+ * step — which is a note, not a mechanism.
+ *
+ * `cloudFlag` is the `--cloud <url>` the caller actually passed, so the
+ * printed command is pasteable rather than something they have to adapt.
  */
-function loginHint(ctx: RefusalContext): string {
-  const suffix = ctx.cloudExplicit ? ` --cloud ${ctx.cloudHost}` : "";
+export function signInHint(cloudFlag?: string): string {
+  const suffix = cloudSuffix(cloudFlag);
   return `Run \`hogsend login${suffix}\` (or \`hogsend login --email you@example.com${suffix}\` on a machine with no browser).`;
+}
+
+/**
+ * ` --cloud <url>`, or nothing. The one piece every printed remedy shares —
+ * the SENTENCES differ by audience (see `authRemedy`) but the way a non-default
+ * host is appended must not.
+ */
+export function cloudSuffix(cloudFlag?: string): string {
+  return cloudFlag ? ` --cloud ${cloudFlag}` : "";
+}
+
+function loginHint(ctx: RefusalContext): string {
+  return signInHint(ctx.cloudExplicit ? ctx.cloudHost : undefined);
 }
 
 /** Read a field the cloud sent alongside its message. */

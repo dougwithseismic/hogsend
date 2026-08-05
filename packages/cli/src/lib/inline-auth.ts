@@ -3,6 +3,7 @@ import { runDeviceLoginCommand } from "../commands/login.js";
 import { runEmailLoginCommand } from "../commands/signup.js";
 import type { CommandContext } from "../commands/types.js";
 import { isCloudError } from "./cloud-http.js";
+import { cloudSuffix } from "./cloud-refusals.js";
 import type { CloudSession, CloudSessionOptions } from "./cloud-session.js";
 import { NotLoggedInError, requireCloudSession } from "./cloud-session.js";
 import { bail } from "./prompt.js";
@@ -48,11 +49,16 @@ export interface EnsureSessionOptions extends CloudSessionOptions {
 }
 
 /**
- * The two commands a headless caller is told to run. Email first: it needs no
- * browser, which is the whole reason a headless box is headless.
+ * What a HEADLESS caller is told to run.
+ *
+ * Email first here, unlike {@link signInHint}: the machines that hit this are
+ * the ones with no terminal to prompt in, which are the same machines least
+ * likely to have a browser. The second clause is the part only this surface
+ * needs — a caller being turned away from a publish may have no account at
+ * all, where somebody whose session merely expired certainly does.
  */
 export function authRemedy(cloudFlag?: string): string {
-  const suffix = cloudFlag ? ` --cloud ${cloudFlag}` : "";
+  const suffix = cloudSuffix(cloudFlag);
   return [
     `Run \`hogsend login --email you@example.com${suffix}\` first`,
     `(or \`hogsend signup --email you@example.com${suffix}\` if you have no account yet).`,

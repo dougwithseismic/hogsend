@@ -27,7 +27,11 @@ import {
 import type { EmailMessage, EmailSender } from "../lib/email-sender";
 import { NotPermittedError } from "../lib/org-members";
 import { provisionOrganization } from "../lib/org-provision";
-import { clientIp, consumeRateLimit } from "../lib/rate-limit";
+import {
+  clientIp,
+  consumeDualRateLimit,
+  consumeRateLimit,
+} from "../lib/rate-limit";
 import {
   CliDeviceCodeService,
   DEVICE_CODE_RETENTION_MS,
@@ -333,6 +337,55 @@ describe("POST /api/cli/device — mint", () => {
     });
     expect(later.allowed).toBe(true);
     expect(later.count).toBe(1);
+  });
+
+  it("consumes BOTH buckets even when the first already refused", async () => {
+    // The invariant `consumeDualRateLimit` exists to hold. Short-circuiting on
+    // the email bucket would let a caller hammer ONE address to exhaustion and
+    // then start on the next with a pristine IP budget — which is precisely
+    // the walk-a-list attack the IP axis is there to stop.
+    const ip = freshIp();
+    const email = `dual-${ip}@hogsend.test`;
+    const call = () =>
+      consumeDualRateLimit({
+        email,
+        ip,
+        emailLimit: 1,
+        ipLimit: 10,
+        windowMs: 60_000,
+        prefix: "unit_dual",
+        db,
+      });
+
+    expect((await call()).allowed).toBe(true);
+    // Second and third are refused BY THE EMAIL bucket...
+    expect((await call()).allowed).toBe(false);
+    expect((await call()).allowed).toBe(false);
+
+    // ...and the IP bucket counted all three anyway.
+    const [ipRow] = await db
+      .select({ count: cliRateLimits.count })
+      .from(cliRateLimits)
+      .where(eq(cliRateLimits.bucket, `unit_dual_ip:${ip}`));
+    expect(ipRow?.count).toBe(3);
+  });
+
+  it("reports the longer of the two retry windows", async () => {
+    // Telling a caller to come back before the OTHER bucket has rolled is
+    // advice that earns them a second refusal.
+    const ip = freshIp();
+    const email = `retry-${ip}@hogsend.test`;
+    const refused = await consumeDualRateLimit({
+      email,
+      ip,
+      emailLimit: 0,
+      ipLimit: 0,
+      windowMs: 60_000,
+      prefix: "unit_retry",
+      db,
+    });
+    expect(refused.allowed).toBe(false);
+    expect(refused.retryAfterSeconds).toBeGreaterThan(0);
   });
 
   it("cannot be escaped by rotating the forwarded-for value the caller wrote", async () => {

@@ -221,42 +221,99 @@ function posthogHint(opts: CliOptions, withCd: boolean): string {
 }
 
 /**
- * The two lines that say hosting exists. Printed in EVERY outro mode — a
- * headless scaffold must not learn fewer facts than an interactive one.
- */
-function cloudLines(opts: CliOptions): string[] {
-  return [
-    `${color.cyan(cloudPublishCmd(opts.packageManager))}   ${color.dim(CLOUD_HINT_NOTE)}`,
-    color.dim(SELF_HOST_NOTE),
-  ];
-}
-
-/**
- * What to print INSTEAD of the hosting hint once the app is actually live.
+ * THE hosting-block decision, made once and rendered twice.
  *
- * The hint exists to tell somebody Cloud is an option; to a person whose app is
- * already running there it would be noise at best and confusing at worst.
+ * Three shapes, exactly one printed: the hint (nobody asked for cloud), the
+ * live-instance next steps (the handoff worked), or the resume commands (it did
+ * not). Returned as plain command/note pairs so the interactive branch can
+ * colour them and the non-interactive branch can pad them WITHOUT either
+ * deciding anything — the divergence this replaces was real: the plain branch
+ * fell back to `opts.cloud?.email ?? ""` and could print
+ * `hogsend signup --email ` with an empty address, where the interactive
+ * branch printed nothing at all.
+ *
+ * A `null` command is a note that stands alone (the self-host line).
  */
-function cloudSuccessLines(opts: CliOptions): string[] {
-  const [open, envPull] = cloudNextCmds(opts.packageManager);
-  return [
-    `${color.cyan(open ?? "")}   ${color.dim(CLOUD_OPEN_NOTE)}`,
-    `${color.cyan(envPull ?? "")}   ${color.dim(CLOUD_ENV_PULL_NOTE)}`,
-  ];
+interface HostingEntry {
+  command: string | null;
+  note: string | null;
 }
 
-/** And what to print when the handoff did not finish: how to pick it back up. */
-function cloudResumeLines(opts: CliOptions): string[] {
-  if (!opts.cloud) return [];
-  return [
-    color.dim(CLOUD_RESUME_INTRO),
-    ...cloudResumeCmds(opts.packageManager, {
+interface HostingBlock {
+  /** A sentence above the commands, when the shape has one. */
+  intro: string | null;
+  entries: HostingEntry[];
+}
+
+function hostingBlock(
+  opts: CliOptions,
+  cloudResult: CloudDeployResult | null,
+): HostingBlock {
+  const pm = opts.packageManager;
+
+  if (cloudResult === null) {
+    return {
+      intro: null,
+      entries: [
+        { command: cloudPublishCmd(pm), note: CLOUD_HINT_NOTE },
+        { command: null, note: SELF_HOST_NOTE },
+      ],
+    };
+  }
+
+  if (cloudResult.ok) {
+    const [open, envPull] = cloudNextCmds(pm);
+    return {
+      intro: null,
+      entries: [
+        { command: open ?? null, note: CLOUD_OPEN_NOTE },
+        { command: envPull ?? null, note: CLOUD_ENV_PULL_NOTE },
+      ],
+    };
+  }
+
+  // A failure with no `opts.cloud` cannot happen today (the handoff only runs
+  // when it is set), and if it ever does this prints NOTHING rather than a
+  // command with a blank address in it. Both renderers inherit that.
+  if (!opts.cloud) return { intro: null, entries: [] };
+
+  return {
+    intro: CLOUD_RESUME_INTRO,
+    entries: cloudResumeCmds(pm, {
       email: opts.cloud.email,
       ...(opts.cloud.cloudUrl === undefined
         ? {}
         : { cloudUrl: opts.cloud.cloudUrl }),
-    }).map((cmd) => color.cyan(`  ${cmd}`)),
-  ];
+    }).map((command) => ({ command, note: null })),
+  };
+}
+
+/** The block as clack-coloured lines. */
+function hostingLines(
+  opts: CliOptions,
+  cloudResult: CloudDeployResult | null,
+): string[] {
+  const block = hostingBlock(opts, cloudResult);
+  const rows = block.entries.map(({ command, note }) =>
+    command === null
+      ? color.dim(note ?? "")
+      : `${color.cyan(command)}${note ? `   ${color.dim(note)}` : ""}`,
+  );
+  return block.intro ? [color.dim(block.intro), ...rows] : rows;
+}
+
+/** The same block as the plain-text outro's indented lines. */
+function hostingPlainNote(
+  opts: CliOptions,
+  cloudResult: CloudDeployResult | null,
+): string {
+  const block = hostingBlock(opts, cloudResult);
+  const rows = block.entries.map(({ command, note }) =>
+    command === null
+      ? `    ${note ?? ""}`
+      : `    ${command}${note ? `   ${note}` : ""}`,
+  );
+  return (block.intro ? [`  ${block.intro}`, ...rows] : rows).join("\n");
 }
 
 /** A dim, fixed-width label so the link rows line up under each other. */
@@ -265,19 +322,6 @@ function linkRow(label: string, url: string, note: string): string {
 }
 
 /** The guided "what now" — the difference between a scaffold and an onboarding. */
-/**
- * The hosting block, in its three shapes: the hint (nobody asked for cloud),
- * the live-instance next steps (it worked), or the resume commands (it did
- * not). Exactly one of them is ever printed.
- */
-function hostingLines(
-  opts: CliOptions,
-  cloudResult: CloudDeployResult | null,
-): string[] {
-  if (cloudResult === null) return cloudLines(opts);
-  return cloudResult.ok ? cloudSuccessLines(opts) : cloudResumeLines(opts);
-}
-
 function nextSteps(
   opts: CliOptions,
   setupDone: boolean,
@@ -574,26 +618,7 @@ async function main(): Promise<void> {
     // in the plain-text form this block uses. One string, interpolated into
     // BOTH branches below — an agent-driven scaffold that also ran setup must
     // still be told what happened to its deploy.
-    const cloudNote =
-      cloudResult === null
-        ? `    ${cloudPublishCmd(pm)}   ${CLOUD_HINT_NOTE}\n` +
-          `    ${SELF_HOST_NOTE}`
-        : cloudResult.ok
-          ? cloudNextCmds(pm)
-              .map(
-                (cmd, at) =>
-                  `    ${cmd}   ${at === 0 ? CLOUD_OPEN_NOTE : CLOUD_ENV_PULL_NOTE}`,
-              )
-              .join("\n")
-          : [
-              `  ${CLOUD_RESUME_INTRO}`,
-              ...cloudResumeCmds(pm, {
-                email: opts.cloud?.email ?? "",
-                ...(opts.cloud?.cloudUrl === undefined
-                  ? {}
-                  : { cloudUrl: opts.cloud.cloudUrl }),
-              }).map((cmd) => `    ${cmd}`),
-            ].join("\n");
+    const cloudNote = hostingPlainNote(opts, cloudResult);
     const posthogNote = opts.usingPosthog
       ? `\n  ${posthogNextStep(opts, setupDone)}${POSTHOG_HINT_NOTE}`
       : "";
@@ -623,28 +648,20 @@ ${skillsNote}${posthogNote}
     }
   }
 
-  applyCloudExitCode(cloudResult);
-}
-
-/**
- * EXIT CODE, stated once because it is a real decision:
- *
- * a scaffold whose `--cloud` handoff failed exits NONZERO, even though the app
- * on disk is complete and usable. `--cloud` is an explicit request to end up
- * with a running instance, and a caller that asked for one — a CI job, an agent
- * — must be able to tell that it did not get one. The resume commands are
- * printed either way, so a human loses nothing.
- *
- * This deliberately differs from a failed `bootstrap`, which exits 0: that step
- * is local, recoverable on the spot, and its failure is already loud on the
- * screen of the person standing there. If we ever want the two to agree, the
- * bootstrap one should move to nonzero — not this one back to zero.
- *
- * `process.exitCode` rather than `process.exit()`, so the outro above is
- * actually flushed before the process ends.
- */
-function applyCloudExitCode(result: CloudDeployResult | null): void {
-  if (result && !result.ok) process.exitCode = 1;
+  // EXIT CODE, stated once because it is a real decision: a scaffold whose
+  // `--cloud` handoff failed exits NONZERO, even though the app on disk is
+  // complete and usable. `--cloud` is an explicit request to end up with a
+  // running instance, and a caller that asked for one — a CI job, an agent —
+  // must be able to tell that it did not get one. The resume commands are
+  // printed either way, so a human loses nothing.
+  //
+  // This deliberately differs from a failed `bootstrap`, which exits 0: that
+  // step is local, recoverable on the spot, and already loud on the screen of
+  // the person standing there. If the two are ever reconciled, bootstrap
+  // should move to nonzero — not this back to zero.
+  //
+  // `process.exitCode`, not `process.exit()`, so the outro above is flushed.
+  if (cloudResult && !cloudResult.ok) process.exitCode = 1;
 }
 
 main().catch((err: unknown) => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { completeCliSignup } from "@/src/lib/cli-signup";
-import { clientIp, consumeRateLimit } from "@/src/lib/rate-limit";
+import { clientIp, consumeDualRateLimit } from "@/src/lib/rate-limit";
+import { fail } from "@/src/lib/route-response";
 
 /**
  * `POST /api/cli/signup/verify` — the code comes back, and the machine is
@@ -55,18 +56,6 @@ const bodySchema = z.object({
 
 export const dynamic = "force-dynamic";
 
-function fail(
-  status: number,
-  error: string,
-  message: string,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json(
-    { error, message },
-    { status, headers: { "cache-control": "no-store", ...headers } },
-  );
-}
-
 /** The one sentence each refusal turns into. */
 const REFUSALS = {
   invalid_code: {
@@ -106,26 +95,20 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const email = body.email.toLowerCase();
-  const perEmail = await consumeRateLimit({
-    bucket: `cli_verify_email:${email}`,
-    limit: VERIFY_EMAIL_RATE_LIMIT,
+  const limit = await consumeDualRateLimit({
+    email,
+    ip: clientIp(request.headers),
+    emailLimit: VERIFY_EMAIL_RATE_LIMIT,
+    ipLimit: VERIFY_IP_RATE_LIMIT,
     windowMs: VERIFY_RATE_WINDOW_MS,
+    prefix: "cli_verify",
   });
-  const perIp = await consumeRateLimit({
-    bucket: `cli_verify_ip:${clientIp(request.headers)}`,
-    limit: VERIFY_IP_RATE_LIMIT,
-    windowMs: VERIFY_RATE_WINDOW_MS,
-  });
-  if (!perEmail.allowed || !perIp.allowed) {
-    const retryAfter = Math.max(
-      perEmail.allowed ? 0 : perEmail.retryAfterSeconds,
-      perIp.allowed ? 0 : perIp.retryAfterSeconds,
-    );
+  if (!limit.allowed) {
     return fail(
       429,
       "rate_limited",
       "Too many attempts. Wait for the retry-after window and try again.",
-      { "retry-after": String(retryAfter) },
+      { "retry-after": String(limit.retryAfterSeconds) },
     );
   }
 

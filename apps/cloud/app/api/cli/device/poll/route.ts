@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { clientIp, consumeRateLimit } from "@/src/lib/rate-limit";
+import { fail } from "@/src/lib/route-response";
 import { cliDeviceCodeService } from "@/src/services/cli-device-codes";
 
 /**
@@ -35,18 +36,6 @@ const bodySchema = z.object({
 });
 
 export const dynamic = "force-dynamic";
-
-function fail(
-  status: number,
-  error: string,
-  message: string,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json(
-    { error, message },
-    { status, headers: { "cache-control": "no-store", ...headers } },
-  );
-}
 
 export async function POST(request: Request): Promise<Response> {
   const limit = await consumeRateLimit({

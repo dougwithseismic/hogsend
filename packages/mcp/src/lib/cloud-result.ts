@@ -64,10 +64,21 @@ export interface CloudFailure {
   retryAfterSeconds?: number;
 }
 
+/**
+ * Build a failure. The option fields accept `undefined` explicitly so callers
+ * can pass a maybe-value straight through (`hint: error.hint`) instead of
+ * guarding each one — the spreads BELOW are what decide whether a key appears
+ * in the result at all, and that is the part worth keeping: an MCP result is
+ * read by a model, and an absent key says less than a null one.
+ */
 export function cloudFailure(
   code: CloudFailureCode,
   error: string,
-  extra: { hint?: string; status?: number; retryAfterSeconds?: number } = {},
+  extra: {
+    hint?: string | undefined;
+    status?: number | undefined;
+    retryAfterSeconds?: number | undefined;
+  } = {},
 ): CloudFailure {
   return {
     ok: false,
@@ -114,10 +125,8 @@ export function mapCloudError(
   if (error instanceof EmailLoginError) {
     if (error.verdict === "rate_limited") {
       return cloudFailure("rate_limited", error.message, {
-        ...(error.hint === undefined ? {} : { hint: error.hint }),
-        ...(error.retryAfter === undefined
-          ? {}
-          : { retryAfterSeconds: error.retryAfter }),
+        hint: error.hint,
+        retryAfterSeconds: error.retryAfter,
       });
     }
     if (
@@ -132,16 +141,12 @@ export function mapCloudError(
             : "That code is dead — call `cloud_signup` for a fresh one.",
       });
     }
-    return cloudFailure("error", error.message, {
-      ...(error.hint === undefined ? {} : { hint: error.hint }),
-    });
+    return cloudFailure("error", error.message, { hint: error.hint });
   }
   if (error instanceof PublishError) {
     const code: CloudFailureCode =
       error.verdict === "no_environment" ? "no_environment" : "error";
-    return cloudFailure(code, error.message, {
-      ...(error.hint === undefined ? {} : { hint: error.hint }),
-    });
+    return cloudFailure(code, error.message, { hint: error.hint });
   }
 
   if (!isCloudError(error)) throw error;
@@ -171,39 +176,37 @@ function mapCloudHttpError(
   }
   if (error.status === 403) {
     return cloudFailure("forbidden", rendered.headline, {
-      ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+      hint: rendered.hint,
       status: 403,
     });
   }
   if (error.status === 404) {
     return cloudFailure("not_found", rendered.headline, {
-      ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+      hint: rendered.hint,
       status: 404,
     });
   }
   if (error.status === 409 && error.code === "engine_version_mismatch") {
     return cloudFailure("engine_version_mismatch", rendered.headline, {
-      ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+      hint: rendered.hint,
       status: 409,
     });
   }
   if (error.status === 413) {
     return cloudFailure("invalid_tarball", rendered.headline, {
-      ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+      hint: rendered.hint,
       status: 413,
     });
   }
   if (error.status === 429) {
     return cloudFailure("rate_limited", rendered.headline, {
-      ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+      hint: rendered.hint,
       status: 429,
-      ...(error.retryAfter === undefined
-        ? {}
-        : { retryAfterSeconds: error.retryAfter }),
+      retryAfterSeconds: error.retryAfter,
     });
   }
   return cloudFailure("error", rendered.headline, {
-    ...(rendered.hint === undefined ? {} : { hint: rendered.hint }),
+    hint: rendered.hint,
     status: error.status,
   });
 }

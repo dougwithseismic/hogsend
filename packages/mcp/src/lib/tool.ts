@@ -10,8 +10,25 @@
  * is self-contained even when a host doesn't pre-validate) and returns the
  * discriminated `ok` result — it never throws for an expected failure.
  */
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { invalidInput } from "./result.js";
+
+/**
+ * Serialize a tool's discriminated `ok` result into a text content block —
+ * the one adapter between this package's result contract and the SDK's
+ * `CallToolResult`.
+ *
+ * Here rather than in a server file because BOTH registration surfaces need it
+ * (`server.ts` for the instance tools, `cloud-tools.ts` for the stdio-only
+ * cloud ones), and two copies of "how a result becomes content" is how one of
+ * them ends up pretty-printing and the other not.
+ */
+export function toContent(result: unknown): CallToolResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+  };
+}
 
 export type ToolRawShape = z.ZodRawShape;
 
