@@ -207,40 +207,69 @@ describe("POST /api/publish/:environmentId", () => {
   it("promotes the deferred stack AND accepts the build", async () => {
     const fixture = await seedDeferred();
 
-    const response = await publishRoute(
-      uploadRequest(fixture.environmentId, fixture.token),
-      { params: Promise.resolve({ environmentId: fixture.environmentId }) },
+    // HOLD the inline provisioner at its first substrate call. The real
+    // `enqueueProvision` runs (that is the point — the intake really enqueues),
+    // but this fixture is not provisionable end to end, so left ungated the
+    // pipeline can run to `error` before the assertions read the row — a
+    // scheduling race CI actually lost (run 30998979320) while three local
+    // passes won it. Gated, the stack is deterministically in
+    // `requested`/`provisioning` at read time under ANY scheduling, and the
+    // gate is released before the assertions so nothing leaks past the test.
+    const { configureProvisioning, resetProvisioning } = await import(
+      "../pipeline/enqueue"
     );
-
-    // The upload is accepted exactly as it always was — promotion is a thing
-    // the intake does FOR the caller, not a new way to refuse them.
-    expect(response.status).toBe(202);
-    const body = (await response.json()) as { buildId: string; status: string };
-    expect(body.status).toBe("queued");
-    // Promoted OUT of `deferred`. Not pinned to `requested`: this suite lets
-    // the real `enqueueProvision` run (fake substrate, no Hatchet), so the
-    // in-process provisioner may already have taken `requested →
-    // provisioning` by the time this reads. Either is the promotion working;
-    // `deferred` would be it not working.
-    expect(PROMOTED_STATUSES).toContain(await statusOf(fixture.stackId));
-
-    // And the status endpoint carries the stack's phase, which is the only
-    // thing the CLI can render while the build waits for substrate.
-    const status = await buildRoute(
-      new Request(`http://localhost:3004/api/builds/${body.buildId}`, {
-        headers: { authorization: `Bearer ${fixture.token}` },
-      }),
-      { params: Promise.resolve({ buildId: body.buildId }) },
-    );
-    expect(status.status).toBe(200);
-    const view = (await status.json()) as {
-      status: string;
-      stack: { status: string } | null;
+    const { FakeSubstrate } = await import("../substrate/fake");
+    let releaseGate = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const gated = new FakeSubstrate();
+    const realProvision = gated.provisionStack.bind(gated);
+    gated.provisionStack = async (spec) => {
+      await gate;
+      return realProvision(spec);
     };
-    expect(view.status).toBe("queued");
-    // The pair the CLI narrates from: a queued build, and a stack that is
-    // being built. Without this field there is nothing to render for the
-    // minutes a first publish spends waiting for substrate.
-    expect(PROMOTED_STATUSES).toContain(view.stack?.status);
+    configureProvisioning({ substrate: gated });
+
+    try {
+      const response = await publishRoute(
+        uploadRequest(fixture.environmentId, fixture.token),
+        { params: Promise.resolve({ environmentId: fixture.environmentId }) },
+      );
+
+      // The upload is accepted exactly as it always was — promotion is a thing
+      // the intake does FOR the caller, not a new way to refuse them.
+      expect(response.status).toBe(202);
+      const body = (await response.json()) as {
+        buildId: string;
+        status: string;
+      };
+      expect(body.status).toBe("queued");
+      // Promoted OUT of `deferred`, and no further: the gate above pins the
+      // in-process provisioner before it can park the fixture in `error`.
+      expect(PROMOTED_STATUSES).toContain(await statusOf(fixture.stackId));
+
+      // And the status endpoint carries the stack's phase, which is the only
+      // thing the CLI can render while the build waits for substrate.
+      const status = await buildRoute(
+        new Request(`http://localhost:3004/api/builds/${body.buildId}`, {
+          headers: { authorization: `Bearer ${fixture.token}` },
+        }),
+        { params: Promise.resolve({ buildId: body.buildId }) },
+      );
+      expect(status.status).toBe(200);
+      const view = (await status.json()) as {
+        status: string;
+        stack: { status: string } | null;
+      };
+      expect(view.status).toBe("queued");
+      // The pair the CLI narrates from: a queued build, and a stack that is
+      // being built. Without this field there is nothing to render for the
+      // minutes a first publish spends waiting for substrate.
+      expect(PROMOTED_STATUSES).toContain(view.stack?.status);
+    } finally {
+      releaseGate();
+      resetProvisioning();
+    }
   });
 });
