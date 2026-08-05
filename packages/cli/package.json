@@ -15,6 +15,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./cloud": "./src/cloud.ts",
     "./eject": "./src/eject.ts",
     "./bin": "./dist/bin.js",
     "./package.json": "./package.json"

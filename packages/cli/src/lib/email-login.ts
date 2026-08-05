@@ -151,6 +151,44 @@ function verifyFailure(error: CloudError): EmailLoginError {
 }
 
 /**
+ * Exchange a code the caller ALREADY HOLDS for a session — the verify leg on
+ * its own, with no send in front of it.
+ *
+ * Split out because the two callers arrive with different histories. The CLI
+ * sends and verifies in one breath ({@link runEmailLogin} below). An MCP agent
+ * calls `cloud_signup` first and comes back later with the code from the
+ * inbox — and if ITS verify re-sent, the control plane would ROTATE the code
+ * and reject the one the agent was holding. That is not a theoretical concern:
+ * it is exactly what happened the first time the tools were driven end to end.
+ *
+ * One implementation of the call and its refusal mapping, two entry points.
+ */
+export async function verifyEmailCode(
+  input: {
+    email: string;
+    otp: string;
+    org?: string;
+    label: string;
+  },
+  deps: { client: CloudClient },
+): Promise<SignupVerifyResponse> {
+  try {
+    return await deps.client.post<SignupVerifyResponse>(
+      "/api/cli/signup/verify",
+      {
+        email: input.email,
+        otp: input.otp.trim(),
+        label: input.label,
+        ...(input.org === undefined ? {} : { org: input.org }),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof CloudError)) throw error;
+    throw verifyFailure(error);
+  }
+}
+
+/**
  * Send the code, collect it, exchange it for a session.
  *
  * A wrong code is RETRIED in place while the budget allows, because the
@@ -197,19 +235,19 @@ export async function runEmailLogin(
     const otp = (await deps.readCode(attempt)).trim();
 
     try {
-      const verified = await deps.client.post<SignupVerifyResponse>(
-        "/api/cli/signup/verify",
+      const verified = await verifyEmailCode(
         {
           email: options.email,
           otp,
           label: options.label,
           ...(options.org === undefined ? {} : { org: options.org }),
         },
+        { client: deps.client },
       );
       return { ...verified, expiresInSeconds: sent.expiresInSeconds };
     } catch (error) {
-      if (!(error instanceof CloudError)) throw error;
-      const failure = verifyFailure(error);
+      if (!(error instanceof EmailLoginError)) throw error;
+      const failure = error;
       // Only a wrong code is worth another go: it is the one refusal the
       // human can fix with the code they already have.
       if (failure.verdict !== "invalid_code") throw failure;

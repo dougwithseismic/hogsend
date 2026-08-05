@@ -10,6 +10,7 @@
  */
 import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { registerCloudTools } from "./cloud-tools.js";
 import { createFetchAdminClient } from "./lib/admin-client.js";
 import { createHogsendMcpServer } from "./server.js";
 
@@ -49,18 +50,29 @@ function resolveConfig(): { baseUrl: string; adminKey: string | undefined } {
 async function main(): Promise<void> {
   const { baseUrl, adminKey } = resolveConfig();
 
-  if (!adminKey) {
-    log(
-      "no admin key configured. Set HOGSEND_ADMIN_KEY (or ADMIN_API_KEY), or pass --admin-key <key>.",
-    );
-    process.exit(1);
-  }
+  // NO ADMIN KEY IS NOT FATAL ANY MORE (PRD 18). The `cloud_*` tools sign this
+  // machine in and publish a scaffold, and at that point in the journey there
+  // is no instance to hold an admin key for — refusing to start would make the
+  // server useless for exactly the flow it was extended to serve. What happens
+  // instead: the instance tools are not registered, the cloud tools are, and
+  // stderr says so.
+  const client = adminKey
+    ? createFetchAdminClient({ baseUrl, adminKey })
+    : undefined;
+  const server = createHogsendMcpServer(client ? { client } : {});
 
-  const client = createFetchAdminClient({ baseUrl, adminKey });
-  const server = createHogsendMcpServer({ client });
+  // STDIO ONLY. These act on this machine's credentials file and filesystem,
+  // which is coherent here and is not on a shared hosted instance — see
+  // `cloud-tools.ts`. The hosted transport (`routes.ts`) never imports it.
+  registerCloudTools(server);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log(`connected (stdio) → ${baseUrl}`);
+  log(
+    client
+      ? `connected (stdio) → ${baseUrl}`
+      : "connected (stdio), cloud tools only — set HOGSEND_ADMIN_KEY (or --admin-key) to also manage an instance.",
+  );
 }
 
 main().catch((err) => {
