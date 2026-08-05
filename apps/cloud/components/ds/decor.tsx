@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type HairlineProps = {
@@ -9,28 +8,6 @@ type HairlineProps = {
 export function Hairline({ className }: HairlineProps) {
   return (
     <div aria-hidden className={cn("h-px w-full bg-white/[0.08]", className)} />
-  );
-}
-
-type DottedArrowProps = {
-  className?: string;
-};
-
-/**
- * Small square "go" affordance: hairline border + → arrow glyph. Decorative
- * on its own; wrap it in an interactive element when used as an action.
- */
-export function DottedArrow({ className }: DottedArrowProps) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/15 text-white",
-        className,
-      )}
-    >
-      <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
-    </span>
   );
 }
 

@@ -292,7 +292,7 @@ export interface FakeTenantCredentialClient extends TenantCredentialClient {
  */
 let fakeSingleton: FakeTenantCredentialClient | undefined;
 
-export function getFakeTenantCredentialClient(): FakeTenantCredentialClient {
+function getFakeTenantCredentialClient(): FakeTenantCredentialClient {
   fakeSingleton ??= buildFakeClient();
   return fakeSingleton;
 }

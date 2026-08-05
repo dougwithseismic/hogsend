@@ -380,6 +380,3 @@ function hashesMatch(a: string, b: string): boolean {
   }
   return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
 }
-
-/** Default instance bound to the app pool — the usual import for callers. */
-export const cliSessionService = new CliSessionService();

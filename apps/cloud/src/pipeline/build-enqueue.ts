@@ -48,10 +48,6 @@ export interface BuildEnqueueResult {
  */
 let depsOverride: Partial<BuildDeps> = {};
 
-export function configureBuilds(overrides: Partial<BuildDeps>): void {
-  depsOverride = overrides;
-}
-
 export function resetBuilds(): void {
   depsOverride = {};
 }
@@ -163,12 +159,4 @@ function schedule(buildId: string): Promise<BuildPipelineResult> {
       );
     });
   });
-}
-
-/** Await the in-process run for `buildId`, if there is one. Dev/test only. */
-export async function waitForBuild(
-  buildId: string,
-): Promise<BuildPipelineResult | null> {
-  const run = inflight.get(buildId);
-  return run ? await run : null;
 }

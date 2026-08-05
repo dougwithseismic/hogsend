@@ -311,6 +311,3 @@ async function lockEnvironmentOrganization(
   if (!row) throw new NotFoundError("Environment", environmentId);
   return row.organizationId;
 }
-
-/** Default instance bound to the app pool — the usual import for callers. */
-export const publishTokenService = new PublishTokenService();

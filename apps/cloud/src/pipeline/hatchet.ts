@@ -54,10 +54,6 @@ export const SWEEP_PROVISIONS_TASK = "sweep-provisions";
 /** The sweep that tells a human when a stack needs one (PRD 13 T3). */
 export const SWEEP_STACK_ALERTS_TASK = "sweep-stack-alerts";
 
-export interface ProvisionStackInput extends JsonObject {
-  stackId: string;
-}
-
 /** The JSON summary a finished `provision-stack` run leaves in Hatchet. */
 export interface ProvisionTaskOutput extends JsonObject {
   stackId: string;
@@ -236,10 +232,6 @@ let billingSweepCache: BillingSweepTask | undefined;
 export function getBillingSweepTask(client: HatchetClient): BillingSweepTask {
   billingSweepCache ??= buildBillingSweepTask(client);
   return billingSweepCache;
-}
-
-export interface RunBuildInput extends JsonObject {
-  buildId: string;
 }
 
 /** The JSON summary a finished `run-build` leaves in Hatchet. */

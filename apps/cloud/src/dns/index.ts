@@ -91,14 +91,3 @@ export function getDns(): DnsProvider {
       return cloudflareSingleton;
   }
 }
-
-/** Test/dev helper: the process-wide fake, or a throw if it is not active. */
-export function getFakeDns(): FakeDns {
-  const provider = getDns();
-  if (!(provider instanceof FakeDns)) {
-    throw new DnsError(
-      `the active DNS provider is "${env.CLOUD_DNS}", not the fake`,
-    );
-  }
-  return provider;
-}

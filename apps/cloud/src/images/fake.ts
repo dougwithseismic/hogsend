@@ -23,7 +23,7 @@ import type {
  *    strong thing — "push was never called" — rather than only the end state.
  */
 
-export type FakeImageStoreMethod = "build" | "push" | "exists";
+export type FakeImageStoreMethod = "build" | "push";
 
 export interface FakeImageStoreCall {
   method: FakeImageStoreMethod;
@@ -37,7 +37,7 @@ export class FakeImageStore implements ImageStore {
 
   /** Every call made, in order. */
   readonly calls: FakeImageStoreCall[] = [];
-  /** References this store has "built". `exists` answers from it. */
+  /** References this store has "built". */
   readonly built = new Set<string>();
   /** References this store has "pushed". */
   readonly pushed = new Set<string>();
@@ -83,11 +83,6 @@ export class FakeImageStore implements ImageStore {
     input.onOutput?.(`fake: pushed ${reference}\n`);
     this.pushed.add(reference);
     return { reference, digest: this.digestFor(reference), pushed: true };
-  }
-
-  async exists(tag: string): Promise<boolean> {
-    this.record("exists", { tag });
-    return this.built.has(this.reference(tag));
   }
 
   /**

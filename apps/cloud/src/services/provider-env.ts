@@ -68,12 +68,6 @@ export const PROVIDER_ENV_NAMES: Record<string, readonly string[]> = {
 export const PROVIDER_ENV_OWNED_NAMES: readonly string[] = [
   ...new Set(Object.values(PROVIDER_ENV_NAMES).flat()),
 ].sort();
-
-/** The env names one provider owns. Empty for a provider we do not map. */
-export function providerEnvNames(provider: string): readonly string[] {
-  return PROVIDER_ENV_NAMES[provider] ?? [];
-}
-
 /** The domain half of an address, or null when there is not one. */
 export function emailDomainOf(address: string): string | null {
   const trimmed = address.trim().replace(/^.*<|>$/g, "");

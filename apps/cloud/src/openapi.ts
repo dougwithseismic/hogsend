@@ -7,10 +7,12 @@
  * the documented keys and enums match the body it returns — so this file cannot
  * silently rot.
  *
- * The HTTP surface is exactly two route files: `/api/health` and the Better
- * Auth catch-all. Everything else the dashboard does is a server action or a
- * server component read, which has no URL to document — so this is the whole
- * public surface, not a sample of it.
+ * Documents the UNAUTHENTICATED surface: `/api/health` and the Better Auth
+ * catch-all. The dashboard itself runs on server actions and server-component
+ * reads, which have no URL to document. The token-authenticated machine routes
+ * (`/api/cli/*`, `/api/publish/*`, `/api/builds/*`, `/api/billing/*`) are
+ * consumed only by our own CLI and Stripe and are deliberately not documented
+ * here — if they ever become a public contract, they join this file.
  */
 
 export interface OpenApiPropertySchema {

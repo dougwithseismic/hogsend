@@ -207,20 +207,6 @@ export interface BuildSummary {
 
 export type ListBuildsResult = { builds: BuildSummary[] };
 
-export function toBuildSummary(row: BuildRow): BuildSummary {
-  return {
-    id: row.id,
-    environmentId: row.environmentId,
-    status: row.status,
-    engineVersion: row.engineVersion,
-    imageDigest: row.imageDigest,
-    error: row.error,
-    createdAt: row.createdAt,
-    startedAt: row.startedAt,
-    finishedAt: row.finishedAt,
-  };
-}
-
 export class BuildService {
   constructor(private readonly db: CloudDb = defaultDb) {}
 
