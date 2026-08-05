@@ -65,6 +65,56 @@ describe("DockerImageStore", () => {
     ]);
   });
 
+  it("removes the target tag before building, so a re-run is idempotent", async () => {
+    // The exec seam can run one logical build twice: the sandbox host rides
+    // the Railway client's retry policy, and a transiently-failed request may
+    // re-issue `docker build` after the first run completed. BuildKit then
+    // refuses to export over the existing name — the live failure on build
+    // 2c970205. The rm is the cleanup that makes the retry succeed.
+    const { exec, calls } = recorder();
+    const store = new DockerImageStore({ exec });
+
+    await store.build({
+      contextDir: "/work/app",
+      dockerfile: "/work/app/Dockerfile",
+      tag: "hogsend-default:0.57.0",
+    });
+
+    const rmAt = calls.findIndex((call) => call.args[0] === "image");
+    const buildAt = calls.findIndex((call) => call.args[0] === "build");
+    expect(calls[rmAt]?.args).toEqual([
+      "image",
+      "rm",
+      "-f",
+      "hogsend-default:0.57.0",
+    ]);
+    // BEFORE the build, or it would delete what was just built.
+    expect(rmAt).toBeGreaterThanOrEqual(0);
+    expect(rmAt).toBeLessThan(buildAt);
+  });
+
+  it("a failing tag removal does not fail the build", async () => {
+    // A missing image is the NORMAL case — docker exits nonzero for it on
+    // some hosts, and the guard must shrug rather than turn the first build
+    // of every tag into an error.
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    const store = new DockerImageStore({
+      exec: async (command, args) => {
+        calls.push({ command, args });
+        return args[0] === "image"
+          ? { code: 1, output: "No such image\n", timedOut: false }
+          : { code: 0, output: "", timedOut: false };
+      },
+    });
+
+    const result = await store.build({
+      contextDir: "/work/app",
+      dockerfile: "/work/app/Dockerfile",
+      tag: "hogsend-default:0.57.0",
+    });
+    expect(result.reference).toBe("hogsend-default:0.57.0");
+  });
+
   it("qualifies every reference with the configured registry", async () => {
     const { exec, calls } = recorder();
     const store = new DockerImageStore({

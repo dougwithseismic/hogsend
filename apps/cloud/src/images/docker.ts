@@ -79,6 +79,21 @@ export class DockerImageStore implements ImageStore {
 
   async build(input: BuildImageInput): Promise<BuildImageResult> {
     const reference = this.reference(input.tag);
+
+    // Make the build IDEMPOTENT on its tag. The exec seam can legitimately run
+    // this command twice for one logical build: on the sandbox host it rides
+    // the Railway GraphQL client, whose retry policy re-issues a request that
+    // failed transiently even though the first `docker build` may have run to
+    // completion. BuildKit's containerd store then refuses to export over the
+    // existing name ("image … already exists") — seen live on build 2c970205
+    // (2026-08-05), where a retried cold build failed the whole publish at the
+    // export step. Removing the tag first is a no-op on the first run and
+    // exactly the cleanup the retry needs; failure is ignored because a
+    // missing image is the normal case.
+    await this.exec(this.docker, ["image", "rm", "-f", reference], {
+      timeoutMs: 60_000,
+    });
+
     const args = [
       "build",
       // See the class doc: the substrate is amd64, whatever the builder is.
