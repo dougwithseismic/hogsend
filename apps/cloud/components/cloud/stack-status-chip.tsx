@@ -14,6 +14,8 @@ import type { StackRow } from "@/src/services/orgs";
 type StackStatus = StackRow["status"];
 
 const TONE: Record<StackStatus, "neutral" | "accent" | "good" | "caution"> = {
+  // Nothing has been asked for yet (PRD 15): it is a state, not a stall.
+  deferred: "neutral",
   requested: "neutral",
   provisioning: "caution",
   running: "good",

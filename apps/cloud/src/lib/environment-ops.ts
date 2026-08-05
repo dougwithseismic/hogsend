@@ -96,6 +96,10 @@ const OPERATION_EDGE: Record<EnvironmentOperation, StackStatus> = {
 };
 
 export const OPERATIONS_BY_STATUS = {
+  // A `deferred` stack has asked for nothing yet: there is no failed step to
+  // retry and no substrate to pause or tear down. The publish is what starts
+  // it, so the environment page offers no button that would pretend otherwise.
+  deferred: [],
   requested: ["retry"],
   provisioning: [],
   running: ["suspend"],

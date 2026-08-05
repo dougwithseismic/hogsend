@@ -146,6 +146,7 @@ describe("readOpsStats", () => {
     expect(stats.stacks.total).toBe(0);
     expect(Object.keys(stats.stacks.byStatus).sort()).toEqual(
       [
+        "deferred",
         "destroyed",
         "destroying",
         "error",

@@ -219,6 +219,7 @@ describe("allowedOperations", () => {
    * same source would agree with any change including a wrong one.
    */
   const MATRIX: Record<StackStatus, EnvironmentOperation[]> = {
+    deferred: [],
     requested: ["retry"],
     provisioning: [],
     running: ["suspend"],

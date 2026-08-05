@@ -33,8 +33,16 @@ export const environmentKindEnum = cloud.enum("cloud_environment_kind", [
  * Stack lifecycle. The legal-edge table lives in the state machine (PRD 02
  * task 4) — this enum only fixes the vocabulary and its Postgres ordering.
  * `error` is terminal-until-retried and pairs with `last_error` + `retry_count`.
+ *
+ * `deferred` is the pre-`requested` state a stack is born in under
+ * `CLOUD_PROVISION_ON=first-publish` (PRD 15): the tenant row exists and is
+ * addressable, but no substrate has been asked for yet. It is deliberately its
+ * own status rather than "requested but unqueued" — nothing sweeps it, nothing
+ * alerts on it, and the ONLY way out is the publish intake promoting it to
+ * `requested`.
  */
 export const stackStatusEnum = cloud.enum("cloud_stack_status", [
+  "deferred",
   "requested",
   "provisioning",
   "running",

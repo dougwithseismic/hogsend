@@ -68,12 +68,22 @@ export const ALERT_SWEEP_CRON = "*/10 * * * *";
 /**
  * Statuses a non-`running` stack may sit in without anyone being told.
  *
- * All three are the RESULT of a deliberate action — an operator suspending a
- * tenant, a destroy running or finished. Alerting on them would page a human
- * about a thing that human just did, which is the fastest way to teach them to
- * filter the channel.
+ * The first three are the RESULT of a deliberate action — an operator
+ * suspending a tenant, a destroy running or finished. Alerting on them would
+ * page a human about a thing that human just did, which is the fastest way to
+ * teach them to filter the channel.
+ *
+ * `deferred` is here for the opposite reason: nothing has been asked for yet
+ * (PRD 15). Under `CLOUD_PROVISION_ON=first-publish` every signup that never
+ * publishes sits here forever, and a status-agnostic `non_running` rule would
+ * turn the ordinary shape of the product into a permanent page.
  */
-const UNALERTED_STATUSES = new Set(["suspended", "destroying", "destroyed"]);
+const UNALERTED_STATUSES = new Set([
+  "deferred",
+  "suspended",
+  "destroying",
+  "destroyed",
+]);
 
 /**
  * Did this stack fail inside the provisioning pipeline?

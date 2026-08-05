@@ -44,8 +44,16 @@ export type StackStatus = StackRow["status"];
  *    can never reach.
  *  - `destroyed` has no outgoing edges at all. It is the one terminal state;
  *    a new stack is a new row.
+ *  - `deferred` has exactly ONE outgoing edge, `requested`, and no incoming
+ *    ones. It is where a stack is BORN under
+ *    `CLOUD_PROVISION_ON=first-publish` (PRD 15) and the only thing that moves
+ *    it is the publish intake asking for substrate. Routing it through
+ *    `requested` rather than straight to `provisioning` is deliberate: every
+ *    provisioning run then starts from the same status, so the sweep, the
+ *    alerts and the pipeline need no second entry point.
  */
 export const LEGAL_EDGES = {
+  deferred: ["requested"],
   requested: ["provisioning"],
   provisioning: ["running", "error"],
   running: ["publishing", "suspended"],
@@ -79,6 +87,7 @@ const FAILABLE_STATUSES = legalSources("error");
 const MAX_LAST_ERROR_LENGTH = 2000;
 
 const statusSchema = z.enum([
+  "deferred",
   "requested",
   "provisioning",
   "running",
@@ -271,7 +280,7 @@ async function applyStatus(
     set: PgUpdateSetSource<typeof stacks>;
   },
 ): Promise<StackRow | null> {
-  // Nothing reaches a status with no legal source (`requested`, `destroyed`),
+  // Nothing reaches a status with no legal source (`deferred`, `destroyed`),
   // and an empty IN-list is not a query worth building.
   if (args.sources.length === 0) return null;
 

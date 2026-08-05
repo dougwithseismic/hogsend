@@ -29,6 +29,7 @@ import type { StackStatus } from "../services/stacks";
 type CloudPlan = (typeof cloudPlanEnum.enumValues)[number];
 
 const STACK_STATUSES = [
+  "deferred",
   "requested",
   "provisioning",
   "running",

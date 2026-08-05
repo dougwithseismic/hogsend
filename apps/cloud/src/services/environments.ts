@@ -38,7 +38,13 @@ import {
  */
 
 /** The only stack statuses at which no substrate can be orphaned. */
-const REMOVABLE_STACK_STATUSES = new Set(["requested", "destroyed"]);
+const REMOVABLE_STACK_STATUSES = new Set([
+  // Nothing has been asked for yet (PRD 15) — strictly less substrate than
+  // `requested`, so if that is removable this is.
+  "deferred",
+  "requested",
+  "destroyed",
+]);
 
 const nameSchema = z
   .string()

@@ -1142,11 +1142,18 @@ describe("organization creation", () => {
 
     // The REAL path a signup takes — no enqueue injected here, so the default
     // (the module the create-org action calls) is what runs.
+    //
+    // `provision: true` pins the `CLOUD_PROVISION_ON=signup` policy: this case
+    // is about provisioning happening with NO OPERATOR ACTION, which is only a
+    // claim about the signup policy. Under the deployment default
+    // (`first-publish`) the stack is deliberately born `deferred` and the
+    // publish intake is what starts it — asserted in `deferred-provision`.
     const created = await provisionOrganization({
       name: `${AUTH_ORG_PREFIX} Auto`,
       region: "us",
       plan: "trial",
       headers,
+      provision: true,
     });
 
     const [row] = await db

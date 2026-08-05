@@ -10,6 +10,12 @@ import { type EmailSender, resolveEmailSender } from "./email-sender";
 
 export { CLOUD_COOKIE_PREFIX, CLOUD_SESSION_COOKIE_NAME } from "./auth-cookie";
 
+/**
+ * How long an emailed OTP stays valid. Exported because the CLI signup
+ * endpoints tell the caller the number, and two copies of it would drift.
+ */
+export const OTP_EXPIRES_IN_SECONDS = 60 * 10;
+
 function otpSubject(type: string): string {
   return type === "forget-password"
     ? "Reset your Hogsend Cloud password"
@@ -82,7 +88,7 @@ export function createCloudAuth(opts?: { emailSender?: EmailSender }) {
         // that option must stay OFF. There is no link-based verification path
         // in this app for it to override anyway.
         sendVerificationOnSignUp: true,
-        expiresIn: 60 * 10,
+        expiresIn: OTP_EXPIRES_IN_SECONDS,
         async sendVerificationOTP({ email, otp, type }) {
           await sender.send({
             to: email,
