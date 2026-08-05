@@ -152,6 +152,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The scaffold step prefers create-hogsend's dist and only falls back to
+      # `pnpm exec tsx` — which pnpm refuses from the script's out-of-workspace
+      # temp dir (ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE, the 0.63.0 failure).
+      # Building dist here makes the preferred path the one that runs.
+      - run: pnpm --filter create-hogsend build
       - name: Log in to GHCR
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
       # Scaffold → docker build → preflight (all three run modes) → push. The
