@@ -20,6 +20,7 @@ import { openCommand } from "./open.js";
 import { patchCommand } from "./patch.js";
 import { publishCommand } from "./publish.js";
 import { setupCommand } from "./setup.js";
+import { signupCommand } from "./signup.js";
 import { skillsCommand } from "./skills.js";
 import { statsCommand } from "./stats.js";
 import { studioCommand } from "./studio.js";
@@ -33,13 +34,14 @@ import { whoamiCommand } from "./whoami.js";
  * against each `command.name` and dispatches to `run()`.
  *
  * Order here is the order shown in root help. The Hogsend Cloud commands
- * (login/whoami/logout/open/publish/env — these talk to the CONTROL PLANE, not to
+ * (signup/login/whoami/logout/open/publish/env — these talk to the CONTROL PLANE, not to
  * an instance) come first because they are the first thing a new user runs;
  * then the data commands (agent-native, wrapping the engine's /v1/admin/*
  * routes); then the local scaffolding/maintenance commands (setup, skills,
  * eject, patch).
  */
 export const commands: Command[] = [
+  signupCommand,
   loginCommand,
   whoamiCommand,
   logoutCommand,
