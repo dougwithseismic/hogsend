@@ -18,9 +18,22 @@ import { binCmd } from "./prompts.js";
  * `apps/cloud/src/lib/cloud-onboarding.ts`.
  */
 
-/** `hogsend login && hogsend publish`, in the app's own package manager. */
+/**
+ * The ONE command that puts this app on Hogsend Cloud, in the app's own
+ * package manager.
+ *
+ * It used to be `hogsend login && hogsend publish`. The `login` half is gone
+ * because `publish` no longer needs it: run on a terminal with no session, it
+ * OFFERS to sign you in and then continues the same publish (PRD 16 — whose
+ * scope named this very outro as the thing to collapse). Printing a step the
+ * tool performs for you is a step somebody types for no reason, and the
+ * deletion test does not forgive it.
+ *
+ * Headless the offer becomes a refusal naming the exact command, so nothing is
+ * hidden from a CI reader either.
+ */
 export function cloudPublishCmd(pm: CliOptions["packageManager"]): string {
-  return `${binCmd(pm, "hogsend login")} && ${binCmd(pm, "hogsend publish")}`;
+  return binCmd(pm, "hogsend publish");
 }
 
 /** The trailing note on the Cloud line. */

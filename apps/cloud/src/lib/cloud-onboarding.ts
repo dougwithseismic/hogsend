@@ -19,7 +19,9 @@ import { DEFAULT_CLOUD_PUBLIC_URL, env } from "../env";
 export const SCAFFOLD_COMMANDS = [
   "pnpm dlx create-hogsend my-app",
   "cd my-app",
-  "pnpm hogsend login",
+  // No `login` step: `publish` offers the sign-in itself on a terminal and
+  // names the exact command headless (PRD 16). A reader of this email holds a
+  // session anyway — they just signed up in the browser.
   "pnpm hogsend publish",
 ] as const;
 

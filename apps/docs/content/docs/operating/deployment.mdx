@@ -28,6 +28,7 @@ The complete, annotated env contract is in [`.env.example`](https://github.com/d
 ## Pick a target
 
 <Cards>
+  <Card title="Hogsend Cloud (we run it)" href="/docs/cloud" />
   <Card title="Docker self-host (default)" href="/docs/operating/deploy-docker" />
   <Card title="Railway (one paved option)" href="/docs/operating/deploy-railway" />
   <Card title="Bring your own orchestrator" href="/docs/operating/deploy-byo" />
@@ -35,9 +36,12 @@ The complete, annotated env contract is in [`.env.example`](https://github.com/d
 
 | Target | Best for | Infra |
 |---|---|---|
+| **[Hogsend Cloud](/docs/cloud)** | Not running the infrastructure at all | Provisioned for you on your first `hogsend publish` |
 | **[Docker self-host](/docs/operating/deploy-docker)** — the default | Running Hogsend on your own box or VPS, fully in your control | `docker-compose.prod.yml` brings up Postgres, Redis, hatchet-lite, and the migrate/api/worker services |
 | **[Railway](/docs/operating/deploy-railway)** — one paved option | A managed on-ramp with one-click and GitHub auto-deploy | Railway-managed Postgres + Redis, self-hosted hatchet-lite, two app services |
 | **[Bring your own](/docs/operating/deploy-byo)** | An existing Kubernetes / Nomad / ECS / VM platform | Whatever you already run; you provide Postgres, Redis, and a Hatchet endpoint |
+
+The three self-host targets below share this page's env contract. Hogsend Cloud does not — you set nothing, and `hogsend env pull` writes the live URL and key into your local `.env` when you want to point at it from your machine.
 
 ## The deploy matrix
 

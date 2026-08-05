@@ -68,21 +68,21 @@ function scaffold(name: string, extra: string[] = []): string {
 }
 
 describe("cloudPublishCmd", () => {
-  it("names the commands the CLI actually ships, per package manager", () => {
-    // `hogsend login` + `hogsend publish` are real commands in @hogsend/cli.
-    expect(cloudPublishCmd("pnpm")).toBe(
-      "pnpm hogsend login && pnpm hogsend publish",
-    );
+  it("names ONE command — publish signs you in itself", () => {
+    // It was `hogsend login && hogsend publish` until `publish` learned to
+    // offer the sign-in inline (PRD 16). A printed step the tool performs for
+    // you is a step somebody types for nothing.
+    expect(cloudPublishCmd("pnpm")).toBe("pnpm hogsend publish");
     // npm and bun reach a locally-installed bin through their own runner.
-    expect(cloudPublishCmd("npm")).toBe(
-      "npx hogsend login && npx hogsend publish",
-    );
-    expect(cloudPublishCmd("bun")).toBe(
-      "bunx hogsend login && bunx hogsend publish",
-    );
-    expect(cloudPublishCmd("yarn")).toBe(
-      "yarn hogsend login && yarn hogsend publish",
-    );
+    expect(cloudPublishCmd("npm")).toBe("npx hogsend publish");
+    expect(cloudPublishCmd("bun")).toBe("bunx hogsend publish");
+    expect(cloudPublishCmd("yarn")).toBe("yarn hogsend publish");
+  });
+
+  it("still names a command @hogsend/cli actually ships", () => {
+    // The guard the assertion above would otherwise lose: this string is
+    // pasted by every scaffold outro, so it has to be a real command.
+    expect(cloudPublishCmd("pnpm")).toContain("hogsend publish");
   });
 });
 
@@ -100,6 +100,7 @@ describe("the non-interactive outro", () => {
     const out = scaffold("outro-npm-app", ["--pm", "npm"]);
     expect(out).toContain(cloudPublishCmd("npm"));
     expect(out).not.toContain("pnpm hogsend publish");
+    expect(out).not.toContain("pnpm hogsend login");
   });
 });
 

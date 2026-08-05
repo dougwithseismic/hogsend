@@ -25,11 +25,12 @@ const FACTS = {
 };
 
 describe("the scaffold commands", () => {
-  it("scaffold, enter, log in, publish — in that order", () => {
+  it("scaffold, enter, publish — in that order, with no login step", () => {
+    // `publish` offers the sign-in itself since PRD 16; a printed `login`
+    // would be a step the tool performs for the reader anyway.
     expect([...SCAFFOLD_COMMANDS]).toEqual([
       "pnpm dlx create-hogsend my-app",
       "cd my-app",
-      "pnpm hogsend login",
       "pnpm hogsend publish",
     ]);
   });
