@@ -103,6 +103,11 @@ export const env = createEnv({
     // falls back to, so a local run needs no configuration and cannot page a
     // real human by accident. A deploy that wants to be told sets it.
     CLOUD_OPERATOR_EMAIL: z.string().min(1).optional(),
+    // OPTIONAL. Bearer token for the operator stats endpoint
+    // (`GET /api/ops/stats`). Absent → the route answers 404 and exposes
+    // nothing, so a deploy that never configured it has no ops surface at all.
+    // 32+ chars because it is a raw shared secret, not a hashed credential.
+    CLOUD_OPS_TOKEN: z.string().min(32).optional(),
     // How long a stack may sit in any non-`running` status before the operator
     // is told. Thirty minutes because a legitimate provision — including the
     // pipeline's ten-minute health wait and up to a few sweep re-drives — fits
