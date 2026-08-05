@@ -195,6 +195,21 @@ export function deriveProvisionProgress(
     };
   }
 
+  // Nothing has been asked for yet (PRD 15). `not_started` already means
+  // exactly that — "no substrate work is in flight and none is coming until
+  // something starts it" — so `deferred` reuses it rather than adding a state
+  // every consumer would have to learn. What changes is the sentence: the
+  // thing that starts it is the customer's own first publish.
+  if (stack.status === "deferred") {
+    return {
+      state: "not_started",
+      step: null,
+      since: stack.updatedAt,
+      message:
+        "This instance is built on your first `hogsend publish` — nothing is provisioning yet, and nothing is wrong.",
+    };
+  }
+
   const failed = input.steps.find((entry) => entry.state === "failed") ?? null;
   const pending =
     input.steps.find((entry) => entry.state === "pending") ?? null;

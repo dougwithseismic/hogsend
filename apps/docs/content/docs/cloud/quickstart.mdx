@@ -1,0 +1,117 @@
+---
+title: Cloud quickstart
+description: From nothing to a live hosted instance in one command — scaffold, email code, publish. What each step does and how long the first one takes.
+---
+
+One command scaffolds the app, signs you in and deploys it:
+
+```bash
+pnpm dlx create-hogsend my-app --cloud
+```
+
+It asks for an email, mails a six-digit code, takes the code back, and publishes. There is no password anywhere in the flow.
+
+<Callout type="warn">
+  `--cloud` drives the app's own `hogsend` CLI, which is installed with the app's dependencies. It needs `create-hogsend` to have installed them — the default. A run with `--no-install` has no CLI to deploy with and says so.
+</Callout>
+
+## What each step does
+
+### 1. Scaffold
+
+The same app you would get without `--cloud`: `src/journeys/`, `src/emails/`, migrations, a `docker-compose.yml` for local work. Nothing about it is cloud-specific, and nothing is written that ties it to us.
+
+### 2. The email code
+
+```
+✓ We sent a code to you@example.com. It is good for 10 minutes.
+```
+
+Paste the code. A brand-new address gets an account, an organization and a production environment; an address that already has one is signed in — the prompt is the same either way.
+
+Three wrong codes and the code is dead; run the command again for a fresh one.
+
+### 3. Publish
+
+The first publish provisions your instance before it deploys your code. You will see the phases:
+
+```
+  Resolving environment ...
+  Packing ...
+  my-app → production · 75 files · 0.19MB → 0.07MB gzipped · engine 0.62.0 (package.json)
+  Uploading ...
+  provisioning your instance — creating database, workers, DNS
+  instance ready — deploying your app
+  building
+  preflight
+  succeeded
+```
+
+The provisioning lines appear **once, on the first publish**. Later publishes go straight from `Uploading` to the build phases.
+
+## Doing it in two steps instead
+
+`--cloud` is optional. Scaffold now, deploy when you are ready:
+
+```bash
+pnpm dlx create-hogsend my-app
+cd my-app
+pnpm hogsend publish
+```
+
+`hogsend publish` with no session offers to sign you in and then continues the same publish — you do not have to run a login command first. On a machine with no terminal (CI, an agent) it refuses instead, naming the command to run.
+
+## Headless and CI
+
+Everything above works without a terminal. The code is read from stdin:
+
+```bash
+echo 123456 | pnpm dlx create-hogsend my-app -y --cloud --email you@example.com
+```
+
+`--cloud` without `--email` in a headless run is refused **before anything is scaffolded**, so a CI job never ends up with a half-finished directory:
+
+```
+--cloud needs --email <address> when there is no terminal to ask in.
+  The sign-in code is mailed there; pipe it back on stdin:
+    echo 123456 | create-hogsend my-app -y --cloud --email you@example.com
+```
+
+Exit codes: a cloud failure exits non-zero **with the scaffold complete and usable**. The app on disk works locally regardless, and the outro prints the two commands that resume the deploy.
+
+## If the deploy does not finish
+
+Nothing is lost. The scaffold is complete, and the outro tells you exactly how to pick it up:
+
+```
+  Your app is complete and works locally. To finish the deploy:
+    pnpm hogsend signup --email you@example.com
+    pnpm hogsend publish
+```
+
+## After it is live
+
+```bash
+cd my-app
+pnpm hogsend open        # the environment's page in the dashboard
+pnpm hogsend env pull    # write the live API URL + key into .env
+```
+
+`hogsend env pull` merges `HOGSEND_API_URL` and `HOGSEND_API_KEY` into the `.env` beside your app. It never rewrites the file — existing variables, comments and ordering survive — and a key already set to a different value is reported and refused rather than clobbered. The key is never printed.
+
+Your session lives in `~/.hogsend/credentials.json` (mode `0600`, one entry per cloud host) and is never printed. Revoke it with `hogsend logout`, or from Settings → CLI sessions in the dashboard.
+
+## Deploying again
+
+From anywhere inside the app:
+
+```bash
+pnpm hogsend publish
+```
+
+The scaffold root is found by walking up to the nearest `package.json` depending on `@hogsend/engine`. Everything your repository ignores is left out, and `.git`, `node_modules`, `dist` and every `.env*` are excluded unconditionally, whatever `.gitignore` says.
+
+<Cards>
+  <Card title="Every cloud command and its refusals" href="/docs/cloud/cli" />
+  <Card title="Driving this from an agent" href="/docs/cloud/agents" />
+</Cards>

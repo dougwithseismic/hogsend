@@ -1,7 +1,12 @@
 import { parseArgs } from "node:util";
 import { isCloudError } from "../lib/cloud-http.js";
 import { describeCloudRefusal, formatRefusal } from "../lib/cloud-refusals.js";
-import { NotLoggedInError, requireCloudSession } from "../lib/cloud-session.js";
+import { requireCloudSession } from "../lib/cloud-session.js";
+import {
+  ensureCloudSession,
+  type InlineAuthDeps,
+  withReauth,
+} from "../lib/inline-auth.js";
 import { color } from "../lib/output.js";
 import {
   assertBuildSucceeded,
@@ -63,6 +68,32 @@ function mb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
 }
 
+/**
+ * TEST/DEV SEAM. `run` is reached from the router with only a
+ * {@link CommandContext}, so there is no argument through which a caller can
+ * inject the inline-auth flows or the poll cadence — the overrides live here,
+ * module-scoped, exactly as `pipeline/enqueue.ts` does it on the cloud side.
+ * Empty in production, where every default is the real thing.
+ */
+interface PublishSeams {
+  auth?: InlineAuthDeps;
+  /** Overridden so a test can walk a six-poll build without spending 18s. */
+  pollIntervalMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+let seams: PublishSeams = {};
+
+/** Install publish overrides for the next `run`. */
+export function configurePublish(overrides: PublishSeams): void {
+  seams = overrides;
+}
+
+/** Drop every override installed by {@link configurePublish}. */
+export function resetPublish(): void {
+  seams = {};
+}
+
 async function run(ctx: CommandContext): Promise<void> {
   const { values } = parseArgs({
     args: ctx.argv,
@@ -95,16 +126,14 @@ async function run(ctx: CommandContext): Promise<void> {
     throw error;
   }
 
-  // 2 — the session.
-  let session: ReturnType<typeof requireCloudSession>;
-  try {
-    session = requireCloudSession(cloudOpts);
-  } catch (error) {
-    if (error instanceof NotLoggedInError) {
-      ctx.out.fail(`${error.message} ${error.hint}`);
-    }
-    throw error;
-  }
+  // 2 — the session. On a terminal with none, this SIGNS YOU IN rather than
+  // sending you away to run a second command (PRD 16); headless, it refuses
+  // with the exact command to run. Either way the publish below is unchanged.
+  const authOptions = {
+    ...cloudOpts,
+    ...(values.cloud === undefined ? {} : { cloudFlag: values.cloud }),
+  };
+  let session = await ensureCloudSession(ctx, authOptions, seams.auth ?? {});
 
   const refusalContext = {
     cloudHost: session.cloud.host,
@@ -112,11 +141,20 @@ async function run(ctx: CommandContext): Promise<void> {
     ...(values.env === undefined ? {} : { envName: values.env }),
   };
 
-  const deps = {
+  // Rebuilt after an inline re-auth, because the client is bound to a bearer
+  // the cloud has stopped accepting. `let` rather than `const` for exactly
+  // that: every step below reads the CURRENT client.
+  let deps = {
     client: session.client,
     emit: (line: string) => ctx.out.log(line),
-    sleep,
+    sleep: seams.sleep ?? sleep,
     now: () => Date.now(),
+  };
+
+  /** Re-read the session (and everything bound to it) after signing in. */
+  const rebind = (): void => {
+    session = requireCloudSession(cloudOpts);
+    deps = { ...deps, client: session.client };
   };
 
   ctx.out.intro(badge);
@@ -138,8 +176,18 @@ async function run(ctx: CommandContext): Promise<void> {
   // cloud rather than guessed at locally.
   let environment: ReturnType<typeof selectEnvironment>;
   try {
-    const listed = await ctx.out.step("Resolving environment", () =>
-      session.client.get<EnvironmentListResponse>("/api/cli/environments"),
+    // The FIRST call, and so the one where a revoked session is discovered —
+    // before a minute of packing. A 401 here offers the same inline sign-in as
+    // having no session at all, then retries exactly once.
+    const listed = await withReauth(
+      ctx,
+      () =>
+        ctx.out.step("Resolving environment", () =>
+          deps.client.get<EnvironmentListResponse>("/api/cli/environments"),
+        ),
+      rebind,
+      authOptions,
+      seams.auth ?? {},
     );
     environment = selectEnvironment(listed.environments, values.env);
   } catch (error) {
@@ -193,17 +241,27 @@ async function run(ctx: CommandContext): Promise<void> {
   // 5 — upload.
   let uploaded: Awaited<ReturnType<typeof uploadPublish>>;
   try {
-    uploaded = await ctx.out.step("Uploading", () =>
-      uploadPublish(
-        {
-          environmentId: environment.id,
-          archive: packed.archive,
-          manifest,
-          filename: `${scaffold.appName.replace(/[^a-zA-Z0-9._-]/g, "-")}.tar.gz`,
-        },
-        deps,
-        refusalContext,
-      ),
+    // Wrapped too: a session can be revoked between the listing and the
+    // upload, and re-packing a tarball because of it would be a minute the
+    // human did not need to spend.
+    uploaded = await withReauth(
+      ctx,
+      () =>
+        ctx.out.step("Uploading", () =>
+          uploadPublish(
+            {
+              environmentId: environment.id,
+              archive: packed.archive,
+              manifest,
+              filename: `${scaffold.appName.replace(/[^a-zA-Z0-9._-]/g, "-")}.tar.gz`,
+            },
+            deps,
+            refusalContext,
+          ),
+        ),
+      rebind,
+      authOptions,
+      seams.auth ?? {},
     );
   } catch (error) {
     return fail(error);
@@ -221,14 +279,24 @@ async function run(ctx: CommandContext): Promise<void> {
       });
       return;
     }
-    ctx.out.outro(`Queued as build ${uploaded.buildId}.`);
+    // `log`, not `outro`: clack chrome is a NO-OP when stdout is not a TTY, so
+    // the outro silently swallowed the build id in exactly the runs that were
+    // going to script against it (PRD 07 known-minor, fixed here). The id is
+    // the whole output of a --no-wait publish; it must survive a pipe.
+    ctx.out.log(`Queued as build ${uploaded.buildId}.`);
+    ctx.out.outro("Watch it on the environment's build page.");
     return;
   }
 
   // 6 — watch it to a terminal state, exiting nonzero on anything but success.
   try {
     const build = await watchBuild(
-      { buildId: uploaded.buildId },
+      {
+        buildId: uploaded.buildId,
+        ...(seams.pollIntervalMs === undefined
+          ? {}
+          : { intervalMs: seams.pollIntervalMs }),
+      },
       deps,
       refusalContext,
     );

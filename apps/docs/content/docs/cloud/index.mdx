@@ -1,0 +1,50 @@
+---
+title: Hogsend Cloud
+description: We run your Hogsend instance. Same repo, same engine, same code-first journeys — deployed with hogsend publish instead of a Dockerfile you maintain.
+---
+
+Hogsend Cloud runs your instance for you. The app is the same repo you would self-host: same `@hogsend/engine`, same `src/journeys/`, same migrations. What changes is who operates the Postgres, the Redis, the Hatchet engine and the two processes.
+
+<Cards>
+  <Card title="Quickstart" href="/docs/cloud/quickstart" />
+  <Card title="CLI reference" href="/docs/cloud/cli" />
+  <Card title="Agents & MCP" href="/docs/cloud/agents" />
+</Cards>
+
+## What you get
+
+| Piece | Who runs it |
+|---|---|
+| Postgres (your tenant database) | Cloud |
+| Redis | Cloud |
+| Hatchet engine + your worker | Cloud |
+| The API process + Studio | Cloud |
+| Your journeys, templates and migrations | You, in your repo |
+
+An organization gets one **production** environment. Each environment has one **stack** — the provisioned runtime behind it.
+
+## Cloud or self-host
+
+The decision is reversible and needs no migration: the artifact is the same either way.
+
+| | Hogsend Cloud | [Self-host](/docs/operating/deployment) |
+|---|---|---|
+| Deploy command | `hogsend publish` | `docker compose -f docker-compose.prod.yml up -d`, or your orchestrator |
+| Postgres / Redis / Hatchet | provisioned for you | you run them |
+| Env contract | set in the dashboard; `hogsend env pull` writes the app's URL + key into your local `.env` | you set every variable |
+| Upgrades | publish a tarball built against a new engine (`--allow-upgrade`) | rebuild the image, re-run migrate |
+| Source of truth | your repo | your repo |
+
+## Provisioning happens on your first publish
+
+Signing up creates the organization, the production environment and the stack row. It does **not** create infrastructure. The stack sits in `deferred` until you publish.
+
+The first `hogsend publish` promotes it and provisions the substrate before the build deploys — so that publish takes a few minutes longer than the ones after it. `hogsend publish` prints the phase it is in while it waits.
+
+This is why signing up costs nothing and takes seconds.
+
+## Where your credentials live
+
+`~/.hogsend/credentials.json`, mode `0600`, one entry per cloud host. The session token is written there and printed nowhere — not by the CLI, not in `--json` output, not by the MCP tools.
+
+The same file is read by the `hogsend` CLI and by the [`cloud_*` MCP tools](/docs/cloud/agents), so a session created by either works in the other.

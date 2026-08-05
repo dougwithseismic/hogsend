@@ -126,3 +126,70 @@ export function clientIp(
   if (entry) return entry.slice(0, 64);
   return "unknown";
 }
+
+/**
+ * Count one request against BOTH an email bucket and an IP bucket.
+ *
+ * The two axes stop different attacks and are therefore not interchangeable:
+ * the EMAIL bucket is the one an attacker cannot rotate (it is the identifier
+ * the code is mailed to), and the IP bucket is what stops one caller walking a
+ * list of addresses. A limiter with only one of them is missing half the
+ * attack surface.
+ *
+ * BOTH ARE ALWAYS CONSUMED, including when the first already refuses. That is
+ * the invariant this helper exists to hold: short-circuiting on the email
+ * bucket would let a caller hammer one address to exhaustion and then keep a
+ * pristine IP budget for the next one. `consumeRateLimit` counts refusals too
+ * (see its own note), and these two calls are unconditional writes to
+ * different rows, so running them in parallel is identical in effect to
+ * running them in sequence.
+ *
+ * The returned `retryAfterSeconds` is the LONGER of the two windows that
+ * refused — telling a caller to retry before the other bucket has rolled would
+ * be advice that earns them a second refusal.
+ */
+export async function consumeDualRateLimit(input: {
+  /** Already lowercased by the caller: one inbox must not be two budgets. */
+  email: string;
+  ip: string;
+  emailLimit: number;
+  ipLimit: number;
+  windowMs: number;
+  /** Bucket namespace, e.g. `cli_signup` → `cli_signup_email:` / `_ip:`. */
+  prefix: string;
+  now?: Date;
+  db?: CloudDb;
+}): Promise<RateLimitDecision> {
+  const common = {
+    windowMs: input.windowMs,
+    ...(input.now === undefined ? {} : { now: input.now }),
+    ...(input.db === undefined ? {} : { db: input.db }),
+  };
+
+  const [perEmail, perIp] = await Promise.all([
+    consumeRateLimit({
+      bucket: `${input.prefix}_email:${input.email}`,
+      limit: input.emailLimit,
+      ...common,
+    }),
+    consumeRateLimit({
+      bucket: `${input.prefix}_ip:${input.ip}`,
+      limit: input.ipLimit,
+      ...common,
+    }),
+  ]);
+
+  const allowed = perEmail.allowed && perIp.allowed;
+  return {
+    allowed,
+    // The bucket that refused is the one a caller needs reported; when both
+    // allowed, the counts are per-bucket and the email one is the meaningful
+    // half (an IP may legitimately carry several people).
+    count: perEmail.count,
+    limit: perEmail.limit,
+    retryAfterSeconds: Math.max(
+      perEmail.allowed ? 0 : perEmail.retryAfterSeconds,
+      perIp.allowed ? 0 : perIp.retryAfterSeconds,
+    ),
+  };
+}

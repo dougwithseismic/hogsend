@@ -29,10 +29,40 @@ export interface RenderedRefusal {
   hint?: string;
 }
 
+/**
+ * How to get a session back — THE sentence, built in one place.
+ *
+ * Names BOTH doors, because the two are for different situations and a reader
+ * with no browser (an SSH box, a container) needs to be told the email one
+ * exists rather than discovering it in `--help`. The browser flow stays first:
+ * it is what `hogsend login` does with no flags.
+ *
+ * Every surface that tells somebody to sign in composes from this:
+ * `NotLoggedInError` (no session stored), the 401 branch below (a session the
+ * cloud rejected), and `inline-auth`'s `authRemedy` (which appends the signup
+ * clause for a caller who may have no account yet). They used to be three
+ * hand-synced copies with a comment asking the next person to keep them in
+ * step — which is a note, not a mechanism.
+ *
+ * `cloudFlag` is the `--cloud <url>` the caller actually passed, so the
+ * printed command is pasteable rather than something they have to adapt.
+ */
+export function signInHint(cloudFlag?: string): string {
+  const suffix = cloudSuffix(cloudFlag);
+  return `Run \`hogsend login${suffix}\` (or \`hogsend login --email you@example.com${suffix}\` on a machine with no browser).`;
+}
+
+/**
+ * ` --cloud <url>`, or nothing. The one piece every printed remedy shares —
+ * the SENTENCES differ by audience (see `authRemedy`) but the way a non-default
+ * host is appended must not.
+ */
+export function cloudSuffix(cloudFlag?: string): string {
+  return cloudFlag ? ` --cloud ${cloudFlag}` : "";
+}
+
 function loginHint(ctx: RefusalContext): string {
-  return ctx.cloudExplicit
-    ? `Run \`hogsend login --cloud ${ctx.cloudHost}\`.`
-    : "Run `hogsend login`.";
+  return signInHint(ctx.cloudExplicit ? ctx.cloudHost : undefined);
 }
 
 /** Read a field the cloud sent alongside its message. */
@@ -55,8 +85,11 @@ export function describeCloudRefusal(
   }
 
   if (error.status === 401) {
+    // Said plainly, and as the two things it actually is: a machine that never
+    // signed in and one whose session was ended from the dashboard look
+    // identical from here, and both are fixed the same way.
     return {
-      headline: `Not signed in to ${ctx.cloudHost} (or the session was revoked).`,
+      headline: `That session is not valid for ${ctx.cloudHost} — it was revoked, it expired, or this machine never signed in.`,
       hint: loginHint(ctx),
     };
   }

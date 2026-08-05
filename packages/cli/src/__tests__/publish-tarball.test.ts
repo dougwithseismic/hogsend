@@ -3,13 +3,19 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isIgnored, parseIgnoreFile } from "../lib/gitignore.js";
+// THROUGH THE SHARED SURFACE (`@hogsend/cli/cloud`), deliberately, not through
+// `lib/publish-tarball.js` directly: since PRD 18 the MCP tools publish with
+// this same packer, and the exclusion rules below are the security boundary
+// BOTH callers inherit. Importing the barrel means a re-export dropped or
+// renamed here fails this suite rather than silently leaving one caller
+// packing by different rules.
 import {
   buildPublishTarball,
   collectFiles,
   isHardExcluded,
   PublishTarballError,
-} from "../lib/publish-tarball.js";
+} from "../cloud.js";
+import { isIgnored, parseIgnoreFile } from "../lib/gitignore.js";
 
 /**
  * The tarball is the one artifact this CLI sends off the machine, so the case
@@ -23,6 +29,10 @@ import {
  * The tar is parsed here with a tiny independent reader rather than by
  * importing the control plane's unpacker: two copies of the format that agree
  * is evidence; one copy checking itself is not.
+ *
+ * Everything under test is imported from `../cloud.js` — the surface
+ * `@hogsend/cli/cloud` publishes — so this suite covers the CLI and the MCP
+ * tools at once. See the import note below.
  */
 
 let root = "";

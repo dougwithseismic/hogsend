@@ -1,0 +1,202 @@
+---
+title: Cloud CLI reference
+description: signup, login, whoami, logout, publish, open and env pull — every flag, the refusal catalog with the exact text the CLI prints, and the headless patterns for CI and agents.
+---
+
+These commands ship in `@hogsend/cli`, which is a dependency of every scaffolded app. Run them through your package manager from inside the app:
+
+```bash
+pnpm hogsend publish      # pnpm / yarn
+npx hogsend publish       # npm
+bunx hogsend publish      # bun
+```
+
+Every command takes `--cloud <url>` (default: `HOGSEND_CLOUD_URL`, else `https://cloud.hogsend.com`) and `--json`.
+
+## Signing in
+
+### `hogsend signup`
+
+Create an account from this machine, or sign in to an existing one. A brand-new address gets an account, an organization and a production environment; an address that already has one is simply signed in.
+
+```bash
+hogsend signup
+hogsend signup --email me@acme.com --org "Acme Rockets"
+echo 123456 | hogsend signup --email me@acme.com --json
+```
+
+| Option | Description |
+|---|---|
+| `--email <address>` | Your email. Prompted for when this is a terminal. |
+| `--org <name>` | Name your organization. Ignored if you already have one. |
+| `--cloud <url>` | Cloud host. |
+| `--json` | Emit a single JSON result. Reads the code from stdin. |
+
+Nothing is provisioned until your first `hogsend publish`, so signing up costs nothing and takes seconds.
+
+### `hogsend login`
+
+The browser device flow. Prints a short code and a URL, and opens your browser at the approval page with the code prefilled. The printed code and URL always work on their own, so a machine with no browser completes the same flow by hand.
+
+```bash
+hogsend login
+hogsend login --email me@acme.com
+hogsend login --cloud https://cloud.acme.internal
+hogsend login --label ci-runner --no-browser
+```
+
+| Option | Description |
+|---|---|
+| `--email <address>` | Sign in by emailed code instead of the browser flow. |
+| `--cloud <url>` | Cloud host. |
+| `--label <name>` | Name this session in the dashboard (default: this machine's hostname). |
+| `--no-browser` | Print the URL; never try to open a browser. |
+| `--json` | Emit a single JSON result. Implies `--no-browser`. |
+
+With `--email`, no browser is involved at all: a six-digit code is mailed to that address and typed back. If the address has no account yet it gets one, exactly as `hogsend signup` would.
+
+`--org` is not accepted here. A second organization is a decision, not a flag on a login — use `hogsend signup --org` when you have no organization yet.
+
+### `hogsend whoami`
+
+```bash
+hogsend whoami
+hogsend whoami --json
+```
+
+Asks the cloud rather than reading the local file, so a session that was revoked from the dashboard reports as signed out — which is the question this command is actually being asked.
+
+### `hogsend logout`
+
+```bash
+hogsend logout
+```
+
+The revoke is attempted first so the token stops working everywhere, not just here — but the local entry is deleted **either way**. A cloud that is unreachable, or a session already revoked from the dashboard, must never leave a token on disk that you believe you removed.
+
+## Deploying
+
+### `hogsend publish`
+
+```bash
+hogsend publish
+hogsend publish --env staging
+hogsend publish --allow-upgrade
+```
+
+| Option | Description |
+|---|---|
+| `--env <name>` | Environment to publish to (default: your production environment). |
+| `--allow-upgrade` | Accept an engine-version change on the target stack. |
+| `--cloud <url>` | Cloud host. |
+| `--cwd <dir>` | Start the scaffold-root search here (default: the current directory). |
+| `--no-wait` | Upload and exit; don't watch the build. |
+| `--json` | Emit a single JSON result. |
+
+| Exit code | Meaning |
+|---|---|
+| `0` | The build succeeded (or `--no-wait` uploaded cleanly). |
+| `1` | Refused, failed, or timed out. |
+
+**What gets uploaded.** Everything your repository ignores is left out, and `.git`, `node_modules`, `dist` and every `.env*` are excluded unconditionally, whatever `.gitignore` says — including a `.gitignore` that tries to re-include them with a negation.
+
+**The engine version comes from your lockfile**, not from a flag. If it disagrees with what the target stack is running, the cloud refuses the deploy unless you pass `--allow-upgrade`.
+
+**With no session**, `hogsend publish` on a terminal offers to sign you in and then continues the same publish. Headless, it refuses with the commands to run.
+
+**`--no-wait`** prints the build id and exits 0 straight after the upload, whether or not stdout is a terminal.
+
+### `hogsend open`
+
+```bash
+hogsend open
+hogsend open --env staging
+```
+
+| Option | Description |
+|---|---|
+| `--env <name>` | Open this environment's page (default: the org's environments). |
+| `--cloud <url>` | Cloud host. |
+| `--no-browser` | Print the URL; never try to open a browser. |
+| `--json` | Emit a single JSON result. Implies `--no-browser`. |
+
+The URL is always printed, whether or not a browser could be opened, so this works over SSH and in CI.
+
+### `hogsend env pull`
+
+```bash
+hogsend env pull
+hogsend env pull --env staging --force
+```
+
+| Option | Description |
+|---|---|
+| `--env <name>` | Environment to pull from (default: your production environment). |
+| `--force` | Replace `HOGSEND_API_URL` / `HOGSEND_API_KEY` if already set differently. |
+| `--cloud <url>` | Cloud host. |
+| `--cwd <dir>` | Start the scaffold-root search here (default: the current directory). |
+| `--json` | Emit a single JSON result. Never contains the key. |
+
+Merges `HOGSEND_API_URL` and `HOGSEND_API_KEY` into the `.env` beside your app — it never rewrites the file. Existing variables, comments and ordering survive, and a key already set to a different value is reported and refused rather than clobbered.
+
+The key is never printed. You are told that it was written and where, never what it is, because CLI output lands in scrollback, CI logs and screen shares.
+
+## Refusal catalog
+
+Every one of these is what the CLI actually prints. The second line is the hint it prints under the message.
+
+### Sign-in
+
+| Refusal | Text |
+|---|---|
+| Wrong code | `That code is not right. Check it and try again.`<br/>`Check the code in your inbox and try again.` |
+| Expired code | `That code has expired. Run the signup again for a fresh one.`<br/>`That code has a ten-minute life. Run the command again for a fresh one.` |
+| Too many attempts | `Too many wrong attempts — that code is dead. Run the signup again for a fresh one.`<br/>`Run the command again for a fresh code.` |
+| Rate limited | `Too many codes requested. Wait for the retry-after window and try again.`<br/>`Retry in about <n>s.` |
+| No capacity in the region | `No capacity is available in that region right now. Contact us and we will place you.`<br/>`Nothing was created, and your account is fine. Contact support@hogsend.com and we will place you.` |
+
+A code is good for ten minutes and survives two wrong attempts; the third kills it. An interactive run re-prompts once before giving up, so a deliberate re-run always has budget left.
+
+### Session
+
+| Refusal | Text |
+|---|---|
+| No session / revoked (401) | `That session is not valid for <host> — it was revoked, it expired, or this machine never signed in.`<br/>``Run `hogsend login` (or `hogsend login --email you@example.com` on a machine with no browser).`` |
+| Headless publish, no session | ``Not signed in. Run `hogsend login --email you@example.com` first (or `hogsend signup --email you@example.com` if you have no account yet).`` |
+| Session died mid-publish, headless | ``That session is no longer valid — it was revoked or it expired. Run `hogsend login --email you@example.com` first (…).`` |
+
+On a terminal the last two are an offer, not a refusal: the publish signs you in and carries on.
+
+### Publish
+
+| Refusal | Text |
+|---|---|
+| Engine mismatch (409) | `Engine version mismatch (<env>): the stack runs <a>, this upload is built against <b>.`<br/>`If that change is intentional, re-run with --allow-upgrade. Otherwise align your @hogsend/engine dependency with <a> and reinstall.` |
+| Role too low (403) | `Publishing needs one of these roles in this organization: owner, admin, developer.`<br/>`Ask an owner or admin of this organization to grant you the developer role.` |
+| Tarball too large (413) | `The upload is larger than the 64MB limit.`<br/>``Add the large paths to .gitignore — `node_modules`, `dist`, `.git` and `.env*` are already excluded.`` |
+| Queue full (429) | `Environment "<id>" already has <n> publishes waiting to build; publish again once the queue drains`<br/>`Retry in about <n>s. Each waiting publish holds a copy of your source on the build host, so the queue is bounded on purpose.` |
+| Instance not ready yet (409) | ``Run `hogsend open --env <name>` to watch provisioning finish, then try again.`` |
+| Provisioning failed | `Provisioning failed for this environment, so build <id> has nothing to deploy onto.`<br/>`We have been alerted. Check the environment page for the failed step, or publish again once it reports running.` |
+| Unreachable cloud | `cannot reach <url> (<reason>)`<br/>`Check the URL and your network, then try again.` |
+
+## Headless and agent patterns
+
+Every command takes `--json` and emits exactly one JSON document on stdout. Human-facing lines go to stderr in that mode, so the document is always parseable.
+
+**Sign in unattended** — the code arrives by email and goes in on stdin:
+
+```bash
+echo 123456 | hogsend signup --email you@example.com --json
+```
+
+**Publish without watching**, then poll separately:
+
+```bash
+hogsend publish --no-wait --json
+```
+
+**Never prompts without a terminal.** Every question a headless run would have asked becomes a non-zero exit and a printed command instead. A CI job cannot hang on a hidden prompt.
+
+**The session token is never printed** — not by any command, not in any `--json` result. It exists in `~/.hogsend/credentials.json` (mode `0600`) and nowhere else.
+
+For driving all of this from an agent without shelling out, see [Agents & MCP](/docs/cloud/agents).

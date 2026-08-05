@@ -142,7 +142,15 @@ beforeAll(async () => {
   });
 
   const a = await provisionOrganization(
-    { name: `${ORG_PREFIX} Alpha`, region: "us", headers: await signIn(OWNER) },
+    {
+      name: `${ORG_PREFIX} Alpha`,
+      region: "us",
+      headers: await signIn(OWNER),
+      // Pin the signup policy: this suite asserts CLI ROUTE shapes, and the
+      // `requested` stack below should not move when the deployment default
+      // for `CLOUD_PROVISION_ON` changes.
+      provision: true,
+    },
     { auth, orgService, enqueueProvision: swallowEnqueue },
   );
   orgA = a.organizationId;
@@ -153,6 +161,7 @@ beforeAll(async () => {
       name: `${ORG_PREFIX} Beta`,
       region: "us",
       headers: await signIn(OUTSIDER),
+      provision: true,
     },
     { auth, orgService, enqueueProvision: swallowEnqueue },
   );
@@ -352,9 +361,12 @@ describe("GET /api/cli/environments", () => {
 
     const production = body.environments.find((row) => row.id === envA);
     expect(production?.kind).toBe("production");
-    // A freshly provisioned stack is `requested` and has deployed nothing.
-    // Deterministic BECAUSE the enqueue was intercepted (one per org, proven
-    // here) — no pipeline ever ran to move the stack off `requested`.
+    // A freshly created stack is `requested` and has deployed nothing. This
+    // suite creates its orgs under `provision: true` (the
+    // `CLOUD_PROVISION_ON=signup` policy) so the status here is about the CLI
+    // route's projection, not about which policy is configured. Deterministic
+    // BECAUSE the enqueue was intercepted (one per org, proven here) — no
+    // pipeline ever ran to move the stack off `requested`.
     expect(enqueuedStacks).toHaveLength(2);
     expect(production?.stackStatus).toBe("requested");
     expect(production?.engineVersion).toBeNull();

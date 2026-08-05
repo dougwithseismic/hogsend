@@ -1,0 +1,145 @@
+---
+title: Agents & MCP
+description: Five cloud_* MCP tools that sign in, publish and poll a build — the same credentials file the CLI uses, the token never in a tool result, and why they are stdio-only.
+---
+
+`@hogsend/mcp` exposes the cloud flow as MCP tools, so an agent can go from a scaffold to a running instance without shelling out.
+
+```bash
+npx @hogsend/mcp
+```
+
+The cloud tools need **no admin key**. That is the point: the scaffold → sign in → publish story happens before any instance exists, so there is nothing to hold a key for yet. With `HOGSEND_ADMIN_KEY` set you also get the three instance tools ([`manage_blueprint`, `hogsend_report`, `send_test_email`](/docs/agents)); without it you get the five below and stderr says so.
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `cloud_signup` | Mails a one-time code to an address. Works for a brand-new account and an existing one alike — the answer does not say which. |
+| `cloud_verify` | Finishes sign-in with the code. Stores the session; never returns the token. |
+| `cloud_whoami` | The user, the organization, the role, and the environments with their stack status. |
+| `cloud_publish` | Packs and uploads the scaffold at `cwd`, returns the build id immediately. |
+| `cloud_build_status` | One poll of a build — the provisioning phase reported separately from the build phase. |
+
+Every tool takes an optional `cloudUrl` (default: `HOGSEND_CLOUD_URL`, else the managed cloud).
+
+## The credential model
+
+The tools read and write `~/.hogsend/credentials.json` — **the same file the `hogsend` CLI uses**, at mode `0600`, keyed by cloud host. A session created by `cloud_verify` works in the terminal; a session created by `hogsend login` works in the tools.
+
+The session token is written to that file and appears in **no tool result**. An MCP result is a transcript, and a transcript is exactly where a bearer token must not be.
+
+## Why they are stdio-only
+
+The hosted `/v1/mcp` server does not carry these tools, and cannot be configured to.
+
+Every `cloud_*` tool acts on the machine it runs on: it reads and writes that machine's credentials file, packs a directory from that machine's filesystem, and signs in as whoever is at that terminal. On a tenant's hosted instance the machine is a shared server — the credentials file would be the operator's, the filesystem the platform's, and "publish the scaffold at `cwd`" would publish something no caller chose.
+
+There is no version of these tools that is safe there, so the answer is absence rather than a permission check. They are registered by a function the stdio entry point calls and the hosted transport never imports.
+
+## Failures name a tool, not a command
+
+An agent holding these tools cannot run `hogsend signup`. So every refusal carries a `code` and a hint phrased for the caller it has:
+
+```json
+{
+  "ok": false,
+  "code": "needs_auth",
+  "error": "Not signed in to cloud.hogsend.com.",
+  "hint": "Call `cloud_signup` with an email, then `cloud_verify` with the code from that inbox."
+}
+```
+
+| `code` | Means |
+|---|---|
+| `needs_auth` | No stored session, or it was revoked. Fixed by `cloud_signup` → `cloud_verify`. |
+| `invalid_code` | The code was wrong, expired, or burned through its attempts. |
+| `rate_limited` | Carries `retryAfterSeconds`. |
+| `not_a_scaffold` | `cwd` is not inside an app scaffolded by create-hogsend. |
+| `no_environment` | The named environment does not exist; the hint lists what does. |
+| `engine_version_mismatch` | The stack runs a different engine. Re-call with `allowUpgrade: true`. |
+| `forbidden` | A real session, insufficient role — a human has to grant it. |
+| `not_found` | No such build, or not visible to this session. |
+| `invalid_tarball` | Over the 64MB cap. |
+| `unreachable` | Nothing reached the control plane. |
+| `error` | Anything the vocabulary above does not cover. |
+
+## Build phases
+
+`cloud_build_status` reports the phase, not just the raw status, because during a first publish the build sits in `building` while the substrate it will deploy onto is still being created — reporting that verbatim would have an agent believe compilation had begun.
+
+| `phase` | Meaning |
+|---|---|
+| `provisioning` | The instance is being created. A first publish spends a few minutes here. |
+| `building` | The app is being built and deployed. |
+| `succeeded` | Deployed. `terminal` is `true`. |
+| `failed` | The build failed, or provisioning did. `terminal` may be `false` when the stack parked. |
+
+Poll until `terminal` is `true`.
+
+## End-to-end transcript
+
+A real run against a local control plane. The substrate was the in-memory fake (`CLOUD_SUBSTRATE=fake`), so no cloud account was charged; every request, response and phase transition below is otherwise real, and the build genuinely reached `succeeded`.
+
+```jsonc
+// tools/list — no admin key set, so only the cloud tools
+["cloud_build_status", "cloud_publish", "cloud_signup", "cloud_verify", "cloud_whoami"]
+
+// cloud_signup { email: "you@example.com" }
+{
+  "ok": true,
+  "status": "sent",
+  "email": "you@example.com",
+  "expiresInSeconds": 600,
+  "next": "Call `cloud_verify` with that email and the code from the inbox."
+}
+
+// cloud_verify { email: "you@example.com", otp: "217104", org: "Acme" }
+{
+  "ok": true,
+  "created": { "user": true, "organization": true },
+  "userId": "9LSBw3r0u45tcRoeGFnTSBbBFdC4oCxX",
+  "organizationId": "M05LdfwTlPAKfi54iH2PZZcFDyYgyisw",
+  "environmentId": "867401a5-b282-426f-a28d-c72ea5046eef",
+  "note": null,
+  "user": "you@example.com",
+  "organization": "Acme",
+  "sessionStoredAt": "~/.hogsend/credentials.json"
+}
+// ...no token field. It went to the credentials file and nowhere else.
+
+// cloud_whoami {}
+{
+  "ok": true,
+  "user": { "email": "you@example.com" },
+  "organization": { "name": "Acme", "slug": "acme" },
+  "role": "owner",
+  "environments": [
+    { "name": "production", "kind": "production", "stackStatus": "deferred", "engineVersion": null }
+  ]
+}
+// stackStatus "deferred" — nothing is provisioned until the first publish.
+
+// cloud_publish { cwd: "/path/to/my-app" }
+{
+  "ok": true,
+  "buildId": "910d990e-2f58-4752-96af-31f4a5ea8e9d",
+  "status": "queued",
+  "appName": "my-app",
+  "engineVersion": "0.62.0",
+  "files": 75,
+  "next": "Poll `cloud_build_status` with that buildId until terminal is true."
+}
+
+// cloud_build_status { buildId: "910d990e-..." } — polled every 4s
+{ "phase": "provisioning", "narrative": "Creating this environment's instance — database, workers, DNS…", "terminal": false }
+{ "phase": "building",     "narrative": "Build is building.",   "terminal": false }
+{ "phase": "building",     "narrative": "Build is preflight.",  "terminal": false }
+{ "phase": "succeeded",    "narrative": "Deployed.",            "terminal": true  }
+```
+
+After that run, `hogsend whoami` in a terminal on the same machine reported the same user and organization — the session an MCP tool wrote is the session the CLI reads.
+
+## What is not here
+
+There is no `cloud_logout`. Revoking a session is a deliberate act; an agent quietly discarding an operator's credential is not a tool worth having. Use [`hogsend logout`](/docs/cloud/cli#hogsend-logout) or the dashboard.

@@ -123,6 +123,21 @@ export const env = createEnv({
     // not already know: a stack still stuck tomorrow is worth one more line,
     // and a stack still stuck in five minutes is not.
     CLOUD_ALERT_COOLDOWN_HOURS: z.coerce.number().int().min(1).default(24),
+    // WHEN a tenant's substrate is actually built (PRD 15).
+    //
+    //  - `first-publish` (the default): org creation mints the trio with the
+    //    stack in `deferred` and enqueues NOTHING. The publish intake promotes
+    //    it to `requested` and enqueues on the first upload. A Railway stack per
+    //    verified email is real money per signup, and most drive-by signups
+    //    never publish;
+    //  - `signup`: today's behaviour — enqueue the moment the org exists.
+    //
+    // ONE policy, read by BOTH the browser create-org path and the CLI signup:
+    // two front doors that provisioned differently would be a difference nobody
+    // could reason about from a stack row.
+    CLOUD_PROVISION_ON: z
+      .enum(["signup", "first-publish"])
+      .default("first-publish"),
     // Which `SubstrateProvider` backs every infrastructure operation. Dev/test
     // default to the in-memory fake so a fresh clone can walk a whole
     // provision → running → destroy with no cloud account. Production

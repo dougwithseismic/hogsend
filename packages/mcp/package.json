@@ -34,6 +34,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@hogsend/cli": "workspace:^",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^25.9.1",
     "tsup": "^8.5.1",

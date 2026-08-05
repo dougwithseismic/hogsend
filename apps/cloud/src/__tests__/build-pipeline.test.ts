@@ -508,6 +508,92 @@ describe("runBuildPipeline", () => {
     );
   });
 
+  it("WAITS at precheck for a stack that is still being provisioned", async () => {
+    // The first publish of a `CLOUD_PROVISION_ON=first-publish` tenant (PRD
+    // 15): the intake promoted the stack moments ago and the provisioner is
+    // still working. Failing here would make every new tenant's first publish
+    // fail by design.
+    const fixture = await seed();
+    const refs = (
+      await db
+        .select({ refs: stacks.substrateRefs })
+        .from(stacks)
+        .where(eq(stacks.id, fixture.stackId))
+    )[0]?.refs;
+    await db
+      .update(stacks)
+      .set({ status: "provisioning" })
+      .where(eq(stacks.id, fixture.stackId));
+
+    // The provisioner, standing in for another process: the stack comes up on
+    // the third poll, so the wait must actually re-read rather than decide
+    // once. Driven off the injected `sleep` so no wall-clock time is spent.
+    let polls = 0;
+    const sleep = async (): Promise<void> => {
+      polls += 1;
+      if (polls === 3) {
+        await db
+          .update(stacks)
+          .set({ status: "running", substrateRefs: refs ?? {} })
+          .where(eq(stacks.id, fixture.stackId));
+      }
+    };
+
+    const result = await run(fixture, { sleep, stackWaitPollMs: 1 });
+
+    expect(result.status).toBe("succeeded");
+    expect(polls).toBe(3);
+    // It really did build and deploy afterwards — the wait resumes the
+    // pipeline, it does not skip it.
+    expect(
+      substrate.calls.filter((call) => call.method === "deployImage"),
+    ).toHaveLength(2);
+  });
+
+  it("gives up on a stack that never comes up, and never on one that cannot", async () => {
+    // Two halves of the same law. First: the wait is BOUNDED — a stack stuck
+    // in `provisioning` fails the build rather than pinning a queue slot.
+    const stuck = await seed();
+    await db
+      .update(stacks)
+      .set({ status: "provisioning" })
+      .where(eq(stacks.id, stuck.stackId));
+
+    let slept = 0;
+    const timedOut = await run(stuck, {
+      sleep: async () => {
+        slept += 1;
+      },
+      stackWaitMs: 0,
+    });
+    expect(timedOut.status).toBe("failed");
+    expect(timedOut.failedStep).toBe("precheck");
+    // Zero budget means zero waiting: the deadline is checked before the sleep.
+    expect(slept).toBe(0);
+
+    // Second: a status nothing is driving is answered IMMEDIATELY, whatever
+    // the budget. Waiting twenty minutes on a suspended stack would turn a
+    // clear refusal into a hang.
+    const halted = await seed();
+    await stackService.transition({
+      stackId: halted.stackId,
+      to: "suspended",
+      expectedFrom: "running",
+    });
+
+    let sleptOnHalted = 0;
+    const refused = await run(halted, {
+      sleep: async () => {
+        sleptOnHalted += 1;
+      },
+      stackWaitMs: 60_000,
+    });
+    expect(refused.status).toBe("failed");
+    expect(refused.failedStep).toBe("precheck");
+    expect(sleptOnHalted).toBe(0);
+    expect(images.calls).toHaveLength(0);
+  });
+
   it("stamps the stack on the build row at the deploying write", async () => {
     const fixture = await seed();
 

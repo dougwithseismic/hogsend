@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AdminClient } from "./lib/admin-client.js";
+import { toContent } from "./lib/tool.js";
 import { findAndFixPrompt } from "./prompts/find-and-fix.js";
 import { authoringGuideResource } from "./resources/authoring-guide.js";
 import { createManageBlueprintTool } from "./tools/manage-blueprint.js";
@@ -29,14 +30,17 @@ const SERVER_VERSION = (
 ).version;
 
 export interface CreateHogsendMcpServerOptions {
-  client: AdminClient;
-}
-
-/** Serialize a tool's discriminated `ok` result into a text content block. */
-function toContent(result: unknown): CallToolResult {
-  return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-  };
+  /**
+   * The instance's admin API client. OPTIONAL, because the stdio bin is useful
+   * before any instance exists: the `cloud_*` tools (PRD 18) sign you in and
+   * publish a scaffold, and at that point in the journey there is no instance
+   * to hold an admin key FOR. Omitted → the three instance tools are not
+   * registered and the resource + prompt still are, so a client sees exactly
+   * the tools that can actually work.
+   *
+   * The hosted transport always passes one.
+   */
+  client?: AdminClient;
 }
 
 /** Build a fresh `McpServer` with all tools/resource/prompt registered. */
@@ -45,6 +49,8 @@ export function createHogsendMcpServer(
 ): McpServer {
   const { client } = opts;
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+
+  if (!client) return withResourceAndPrompt(server);
 
   // Registered inline (not via a generic helper) so the SDK infers each tool's
   // concrete raw-shape from the factory's return type. Handlers take `unknown`
@@ -79,6 +85,16 @@ export function createHogsendMcpServer(
       toContent(await sendTestEmail.handler(args)),
   );
 
+  return withResourceAndPrompt(server);
+}
+
+/**
+ * The instance-independent half: the authoring guide and the bottleneck
+ * prompt. Neither touches the admin API, so both are registered whether or not
+ * there is a client — an agent writing a journey benefits from the guide long
+ * before it has somewhere to deploy it.
+ */
+function withResourceAndPrompt(server: McpServer): McpServer {
   server.registerResource(
     authoringGuideResource.name,
     authoringGuideResource.uri,

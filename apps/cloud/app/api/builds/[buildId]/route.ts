@@ -5,6 +5,7 @@ import {
   resolvePublishCredential,
 } from "@/src/lib/publish-guards";
 import { buildService, isTerminalBuildStatus } from "@/src/services/builds";
+import { StackService } from "@/src/services/stacks";
 
 /**
  * `GET /api/builds/:buildId` — what `hogsend publish` watches after the upload.
@@ -92,12 +93,32 @@ export async function GET(
 
   const terminal = isTerminalBuildStatus(build.status);
 
+  // The STACK's phase, alongside the build's. Under
+  // `CLOUD_PROVISION_ON=first-publish` (PRD 15) a first publish spends its
+  // opening minutes waiting for substrate that does not exist yet, and the
+  // build status has nothing to say about it — `building` is true but useless,
+  // and adding a build status for it would mean widening the single-flight
+  // index's predicate for a phase that is not the build's at all. This is the
+  // minimal honest answer: one more field, no schema change, and the CLI can
+  // render "provisioning your instance" from the pair.
+  //
+  // Skipped once the build is TERMINAL: nothing renders a provisioning phase
+  // for a build that has finished, and this is the endpoint `hogsend publish`
+  // polls every three seconds — a read per poll that no caller reads is just
+  // load on the busiest row in the table.
+  const stack = terminal
+    ? null
+    : await new StackService().getByEnvironment({
+        environmentId: build.environmentId,
+      });
+
   return Response.json(
     {
       id: build.id,
       environmentId: build.environmentId,
       status: build.status,
       terminal,
+      stack: stack ? { status: stack.status } : null,
       engineVersion: build.engineVersion,
       imageDigest: build.imageDigest,
       createdAt: build.createdAt.toISOString(),

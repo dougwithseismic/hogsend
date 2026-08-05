@@ -113,7 +113,15 @@ describe("provisionOrganization", () => {
     const headers = await signIn();
 
     const result = await provisionOrganization(
-      { name: `${ORG_PREFIX} Trio`, region: "us", plan: "trial", headers },
+      {
+        name: `${ORG_PREFIX} Trio`,
+        region: "us",
+        plan: "trial",
+        headers,
+        // The `CLOUD_PROVISION_ON=signup` policy, pinned: this case is the
+        // enqueue-on-create law (PRD 04). The deferred half is its own case.
+        provision: true,
+      },
       deps,
     );
 
@@ -164,6 +172,45 @@ describe("provisionOrganization", () => {
     // PRD 04 EARS: provisioning is enqueued for the new stack, with no
     // operator action and AFTER the trio committed.
     expect(enqueued).toContain(result.stackId);
+  });
+
+  it("defers the stack and enqueues NOTHING under first-publish", async () => {
+    const headers = await signIn();
+    const before = enqueued.length;
+
+    const result = await provisionOrganization(
+      {
+        name: `${ORG_PREFIX} Deferred`,
+        region: "us",
+        plan: "trial",
+        headers,
+        // `CLOUD_PROVISION_ON=first-publish` — the deployment DEFAULT (PRD 15).
+        provision: false,
+      },
+      deps,
+    );
+
+    // The tenant is whole: the same org, environment and stack row a signup
+    // has always produced. Only the stack's birth status differs.
+    expect(result.stackStatus).toBe("deferred");
+    const stackRows = await db
+      .select()
+      .from(stacks)
+      .where(eq(stacks.organizationId, result.organizationId));
+    expect(stackRows).toHaveLength(1);
+    expect(stackRows[0]?.status).toBe("deferred");
+
+    const envRows = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.organizationId, result.organizationId));
+    expect(envRows).toHaveLength(1);
+    expect(envRows[0]?.kind).toBe("production");
+
+    // The whole point: no substrate was asked for. A `deferred` stack that had
+    // been enqueued would provision exactly the thing the policy defers.
+    expect(enqueued).toHaveLength(before);
+    expect(enqueued).not.toContain(result.stackId);
   });
 
   it("suffixes the slug when the base one is taken", async () => {

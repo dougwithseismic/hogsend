@@ -1,0 +1,1 @@
+ALTER TYPE "cloud"."cloud_stack_status" ADD VALUE 'deferred' BEFORE 'requested';

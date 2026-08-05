@@ -154,10 +154,15 @@ describe("refusal rendering", () => {
       ),
     );
 
-  it("401 → run hogsend login", () => {
+  it("401 → says WHY plainly and names both ways back in", () => {
     const text = render(401, { error: "invalid_token", message: "nope" });
     expect(text).toContain("cloud.hogsend.test");
+    expect(text).toContain("revoked");
     expect(text).toContain("hogsend login");
+    // The email door is named too: a machine with no browser cannot use the
+    // other one, and being told to run a command that cannot work is worse
+    // than being told nothing.
+    expect(text).toContain("hogsend login --email");
   });
 
   it("403 forbidden_role → ask an admin; forbidden_organization → log in again", () => {

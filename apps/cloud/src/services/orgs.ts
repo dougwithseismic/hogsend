@@ -20,9 +20,12 @@ import { insertPublishToken } from "./publish-tokens";
  *    accepting cell in its own region with spare capacity, or the signup is
  *    refused (`IllegalRegionError`). A dedicated tenant gets its own substrate
  *    and so carries `cell_id = null` and may pick any region;
- *  - stacks are only ever BORN here, in `requested`. This module never
- *    transitions a status — that is `StackService.transition()`'s sole right
- *    (PRD 02 task 4).
+ *  - stacks are only ever BORN here, in `requested` or (under
+ *    `CLOUD_PROVISION_ON=first-publish`, PRD 15) in `deferred`. This module
+ *    never transitions a status — that is `StackService.transition()`'s sole
+ *    right (PRD 02 task 4). Birth is a write, not a transition, which is why a
+ *    caller may choose WHICH of the two starting statuses it wants and may
+ *    choose nothing else.
  */
 
 /** DECISIONS §2: trial 1 (prod) / self-serve 2 / dedicated 4. */
@@ -50,6 +53,14 @@ const actorSchema = z.string().min(1).max(200);
 export type CloudRegion = z.infer<typeof regionSchema>;
 export type CloudPlan = z.infer<typeof planSchema>;
 
+/**
+ * The two statuses a stack may be BORN in. `provisioning` and everything after
+ * belong to `StackService.transition()`; these two are writes.
+ */
+const stackBirthStatusSchema = z.enum(["requested", "deferred"]);
+
+export type StackBirthStatus = z.infer<typeof stackBirthStatusSchema>;
+
 const createInputSchema = z.object({
   /** Better Auth's organization id — the tenant identifier, not a fresh uuid. */
   id: z.string().min(1).max(200),
@@ -57,6 +68,8 @@ const createInputSchema = z.object({
   region: regionSchema,
   plan: planSchema.default("trial"),
   actor: actorSchema.optional(),
+  /** See {@link StackBirthStatus}; defaults to today's `requested`. */
+  stackStatus: stackBirthStatusSchema.default("requested"),
 });
 
 const idInputSchema = z.object({
@@ -135,6 +148,13 @@ export async function insertEnvironmentWithStack(
     name: string;
     kind: "production" | "staging" | "test";
     region: CloudRegion;
+    /**
+     * Which of the two BIRTH statuses the stack gets. Defaults to `requested`
+     * so every existing caller is unchanged; `deferred` is PRD 15's
+     * provision-on-first-publish, where the row exists but no substrate has
+     * been asked for.
+     */
+    stackStatus?: StackBirthStatus;
   },
 ): Promise<{ environment: EnvironmentRow; stack: StackRow }> {
   const [environment] = await writer
@@ -159,7 +179,7 @@ export async function insertEnvironmentWithStack(
       organizationId: input.organizationId,
       environmentId: environment.id,
       // Task 4 owns every later status; birth is the one write that is ours.
-      status: "requested",
+      status: input.stackStatus ?? "requested",
       region: input.region,
       hatchetNamespace: stackId,
       dbName: buildStackDbName(input.organizationId, input.name),
@@ -188,7 +208,8 @@ export class OrgService {
    * environment + `requested` stack + audit row, in one transaction.
    */
   async create(input: CreateOrgInput): Promise<CreateOrgResult> {
-    const { id, name, region, plan, actor } = createInputSchema.parse(input);
+    const { id, name, region, plan, actor, stackStatus } =
+      createInputSchema.parse(input);
 
     return this.db.transaction(async (tx) => {
       const cellId = SHARED_TIER_PLANS.has(plan)
@@ -220,6 +241,7 @@ export class OrgService {
         name: "production",
         kind: "production",
         region,
+        stackStatus,
       });
 
       await writeAudit(tx, {
@@ -233,6 +255,9 @@ export class OrgService {
           cellId,
           environmentId: environment.id,
           stackId: stack.id,
+          // WHICH policy this tenant was born under, on the row an operator
+          // reads when asking why a stack never provisioned.
+          stackStatus,
         },
       });
 

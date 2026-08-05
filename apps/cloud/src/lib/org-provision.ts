@@ -1,6 +1,15 @@
 import { randomBytes } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { organization as authOrganization } from "../db/schema/auth";
+import { env } from "../env";
 import { enqueueProvision as defaultEnqueueProvision } from "../pipeline/enqueue";
-import type { CloudPlan, CloudRegion, OrgService } from "../services/orgs";
+import type {
+  CloudPlan,
+  CloudRegion,
+  OrgService,
+  StackBirthStatus,
+} from "../services/orgs";
 import { orgService as defaultOrgService } from "../services/orgs";
 import type { CloudAuth } from "./auth";
 import { auth as defaultAuth } from "./auth";
@@ -32,8 +41,31 @@ export interface ProvisionOrganizationInput {
   region: CloudRegion;
   /** Defaults to `trial`; paid plans arrive with billing. */
   plan?: CloudPlan;
-  /** The caller's request headers — the session Better Auth acts on. */
-  headers: Headers;
+  /**
+   * The caller's request headers — the session Better Auth acts on. The
+   * browser's create-org form passes these.
+   */
+  headers?: Headers;
+  /**
+   * HEADLESS alternative to {@link headers}: act as this user with no session
+   * at all. `POST /api/cli/signup/verify` has just proven inbox ownership and
+   * holds a user id, not a cookie, and minting a browser session purely to hand
+   * it back to this function would be a credential nobody asked for.
+   *
+   * Better Auth supports exactly this shape — `createOrganization` accepts a
+   * `body.userId` PROVIDED no headers are passed (it refuses a request that
+   * carries headers but no session) — so the two inputs are mutually exclusive
+   * rather than merely both-optional.
+   */
+  userId?: string;
+  /**
+   * Whether to ask for substrate now. Defaults to the deployment's policy
+   * (`CLOUD_PROVISION_ON`, PRD 15): `signup` → true, `first-publish` → false,
+   * in which case the stack is born `deferred` and the publish intake promotes
+   * it. Passed explicitly only by tests and by a caller that has already
+   * resolved the policy.
+   */
+  provision?: boolean;
 }
 
 export interface ProvisionOrganizationDeps {
@@ -44,6 +76,12 @@ export interface ProvisionOrganizationDeps {
    * the enqueue happened without running infrastructure work.
    */
   enqueueProvision?: (stackId: string) => Promise<unknown>;
+  /**
+   * The compensating delete for the HEADLESS path. Better Auth's
+   * `deleteOrganization` needs a session, which that path does not have, so the
+   * rollback is a direct row delete (`member`/`invitation` cascade off it).
+   */
+  deleteOrganizationRow?: (organizationId: string) => Promise<unknown>;
 }
 
 export interface ProvisionOrganizationResult {
@@ -51,6 +89,11 @@ export interface ProvisionOrganizationResult {
   slug: string;
   environmentId: string;
   stackId: string;
+  /**
+   * What the stack was born as. `deferred` means nothing was enqueued and the
+   * first publish is what starts it.
+   */
+  stackStatus: StackBirthStatus;
 }
 
 /**
@@ -92,6 +135,44 @@ export function slugifyOrgName(name: string): string {
     : `org-${randomBytes(3).toString("hex")}`;
 }
 
+/**
+ * WHO the organization is being created for, and HOW Better Auth is told.
+ *
+ * Both shapes carry the user id (the audit actor is the same question either
+ * way); they differ only in what the Better Auth call may be handed.
+ */
+type OrgActor =
+  | { kind: "session"; headers: Headers; userId: string }
+  | { kind: "user"; userId: string };
+
+/** The headless rollback's default: delete the Better Auth organization row. */
+async function defaultDeleteOrganizationRow(
+  organizationId: string,
+): Promise<unknown> {
+  return db
+    .delete(authOrganization)
+    .where(eq(authOrganization.id, organizationId));
+}
+
+async function resolveActor(
+  auth: CloudAuth,
+  input: ProvisionOrganizationInput,
+): Promise<OrgActor> {
+  if (input.headers) {
+    const session = await auth.api.getSession({ headers: input.headers });
+    if (!session) throw new Error("No signed-in user");
+    return {
+      kind: "session",
+      headers: input.headers,
+      userId: session.user.id,
+    };
+  }
+  if (input.userId) return { kind: "user", userId: input.userId };
+  throw new Error(
+    "provisionOrganization needs either request `headers` (a signed-in session) or a `userId`",
+  );
+}
+
 function isSlugTaken(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const body = (error as { body?: { code?: unknown } }).body;
@@ -106,7 +187,7 @@ function isSlugTaken(error: unknown): boolean {
  */
 async function createAuthOrganization(
   auth: CloudAuth,
-  headers: Headers,
+  actor: OrgActor,
   name: string,
 ): Promise<{ id: string; slug: string }> {
   const base = slugifyOrgName(name);
@@ -115,10 +196,14 @@ async function createAuthOrganization(
   let lastError: unknown;
   for (const slug of candidates) {
     try {
-      const created = await auth.api.createOrganization({
-        body: { name, slug },
-        headers,
-      });
+      // Headers XOR userId, never both: Better Auth refuses a call that carries
+      // headers without a session, so passing an empty `Headers` on the
+      // headless path would turn every CLI signup into a 401.
+      const created = await auth.api.createOrganization(
+        actor.kind === "session"
+          ? { body: { name, slug }, headers: actor.headers }
+          : { body: { name, slug, userId: actor.userId } },
+      );
       if (!created) throw new Error("Better Auth returned no organization");
       return { id: created.id, slug };
     } catch (error) {
@@ -136,11 +221,21 @@ async function createAuthOrganization(
  */
 async function deleteAuthOrganization(
   auth: CloudAuth,
-  headers: Headers,
+  actor: OrgActor,
   organizationId: string,
+  deleteRow: (organizationId: string) => Promise<unknown>,
 ): Promise<void> {
   try {
-    await auth.api.deleteOrganization({ body: { organizationId }, headers });
+    if (actor.kind === "session") {
+      await auth.api.deleteOrganization({
+        body: { organizationId },
+        headers: actor.headers,
+      });
+    } else {
+      // No session to delete THROUGH. `member` and `invitation` cascade off
+      // the organization row, so the delete is complete.
+      await deleteRow(organizationId);
+    }
   } catch (error) {
     console.error(
       `[cloud] Could not roll back organization ${organizationId}:`,
@@ -161,13 +256,19 @@ export async function provisionOrganization(
   const auth = deps.auth ?? defaultAuth;
   const orgService = deps.orgService ?? defaultOrgService;
   const enqueue = deps.enqueueProvision ?? defaultEnqueueProvision;
-  const { headers, region, plan = "trial" } = input;
+  const deleteRow = deps.deleteOrganizationRow ?? defaultDeleteOrganizationRow;
+  const { region, plan = "trial" } = input;
   const name = input.name.trim();
 
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("No signed-in user");
+  // ONE policy for both front doors — see `CLOUD_PROVISION_ON` in `env.ts`.
+  // `??` guards the `SKIP_ENV_VALIDATION=true` build, where t3-env hands back
+  // raw process.env and the schema default is not applied.
+  const provision =
+    input.provision ?? (env.CLOUD_PROVISION_ON ?? "first-publish") === "signup";
+  const stackStatus: StackBirthStatus = provision ? "requested" : "deferred";
 
-  const created = await createAuthOrganization(auth, headers, name);
+  const actor = await resolveActor(auth, input);
+  const created = await createAuthOrganization(auth, actor, name);
 
   try {
     const trio = await orgService.create({
@@ -176,7 +277,8 @@ export async function provisionOrganization(
       name,
       region,
       plan,
-      actor: session.user.id,
+      actor: actor.userId,
+      stackStatus,
     });
 
     // PRD 04 EARS: "WHEN an organization is created, the system SHALL enqueue
@@ -184,13 +286,20 @@ export async function provisionOrganization(
     // best-effort: the signup has succeeded by now, and a queue that is
     // momentarily unreachable is an operator retry, not a failed signup that
     // rolls back the user's organization.
-    try {
-      await enqueue(trio.stack.id);
-    } catch (error) {
-      console.error(
-        `[cloud] Could not enqueue provisioning for stack ${trio.stack.id}:`,
-        error,
-      );
+    //
+    // PRD 15 narrows WHEN that clause applies: under `first-publish` the stack
+    // is `deferred` and there is nothing to enqueue — the intake enqueues on
+    // the first upload instead. Skipping it here is the whole point; a queued
+    // `deferred` stack would provision the thing the policy exists to defer.
+    if (provision) {
+      try {
+        await enqueue(trio.stack.id);
+      } catch (error) {
+        console.error(
+          `[cloud] Could not enqueue provisioning for stack ${trio.stack.id}:`,
+          error,
+        );
+      }
     }
 
     return {
@@ -198,9 +307,10 @@ export async function provisionOrganization(
       slug: created.slug,
       environmentId: trio.environment.id,
       stackId: trio.stack.id,
+      stackStatus,
     };
   } catch (error) {
-    await deleteAuthOrganization(auth, headers, created.id);
+    await deleteAuthOrganization(auth, actor, created.id, deleteRow);
     throw error;
   }
 }

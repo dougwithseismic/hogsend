@@ -106,6 +106,33 @@ export const WORKER_START_COMMAND = "node dist/worker.js";
  */
 export const MAX_PENDING_LOG_CHARS = 32 * 1024;
 
+/**
+ * How long the precheck waits for a stack that is not `running` YET.
+ *
+ * It exists for exactly one shape (PRD 15): under
+ * `CLOUD_PROVISION_ON=first-publish` the very first publish is what ASKS for
+ * the substrate, so the intake promotes the stack and this pipeline arrives
+ * while the provisioner is still building it. Failing there would make the
+ * first publish of every new tenant fail by design.
+ *
+ * Twenty minutes because a cold provision is minutes of substrate work plus the
+ * provision pipeline's own ten-minute health wait, and a stack that has not
+ * come up inside that is not slow — it is parked, and the build should say so
+ * rather than hold a queue slot forever.
+ */
+export const DEFAULT_STACK_WAIT_MS = 20 * 60_000;
+
+/** How often the wait re-reads the stack's status. */
+export const DEFAULT_STACK_WAIT_POLL_MS = 5_000;
+
+/**
+ * Statuses the wait treats as "still coming". Everything else is answered
+ * immediately: `running` succeeds, and `error`/`suspended`/`destroying`/
+ * `destroyed` are stacks nothing is bringing up, so waiting on one would only
+ * turn a clear failure into a twenty-minute one.
+ */
+const STACK_WAIT_STATUSES = new Set(["deferred", "requested", "provisioning"]);
+
 /** Deploy order. Worker first: see `deployStack` for why. */
 const DEPLOY_ORDER = ["worker", "api"] as const;
 
@@ -132,6 +159,12 @@ export interface BuildDeps {
   workRoot: string;
   /** Ceiling on the preflight gate. See {@link DEFAULT_PREFLIGHT_TIMEOUT_MS}. */
   preflightTimeoutMs: number;
+  /** Ceiling on the first-publish wait. See {@link DEFAULT_STACK_WAIT_MS}. */
+  stackWaitMs: number;
+  /** Gap between two stack-status reads while waiting. */
+  stackWaitPollMs: number;
+  /** Injected so a test can exhaust the wait without spending the wall clock. */
+  sleep: (ms: number) => Promise<void>;
 }
 
 export interface BuildPipelineResult {
@@ -192,6 +225,9 @@ function defaultDeps(): BuildDeps {
     artifacts: getArtifactStore(),
     workRoot: join(artifactsRoot(), ".work"),
     preflightTimeoutMs: DEFAULT_PREFLIGHT_TIMEOUT_MS,
+    stackWaitMs: DEFAULT_STACK_WAIT_MS,
+    stackWaitPollMs: DEFAULT_STACK_WAIT_POLL_MS,
+    sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
 }
 
@@ -352,7 +388,15 @@ export async function runBuildPipeline(
     // pipeline before saying the one thing it knew at second zero. The check is
     // ADVISORY: the authority is still the guarded `running → publishing`
     // transition at the deploy step, which is what makes the race safe.
-    await loadRunningStack(deps, row.environmentId);
+    // …and if there is not one YET, WAIT for it. Under
+    // `CLOUD_PROVISION_ON=first-publish` (PRD 15) the upload that queued this
+    // build is what asked for the substrate, so arriving before the stack is
+    // up is the ORDINARY first publish, not a failure. The wait is bounded and
+    // only covers statuses something is actively driving; every other status
+    // fails here exactly as it always did. The build stays `building` while it
+    // waits — the phase a poller reads is the STACK's, which
+    // `GET /api/builds/:id` carries for exactly this reason.
+    await loadRunningStack(deps, row.environmentId, log);
 
     // ---- unpack -----------------------------------------------------------
     current = "unpack";
@@ -691,29 +735,62 @@ export async function runPreflight(args: {
 async function loadRunningStack(
   deps: BuildDeps,
   environmentId: string,
+  log?: BuildLog,
 ): Promise<{ id: string; refs: StackRefs }> {
-  const [stack] = await deps.db
-    .select()
-    .from(stacks)
-    .where(eq(stacks.environmentId, environmentId))
-    .limit(1);
-  if (!stack) {
-    throw new Error(
-      `environment ${environmentId} has no stack — provision it before publishing`,
-    );
+  const deadline = Date.now() + deps.stackWaitMs;
+  let announced: string | null = null;
+
+  // Poll rather than read once. The status is written by ANOTHER process (the
+  // provisioner, possibly on another host), so there is nothing to await and no
+  // event to subscribe to — the row is the channel. Every read is fresh, so a
+  // stack that comes up mid-wait is seen on the next tick.
+  for (;;) {
+    const [stack] = await deps.db
+      .select()
+      .from(stacks)
+      .where(eq(stacks.environmentId, environmentId))
+      .limit(1);
+    if (!stack) {
+      throw new Error(
+        `environment ${environmentId} has no stack — provision it before publishing`,
+      );
+    }
+
+    if (stack.status === "running") {
+      const refs = readStackRefs(stack);
+      if (!refs) {
+        throw new Error(
+          `stack ${stack.id} carries no substrate refs — it has never been provisioned`,
+        );
+      }
+      if (announced) log?.line(`stack ${stack.id} is running; continuing`);
+      return { id: stack.id, refs };
+    }
+
+    // Not coming up on its own, or the wait is spent. Either way the message is
+    // the same one this check has always given.
+    if (!STACK_WAIT_STATUSES.has(stack.status) || Date.now() >= deadline) {
+      throw new Error(
+        `stack ${stack.id} is ${stack.status}, not running — a publish deploys onto a running stack only`,
+      );
+    }
+
+    // One line per PHASE, not per poll: this streams into the build's log tail
+    // and the dashboard, and a line every five seconds for twenty minutes is
+    // noise that would bury the build's own output.
+    if (announced !== stack.status) {
+      announced = stack.status;
+      log?.line(
+        `waiting for stack ${stack.id} (${stack.status}) — the first publish provisions this environment`,
+      );
+      // Flushed immediately, unlike the stage-boundary rule: the next boundary
+      // may be twenty minutes away, and a customer watching a build that says
+      // nothing for twenty minutes is watching a hang.
+      await log?.flush();
+    }
+
+    await deps.sleep(deps.stackWaitPollMs);
   }
-  if (stack.status !== "running") {
-    throw new Error(
-      `stack ${stack.id} is ${stack.status}, not running — a publish deploys onto a running stack only`,
-    );
-  }
-  const refs = readStackRefs(stack);
-  if (!refs) {
-    throw new Error(
-      `stack ${stack.id} carries no substrate refs — it has never been provisioned`,
-    );
-  }
-  return { id: stack.id, refs };
 }
 
 /**

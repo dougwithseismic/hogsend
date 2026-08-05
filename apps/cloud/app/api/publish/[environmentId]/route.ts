@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { buildArtifactKey, getArtifactStore } from "@/src/lib/artifacts";
+import { promoteDeferredStack } from "@/src/lib/deferred-stacks";
 import {
   authorizePublishEnvironment,
   bearerToken,
@@ -45,6 +46,15 @@ import { BuildQueueFullError } from "@/src/services/errors";
  *  5. **A rejected upload leaves nothing.** Every refusal above happens before
  *     any write. The one refusal that can happen after the file is on disk — a
  *     full publish queue — deletes the file it wrote.
+ *  6. **An accepted upload ASKS FOR THE SUBSTRATE.** Under
+ *     `CLOUD_PROVISION_ON=first-publish` (PRD 15) a new tenant's stack is born
+ *     `deferred` and nothing provisions it until somebody publishes. This
+ *     route promotes it (`deferred → requested`, a guarded edge, so two
+ *     concurrent publishes promote once) and enqueues — after every refusal
+ *     above, so a rejected upload still provisions nothing. The build then
+ *     WAITS for the stack to come up (`pipeline/build.ts`), and
+ *     `GET /api/builds/:id` carries the stack's phase so the CLI can say what
+ *     it is waiting for.
  *
  * A busy environment is NOT a refusal. A publish sent while another build is
  * running is QUEUED behind it (PRD 08: "a second publish to a busy environment
@@ -287,6 +297,22 @@ export async function POST(
       "The upload is not a gzipped tarball (`.tar.gz`).",
     );
   }
+
+  // The upload is going to be accepted. THIS is the moment the tenant's
+  // substrate is asked for under `CLOUD_PROVISION_ON=first-publish` (PRD 15):
+  // after every refusal above (so a rejected upload provisions nothing) and
+  // before the build row exists (so the provisioner has a head start on the
+  // pipeline that will wait for it). A no-op for a stack in any other status,
+  // and a failed promotion never fails the publish — see `deferred-stacks.ts`.
+  await promoteDeferredStack({
+    environmentId,
+    actor: authorized.actor,
+  }).catch((error) => {
+    console.error(
+      `[cloud] Could not promote the deferred stack for environment ${environmentId}:`,
+      error,
+    );
+  });
 
   const buildId = randomUUID();
   const key = buildArtifactKey(environmentId, buildId);

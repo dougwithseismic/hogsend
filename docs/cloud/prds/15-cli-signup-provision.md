@@ -80,3 +80,28 @@ login commands). _Depends:_ PRD 03, 04, 07 (all shipped).
    the endpoints, interactive prompts + stdin OTP + `--json`, credentials
    write, refusal rendering (429 retry-after, attempt-burned, org-exists).
    _Boundary:_ packages/cli. _Depends:_ 1
+
+## Implementation Notes
+Shipped in 2 commits (T1 cloud 947431cf; T2 CLI e7d5eb6e). T1: Better Auth
+emailOTP "sign-in" type drives the whole flow headless (send mails unknown
+addresses, verify creates the user with emailVerified) — no parallel cli_otp
+table; enumeration parity is structural (verify precedes user lookup) and
+asserted byte-for-byte. Stacks born `deferred` (edge deferred→requested only;
+promote via guarded transition in the intake, winner enqueues); build precheck
+polls bounded 20min/5s with per-PHASE log lines and instant failure on
+undriven statuses; GET /api/builds/:id carries stack:{status} instead of a new
+build status (avoids widening the single-flight unique index). deferred added
+to alert-sweep UNALERTED_STATUSES (else every idle signup pages) and kept out
+of ops-stats in-flight. provisionOrganization takes headers XOR userId with a
+row-delete rollback on the headless path. 1006 cloud tests; promotion race +
+policy guards mutation-tested. T2: one shared email-login flow behind
+`signup` and `login --email` (server reports created rather than caller
+choosing); wrong-code retries in place capped at 2 (< server's 3-budget);
+storeCloudLogin extracted so both login paths share write-token-first
+ordering; raw-stdin read-line (readline would keep the process alive); token
+asserted absent from full scrollback incl. failure paths. 351 cli tests +
+real E2E smoke against next dev + Postgres (deferred stack verified, no
+second org on re-signup, cleanup confirmed). Known minors: "10 minutes" copy
+hardcoded despite expiresInSeconds in the response; interactive clack
+branches covered by hand, not suite; --label not exposed on signup
+(hostname always).
