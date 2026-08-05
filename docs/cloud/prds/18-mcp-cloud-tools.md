@@ -49,3 +49,27 @@ publish/auth libraries). _Depends:_ PRD 15, 16.
 2. **MCP tools** — the five tools over the shared libs, stdio-only
    registration, structured errors, token-never-on-wire tests, hosted-variant
    absence test. _Boundary:_ packages/mcp. _Depends:_ 1
+
+## Implementation Notes
+Shipped in b8974235. T1: `@hogsend/cli/cloud` exports entry (no new package)
+— publish flow, tarball (hard excludes), manifest/scaffold detection, cloud
+http/session/credentials/config, refusals, email-login; every module behind
+the barrel is engine/db-free by written contract; poisoned-fixture test runs
+through the shared surface. T2: five tools in packages/mcp; stdio-only is
+STRUCTURAL (registerCloudTools imported by bin.ts only; routes.ts asserted
+by test to not name it); @hogsend/cli is a devDependency + noExternal so the
+stdio bin gains no runtime deps (84KB). HOGSEND_ADMIN_KEY now optional on
+the stdio bin — without it instance tools are absent, cloud tools present
+(signup precedes any instance); createHogsendMcpServer client? widened,
+hosted callers unaffected. Errors are structured, total over the library's
+error types, and name TOOLS not commands (needs_auth → cloud_signup).
+cloud_publish returns the buildId immediately; cloud_build_status is one
+poll. THE SMOKE-FOUND BUG: reusing runEmailLogin for verify re-SENT a code,
+rotating the OTP server-side — 100% real-world failure that every scripted
+test accepted; fixed by extracting verifyEmailCode (verify leg alone, one
+implementation, both callers) + a regression test pinning the exact call
+sequence. Full MCP-client smoke against the live cloud: five tools listed,
+signup→verify→whoami→publish→status all real, CLI/MCP session
+interchangeability proven via shared HOME, token absent from all serialized
+results. 80 mcp + 365 cli tests. Known minors: cloud_whoami makes two calls;
+no cloud_logout (deliberate — revocation stays a human action).

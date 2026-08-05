@@ -48,7 +48,7 @@ Known non-blocking deferrals are named in each row rather than left implicit.
 | 15 | [cli-signup-provision](prds/15-cli-signup-provision.md) | [x] | 03, 04, 07 | `/api/cli/signup(+verify)` email-OTP auth, org auto-create, `deferred` stacks + provision-on-first-publish (`CLOUD_PROVISION_ON`), `hogsend signup` / `login --email` |
 | 16 | [publish-self-healing](prds/16-publish-self-healing.md) | [x] | 15 | inline auth in `publish`, provisioning-phase status narrative, revoked-session re-auth, `--no-wait` build-id fix |
 | 17 | [scaffold-cloud-flag](prds/17-scaffold-cloud-flag.md) | [x] | 15, 16 | `create-hogsend --cloud [--email]`: scaffold → signup → publish in one command, failure-isolated, outro variants |
-| 18 | [mcp-cloud-tools](prds/18-mcp-cloud-tools.md) | [ ] | 15, 16 | shared publish/auth libs, `cloud_signup/verify/whoami/publish/build_status` in `@hogsend/mcp` (stdio only) |
+| 18 | [mcp-cloud-tools](prds/18-mcp-cloud-tools.md) | [x] | 15, 16 | shared publish/auth libs, `cloud_signup/verify/whoami/publish/build_status` in `@hogsend/mcp` (stdio only) |
 | 19 | [cloud-docs](prds/19-cloud-docs.md) | [ ] | 15–18 | docs site: cloud quickstart, CLI cloud reference, Agents & MCP page, outro copy sync |
 
 ### Archived (cleared 2026-08-05 — re-add deliberately if wanted)
