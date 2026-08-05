@@ -42,3 +42,23 @@ shipped.
 1. **Quickstart + CLI reference + MCP page + touch-ups** — author all pages,
    verify every command against the real binaries, sync outro copy if drifted,
    wire nav. _Boundary:_ apps/docs, packages/create-hogsend. _Depends:_ —
+
+## Implementation Notes
+Shipped in 2522a982. There was NO existing cloud section — one was added
+(docs/cloud: index, quickstart, cli, agents) between the agents and
+operating sections; operating/deployment gains Hogsend Cloud as a fourth
+target with the one honest difference named (Cloud doesn't share the
+self-host env contract). Every flag table transcribed from live --help;
+refusal catalog pulled from source AFTER two from-memory drafts were caught
+wrong against publish-guards.ts (the register law working as intended). MCP
+transcript is the real PRD 18 smoke output, fake substrate noted. Copy
+drift found AND fixed: cloudPublishCmd printed `hogsend login && hogsend
+publish` — obsolete since PRD 16's inline auth — now just `hogsend
+publish`; same fix applied to cloud-onboarding.ts SCAFFOLD_COMMANDS
+(welcome email + environment page), with both test suites updated and a
+negative assertion that no outro prints `hogsend login`. Pages viewed in
+the served production build (nav, refusal tables incl. nested backticks,
+transcript block all render). No screenshots — the verbatim terminal blocks
+ARE the real flow. Publication note: the quickstart documents --cloud,
+which works once the release carrying `signup` is on npm — publish the
+release before or with these docs.
