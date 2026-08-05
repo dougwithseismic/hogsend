@@ -47,3 +47,23 @@ script). _Depends:_ PRD 15, 16.
    failure-isolated with resume copy, success/failure outro variants + tests
    (headless refusal, failure-leaves-scaffold-intact, outro variants).
    _Boundary:_ packages/create-hogsend. _Depends:_ —
+
+## Implementation Notes
+Shipped in e615860b. Driver (cloud-deploy.ts) spawns the scaffolded app's own
+CLI via node_modules/@hogsend/cli/dist/bin.js (never the pnpm .bin shim),
+stdio inherited so PRD 15/16's prompts and provisioning narrative stream
+through untouched. Runs `signup` not `login --email` (signup accepts --org;
+org name always passed, defaulting to the app name, so the child never
+prompts a second question). Every failure is a returned verdict; scaffold
+completeness asserted against the filesystem, refusals asserted to leave NO
+directory. Cloud failure exits nonzero (deliberately unlike bootstrap's 0 —
+reasoning in source). Outro has three shapes via hostingLines(); no-cloud
+path byte-identical (one source-shape assertion updated to the new call, plus
+a new delegation test). vitest fileParallelism off (both suites race tsup
+into dist/). 20 scaffold tests + full live E2E: scaffold → signup → deferred
+→ provisioning → running (engine 0.62.0) in one run, with the workspace CLI
+linked in (published 0.62.0 lacks `signup`). Version skew is a non-issue at
+release: the scaffold pins ENGINE_VERSION, so the --cloud release installs
+the CLI that carries signup — but run scripts/verify-scaffold.sh
+--use-tarballs once post-publish. Process catch worth keeping: a mutation
+run's stale dist/ made a smoke lie once — always rebuild before smoking.
