@@ -45,3 +45,22 @@ from PRD 15). _Depends:_ PRD 15.
    re-auth path, `--no-wait` build-id fix. Tests: non-TTY never prompts
    (poisoned-stdin fixture), phase-transition rendering, refusal texts.
    _Boundary:_ packages/cli. _Depends:_ —
+
+## Implementation Notes
+Shipped in 0c50562e. Inline auth reuses the REAL login flows (device body
+extracted as runDeviceLoginCommand, email via runEmailLoginCommand with verb
+"login") so an inline session is indistinguishable from `hogsend login`'s.
+The non-interactive refusal is one branch in runInlineAuth (`--json` counts
+as non-interactive even on a TTY); withReauth wraps BOTH cloud calls
+(listing + upload) and retries exactly once. watchBuild carries a separate
+provisionTimeoutMs (20min, matching the cloud's precheck bound); the build
+clock starts at the running handoff; build-status lines are held back during
+provisioning so the narrative never interleaves; stack error throws
+provisioning_failed immediately; `stack` optional for pre-PRD-15 clouds.
+--no-wait id moved from outro (no-op off TTY) to log. Publish test seams via
+module-scoped configurePublish/resetPublish. 365 cli tests; four guards
+mutation-tested — one mutation exposed an unfaithful Output stub (intro/outro
+recorded when non-interactive) which was fixed in both new suites; the same
+stub shape in env-pull-command.test.ts is a known pre-existing minor. Real
+E2E smoke: watched deferred→provisioning→running narrative live, revoked a
+session mid-flight, piped --no-wait printed the id.
