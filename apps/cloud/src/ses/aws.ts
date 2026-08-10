@@ -580,7 +580,10 @@ export class AwsSesClient implements SesClient {
     const entity = response.ReputationEntity;
     if (!entity) {
       throw new SesError(
-        `SES reputation entity "${input.tenantArn}" was not returned`,
+        // `reference`, NOT `input.tenantArn`: the ARN is optional on the way
+        // in, so reporting the input would print "undefined" on precisely the
+        // path that had to resolve the ARN itself.
+        `SES reputation entity "${reference}" was not returned`,
         { kind: "not_found", operation: "getReputationEntity" },
       );
     }

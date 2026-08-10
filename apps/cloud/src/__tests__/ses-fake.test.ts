@@ -507,7 +507,6 @@ describe("FakeSesClient reputation", () => {
 
   it("round-trips an operator pause through the reputation entity", async () => {
     const client = await tenantFake();
-    const { arn } = await client.getTenant({ tenantName: TENANT });
 
     await client.setTenantSendingStatus({
       tenantName: TENANT,
