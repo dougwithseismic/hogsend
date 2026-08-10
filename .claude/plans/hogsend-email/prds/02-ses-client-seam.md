@@ -16,20 +16,63 @@ Mirrors the house idiom already used by `apps/cloud/src/substrate/` (`contract.t
 
 - **`@aws-sdk/client-sesv2`, installed with `pnpm add @aws-sdk/client-sesv2@latest`.** v2 only. The
   v1 `client-ses` API has no tenant support at all, so reaching for it is a dead end.
-- **The contract is narrow and named for our verbs, not AWS's.** Sixteen verbs, all declared here:
+- **The contract is narrow and named for our verbs, not AWS's.** Nineteen verbs, all declared here,
+  each mapped to an AWS operation name **verified verbatim against the SESv2 API reference on
+  2026-08-10** (never inferred from an SDK method name — a guessed action name surfaces as
+  `AccessDenied` during a customer's provisioning run, which is the worst place to find it):
 
-  | Group | Verbs | First consumer |
-  | --- | --- | --- |
-  | Send | `sendEmail`, `sendBatch` | PRD 03 |
-  | Tenant | `createTenant`, `deleteTenant`, `associateResource`, `disassociateResource` | PRD 06 |
-  | Config set | `createConfigurationSet`, `deleteConfigurationSet`, `putSuppressionScope`, `putEventDestination` | PRD 06, PRD 05 |
-  | Identity | `createIdentity`, `getIdentity`, `setMailFrom`, `deleteIdentity` | PRD 07 |
-  | Reputation | `setReputationPolicy`, `setTenantSendingStatus`, `listRecommendations` | PRD 08 |
+  | Group | Verb | AWS operation | First consumer |
+  | --- | --- | --- | --- |
+  | Send | `sendEmail` | `SendEmail` | PRD 03 |
+  | Send | `sendBatch` | `SendBulkEmail` | PRD 03 |
+  | Tenant | `createTenant` | `CreateTenant` | PRD 06 |
+  | Tenant | `getTenant` | `GetTenant` | PRD 06 |
+  | Tenant | `deleteTenant` | `DeleteTenant` | PRD 06 |
+  | Tenant | `associateResource` | `CreateTenantResourceAssociation` | PRD 06 |
+  | Tenant | `disassociateResource` | `DeleteTenantResourceAssociation` | PRD 06 |
+  | Tenant | `putSuppressionScope` | `PutTenantSuppressionAttributes` | PRD 06 |
+  | Config set | `createConfigurationSet` | `CreateConfigurationSet` | PRD 06 |
+  | Config set | `deleteConfigurationSet` | `DeleteConfigurationSet` | PRD 06 |
+  | Config set | `putEventDestination` | `Create…`/`UpdateConfigurationSetEventDestination` | PRD 05 |
+  | Identity | `createIdentity` | `CreateEmailIdentity` | PRD 07 |
+  | Identity | `getIdentity` | `GetEmailIdentity` | PRD 07 |
+  | Identity | `setMailFrom` | `PutEmailIdentityMailFromAttributes` | PRD 07 |
+  | Identity | `deleteIdentity` | `DeleteEmailIdentity` | PRD 07 |
+  | Reputation | `setReputationPolicy` | `UpdateReputationEntityPolicy` | PRD 08 |
+  | Reputation | `setTenantSendingStatus` | `UpdateReputationEntityCustomerManagedStatus` | PRD 08 |
+  | Reputation | `getReputationEntity` | `GetReputationEntity` | PRD 08 |
+  | Reputation | `listRecommendations` | `ListRecommendations` | PRD 08 |
 
   The delete verbs exist because PRD 06's teardown is real, and `putEventDestination` because PRD 05
   needs the configuration set to publish to SNS. Declaring them here rather than letting each PRD
-  bolt one on is the point of having a seam. If a later PRD needs a seventeenth, it adds it HERE
+  bolt one on is the point of having a seam. If a later PRD needs a twentieth, it adds it HERE
   first, in both the AWS client and the Fake.
+
+  Three corrections applied 2026-08-10 after verification against AWS, recorded because each was a
+  real defect rather than a wording change:
+
+  1. **`putSuppressionScope` is a TENANT operation, not a configuration-set one.** It was grouped
+     under Config set. `PutTenantSuppressionAttributes` takes `{ TenantName (required),
+     SuppressionScope: ACCOUNT|TENANT, SuppressedReasons: (BOUNCE|COMPLAINT)[] }` and has no
+     configuration-set parameter. The similarly-named `PutConfigurationSetSuppressionOptions` is a
+     different operation that **cannot set tenant scope**. Wiring the config-set one would have left
+     `SuppressionScope: TENANT` silently doing nothing, which is precisely the cross-tenant
+     suppression leak PRD 06 calls its most important line.
+  2. **`getTenant` was missing and is load-bearing.** `CreateTenant` returns the tenant ARN only on
+     the call that creates it, so this PRD's own idempotency criterion is unimplementable without a
+     read-back, and both reputation writes address the tenant by ARN.
+  3. **`getReputationEntity` was missing.** Without it there is no reconciliation path for a missed
+     EventBridge event, and since the relay reads our mirrored status, that failure mode is
+     fail-OPEN.
+
+  **`putEventDestination` has no AWS `Put` counterpart.** SESv2 offers only `Create…` and
+  `Update…ConfigurationSetEventDestination`. Implement it as create-then-update-on-already-exists so
+  a provisioning re-drive converges. Comment the asymmetry in the code; the next reader will go
+  looking for a `Put` that does not exist.
+
+  Both reputation writes take `ReputationEntityType: "RESOURCE"` and a `ReputationEntityReference`
+  that is the tenant **ARN**, with the policy itself an AWS-owned ARN
+  (`arn:aws:ses:<region>:aws:reputation-policy/<standard|strict|none>`).
 - **The Fake is deterministic and stateful in memory.** Same input, same output, no clock, no RNG.
   It models tenant existence, identity verification state, and paused status, so downstream PRDs can
   drive real state transitions in tests rather than stubbing return values.
@@ -59,7 +102,7 @@ Mirrors the house idiom already used by `apps/cloud/src/substrate/` (`contract.t
 ## Tasks
 
 1. **Write `apps/cloud/src/ses/types.ts`** — `SesRegion`, `SesError` with its `kind` union, and the
-   argument/result types for all eleven verbs. Types only, no behaviour.
+   argument/result types for all nineteen verbs. Types only, no behaviour.
    _Boundary:_ `apps/cloud` · _Depends:_ none
 
 2. **Write `apps/cloud/src/ses/contract.ts`** — the `SesClient` interface, plus the region resolver
@@ -93,7 +136,7 @@ error classification is specified here rather than discovered there.
 
 ## Done when
 
-All sixteen verbs exist on the contract, the Fake implements them deterministically, the AWS client
+All nineteen verbs exist on the contract, the Fake implements them deterministically, the AWS client
 compiles against `sesv2`, the error classifier is table-tested, and gates are green.
 
 ## Implementation Notes

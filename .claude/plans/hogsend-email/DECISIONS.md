@@ -173,10 +173,18 @@ Three corrections found by actually running these:
    `pnpm lint`.
 2. **`pnpm turbo run test --concurrency=2` FAILS on clean main**, and it is not a real break.
    `@hogsend/api` (2466 tests) and `@hogsend/cloud` (1010 tests) each pass alone and fail when run
-   concurrently — the combined run pulls `user 516s` into 93s wall. Use `--concurrency=1` for the
-   test gate, or scope with `--filter`. **A loop that treats this as a real failure will burn a
-   revision round per task chasing a phantom; a loop that learns to ignore red gates is worse.**
-   Fixing this properly is the highest-leverage hour available and should happen BEFORE PRD 02.
+   concurrently — the combined run pulls `user 516s` into 93s wall. **A loop that treats this as a
+   real failure will burn a revision round per task chasing a phantom; a loop that learns to ignore
+   red gates is worse.**
+
+   **RESOLVED 2026-08-10 by measurement, not by tuning.** `--concurrency=1` is green on clean main:
+   47/47 turbo tasks successful in **2m14s** wall (45 cached), `@hogsend/api` 236 files / 2459 passed
+   / 7 skipped. Two minutes for the full-repo test gate is cheap enough that chasing the concurrent
+   run's resource contention buys nothing. `--concurrency=1` IS the test gate. Do not "fix" this.
+
+   Note for readers of test output: `@hogsend/api` logs a red `[ERROR/Admin] /WorkflowService/
+   TriggerWorkflow UNAVAILABLE ... wrong version number` line during the run. That is a test
+   deliberately exercising the no-Hatchet path, the suite passes, and it is not a failure.
 3. **`--concurrency=2` stays for check-types and build.** Turbo fan-out OOMs in this repo and exits
    137, which reads as a type error and is not one.
 
@@ -219,10 +227,50 @@ These block LAUNCH, not BUILD. Every one of them has an in-repo path that ships 
 
 1. **SES production access as an ESP.** A support request describing a multi-tenant sending model.
    This is the long pole and PRD 01 starts it first.
-2. **AWS account + IAM for the control plane.** Which account, what role, how the relay authenticates.
+2. ~~**AWS account + IAM for the control plane.**~~ **RESOLVED 2026-08-10, see §7.1 below.** The
+   structure is decided; only its *execution* in the AWS console is the user's.
 3. **The Acceptable Use Policy and the ToS clause.** Product/legal judgment, PRD 01 drafts, user
    approves.
 4. **Dedicated IP pool purchase**, if and when a `dedicated`-topology tenant asks.
+
+### 7.1 AWS account structure and control-plane IAM (resolved — PRD 01 task 1)
+
+**A dedicated AWS member account, `hogsend-email-prod`.** Not a shared account, not one account per
+tenant.
+
+The reason is that the three things that matter here — production access, the sending quota, and
+account-level reputation — are all **account-scoped**. Putting them in their own account means a
+reputation event can never reach unrelated infrastructure, and a leaked credential can do exactly one
+thing: send email. Account-per-tenant is the other failure mode: it needs a separate production-access
+ticket per customer, which does not scale and which AWS would reasonably question. SES Tenants exists
+precisely so one account is safe for this.
+
+**Control-plane authentication: a static IAM access key, narrowly scoped.** `apps/cloud` runs on
+Railway, which is not AWS compute, so there is no instance role to assume and Railway does not
+federate OIDC to AWS. The honest answer is an IAM user (`hogsend-cloud-relay`) holding one
+customer-managed policy, with its key in the control plane's environment and a rotation reminder. No
+`sts:AssumeRole` indirection — it would add a hop without removing the static secret that makes the
+hop possible.
+
+**The policy grants only the sixteen verbs of PRD 02 and nothing else.** No `ses:*`. The action list
+is derived from the verb table in PRD 02 §Locked decisions and is written out in PRD 01 task 2's
+deliverable. **The exact IAM action names for the Tenants and Reputation-Entity APIs must be
+confirmed against the live AWS SES IAM reference before the policy is written** — those APIs shipped
+in August 2025 and an action name guessed from the SDK method name produces an `AccessDenied` at
+provision time rather than at deploy time, which is the worst place to find it.
+
+**Env vars** (`apps/cloud/src/env.ts`, PRD 01 task 5), all optional:
+
+| Var | Meaning |
+| --- | --- |
+| `CLOUD_AWS_ACCESS_KEY_ID` | Control-plane IAM user key. Absent ⇒ Hogsend Email inactive. |
+| `CLOUD_AWS_SECRET_ACCESS_KEY` | Its secret. |
+
+Both absent is the supported default: the control plane boots normally, the SES factory yields the
+Fake, and one log line names which client is active. This mirrors what the engine already does for a
+missing `RESEND_API_KEY` and is the posture PRD 02's last acceptance criterion requires. Presence of
+**both** is the gate; exactly one set is a misconfiguration and must fail loudly at boot rather than
+silently degrading to the Fake in production.
 
 ## 8. Deferred (named so they are not silently forgotten)
 

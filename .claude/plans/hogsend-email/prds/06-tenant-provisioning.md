@@ -20,6 +20,13 @@ This is where the instance-per-tenant model and SES Tenants line up one-to-one.
   the account suppression list, which means one tenant's bounce silently suppresses that address for
   every other tenant. That is both a deliverability bug and a cross-tenant information leak, and it
   is the single most important line in this PRD.
+
+  It is set by PRD 02's `putSuppressionScope`, which maps to **`PutTenantSuppressionAttributes`** and
+  is addressed by **tenant name, not by configuration set**. AWS also has a
+  `PutConfigurationSetSuppressionOptions`, it is a different operation, and it **cannot set tenant
+  scope**. Reaching for it because the name looks right leaves this line silently doing nothing,
+  which is a bug with no symptom until it leaks. The test in task 6 must assert the scope landed on
+  the TENANT, which is why the Fake models it there.
 - **New tenants start on reputation policy `None`.** This is AWS's own onboarding advice: observe
   before enforcing. Findings are still recorded and still visible, they just do not auto-pause.
   Promotion to `Standard` is PRD 08's job, not a provisioning-time decision.

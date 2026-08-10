@@ -27,6 +27,26 @@ DECISIONS §2 the aggregate is still ours to protect even with per-tenant isolat
 
   Promotion is automatic on the volume-and-window criteria; demotion to `watched` is automatic on a
   finding. Promotion out of `watched` is manual.
+
+- **The numbers behind that table, proposed 2026-08-10 while drafting the AUP.** They are recorded
+  here rather than "during build" because `docs/acceptable-use-policy.md` §5 already publishes them
+  to customers, and a policy that promises one number while the code enforces another is worse than
+  having no number. **These are PENDING Doug's sign-off**, but they are what the build implements
+  until he says otherwise, and PRD 08 is the ONE place they may be defined.
+
+  | Constant | Value | Reasoning |
+  | --- | --- | --- |
+  | `SUSPEND_BOUNCE_RATE` | `0.05` | The rate at which AWS puts an entire ACCOUNT under review. Suspending here is the last point at which one tenant is still our problem rather than AWS's. |
+  | `SUSPEND_COMPLAINT_RATE` | `0.001` | Same reasoning, AWS's account-review complaint threshold. |
+  | `NEW_TIER_DAILY_CAP` | `500` | The real bound on a `new` tenant's damage, since its reputation policy is `None`. Low enough that a bad first list cannot produce meaningful bounce volume. |
+  | `ESTABLISHED_MIN_DAYS` | `14` | Consecutive days of sending. |
+  | `ESTABLISHED_MIN_DELIVERED` | `1000` | A record, not a trickle. Both this AND the day count must hold. |
+  | `ESTABLISHED_MAX_BOUNCE_RATE` | `0.02` | Deliberately stricter than the suspend threshold: promotion should require being comfortably clean, not merely not-yet-suspended. |
+  | `ESTABLISHED_MAX_COMPLAINT_RATE` | `0.0005` | Same. |
+  | `WATCHED_CAP_FRACTION` | `0.25` | Of the plan allowance. |
+
+  Implement them as named exports in one module. A magic `0.05` inline is how the AUP and the code
+  drift apart six months from now.
 - **`None` for new tenants is observation, not permissiveness.** The send cap is what actually bounds
   a new tenant's damage. AWS's own guidance is to observe before enforcing, and a brand-new tenant
   auto-paused by a single hard bounce on 10 emails is a terrible first experience.
@@ -102,8 +122,9 @@ DECISIONS §2 the aggregate is still ours to protect even with per-tenant isolat
 ## Seams
 
 - The exact `established` thresholds (volume, window, complaint ceiling) are a product judgment.
-  Propose concrete numbers during build, implement them as named constants in one place, and flag
-  them for the user's sign-off rather than burying them.
+  **Proposed and recorded in Locked decisions above** on 2026-08-10; still pending Doug's sign-off.
+  They are already published to customers in `docs/acceptable-use-policy.md` §5, so a change has to
+  move both files in one commit.
 - Real EventBridge event shapes should be confirmed against a live account once PRD 01 lands.
 
 ## Done when
