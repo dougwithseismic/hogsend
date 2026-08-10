@@ -69,7 +69,9 @@ handling silently does nothing.
    look-alike host and a URL with an embedded `@`.
    _Boundary:_ `apps/cloud` · _Depends:_ none
 
-3. **`POST /v1/email/events/:region`** — the SNS endpoint. Verify, parse, normalize, resolve tenant →
+3. **`POST /api/email/events/[region]`** — the SNS endpoint, as a Next App Router handler under
+   `apps/cloud/app/api/email/events/[region]/route.ts`. `apps/cloud` has no `/v1` prefix; see PRD
+   03's correction. Verify, parse, normalize, resolve tenant →
    environment, enqueue delivery.
    _Boundary:_ `apps/cloud` · _Depends:_ tasks 1, 2
 

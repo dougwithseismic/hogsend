@@ -116,7 +116,7 @@ anti-feature.
 journey / broadcast
   → engine tracked mailer  (render, preferences, tracking, email_sends)  [unchanged]
   → EmailProvider "hogsend"  (packages/plugin-hogsend — dumb wire, HTML only)
-  → POST apps/cloud /v1/email/send   (tenant token auth, idempotent)
+  → POST apps/cloud /api/email/send  (tenant token auth, idempotent)
   → SesClient.sendEmail({ TenantName, ConfigurationSetName, ... })       [apps/cloud/src/ses]
   → AWS SES
 
