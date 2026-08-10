@@ -20,6 +20,7 @@ import { SesError } from "../ses/types";
 
 const TENANT = "env-11111111-1111-4111-8111-111111111111";
 const DOMAIN = "acme.test";
+const IDENTITY_ARN = `arn:aws:ses:us-east-1:000000000000:identity/${DOMAIN}`;
 
 function message(overrides: Partial<SesMessage> = {}): SesMessage {
   return {
@@ -39,6 +40,24 @@ function fake(): FakeSesClient {
 async function tenantFake(): Promise<FakeSesClient> {
   const client = fake();
   await client.createTenant({ tenantName: TENANT });
+  return client;
+}
+
+/**
+ * Tenant + verified, tenant-associated identity — the state a fully
+ * provisioned environment actually has, and what the send path requires:
+ * the fake enforces the wire's own sender-side preconditions (verified
+ * identity, tenant association), so a send test has to arrange them the way
+ * a real provision would.
+ */
+async function sendReadyFake(): Promise<FakeSesClient> {
+  const client = await tenantFake();
+  await client.createIdentity({ domain: DOMAIN });
+  client.__verifyIdentity(DOMAIN);
+  await client.associateResource({
+    tenantName: TENANT,
+    resourceArn: IDENTITY_ARN,
+  });
   return client;
 }
 
@@ -128,17 +147,43 @@ describe("FakeSesClient tenants", () => {
     expect(a.arn).toContain(TENANT);
   });
 
-  it("returns the EXISTING tenant on a second create", async () => {
+  it("returns the EXISTING tenant on a second create, state intact", async () => {
     const client = fake();
     const first = await client.createTenant({ tenantName: TENANT });
+
+    // Mutate state BETWEEN the creates. This is what makes the assertion
+    // real: ids and ARNs are name-derived, so a fake that quietly RE-MINTED
+    // the tenant would hand back a byte-identical row and a same-length
+    // tenant list — the only observable difference is whether accumulated
+    // state survives, which is what the AWS client provably preserves
+    // (create → already_exists → getTenant, state untouched).
+    await client.putSuppressionScope({
+      tenantName: TENANT,
+      scope: "TENANT",
+      reasons: ["BOUNCE"],
+    });
+    await client.setTenantSendingStatus({
+      tenantName: TENANT,
+      status: "DISABLED",
+    });
+
     const second = await client.createTenant({
       tenantName: TENANT,
       tags: { environment: "production" },
     });
 
-    // Provisioning is resumable: a re-driven step must not throw and must not
-    // mint a second tenant.
-    expect(second).toEqual(first);
+    // Provisioning is resumable: a re-driven step must not throw, must not
+    // mint a second tenant, and must not RESET the one it finds.
+    expect(second).toMatchObject({
+      name: first.name,
+      id: first.id,
+      arn: first.arn,
+      sendingStatus: "DISABLED",
+    });
+    expect(client.__tenant(TENANT)).toMatchObject({
+      suppressionScope: "TENANT",
+      suppressedReasons: ["BOUNCE"],
+    });
     expect(client.__tenants()).toHaveLength(1);
   });
 
@@ -191,6 +236,23 @@ describe("FakeSesClient tenants", () => {
     ).rejects.toMatchObject({ kind: "not_found" });
   });
 
+  it("REPLACES the suppression attributes on every put, like the AWS PUT", async () => {
+    const client = await tenantFake();
+    await client.putSuppressionScope({
+      tenantName: TENANT,
+      scope: "TENANT",
+      reasons: ["BOUNCE", "COMPLAINT"],
+    });
+
+    await client.putSuppressionScope({ tenantName: TENANT, scope: "ACCOUNT" });
+
+    // `PutTenantSuppressionAttributes` is a PUT: an omitted field is a reset,
+    // not a keep. A fake that merged would let a re-drive that drops `reasons`
+    // pass in tests and clear them in production.
+    expect(client.__tenant(TENANT)?.suppressionScope).toBe("ACCOUNT");
+    expect(client.__tenant(TENANT)?.suppressedReasons).toBeUndefined();
+  });
+
   it("associates resources idempotently and refuses an unknown tenant", async () => {
     const client = await tenantFake();
     const resourceArn = `arn:aws:ses:us-east-1:000000000000:identity/${DOMAIN}`;
@@ -213,7 +275,7 @@ describe("FakeSesClient tenants", () => {
 
 describe("FakeSesClient sending", () => {
   it("records the message and issues a deterministic id", async () => {
-    const client = await tenantFake();
+    const client = await sendReadyFake();
 
     const first = await client.sendEmail({
       tenantName: TENANT,
@@ -242,8 +304,65 @@ describe("FakeSesClient sending", () => {
     ).rejects.toMatchObject({ kind: "not_found" });
   });
 
-  it("fails CLOSED and non-retryably while the tenant is paused", async () => {
+  it("refuses to send from an unverified identity, mirroring MessageRejected", async () => {
     const client = await tenantFake();
+
+    // No identity at all — the wire answers MessageRejected ("Email address
+    // is not verified"), which classifies as `invalid` and is permanent.
+    const missing = await client
+      .sendEmail({ tenantName: TENANT, message: message() })
+      .catch((thrown: unknown) => thrown);
+    expect(missing).toBeInstanceOf(SesError);
+    expect((missing as SesError).kind).toBe("invalid");
+    expect((missing as SesError).retryable).toBe(false);
+    expect(client.__sent()).toHaveLength(0);
+
+    // Created and associated but still PENDING: the DNS is not out yet.
+    await client.createIdentity({ domain: DOMAIN });
+    await client.associateResource({
+      tenantName: TENANT,
+      resourceArn: IDENTITY_ARN,
+    });
+    await expect(
+      client.sendEmail({ tenantName: TENANT, message: message() }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+
+    // Verification is the ONE thing that unlocks the send. A fake that
+    // delivered any earlier would certify a send-before-verify flow green.
+    client.__verifyIdentity(DOMAIN);
+    await expect(
+      client.sendEmail({ tenantName: TENANT, message: message() }),
+    ).resolves.toEqual({ messageId: "fake-ses-message-1" });
+  });
+
+  it("refuses a verified identity that is NOT associated with the tenant", async () => {
+    const client = await tenantFake();
+    await client.createIdentity({ domain: DOMAIN });
+    client.__verifyIdentity(DOMAIN);
+
+    // `SendEmail`'s own contract: "the email sending operation will only
+    // succeed if all referenced resources ... are associated with this
+    // tenant". A provision that forgot `associateResource` must fail HERE,
+    // in a test, not on its first customer send.
+    await expect(
+      client.sendEmail({ tenantName: TENANT, message: message() }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+
+    await client.associateResource({
+      tenantName: TENANT,
+      resourceArn: IDENTITY_ARN,
+    });
+    await expect(
+      client.sendEmail({
+        tenantName: TENANT,
+        // The display-name form must resolve to the same identity.
+        message: message({ from: "Acme <hello@acme.test>" }),
+      }),
+    ).resolves.toEqual({ messageId: "fake-ses-message-1" });
+  });
+
+  it("fails CLOSED and non-retryably while the tenant is paused", async () => {
+    const client = await sendReadyFake();
     client.__pauseTenant(TENANT);
 
     const error = await client
@@ -265,7 +384,7 @@ describe("FakeSesClient sending", () => {
   });
 
   it("distinguishes an account-level pause from a tenant one", async () => {
-    const client = await tenantFake();
+    const client = await sendReadyFake();
     client.__pauseAccount();
 
     await expect(
@@ -274,7 +393,7 @@ describe("FakeSesClient sending", () => {
   });
 
   it("returns one batch result per message, in order, with per-entry failures", async () => {
-    const client = await tenantFake();
+    const client = await sendReadyFake();
     client.__rejectRecipient("bounce@example.test");
 
     const result = await client.sendBatch({
@@ -299,6 +418,35 @@ describe("FakeSesClient sending", () => {
       messageId: "fake-ses-message-2",
     });
     expect(client.__sent()).toHaveLength(2);
+  });
+
+  it("never throws wholesale: a scripted batch failure lands per entry", async () => {
+    const client = await sendReadyFake();
+    client.failNext("sendBatch");
+
+    // The AWS implementation fans out one SendEmail per message and catches
+    // per ENTRY, so its sendBatch can NEVER throw. A fake that threw
+    // wholesale would let a caller test a catch-and-requeue path that is
+    // dead code against the real wire.
+    const result = await client.sendBatch({
+      tenantName: TENANT,
+      messages: [message(), message({ subject: "Second" })],
+    });
+
+    expect(result.results).toEqual([
+      {
+        status: "failed",
+        kind: "transient",
+        message: expect.stringContaining("scripted failure"),
+      },
+      {
+        status: "failed",
+        kind: "transient",
+        message: expect.stringContaining("scripted failure"),
+      },
+    ]);
+    expect(client.__sent()).toHaveLength(0);
+    expect(client.calls.map((call) => call.method)).toContain("sendBatch");
   });
 });
 
@@ -451,7 +599,7 @@ describe("FakeSesClient reputation", () => {
   });
 
   it("pauses and reinstates a tenant through the sending status verb", async () => {
-    const client = await tenantFake();
+    const client = await sendReadyFake();
 
     await client.setTenantSendingStatus({
       tenantName: TENANT,
@@ -481,6 +629,11 @@ describe("FakeSesClient reputation", () => {
       policy: "STRICT",
       sendingStatus: "ENABLED",
     });
+    // No operator has written a status, so there is no customer-managed
+    // record to report: AWS omits the field until a write exists, and a
+    // reconciler asking "has an operator touched this entity?" branches on
+    // that presence — a fake that fabricated one would mislead it.
+    expect(healthy.customerManagedStatus).toBeUndefined();
 
     // The whole reason this verb exists: a MISSED EventBridge pause event
     // leaves our mirror saying "active", and the relay reads the mirror — so
@@ -488,12 +641,13 @@ describe("FakeSesClient reputation", () => {
     client.__pauseTenant(TENANT, "high bounce rate");
     const paused = await client.getReputationEntity({ tenantName: TENANT });
     expect(paused.sendingStatus).toBe("DISABLED");
-    // And it says WHO paused: AWS's own policy, not an operator of ours.
+    // And it says WHO paused: AWS's own policy, not an operator of ours —
+    // still no customer-managed record, because no operator ever wrote one.
     expect(paused.awsSesManagedStatus).toEqual({
       status: "DISABLED",
       cause: "high bounce rate",
     });
-    expect(paused.customerManagedStatus).toEqual({ status: "ENABLED" });
+    expect(paused.customerManagedStatus).toBeUndefined();
 
     // The ARN is accepted too, for a caller that already stored it.
     expect(
@@ -562,6 +716,10 @@ describe("FakeSesClient test affordances", () => {
         dkim: { selector: "hogsend", privateKey: "PRIVATE" },
       });
       client.__verifyIdentity(DOMAIN);
+      await client.associateResource({
+        tenantName: TENANT,
+        resourceArn: IDENTITY_ARN,
+      });
       const sent = await client.sendEmail({
         tenantName: TENANT,
         message: message(),
@@ -602,7 +760,7 @@ describe("FakeSesClient test affordances", () => {
   });
 
   it("drops all state on reset", async () => {
-    const client = await tenantFake();
+    const client = await sendReadyFake();
     await client.sendEmail({ tenantName: TENANT, message: message() });
 
     client.reset();
@@ -610,8 +768,21 @@ describe("FakeSesClient test affordances", () => {
     expect(client.__tenants()).toEqual([]);
     expect(client.__sent()).toEqual([]);
     expect(client.calls).toEqual([]);
-    // The id counter resets too, so a suite's second test sees message-1 again.
+
+    // Identities and associations dropped too: a tenant re-created bare may
+    // NOT send until the whole arrangement is redone.
     await client.createTenant({ tenantName: TENANT });
+    await expect(
+      client.sendEmail({ tenantName: TENANT, message: message() }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+
+    await client.createIdentity({ domain: DOMAIN });
+    client.__verifyIdentity(DOMAIN);
+    await client.associateResource({
+      tenantName: TENANT,
+      resourceArn: IDENTITY_ARN,
+    });
+    // The id counter reset too, so a suite's second test sees message-1 again.
     await expect(
       client.sendEmail({ tenantName: TENANT, message: message() }),
     ).resolves.toEqual({ messageId: "fake-ses-message-1" });

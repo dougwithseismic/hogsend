@@ -444,6 +444,26 @@ describe("AwsSesClient tenants", () => {
     ).resolves.toBeUndefined();
     expect(commands).toHaveLength(1);
   });
+
+  it("does not swallow a real association failure", async () => {
+    const { client, commands } = harness(() => {
+      throw awsError("NotFoundException", {
+        status: 404,
+        message: "Tenant does not exist",
+      });
+    });
+
+    // ONLY `already_exists` is set membership; anything else must surface. A
+    // catch that swallowed wider would let a provision "associate" a resource
+    // with a missing tenant and defer the failure to the first customer send.
+    await expect(
+      client.associateResource({
+        tenantName: TENANT,
+        resourceArn: "arn:aws:ses:us-east-1:1:identity/acme.test",
+      }),
+    ).rejects.toMatchObject({ kind: "not_found" });
+    expect(commands).toHaveLength(1);
+  });
 });
 
 describe("AwsSesClient sending", () => {

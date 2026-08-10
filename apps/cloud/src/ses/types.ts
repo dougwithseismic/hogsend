@@ -14,7 +14,7 @@ import type { SubstrateRegion } from "../substrate/types";
  *  - every method is async and single-object-in / result-object-out, so a new
  *    field is an additive change rather than a signature break.
  *
- * The vocabulary is OURS, not AWS's — seventeen verbs named for what this stack
+ * The vocabulary is OURS, not AWS's — nineteen verbs named for what this stack
  * does. Where a value is a small closed set that AWS also owns (sending status,
  * suppression scope, DKIM status) the literal strings match AWS's, because
  * inventing a second spelling of `ENABLED` would buy nothing and cost a

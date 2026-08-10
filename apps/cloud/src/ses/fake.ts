@@ -53,6 +53,16 @@ import {
  * which is precisely the class of bug that shipped from the substrate seam
  * before its fake was made to withhold certificates.
  *
+ * The send path enforces the wire's own sender-side preconditions, from
+ * `SendEmail`'s documented contract: the from address must resolve to a
+ * VERIFIED identity, and — because the send names a tenant — that identity
+ * must be ASSOCIATED with the tenant ("the email sending operation will only
+ * succeed if all referenced resources ... are associated with this tenant").
+ * A fake that delivered anyway would certify the two production-only failures
+ * this seam exists to catch: send-before-verify, and a provision that forgot
+ * `associateResource`. Deliberately NOT modelled on the send path, so nobody
+ * assumes coverage: configuration-set existence and association.
+ *
  * Affordances, mirroring `FakeSubstrate` and `FakeBilling`:
  *  - `failNext(method, error?)` scripts the NEXT call to that method to throw.
  *    Default is a RETRYABLE `transient`, the interesting case for a caller's
@@ -86,6 +96,13 @@ export interface FakeSesTenantState {
   arn: string;
   /** What WE set, through `setTenantSendingStatus`. */
   sendingStatus: SesSendingStatus;
+  /**
+   * Whether `setTenantSendingStatus` has EVER written. AWS omits the
+   * customer-managed status record until a customer write exists, and a
+   * reconciler asking "has an operator touched this entity?" branches on that
+   * presence — so the fake must not fabricate one.
+   */
+  customerStatusSet?: boolean;
   /**
    * What AWS's own reputation policy set, through `__pauseTenant`. Modelled
    * separately because the two answer different questions — "did an operator
@@ -281,7 +298,17 @@ export class FakeSesClient implements SesClient {
   }
 
   async sendBatch(input: SesSendBatchInput): Promise<SesSendBatchResult> {
-    this.record("sendBatch", [input]);
+    try {
+      this.record("sendBatch", [input]);
+    } catch (thrown) {
+      // The AWS implementation fans out one SendEmail per message and catches
+      // per ENTRY, so its sendBatch can NEVER throw wholesale. A scripted
+      // batch failure therefore lands on every entry — the shape a wire
+      // outage actually produces — rather than as a throw no caller of the
+      // real client would ever see.
+      const failed = toFailedEntry(toSesError(thrown));
+      return { results: input.messages.map(() => ({ ...failed })) };
+    }
 
     const results: SesBatchEntryResult[] = [];
     for (const message of input.messages) {
@@ -295,16 +322,7 @@ export class FakeSesClient implements SesClient {
       } catch (thrown) {
         // Per ENTRY, never all-or-nothing: one bad address must not cost the
         // rest of the batch its delivery.
-        const error =
-          thrown instanceof SesError
-            ? thrown
-            : new SesError(String(thrown), { kind: "unknown" });
-        results.push({
-          status: "failed",
-          kind: error.kind,
-          message: error.message,
-          ...(error.detail === undefined ? {} : { detail: error.detail }),
-        });
+        results.push(toFailedEntry(toSesError(thrown)));
       }
     }
     return { results };
@@ -340,8 +358,12 @@ export class FakeSesClient implements SesClient {
   async putSuppressionScope(input: SesPutSuppressionScopeInput): Promise<void> {
     this.record("putSuppressionScope", [input]);
     const tenant = this.mustGetTenant(input.tenantName);
+    // A PUT, matching the AWS operation: an omitted field is a RESET, not a
+    // keep. A fake that merged here would let a re-drive that drops `reasons`
+    // pass in tests and clear them in production.
     tenant.suppressionScope = input.scope;
     if (input.reasons) tenant.suppressedReasons = [...input.reasons];
+    else delete tenant.suppressedReasons;
   }
 
   async deleteTenant(input: SesTenantRef): Promise<void> {
@@ -474,7 +496,9 @@ export class FakeSesClient implements SesClient {
     input: SesSetTenantSendingStatusInput,
   ): Promise<void> {
     this.record("setTenantSendingStatus", [input]);
-    this.mustGetTenant(input.tenantName).sendingStatus = input.status;
+    const tenant = this.mustGetTenant(input.tenantName);
+    tenant.sendingStatus = input.status;
+    tenant.customerStatusSet = true;
   }
 
   async getReputationEntity(
@@ -492,7 +516,12 @@ export class FakeSesClient implements SesClient {
       reference: tenant.arn,
       sendingStatus: effectiveSendingStatus(tenant),
       policy: tenant.reputationPolicy,
-      customerManagedStatus: { status: tenant.sendingStatus },
+      // ABSENT until a customer write exists, exactly like AWS: a reconciler
+      // asking "has an operator ever touched this entity?" branches on the
+      // record's presence, and a fabricated one would mislead it.
+      ...(tenant.customerStatusSet
+        ? { customerManagedStatus: { status: tenant.sendingStatus } }
+        : {}),
       ...(tenant.awsManagedStatus
         ? { awsSesManagedStatus: { ...tenant.awsManagedStatus } }
         : {}),
@@ -546,6 +575,40 @@ export class FakeSesClient implements SesClient {
         operation: "sendEmail",
       });
     }
+
+    // The sender-side preconditions the real wire enforces. Verification
+    // first: SES answers an unverified from with MessageRejected ("Email
+    // address is not verified"), which classifies as `invalid`.
+    const fromAddress = fromAddrSpec(input.message.from);
+    const atIndex = fromAddress.lastIndexOf("@");
+    const domain = atIndex >= 0 ? fromAddress.slice(atIndex + 1) : undefined;
+    const identityKey = this.identities.has(fromAddress)
+      ? fromAddress
+      : domain !== undefined && this.identities.has(domain)
+        ? domain
+        : undefined;
+    const identity =
+      identityKey === undefined ? undefined : this.identities.get(identityKey);
+    if (!identity?.verifiedForSending) {
+      throw new SesError(
+        `fake SES: email address is not verified: ${input.message.from}`,
+        { kind: "invalid", operation: "sendEmail" },
+      );
+    }
+    // And association: a send that names a tenant only succeeds if the
+    // referenced identity is associated with it (`SendEmail`'s documented
+    // contract) — the check that catches a provision which forgot
+    // `associateResource`, in a test instead of on the first customer send.
+    const associated = tenant.resources.some((arn) =>
+      arn.toLowerCase().endsWith(`identity/${identityKey}`),
+    );
+    if (!associated) {
+      throw new SesError(
+        `fake SES: identity ${identityKey} is not associated with tenant ${tenantName}`,
+        { kind: "invalid", operation: "sendEmail" },
+      );
+    }
+
     const rejected = recipients.find((address) =>
       this.rejectedRecipients.has(address.toLowerCase()),
     );
@@ -622,6 +685,31 @@ function cloneIdentity(identity: SesIdentity): SesIdentity {
     ...identity,
     dkim: { ...identity.dkim, tokens: [...identity.dkim.tokens] },
     ...(identity.mailFrom ? { mailFrom: { ...identity.mailFrom } } : {}),
+  };
+}
+
+/**
+ * The lowercased addr-spec out of an RFC 5322 `from` — `"Acme <a@b.c>"` or
+ * bare `a@b.c`. Both forms must resolve to the same identity, because both
+ * are legal on the wire.
+ */
+function fromAddrSpec(from: string): string {
+  const angle = /<([^<>]*)>\s*$/.exec(from);
+  return (angle?.[1] ?? from).trim().toLowerCase();
+}
+
+function toSesError(thrown: unknown): SesError {
+  return thrown instanceof SesError
+    ? thrown
+    : new SesError(String(thrown), { kind: "unknown" });
+}
+
+function toFailedEntry(error: SesError): SesBatchEntryResult {
+  return {
+    status: "failed",
+    kind: error.kind,
+    message: error.message,
+    ...(error.detail === undefined ? {} : { detail: error.detail }),
   };
 }
 
