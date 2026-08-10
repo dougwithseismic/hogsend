@@ -30,6 +30,24 @@ export const environmentKindEnum = cloud.enum("cloud_environment_kind", [
 ]);
 
 /**
+ * Whether an environment may send email through the relay, mirrored from SES.
+ *
+ * `active` and `reinstated` send; `paused` and `enforced` do not, and the relay
+ * fails closed on both (DECISIONS §6: loudly, no queueing, no BYO fallback).
+ * The two blocking values are separate because only one of them is ours to
+ * reverse: `paused` is AWS's own reputation policy stopping one tenant, and
+ * `enforced` is an operator stop from PRD 08. `reinstated` mirrors SES's own
+ * `REINSTATED` — paused once, since let back on — and is deliberately NOT the
+ * same value as `active`, so "has this tenant ever been stopped" survives.
+ */
+export const emailSendingStatusEnum = cloud.enum("cloud_email_sending_status", [
+  "active",
+  "paused",
+  "enforced",
+  "reinstated",
+]);
+
+/**
  * Stack lifecycle. The legal-edge table lives in the state machine (PRD 02
  * task 4) — this enum only fixes the vocabulary and its Postgres ordering.
  * `error` is terminal-until-retried and pairs with `last_error` + `retry_count`.

@@ -33,6 +33,7 @@ export type {
   FakeSesTenantState,
 } from "./fake";
 export { FAKE_SES_ID, FakeSesClient } from "./fake";
+export { sesConfigurationSetName, sesTenantName } from "./names";
 export * from "./types";
 
 /**
