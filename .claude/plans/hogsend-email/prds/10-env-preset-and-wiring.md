@@ -28,6 +28,20 @@ consumer code change.
   `_package.json`**, or a fresh scaffold breaks at boot. This has bitten the repo before.
 - **Docs describe it as a Cloud feature.** No pricing page, no public signup, no "email API" framing.
   DECISIONS §1.
+- **The engine MUST thread its replay-stable idempotency key to the provider**, as an
+  `Idempotency-Key` entry in `SendEmailOptions.headers`. Added 2026-08-10 after PRD 04's review, and
+  it is load-bearing rather than a nicety.
+
+  The engine's tracked mailer already computes a replay-stable key (run id + nearest wait label +
+  template key). If it does not hand that key to the provider, the provider falls back to hashing
+  the message bytes, and that fallback **cannot do the job**: `prepareTrackedHtml` mints fresh
+  `tracked_links` ids and an open pixel carrying the send id on every attempt, so a crash re-drive of
+  the SAME logical send produces different HTML, a different hash, and no replay protection at all.
+  A journey replayed after a worker crash would send twice.
+
+  The relay's guard is only as good as the key it is given, so this wiring is what makes PRD 03's
+  exactly-once real for engine sends. Add a test that asserts the key reaches the provider; without
+  one, this regresses invisibly.
 
 ## Acceptance criteria (EARS)
 
@@ -65,6 +79,12 @@ consumer code change.
 
 4. **Provisioner env injection** — the four variables, from PRD 06's mint.
    _Boundary:_ `apps/cloud` · _Depends:_ task 2
+
+4b. **Thread the mailer's replay-stable idempotency key into `SendEmailOptions.headers` as
+   `Idempotency-Key`**, per the locked decision above, with a test asserting it arrives at the
+   provider. Without this the relay's exactly-once guard does nothing for a crash replay, which is
+   the single case it exists for.
+   _Boundary:_ `packages/engine` · _Depends:_ task 2
 
 5. **Docs.** A Cloud-framed page: what Hogsend Email is, the one-record domain setup, the branded
    return path toggle, what happens when a tenant is paused, and that BYO Resend/Postmark remain
