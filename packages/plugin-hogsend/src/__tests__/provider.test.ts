@@ -441,6 +441,34 @@ describe("relay errors — typed, and NEVER retried", () => {
     });
   }
 
+  it("409 send_in_progress → typed, advisory-retryable, still ONE request", async () => {
+    const relay = stubRelay({
+      status: 409,
+      body: {
+        error: "send_in_progress",
+        message: "An identical send is at the wire right now.",
+      },
+      headers: { "retry-after": "1" },
+    });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    const error = (await provider
+      .send(MESSAGE)
+      .catch((e: unknown) => e)) as HogsendRelayError;
+
+    expect(error).toBeInstanceOf(HogsendRelayError);
+    expect(error.status).toBe(409);
+    expect(error.error).toBe("send_in_progress");
+    // The relay itself invites the retry (its twin at the wire holds the id).
+    expect(error.retryable).toBe(true);
+    expect(error.retryAfterSeconds).toBe(1);
+    // But this wire NEVER retries — the durable task layer owns that.
+    expect(relay.calls).toHaveLength(1);
+  });
+
   it("429 rate_limited → retryable, carries Retry-After, still ONE request", async () => {
     const relay = stubRelay({
       status: 429,
@@ -713,6 +741,59 @@ describe("sendBatch → POST /api/email/send-batch", () => {
         message: "Email address is not verified",
       },
     ]);
+    expect(relay.calls).toHaveLength(1);
+  });
+
+  it("surfaces a per-item send_in_progress failure with its slug intact", async () => {
+    // The batch's in-flight shape: the relay reports a 200 whose item failed
+    // with `send_in_progress` (its twin holds the claim). The slug must
+    // survive verbatim so the caller can distinguish "retry in a moment" from
+    // a real rejection.
+    const relay = stubRelay({
+      body: {
+        results: [
+          { status: "sent", id: "ses_a" },
+          {
+            status: "failed",
+            error: "send_in_progress",
+            message: "An identical send is at the wire right now.",
+          },
+        ],
+      },
+    });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    const error = (await provider
+      .sendBatch([
+        {
+          from: "f@h.com",
+          to: "a@example.com",
+          subject: "s",
+          html: "<p>a</p>",
+        },
+        {
+          from: "f@h.com",
+          to: "b@example.com",
+          subject: "s",
+          html: "<p>b</p>",
+        },
+      ])
+      .catch((e: unknown) => e)) as HogsendRelayBatchError;
+
+    expect(error).toBeInstanceOf(HogsendRelayBatchError);
+    expect(error.failures).toEqual([
+      {
+        index: 1,
+        error: "send_in_progress",
+        message: "An identical send is at the wire right now.",
+      },
+    ]);
+    expect(error.error).toBe("send_in_progress");
+    // A partial batch is never a blanket retry decision.
+    expect(error.retryable).toBe(false);
     expect(relay.calls).toHaveLength(1);
   });
 

@@ -105,9 +105,20 @@ function takeIdempotencyKey(headers?: Record<string, string>): {
  * The relay REQUIRES an `Idempotency-Key` and answers `400
  * missing_idempotency_key` without one, so "the caller supplied none" cannot
  * mean "send none". A random key would satisfy the relay and defeat it — a
- * retry would mint a new one and send twice. A content hash is replay-stable by
- * construction: the same message re-driven after a worker crash produces the
- * same key and the relay returns the original id instead of sending again.
+ * retry would mint a new one and send twice. A content hash is the best key
+ * derivable from inside the wire, but it is a FALLBACK, not the design:
+ *
+ * - **It only dedupes byte-identical replays.** The engine's tracked pipeline
+ *   embeds per-attempt artifacts in the HTML (freshly minted tracked-link ids),
+ *   so a crash re-drive of the SAME logical send hashes to a DIFFERENT key and
+ *   the relay cannot recognise it as a replay. True crash-window protection
+ *   needs the caller to thread its own replay-stable key as an
+ *   `Idempotency-Key` entry in `headers` (the engine wiring PRD owns this).
+ * - **It swallows legitimate byte-identical re-sends.** Two DISTINCT sends of
+ *   the exact same bytes inside the relay's retention window (7 days) come
+ *   back as one: the second returns the first's id and is never delivered.
+ *   Untracked paths (`sendRaw`, tracking disabled) are the exposed surface —
+ *   tracked sends always differ per send (the open pixel embeds the send id).
  */
 function derivedIdempotencyKey(message: RelayMessage): string {
   const digest = createHash("sha256")
