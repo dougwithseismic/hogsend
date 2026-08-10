@@ -38,12 +38,17 @@ preferences, and writes no `email_sends` row. If a reviewer finds any of that in
 
 ## Acceptance criteria (EARS)
 
-- WHEN `send` is called, the system SHALL POST HTML-only options to `<relayUrl>/v1/email/send` with
+- WHEN `send` is called, the system SHALL POST HTML-only options to `<relayUrl>/api/email/send` with
   the tenant token as a bearer credential, and SHALL return the relay's `{ id }` unchanged.
 - WHEN the caller supplies an idempotency key, the system SHALL forward it as the `Idempotency-Key`
-  header.
-- WHEN `sendBatch` is called, the system SHALL POST to `/v1/email/send-batch` and SHALL return one
+  header. The relay REQUIRES it and answers `400 missing_idempotency_key` without one, so the
+  provider must always send one rather than treating it as optional.
+- WHEN `sendBatch` is called, the system SHALL POST to `/api/email/send-batch` and SHALL return one
   result per input item in input order.
+
+**Paths corrected 2026-08-10.** These read `/v1/email/…` in the original draft. `apps/cloud` is a
+Next App Router app with no `/v1` prefix anywhere; PRD 03 shipped the routes at `/api/email/send`
+and `/api/email/send-batch`. The relay is the built thing, so it is the authority.
 - WHEN the relay returns `403 tenant_paused`, the system SHALL throw a typed error carrying the
   reason and pause timestamp, and SHALL NOT retry.
 - WHEN `scheduledAt` is supplied, the system SHALL log once that scheduled send is unsupported,

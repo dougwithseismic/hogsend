@@ -137,4 +137,47 @@ Both endpoints exist as Next route handlers, all EARS criteria have passing test
 the idempotency guard is mutation-checked, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-10 as `423042e8`. Cloud suite 1118 → 1164 tests.
+
+**The wire, for PRDs 04 and 10.** `POST /api/email/send` takes `{ message }` with a **required**
+`Idempotency-Key` header and answers `{ id }`. `POST /api/email/send-batch` takes
+`{ items: [{ idempotencyKey, message }] }` and answers `{ results }`, positional. Error bodies are
+`{ error: <slug>, message, ... }`; `403 tenant_paused` additionally carries `reason` and `pausedAt`,
+verbatim, so a journey records a real sentence rather than a generic failure.
+
+**Order of operations is load-bearing** and is documented at the top of `lib/email-relay.ts`:
+auth → paused → rate limit → validate → allowance → idempotency → send. Each step precedes one that
+is expensive or irreversible.
+
+**Three controls added during build that the spec did not ask for, kept because each closes a real
+hole:**
+
+1. **A batch charges its true item count** against the burst limit (one unit before the body is
+   read, the remaining `items.length - 1` once the count is known). Charging one per request would
+   make batching a way to buy fifty times the budget, which is exactly what a leaked token would do.
+2. **The request body is metered as it streams**, not merely checked against `Content-Length`, which
+   is a hint a caller writes. Without it, any holder of a valid token could make the process buffer
+   unbounded memory, and the burst limiter would not stop it: a REFUSED request never allocates, but
+   six hundred ALLOWED ones a minute do.
+3. **Strict schemas** on both bodies, so an attempt to supply `tenantName` is a 400 rather than a
+   silently ignored field somebody later "helpfully" reads. Tenant isolation should not depend on a
+   field being forgotten.
+
+**The at-least-once window, stated so it is never rediscovered as a surprise.** The idempotency
+guard is INSERT … ON CONFLICT DO NOTHING, then a compare-and-set takeover of any claim older than
+60s. A process that dies AFTER SES accepted the message but BEFORE the commit lands leaves a claim
+indistinguishable from one that died before the send, so the takeover re-sends and the recipient
+gets it twice. **This cannot be fixed** — SES is not in our transaction — and it is only a choice of
+which way to be wrong. A duplicate lifecycle email is recoverable; a password reset that never
+arrives is not. The default is deliberately "send again".
+
+The complementary invariant is absolute and load-bearing: **a row carrying a message id means the
+message reached SES.** Every failure path releases the claim, because a key left behind by a failed
+send would make the caller's retry return success for a message nobody received, which is silent,
+permanent loss.
+
+**Deliberately still open for PRD 09:** `canSend()` returns allowed unconditionally via
+`lib/email-allowance.ts`. The refusal path (402, with limit/used/resetsAt) is already written and
+tested, so PRD 09 supplies the gate and changes nothing else.
 </content>
