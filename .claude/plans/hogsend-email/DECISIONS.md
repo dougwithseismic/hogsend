@@ -252,12 +252,19 @@ customer-managed policy, with its key in the control plane's environment and a r
 `sts:AssumeRole` indirection — it would add a hop without removing the static secret that makes the
 hop possible.
 
-**The policy grants only the sixteen verbs of PRD 02 and nothing else.** No `ses:*`. The action list
-is derived from the verb table in PRD 02 §Locked decisions and is written out in PRD 01 task 2's
-deliverable. **The exact IAM action names for the Tenants and Reputation-Entity APIs must be
-confirmed against the live AWS SES IAM reference before the policy is written** — those APIs shipped
-in August 2025 and an action name guessed from the SDK method name produces an `AccessDenied` at
-provision time rather than at deploy time, which is the worst place to find it.
+**The policy grants only the verbs of PRD 02 and nothing else.** No `ses:*`. **Nineteen verbs map to
+nineteen IAM actions**, and the two counts differ in composition rather than in total: `sendBatch`
+shares `ses:SendEmail` with `sendEmail` (it fans out rather than calling `SendBulkEmail`, so
+`ses:SendBulkEmail` is deliberately not granted), while `putEventDestination` needs BOTH
+`ses:CreateConfigurationSetEventDestination` and `ses:UpdateConfigurationSetEventDestination`
+because SESv2 has no single `Put`. The authoritative list is the table in PRD 02 §Locked decisions,
+written out as policy JSON in `docs/ses-production-access-request.md` Appendix A.
+
+**Every action name was confirmed against AWS's machine-readable service reference for `ses` and the
+SESv2 operation list, not inferred from an SDK method name.** Those APIs shipped in August 2025, and
+a guessed action name produces an `AccessDenied` at provision time rather than at deploy time, which
+is the worst place to find it. That verification is also what caught three defects in PRD 02's own
+contract; see its Implementation Notes.
 
 **Env vars** (`apps/cloud/src/env.ts`, PRD 01 task 5), all optional:
 
