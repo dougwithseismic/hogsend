@@ -140,4 +140,37 @@ All nineteen verbs exist on the contract, the Fake implements them deterministic
 compiles against `sesv2`, the error classifier is table-tested, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-10. `apps/cloud/src/ses/{types,contract,fake,aws,index}.ts` plus three test files;
+cloud suite went 70 files/1010 tests → 74/1107.
+
+**The plan was wrong three times and the code caught none of it.** All three were found by checking
+the verb table against AWS's own API reference, not by any gate. Recorded because the shape repeats:
+
+1. `putSuppressionScope` was specified as a configuration-set operation. It is
+   `PutTenantSuppressionAttributes`, keyed by tenant name. The first implementation faithfully wired
+   `PutConfigurationSetSuppressionOptions`, which **cannot set tenant scope at all**.
+2. `getTenant` was missing, making this PRD's own idempotency criterion unimplementable.
+3. `getReputationEntity` was missing, leaving the relay's mirrored-status read fail-OPEN.
+
+**The gates were green with defect 1 present** — 1089 tests passing. The contract, the AWS client,
+the Fake and the tests all agreed with each other and all four were wrong together, because the Fake
+modeled suppression in the same wrong place the client wrote it. No gate can catch that. It is the
+`vacuous-green-tests` failure mode in its purest form, and the only defence was reading the diff
+against the primary source. Downstream PRDs asserting on Fake state should assume the same risk.
+
+**Design points worth not re-deriving:**
+
+- The seam addresses reputation by **tenant name**, and `getReputationEntity` resolves the ARN
+  internally via `getTenant` when the caller has not stored one. AWS addresses these by ARN, so
+  without this the ARN would leak into every caller.
+- `sendBatch` fans out `SendEmail` on a bounded pool (`SES_BATCH_CONCURRENCY = 4`), results
+  positional. `SendBulkEmail` is template-only: its per-recipient override is template VARIABLES,
+  not a body, so pre-rendered per-recipient HTML cannot ride it and would break on any customer
+  markup containing `{{`. Consequently `ses:SendBulkEmail` is NOT in the IAM policy.
+  Serial was considered and rejected: at 50-150ms per round trip a serial loop runs 7-20/s against
+  a 14/s quota, so it is at the ceiling when SES is fast and half of it when SES is slow.
+- Credentials are read from `process.env` in `index.ts` rather than the validated env, so the
+  control plane boots unchanged with no AWS account. Both present ⇒ AWS, neither ⇒ Fake, exactly
+  one ⇒ throw.
 </content>

@@ -7,8 +7,8 @@ enumerated) · `[x]` done.
 
 | # | PRD | Status | Depends | Scope |
 | --- | --- | --- | --- | --- |
-| 01 | [SES access and abuse policy](prds/01-ses-access-and-policy.md) | `[ ]` | — | The long pole. AWS account structure, ESP production-access request, Acceptable Use Policy, ToS clause. Mostly non-code; start it first because it is calendar time, not engineering time. |
-| 02 | [SES client seam](prds/02-ses-client-seam.md) | `[ ]` | — | `apps/cloud/src/ses/`: a `SesClient` contract, an `aws.ts` implementation over `@aws-sdk/client-sesv2`, and a deterministic `fake.ts`. Every later PRD tests against the Fake and nothing in this stack ever reaches AWS in CI. |
+| 01 | [SES access and abuse policy](prds/01-ses-access-and-policy.md) | `[~]` | — | The long pole. AWS account structure, ESP production-access request, Acceptable Use Policy, ToS clause. Mostly non-code; start it first because it is calendar time, not engineering time. |
+| 02 | [SES client seam](prds/02-ses-client-seam.md) | `[x]` | — | `apps/cloud/src/ses/`: a `SesClient` contract, an `aws.ts` implementation over `@aws-sdk/client-sesv2`, and a deterministic `fake.ts`. Every later PRD tests against the Fake and nothing in this stack ever reaches AWS in CI. |
 | 03 | [Send relay](prds/03-send-relay.md) | `[ ]` | 02 | `POST /v1/email/send` and `/send-batch` on `apps/cloud`: tenant-token auth, per-item idempotency, per-environment burst rate limit, paused-tenant fail-closed, allowance gate, neutral options → `SendEmail` with `TenantName` + `ConfigurationSetName`. |
 | 04 | [packages/plugin-hogsend](prds/04-plugin-hogsend.md) | `[ ]` | 03 | The `EmailProvider` itself. HTML-only `send`/`sendBatch` over the relay, `capabilities` per DECISIONS §3.6, signed `verifyWebhook`/`parseWebhook` → `EmailEvent`. An opt-in package, mirroring plugin-postmark. |
 | 05 | [Email event ingress](prds/05-email-event-ingress.md) | `[ ]` | 02, 04 | SES → SNS → control plane → tenant instance. Normalize Bounce/Complaint/Delivery/DeliveryDelay into `EmailEvent`, verify SNS signatures, route per tenant, sign the outbound hop. |
@@ -56,6 +56,9 @@ Populated during BUILD as each `[~]` lands. See DECISIONS §7 for the known ones
 
 | PRD | External ask | Status |
 | --- | --- | --- |
-| 01 | AWS account + ESP production access | open |
-| 01 | AUP + ToS copy approval | open |
+| 01 | Create the `hogsend-email-prod` AWS account and the `hogsend-cloud-relay` IAM user. Policy JSON is written and every action name verified: `docs/ses-production-access-request.md` Appendix A. | open |
+| 01 | Submit the production-access request for BOTH `us-east-1` and `eu-west-1`. Text is written and ready to send. | open |
+| 01 | Approve the AUP and ToS copy. Each carries inline `Needs Doug` blocks at the specific open questions. | open |
+| 01 | Create `abuse@hogsend.com` as a real monitored mailbox, or decide it becomes `hello@hogsend.com`. It is cited in the AUP §6.6/§8.1 and in the AWS request. | open |
+| 01 | Confirm the trust-tier and suspension constants proposed in PRD 08. They are already published to customers in the AUP §5, so the two move together. | open |
 </content>

@@ -82,4 +82,27 @@ recorded as resolved in `DECISIONS.md §7`; `apps/cloud` boots cleanly with and 
 the gates are green. Mark `[~]` until AWS grants production access, then `[x]`.
 
 ## Implementation Notes
+
+Shipped to the seam 2026-08-10. All five tasks have their in-repo work done; the PRD stays `[~]`
+until AWS grants production access and the user approves the copy.
+
+- Task 1 → `DECISIONS.md §7.1`. Dedicated `hogsend-email-prod` member account; static IAM key for
+  `hogsend-cloud-relay` because Railway is not AWS compute and does not federate OIDC, so an
+  `sts:AssumeRole` hop would add indirection without removing the static secret that enables it.
+- Tasks 2-4 → `docs/ses-production-access-request.md`, `docs/acceptable-use-policy.md`,
+  `docs/hogsend-email-terms.md`.
+- Task 5 → the two vars in `apps/cloud/src/env.ts`; the both-or-neither guard already lived at the
+  point of use in `src/ses/index.ts`, so this task was declaration only.
+
+**Every IAM action name was verified against AWS's machine-readable service reference for `ses` and
+the SESv2 operation list, never inferred from an SDK method name.** That verification is what
+surfaced the three PRD 02 contract defects (see PRD 02's notes). A guessed action name fails as
+`AccessDenied` during a customer's provisioning run, which is the worst place to find it.
+
+The policy is `Resource: "*"` with an `aws:RequestedRegion` condition pinning it to the two regions.
+ARN patterns are deliberately deferred: the resources are named at provision time, so a pattern
+written now is a guess, and a wrong pattern also fails as `AccessDenied` at provision time. Narrow
+after PRD 06 locks the naming. The `ses:TenantName` condition key on send is noted as the strongest
+available narrowing and deliberately not applied until a live tenant proves the value the relay
+actually sends, because a mismatched condition key kills every send in the account at once.
 </content>
