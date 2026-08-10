@@ -12,8 +12,19 @@ This endpoint is the reason AWS credentials never leave the control plane.
 
 ## Locked decisions
 
-- **`POST /v1/email/send` and `POST /v1/email/send-batch`.** Two endpoints, not one polymorphic one.
-  The batch shape is `BatchEmailItem[]` per the core contract and returns results positionally.
+- **`POST /api/email/send` and `POST /api/email/send-batch`.** Two endpoints, not one polymorphic
+  one. The batch shape is `BatchEmailItem[]` per the core contract and returns results positionally.
+
+  **Corrected 2026-08-10 against the real app.** This PRD originally said `/v1/email/…` with "Zod
+  schemas registered in `apps/cloud/src/openapi.ts` like every other cloud route". Both were wrong:
+  `apps/cloud` is a **Next.js App Router** app, not Hono, so routes are `route.ts` handlers under
+  `apps/cloud/app/api/…` and there is no `/v1` prefix anywhere in it. And `openapi.ts` states its
+  own policy explicitly: it documents the UNAUTHENTICATED surface, and the token-authenticated
+  machine routes (`/api/cli/*`, `/api/publish/*`, `/api/builds/*`) are deliberately excluded because
+  they are consumed only by our own software. The relay is exactly that kind of route, so it follows
+  the same rule and is **not** added to `openapi.ts`. Do not invent a Hono router for it.
+
+  Files: `apps/cloud/app/api/email/send/route.ts` and `apps/cloud/app/api/email/send-batch/route.ts`.
 - **Auth is a per-environment relay token**, minted at provision time (PRD 06) and stored hashed.
   Presented as `Authorization: Bearer <token>`. The token identifies the environment, and the
   environment determines the SES tenant. A tenant cannot name its own SES tenant in the request
@@ -64,10 +75,20 @@ This endpoint is the reason AWS credentials never leave the control plane.
 
 ## Tasks
 
-1. **Relay token model and verification.** A `relay_tokens` table (or a `provider_keys` row with
-   provider `hogsend-email`, decided during build) storing a hash, never the plaintext. A
-   constant-time verify that resolves token → environment. Reuse the existing AES-256-GCM helper
-   under `CLOUD_ENCRYPTION_SECRET`; do not introduce a second secret mechanism.
+1. **Relay token model and verification.** A dedicated `relay_tokens` table storing a **hash**,
+   never the plaintext, with the hash column uniquely indexed so verification is one indexed lookup.
+
+   **Decided here rather than during build:** it must NOT be a `provider_keys` row.
+   `provider_keys` stores reversible AES-256-GCM ciphertext keyed by `(environment_id, provider)`,
+   which answers "what is this environment's credential" and cannot answer "which environment does
+   this bearer token belong to" without decrypting every row in the table on every request. Those
+   are different questions and they need different storage. Hash the presented token and look the
+   hash up directly.
+
+   Use a fast keyed hash (HMAC-SHA-256 under `CLOUD_ENCRYPTION_SECRET`), not a password KDF: the
+   token is a 32-byte random secret, not a human password, so there is nothing to brute-force and a
+   per-request bcrypt would price the relay out. Compare with `crypto.timingSafeEqual` on
+   equal-length buffers. Do not introduce a second secret mechanism.
    _Boundary:_ `apps/cloud` · _Depends:_ none
 
 2. **Idempotency store.** Keyed `(environment_id, idempotency_key)`, storing the returned message id
@@ -80,16 +101,21 @@ This endpoint is the reason AWS credentials never leave the control plane.
    EventBridge; this PRD reads it and creates the table.
    _Boundary:_ `apps/cloud` · _Depends:_ none
 
-4. **`POST /v1/email/send`.** Zod request/response schemas registered in `apps/cloud/src/openapi.ts`
-   like every other cloud route. Auth → paused check → allowance seam → idempotency → `sendEmail`.
+4. **`POST /api/email/send`** as a Next App Router handler at
+   `apps/cloud/app/api/email/send/route.ts`. Zod-validated request body, JSON response. Order of
+   operations is load-bearing: auth → paused check → rate limit → allowance seam → idempotency →
+   `sendEmail`. Rate limit precedes allowance so a throttled request consumes nothing.
    _Boundary:_ `apps/cloud` · _Depends:_ tasks 1, 2, 3
 
-5. **`POST /v1/email/send-batch`**, positional results, partial failure tolerated, per-item
+5. **`POST /api/email/send-batch`**, positional results, partial failure tolerated, per-item
    idempotency.
    _Boundary:_ `apps/cloud` · _Depends:_ task 4
 
 6. **Per-environment burst rate limit**, returning `429` with `Retry-After` and consuming no
-   allowance. Reuse the existing cloud rate-limit mechanism if one is present; check before building.
+   allowance. **Reuse `apps/cloud/src/lib/rate-limit.ts`** (`consumeRateLimit` /
+   `consumeDualRateLimit`, already used by the CLI and auth routes); do not build a second limiter.
+   Key on the environment id from the verified token, NOT on client IP: the caller is a tenant
+   instance, so IP is neither stable nor the thing being limited.
    _Boundary:_ `apps/cloud` · _Depends:_ task 4
 
 7. **Tests against the Fake `SesClient`.** Every EARS line above gets a test. Specifically prove:
@@ -107,7 +133,7 @@ This endpoint is the reason AWS credentials never leave the control plane.
 
 ## Done when
 
-Both endpoints exist with OpenAPI schemas, all EARS criteria have passing tests against the Fake,
+Both endpoints exist as Next route handlers, all EARS criteria have passing tests against the Fake,
 the idempotency guard is mutation-checked, and gates are green.
 
 ## Implementation Notes
