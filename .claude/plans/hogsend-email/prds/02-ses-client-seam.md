@@ -173,4 +173,29 @@ against the primary source. Downstream PRDs asserting on Fake state should assum
 - Credentials are read from `process.env` in `index.ts` rather than the validated env, so the
   control plane boots unchanged with no AWS account. Both present ⇒ AWS, neither ⇒ Fake, exactly
   one ⇒ throw.
+
+### READ THIS BEFORE WRITING A TEST AGAINST THE FAKE
+
+**The Fake enforces the wire's sender-side preconditions.** A `sendEmail` throws `kind: "invalid"`
+unless the from-address resolves to a **verified** identity AND that identity is **associated** with
+the named tenant. That mirrors `SendEmail`'s documented contract, where an unverified from is
+`MessageRejected` and a tenanted send succeeds only if the referenced resources are associated.
+
+So a send test must arrange state the way a real provision does: `createTenant` →
+`createIdentity` → `__verifyIdentity` → `associateResource`. `ses-fake.test.ts` has a
+`sendReadyFake()` helper doing exactly that; copy it rather than reinventing it.
+
+This was added in review, after the seam had already shipped green. Before it, the Fake delivered
+from any address, so a provisioner that skipped `associateResource` or relay code that sent before
+verification finished would have passed every test and failed on the first real customer send.
+
+**What the Fake still does NOT model, stated so nobody assumes coverage:** configuration-set
+existence and configuration-set association on the send path. That was a deliberate call. The
+verification and identity-association gaps were where the blast radius was; a config-set gap
+surfaces loudly inside PRD 05's own flow instead of silently at send time.
+
+The general lesson for every downstream PRD: **the Fake is the only thing you are testing against,
+so a place where it is more permissive than AWS is a production-only bug with a green test in front
+of it.** When a test passes on the first try, ask whether the Fake is actually modelling the
+constraint or merely failing to enforce it.
 </content>
