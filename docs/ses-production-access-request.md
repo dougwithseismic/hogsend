@@ -260,7 +260,6 @@ was first drafted; see "Resolved after this appendix was drafted" below.
       "Effect": "Allow",
       "Action": [
         "ses:SendEmail",
-        "ses:SendBulkEmail",
         "ses:CreateTenant",
         "ses:GetTenant",
         "ses:DeleteTenant",
@@ -346,7 +345,7 @@ from an SDK method name.
 | PRD 02 verb | IAM action | Confirmed |
 | --- | --- | --- |
 | `sendEmail` | `ses:SendEmail` | yes |
-| `sendBatch` | `ses:SendBulkEmail` | yes |
+| `sendBatch` | `ses:SendEmail` (see note 0) | yes |
 | `createTenant` | `ses:CreateTenant` | yes |
 | `getTenant` | `ses:GetTenant` | yes |
 | `deleteTenant` | `ses:DeleteTenant` | yes |
@@ -367,6 +366,11 @@ from an SDK method name.
 
 Nineteen verbs, twenty IAM actions: `putEventDestination` needs both the create and the update
 action because it is implemented as create-then-update-on-already-exists (note 2).
+
+**Note 0.** `ses:SendBulkEmail` is deliberately NOT granted. `sendBatch` fans out one `SendEmail`
+per message rather than calling `SendBulkEmail`, because `BulkEmailContent` carries a TEMPLATE and
+nothing else, and Hogsend sends per-recipient HTML that the engine has already rendered. Granting an
+action we never call would contradict the point of a narrow policy.
 
 **Note 1.** `putSuppressionScope` reads like a configuration-set operation and is not one.
 `SuppressionScope: TENANT` is set by `PutTenantSuppressionAttributes`, which takes `TenantName`,
