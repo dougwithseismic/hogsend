@@ -39,8 +39,15 @@ Recorded so a reader knows these were caught in review rather than designed in.
    while 05 depended on 04. Resolved by giving 04 ownership of `HogsendRelayEmailEvent`; 05 imports
    and produces it.
 2. **PRD 02's verb list could not support PRD 06's teardown.** No delete verbs, and no
-   `putEventDestination` for PRD 05. Contract expanded from eleven verbs to sixteen, declared up
-   front in one table.
+   `putEventDestination` for PRD 05. Contract expanded and declared up front in one table.
+
+   That expansion was still wrong, and BUILD caught three further defects by checking the table
+   against AWS's own API reference rather than against itself: `putSuppressionScope` was specified as
+   a configuration-set operation when it is a tenant one (the config-set call **cannot** set tenant
+   scope, so the bug would have been a silent cross-tenant suppression leak); `getTenant` was
+   missing, making the PRD's own idempotency criterion unimplementable; and `getReputationEntity` was
+   missing, leaving the relay's paused check fail-OPEN. **The final contract is nineteen verbs.** See
+   PRD 02's Implementation Notes.
 3. **PRD 07 described identity verbs as new** when PRD 02 already declared them. Reworded to
    "implement", so the seam stays the single point of declaration.
 4. **PRD 07 tasks 6 and 7 spanned two package boundaries.** Split into control-plane and plugin
