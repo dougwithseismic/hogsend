@@ -130,6 +130,7 @@ export const PROVISION_STEP_LABELS: Record<ProvisionStep, string> = {
   "mint-hatchet": "Setting up background jobs",
   "substrate-provision": "Creating your services",
   "ensure-hostname": "Giving it a web address",
+  "provision-ses": "Setting up email sending",
   "set-env": "Applying your settings",
   "start-services": "Starting your services",
   "health-wait": "Waiting for the first healthy check",

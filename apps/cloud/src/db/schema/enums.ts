@@ -48,6 +48,23 @@ export const emailSendingStatusEnum = cloud.enum("cloud_email_sending_status", [
 ]);
 
 /**
+ * The reputation policy SES enforces for ONE tenant, mirrored on `ses_tenants`.
+ *
+ * `NONE` observes — findings are still recorded and still visible, they just do
+ * not auto-pause — and is where every new tenant starts (PRD 06), because
+ * enforcing on a tenant with no sending history is enforcing on noise.
+ * `STANDARD` and `STRICT` are promotions, and promotion is PRD 08's decision,
+ * never a provisioning-time one.
+ *
+ * Uppercase because these are AWS's own values, and translating them would
+ * mean two vocabularies for one fact.
+ */
+export const sesReputationPolicyEnum = cloud.enum(
+  "cloud_ses_reputation_policy",
+  ["NONE", "STANDARD", "STRICT"],
+);
+
+/**
  * Stack lifecycle. The legal-edge table lives in the state machine (PRD 02
  * task 4) — this enum only fixes the vocabulary and its Postgres ordering.
  * `error` is terminal-until-retried and pairs with `last_error` + `retry_count`.

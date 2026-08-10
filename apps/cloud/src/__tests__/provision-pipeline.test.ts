@@ -8,6 +8,7 @@ import {
   cloudAuditLog,
   environments,
   organizations,
+  relayTokens,
   stacks,
 } from "../db/schema";
 import { member, organization, user } from "../db/schema/auth";
@@ -36,12 +37,16 @@ import {
 } from "../pipeline/provision";
 import type { HatchetTenantService } from "../services/hatchet-tenant";
 import { ProviderKeyService } from "../services/provider-keys";
+import { RelayTokenService } from "../services/relay-tokens";
+import { getSesWebhookSecret } from "../services/ses-tenants";
 import {
   createFakeTenantCredentialClient,
   type TenantCredentialClient,
   TenantCredentialError,
 } from "../services/tenant-credentials";
 import { TenantDbService } from "../services/tenant-db";
+import { getFakeSesClient } from "../ses/index";
+import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
 import { SubstrateError } from "../substrate/types";
 
@@ -416,6 +421,68 @@ describe("runProvisionPipeline", () => {
     expect(serialized).not.toContain(applied.BETTER_AUTH_SECRET);
   });
 
+  it("mints the SES tenant one step before set-env, and injects its credentials", async () => {
+    // Position is FORCED, not stylistic: `set-env` is what hands the instance
+    // its environment, so the relay token has to exist before it runs or the
+    // instance boots without one.
+    expect(PROVISION_STEPS.indexOf("provision-ses")).toBe(
+      PROVISION_STEPS.indexOf("set-env") - 1,
+    );
+
+    const fixture = await seedStack("production");
+    const substrate = new FakeSubstrate();
+    const hatchet = stubHatchet();
+
+    const result = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      { substrate, hatchetTenant: hatchet.service },
+    );
+    expect(result.status).toBe("running");
+
+    const ses = getFakeSesClient("us");
+    const tenant = ses.__tenant(sesTenantName(fixture.environmentId));
+    expect(tenant).toBeDefined();
+    // The line this whole PRD turns on — on the ACCOUNT, one tenant's hard
+    // bounce suppresses that address for every other tenant.
+    expect(tenant?.suppressionScope).toBe("TENANT");
+    expect(tenant?.reputationPolicy).toBe("NONE");
+    expect(
+      ses.__configurationSet(sesConfigurationSetName(fixture.environmentId)),
+    ).toBeDefined();
+
+    const refs = {
+      substrate: "fake",
+      apiPublicUrl: fakeApiPublicUrl(fixture.stackId),
+      data: { stackId: fixture.stackId, region: "us" },
+    };
+    const applied = substrate.snapshot(refs).env.api;
+
+    // The token the INSTANCE holds is the one the RELAY accepts. Asserting the
+    // variable is merely present would pass for a token nothing verifies.
+    expect(
+      await new RelayTokenService(db).verify({
+        token: applied.HOGSEND_EMAIL_TOKEN ?? "",
+      }),
+    ).toMatchObject({ found: true, environmentId: fixture.environmentId });
+    expect(applied.HOGSEND_EMAIL_RELAY_URL).toBe(env.CLOUD_PUBLIC_URL);
+    expect(applied.HOGSEND_EMAIL_WEBHOOK_SECRET).toBe(
+      await getSesWebhookSecret({ environmentId: fixture.environmentId }),
+    );
+    // Deliberately NOT set here: `EMAIL_PROVIDER=hogsend` activates a provider
+    // whose engine preset is PRD 10's, and setting it first would boot-loop
+    // every freshly provisioned instance.
+    expect(applied.EMAIL_PROVIDER).toBeUndefined();
+
+    // Neither credential reached the audit trail.
+    const details = await db
+      .select({ detail: cloudAuditLog.detail })
+      .from(cloudAuditLog)
+      .where(eq(cloudAuditLog.subject, fixture.stackId));
+    const serialized = JSON.stringify(details);
+    expect(serialized).not.toContain(applied.HOGSEND_EMAIL_TOKEN);
+    expect(serialized).not.toContain(applied.HOGSEND_EMAIL_WEBHOOK_SECRET);
+  });
+
   it("starts the app services only after their env exists, worker first", async () => {
     const fixture = await seedStack("production");
     const substrate = new FakeSubstrate();
@@ -600,6 +667,76 @@ describe("runProvisionPipeline", () => {
     expect(finished.dbDsnEncrypted).toBe(dsnAfterFailure);
     // Reaching `running` resets the attempt counter.
     expect(finished.retryCount).toBe(0);
+  });
+
+  it("keeps the relay token the instance HOLDS and the one the relay ACCEPTS in lockstep across a resume", async () => {
+    const fixture = await seedStack("staging");
+    const substrate = new FakeSubstrate();
+    const hatchet = stubHatchet();
+    const deps = { substrate, hatchetTenant: hatchet.service };
+
+    // Park AFTER `set-env`, so the first run really did inject a token.
+    substrate.failNext(
+      "deployImage",
+      new SubstrateError("scripted permanent failure", { retryable: false }),
+    );
+    const failed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(failed.status).toBe("error");
+
+    const refs = {
+      substrate: "fake",
+      apiPublicUrl: fakeApiPublicUrl(fixture.stackId),
+      data: { stackId: fixture.stackId, region: "us" },
+    };
+    const first = substrate.snapshot(refs).env.api;
+    const firstSecret = await getSesWebhookSecret({
+      environmentId: fixture.environmentId,
+    });
+
+    const resumed = await runProvisionPipeline(
+      { stackId: fixture.stackId },
+      deps,
+    );
+    expect(resumed.status).toBe("running");
+
+    const second = substrate.snapshot(refs).env.api;
+    const service = new RelayTokenService(db);
+    // Only the token's HASH is stored, so a re-drive has nothing to replay and
+    // must issue a new one. What must NEVER happen is the two coming apart:
+    // the instance holding a token the relay no longer accepts.
+    expect(second.HOGSEND_EMAIL_TOKEN).not.toBe(first.HOGSEND_EMAIL_TOKEN);
+    expect(
+      await service.verify({ token: second.HOGSEND_EMAIL_TOKEN ?? "" }),
+    ).toMatchObject({ found: true, environmentId: fixture.environmentId });
+    expect(
+      await service.verify({ token: first.HOGSEND_EMAIL_TOKEN ?? "" }),
+    ).toEqual({ found: false });
+    // Exactly one live token, whatever the attempt count.
+    expect(
+      await db
+        .select()
+        .from(relayTokens)
+        .where(eq(relayTokens.environmentId, fixture.environmentId)),
+    ).toHaveLength(1);
+
+    // The webhook secret is the other half of the pair and does NOT rotate:
+    // the control plane signs deliveries with it, and a re-drive that changed
+    // it would break every delivery until the next env push landed.
+    expect(second.HOGSEND_EMAIL_WEBHOOK_SECRET).toBe(firstSecret);
+
+    // One tenant, one configuration set, still tenant-scoped suppression.
+    const ses = getFakeSesClient("us");
+    expect(
+      ses
+        .__tenants()
+        .filter((row) => row.name === sesTenantName(fixture.environmentId)),
+    ).toHaveLength(1);
+    expect(
+      ses.__tenant(sesTenantName(fixture.environmentId))?.suppressionScope,
+    ).toBe("TENANT");
   });
 
   it("re-uses the substrate stack when a LATER step failed", async () => {

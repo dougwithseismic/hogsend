@@ -9,6 +9,7 @@ import {
   cloudAuditLog,
   environments,
   organizations,
+  relayTokens,
   stacks,
 } from "../db/schema";
 import { member, organization, user } from "../db/schema/auth";
@@ -33,7 +34,10 @@ import {
 import { runProvisionPipeline } from "../pipeline/provision";
 import { IllegalTransitionError } from "../services/errors";
 import type { HatchetTenantService } from "../services/hatchet-tenant";
+import { deprovisionSesTenant, getSesTenant } from "../services/ses-tenants";
 import { TenantDbService } from "../services/tenant-db";
+import { getFakeSesClient } from "../ses/index";
+import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
 import { SubstrateError } from "../substrate/types";
 
@@ -423,6 +427,53 @@ describe("destroyStack", () => {
     for (const step of DESTROY_STEPS) {
       expect(actions).toContain(destroyAuditAction(step));
     }
+  });
+
+  it("takes the SES tenant, its configuration set and the relay token with it", async () => {
+    const fixture = await seedRunningStack();
+    const deps = { substrate: fixture.substrate };
+    const ses = getFakeSesClient("us");
+    const tenantName = sesTenantName(fixture.environmentId);
+    const configurationSetName = sesConfigurationSetName(fixture.environmentId);
+
+    // Provisioning really minted them, so the absences below mean something.
+    expect(ses.__tenant(tenantName)).toBeDefined();
+    expect(ses.__configurationSet(configurationSetName)).toBeDefined();
+    expect(
+      await getSesTenant({ environmentId: fixture.environmentId }),
+    ).not.toBeNull();
+
+    await suspendStack({ stackId: fixture.stackId }, deps);
+    const result = await destroyStack({ stackId: fixture.stackId }, deps);
+    expect(result.status).toBe("destroyed");
+
+    // A leaked configuration set keeps publishing events for an environment
+    // that no longer exists, and a leaked tenant is billed monthly.
+    expect(ses.__tenant(tenantName)).toBeUndefined();
+    expect(ses.__configurationSet(configurationSetName)).toBeUndefined();
+    expect(
+      await getSesTenant({ environmentId: fixture.environmentId }),
+    ).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(relayTokens)
+        .where(eq(relayTokens.environmentId, fixture.environmentId)),
+    ).toHaveLength(0);
+  });
+
+  it("destroys a stack whose environment never had an SES tenant", async () => {
+    const fixture = await seedRunningStack();
+    const deps = { substrate: fixture.substrate };
+    // The state every stack provisioned before this step existed is in.
+    await deprovisionSesTenant({ environmentId: fixture.environmentId });
+
+    await suspendStack({ stackId: fixture.stackId }, deps);
+    const result = await destroyStack({ stackId: fixture.stackId }, deps);
+    expect(result.status).toBe("destroyed");
+    expect(
+      result.steps.find((step) => step.step === "deprovision-ses")?.skipped,
+    ).toBe(true);
   });
 
   it("parks in error and RESUMES the destroy without repeating finished steps", async () => {

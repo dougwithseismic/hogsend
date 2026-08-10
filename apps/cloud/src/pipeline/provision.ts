@@ -35,6 +35,7 @@ import {
   type StoredProviderKey,
 } from "../services/provider-env";
 import { ProviderKeyService } from "../services/provider-keys";
+import { provisionSesTenant } from "../services/ses-tenants";
 import { StackService } from "../services/stacks";
 import {
   resolveTenantCredentialClient,
@@ -86,6 +87,11 @@ export const PROVISION_STEPS = [
   // cookie. An instance that learns its own name after that point would need a
   // migration to change it; one that learns it here never knew another.
   "ensure-hostname",
+  // Before `set-env`, and it has to be: `set-env` is what hands the instance
+  // its environment, and the relay token this step mints exists in plaintext
+  // exactly once — here. An instance provisioned after it would hold no
+  // credential for the send relay and would have no way to ask for one.
+  "provision-ses",
   "set-env",
   // AFTER `set-env`, and it has to be: an app service is created idle and only
   // starts here, so that its first boot is its first SUCCESSFUL boot. Starting
@@ -771,6 +777,32 @@ export async function runProvisionPipeline(
       });
     }
 
+    // ---- provision-ses ----------------------------------------------------
+    // The environment's SES tenancy, and the two credentials the instance
+    // needs to reach the send relay and to trust what the relay sends back.
+    //
+    // FATAL on failure, deliberately: the stack parks at `error` with this
+    // step's name and the sweep re-drives it, which is the house pattern and
+    // costs nothing here — no service has been started yet, so nothing is
+    // orphaned. A control plane with NO AWS credentials never reaches that
+    // branch: the factory yields the Fake, the converge succeeds, and the
+    // tenancy is simply recorded unavailable.
+    current = "provision-ses";
+    const sesTenant = await provisionSesTenant(
+      { environmentId: stack.environmentId, actor: PROVISIONER_ACTOR },
+      { db: deps.db },
+    );
+    steps.push({ step: "provision-ses", skipped: false });
+    // Names and regions. Never the relay token, never the webhook secret.
+    await audit("provision-ses", organizationId, {
+      tenantName: sesTenant.summary.tenantName,
+      configurationSetName: sesTenant.summary.configurationSetName,
+      awsRegion: sesTenant.summary.awsRegion,
+      reputationPolicy: sesTenant.summary.reputationPolicy,
+      available: sesTenant.summary.available,
+      relayTokenRotated: sesTenant.relayTokenRotated,
+    });
+
     // ---- set-env ----------------------------------------------------------
     current = "set-env";
     const secrets = await ensureStackSecrets(deps, stackId, stack);
@@ -787,6 +819,8 @@ export async function runProvisionPipeline(
       namespace,
       betterAuthSecret: secrets.secrets.betterAuthSecret,
       studioAdminPassword: secrets.secrets.studioAdminPassword,
+      relayToken: sesTenant.relayToken,
+      emailWebhookSecret: sesTenant.webhookSecret,
     });
     await deps.substrate.setEnv(refs, vars);
     steps.push({ step: "set-env", skipped: false });
@@ -1213,6 +1247,10 @@ async function assembleStackEnv(args: {
   namespace: string;
   betterAuthSecret: string;
   studioAdminPassword: string;
+  /** Minted by `provision-ses`, one step earlier. Plaintext, exactly once. */
+  relayToken: string;
+  /** The secret the control plane signs this environment's webhooks with. */
+  emailWebhookSecret: string;
 }): Promise<Record<string, string>> {
   const { deps, context, refs } = args;
 
@@ -1236,6 +1274,23 @@ async function assembleStackEnv(args: {
     // itself — an instance that self-issued an API key would hand anyone who
     // reached it a working credential.
     HOGSEND_BOOTSTRAP_API_KEY: "false",
+    // Hogsend Email (PRD 06). The instance holds a relay token and nothing
+    // else — the AWS credential never leaves the control plane, which is the
+    // entire reason the relay exists rather than scoped IAM keys per stack.
+    //
+    // The ORIGIN, not a path: `plugin-hogsend` appends `/api/email/send` and
+    // `/api/email/send-batch` itself.
+    HOGSEND_EMAIL_RELAY_URL: env.CLOUD_PUBLIC_URL.replace(/\/+$/, ""),
+    HOGSEND_EMAIL_TOKEN: args.relayToken,
+    // What `plugin-hogsend.verifyWebhook` checks, so the instance can tell a
+    // delivery from us apart from anything else that reaches its webhook.
+    HOGSEND_EMAIL_WEBHOOK_SECRET: args.emailWebhookSecret,
+    // `EMAIL_PROVIDER=hogsend` is deliberately NOT set here. It ACTIVATES the
+    // provider, and the engine preset that registers one is PRD 10 task 2 —
+    // selecting a provider the deployed engine cannot resolve throws at boot,
+    // so flipping the switch belongs with the preset (PRD 10 task 4). Until
+    // then these three variables are inert: a tenant keeps whatever provider
+    // it already had.
   };
 
   // The engine's first-admin bootstrap: on boot, with the user table EMPTY, it

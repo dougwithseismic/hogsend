@@ -127,6 +127,13 @@
       "when": 1786400398767,
       "tag": "0017_ordinary_slapstick",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786404826128,
+      "tag": "0018_true_silverclaw",
+      "breakpoints": true
     }
   ]
 }
