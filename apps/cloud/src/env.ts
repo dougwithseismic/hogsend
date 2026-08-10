@@ -331,6 +331,25 @@ export const env = createEnv({
     // the repo; a containerised cloud-worker that carries the template
     // elsewhere sets this.
     CLOUD_SCAFFOLD_TEMPLATE_DIR: z.string().min(1).optional(),
+    // The control-plane IAM user (`hogsend-cloud-relay`, DECISIONS §7.1) every
+    // SES call in `src/ses/` authenticates as. Railway is not AWS compute, so
+    // there is no instance role to assume and no OIDC federation — a static,
+    // narrowly-scoped key is the honest answer.
+    //
+    // OPTIONAL, and their absence is a MODE rather than a misconfiguration:
+    // with NEITHER set the control plane boots exactly as it does today and
+    // the SES factory yields the deterministic Fake. That is the supported
+    // default — Hogsend Email is optional — and it mirrors what the engine
+    // already does for a missing `RESEND_API_KEY`.
+    //
+    // Optional as a PAIR, though: exactly one set is a misconfiguration, never
+    // a mode. The refusal lives at the point of use in `src/ses/index.ts`
+    // (`readCredentials` — both present ⇒ AWS, neither ⇒ Fake, one ⇒ throw),
+    // the same posture `CLOUD_RAILWAY_TOKEN` and the registry credential pair
+    // already take in this file. NEVER logged: the factory logs which client
+    // is live, never the key it holds.
+    CLOUD_AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+    CLOUD_AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
