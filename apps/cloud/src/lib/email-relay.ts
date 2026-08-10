@@ -341,8 +341,14 @@ export async function handleRelaySend(
     return json(200, { id: messageId });
   } catch (error) {
     // NOTHING is left behind by a send that did not happen: a recorded key for
-    // an undelivered message turns a blip into permanent silent loss.
-    await releaseIdempotencyClaim({ rowId: claim.rowId, db });
+    // an undelivered message turns a blip into permanent silent loss. The
+    // `claimedAt` scopes the delete to OUR claim — if this send outlived the
+    // takeover window and somebody re-claimed the key, their claim survives.
+    await releaseIdempotencyClaim({
+      rowId: claim.rowId,
+      claimedAt: claim.claimedAt,
+      db,
+    });
     return sendFailureResponse(error, caller, db, now);
   }
 }
@@ -406,7 +412,12 @@ export async function handleRelaySendBatch(
   // failed batch un-retryable: the retry would return the original response and
   // the failed items would never send.
   const results: (RelayBatchResult | undefined)[] = new Array(items.length);
-  const pending: { index: number; rowId: string; message: SesMessage }[] = [];
+  const pending: {
+    index: number;
+    rowId: string;
+    claimedAt: Date;
+    message: SesMessage;
+  }[] = [];
 
   for (const [index, item] of items.entries()) {
     const claim = await claimIdempotencyKey({
@@ -431,6 +442,7 @@ export async function handleRelaySendBatch(
       pending.push({
         index,
         rowId: claim.rowId,
+        claimedAt: claim.claimedAt,
         message: item.message,
       });
     }
@@ -455,6 +467,9 @@ export async function handleRelaySendBatch(
       // thing: releases every claim, so the caller's retry can send.
       await releaseIdempotencyClaims({
         rowIds: pending.map((item) => item.rowId),
+        // Every claim in this request was stamped with this one `now` —
+        // fresh insert and takeover alike — so it proves ownership of all.
+        claimedAt: now,
         db,
       });
       return sendFailureResponse(error, caller, db, now);
@@ -474,7 +489,11 @@ export async function handleRelaySendBatch(
         delivered += 1;
         continue;
       }
-      await releaseIdempotencyClaim({ rowId: item.rowId, db });
+      await releaseIdempotencyClaim({
+        rowId: item.rowId,
+        claimedAt: item.claimedAt,
+        db,
+      });
       const kind = outcome?.kind ?? "unknown";
       failureKinds.push(kind);
       results[item.index] = {

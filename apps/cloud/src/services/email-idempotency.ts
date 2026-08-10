@@ -19,7 +19,9 @@ import { emailIdempotency } from "../db/schema";
  *     (replay it), a null one means a send is at the wire right now.
  *  2. `commitIdempotencyClaim` — the send returned an id; write it, and the
  *     claim becomes the replayable answer.
- *  3. `releaseIdempotencyClaim` — the send did NOT happen; delete the claim.
+ *  3. `releaseIdempotencyClaim` — the send did NOT happen; delete the claim,
+ *     presenting the `claimedAt` the claim handed back as proof it is still
+ *     OURS (a stale-claim takeover reuses the row, so a row id alone is not).
  *     Any failure at all releases, so the invariant a caller can rely on is
  *     absolute: A ROW WITH A MESSAGE ID MEANS THE MESSAGE REACHED SES. An
  *     idempotency entry left behind by a failed send would make the caller's
@@ -60,8 +62,15 @@ export const EMAIL_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const EMAIL_IDEMPOTENCY_CLAIM_TIMEOUT_MS = 60_000;
 
 export type IdempotencyClaim =
-  /** We own the key. Go to the wire, then commit or release. */
-  | { outcome: "claimed"; rowId: string }
+  /**
+   * We own the key. Go to the wire, then commit or release.
+   *
+   * `claimedAt` is the ownership proof: the exact instant this claim stamped
+   * on the row. A release must present it, because after the stale-claim
+   * takeover below the SAME row id can belong to a NEWER claimant — a row id
+   * alone says which row, never whose claim.
+   */
+  | { outcome: "claimed"; rowId: string; claimedAt: Date }
   /** Already sent under this key. Return this id; do NOT call SES. */
   | { outcome: "replay"; messageId: string }
   /** Somebody else is at the wire with this key right now. */
@@ -96,7 +105,9 @@ export async function claimIdempotencyKey(
     })
     .returning({ id: emailIdempotency.id });
 
-  if (inserted) return { outcome: "claimed", rowId: inserted.id };
+  if (inserted) {
+    return { outcome: "claimed", rowId: inserted.id, claimedAt: now };
+  }
 
   const existing = await findClaim(
     db,
@@ -130,11 +141,21 @@ export async function claimIdempotencyKey(
     .returning({ id: emailIdempotency.id });
 
   return taken
-    ? { outcome: "claimed", rowId: taken.id }
+    ? { outcome: "claimed", rowId: taken.id, claimedAt: now }
     : { outcome: "in_flight" };
 }
 
-/** The send succeeded: this id is what every later replay of the key answers. */
+/**
+ * The send succeeded: this id is what every later replay of the key answers.
+ *
+ * `messageId IS NULL` makes the FIRST commit win. After a stale-claim
+ * takeover, both the thief and a slower-than-the-takeover-window original
+ * claimant can reach SES (that duplicate is the takeover's documented price);
+ * whichever commits first is the recorded answer, and the later commit must
+ * not overwrite it. Deliberately NOT an ownership check: a stolen claimant
+ * whose send genuinely reached SES still records it if nobody beat them to
+ * it — a real message id is never discarded in favour of nothing.
+ */
 export async function commitIdempotencyClaim(input: {
   rowId: string;
   messageId: string;
@@ -144,23 +165,6 @@ export async function commitIdempotencyClaim(input: {
   await db
     .update(emailIdempotency)
     .set({ messageId: input.messageId })
-    .where(eq(emailIdempotency.id, input.rowId));
-}
-
-/**
- * The send did not happen: leave NOTHING behind.
- *
- * `messageId IS NULL` in the predicate is not belt-and-braces, it is the
- * takeover's safety: if this claim was stolen by a later caller who then
- * SUCCEEDED, our late release must not delete their recorded send.
- */
-export async function releaseIdempotencyClaim(input: {
-  rowId: string;
-  db?: CloudDb;
-}): Promise<void> {
-  const db = input.db ?? defaultDb;
-  await db
-    .delete(emailIdempotency)
     .where(
       and(
         eq(emailIdempotency.id, input.rowId),
@@ -169,9 +173,46 @@ export async function releaseIdempotencyClaim(input: {
     );
 }
 
-/** Release several claims — the batch path's rollback. */
+/**
+ * The send did not happen: leave NOTHING behind — but only OUR nothing.
+ *
+ * Two predicates, each against a different thief-race:
+ *  - `messageId IS NULL` — if this claim was stolen by a later caller who then
+ *    SUCCEEDED, our late release must not delete their recorded send;
+ *  - `claimedAt = ours` — if the thief is still AT THE WIRE, the row carries
+ *    their `claimedAt`, not ours, and deleting it would reopen the key while
+ *    their send is in flight: a third contender could claim it (another
+ *    duplicate), and the thief's own commit would land on a deleted row,
+ *    silently unrecording a message SES accepted — which a later replay would
+ *    then send AGAIN. A row id names the row; `claimedAt` names whose claim.
+ */
+export async function releaseIdempotencyClaim(input: {
+  rowId: string;
+  claimedAt: Date;
+  db?: CloudDb;
+}): Promise<void> {
+  const db = input.db ?? defaultDb;
+  await db
+    .delete(emailIdempotency)
+    .where(
+      and(
+        eq(emailIdempotency.id, input.rowId),
+        eq(emailIdempotency.claimedAt, input.claimedAt),
+        isNull(emailIdempotency.messageId),
+      ),
+    );
+}
+
+/**
+ * Release several claims — the batch path's rollback.
+ *
+ * One `claimedAt` for all of them, because that is what the batch path holds:
+ * every claim in one request is stamped with the request's single `now`
+ * (fresh insert and takeover alike), so one value proves ownership of all.
+ */
 export async function releaseIdempotencyClaims(input: {
   rowIds: string[];
+  claimedAt: Date;
   db?: CloudDb;
 }): Promise<void> {
   if (input.rowIds.length === 0) return;
@@ -181,6 +222,7 @@ export async function releaseIdempotencyClaims(input: {
     .where(
       and(
         inArray(emailIdempotency.id, input.rowIds),
+        eq(emailIdempotency.claimedAt, input.claimedAt),
         isNull(emailIdempotency.messageId),
       ),
     );

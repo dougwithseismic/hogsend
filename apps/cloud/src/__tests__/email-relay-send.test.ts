@@ -737,6 +737,95 @@ describe("email idempotency claims", () => {
     expect(await idempotencyRows(fixture.environmentId)).toHaveLength(1);
   });
 
+  it("a late release of a STOLEN claim leaves the thief's live claim intact", async () => {
+    const fixture = await seed();
+    const {
+      claimIdempotencyKey,
+      commitIdempotencyClaim,
+      releaseIdempotencyClaim,
+    } = await import("../services/email-idempotency");
+    const claim = { environmentId: fixture.environmentId };
+
+    // A claims, then its SES call outlives the takeover window (a hung
+    // socket, a throttled 50-item batch) without dying.
+    const t0 = new Date(Date.now() - 5 * 60_000);
+    const slow = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "stolen",
+      now: t0,
+    });
+    if (slow.outcome !== "claimed") throw new Error("expected a claim");
+
+    // B takes the stale claim over — SAME row, new ownership — and is at the
+    // wire right now.
+    const thief = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "stolen",
+      now: new Date(t0.getTime() + 61_000),
+    });
+    if (thief.outcome !== "claimed") throw new Error("expected a takeover");
+    expect(thief.rowId).toBe(slow.rowId);
+
+    // A's hung send finally fails and A releases LATE. The row is not A's
+    // claim any more, so this must be a no-op — deleting it would reopen the
+    // key while B's send is in flight.
+    await releaseIdempotencyClaim({
+      rowId: slow.rowId,
+      claimedAt: slow.claimedAt,
+    });
+
+    // A third contender is still told the key is in flight...
+    const third = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "stolen",
+      now: new Date(t0.getTime() + 62_000),
+    });
+    expect(third.outcome).toBe("in_flight");
+
+    // ...and the send SES accepted from B still has its row to be recorded on.
+    await commitIdempotencyClaim({ rowId: thief.rowId, messageId: "m-thief" });
+    const replay = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "stolen",
+      now: new Date(t0.getTime() + 63_000),
+    });
+    expect(replay).toEqual({ outcome: "replay", messageId: "m-thief" });
+  });
+
+  it("the FIRST commit wins; a late duplicate commit cannot overwrite it", async () => {
+    const fixture = await seed();
+    const { claimIdempotencyKey, commitIdempotencyClaim } = await import(
+      "../services/email-idempotency"
+    );
+    const claim = { environmentId: fixture.environmentId };
+
+    const t0 = new Date(Date.now() - 5 * 60_000);
+    const slow = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "first-commit",
+      now: t0,
+    });
+    if (slow.outcome !== "claimed") throw new Error("expected a claim");
+    const thief = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "first-commit",
+      now: new Date(t0.getTime() + 61_000),
+    });
+    if (thief.outcome !== "claimed") throw new Error("expected a takeover");
+
+    // Both reached SES — the takeover's documented price. Whichever commits
+    // first is the replayable answer, for good.
+    await commitIdempotencyClaim({ rowId: thief.rowId, messageId: "m-first" });
+    await commitIdempotencyClaim({ rowId: slow.rowId, messageId: "m-late" });
+
+    const replay = await claimIdempotencyKey({
+      ...claim,
+      idempotencyKey: "first-commit",
+      now: new Date(t0.getTime() + 62_000),
+    });
+    expect(replay).toEqual({ outcome: "replay", messageId: "m-first" });
+  });
+
   it("retires rows past the retention window and keeps the rest", async () => {
     const fixture = await seed();
     const { sweepEmailIdempotency, EMAIL_IDEMPOTENCY_RETENTION_MS } =
