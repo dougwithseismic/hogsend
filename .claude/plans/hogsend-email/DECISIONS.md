@@ -147,15 +147,38 @@ better answer in `ctx.sleepUntil`.
 
 Verbatim, into every delivery-agent brief. Run from the repo root.
 
+Measured on this machine 2026-08-10 against clean `origin/main`, not guessed.
+
+**Full gate set — run at PRD completion, not after every task:**
+
 ```bash
-pnpm turbo run check-types --concurrency=2
-pnpm turbo run lint --concurrency=2
-pnpm turbo run test --concurrency=2
+pnpm turbo run check-types --concurrency=2   # 70s cold (5/51 cached); ~15-25s incremental
+pnpm lint                                    # 1.4s — biome check . at the ROOT
+pnpm turbo run test --concurrency=1          # see the concurrency note below
 pnpm turbo run build --concurrency=2
 ```
 
-`--concurrency=2` is not optional: turbo fan-out OOMs in this repo and exits 137, which reads as a
-type error and is not one.
+**Per-task gate — run after every task, scoped to the task's `_Boundary:_`:**
+
+```bash
+pnpm --filter <workspace> test
+pnpm turbo run check-types --concurrency=2   # incremental, cheap
+pnpm lint
+```
+
+Three corrections found by actually running these:
+
+1. **`lint` is NOT a turbo task.** `pnpm turbo run lint` fails with "Could not find task `lint` in
+   project". The root script is `biome check .` and it takes 1.4 seconds across 2314 files. Use
+   `pnpm lint`.
+2. **`pnpm turbo run test --concurrency=2` FAILS on clean main**, and it is not a real break.
+   `@hogsend/api` (2466 tests) and `@hogsend/cloud` (1010 tests) each pass alone and fail when run
+   concurrently — the combined run pulls `user 516s` into 93s wall. Use `--concurrency=1` for the
+   test gate, or scope with `--filter`. **A loop that treats this as a real failure will burn a
+   revision round per task chasing a phantom; a loop that learns to ignore red gates is worse.**
+   Fixing this properly is the highest-leverage hour available and should happen BEFORE PRD 02.
+3. **`--concurrency=2` stays for check-types and build.** Turbo fan-out OOMs in this repo and exits
+   137, which reads as a type error and is not one.
 
 Additional, non-negotiable:
 
