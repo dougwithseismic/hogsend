@@ -15,6 +15,7 @@ import {
   EMAIL_RELAY_WINDOW_MS,
   emailRelayBucket,
   handleRelaySend,
+  MAX_SEND_REQUEST_BYTES,
 } from "../lib/email-relay";
 import { consumeRateLimit } from "../lib/rate-limit";
 import {
@@ -404,8 +405,10 @@ describe("POST /api/email/send — idempotency (EARS 3)", () => {
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
         // Generated lazily so proving the meter works does not cost the suite
-        // 16MB of resident memory.
-        if (sent > 32 * 1024 * 1024) {
+        // the cap's worth of resident memory. Bounded BY the cap constant, not
+        // a literal: a stream that stopped under a raised cap would reach the
+        // JSON parser and this test would quietly stop testing the meter.
+        if (sent > MAX_SEND_REQUEST_BYTES) {
           controller.close();
           return;
         }

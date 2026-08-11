@@ -25,6 +25,12 @@ import { SesError, type SesErrorKind, type SesMessage } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
 import type { AllowanceGate } from "./email-allowance";
 import {
+  assertValidAttachments,
+  InvalidAttachmentError,
+  toSesAttachment,
+  type WireEmailAttachment,
+} from "./email-attachments";
+import {
   checkTierSendCap,
   type TierCapRefusal,
   tierCapMessage,
@@ -104,8 +110,28 @@ export const MAX_BATCH_ITEMS = 50;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 /** Rendered HTML for one message. Generous; SES's own ceiling is the real one. */
 const MAX_BODY_CHARS = 1_000_000;
-/** The whole JSON request. A batch of 50 large messages still fits. */
-const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+/**
+ * The whole JSON request for ONE message (PRD 17). Sized from the attachment
+ * cap, not guessed: `MAX_ATTACHMENT_BYTES` (25 MiB raw) inflates to ~33.4 MiB
+ * as base64 on the wire, plus up to two `MAX_BODY_CHARS` bodies and JSON
+ * structure — ~36 MiB for the heaviest legitimate send. 40 MiB covers that
+ * with headroom, and is also SES's own per-message ceiling (40 MB after
+ * encoding), so nothing this cap admits is doomed at the wire. Checked BEFORE
+ * parsing (see `readJson`), because refusing a 200 MB request after decoding
+ * it would be a memory bill, not a cap.
+ */
+export const MAX_SEND_REQUEST_BYTES = 40 * 1024 * 1024;
+/**
+ * The whole JSON request for a BATCH. The attachment size cap is PER MESSAGE
+ * (matching SES's per-message limit), so without its own body cap a batch of
+ * fifty maximal messages would be a ~1.7 GB allocation on one request. This
+ * admits one maximal-attachment message (~33.4 MiB encoded) alongside a full
+ * complement of ordinary items — a batch of several attachment-heavy messages
+ * must split across requests, which bounds what a single request can make this
+ * process buffer. Deliberately BELOW the schema's theoretical maximum, the
+ * same posture the old 16 MiB cap held.
+ */
+export const MAX_BATCH_REQUEST_BYTES = 64 * 1024 * 1024;
 
 /**
  * An address as this relay checks it: bounded, and containing an `@`.
@@ -122,6 +148,23 @@ const address = z
   .min(3)
   .max(320)
   .refine((value) => value.includes("@"), "must be an email address");
+
+/**
+ * One attachment on the wire (PRD 17): `content` is the file's bytes as
+ * base64, ALWAYS — JSON cannot carry raw bytes, so there is no discriminant to
+ * get wrong. Only the STRUCTURE lives here; the semantic rules (filename
+ * shape, length caps, count, base64 validity, the raw-byte total) live in
+ * `assertValidAttachments` (`lib/email-attachments.ts`, the hand-synced mirror
+ * of `@hogsend/core`'s validator), so the relay and the engine mailer spell
+ * every refusal identically.
+ */
+const attachmentSchema = z.strictObject({
+  filename: z.string(),
+  content: z.string().min(1),
+  contentType: z.string().optional(),
+  disposition: z.enum(["attachment", "inline"]).optional(),
+  contentId: z.string().optional(),
+});
 
 /**
  * STRICT, and that is the enforcement of two locked decisions at once:
@@ -151,6 +194,10 @@ const messageSchema = z
       )
       .max(32)
       .optional(),
+    // No `.max()` here on purpose: the count cap is `MAX_ATTACHMENT_COUNT` in
+    // the shared validator, where its refusal names the count and the limit
+    // rather than surfacing as a generic schema issue.
+    attachments: z.array(attachmentSchema).optional(),
   })
   .refine(
     (message) => Boolean(message.html) || Boolean(message.text),
@@ -323,10 +370,18 @@ export async function handleRelaySend(
     );
   }
 
-  const body = await readJson(request);
+  const body = await readJson(request, MAX_SEND_REQUEST_BYTES);
   if (!body.ok) return body.response;
   const parsed = sendBodySchema.safeParse(body.value);
   if (!parsed.success) return invalidRequest(parsed.error);
+
+  // Part of VALIDATE, so it sits where validate sits: after the schema, before
+  // the tier cap and the allowance. A refused attachment spends no allowance,
+  // reaches no tier cap, claims no idempotency key and never touches SES. The
+  // ONE burst unit is already gone — charged above, before any caller-
+  // controlled input was inspected, exactly as the comment on `charge` says.
+  const attachmentRefusal = refuseInvalidAttachments(parsed.data.message);
+  if (attachmentRefusal) return attachmentRefusal;
 
   const tierCap = await checkTierSendCap({
     environmentId: caller.environmentId,
@@ -368,7 +423,7 @@ export async function handleRelaySend(
     const { messageId } = await ses.sendEmail({
       tenantName: caller.tenantName,
       configurationSetName: caller.configurationSetName,
-      message: parsed.data.message,
+      message: toSesMessage(parsed.data.message),
     });
     await commitIdempotencyClaim({ rowId: claim.rowId, messageId, db });
     // AFTER the wire, and only on the path that reached it: the replay branch
@@ -415,11 +470,24 @@ export async function handleRelaySendBatch(
   const entry = await charge(caller, 1, deps, now);
   if (!entry.allowed) return entry.response;
 
-  const body = await readJson(request);
+  const body = await readJson(request, MAX_BATCH_REQUEST_BYTES);
   if (!body.ok) return body.response;
   const parsed = batchBodySchema.safeParse(body.value);
   if (!parsed.success) return invalidRequest(parsed.error);
   const { items } = parsed.data;
+
+  // PER MESSAGE, like the schema failure above: one invalid item refuses the
+  // whole request, named. A refused batch spends no allowance, reaches no
+  // tier cap and claims no idempotency key; the single entry burst unit is
+  // already spent — deliberately, per the comment above — and the remaining
+  // `items.length - 1` units are never charged. The size cap is per message
+  // too: SES's 40 MB is per message, so a batch summing over the cap while
+  // each item is under it is legitimate; what bounds the batch as a whole is
+  // `MAX_BATCH_REQUEST_BYTES`.
+  for (const [index, item] of items.entries()) {
+    const refusal = refuseInvalidAttachments(item.message, `items[${index}]`);
+    if (refusal) return refusal;
+  }
 
   // Two items in ONE request sharing a key would race each other through the
   // guard, and one of them would come back `send_in_progress` for no reason a
@@ -490,7 +558,7 @@ export async function handleRelaySendBatch(
         index,
         rowId: claim.rowId,
         claimedAt: claim.claimedAt,
-        message: item.message,
+        message: toSesMessage(item.message),
       });
     }
   }
@@ -802,17 +870,62 @@ function batchErrorSlug(kind: SesErrorKind): string {
   return "send_failed";
 }
 
+/**
+ * The attachment gate, one call site per endpoint. `null` means clean;
+ * anything else is the 400, with the offending file (and for the size case
+ * both the limit and the actual total) named by the shared validator. The
+ * validator can only throw `InvalidAttachmentError` — anything else would be
+ * OUR bug and is deliberately not swallowed into a customer-facing 400.
+ */
+function refuseInvalidAttachments(
+  message: { attachments?: WireEmailAttachment[] },
+  label?: string,
+): Response | null {
+  if (!message.attachments?.length) return null;
+  try {
+    assertValidAttachments(message.attachments);
+  } catch (error) {
+    if (error instanceof InvalidAttachmentError) {
+      return fail(
+        400,
+        error.code,
+        label ? `${label}: ${error.message}` : error.message,
+      );
+    }
+    throw error;
+  }
+  return null;
+}
+
+/**
+ * The parsed wire message onto the SES seam. A pass-through except for
+ * attachments, which the seam wants in its `{ base64 }` wrapper — the wire is
+ * always base64, so the wrapper is always the truthful declaration, and the
+ * AWS layer knows not to encode the content a second time. `?.length`, not
+ * bare truthiness: a message without attachments (or with `[]`) crosses the
+ * seam with NO `attachments` key at all, byte-identical to today's sends.
+ */
+function toSesMessage(message: z.infer<typeof messageSchema>): SesMessage {
+  const { attachments, ...rest } = message;
+  return {
+    ...rest,
+    ...(attachments?.length
+      ? { attachments: attachments.map(toSesAttachment) }
+      : {}),
+  };
+}
+
 type JsonRead =
   | { ok: true; value: unknown }
   | { ok: false; response: Response };
 
-function tooLarge(): JsonRead {
+function tooLarge(maxBytes: number): JsonRead {
   return {
     ok: false,
     response: fail(
       413,
       "payload_too_large",
-      `A relay request may be at most ${MAX_REQUEST_BYTES} bytes.`,
+      `A relay request may be at most ${maxBytes} bytes.`,
     ),
   };
 }
@@ -832,11 +945,16 @@ function unreadable(message: string): JsonRead {
  * could make this process buffer unbounded memory, and the burst limiter would
  * not stop it — a REFUSED request never reaches here, but six hundred allowed
  * ones a minute do.
+ *
+ * The cap is the CALLER's, because the two endpoints legitimately differ
+ * (`MAX_SEND_REQUEST_BYTES` / `MAX_BATCH_REQUEST_BYTES`) — and it runs BEFORE
+ * `JSON.parse` and the schema, so an oversize request is refused before
+ * anything decodes it.
  */
-async function readJson(request: Request): Promise<JsonRead> {
+async function readJson(request: Request, maxBytes: number): Promise<JsonRead> {
   const declared = Number(request.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
-    return tooLarge();
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    return tooLarge(maxBytes);
   }
   if (!request.body) return unreadable("The request has no body.");
 
@@ -848,9 +966,9 @@ async function readJson(request: Request): Promise<JsonRead> {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_REQUEST_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel();
-        return tooLarge();
+        return tooLarge(maxBytes);
       }
       chunks.push(value);
     }
