@@ -32,6 +32,7 @@ import {
 import type { SubstrateRegion } from "../substrate/types";
 import { resolveSesRegion, type SesClient } from "./contract";
 import {
+  type SesAttachment,
   type SesBatchEntryResult,
   type SesConfigurationSetRef,
   type SesCreateConfigurationSetInput,
@@ -993,6 +994,15 @@ function toSendEmailFields(message: SesMessage): {
               })),
             }
           : {}),
+        // `?.length`, not bare truthiness: a message with no attachments —
+        // field absent OR an empty array — must emit a command BYTE-IDENTICAL
+        // to today's, with no `Attachments` key at all. That is what proves
+        // this change is not a regression for every send that exists today;
+        // `Attachments: []` would be a wire shape no caller means and nothing
+        // has ever tested.
+        ...(message.attachments?.length
+          ? { Attachments: message.attachments.map(toSesAttachment) }
+          : {}),
       },
     },
     ...(message.tags
@@ -1003,6 +1013,45 @@ function toSendEmailFields(message: SesMessage): {
           })),
         }
       : {}),
+  };
+}
+
+/**
+ * One neutral attachment onto SES's `Attachment` shape (SESv2 `Simple`
+ * content carries these as structured fields — no MIME is assembled anywhere).
+ *
+ * Two deliberate rules:
+ *  - `RawContent` is always RAW bytes. `{ base64 }` content is DECODED here
+ *    (`Buffer.from(_, "base64")` IS a `Uint8Array`), never passed through as
+ *    the string: the SDK base64-encodes `RawContent` itself, so a base64
+ *    string handed over as-is would be encoded AGAIN and deliver a corrupt
+ *    file that still sends successfully — no error at any layer;
+ *  - `ContentTransferEncoding` is NEVER set. The SDK owns the encoding, and
+ *    declaring one it did not apply is a way to be wrong.
+ * And an absent `contentType` stays absent — SES defaults; nothing here
+ * guesses from the filename.
+ */
+function toSesAttachment(attachment: SesAttachment): {
+  FileName: string;
+  RawContent: Uint8Array;
+  ContentType?: string;
+  ContentDisposition?: "ATTACHMENT" | "INLINE";
+  ContentId?: string;
+} {
+  return {
+    FileName: attachment.filename,
+    RawContent:
+      attachment.content instanceof Uint8Array
+        ? attachment.content
+        : Buffer.from(attachment.content.base64, "base64"),
+    ...(attachment.contentType ? { ContentType: attachment.contentType } : {}),
+    ...(attachment.disposition
+      ? {
+          ContentDisposition:
+            attachment.disposition === "inline" ? "INLINE" : "ATTACHMENT",
+        }
+      : {}),
+    ...(attachment.contentId ? { ContentId: attachment.contentId } : {}),
   };
 }
 

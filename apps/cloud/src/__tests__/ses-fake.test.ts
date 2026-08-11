@@ -300,6 +300,85 @@ describe("FakeSesClient sending", () => {
     expect(client.__sent()[0]?.message.subject).toBe("Welcome");
   });
 
+  it("records attachments verbatim, through sendEmail AND sendBatch", async () => {
+    // The wave's rule: contract, aws.ts and Fake move together. A Fake whose
+    // recorded message dropped this field would let every test above the seam
+    // assert a wire that never carried the file — the exact way 1473 green
+    // tests once certified things SES does not do (PRD 14).
+    const client = await sendReadyFake();
+    const attachments = [
+      {
+        filename: "invoice.pdf",
+        content: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+        contentType: "application/pdf",
+        disposition: "inline" as const,
+        contentId: "invoice@acme",
+      },
+    ];
+
+    await client.sendEmail({
+      tenantName: TENANT,
+      message: message({ attachments }),
+    });
+    await client.sendBatch({
+      tenantName: TENANT,
+      messages: [
+        message({ to: ["one@example.test"], attachments }),
+        message({ to: ["two@example.test"] }),
+      ],
+    });
+
+    const sent = client.__sent();
+    expect(sent).toHaveLength(3);
+    expect(sent[0]?.message.attachments).toEqual(attachments);
+    // The batch is the same wire: attachments flow through per message, and a
+    // file-less entry in the same batch records NO field at all — absent in,
+    // absent out, exactly what crossed the seam.
+    expect(sent[1]?.message.attachments).toEqual(attachments);
+    expect(sent[2]?.message.attachments).toBeUndefined();
+  });
+
+  it("agrees with the AWS client about what one message's attachments say", async () => {
+    // The SAME neutral message through both implementations: the facts a test
+    // reads off the Fake (filename, bytes) must be the facts the real wire
+    // sends, or the Fake is a story about a different message.
+    const attachments = [
+      { filename: "invoice.pdf", content: new Uint8Array([0x25, 0x50, 0x44]) },
+    ];
+
+    const fakeClient = await sendReadyFake();
+    await fakeClient.sendEmail({
+      tenantName: TENANT,
+      message: message({ attachments }),
+    });
+
+    const commands: { input: unknown }[] = [];
+    const awsClient = new AwsSesClient({
+      region: "us",
+      send: async (command) => {
+        commands.push(command);
+        return { MessageId: "aws-1" };
+      },
+    });
+    await awsClient.sendEmail({
+      tenantName: TENANT,
+      message: message({ attachments }),
+    });
+
+    const recorded = fakeClient.__sent()[0]?.message.attachments?.[0];
+    const wire = (
+      commands[0]?.input as {
+        Content: {
+          Simple: { Attachments: { FileName: string; RawContent: unknown }[] };
+        };
+      }
+    ).Content.Simple.Attachments[0];
+    expect(wire?.FileName).toBe(recorded?.filename);
+    expect(Array.from(wire?.RawContent as Uint8Array)).toEqual(
+      Array.from(recorded?.content as Uint8Array),
+    );
+  });
+
   it("refuses to send on behalf of a tenant that does not exist", async () => {
     await expect(
       fake().sendEmail({ tenantName: TENANT, message: message() }),

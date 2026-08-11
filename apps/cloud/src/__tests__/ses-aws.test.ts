@@ -23,7 +23,7 @@ import {
   SES_MAX_ATTEMPTS,
   sesBackoffMs,
 } from "../ses/aws";
-import type { SesErrorKind } from "../ses/types";
+import type { SesAttachment, SesErrorKind } from "../ses/types";
 import { SesError } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
 
@@ -626,6 +626,215 @@ describe("AwsSesClient sending", () => {
       },
       { status: "sent", messageId: "aws-3" },
     ]);
+  });
+});
+
+describe("AwsSesClient attachments", () => {
+  /** "%PDF-1.7" — real file magic, so a corrupted mapping is visibly wrong. */
+  const PDF_BYTES = new Uint8Array([
+    0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37,
+  ]);
+
+  interface SesAttachmentWire {
+    FileName?: string;
+    RawContent?: unknown;
+    ContentType?: string;
+    ContentDisposition?: string;
+    ContentId?: string;
+    ContentTransferEncoding?: string;
+  }
+
+  /** The `Content.Simple` block of a captured command, for absence checks. */
+  function simpleOf(
+    command: SesCommandLike | undefined,
+  ): Record<string, unknown> {
+    const input = command?.input as {
+      Content?: { Simple?: Record<string, unknown> };
+    };
+    const simple = input?.Content?.Simple;
+    expect(simple).toBeDefined();
+    return simple as Record<string, unknown>;
+  }
+
+  function attachmentsOf(
+    command: SesCommandLike | undefined,
+  ): SesAttachmentWire[] {
+    return simpleOf(command).Attachments as SesAttachmentWire[];
+  }
+
+  async function sendWith(
+    attachments: SesAttachment[] | undefined,
+  ): Promise<SesCommandLike[]> {
+    const { client, commands } = harness(() => ({ MessageId: "aws-1" }));
+    await client.sendEmail({
+      tenantName: TENANT,
+      message: {
+        from: "hello@acme.test",
+        to: ["buyer@example.test"],
+        subject: "Invoice",
+        html: "<p>attached</p>",
+        ...(attachments ? { attachments } : {}),
+      },
+    });
+    return commands;
+  }
+
+  it("emits NO Attachments key at all when a message has none", async () => {
+    // The most important assertion in the feature: every send that exists
+    // today takes this path, and the command it emits must be BYTE-IDENTICAL
+    // to what it was before attachments existed — no `Attachments` key, not
+    // an empty array.
+    const absent = await sendWith(undefined);
+    expect(simpleOf(absent[0])).not.toHaveProperty("Attachments");
+
+    // An EMPTY array is the same statement as no field: nobody means
+    // `Attachments: []`, and it is a wire shape nothing has ever tested.
+    const empty = await sendWith([]);
+    expect(simpleOf(empty[0])).not.toHaveProperty("Attachments");
+  });
+
+  it("maps raw bytes onto Simple.Attachments as FileName + RawContent", async () => {
+    const commands = await sendWith([
+      {
+        filename: "invoice.pdf",
+        content: PDF_BYTES,
+        contentType: "application/pdf",
+      },
+    ]);
+
+    const attachments = attachmentsOf(commands[0]);
+    expect(attachments).toHaveLength(1);
+    const attachment = attachments[0];
+    expect(attachment?.FileName).toBe("invoice.pdf");
+    expect(attachment?.ContentType).toBe("application/pdf");
+    expect(attachment?.RawContent).toBeInstanceOf(Uint8Array);
+    expect(Array.from(attachment?.RawContent as Uint8Array)).toEqual(
+      Array.from(PDF_BYTES),
+    );
+    // Neither optional field was supplied, so neither key may appear —
+    // an invented default disposition would be the seam guessing.
+    expect(attachment).not.toHaveProperty("ContentDisposition");
+    expect(attachment).not.toHaveProperty("ContentId");
+  });
+
+  it("decodes { base64 } content to the SAME RawContent bytes as raw bytes", async () => {
+    // THE double-encoding catch. The SDK base64-encodes `RawContent` itself,
+    // so if the base64 STRING ever passed through as RawContent it would be
+    // encoded AGAIN and the recipient would get a corrupt file from a send
+    // that reported success — nothing errors at any layer. The only proof
+    // against it is that both content forms land as the identical raw bytes.
+    const [rawForm] = await sendWith([
+      { filename: "invoice.pdf", content: PDF_BYTES },
+    ]);
+    const [base64Form] = await sendWith([
+      {
+        filename: "invoice.pdf",
+        content: { base64: Buffer.from(PDF_BYTES).toString("base64") },
+      },
+    ]);
+
+    const fromRaw = attachmentsOf(rawForm)[0]?.RawContent as Uint8Array;
+    const fromBase64 = attachmentsOf(base64Form)[0]?.RawContent as Uint8Array;
+    expect(fromBase64).toBeInstanceOf(Uint8Array);
+    expect(typeof fromBase64).not.toBe("string");
+    expect(Array.from(fromBase64)).toEqual(Array.from(fromRaw));
+    expect(Array.from(fromBase64)).toEqual(Array.from(PDF_BYTES));
+  });
+
+  it("maps disposition onto SES's enum and carries the content id", async () => {
+    const commands = await sendWith([
+      {
+        filename: "logo.png",
+        content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        contentType: "image/png",
+        disposition: "inline",
+        contentId: "logo@acme",
+      },
+      {
+        filename: "terms.pdf",
+        content: PDF_BYTES,
+        disposition: "attachment",
+      },
+    ]);
+
+    const attachments = attachmentsOf(commands[0]);
+    expect(attachments[0]?.ContentDisposition).toBe("INLINE");
+    expect(attachments[0]?.ContentId).toBe("logo@acme");
+    expect(attachments[1]?.ContentDisposition).toBe("ATTACHMENT");
+    expect(attachments[1]).not.toHaveProperty("ContentId");
+  });
+
+  it("omits ContentType entirely when absent — never guessed from the filename", async () => {
+    const commands = await sendWith([
+      { filename: "export.csv", content: new Uint8Array([0x61, 0x2c, 0x62]) },
+    ]);
+    // SES defaults; a guess from ".csv" here would be this seam inventing a
+    // fact the caller never stated.
+    expect(attachmentsOf(commands[0])[0]).not.toHaveProperty("ContentType");
+  });
+
+  it("NEVER sets ContentTransferEncoding, on either content form", async () => {
+    // The SDK owns the transfer encoding of `RawContent`. Declaring one it
+    // did not apply is a way to be wrong about our own bytes.
+    const commands = await sendWith([
+      { filename: "invoice.pdf", content: PDF_BYTES },
+      {
+        filename: "receipt.pdf",
+        content: { base64: Buffer.from(PDF_BYTES).toString("base64") },
+      },
+    ]);
+    for (const attachment of attachmentsOf(commands[0])) {
+      expect(attachment).not.toHaveProperty("ContentTransferEncoding");
+    }
+  });
+
+  it("sendBatch carries attachments through to each per-message send", async () => {
+    // No batch-specific code exists, by design: sendBatch is a bounded pool
+    // over sendEmail, so attachments flow through the moment sendEmail
+    // carries them. This asserts that fact instead of building anything.
+    const { client, commands } = harness(() => ({ MessageId: "aws" }));
+    await client.sendBatch({
+      tenantName: TENANT,
+      messages: [
+        {
+          from: "hello@acme.test",
+          to: ["one@example.test"],
+          subject: "Invoice 1",
+          html: "<p>1</p>",
+          attachments: [{ filename: "one.pdf", content: PDF_BYTES }],
+        },
+        {
+          from: "hello@acme.test",
+          to: ["two@example.test"],
+          subject: "No files",
+          html: "<p>2</p>",
+        },
+      ],
+    });
+
+    expect(commands).toHaveLength(2);
+    // The pool answers in input order here, but pair by recipient anyway —
+    // the batch contract is positional on RESULTS, not on wire order.
+    const byRecipient = new Map(
+      commands.map((command) => {
+        const input = command.input as {
+          Destination: { ToAddresses: string[] };
+        };
+        return [input.Destination.ToAddresses[0], command] as const;
+      }),
+    );
+
+    const withFile = attachmentsOf(byRecipient.get("one@example.test"));
+    expect(withFile).toHaveLength(1);
+    expect(withFile[0]?.FileName).toBe("one.pdf");
+    expect(Array.from(withFile[0]?.RawContent as Uint8Array)).toEqual(
+      Array.from(PDF_BYTES),
+    );
+    // And the file-less message in the SAME batch stays byte-identical to
+    // today's wire — attachments on one entry must not leak onto another.
+    expect(simpleOf(byRecipient.get("two@example.test"))).not.toHaveProperty(
+      "Attachments",
+    );
   });
 });
 

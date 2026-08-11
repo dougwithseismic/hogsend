@@ -130,6 +130,35 @@ export interface SesMessageTag {
 }
 
 /**
+ * One attached file, in the neutral shape `@hogsend/core` pins
+ * (`EmailAttachment`, `providers/email.ts`) — MIRRORED here rather than
+ * imported, the same rule `lib/sending-domains.ts` holds for
+ * `DnsRecord`/`DomainStatus`: the control plane depends on no engine package
+ * for its own types, and everything crossing this seam is a plain, portable
+ * value.
+ */
+export interface SesAttachment {
+  /** Shown to the recipient. Validated by the layer above, like everything
+   * else on the message — this seam judges nothing. */
+  filename: string;
+  /**
+   * Raw bytes, or already-base64 content DECLARED via the `{ base64 }`
+   * wrapper — never a bare string. The discriminant is load-bearing: the AWS
+   * SDK base64-encodes `RawContent` itself, so a base64 string mistaken for
+   * raw bytes would be encoded AGAIN and deliver a corrupt file that still
+   * sends successfully, with no error at any layer to notice.
+   */
+  content: Uint8Array | { base64: string };
+  /** Omitted → SES defaults. Never guessed from the filename. */
+  contentType?: string;
+  /** `inline` embeds into the HTML via {@link contentId}; default is a plain
+   * attachment. */
+  disposition?: "attachment" | "inline";
+  /** References an `inline` attachment from the HTML (`cid:` URL). */
+  contentId?: string;
+}
+
+/**
  * One outbound message. HTML and text arrive already RENDERED — the engine's
  * tracked mailer owns templates, preferences, first-party tracking and the
  * `email_sends` row, and this seam is the dumb wire underneath it.
@@ -147,6 +176,14 @@ export interface SesMessage {
   /** Extra headers (`List-Unsubscribe`, …). */
   headers?: Record<string, string>;
   tags?: SesMessageTag[];
+  /**
+   * Attached files. Like the HTML, they arrive already JUDGED — count, size
+   * and filename shape are the layer above's job — and this seam maps them
+   * verbatim onto SES `Simple` content's own `Attachments` array. There is no
+   * MIME to assemble and no second send mode: SES v2 carries attachments as
+   * structured fields on the same `SendEmail` every send already uses.
+   */
+  attachments?: SesAttachment[];
 }
 
 export interface SesSendEmailInput {

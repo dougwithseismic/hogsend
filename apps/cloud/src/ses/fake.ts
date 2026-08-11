@@ -63,8 +63,16 @@ import {
  * succeed if all referenced resources ... are associated with this tenant").
  * A fake that delivered anyway would certify the two production-only failures
  * this seam exists to catch: send-before-verify, and a provision that forgot
- * `associateResource`. Deliberately NOT modelled on the send path, so nobody
- * assumes coverage: configuration-set existence and association.
+ * `associateResource`. Attachments ride the recorded message VERBATIM —
+ * `__sent()` is where a test reads back exactly what crossed the seam, files
+ * included. Deliberately NOT modelled on the send path, so nobody assumes
+ * coverage: configuration-set existence, association, and SES's attachment
+ * file-extension policy — AWS documents that it "restricts certain file
+ * extensions" but not whether a blocked one is refused synchronously at
+ * `SendEmail` or accepted and rejected later (its `MessageId` note says a
+ * message CAN be accepted without being sent); PRD 18's `email.rejected` owns
+ * the async reject path either way, so the Fake accepts every file rather
+ * than inventing a synchronous refusal we have never observed.
  *
  * Affordances, mirroring `FakeSubstrate` and `FakeBilling`:
  *  - `failNext(method, error?)` scripts the NEXT call to that method to throw.
