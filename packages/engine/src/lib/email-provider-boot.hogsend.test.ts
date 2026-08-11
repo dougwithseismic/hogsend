@@ -19,7 +19,11 @@ process.env.HATCHET_CLIENT_TOKEN ??=
   "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QifQ.eyJhdWQiOiJsb2NhbGhvc3QiLCJleHAiOjQ5MzMyNDA5ODMsImdycGNfYnJvYWRjYXN0X2FkZHJlc3MiOiJsb2NhbGhvc3Q6NzA3NyIsImlhdCI6MTc3OTY0MDk4MywiaXNzIjoibG9jYWxob3N0Iiwic2VydmVyX3VybCI6ImxvY2FsaG9zdCIsInN1YiI6InRlc3QtdGVuYW50LWlkIiwidG9rZW5faWQiOiJ0ZXN0LXRva2VuLWlkIn0.test";
 // Exactly what a provisioned Cloud environment gets — and deliberately NO
 // RESEND_API_KEY, which is the point: a Cloud instance sends with no Resend
-// account anywhere in the picture.
+// account anywhere in the picture. Deleted (not assumed absent) so a dev shell
+// that happens to export provider credentials cannot flip the getAll()
+// assertion below.
+delete process.env.RESEND_API_KEY;
+delete process.env.POSTMARK_SERVER_TOKEN;
 process.env.HOGSEND_EMAIL_TOKEN = "hsrel_boot_test_token";
 process.env.HOGSEND_EMAIL_RELAY_URL = "https://cloud.example.com";
 process.env.HOGSEND_EMAIL_WEBHOOK_SECRET = "whsec_boot_test";

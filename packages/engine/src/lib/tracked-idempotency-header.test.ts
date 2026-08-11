@@ -93,11 +93,16 @@ function makeFakeDb() {
   return { db: db as never, inserted };
 }
 
-/** A fake provider that only records what it was handed. */
-function makeFakeProvider() {
+/**
+ * A fake provider that only records what it was handed. Defaults to the
+ * `hogsend` id because that is the one transport whose wire CONSUMES the
+ * `Idempotency-Key` header (providerConsumesIdempotencyKey) — pass a
+ * header-forwarding id (`resend`, `postmark`) to pin the negative posture.
+ */
+function makeFakeProvider(id = "hogsend") {
   const sends: SendEmailOptions[] = [];
   const provider = {
-    meta: { id: "fake", name: "Fake" },
+    meta: { id, name: "Fake" },
     capabilities: {},
     send: async (options: SendEmailOptions) => {
       sends.push(options);
@@ -196,6 +201,66 @@ test("PRD 10 T4b: the derived replay-stable key reaches provider.send as Idempot
   // The key is an ADDITION to the wire, not a replacement for it: caller headers
   // still travel alongside it.
   assert.equal(sends[0]?.headers?.["X-Campaign"], "spring");
+});
+
+test("a header-forwarding provider (resend) NEVER receives the auto-threaded key", async () => {
+  // Resend and Postmark forward `SendEmailOptions.headers` verbatim onto the
+  // DELIVERED message, so threading the engine's key to them would stamp
+  // internal identifiers — Hatchet run ids + wait labels on journey sends, the
+  // recipient's own address on campaign sends — onto every outbound email of
+  // every existing deploy. The gate strips the key from the WIRE only: the
+  // `email_sends` row still records it, so the DB dedup layer is intact.
+  const { db, inserted } = makeFakeDb();
+  const { provider, sends } = makeFakeProvider("resend");
+  const { boundary } = createRecordingBoundary({
+    runAnchor: "run-abc",
+    currentLabel: "wait-for-activation",
+  });
+
+  await runWithJourneyBoundary(boundary, () =>
+    sendTrackedEmail({
+      db,
+      provider,
+      registry,
+      options: baseOptions({ headers: { "X-Campaign": "spring" } }),
+    }),
+  );
+
+  assert.equal(sends.length, 1);
+  assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), undefined);
+  // Layer 2 is unconditional: the row carries the derived key even though the
+  // wire does not.
+  assert.equal(
+    inserted[0]?.idempotencyKey,
+    deriveJourneyKey({
+      kind: "send",
+      anchor: "run-abc",
+      site: "wait-for-activation",
+      discriminant: "welcome",
+    }),
+  );
+  // Caller headers still travel untouched.
+  assert.equal(sends[0]?.headers?.["X-Campaign"], "spring");
+});
+
+test("an EXPLICIT caller Idempotency-Key header passes through to any provider", async () => {
+  // Pre-threading behavior, preserved: a header the caller placed in
+  // `options.headers` themselves is a deliberate choice, not the engine's —
+  // the gate never strips it, even for a header-forwarding provider.
+  const { db } = makeFakeDb();
+  const { provider, sends } = makeFakeProvider("resend");
+
+  await sendTrackedEmail({
+    db,
+    provider,
+    registry,
+    options: baseOptions({ headers: { "Idempotency-Key": "caller-explicit" } }),
+  });
+
+  assert.equal(
+    headerValue(sends[0]?.headers, "Idempotency-Key"),
+    "caller-explicit",
+  );
 });
 
 test("a caller-supplied idempotency key reaches the provider too", async () => {

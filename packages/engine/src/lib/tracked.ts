@@ -1,4 +1,4 @@
-import type { EmailProvider } from "@hogsend/core";
+import type { EmailProvider, EmailProviderCapabilities } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { emailSends } from "@hogsend/db";
 import type {
@@ -60,13 +60,48 @@ export type PrepareTrackedHtmlFn = (opts: {
 const IDEMPOTENCY_HEADER = "Idempotency-Key";
 
 /**
+ * Does the ACTIVE provider's TRANSPORT consume the `Idempotency-Key` header —
+ * lifting it off the message before anything reaches a recipient?
+ *
+ * The engine only volunteers its replay-stable key to a transport that reads
+ * it. Resend and Postmark forward `SendEmailOptions.headers` VERBATIM onto the
+ * delivered message (Resend `headers`, Postmark `Headers`), so threading the
+ * key to them would stamp internal keys — which embed Hatchet run ids and wait
+ * labels (`journeySend:<runId>:<site>:<template>`) and, for campaign sends, the
+ * recipient's own address (`campaign:<id>:<email>`) — onto every outbound
+ * email: a silent wire change for every existing deploy, which the PRD's
+ * "byte-for-byte unchanged without the new env vars" criterion forbids.
+ *
+ * `@hogsend/plugin-hogsend` is the transport BUILT to consume it (it moves the
+ * header onto the relay request and never onto the message), so it is gated in
+ * by id. A third-party provider whose transport is likewise idempotent can opt
+ * in with `consumesIdempotencyKey: true` in its `capabilities` — read
+ * defensively here until that is promoted to a declared
+ * `EmailProviderCapabilities` flag (core follow-up).
+ *
+ * An `Idempotency-Key` the CALLER placed in `options.headers` themselves is
+ * untouched by this gate: explicit headers pass through exactly as they did
+ * before the key threading existed.
+ */
+export function providerConsumesIdempotencyKey(
+  provider: EmailProvider,
+): boolean {
+  const caps = provider.capabilities as
+    | (EmailProviderCapabilities & { consumesIdempotencyKey?: boolean })
+    | undefined;
+  return (
+    caps?.consumesIdempotencyKey === true || provider.meta?.id === "hogsend"
+  );
+}
+
+/**
  * Thread the send's replay-stable idempotency key onto the provider wire.
  *
  * `SendEmailOptions` has no `idempotencyKey` field — the contract is
- * deliberately provider-NEUTRAL, so the key rides as a header. A provider that
- * has no use for it ignores it (Resend, Postmark); a provider whose transport is
- * itself idempotent reads it (`@hogsend/plugin-hogsend` lifts it back off the
- * headers and never lets it reach the recipient as an SMTP header).
+ * deliberately provider-NEUTRAL, so the key rides as a header, and ONLY to a
+ * provider that consumes it ({@link providerConsumesIdempotencyKey}): a
+ * header-forwarding provider (Resend, Postmark) would deliver it to the
+ * recipient as an SMTP header, so the caller passes `undefined` for those.
  *
  * This is load-bearing rather than a nicety. A transport that has to invent its
  * own key can only hash the message bytes, and that CANNOT protect a crash
@@ -423,8 +458,16 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     });
   }
 
+  // The wire header travels ONLY to a transport that consumes it (the DB-layer
+  // dedup on `email_sends.idempotencyKey` below is unconditional either way) —
+  // a header-forwarding provider would deliver the key to the recipient.
   const sendHeaders: Record<string, string> = {
-    ...(withIdempotencyHeader(options.headers, options.idempotencyKey) ?? {}),
+    ...(withIdempotencyHeader(
+      options.headers,
+      providerConsumesIdempotencyKey(provider)
+        ? options.idempotencyKey
+        : undefined,
+    ) ?? {}),
   };
   if (unsubscribeUrl && !("List-Unsubscribe" in sendHeaders)) {
     sendHeaders["List-Unsubscribe"] = `<${unsubscribeUrl}>`;

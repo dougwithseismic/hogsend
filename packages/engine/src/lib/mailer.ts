@@ -37,7 +37,11 @@ import {
   TestModeNoRedirectError,
 } from "./test-mode.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
-import { sendTrackedEmail, withIdempotencyHeader } from "./tracked.js";
+import {
+  providerConsumesIdempotencyKey,
+  sendTrackedEmail,
+  withIdempotencyHeader,
+} from "./tracked.js";
 import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
 
 // Fallback logger for the provider-webhook outbound emit — `config.logger` is
@@ -211,10 +215,16 @@ export function createTrackedMailer(
         html,
         tags: options.tags,
         // Same wire contract as the tracked path (see withIdempotencyHeader):
-        // the key rides as a header so the provider-neutral SendEmailOptions
-        // needs no field for it. This no-db branch never auto-derives a journey
-        // key, so only a caller-supplied one travels here.
-        headers: withIdempotencyHeader(options.headers, options.idempotencyKey),
+        // the key rides as a header, and ONLY to a transport that consumes it —
+        // a header-forwarding provider (Resend, Postmark) would deliver it to
+        // the recipient. This no-db branch never auto-derives a journey key, so
+        // only a caller-supplied one can travel here.
+        headers: withIdempotencyHeader(
+          options.headers,
+          providerConsumesIdempotencyKey(provider)
+            ? options.idempotencyKey
+            : undefined,
+        ),
         replyTo: options.replyTo,
       });
 
