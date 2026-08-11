@@ -1414,6 +1414,13 @@ export type EngineDomainStatus = {
   domain: string | null;
   providerId: string;
   supported: boolean;
+  /**
+   * Whether the provider can switch the branded return path (PRD 20).
+   * OPTIONAL for the same wire-skew reason as `guidance`: an older engine
+   * never sends the key, and the Setup view must render without it. Absent
+   * reads as unavailable — never as a dead toggle.
+   */
+  returnPathSupported?: boolean;
   status: DomainStatus | null;
   testMode: TestModeState;
   guidance?: SendingDomainGuidance;
@@ -1433,6 +1440,24 @@ export function addDomain(domain: string) {
 
 export function verifyDomain() {
   return api.post<EngineDomainStatus>("/v1/admin/domain/verify");
+}
+
+/**
+ * What `POST /v1/admin/domain/return-path` answers: the provider's read-back
+ * state (never an echo of the request) plus a fresh domain status. When
+ * switched on, the status carries the MX and SPF records as `pending`; when
+ * switched off they stop being reported and the domain stays verified on its
+ * base records.
+ */
+export type ReturnPathSwitch = {
+  returnPath: { enabled: boolean; mailFromDomain: string | null };
+  status: EngineDomainStatus;
+};
+
+export function setReturnPath(body: { enabled: boolean; label?: string }) {
+  return api.post<ReturnPathSwitch>("/v1/admin/domain/return-path", {
+    json: body,
+  });
 }
 
 // --- Setup readiness (non-blocking FTUX checklist) ------------------------

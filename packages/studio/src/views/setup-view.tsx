@@ -38,11 +38,13 @@ import {
   qk,
   type ReadinessCheck,
   type SendingDomainGuidance,
+  setReturnPath,
   type TestModeState,
   verifyDomain,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { RETURN_PATH_COPY, ReturnPathCard } from "@/views/setup-return-path";
 
 /** Pinned domain validation regex — mirrors the engine's admin route. */
 const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
@@ -291,6 +293,40 @@ export function SetupView() {
     onError: onMutationError("Add domain failed"),
   });
 
+  const returnPath = useMutation({
+    mutationFn: (body: { enabled: boolean; label?: string }) =>
+      setReturnPath(body),
+    onSuccess: (result) => {
+      applyStatus(result.status);
+      toast(
+        result.returnPath.enabled
+          ? {
+              title: RETURN_PATH_COPY.enabledToastTitle,
+              description: RETURN_PATH_COPY.enabledToastBody,
+            }
+          : {
+              title: RETURN_PATH_COPY.disabledToastTitle,
+              description: RETURN_PATH_COPY.disabledToastBody,
+            },
+      );
+    },
+    // Not `onMutationError`: its 501 text ("does not support domain
+    // management") would be wrong here — the domain routes CAN be supported
+    // while the return path alone is not.
+    onError: (error: unknown) => {
+      toast({
+        variant: "error",
+        title: RETURN_PATH_COPY.failedToastTitle,
+        description:
+          error instanceof ApiError
+            ? error.status === 501
+              ? RETURN_PATH_COPY.unsupportedToast
+              : error.message
+            : "Unexpected error.",
+      });
+    },
+  });
+
   const data = query.data;
   const records = data?.status?.records ?? [];
   const needsDomain =
@@ -438,6 +474,18 @@ export function SetupView() {
               icon={Globe}
               title="No DNS records yet"
               description="The provider hasn't reported any DNS records for this domain. Re-check, or verify it in the provider dashboard."
+            />
+          ) : null}
+
+          {/* The branded return-path upgrade (PRD 20). Only once a domain is
+              registered — there is nothing to upgrade before that. The card
+              itself gates on `returnPathSupported` and reports the upgrade as
+              unavailable (no control) when the capability is absent. */}
+          {!needsDomain ? (
+            <ReturnPathCard
+              data={data}
+              pending={returnPath.isPending}
+              onSet={(body) => returnPath.mutate(body)}
             />
           ) : null}
         </>

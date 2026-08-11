@@ -24,6 +24,11 @@ Subcommands:
                         every 15s until verified (exit 0) or timeout (exit 1).
   status                Show domain, provider, verification state, DNS records,
                         and the test-mode banner.
+  return-path on|off    Switch the branded return path. On routes bounce
+                        traffic through <label>.<domain> so mailbox UIs stop
+                        showing "via <provider>", at the cost of two more DNS
+                        records (MX and SPF). Off reverts to the provider
+                        default; the domain stays verified on its base records.
 
 add options:
   --apply               Apply records via the DNS host API without prompting.
@@ -36,13 +41,18 @@ check options:
 status options:
   --refresh             Bypass the server-side cache (forces a provider call).
 
+return-path options:
+  --label <label>       Subdomain label in front of the domain (default send).
+
 Global options (handled by the router): --url, --admin-key, --json, -h/--help.
 
 Examples:
   hogsend domain add mysite.com
   hogsend domain add mysite.com --apply
   hogsend domain check --timeout 600
-  hogsend domain status --json`;
+  hogsend domain status --json
+  hogsend domain return-path on --label notifications
+  hogsend domain return-path off`;
 
 const badge = `${color.bgMagenta(color.black(" hogsend "))} domain`;
 
@@ -91,6 +101,54 @@ function looksLikeRootDomain(domain: string): boolean {
     return MULTI_PART_SUFFIXES.has(labels.slice(-2).join("."));
   }
   return false;
+}
+
+/**
+ * Pinned mirror of core's `RETURN_PATH_LABEL_PATTERN` (@hogsend/core
+ * providers/domains.ts) — same hand-sync law as DOMAIN_RE above: the label
+ * must be refused locally BEFORE any HTTP, and the engine barrel cannot be
+ * value-imported here (it validates server env at module eval). Drift is
+ * harmless: the engine re-validates and its 400 names the label too.
+ */
+const RETURN_PATH_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * The upgrade explanation, word-for-word the copy Studio's Setup card renders
+ * (packages/studio/src/views/setup-return-path.tsx `RETURN_PATH_COPY`) —
+ * hand-synced because the CLI cannot import Studio source. Benefit in the
+ * customer's terms first, with the two-record cost in the same breath; the
+ * mechanism second, for people who want it. The return path carries BOUNCES
+ * and changes nothing about where incoming mail lands — no string here may
+ * suggest otherwise (the copy test pins that).
+ */
+const RETURN_PATH_BENEFIT =
+  'Gmail stops showing "via amazonses.com" under your sender name, and ' +
+  "SPF passes on your own domain. Costs two more DNS records (MX and SPF).";
+const RETURN_PATH_MECHANISM =
+  "Bounce traffic routes through a subdomain of your domain in place of " +
+  "the provider's own. Where your incoming mail lands does not change.";
+
+/** What `POST /v1/admin/domain/return-path` answers. */
+interface ReturnPathSwitch {
+  returnPath: { enabled: boolean; mailFromDomain: string | null };
+  status: EngineDomainStatus;
+}
+
+/**
+ * The same derivation Studio uses: the wire has no boolean for "is the return
+ * path on", so presence of the records published for it IS the on state — the
+ * engine stops reporting them when it is switched off.
+ */
+const RETURN_PATH_PURPOSES: ReadonlySet<DnsRecord["purpose"]> = new Set([
+  "mx",
+  "spf",
+  "return_path",
+]);
+
+function hasReturnPathRecords(status: EngineDomainStatus): boolean {
+  return (status.status?.records ?? []).some((record) =>
+    RETURN_PATH_PURPOSES.has(record.purpose),
+  );
 }
 
 /** Poll cadence for `domain check`. */
@@ -154,10 +212,22 @@ function recordTicks(records: DnsRecord[]): string {
 
 /** Human view of an EngineDomainStatus (status + check share it). */
 function renderStatus(ctx: CommandContext, status: EngineDomainStatus): void {
+  // Older engines never send `returnPathSupported` (wire skew): say nothing
+  // rather than guess. `false` = the provider cannot switch it; otherwise the
+  // on/off state is derived from the reported records, same as Studio.
+  const returnPath =
+    status.returnPathSupported === undefined
+      ? undefined
+      : status.returnPathSupported
+        ? hasReturnPathRecords(status)
+          ? "on"
+          : "off"
+        : "unavailable";
   ctx.out.kv({
     domain: status.domain ?? "(not configured)",
     provider: status.providerId,
     supported: status.supported,
+    ...(returnPath === undefined ? {} : { returnPath }),
     state: status.status?.state ?? "n/a",
     checkedAt: status.status?.checkedAt ?? "",
   });
@@ -476,6 +546,118 @@ async function runStatus(ctx: CommandContext, argv: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// return-path on|off
+// ---------------------------------------------------------------------------
+
+async function runReturnPath(
+  ctx: CommandContext,
+  argv: string[],
+): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      label: { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (values.help) {
+    ctx.out.log(usage);
+    return;
+  }
+
+  const direction = positionals[0];
+  if (direction !== "on" && direction !== "off") {
+    ctx.out.fail(
+      "expected on or off. Usage: hogsend domain return-path on|off " +
+        "[--label <label>]",
+    );
+  }
+  const enabled = direction === "on";
+
+  let label: string | undefined;
+  if (values.label !== undefined) {
+    if (!enabled) {
+      ctx.out.fail("--label only applies when switching the return path on");
+    }
+    // Refused locally, BEFORE any HTTP, and the rejection names the label.
+    const normalized = values.label.trim().toLowerCase();
+    if (!RETURN_PATH_LABEL_RE.test(normalized)) {
+      ctx.out.fail(
+        `"${values.label}" is not a valid subdomain label. Use one DNS ` +
+          "label: lowercase letters, digits and hyphens, starting and " +
+          "ending alphanumeric, 63 characters or fewer, no dots.",
+      );
+    }
+    label = normalized;
+  }
+
+  ctx.out.intro(badge);
+
+  let result: ReturnPathSwitch;
+  try {
+    result = await ctx.out.step(
+      `Switching the branded return path ${direction}`,
+      () =>
+        ctx.http.post<ReturnPathSwitch>("/v1/admin/domain/return-path", {
+          enabled,
+          ...(label === undefined ? {} : { label }),
+        }),
+    );
+  } catch (err) {
+    if (isHttpError(err) && err.status === 501) {
+      const provider = await providerLabel(ctx);
+      ctx.out.fail(
+        `provider ${provider} cannot switch the return path. The domain ` +
+          "still verifies and sends on its base records without it.",
+      );
+    }
+    if (
+      isHttpError(err) &&
+      err.status === 400 &&
+      typeof err.body === "object" &&
+      err.body !== null &&
+      (err.body as { error?: unknown }).error === "no_domain_configured"
+    ) {
+      ctx.out.fail(
+        "no sending domain configured. Set EMAIL_DOMAIN (or EMAIL_FROM), " +
+          "or run `hogsend domain add <domain>` first",
+      );
+    }
+    throw err;
+  }
+
+  if (ctx.json) {
+    ctx.out.json(result);
+    return;
+  }
+
+  renderStatus(ctx, result.status);
+  ctx.out.log("");
+  if (result.returnPath.enabled) {
+    if (result.returnPath.mailFromDomain) {
+      ctx.out.log(
+        `${color.dim("bounce routing:")} ${result.returnPath.mailFromDomain}`,
+      );
+    }
+    // The same explanation Studio's Setup card shows, same order.
+    ctx.out.note(
+      [RETURN_PATH_BENEFIT, RETURN_PATH_MECHANISM].join("\n\n"),
+      "Branded return path",
+    );
+    ctx.out.outro(
+      "Publish the two new DNS records, then run " +
+        `${color.cyan("hogsend domain check")} to poll verification.`,
+    );
+  } else {
+    ctx.out.outro(
+      "Return path off. Bounces route through the provider default and " +
+        "the domain stays verified on its base records.",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------------
 
@@ -495,9 +677,11 @@ async function run(ctx: CommandContext): Promise<void> {
       return runCheck(ctx, rest);
     case "status":
       return runStatus(ctx, rest);
+    case "return-path":
+      return runReturnPath(ctx, rest);
     default:
       ctx.out.fail(
-        `unknown subcommand "${sub}" — expected add | check | status`,
+        `unknown subcommand "${sub}" — expected add | check | status | return-path`,
       );
   }
 }
