@@ -204,10 +204,32 @@ Applied, each its own gated commit: in-range minors/patches · `@types/node` uni
 `motion` 12→13 · `ioredis` 5→6 · **`postmark` 4→5** · `ai` 6→7 · `openai` 6→7 · both deprecated
 packages resolved · exact-pinned stragglers.
 
-**TypeScript stayed on 5.9.2** — there is no 5.9.2→7.0.2 commit. That was an authorised outcome
-(reverting it with a clear reason beats forcing it green by weakening something), but **the reason is
-not yet recorded** — the agent had not reported when the session ended. Get that before anyone retries
-it.
+**TypeScript stayed on 5.9.2** — there is no 5.9.2→7.0.2 commit, and I settled the reason myself
+rather than leave it open. Bumping the whole workspace with `pnpm -r add -D typescript@latest` and
+running `pnpm turbo run check-types`:
+
+```
+@hogsend/db:check-types: src/migrate.ts(55,5): error TS2591: Cannot find name 'process'.
+  Do you need to install type definitions for node? Try `npm i --save-dev @types/node`
+```
+
+Dozens of them, starting in `@hogsend/db`. **It is NOT a missing dependency** — `@hogsend/db` declares
+`@types/node@^26.2.0`. TS 7 simply is not putting `@types/node` into the program. (Bump reverted; the
+branch is clean.)
+
+**The lead, and it is a hypothesis rather than a finding.** `packages/brand-media` already runs TS 7
+on `main` and type-checks fine. The two tsconfigs differ in exactly two ways:
+
+| | `brand-media` (works) | `db` (fails) |
+| --- | --- | --- |
+| `exclude` | *absent* | `["node_modules", "dist"]` |
+| `moduleResolution` | `Bundler` | inherited `NodeNext` |
+
+The `exclude` is the suspicious one: TS's automatic `@types` inclusion walks `node_modules/@types`, and
+an explicit exclude of `node_modules` plausibly suppresses it under the new resolver. **Test that
+first** — drop the `exclude` from one failing package and re-run. If it is right, TS 7 is a tsconfig
+change across the repo rather than a code change, which is a much smaller job than the error volume
+suggests.
 
 Two things to check before trusting this branch:
 
