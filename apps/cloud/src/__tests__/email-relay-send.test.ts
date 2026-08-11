@@ -5,7 +5,11 @@ import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import { emailIdempotency, environments, organizations } from "../db/schema";
 import { env } from "../env";
-import type { AllowanceGate, AllowanceRequest } from "../lib/email-allowance";
+import type {
+  AllowanceCommit,
+  AllowanceGate,
+  AllowanceRequest,
+} from "../lib/email-allowance";
 import {
   EMAIL_RELAY_BURST_LIMIT,
   EMAIL_RELAY_WINDOW_MS,
@@ -158,10 +162,20 @@ async function fillBurstWindow(
 /** An allowance gate that records every question it was asked. */
 function recordingAllowance(
   verdict: "allow" | "refuse" = "allow",
-): AllowanceGate & { asked: AllowanceRequest[] } {
+): AllowanceGate & {
+  asked: AllowanceRequest[];
+  metered: AllowanceCommit[];
+} {
   const asked: AllowanceRequest[] = [];
+  // What the relay said it SENT. PRD 09 counts here, so a gate that is asked
+  // and never told (or told without being asked) is visible to these tests.
+  const metered: AllowanceCommit[] = [];
   return {
     asked,
+    metered,
+    async recordSent(commit) {
+      metered.push(commit);
+    },
     async canSend(request) {
       asked.push(request);
       return verdict === "allow"
@@ -603,8 +617,10 @@ describe("POST /api/email/send — burst limit (EARS 9)", () => {
     expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await response.json()).toMatchObject({ error: "rate_limited" });
     expect(sendCalls(fixture.ses)).toBe(0);
-    // "Consumes no allowance" means the gate was never even ASKED.
+    // "Consumes no allowance" means the gate was never even ASKED — and, since
+    // PRD 09, that nothing was metered against the month either.
     expect(allowance.asked).toHaveLength(0);
+    expect(allowance.metered).toHaveLength(0);
     expect(await idempotencyRows(fixture.environmentId)).toHaveLength(0);
   });
 

@@ -11,6 +11,7 @@ export * from "./cli-sessions";
 export * from "./email-events";
 export * from "./email-idempotency";
 export * from "./email-sending-status";
+export * from "./email-usage";
 export * from "./enums";
 export * from "./environments";
 export * from "./hostnames";

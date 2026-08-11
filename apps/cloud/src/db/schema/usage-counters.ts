@@ -29,6 +29,26 @@ export const usageCounters = cloud.table(
     emailsCount: bigint("emails_count", { mode: "number" })
       .default(0)
       .notNull(),
+    /**
+     * Hogsend Email sends the RELAY accepted, incremented one message at a time
+     * as each send succeeds (PRD 09). Its own column, and that is load-bearing
+     * twice over:
+     *
+     *  - `emails_count` is written ABSOLUTELY by the nightly sweep, from the
+     *    tenant's own `email_sends`. An increment into the same column would be
+     *    overwritten every night at 03:00, and a meter a sweep can clobber is
+     *    not a meter;
+     *  - the two count different things. `emails_count` is every email the
+     *    tenant sent through ANY provider — a tenant on their own Resend key
+     *    fills it without touching our SES account. Billing Hogsend Email
+     *    overage off that number would charge them for mail we never sent.
+     *
+     * Monotonic within a month: it only ever increases, which is what makes the
+     * overage ledger's delta reporting safe (`metering/overage.ts`).
+     */
+    relayEmailsCount: bigint("relay_emails_count", { mode: "number" })
+      .default(0)
+      .notNull(),
     ...timestamps,
   },
   (table) => [

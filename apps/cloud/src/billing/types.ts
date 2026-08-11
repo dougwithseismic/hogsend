@@ -98,6 +98,40 @@ export interface WebhookInput {
   headers: Record<string, string>;
 }
 
+/**
+ * The metered things a tenant can go over. Neutral ids: the provider maps them
+ * to whatever it calls a meter, so nothing above the seam knows a Stripe meter
+ * event name.
+ */
+export type UsageMeter = "email_overage";
+
+export interface ReportUsageInput {
+  organizationId: string;
+  meter: UsageMeter;
+  /**
+   * How much to ADD to the period's meter. Always greater than zero, and a
+   * DELTA rather than a total: usage meters aggregate by sum, so reporting the
+   * running total each time would bill the same messages again and again.
+   */
+  quantity: number;
+  /** The billing period as `YYYY-MM` (UTC). */
+  period: string;
+  /**
+   * The dedupe key, and the reason a lost response cannot become a double
+   * charge. It must be DETERMINISTIC for a given (organization, period,
+   * cumulative quantity), so a retry after an unknown outcome presents the same
+   * key and the provider recognises it.
+   */
+  idempotencyKey: string;
+  /** When the usage happened. */
+  occurredAt: Date;
+}
+
+export interface ReportUsageResult {
+  /** True when the provider recognised the key and did NOT bill again. */
+  deduplicated: boolean;
+}
+
 /** The frozen seam. Implementations: `FakeBilling`, `StripeBilling`. */
 export interface BillingProvider {
   /** `"fake"` | `"stripe"` — which implementation answered. */
@@ -108,6 +142,14 @@ export interface BillingProvider {
   parseWebhook(input: WebhookInput): Promise<BillingEvent | null>;
   /** Self-serve subscription management, hosted by the provider. */
   getPortalUrl(input: PortalInput): Promise<PortalResult>;
+  /**
+   * Add metered usage to the tenant's current invoice (PRD 09).
+   *
+   * MUST be idempotent on `idempotencyKey`: the caller reports after a write it
+   * may not have committed, so the same key can legitimately arrive twice and
+   * the second one must not cost the customer money.
+   */
+  reportUsage(input: ReportUsageInput): Promise<ReportUsageResult>;
 }
 
 /**

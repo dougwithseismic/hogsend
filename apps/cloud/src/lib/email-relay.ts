@@ -16,13 +16,14 @@ import {
   readEmailSendingStatus,
   recordEmailSendingStatus,
 } from "../services/email-sending-status";
+import { createEmailAllowanceGate } from "../services/email-usage";
 import { RelayTokenService } from "../services/relay-tokens";
 import type { SesClient } from "../ses/contract";
 import { getSesClient } from "../ses/index";
 import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { SesError, type SesErrorKind, type SesMessage } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
-import { type AllowanceGate, unlimitedAllowance } from "./email-allowance";
+import type { AllowanceGate } from "./email-allowance";
 import { bearerToken } from "./publish-guards";
 import { consumeRateLimit } from "./rate-limit";
 import { fail } from "./route-response";
@@ -178,9 +179,20 @@ export interface RelayDeps {
   db?: CloudDb;
   /** Defaults to the process-wide client for the caller's region. */
   ses?: SesClient;
-  /** PRD 09 supplies the real one; until then everything is allowed. */
+  /** Defaults to the real `usage_counters`-backed gate (PRD 09). */
   allowance?: AllowanceGate;
   now?: Date;
+}
+
+/**
+ * The gate this request is judged by — and metered into.
+ *
+ * The default is the REAL one, so a route with nothing injected both enforces
+ * the plan allowance and counts what it sends. A test that wants a relay with
+ * no meter behind it passes `unlimitedAllowance`.
+ */
+function allowanceGate(deps: RelayDeps, db: CloudDb): AllowanceGate {
+  return deps.allowance ?? createEmailAllowanceGate({ db });
 }
 
 export type RelayAuth =
@@ -305,7 +317,8 @@ export async function handleRelaySend(
   const parsed = sendBodySchema.safeParse(body.value);
   if (!parsed.success) return invalidRequest(parsed.error);
 
-  const allowance = await (deps.allowance ?? unlimitedAllowance).canSend({
+  const gate = allowanceGate(deps, db);
+  const allowance = await gate.canSend({
     environmentId: caller.environmentId,
     organizationId: caller.organizationId,
     count: 1,
@@ -338,6 +351,10 @@ export async function handleRelaySend(
       message: parsed.data.message,
     });
     await commitIdempotencyClaim({ rowId: claim.rowId, messageId, db });
+    // AFTER the wire, and only on the path that reached it: the replay branch
+    // above returned without counting, which is what stops a journey replay
+    // billing twice.
+    await meter(gate, caller, 1, now);
     return json(200, { id: messageId });
   } catch (error) {
     // NOTHING is left behind by a send that did not happen: a recorded key for
@@ -401,7 +418,8 @@ export async function handleRelaySendBatch(
     if (!rest.allowed) return rest.response;
   }
 
-  const allowance = await (deps.allowance ?? unlimitedAllowance).canSend({
+  const gate = allowanceGate(deps, db);
+  const allowance = await gate.canSend({
     environmentId: caller.environmentId,
     organizationId: caller.organizationId,
     count: items.length,
@@ -507,6 +525,11 @@ export async function handleRelaySendBatch(
       };
     }
 
+    // What the wire ACCEPTED, which is what a batch is billed for: the items
+    // that failed cost nothing, and the ones that replayed were counted the
+    // first time round.
+    await meter(gate, caller, delivered, now);
+
     // A per-entry pause is still a pause: mirror it so the next request
     // short-circuits without dialling.
     if (failureKinds.some(isPausedKind)) {
@@ -603,6 +626,37 @@ function isPausedKind(kind: SesErrorKind): boolean {
 
 function isRetryableKind(kind: SesErrorKind): boolean {
   return kind === "throttled" || kind === "transient";
+}
+
+/**
+ * Meter what went out.
+ *
+ * Best-effort, and deliberately so: the message has ALREADY left the building.
+ * Failing the response now would tell the caller a delivered message was not
+ * delivered, and its retry would replay the idempotency key and count nothing
+ * anyway — so a metering failure is loud in the log and invisible on the wire.
+ * A zero count writes nothing (see `recordRelayEmails`).
+ */
+async function meter(
+  gate: AllowanceGate,
+  caller: RelayCaller,
+  count: number,
+  now: Date,
+): Promise<void> {
+  if (count <= 0) return;
+  await gate
+    .recordSent({
+      environmentId: caller.environmentId,
+      organizationId: caller.organizationId,
+      count,
+      at: now,
+    })
+    .catch((error: unknown) => {
+      console.error(
+        `[cloud:email-relay] metering ${count} send(s) failed for environment ${caller.environmentId}:`,
+        error,
+      );
+    });
 }
 
 type ChargeResult = { allowed: true } | { allowed: false; response: Response };

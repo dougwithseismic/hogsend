@@ -251,6 +251,11 @@ export const env = createEnv({
     // the other.
     CLOUD_STRIPE_PRICE_SELF_SERVE: z.string().min(1).optional(),
     CLOUD_STRIPE_PRICE_DEDICATED: z.string().min(1).optional(),
+    // The Stripe METER event name Hogsend Email overage is reported under
+    // (PRD 09). OPTIONAL here and enforced at the point of use: a deploy that
+    // does not sell metered email never sets it, and `reportUsage` fails closed
+    // rather than sending events into a meter that does not exist.
+    CLOUD_STRIPE_METER_EMAIL_OVERAGE: z.string().min(1).optional(),
     // The stock scaffold image tag a freshly provisioned stack boots on
     // (`hogsend-default:<engine-version>`, PRD 04 "Initial deploy source").
     // Recorded on the stack row at provision time, so a later bump does not

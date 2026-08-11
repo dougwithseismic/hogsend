@@ -5,7 +5,11 @@ import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import { emailIdempotency, environments, organizations } from "../db/schema";
 import { env } from "../env";
-import type { AllowanceGate, AllowanceRequest } from "../lib/email-allowance";
+import type {
+  AllowanceCommit,
+  AllowanceGate,
+  AllowanceRequest,
+} from "../lib/email-allowance";
 import {
   EMAIL_RELAY_BURST_LIMIT,
   EMAIL_RELAY_WINDOW_MS,
@@ -126,10 +130,20 @@ async function idempotencyRows(environmentId: string) {
 
 function recordingAllowance(
   verdict: "allow" | "refuse" = "allow",
-): AllowanceGate & { asked: AllowanceRequest[] } {
+): AllowanceGate & {
+  asked: AllowanceRequest[];
+  metered: AllowanceCommit[];
+} {
   const asked: AllowanceRequest[] = [];
+  // What the relay said it SENT. PRD 09 counts here, so a gate that is asked
+  // and never told (or told without being asked) is visible to these tests.
+  const metered: AllowanceCommit[] = [];
   return {
     asked,
+    metered,
+    async recordSent(commit) {
+      metered.push(commit);
+    },
     async canSend(request) {
       asked.push(request);
       return verdict === "allow"

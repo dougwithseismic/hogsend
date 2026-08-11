@@ -66,6 +66,7 @@ export function getBilling(): BillingProvider {
           self_serve: env.CLOUD_STRIPE_PRICE_SELF_SERVE,
           dedicated: env.CLOUD_STRIPE_PRICE_DEDICATED,
         },
+        meters: { email_overage: env.CLOUD_STRIPE_METER_EMAIL_OVERAGE },
         portalReturnUrl: `${env.CLOUD_PUBLIC_URL}/settings`,
         // The composition root is the one place allowed to know both halves:
         // the provider stays database-free, and the customer handle it needs
