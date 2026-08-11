@@ -25,8 +25,10 @@ In priority order. The first item is worth more than the rest combined.
    `docs/ses-production-access-request.md`. ~20 minutes, and it starts a 24–48h clock that nothing
    else can start. It makes representations about the business, so it is Doug's to send.
 2. **Decide the inbound S3 bucket's three settings** (below) — blocks PRD 16 task 4 going live.
-3. **Resume PRD 16 task 4** — the receive endpoint. Was in flight at end of day; check
-   `git status` for uncommitted work before re-delegating.
+3. **Resume PRD 16 at task 5** — task 4 (the receive endpoint) LANDED, `76988c7d`. Tasks 5
+   (`email.replied` on the engine spine) and 6 (forwarding to the human address) remain, and 6 is
+   the one the PRD calls mandatory: intercepting a reply and emitting only an event breaks a
+   customer's business to gain a feature.
 4. **Approve AUP + ToS copy** and **confirm the trust-tier constants** (PRD 08 §, published in AUP §5,
    so the two move together).
 
@@ -203,7 +205,7 @@ branch's state before assuming anything about it.
 | | Ask | Why it matters |
 | --- | --- | --- |
 | 1 | **Submit SES production access, both regions** | The launch gate. Nothing else starts this clock. |
-| 2 | Decide the inbound bucket's retention / encryption / region | Blocks PRD 16 task 4 live |
+| 2 | Decide the inbound bucket's retention / encryption / region | Blocks inbound going live. NOTE: the control plane now also stores a reply's `subject` and `from_address` as routing metadata — a pointer to S3, never a body — so the retention answer covers two stores, not one. |
 | 3 | Approve AUP + ToS copy | Published to customers |
 | 4 | Confirm trust-tier + suspension constants | Already in AUP §5; the two move together |
 | 5 | Cloudflare API token, hogsend.com zone, `Zone → DNS → Edit` + zone id | Closes PRD 15's DNS half |
