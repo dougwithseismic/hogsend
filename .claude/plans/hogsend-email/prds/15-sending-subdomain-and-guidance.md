@@ -78,3 +78,61 @@ A customer can choose their return-path subdomain, the default is unchanged for 
 not, setup tells them to use a subdomain and why, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 across `44d49161` (label), `b416e16d` (guidance), `85d6df3a` (relabel test).
+Cloud 1502 → 1503; engine 131 → 142; CLI 368.
+
+**Task 1 is the one that did not run.** Confirming subdomain sending against the live walkthrough
+needs real AWS, and live runs are suspended while account-review case `178644276900210` is open. The
+PRD said "evidence first" and there is no evidence, so this is `[~]` rather than `[x]`. What is
+claimed on the strength of the API contract alone: `createIdentity({ domain })` takes any string, so
+`notifications.acme.com` should verify exactly like a root domain. Unproven.
+
+### The guidance is served, not duplicated
+
+The copy has to appear in Studio's add-domain form AND `hogsend domain add`, and its whole point is
+stating one specific technical reason correctly. Two hand-written copies of that paragraph is a drift
+liability on exactly the sentence that has to be right. So the engine owns it
+(`lib/sending-domain-guidance.ts`) and serves it on the `EngineDomainStatus` payload the status
+endpoint already returns. One source, two renderers, no new endpoint.
+
+### Two constraints found while building, both load-bearing
+
+**`@hogsend/engine` cannot be VALUE-imported from `packages/cli`.** The barrel validates server env at
+module-eval time and throws `Invalid environment variables` without `DATABASE_URL`,
+`BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`. Verified empirically, not assumed — and all nine
+existing CLI imports of that package being `import type` corroborates it. This is worth knowing well
+beyond this PRD: any future "just import the constant from the engine" plan for the CLI is dead on
+arrival.
+
+The consequence is a deliberate split rather than a workaround. The root-domain HEURISTIC is mirrored
+into the CLI because it must run before any HTTP call; the COPY is fetched over the wire. Drift on the
+heuristic costs a missed hint and is silent and harmless; drift on the copy would cost the argument.
+
+**Studio types `guidance` OPTIONAL although the engine always sends it.** Studio ships inside the
+published CLI tarball (`scripts/bundle-studio.mjs`) and `hogsend studio` serves that bundle against a
+separately-upgraded engine, so a new CLI talking to an older engine is ordinary rather than exotic.
+An unconditional `data.guidance.title` would white-screen the entire Setup view. Strict in what the
+engine sends, liberal in what the client accepts. Caught in review: the CLI had this guard and Studio
+did not, which is backwards, because Studio is the surface where skew is actually possible.
+
+### Deliberate limits
+
+`looksLikeRootDomain` uses a short embedded multi-part-suffix list, NOT a Public Suffix List. The
+failure mode is set to silence on purpose: an unlisted suffix reads as a subdomain and produces no
+warning. A false negative is a missed hint; a false positive nags someone who already did the right
+thing. Studio therefore does not use the heuristic at all — a form is where help text belongs, so it
+renders unconditionally, and only the CLI (a command re-run often) gates on root-likeness.
+
+Mutation-checked twice, both on assertions whose failure would be silent:
+- making the CLI guidance return early turns **three** tests red, including the pre-existing 501 case
+  — this is the EARS "SHALL NOT block them" criterion;
+- making the Fake preserve the previous `mailFrom` status across a relabel turns exactly **one** test
+  red, the new relabel test, which verifies `send.` first so the pending assertion is not trivially
+  true of a path that was never verified.
+
+### Still open
+
+The branded return path stays OPT-IN. Doug asked for MX+SPF by default and the stated reason was
+replies, which the return path does not deliver (that is PRD 16). It is a one-line default change
+either way and it remains his call.
