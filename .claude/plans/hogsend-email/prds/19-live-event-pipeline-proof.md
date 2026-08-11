@@ -212,6 +212,50 @@ Three things this settles and one it does not:
   layer. A simulator address cannot answer this. The only test that can is a real inbox, opened by a
   human. **Owed, and not yet done.**
 
+### The review that found a false pass INSIDE the false-pass detector
+
+The script shipped green and was reviewed adversarially anyway. The review found that
+`suppression_check` — a link on a report whose entire purpose is refusing to overclaim — was itself
+structurally incapable of failing.
+
+It inferred "not suppressed" from the re-send being ACCEPTED. From AWS's *Using the Amazon SES
+account-level suppression list*, verbatim:
+
+> "SES accepts the message, but doesn't send it"
+
+So `sendEmail` returns a message id in both worlds and the link reported the same answer either way.
+It was also wrong in the opposite direction: a `TooManyRequests` on the fourth send of a burst —
+exactly the shape this PRD warns about for a young account under review — was reported as *"the
+pipeline SUPPRESSED the simulator bounce address"*, blaming logic that never ran.
+
+**The fix judges by the resulting bounce's `subType`**, which is the only observable difference. AWS
+publishes every suppression outcome as a `Permanent` bounce whose subtype NAMES suppression
+(`Suppressed`, `OnAccountSuppressionList`, `OnTenantSuppressionList`, `EmailValidationSuppressed`)
+against `General` for the simulator's ordinary bounce.
+
+The scope reasoning is the part worth keeping, because it corrected the brief rather than following
+it. Reading a suppression list directly was the obvious alternative and is **wrong**: a tenant
+defaults to ACCOUNT scope and the proof's tenant is created bare, so the account list governs the
+probe — but production tenants opt into TENANT scope, where SES consults the tenant's list INSTEAD.
+Reading one list is reading the wrong list for one of the two. The subtype is correct under both. The
+classifier is a `/suppress/i` match rather than a closed list, so a subtype AWS adds later classifies
+as a finding rather than a clean pass. No IAM change was needed.
+
+Three untested paths were closed at the same time, each verified by mutation:
+
+| Mutation | Result |
+| --- | --- |
+| `exitCode: failed ? 1 : 0` → always `0` | 2 tests fail |
+| → always `1` | the exits-0 test fails |
+| delete both `scrub()` calls | scrub test fails |
+| `isSuppressedBounce` → always false / always true | finding test / happy chain fails |
+| catch classifier → always / never a finding | throttle test / refusal test fails |
+| unregister pushed back after register | strand test fails, org row survives |
+| probe-event-missing branch → `exercised` | e2e test fails |
+
+Nine mutants, nine kills. Before the fix, the exit-code mapping — **the single gate against a false
+pass** — survived being mutated to always return zero, against all 36 tests then passing.
+
 ### The instance hop: option (b), and the two EARS clauses it does NOT meet
 
 PRD 19 offered a choice for the instance-hop link — report it honestly as unexercised, or register a
