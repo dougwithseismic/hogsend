@@ -99,10 +99,57 @@ merely discouraged:
 - WHEN inbound is disabled for a domain, the system SHALL stop emitting events and SHALL report the
   MX record as no longer required.
 
+## Task 1 findings (2026-08-11) — the premise HOLDS
+
+Unlike PRD 17, where the same discipline refuted the plan, here the docs confirm it. Recording that
+explicitly: the check is worth running whether or not it finds something, and "confirmed, with
+citations" is a different state from "assumed".
+
+**Region availability — both our regions support inbound.** From the *Email Receiving endpoints* table
+(`general/latest/gr/ses.html#ses_inbound_endpoints`):
+
+| Region | Inbound endpoint |
+| --- | --- |
+| `us-east-1` | `inbound-smtp.us-east-1.amazonaws.com` |
+| `eu-west-1` | `inbound-smtp.eu-west-1.amazonaws.com` |
+
+22 regions in total. The only exclusions are **AWS GovCloud (US-West) and (US-East)**, stated verbatim:
+*"Amazon SES does not support email receiving in the following Regions"*. Notably `eu-central-2`,
+`ap-south-2`, `ap-southeast-5`, `ca-west-1` and `me-central-1` are ALSO absent from the inbound table
+while present in the sending table — so inbound availability is a strict subset of sending
+availability, and the seam must treat it as its own lookup rather than assuming any sending region can
+receive.
+
+**S3 is REQUIRED, not an optimisation.** From *Service quotas in Amazon SES*, Email receiving quotas:
+
+> Maximum email size (including headers) that can be published using an Amazon SNS notification:
+> **150 KB**. Adjustable: **No**.
+
+> Maximum email size (including headers) that can be stored in an Amazon S3 bucket: **40 MB**.
+
+> Maximum email headers size that can be published using an Amazon SNS notification: 10 KB.
+
+150 KB is smaller than an ordinary reply carrying a phone photo, so an SNS-only design would fail on
+real mail and succeed on every test fixture. **S3 action + SNS notification carrying the object key**
+is the only design that survives contact with a real inbox.
+
+**Receipt rules are current.** No deprecation or "new customers should" language anywhere in
+*Email receiving with Amazon SES*; receipt rules and IP address filters are still presented as the two
+mechanisms. Mail Manager exists alongside (its own quotas, its own SMTP relay IP ranges) and is NOT a
+replacement we are being pushed toward. Build on receipt rules.
+
+**Regional constraint on the resources themselves**, from *Regions and Amazon SES*:
+
+> "With the exception of Amazon S3 buckets, all of the AWS resources that you use for receiving email
+> with SES have to be in the same AWS Region as the SES endpoint."
+
+So the SNS topic and any Lambda are region-pinned to the tenant's SES region; the S3 bucket is the one
+resource that may be shared across regions.
+
 ## Tasks
 
-1. **Confirm from AWS's docs**: inbound region availability for `us-east-1`/`eu-west-1`, the SNS
-   payload size limit, and whether the S3 action is required for full-size messages. Record citations.
+1. ~~**Confirm from AWS's docs**: inbound region availability, the SNS payload size limit, and whether
+   the S3 action is required.~~ **DONE — see the findings above. The premise holds; S3 is mandatory.**
    _Boundary:_ none · _Depends:_ none
 2. **Extend the SES seam** with the receipt-rule verbs. Contract + `aws.ts` + Fake together, and the
    Fake must model AWS's real answers — see PRD 14 for what happens when it does not.
