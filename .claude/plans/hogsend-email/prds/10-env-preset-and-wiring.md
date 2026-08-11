@@ -110,4 +110,34 @@ byte-for-byte unchanged in behaviour, a package-less consumer type-checks clean,
 exists, and gates are green.
 
 ## Implementation Notes
+
+Engine side shipped 2026-08-10 (`a135f7ae`), with a blocking fix in `575d4f14`. Engine suite
+117 → 119 tests. Task 4 (the `EMAIL_PROVIDER=hogsend` flip in the provisioner) is still open.
+
+**The bug worth remembering.** The first cut threaded `Idempotency-Key` into
+`SendEmailOptions.headers` for EVERY provider. `plugin-resend` forwards `headers` verbatim
+(`src/send.ts:130`) and `plugin-postmark` maps them onto message `Headers`, so **both deliver them to
+the recipient as SMTP headers**. An existing self-hosted Resend deploy that set none of these
+variables would, on upgrading the engine, stamp an internal Hatchet run id on every journey send, and
+a campaign send would carry the recipient's own address — visible in "show original". That is a
+silent behaviour change for every existing deploy, against this PRD's own acceptance criterion.
+
+The threading is now gated on a provider that declares it consumes the key. Only `plugin-hogsend`
+lifts the header back off before the wire.
+
+The general shape, which is the third instance of it in this stack: **a provider-neutral contract
+does not make a change neutral.** `headers` looked like an inert carrier and is a delivered artifact
+for two of the three providers.
+
+### Follow-ups, deliberately not done here
+
+1. **Retire the `meta.id === "hogsend"` hardcode.** The gate reads
+   `capabilities.consumesIdempotencyKey === true` first and falls back to the id. Declaring
+   `consumesIdempotencyKey` on `EmailProviderCapabilities` in `@hogsend/core` and setting it in
+   `plugin-hogsend` lets the id check go. The gate already reads the capability defensively, so this
+   needs no engine change when it lands.
+2. **Docs sequencing.** `apps/docs/content/docs/cloud/email.mdx` describes the domain setup (PRD 07),
+   the pause notice and Studio history (PRD 08), and delivery/bounce webhooks (PRD 05). All are
+   correct about the intended system and none is fully shipped yet. Docs deploy from `main`, so the
+   page must not reach `main` ahead of those PRDs, or it documents surfaces a customer cannot use.
 </content>
