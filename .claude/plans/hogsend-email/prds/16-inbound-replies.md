@@ -146,6 +146,34 @@ replacement we are being pushed toward. Build on receipt rules.
 So the SNS topic and any Lambda are region-pinned to the tenant's SES region; the S3 bucket is the one
 resource that may be shared across regions.
 
+## Task 1, part two (2026-08-11) — receipt rules are SES **v1**. The seam cannot carry them.
+
+Task 1 confirmed regions and the S3 requirement but never asked WHICH API the verbs live in. They do
+not live in ours.
+
+**The SESv2 operations list contains no receipt-rule operation of any kind.** No `CreateReceiptRule`,
+no `CreateReceiptRuleSet`, no `SetActiveReceiptRuleSet`, no `DescribeReceiptRule`. The full v2 action
+list runs from `BatchGetMetricData` to `UpdateReputationEntityPolicy` and email RECEIVING is absent
+from it entirely. Every receipt-rule verb is SES **v1** (`@aws-sdk/client-ses`), a different client
+from the `@aws-sdk/client-sesv2` this stack is built on.
+
+Three consequences that reshape the tasks below:
+
+- **A second AWS SDK dependency.** `@aws-sdk/client-ses` has to be added; nothing in `apps/cloud`
+  imports it today (the installed AWS packages are `client-sesv2`, `client-s3` and
+  `s3-request-presigner`).
+- **The nineteen-verb `SesClient` contract must NOT absorb these.** It is the frozen v2 surface that
+  PRD 02 declared, PRD 11 walked and PRD 21 proved clean against AWS. Bolting a second API's verbs
+  onto it would mean one contract standing for two services with different clients, different error
+  shapes and different regional availability. Inbound gets its OWN seam — `SesInboundClient`, its own
+  Fake — sharing only the credentials and the region mapping.
+- **The walkthrough cannot cover it.** `ses-walkthrough` compares the v2 contract; inbound needs its
+  own comparison if it is ever to be trusted, and until one exists its Fake is unproven in exactly the
+  way PRD 14 found the v2 Fake to be.
+
+This is the fifth time in this wave that reading the primary source before building changed the plan,
+and the second time it deleted an assumption the PRD had already written down as settled.
+
 ## Tasks
 
 1. ~~**Confirm from AWS's docs**: inbound region availability, the SNS payload size limit, and whether
