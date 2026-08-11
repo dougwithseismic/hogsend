@@ -26,7 +26,7 @@ wave 1 knowingly took.
 
 | # | PRD | Status | Depends | Scope |
 | --- | --- | --- | --- | --- |
-| 11 | [Live SES contract walkthrough](prds/11-live-ses-contract-walkthrough.md) | `[ ]` | 02, 06, 07 | One human-run script that walks the real provisioning path against a real AWS account and diffs every answer against `FakeSesClient`. Runs in SES **sandbox**, so it is unblocked the day the account exists rather than after production access. The divergences are the deliverable. |
+| 11 | [Live SES contract walkthrough](prds/11-live-ses-contract-walkthrough.md) | `[~]` | 02, 06, 07 | One human-run script that walks the real provisioning path against a real AWS account and diffs every answer against `FakeSesClient`. Runs in SES **sandbox**, so it is unblocked the day the account exists rather than after production access. The divergences are the deliverable. |
 | 12 | [Scaffold verify covers plugin-hogsend](prds/12-scaffold-verify-hogsend-plugin.md) | `[ ]` | 10 | Extend the scaffold smoke's step 7b to actually load `@hogsend/plugin-hogsend` under plain `node` and assert its factory export. Today the idiom is proven for `plugin-apollo` only, and it breaks per-package (#611). |
 | 13 | [Declare `consumesIdempotencyKey`](prds/13-consumes-idempotency-key-capability.md) | `[x]` | 10 | Retire the `meta.id === "hogsend"` hardcode behind a declared `EmailProviderCapabilities` flag, so a third-party provider can opt into key threading by writing correct code rather than by being named right. |
 
@@ -82,5 +82,6 @@ Populated during BUILD as each `[~]` lands. See DECISIONS §7 for the known ones
 | 01 | Submit the production-access request for BOTH `us-east-1` and `eu-west-1`. Text is written and ready to send. | open |
 | 01 | Approve the AUP and ToS copy. Each carries inline `Needs Doug` blocks at the specific open questions. | open |
 | 01 | ~~Create `abuse@hogsend.com` as a real monitored mailbox.~~ **RESOLVED 2026-08-11.** It was never actually blocked: hogsend.com already had a Cloudflare Email Routing catch-all forwarding every address to `doug@withseismic.com`, so `abuse@` has been reachable the whole time. An explicit named rule (`abuse`, literal matcher, priority 10) was added so the address survives the catch-all ever being disabled or narrowed. | done |
+| 11 | RUN the walkthrough once the AWS account exists: `pnpm --filter @hogsend/cloud ses:walkthrough --i-know-this-hits-aws`. Sandbox is enough. Until it runs, the Fake-vs-AWS divergence count is UNKNOWN, not zero. | open |
 | 01 | Confirm the trust-tier and suspension constants proposed in PRD 08. They are already published to customers in the AUP §5, so the two move together. | open |
 </content>

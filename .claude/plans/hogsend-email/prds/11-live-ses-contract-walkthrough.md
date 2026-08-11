@@ -85,3 +85,36 @@ The script exists, refuses to run without explicit credentials and confirmation,
 comparison logic are tested and mutation-checked, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 (`70b51ff8`). Cloud suite 1425 → 1473 (87 files). Run it with
+`pnpm --filter @hogsend/cloud ses:walkthrough --i-know-this-hits-aws`.
+
+**It has not been run against AWS yet, and that is the point of it.** Until it has, the divergence
+count is unknown, not zero. Nothing in this PRD's green gates says the Fake is right.
+
+**The one seam it hit, and how it was handled.** The account-not-empty guard needs to ENUMERATE
+tenants, and `listTenants` is not one of the nineteen verbs — nothing in the control plane enumerates,
+because production addresses exactly one tenant per environment by a name it derives. Adding a
+twentieth verb is a PRD 02 decision, so the author did not touch the settled seam. It isolated one
+read-only `ListTenants` call in `census.ts`, on the same credentials, with the reasoning written in.
+The alternative it explicitly refused is the one worth naming: making the guard an operator assertion
+on the command line, which reads as a safety check and checks nothing, protecting against
+"the destructive walkthrough ran against the account holding live customers".
+
+**Owed to PRD 02: promote `listTenants` to verb #20** and delete `census.ts`.
+
+**Three independent refusals, all before any client is constructed.** That ordering is load-bearing:
+`getSesClient` answers absent credentials with `FakeSesClient`, which is right for the control plane
+and useless here, since a walkthrough silently comparing the Fake against the Fake would report zero
+divergences and prove nothing. A leftover tenant from a previous crashed run is deliberately NOT a
+refusal, only a report — refusing on it would let one crash permanently block the script, which is
+how guards end up disabled.
+
+**Verified by running it, not only by its tests.** Both refusals produce their message and exit 1.
+Mutation-checked: weakening the credential guard to accept a half-set pair turns 3 tests red;
+disabling the account-not-empty guard turns 2 red.
+
+**A caching trap worth recording.** `turbo run check-types --filter=@hogsend/cloud` reported
+`FULL TURBO` (fully cached) with all of this PRD's files present, because they were still UNTRACKED
+and turbo hashes git-tracked inputs. A cached PASS over code the compiler never saw is a vacuous
+green. Re-run with `--force` when reviewing untracked work; both gates pass genuinely.
