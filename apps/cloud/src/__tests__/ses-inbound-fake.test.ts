@@ -216,17 +216,20 @@ describe("FakeSesInboundClient rule sets", () => {
     expect(client.__ruleSetNames()).toHaveLength(SES_INBOUND_MAX_RULE_SETS);
   });
 
-  it("refuses to delete a rule set that is not there (UNVERIFIED reading)", async () => {
-    // Pinned so the Fake's choice is visible rather than incidental, and stated
-    // honestly: `DeleteReceiptRuleSet` documents exactly ONE error,
-    // `CannotDelete`, whose own description reads "a resource could not be
-    // deleted because no resource with the specified name exists" — so the
-    // missing case is modelled as that refusal. The alternative reading is that
-    // AWS deletes idempotently and answers 200. A live run settles it; until
-    // then a teardown must not depend on either.
+  it("deletes a rule set that is not there, idempotently (SETTLED live)", async () => {
+    // Settled against real SES on 2026-08-11, and the documented reading lost.
+    // `DeleteReceiptRuleSet` lists exactly one error, `CannotDelete`, whose own
+    // description reads "a resource could not be deleted because no resource
+    // with the specified name exists" — which reads like a refusal for the
+    // missing case and is not one. A probe deleted a rule set that had never
+    // existed and AWS answered 200.
+    //
+    // This is the case teardown actually depends on: a re-drive after a partial
+    // failure, where the set is already gone. Had the Fake kept the documented
+    // reading, every such re-drive would have been green here and failed live.
     await expect(
       fake().deleteRuleSet({ ruleSetName: "never-existed" }),
-    ).rejects.toMatchObject({ kind: "invalid" });
+    ).resolves.toBeUndefined();
   });
 });
 

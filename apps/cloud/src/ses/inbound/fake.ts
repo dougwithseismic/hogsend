@@ -192,18 +192,19 @@ export class FakeSesInboundClient implements SesInboundClient {
       );
     }
     if (!this.ruleSets.has(input.ruleSetName)) {
-      // UNVERIFIED against live AWS. `DeleteReceiptRuleSet` documents exactly
-      // ONE error — `CannotDelete` — whose own description reads "a resource
-      // could not be deleted because no resource with the specified name
-      // exists", so the missing case is modelled as that same refusal. The
-      // alternative reading is that AWS deletes idempotently and answers 200.
+      // SETTLED against live AWS on 2026-08-11, and the documented reading was
+      // WRONG. `DeleteReceiptRuleSet` lists exactly one error, `CannotDelete`,
+      // whose own description reads "a resource could not be deleted because no
+      // resource with the specified name exists" — which reads like a refusal
+      // and is not one. A probe deleted a rule set that had never existed and
+      // AWS answered 200.
       //
-      // The consequence is real and worth stating: `kind` alone cannot tell
-      // "already gone" from "still active", so a teardown that needs the
-      // difference must `getRuleSet` first rather than branch on this error.
-      throw cannotDelete(
-        `receipt rule set "${input.ruleSetName}" does not exist`,
-      );
+      // So the delete is IDEMPOTENT and returns here rather than throwing.
+      // Modelling it as a refusal would have broken exactly the case teardown
+      // depends on: a re-drive after a partial failure, where the set is
+      // already gone. Note the refusal ABOVE is real and still applies — the
+      // ACTIVE set genuinely cannot be deleted.
+      return;
     }
     // "...and all of the receipt rules it contains."
     this.ruleSets.delete(input.ruleSetName);
