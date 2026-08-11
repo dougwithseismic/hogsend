@@ -2,6 +2,10 @@ import type { DomainStatus, EmailProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
 import { hostOfFromAddress } from "./from-address.js";
 import type { Logger } from "./logger.js";
+import {
+  SENDING_DOMAIN_GUIDANCE,
+  type SendingDomainGuidance,
+} from "./sending-domain-guidance.js";
 
 /**
  * Per-send test-mode snapshot (PROJECT_SPEC pinned shape).
@@ -39,6 +43,8 @@ export interface EngineDomainStatus {
   /** `null` when `!supported || !domain` (the provider is never called then). */
   status: DomainStatus | null;
   testMode: TestModeState;
+  /** Static setup advice. Same words in Studio and the CLI, one source. */
+  guidance: SendingDomainGuidance;
 }
 
 /**
@@ -285,6 +291,8 @@ export function createDomainStatusService(deps: {
         redirectTo: null,
         fromOverride: null,
       },
+      // Constant advice — no computation, no cache interaction.
+      guidance: SENDING_DOMAIN_GUIDANCE,
     };
     cache = { snapshot, fetchedAt: Date.now() };
     const testMode = computeTestMode();

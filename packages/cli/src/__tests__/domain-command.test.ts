@@ -1,10 +1,17 @@
 import type { EngineDomainStatus } from "@hogsend/engine";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { domainCommand } from "../commands/domain.js";
 import type { CommandContext } from "../commands/types.js";
 import type { ResolvedConfig } from "../lib/config.js";
 import type { AdminClient, HttpError, Query } from "../lib/http.js";
 import type { Output } from "../lib/output.js";
+
+// NEVER hit real DNS in tests: `domain add`'s host detection walks NS records
+// via node:dns/promises. A rejecting resolver resolves to the "unknown" host
+// (detectDnsHost never throws), keeping the add flow deterministic + offline.
+vi.mock("node:dns/promises", () => ({
+  resolveNs: () => Promise.reject(new Error("no DNS lookups in tests")),
+}));
 
 /** Sentinel thrown by the stubbed `out.fail` instead of process.exit(1). */
 class FailSignal extends Error {
@@ -54,6 +61,17 @@ const STATUS_FIXTURE: EngineDomainStatus = {
     redirectTo: null,
     fromOverride: null,
   },
+  // The engine's SENDING_DOMAIN_GUIDANCE words, as the wire carries them.
+  // Hand-written test data, NOT a drift risk: the CLI renders whatever
+  // `GET /v1/admin/domain` returns verbatim (it holds no copy of its own), so
+  // these strings only feed the plumbing assertions below. (The engine barrel
+  // cannot be value-imported here — it validates server env at module eval.)
+  guidance: {
+    title: "Send from a subdomain",
+    body: "Use notifications.acme.com rather than acme.com. Spam complaints damage the reputation of the domain that sent the mail, and your root domain also carries your password resets, invoices and contracts. A subdomain keeps that damage in one place.",
+    note: "Root domains work. This is a recommendation, not a requirement.",
+    recommendedLabels: ["notifications", "mail", "updates"],
+  },
 };
 
 interface CapturedOutput {
@@ -74,8 +92,8 @@ function makeCtx(opts: {
     isJson: opts.json ?? false,
     intro: () => {},
     step: async <T>(_label: string, fn: () => Promise<T>) => fn(),
-    note: (body: string) => {
-      captured.logs.push(body);
+    note: (body: string, title?: string) => {
+      captured.logs.push(title ? `${title}\n${body}` : body);
     },
     table: () => {},
     kv: () => {},
@@ -213,5 +231,68 @@ describe("hogsend domain add", () => {
   it("fails on an invalid domain before any HTTP call", async () => {
     const { ctx } = makeCtx({ argv: ["add", "not_a_domain"] });
     await expect(domainCommand.run(ctx)).rejects.toThrow(/invalid domain/i);
+  });
+
+  it("prints the sending-subdomain guidance for a root domain — and still POSTs (never a gate)", async () => {
+    const posts: Array<{ path: string; body: unknown }> = [];
+    const { ctx, captured } = makeCtx({
+      argv: ["add", "mysite.com"],
+      get: async (path) => {
+        expect(path).toBe("/v1/admin/domain");
+        return STATUS_FIXTURE;
+      },
+      post: async (path, body) => {
+        posts.push({ path, body });
+        return STATUS_FIXTURE;
+      },
+    });
+    await domainCommand.run(ctx);
+    const output = captured.logs.join("\n");
+    expect(output).toContain("Send from a subdomain");
+    // Suggestion is personalised to the TYPED domain (mysite.com never
+    // appears in the static copy, so this proves the concrete build).
+    expect(output).toContain("notifications.mysite.com");
+    // The EARS criterion: the warning informs, it never gates the POST.
+    expect(posts).toEqual([
+      { path: "/v1/admin/domain", body: { domain: "mysite.com" } },
+    ]);
+  });
+
+  it("does not nag when a subdomain is entered", async () => {
+    const gets: string[] = [];
+    const posts: unknown[] = [];
+    const { ctx, captured } = makeCtx({
+      argv: ["add", "notifications.mysite.com"],
+      get: async (path) => {
+        gets.push(path);
+        return STATUS_FIXTURE;
+      },
+      post: async (_path, body) => {
+        posts.push(body);
+        return STATUS_FIXTURE;
+      },
+    });
+    await domainCommand.run(ctx);
+    expect(captured.logs.join("\n")).not.toContain("Send from a subdomain");
+    // A subdomain skips the guidance fetch entirely.
+    expect(gets).toEqual([]);
+    expect(posts).toEqual([{ domain: "notifications.mysite.com" }]);
+  });
+
+  it("still adds the root domain when the guidance fetch fails", async () => {
+    const posts: unknown[] = [];
+    const { ctx, captured } = makeCtx({
+      argv: ["add", "mysite.com"],
+      get: async () => {
+        throw makeHttpError(500, { error: "boom" });
+      },
+      post: async (_path, body) => {
+        posts.push(body);
+        return STATUS_FIXTURE;
+      },
+    });
+    await domainCommand.run(ctx);
+    expect(captured.logs.join("\n")).not.toContain("Send from a subdomain");
+    expect(posts).toEqual([{ domain: "mysite.com" }]);
   });
 });

@@ -708,6 +708,13 @@ export {
   SEMANTIC_BURST_DISTINCT_LINKS,
   SEMANTIC_BURST_WINDOW_MS,
 } from "./lib/semantic-click.js";
+// --- Sending-subdomain setup guidance (static; one source for all surfaces) ---
+export {
+  exampleSendingSubdomain,
+  looksLikeRootDomain,
+  SENDING_DOMAIN_GUIDANCE,
+  type SendingDomainGuidance,
+} from "./lib/sending-domain-guidance.js";
 // --- SMS ---
 export {
   getSmsService,

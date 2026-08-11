@@ -47,6 +47,15 @@ const TestModeStateSchema = z.object({
   fromOverride: z.string().nullable(),
 });
 
+// Mirrors the pinned `SendingDomainGuidance` shape (lib/sending-domain-guidance.ts).
+// `.readonly()` matches the interface's frozen `readonly string[]` labels.
+const SendingDomainGuidanceSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  note: z.string(),
+  recommendedLabels: z.array(z.string()).readonly(),
+});
+
 // Mirrors the pinned `EngineDomainStatus` shape.
 const EngineDomainStatusSchema = z.object({
   domain: z.string().nullable(),
@@ -54,6 +63,7 @@ const EngineDomainStatusSchema = z.object({
   supported: z.boolean(),
   status: DomainStatusSchema.nullable(),
   testMode: TestModeStateSchema,
+  guidance: SendingDomainGuidanceSchema,
 });
 
 /** Pinned domain validation regex (PROJECT_SPEC §e). */

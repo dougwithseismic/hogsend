@@ -49,6 +49,50 @@ const badge = `${color.bgMagenta(color.black(" hogsend "))} domain`;
 /** Pinned domain validation regex (PROJECT_SPEC §e) — mirrors the admin route. */
 const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
 
+/**
+ * Pinned mirror of the engine's known multi-part public suffixes
+ * (packages/engine/src/lib/sending-domain-guidance.ts) — hand-synced, like
+ * DOMAIN_RE above. The heuristic must run locally BEFORE any HTTP, and the
+ * engine barrel cannot be value-imported here: it eagerly validates server env
+ * (DATABASE_URL, BETTER_AUTH_SECRET) at module-eval time and would crash the
+ * CLI. The guidance COPY is deliberately NOT mirrored — `add` reads it off
+ * `GET /v1/admin/domain` (`guidance`), so the CLI renders the engine's exact
+ * words, same as Studio.
+ */
+const MULTI_PART_SUFFIXES = new Set([
+  "co.uk",
+  "org.uk",
+  "me.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "co.nz",
+  "co.za",
+  "co.jp",
+  "com.br",
+  "com.mx",
+  "co.in",
+  "com.sg",
+]);
+
+/**
+ * Pinned mirror of the engine's `looksLikeRootDomain` (see above): true for
+ * `acme.com` / `acme.co.uk`, false for `notifications.acme.com`. Callers warn
+ * ONLY when this is true, so someone who already typed a subdomain is never
+ * nagged; an unlisted multi-part suffix reads as a subdomain (silent miss).
+ */
+function looksLikeRootDomain(domain: string): boolean {
+  const normalized = domain.trim().toLowerCase().replace(/\.$/, "");
+  if (!normalized) return false;
+
+  const labels = normalized.split(".");
+  if (labels.length === 2) return true;
+  if (labels.length === 3) {
+    return MULTI_PART_SUFFIXES.has(labels.slice(-2).join("."));
+  }
+  return false;
+}
+
 /** Poll cadence for `domain check`. */
 const POLL_INTERVAL_MS = 15_000;
 
@@ -181,6 +225,35 @@ async function runAdd(ctx: CommandContext, argv: string[]): Promise<void> {
   }
 
   ctx.out.intro(badge);
+
+  // Sending-subdomain guidance at the moment of choosing (PRD 15). Advice
+  // only: a root domain is allowed and NEVER blocked — print and continue.
+  // The words come from the engine over the wire (the same `guidance` block
+  // Studio renders), so every surface shows identical, engine-owned copy.
+  // Skipped entirely in --json (machine runs must not gain prose or an extra
+  // round-trip) and when the user already typed a subdomain.
+  if (!ctx.json && looksLikeRootDomain(domain)) {
+    try {
+      const { guidance } = await getStatus(ctx);
+      // Wire-skew guard: an older engine without `guidance` just skips this.
+      if (guidance) {
+        const label = guidance.recommendedLabels[0];
+        ctx.out.note(
+          [
+            guidance.body,
+            guidance.note,
+            ...(label
+              ? [`For ${domain}, that would be ${label}.${domain}.`]
+              : []),
+          ].join("\n\n"),
+          guidance.title,
+        );
+      }
+    } catch {
+      // Best-effort — an unreachable instance must not change `add` behaviour
+      // (the POST below surfaces any real connectivity error).
+    }
+  }
 
   let status: EngineDomainStatus;
   try {

@@ -1396,13 +1396,27 @@ export type TestModeState = {
   fromOverride: string | null;
 };
 
-/** Mirrors the pinned `EngineDomainStatus` shape. */
+/** Mirrors the pinned `SendingDomainGuidance` shape (engine-owned copy). */
+export type SendingDomainGuidance = {
+  title: string;
+  body: string;
+  note: string;
+  recommendedLabels: string[];
+};
+
+/**
+ * Mirrors the pinned `EngineDomainStatus` shape. `guidance` is REQUIRED on the
+ * engine side but optional here: Studio ships inside the CLI tarball and may
+ * talk to an older, separately-upgraded engine whose response has no
+ * `guidance` key — the client mirror stays liberal in what it accepts.
+ */
 export type EngineDomainStatus = {
   domain: string | null;
   providerId: string;
   supported: boolean;
   status: DomainStatus | null;
   testMode: TestModeState;
+  guidance?: SendingDomainGuidance;
 };
 
 export function getDomainStatus(refresh?: boolean) {
