@@ -497,6 +497,58 @@ describe("the branded return path", () => {
       false,
     );
   });
+
+  /**
+   * PRD 15: changing the label on a LIVE return path is a migration, not an
+   * edit. The customer published `send.<domain>` and it resolved; pointing SES
+   * at `notifications.<domain>` invalidates that instantly, and the new name
+   * has no MX yet.
+   *
+   * So the answer must go back to `pending` rather than inheriting the old
+   * name's verified status. Reporting the relabelled domain as still-configured
+   * would tell the customer there is nothing to do at the exact moment there is
+   * something to do, and `BehaviorOnMxFailure: USE_DEFAULT_VALUE` would quietly
+   * carry their bounces on SES's default return path while they believed the
+   * branded one was live.
+   */
+  it("relabelling a LIVE return path reports pending, not the old verified state", async () => {
+    const fixture = await seed();
+    await domains(fixture).create(DOMAIN);
+    await domains(fixture).setReturnPath({ domain: DOMAIN, enabled: true });
+    fixture.ses.__verifyMailFrom(DOMAIN);
+
+    // Precondition: `send.` really is live, or the assertion below proves
+    // nothing (a never-verified path is trivially pending).
+    const live = await domains(fixture).verify(DOMAIN);
+    expect(
+      live.records.filter(
+        (r) => r.name === `send.${DOMAIN}` && r.status === "verified",
+      ),
+    ).toHaveLength(2);
+
+    const relabelled = await domains(fixture).setReturnPath({
+      domain: DOMAIN,
+      enabled: true,
+      label: "notifications",
+    });
+
+    expect(relabelled.mailFromDomain).toBe(`notifications.${DOMAIN}`);
+    // Still exactly two: a relabel MOVES the pair, it does not accumulate one.
+    const returnPath = relabelled.status.records.filter(
+      (r) => r.purpose === "mx" || r.purpose === "spf",
+    );
+    expect(returnPath).toHaveLength(2);
+    expect(returnPath.map((r) => r.name)).toEqual([
+      `notifications.${DOMAIN}`,
+      `notifications.${DOMAIN}`,
+    ]);
+    expect(returnPath.every((r) => r.status === "pending")).toBe(true);
+    // The old name must be gone entirely, not left behind as a stale row the
+    // customer would keep publishing.
+    expect(
+      relabelled.status.records.some((r) => r.name === `send.${DOMAIN}`),
+    ).toBe(false);
+  });
 });
 
 describe("purpose", () => {
