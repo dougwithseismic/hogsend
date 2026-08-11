@@ -182,6 +182,19 @@ Three corrections found by actually running these:
    / 7 skipped. Two minutes for the full-repo test gate is cheap enough that chasing the concurrent
    run's resource contention buys nothing. `--concurrency=1` IS the test gate. Do not "fix" this.
 
+   **Sharpened later the same day, and the correction matters.** The `--concurrency=2` failure is
+   **not deterministic**. A later forced repo-wide `--concurrency=2 --force` run came back 49/49
+   green. When it does fail, the failures cluster in `provider-settings.test.ts`,
+   `cli-sessions.test.ts` and `environment-dashboard.test.ts` — auth and org-table suites failing
+   TOGETHER while the api and cloud suites run concurrently. That is contention on the **shared test
+   Postgres**, not CPU starvation as first assumed, and every one of them passes standalone.
+
+   **This is a pre-existing CI risk, not something this stack introduced** (it reproduced on clean
+   `origin/main` before a line of Hogsend Email code existed). It matters because **CI runs
+   `--concurrency=2`**: a red CI showing exactly that trio is this flake, not a real break. The real
+   fix is per-suite database isolation, which is out of scope here and worth its own task. Recorded
+   so the next person to see it in CI does not spend an afternoon on a phantom.
+
    Note for readers of test output: `@hogsend/api` logs a red `[ERROR/Admin] /WorkflowService/
    TriggerWorkflow UNAVAILABLE ... wrong version number` line during the run. That is a test
    deliberately exercising the no-Hatchet path, the suite passes, and it is not a failure.
