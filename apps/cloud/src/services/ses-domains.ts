@@ -80,6 +80,12 @@ export interface HogsendDomains {
   setReturnPath(input: {
     domain: string;
     enabled: boolean;
+    /**
+     * The subdomain the return path sits on, e.g. `notifications` for
+     * `notifications.acme.com`. Defaults to `send`, so an existing customer
+     * who never chose one keeps the records they already published.
+     */
+    label?: string;
   }): Promise<ReturnPathResult>;
 }
 
@@ -290,6 +296,7 @@ export function createHogsendDomains(
     async setReturnPath(toggle: {
       domain: string;
       enabled: boolean;
+      label?: string;
     }): Promise<ReturnPathResult> {
       const name = requireDomain(toggle.domain);
       const tenant = await tenancy();
@@ -303,7 +310,9 @@ export function createHogsendDomains(
         identity: name,
         // Empty reverts the identity to SES's default return path, which is
         // what "off" means. There is no separate delete operation.
-        mailFromDomain: toggle.enabled ? mailFromDomainFor(name) : "",
+        mailFromDomain: toggle.enabled
+          ? mailFromDomainFor(name, toggle.label)
+          : "",
         // NEVER `REJECT_MESSAGE`. A customer's MX breaking six months from now
         // must degrade to the default return path, not stop their mail.
         behaviorOnMxFailure: "USE_DEFAULT_VALUE",

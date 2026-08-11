@@ -8,6 +8,7 @@ import { SesError } from "../ses/types";
 import { type RelayCaller, resolveRelayCaller } from "./email-relay";
 import { consumeRateLimit } from "./rate-limit";
 import { fail } from "./route-response";
+import { MAIL_FROM_LABEL_PATTERN } from "./sending-domains";
 
 /**
  * THE DOMAIN ENDPOINTS (PRD 07 task 4).
@@ -53,6 +54,24 @@ const domainBodySchema = z.strictObject({ domain: domainSchema });
 const returnPathBodySchema = z.strictObject({
   domain: domainSchema,
   enabled: z.boolean(),
+  /**
+   * The subdomain the return path sits on — `notifications` gives
+   * `notifications.acme.com`. Optional: omitting it keeps `send`, so a customer
+   * who already published `send.<domain>` is unaffected.
+   *
+   * Validated HERE as well as in the service, so a bad label is a 400 before
+   * anything reaches SES. `strictObject` means an unknown key is still a 400.
+   */
+  label: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      MAIL_FROM_LABEL_PATTERN,
+      'must be one DNS label, e.g. "notifications" (lowercase letters, digits ' +
+        "and hyphens, starting and ending alphanumeric, 63 characters or fewer)",
+    )
+    .optional(),
 });
 
 export interface EmailDomainsDeps {
@@ -110,6 +129,7 @@ export async function handleDomainReturnPath(
     const result = await domains.setReturnPath({
       domain: body.value.domain,
       enabled: body.value.enabled,
+      ...(body.value.label === undefined ? {} : { label: body.value.label }),
     });
     return json(200, result);
   });

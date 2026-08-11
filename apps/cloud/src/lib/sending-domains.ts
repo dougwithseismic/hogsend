@@ -98,6 +98,52 @@ export const DKIM_KEY_BITS = 2048;
  */
 export const MAIL_FROM_SUBDOMAIN = "send";
 
+/**
+ * A single DNS label: what a customer may put in front of their own domain for
+ * the branded return path (`notifications`, `mail`, `updates`).
+ *
+ * RFC 1035 §2.3.1 shape — starts and ends alphanumeric, hyphens allowed inside,
+ * 63 characters max. Lowercased before matching because DNS is case-insensitive
+ * and a customer typing `Notifications` should not be a rejection.
+ *
+ * It is ONE label, not a dotted path: the MAIL FROM domain must be a subdomain
+ * of the verified identity's parent domain (DECISIONS §2), so anything with a
+ * dot in it is either an attempt to point bounces at another domain (which SES
+ * refuses) or a typo. Both are better caught here than by AWS.
+ */
+export const MAIL_FROM_LABEL_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** The caller asked for a return-path label DNS cannot represent. */
+export class InvalidMailFromLabelError extends Error {
+  readonly code = "invalid_mail_from_label";
+
+  constructor(readonly label: string) {
+    super(
+      `"${label}" is not a valid subdomain label. Use one DNS label: lowercase ` +
+        "letters, digits and hyphens, starting and ending alphanumeric, 63 " +
+        'characters or fewer (e.g. "notifications"). No dots — the return path ' +
+        "must sit directly under the domain you verified.",
+    );
+    this.name = "InvalidMailFromLabelError";
+  }
+}
+
+/**
+ * Normalize and validate a return-path label, or throw.
+ *
+ * Throws rather than falling back to `send`, and that is deliberate: silently
+ * substituting a default for a label the customer typed would publish records
+ * for a domain they did not ask for, and they would find out by checking DNS
+ * for a name that is not there.
+ */
+export function assertMailFromLabel(label: string): string {
+  const normalized = label.trim().toLowerCase();
+  if (!MAIL_FROM_LABEL_PATTERN.test(normalized)) {
+    throw new InvalidMailFromLabelError(label);
+  }
+  return normalized;
+}
+
 /** SES's own SPF include. The record a branded return path needs. */
 export const MAIL_FROM_SPF_VALUE = "v=spf1 include:amazonses.com ~all";
 
@@ -138,9 +184,18 @@ export function dkimRecordHost(domain: string): string {
   return `${HOGSEND_DKIM_SELECTOR}._domainkey.${domain}`;
 }
 
-/** `send.<domain>` — the branded return path, when it is switched on. */
-export function mailFromDomainFor(domain: string): string {
-  return `${MAIL_FROM_SUBDOMAIN}.${domain}`;
+/**
+ * `<label>.<domain>` — the branded return path, when it is switched on.
+ *
+ * The label defaults to `send`, so a customer who never chose one gets records
+ * BYTE-IDENTICAL to what this emitted before the label existed. That is not a
+ * nicety: anyone already onboarded has published `send.<their-domain>` in their
+ * own DNS, and a changed default would silently invalidate it.
+ */
+export function mailFromDomainFor(domain: string, label?: string): string {
+  const sub =
+    label === undefined ? MAIL_FROM_SUBDOMAIN : assertMailFromLabel(label);
+  return `${sub}.${domain}`;
 }
 
 /** SES's bounce/complaint feedback host for the region the tenant is pinned to. */
