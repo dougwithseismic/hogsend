@@ -84,6 +84,31 @@ loudly wherever AWS disagrees with what we modelled.
 The script exists, refuses to run without explicit credentials and confirmation, its guards and
 comparison logic are tested and mutation-checked, and gates are green.
 
+## Operational warning — read before running this again
+
+**Running this repeatedly against a fresh AWS account will get the account flagged.**
+
+On 2026-08-11 it was run seven times in about an hour against an account that had been dormant, on
+the same day that account got its first organisation, its first IAM user and its first access key.
+AWS raised an automated "your account may have been inappropriately accessed" case (`178644276900210`,
+Urgent, Pending customer action) roughly an hour after the key was created, and CloudShell refused to
+start with "Your account verification is in progress."
+
+Nothing had leaked — the key was never in a tracked file or in git history, and SES calls kept
+working. But the SHAPE of the activity (brand-new credential, then rapid create/delete cycles of
+tenants, identities and configuration sets, on an account with no sending history) is what automated
+spam tooling looks like to a risk system. The case body was AWS's generic template with unrendered
+placeholders, i.e. an automated flag rather than a real finding.
+
+So:
+
+- **Run it sparingly.** It is a contract check, not a loop. Once per change to the SES seam.
+- **Never run it while an account-review case is open.** More cycles argue against the reply.
+- **Do not submit the production-access request alongside a trust flag.** A limit-increase ask
+  landing next to a compromise notice is the worst possible pairing.
+- Enable MFA on the root user before doing anything else on a new account. It is the single thing
+  most likely to get a reviewer to close a case like this.
+
 ## Implementation Notes
 
 Shipped 2026-08-11 (`70b51ff8`). Cloud suite 1425 → 1473 (87 files). Run it with
