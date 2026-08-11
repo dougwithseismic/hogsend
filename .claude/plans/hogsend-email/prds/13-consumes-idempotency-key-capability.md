@@ -82,3 +82,28 @@ the id hardcode is gone, a third-party provider can opt in by declaration alone 
 it, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 (`a18fc72c`). Engine 119 → 125 tests.
+
+Landed as specified: the flag is declared on `EmailProviderCapabilities`, `plugin-hogsend` declares
+it, and `providerConsumesIdempotencyKey` collapsed to a one-line read. Both the id check and the `as`
+cast are gone.
+
+**The mutation check is the only real evidence here, and it is worth recording what it proved.**
+Forcing the gate to `return true` (absence becomes consent) turns SIX tests red, including all four
+this PRD exists for: a `hogsend`-NAMED provider that does not declare the flag, a provider with no
+`capabilities` object at all, and both header-forwarding providers. Without that run, "the tests
+pass" would have said nothing about whether they CAN fail — the vacuous-green failure mode this repo
+has already recorded once.
+
+One test is better than the fake-based ones and should not be swapped for a fake later:
+`the REAL resend provider declares no such capability → wire unchanged` constructs an actual
+`createResendProvider` rather than a stand-in. A fake can be made to agree with a wrong gate; the
+real provider cannot.
+
+**A gate-command error in the authoring brief, recorded because it nearly landed a false PASS.** The
+brief said to run `pnpm turbo run lint --filter=…`, which fails with "Could not find task `lint` in
+project" — DECISIONS §4 correction 1 already says `lint` is NOT a turbo task and the root script is
+`biome check .`. Any lint PASS reported against that command was reporting on a command that never
+linted anything. The orchestrator re-ran `pnpm lint` directly; the six files are clean and the repo's
+21 warnings are the pre-existing baseline.
