@@ -443,8 +443,24 @@ export class AwsSesClient implements SesClient {
                 // BYODKIM: ONE TXT record verifies the domain, versus Easy
                 // DKIM's three CNAMEs (DECISIONS §2).
                 DomainSigningAttributesOrigin: "EXTERNAL",
-                // 2048-bit, where Resend signs with 1024.
-                NextSigningKeyLength: "RSA_2048_BIT",
+                // NO `NextSigningKeyLength` HERE. It is an EASY DKIM parameter —
+                // it tells SES what size key to GENERATE — and AWS rejects the
+                // whole request when it arrives alongside BYODKIM's selector and
+                // private key:
+                //
+                //   BadRequestException: NextSigningKeyLength cannot be used
+                //   together with DomainSigningSelector and
+                //   DomainSigningPrivateKey.
+                //
+                // It was here until the first live run against AWS (2026-08-11),
+                // and it made `createIdentity` fail 100% of the time — meaning
+                // NO customer domain could ever have been verified. The Fake
+                // accepted the combination, so the whole suite stayed green over
+                // a total outage of the domains feature.
+                //
+                // We still sign with 2048 bits: the key is OURS, minted by
+                // `generateDkimKeypair`, and its length is a property of that
+                // keypair rather than of this request.
               },
             }
           : {}),
@@ -895,13 +911,39 @@ function readAwsError(cause: unknown): AwsErrorShape {
 
 /** The response body, whatever form it arrived in. NEVER dropped: without it a
  * `BadRequestException` in a log says nothing at all. */
+/**
+ * The raw error body, or `undefined` when it carries nothing a human can read.
+ *
+ * `undefined` matters: the caller does `shape.body ?? shape.message`, so a body
+ * that stringifies to junk does not merely add noise — it SHADOWS AWS's actual
+ * message. The first live run against AWS surfaced exactly that: every failure
+ * in the walkthrough report read
+ * `SES createIdentity failed (BadRequestException, HTTP 400): [object Object]`,
+ * while the real message ("...is not authorized to perform: ses:TagResource...")
+ * was sitting unused in `shape.message`.
+ *
+ * The cause is that the SDK's `$response.body` is usually a Node stream, which
+ * has circular references, so `JSON.stringify` throws and the old fallback
+ * `String(body)` yielded the literal `"[object Object]"`. `JSON.stringify` can
+ * also succeed and return `"{}"` for a body whose fields are all
+ * non-enumerable, which is just as useless.
+ *
+ * So: return a body only when it is genuinely informative, and let the message
+ * through otherwise. This is NOT walkthrough-only — it is the error path every
+ * SES call in the control plane takes, and it was discarding the one field that
+ * says what went wrong.
+ */
 function readBody(body: unknown): string | undefined {
   if (body === undefined || body === null) return undefined;
-  if (typeof body === "string") return body;
+  if (typeof body === "string") return body.trim() === "" ? undefined : body;
   try {
-    return JSON.stringify(body);
+    const encoded = JSON.stringify(body);
+    if (encoded === undefined) return undefined;
+    // `{}` / `[]` / `null` carry no more than the message already does.
+    return /^(\{\s*\}|\[\s*\]|null)$/.test(encoded) ? undefined : encoded;
   } catch {
-    return String(body);
+    // Circular (a stream): there is nothing readable in here.
+    return undefined;
   }
 }
 

@@ -66,8 +66,31 @@ const PUBLISHED_EVENT_TYPES: SesEventType[] = [
   "DELIVERY_DELAY",
 ];
 
-/** Tags, so a leaked resource is identifiable in the console as well as by name. */
-const WALKTHROUGH_TAGS = { hogsend: "ses-walkthrough" };
+/**
+ * **This script deliberately does NOT tag the resources it creates**, and the
+ * first live run against AWS is why.
+ *
+ * Tagging on create is a SECOND, implicit permission: `CreateTenant` with a
+ * `Tags` argument also requires `ses:TagResource`, which appears in no
+ * verb-to-action mapping because it is not a verb we call. The IAM policy in
+ * `docs/ses-production-access-request.md` was built by mapping the nineteen
+ * contract verbs to their actions and does not grant it, so the tagged call
+ * failed with `AccessDeniedException` while the identical untagged call
+ * succeeded.
+ *
+ * The fix is to drop the tags, not to widen the policy. The real provisioner
+ * (`services/ses-tenants.ts`) calls `createTenant({ tenantName })` with NO tags,
+ * so tagging here would have this script exercising a code path production
+ * never takes, and would require production credentials to hold a permission
+ * production does not need. A test that needs more privilege than the thing it
+ * tests is testing the wrong thing.
+ *
+ * Nothing was lost: leaked resources are identified by NAME
+ * (`isWalkthroughTenantName`), which is what the account-sweep guard reads.
+ *
+ * If production ever wants tags (cost allocation is the likely reason), add
+ * `ses:TagResource` to the policy and to Appendix A at the same time.
+ */
 
 const REDACTED = "<redacted>";
 
@@ -135,19 +158,17 @@ export async function executeWalkthrough(
   // -- createTenant ---------------------------------------------------------
   const tenants = await recorder.compare<SesTenant>({
     verb: "createTenant",
-    input: { tenantName: names.tenantName, tags: WALKTHROUGH_TAGS },
+    input: { tenantName: names.tenantName },
     // The id and the ARN carry the real account id; the Fake's are derived from
     // the name. Their SHAPE is still compared.
     volatile: ["id", "arn"],
     real: () =>
       real.createTenant({
         tenantName: names.tenantName,
-        tags: WALKTHROUGH_TAGS,
       }),
     fake: () =>
       fake.createTenant({
         tenantName: names.tenantName,
-        tags: WALKTHROUGH_TAGS,
       }),
     note: "AWS's TenantName charset and length limit are not restated in this repo; a rejection here is the finding.",
   });
@@ -201,17 +222,14 @@ export async function executeWalkthrough(
     verb: "createConfigurationSet",
     input: {
       configurationSetName: names.configurationSetName,
-      tags: WALKTHROUGH_TAGS,
     },
     real: () =>
       real.createConfigurationSet({
         configurationSetName: names.configurationSetName,
-        tags: WALKTHROUGH_TAGS,
       }),
     fake: () =>
       fake.createConfigurationSet({
         configurationSetName: names.configurationSetName,
-        tags: WALKTHROUGH_TAGS,
       }),
   });
   if (configurationSet.ok) {

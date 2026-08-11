@@ -713,9 +713,20 @@ describe("AwsSesClient configuration sets, identities and reputation", () => {
         DomainSigningPrivateKey: "PRIVATE-KEY",
         // BYODKIM verifies a domain with ONE TXT record (DECISIONS §2).
         DomainSigningAttributesOrigin: "EXTERNAL",
-        NextSigningKeyLength: "RSA_2048_BIT",
       },
     });
+    // `NextSigningKeyLength` MUST NOT be sent with BYODKIM. This assertion is
+    // inverted from what it was, and the story is the point: the test used to
+    // require the field, so implementation, Fake, contract AND test all agreed
+    // with each other and all four were wrong together. AWS rejects the
+    // combination outright ("NextSigningKeyLength cannot be used together with
+    // DomainSigningSelector and DomainSigningPrivateKey"), so `createIdentity`
+    // failed 100% of the time and no customer domain could ever have verified.
+    // A green suite certified that outage until the first live run.
+    expect(
+      (commands[0]?.input as { DkimSigningAttributes?: object })
+        ?.DkimSigningAttributes,
+    ).not.toHaveProperty("NextSigningKeyLength");
     expect(identity).toMatchObject({
       identity: "acme.test",
       verifiedForSending: false,
