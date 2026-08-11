@@ -131,8 +131,17 @@ Mutation-checked twice, both on assertions whose failure would be silent:
   red, the new relabel test, which verifies `send.` first so the pending assertion is not trivially
   true of a path that was never verified.
 
-### Still open
+### The return-path seam, now closed
 
-The branded return path stays OPT-IN. Doug asked for MX+SPF by default and the stated reason was
-replies, which the return path does not deliver (that is PRD 16). It is a one-line default change
-either way and it remains his call.
+**Doug answered on 2026-08-11: keep it OFF by default, surface it in Setup as a labelled upgrade.**
+
+The reason he originally gave for wanting MX+SPF on by default was replies, and the branded return
+path does not deliver replies — those route on `From`/`Reply-To` into the customer's ordinary mailbox
+and work today with nothing configured. The return path carries bounces, which SES already collects.
+With that corrected, the decision went the other way: one DNS record stays the wedge against Resend's
+three, the upgrade is reversible with no downtime, and every extra record in setup loses people.
+
+Surfacing it turned out to be real build work rather than copy: `apps/cloud` implements
+`setReturnPath` and `plugin-hogsend` exposes it, but `DomainsCapability` in `@hogsend/core` has no
+such method, the engine's admin domain router has no endpoint, and Studio has no UI. The engine knows
+`return_path` only as a `DnsRecordPurpose` enum value. Queued as **PRD 20**.
