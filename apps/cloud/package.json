@@ -14,11 +14,13 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "build:default-image": "tsx scripts/build-default-image.ts",
     "seed:dev": "tsx scripts/seed-dev.ts",
-    "ses:walkthrough": "tsx scripts/ses-walkthrough.ts"
+    "ses:walkthrough": "tsx scripts/ses-walkthrough.ts",
+    "ses:delivery-proof": "tsx scripts/ses-delivery-proof.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1101.0",
     "@aws-sdk/client-sesv2": "^3.1106.0",
+    "@aws-sdk/client-sns": "^3.1106.0",
     "@aws-sdk/s3-request-presigner": "^3.1101.0",
     "@hatchet-dev/typescript-sdk": "^1.28.0",
     "@hogsend/plugin-hogsend": "workspace:*",
