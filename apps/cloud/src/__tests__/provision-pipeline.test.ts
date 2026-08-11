@@ -30,6 +30,7 @@ import {
   waitForProvision,
 } from "../pipeline/enqueue";
 import {
+  emailProviderVars,
   PROVISION_STEPS,
   type ProvisionStep,
   provisionAuditAction,
@@ -468,9 +469,10 @@ describe("runProvisionPipeline", () => {
     expect(applied.HOGSEND_EMAIL_WEBHOOK_SECRET).toBe(
       await getSesWebhookSecret({ environmentId: fixture.environmentId }),
     );
-    // Deliberately NOT set here: `EMAIL_PROVIDER=hogsend` activates a provider
-    // whose engine preset is PRD 10's, and setting it first would boot-loop
-    // every freshly provisioned instance.
+    // NOT set, because this fixture provisions against the Fake, so the SES
+    // tenancy is recorded unavailable. Activating over the Fake would make
+    // every send "succeed" against an in-memory client while no mail ever
+    // left. See `emailProviderVars`, which is unit-tested both ways.
     expect(applied.EMAIL_PROVIDER).toBeUndefined();
 
     // Neither credential reached the audit trail.
@@ -1311,5 +1313,17 @@ describe("organization creation", () => {
       expect(actions).toContain(provisionAuditAction(step));
     }
     resetProvisioning();
+  });
+});
+
+describe("emailProviderVars", () => {
+  it("activates Hogsend Email only when the SES tenancy is REAL", () => {
+    // The whole point of the branch: `available` is false exactly when the SES
+    // factory yielded the Fake. Activating there would be silent
+    // non-delivery — every send succeeding against an in-memory client while
+    // no mail ever leaves — which is worse than a loud failure precisely
+    // because nobody notices it.
+    expect(emailProviderVars(true)).toEqual({ EMAIL_PROVIDER: "hogsend" });
+    expect(emailProviderVars(false)).toEqual({});
   });
 });

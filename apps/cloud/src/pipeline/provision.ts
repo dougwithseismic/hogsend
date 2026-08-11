@@ -821,6 +821,7 @@ export async function runProvisionPipeline(
       studioAdminPassword: secrets.secrets.studioAdminPassword,
       relayToken: sesTenant.relayToken,
       emailWebhookSecret: sesTenant.webhookSecret,
+      emailAvailable: sesTenant.summary.available,
     });
     await deps.substrate.setEnv(refs, vars);
     steps.push({ step: "set-env", skipped: false });
@@ -1236,6 +1237,33 @@ async function mintTenantCredentials(args: {
  * contract). Assembled in one place so "what does a Hogsend instance need to
  * boot" has a single, readable answer.
  */
+/**
+ * Whether a freshly provisioned instance SENDS through Hogsend Email.
+ *
+ * DECISIONS §6 says new provisions default to it. `available` is the whole
+ * condition, and it is false exactly when the SES factory yielded the Fake.
+ *
+ * Activating over the Fake would be the worst available outcome: every send
+ * would "succeed" against an in-memory client and no mail would ever leave.
+ * Silent non-delivery beats a loud failure only in the sense that nobody
+ * notices, which is precisely what makes it worse. So an environment
+ * provisioned with no AWS credentials keeps whatever provider it already had,
+ * and its three `HOGSEND_EMAIL_*` variables stay inert until a real tenancy
+ * exists.
+ *
+ * Setting this at all is safe only because the engine preset now exists: it
+ * registers the provider whenever `HOGSEND_EMAIL_TOKEN` is present, so the id
+ * always resolves. Selecting one the engine cannot resolve throws at boot,
+ * which is why this waited rather than shipping with the provisioning step.
+ *
+ * Its own function, and exported, because "did we activate a provider that
+ * cannot actually deliver?" deserves a test that does not have to drive a
+ * whole provision to ask.
+ */
+export function emailProviderVars(available: boolean): Record<string, string> {
+  return available ? { EMAIL_PROVIDER: "hogsend" } : {};
+}
+
 async function assembleStackEnv(args: {
   deps: ProvisionDeps;
   context: ProvisionContext;
@@ -1251,6 +1279,11 @@ async function assembleStackEnv(args: {
   relayToken: string;
   /** The secret the control plane signs this environment's webhooks with. */
   emailWebhookSecret: string;
+  /**
+   * Whether the SES tenancy is REAL (minted against AWS) rather than the Fake.
+   * The only thing that may activate Hogsend Email as the sender.
+   */
+  emailAvailable: boolean;
 }): Promise<Record<string, string>> {
   const { deps, context, refs } = args;
 
@@ -1285,12 +1318,8 @@ async function assembleStackEnv(args: {
     // What `plugin-hogsend.verifyWebhook` checks, so the instance can tell a
     // delivery from us apart from anything else that reaches its webhook.
     HOGSEND_EMAIL_WEBHOOK_SECRET: args.emailWebhookSecret,
-    // `EMAIL_PROVIDER=hogsend` is deliberately NOT set here. It ACTIVATES the
-    // provider, and the engine preset that registers one is PRD 10 task 2 —
-    // selecting a provider the deployed engine cannot resolve throws at boot,
-    // so flipping the switch belongs with the preset (PRD 10 task 4). Until
-    // then these three variables are inert: a tenant keeps whatever provider
-    // it already had.
+    // ACTIVATION, and only when the tenancy is REAL. See `emailProviderVars`.
+    ...emailProviderVars(args.emailAvailable),
   };
 
   // The engine's first-admin bootstrap: on boot, with the user table EMPTY, it

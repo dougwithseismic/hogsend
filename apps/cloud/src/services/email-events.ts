@@ -48,6 +48,16 @@ export const EMAIL_EVENT_ATTEMPTS_PER_REQUEST = 3;
  * instance that is briefly down (a deploy, a restart) before we call it. Past
  * this the row stays `failed` and nothing further is attempted, which is the
  * "never retry forever" line.
+ *
+ * **The instance's replay window is the real outer bound, and it is shorter
+ * than SNS's retry policy.** `plugin-hogsend` refuses a payload whose
+ * `occurredAt` is more than `HOGSEND_RELAY_MAX_AGE_MS` (24 hours) old, so an
+ * instance unreachable for longer than that will answer 401 rather than
+ * accept a late event. That composes correctly rather than thrashing: a 401 is
+ * a 4xx, `postToInstance` never retries a 4xx, and the row settles `failed`
+ * with the reason on it. It is a deliberate trade — a bounce a day late is
+ * worth less than an unbounded replay window — and it is written here so the
+ * two limits are visible together rather than surprising somebody at 3am.
  */
 export const EMAIL_EVENT_MAX_ATTEMPTS = 9;
 
