@@ -82,6 +82,76 @@ export const sesReputationPolicyEnum = cloud.enum(
 );
 
 /**
+ * The trust tier one environment sits in (PRD 08, AUP §5.2).
+ *
+ * The tier is the single input to three separate enforcement decisions — the
+ * SES reputation policy, the send cap, and whether bulk list import is
+ * available — so it is one column rather than three flags that could disagree.
+ *
+ * `new` at provisioning, `established` automatically once the volume-and-window
+ * criteria hold, `watched` automatically and immediately on any reputation
+ * finding. Promotion OUT of `watched` is a human review and has no automatic
+ * edge, because an automatic reinstate on request is an automatic bypass.
+ */
+export const emailTrustTierEnum = cloud.enum("cloud_email_trust_tier", [
+  "new",
+  "established",
+  "watched",
+]);
+
+/**
+ * A reputation finding's lifecycle, mirroring SES Advisor's own
+ * `OPEN` / `FIXED` recommendation statuses in our lowercase vocabulary.
+ *
+ * There is deliberately no `dismissed`: a finding we chose to ignore is still
+ * an open finding as far as the tier engine is concerned, and giving an
+ * operator a way to clear one without fixing it would be the bypass §6.6
+ * exists to prevent.
+ */
+export const emailFindingStatusEnum = cloud.enum("cloud_email_finding_status", [
+  "open",
+  "fixed",
+]);
+
+/**
+ * What the control plane DID with one EventBridge reputation event.
+ *
+ * `unknown_tenant` is a first-class outcome rather than an error: an event for
+ * a tenant we no longer know is evidence of a provisioning gap and must be
+ * kept, and it must never throw — one stale tenant cannot be allowed to wedge
+ * the whole event pipeline (PRD 08 EARS 9). `ignored` is a detail-type we do
+ * not consume.
+ */
+export const emailAbuseEventOutcomeEnum = cloud.enum(
+  "cloud_email_abuse_event_outcome",
+  [
+    "paused",
+    "reinstated",
+    "finding_opened",
+    "finding_closed",
+    "unknown_tenant",
+    "ignored",
+  ],
+);
+
+/**
+ * WHO decided a sending-status transition. The pause history is read by a human
+ * during an appeal, and "AWS stopped you" and "we stopped you" are different
+ * conversations.
+ *
+ * `eventbridge` — SES's own reputation policy, relayed to us. `relay` — the
+ * send path discovering a pause AWS had already applied. `operator` — a human
+ * or the reputation sweep acting under AUP §6.1/§6.2. `reconcile` — the
+ * read-back repairing a mirror that had drifted.
+ */
+export const emailPauseSourceEnum = cloud.enum("cloud_email_pause_source", [
+  "eventbridge",
+  "relay",
+  "operator",
+  "reconcile",
+]);
+
+/**
  * Stack lifecycle. The legal-edge table lives in the state machine (PRD 02
  * task 4) — this enum only fixes the vocabulary and its Postgres ordering.
  * `error` is terminal-until-retried and pairs with `last_error` + `retry_count`.

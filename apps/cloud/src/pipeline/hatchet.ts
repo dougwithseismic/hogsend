@@ -11,6 +11,10 @@ import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
 import { HEALTH_SWEEP_CRON, sweepStackHealth } from "./health-poll";
 import { runProvisionPipeline } from "./provision";
 import { PROVISION_SWEEP_CRON, sweepProvisions } from "./provision-sweep";
+import {
+  REPUTATION_SWEEP_CRON,
+  sweepEmailReputation,
+} from "./reputation-sweep";
 
 /**
  * The CONTROL PLANE's Hatchet client and its durable tasks.
@@ -53,6 +57,9 @@ export const SWEEP_PROVISIONS_TASK = "sweep-provisions";
 
 /** The sweep that tells a human when a stack needs one (PRD 13 T3). */
 export const SWEEP_STACK_ALERTS_TASK = "sweep-stack-alerts";
+
+/** The hourly trust-tier and reputation sweep (PRD 08 tasks 4 and 7). */
+export const SWEEP_EMAIL_REPUTATION_TASK = "sweep-email-reputation";
 
 /** The JSON summary a finished `provision-stack` run leaves in Hatchet. */
 export interface ProvisionTaskOutput extends JsonObject {
@@ -480,4 +487,68 @@ let alertSweepCache: AlertSweepTask | undefined;
 export function getAlertSweepTask(client: HatchetClient): AlertSweepTask {
   alertSweepCache ??= buildAlertSweepTask(client);
   return alertSweepCache;
+}
+
+/** The JSON summary a finished `sweep-email-reputation` run leaves. */
+export interface ReputationSweepTaskOutput extends JsonObject {
+  scanned: number;
+  promoted: string[];
+  demoted: string[];
+  suspended: string[];
+  failed: number;
+}
+
+/**
+ * The `sweep-email-reputation` cron task (PRD 08).
+ *
+ * SINGLE-FLIGHT for the same reason the alert sweep is, and with the same
+ * sharper consequence: two overlapping ticks would both read a tenant's
+ * sending status before either wrote one, both conclude it was still sending,
+ * and both suspend it — which means both would find a transition and both would
+ * mail the customer. The notice's once-per-pause-event guarantee is enforced by
+ * the transition check, and a transition check is only single-valued if the
+ * sweep is.
+ *
+ * `retries: 0`. Every step is idempotent, so a retry would be safe — and
+ * pointless: a failure that survived the first attempt survives a second one
+ * minutes later, and the next tick is an hour away with the same numbers to
+ * read. A per-tenant failure never reaches this level; the sweep records it and
+ * steps over.
+ */
+function buildReputationSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_EMAIL_REPUTATION_TASK,
+    onCrons: [REPUTATION_SWEEP_CRON],
+    retries: 0,
+    concurrency: {
+      expression: `'${SWEEP_EMAIL_REPUTATION_TASK}'`,
+      maxRuns: 1,
+      // Never the default. Cancelling the incumbent mid-fleet would leave the
+      // tenants it had not reached unexamined on every single tick.
+      limitStrategy: ConcurrencyLimitStrategy.CANCEL_NEWEST,
+    },
+    // Reads counters and makes at most one AWS call per transitioning tenant.
+    executionTimeout: "30m",
+    fn: async (): Promise<ReputationSweepTaskOutput> => {
+      const result = await sweepEmailReputation();
+      return {
+        scanned: result.scanned,
+        promoted: result.promoted.map((entry) => entry.environmentId),
+        demoted: result.demoted.map((entry) => entry.environmentId),
+        suspended: result.suspended.map((entry) => entry.environmentId),
+        failed: result.failed.length,
+      };
+    },
+  });
+}
+
+export type ReputationSweepTask = ReturnType<typeof buildReputationSweepTask>;
+
+let reputationSweepCache: ReputationSweepTask | undefined;
+
+export function getReputationSweepTask(
+  client: HatchetClient,
+): ReputationSweepTask {
+  reputationSweepCache ??= buildReputationSweepTask(client);
+  return reputationSweepCache;
 }

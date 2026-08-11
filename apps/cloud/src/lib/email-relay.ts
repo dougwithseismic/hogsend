@@ -24,6 +24,11 @@ import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { SesError, type SesErrorKind, type SesMessage } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
 import type { AllowanceGate } from "./email-allowance";
+import {
+  checkTierSendCap,
+  type TierCapRefusal,
+  tierCapMessage,
+} from "./email-tier-cap";
 import { bearerToken } from "./publish-guards";
 import { consumeRateLimit } from "./rate-limit";
 import { fail } from "./route-response";
@@ -38,7 +43,8 @@ import { fail } from "./route-response";
  * The order of operations is load-bearing, and each step is here because the
  * step after it is expensive or irreversible:
  *
- *   auth → paused → rate limit → validate → allowance → idempotency → send
+ *   auth → paused → rate limit → validate → tier cap → allowance → idempotency
+ *     → send
  *
  *  - **auth** first, so nothing below is reachable anonymously. The token
  *    resolves an ENVIRONMENT, and the environment determines the SES tenant. A
@@ -60,6 +66,11 @@ import { fail } from "./route-response";
  *    budget;
  *  - **validate** before the allowance seam, so a malformed body never spends
  *    a tenant's allowance;
+ *  - **tier cap** before the allowance, and SEPARATE from it (PRD 08). The
+ *    allowance is a plan/billing ceiling a customer can raise by paying; the
+ *    tier cap is an abuse control that no amount of money lifts. Merging them
+ *    would mean one number doing two jobs, and the first time a `watched`
+ *    tenant upgraded their plan the abuse control would quietly widen;
  *  - **idempotency** last before the wire, and by INSERT-then-conflict rather
  *    than check-then-insert — see `services/email-idempotency.ts`;
  *  - **send** with the tenant name and configuration set the ENVIRONMENT owns.
@@ -317,6 +328,15 @@ export async function handleRelaySend(
   const parsed = sendBodySchema.safeParse(body.value);
   if (!parsed.success) return invalidRequest(parsed.error);
 
+  const tierCap = await checkTierSendCap({
+    environmentId: caller.environmentId,
+    organizationId: caller.organizationId,
+    count: 1,
+    now,
+    db,
+  });
+  if (!tierCap.allowed) return tierCapRefused(tierCap);
+
   const gate = allowanceGate(deps, db);
   const allowance = await gate.canSend({
     environmentId: caller.environmentId,
@@ -417,6 +437,15 @@ export async function handleRelaySendBatch(
     const rest = await charge(caller, items.length - 1, deps, now);
     if (!rest.allowed) return rest.response;
   }
+
+  const tierCap = await checkTierSendCap({
+    environmentId: caller.environmentId,
+    organizationId: caller.organizationId,
+    count: items.length,
+    now,
+    db,
+  });
+  if (!tierCap.allowed) return tierCapRefused(tierCap);
 
   const gate = allowanceGate(deps, db);
   const allowance = await gate.canSend({
@@ -541,6 +570,7 @@ export async function handleRelaySendBatch(
           undefined,
         ),
         at: now,
+        source: "relay",
         db,
       });
     }
@@ -739,6 +769,7 @@ async function sendFailureResponse(
         status: "paused",
         reason: pauseReason(error.kind, error.detail ?? error.message),
         at: now,
+        source: "relay",
         db,
       }),
     );
@@ -851,6 +882,27 @@ function invalidRequest(error: z.ZodError): Response {
     },
     { "cache-control": "no-store" },
   );
+}
+
+/**
+ * The tier cap's refusal (PRD 08 EARS 5).
+ *
+ * 403 rather than the allowance's 402 or the burst limiter's 429, and the
+ * distinction is what a caller does next: 402 says pay, 429 says retry in a
+ * moment, and this says neither is available — the cap lifts on a sending
+ * record or on a human review, and nothing the caller does in the next minute
+ * changes it. The message travels verbatim so a journey records a real
+ * sentence.
+ */
+function tierCapRefused(refusal: TierCapRefusal): Response {
+  return json(403, {
+    error: refusal.reason,
+    message: tierCapMessage(refusal),
+    tier: refusal.tier,
+    limit: refusal.limit,
+    used: refusal.used,
+    window: refusal.window,
+  });
 }
 
 function allowanceRefused(

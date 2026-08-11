@@ -1,7 +1,7 @@
-import { and, eq, inArray, sql, sum } from "drizzle-orm";
+import { and, count, eq, gte, inArray, sql, sum } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
-import { organizations, usageCounters } from "../db/schema";
+import { emailDailySends, organizations, usageCounters } from "../db/schema";
 import {
   type AllowanceCommit,
   type AllowanceGate,
@@ -74,6 +74,81 @@ export async function recordRelayEmails(
         updatedAt: at,
       },
     });
+
+  // THE SAME sends, counted by day, for the `new` tier's daily cap (PRD 08).
+  // Written from here rather than from the relay so the two counters can never
+  // describe different populations — a cap judged against a number the billing
+  // meter disagrees with would be indefensible in an appeal.
+  await database
+    .insert(emailDailySends)
+    .values({
+      environmentId: input.environmentId,
+      day: usageDay(at),
+      count: input.count,
+    })
+    .onConflictDoUpdate({
+      target: [emailDailySends.environmentId, emailDailySends.day],
+      set: {
+        count: sql`${emailDailySends.count} + ${input.count}`,
+        updatedAt: at,
+      },
+    });
+}
+
+/** The UTC calendar day, `YYYY-MM-DD` — the daily counter's arbiter. */
+export function usageDay(at: Date): string {
+  return at.toISOString().slice(0, 10);
+}
+
+/** Relay sends for one environment on one UTC day. The `new` tier's number. */
+export async function readRelayEmailsForDay(
+  input: { environmentId: string; at: Date },
+  database: CloudDb = defaultDb,
+): Promise<number> {
+  const [row] = await database
+    .select({ count: emailDailySends.count })
+    .from(emailDailySends)
+    .where(
+      and(
+        eq(emailDailySends.environmentId, input.environmentId),
+        eq(emailDailySends.day, usageDay(input.at)),
+      ),
+    )
+    .limit(1);
+  return row?.count ?? 0;
+}
+
+/**
+ * How many distinct UTC days this environment has sent on since `since`, and
+ * how many messages in total — the volume-and-window half of the `established`
+ * criteria, in one query.
+ *
+ * Days on which the counter reached zero are excluded: a row written and then
+ * fully refunded is not a day of sending. In practice the meter never writes a
+ * zero (`recordRelayEmails` returns early), so this is a statement of the rule
+ * rather than a filter that fires.
+ */
+export async function readRelaySendingWindow(
+  input: { environmentId: string; since: Date },
+  database: CloudDb = defaultDb,
+): Promise<{ sendingDays: number; sent: number }> {
+  const [row] = await database
+    .select({
+      sendingDays: count(emailDailySends.id),
+      sent: sum(emailDailySends.count),
+    })
+    .from(emailDailySends)
+    .where(
+      and(
+        eq(emailDailySends.environmentId, input.environmentId),
+        gte(emailDailySends.day, usageDay(input.since)),
+        sql`${emailDailySends.count} > 0`,
+      ),
+    );
+  return {
+    sendingDays: Number(row?.sendingDays ?? 0),
+    sent: Number(row?.sent ?? 0),
+  };
 }
 
 /** Relay sends for one organization over the named months. */

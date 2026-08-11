@@ -6,7 +6,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { cloud, timestamps } from "./_shared";
-import { cloudRegionEnum, sesReputationPolicyEnum } from "./enums";
+import {
+  cloudRegionEnum,
+  emailTrustTierEnum,
+  sesReputationPolicyEnum,
+} from "./enums";
 import { environments } from "./environments";
 
 /**
@@ -60,6 +64,25 @@ export const sesTenants = cloud.table(
     reputationPolicy: sesReputationPolicyEnum("reputation_policy")
       .default("NONE")
       .notNull(),
+    /**
+     * The trust tier this tenancy sits in (PRD 08, AUP §5.2).
+     *
+     * **On this table rather than on `environments`, deliberately.** PRD 08
+     * task 2 says "the tier column on the environment", and the environment is
+     * indeed what a tier describes — but the tier's entire output is the two
+     * facts already recorded here (the reputation policy, and the cap that
+     * bounds the tenancy), an environment with no SES tenancy has no tier to
+     * hold, and DECISIONS §3.1 is explicit that a tenancy fact hung off
+     * `environments` turns "is this environment on Hogsend Email" into a
+     * question about NULLs. Keeping `trust_tier` beside `reputation_policy`
+     * means the two values that MUST agree cannot be written by two different
+     * statements.
+     *
+     * A row's absence therefore reads as `new` everywhere the tier is
+     * consulted — the most restrictive tier, which is the safe direction for an
+     * abuse control and is also the tier a provision would have written.
+     */
+    trustTier: emailTrustTierEnum("trust_tier").default("new").notNull(),
     /**
      * The HMAC secret the control plane signs instance webhook deliveries with
      * (PRD 05) and `plugin-hogsend.verifyWebhook` checks. AES-256-GCM under

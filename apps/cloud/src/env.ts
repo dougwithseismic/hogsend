@@ -368,6 +368,17 @@ export const env = createEnv({
     // there is no expected one.
     CLOUD_SES_SNS_TOPIC_ARN_US: z.string().min(1).optional(),
     CLOUD_SES_SNS_TOPIC_ARN_EU: z.string().min(1).optional(),
+    // The shared secret the EventBridge API destination's connection sends on
+    // every SES reputation event (PRD 08). ONE secret, not one per region: a
+    // reputation event names its own tenant and the tenant resolves to the
+    // region, so there is nothing regional for the credential to separate.
+    //
+    // OPTIONAL, and absence is NOT a permissive default: the ingress refuses
+    // EVERY event when it has no secret to authenticate them against. An
+    // endpoint that accepted anything until somebody remembered to configure it
+    // would be a stop-any-tenant button on the public internet for exactly as
+    // long as that took. NEVER logged.
+    CLOUD_SES_EVENTBRIDGE_SECRET: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

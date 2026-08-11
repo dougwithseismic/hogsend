@@ -1,8 +1,11 @@
 import { eq } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
-import { emailSendingStatus } from "../db/schema";
-import type { emailSendingStatusEnum } from "../db/schema/enums";
+import { emailPauseHistory, emailSendingStatus } from "../db/schema";
+import type {
+  emailPauseSourceEnum,
+  emailSendingStatusEnum,
+} from "../db/schema/enums";
 
 /**
  * The control plane's mirror of "may this environment send email at all".
@@ -30,11 +33,25 @@ export function blocksSending(status: EmailSendingStatusValue): boolean {
   return blocking.includes(status);
 }
 
+export type EmailPauseSource = (typeof emailPauseSourceEnum.enumValues)[number];
+
 export interface EmailSendingStatusRecord {
   status: EmailSendingStatusValue;
   reason: string | null;
   /** When it last entered a blocking status; null while it is sending. */
   pausedAt: Date | null;
+}
+
+export interface EmailSendingStatusWrite extends EmailSendingStatusRecord {
+  /**
+   * Did this write actually MOVE the status?
+   *
+   * The suspension notice is keyed on it for every writer that has no event id
+   * to key on (the reputation sweep, an operator stop): a re-asserted pause is
+   * not a new pause event, and mailing a customer again about a suspension they
+   * already know about is the one thing a notice must never do.
+   */
+  changed: boolean;
 }
 
 /** The answer for an environment with no row: never stopped. */
@@ -77,18 +94,40 @@ export async function readEmailSendingStatus(input: {
  * disagree with the status it describes: entering a blocking status stamps it,
  * leaving one clears it. `at` is injected so a mirror repair can record WHEN
  * AWS said so rather than when we noticed.
+ *
+ * **It also appends the pause history (PRD 08).** Deliberately here rather than
+ * in each caller: this is the ONE choke point every status transition passes
+ * through — EventBridge, the relay repairing the mirror at the wire, the
+ * reputation sweep, an operator — so a history assembled anywhere else would be
+ * missing whichever writer was added last. A row is appended only when the
+ * status actually MOVES, because history is a list of transitions and a
+ * re-asserted pause is not one.
+ *
+ * The read-then-write is not transactional, and the benign race it admits is a
+ * duplicate history row for two concurrent writers of the SAME transition. The
+ * alternative — locking a row that may not exist yet — would put a lock on the
+ * relay's hot path to protect a log.
  */
 export async function recordEmailSendingStatus(input: {
   environmentId: string;
   status: EmailSendingStatusValue;
   reason?: string | null;
   at?: Date;
+  /** Who decided. Defaults to `operator`; the relay passes `relay`. */
+  source?: EmailPauseSource;
+  /** The EventBridge event behind it, when there was one. */
+  eventId?: string | null;
   db?: CloudDb;
-}): Promise<EmailSendingStatusRecord> {
+}): Promise<EmailSendingStatusWrite> {
   const db = input.db ?? defaultDb;
   const at = input.at ?? new Date();
   const reason = input.reason ?? null;
   const pausedAt = blocksSending(input.status) ? at : null;
+
+  const before = await readEmailSendingStatus({
+    environmentId: input.environmentId,
+    db,
+  });
 
   const [row] = await db
     .insert(emailSendingStatus)
@@ -108,5 +147,17 @@ export async function recordEmailSendingStatus(input: {
       pausedAt: emailSendingStatus.pausedAt,
     });
 
-  return row ?? { status: input.status, reason, pausedAt };
+  const changed = before.status !== input.status;
+  if (changed) {
+    await db.insert(emailPauseHistory).values({
+      environmentId: input.environmentId,
+      status: input.status,
+      reason,
+      source: input.source ?? "operator",
+      eventId: input.eventId ?? null,
+      at,
+    });
+  }
+
+  return { ...(row ?? { status: input.status, reason, pausedAt }), changed };
 }
