@@ -16,6 +16,7 @@ import {
   HogsendRelayPausedError,
 } from "./errors.js";
 import {
+  assertHogsendRelayFresh,
   HOGSEND_RELAY_SIGNATURE_HEADER,
   parseHogsendRelayWebhook,
   verifyHogsendRelaySignature,
@@ -46,8 +47,26 @@ export interface HogsendEmailConfig {
   tenantToken: string;
   /** HMAC secret for status webhooks. Unset ⇒ every webhook is REJECTED. */
   webhookSecret?: string;
+  /**
+   * How old a signed webhook payload may be before it is refused as a possible
+   * replay. Defaults to {@link HOGSEND_RELAY_MAX_AGE_MS} (24 hours).
+   *
+   * Read that constant's note before shortening this. The window is hours
+   * rather than minutes because `occurredAt` is when the EVENT happened, and an
+   * SES `DeliveryDelay` legitimately precedes its own notification by a long
+   * way — a tight window drops real bounces, which is worse than a replay the
+   * engine already dedupes.
+   */
+  webhookMaxAgeMs?: number;
+  /**
+   * How far ahead of this instance's clock a payload's timestamp may sit.
+   * Defaults to {@link HOGSEND_RELAY_MAX_FUTURE_MS} (5 minutes).
+   */
+  webhookMaxFutureMs?: number;
   /** Override fetch (tests). */
   fetch?: typeof fetch;
+  /** Override the clock the replay window is measured against (tests). */
+  now?: () => number;
   /** Override the sink for the one-shot capability warning (tests). */
   logger?: { warn: (message: string) => void };
 }
@@ -396,6 +415,14 @@ export function createHogsendEmailProvider(
      * FAIL CLOSED. No configured secret means every webhook is rejected and the
      * payload is never parsed — an unauthenticated status update must not be
      * able to mark a contact bounced.
+     *
+     * The order is load-bearing: **signature → parse → timestamp.** A value
+     * read out of a payload whose signature has not been checked is a value an
+     * attacker chose, so freshness is decided last, on bytes that have already
+     * proved they came from the relay. The timestamp itself needs no header of
+     * its own — `occurredAt` is inside the signed body, so the HMAC already
+     * binds it and a second copy in a header would be one more thing to keep in
+     * sync for no gain.
      */
     verifyWebhook(opts: {
       payload: string;
@@ -428,7 +455,20 @@ export function createHogsendEmailProvider(
         );
       }
 
-      return parseHogsendRelayWebhook(opts.payload);
+      const event = parseHogsendRelayWebhook(opts.payload);
+      // Bounds the replay window in BOTH directions. See
+      // `HOGSEND_RELAY_MAX_AGE_MS` for why the past limit is hours.
+      assertHogsendRelayFresh({
+        occurredAt: event.occurredAt,
+        ...(cfg.now ? { now: cfg.now() } : {}),
+        ...(cfg.webhookMaxAgeMs !== undefined
+          ? { maxAgeMs: cfg.webhookMaxAgeMs }
+          : {}),
+        ...(cfg.webhookMaxFutureMs !== undefined
+          ? { maxFutureMs: cfg.webhookMaxFutureMs }
+          : {}),
+      });
+      return event;
     },
 
     parseWebhook(payload: string): EmailEvent {

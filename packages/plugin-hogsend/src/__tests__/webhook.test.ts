@@ -1,25 +1,41 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertHogsendRelayFresh,
   classifyHogsendRelayBounce,
   createHogsendEmailProvider,
   HOGSEND_RELAY_EMAIL_EVENT_TYPES,
   HOGSEND_RELAY_EVENT_VERSION,
+  HOGSEND_RELAY_MAX_AGE_MS,
+  HOGSEND_RELAY_MAX_FUTURE_MS,
   HOGSEND_RELAY_SIGNATURE_HEADER,
+  type HogsendEmailConfig,
   type HogsendRelayEmailEvent,
   hogsendRelayEmailEventSchema,
   parseHogsendRelayWebhook,
   signHogsendRelayWebhook,
+  verifyHogsendRelaySignature,
 } from "../index.js";
 
 const SECRET = "whsec_hogsend_relay";
+
+/**
+ * RELATIVE to now, deliberately.
+ *
+ * `verifyWebhook` refuses a payload older than the configured skew, so a
+ * hardcoded timestamp would silently become "stale" the day wall-clock time
+ * passed it and turn this whole file red on a date rather than on a
+ * regression. The freshness suite at the bottom pins the boundaries with an
+ * injected clock instead.
+ */
+const OCCURRED_AT = new Date(Date.now() - 60_000).toISOString();
 
 const DELIVERED: HogsendRelayEmailEvent = {
   version: HOGSEND_RELAY_EVENT_VERSION,
   type: "email.delivered",
   messageId: "0100018f-ses-message-id",
   recipients: ["user@example.com"],
-  occurredAt: "2026-08-10T09:30:00.000Z",
+  occurredAt: OCCURRED_AT,
   raw: { notificationType: "Delivery" },
 };
 
@@ -36,12 +52,16 @@ function signed(event: unknown, secret = SECRET) {
   };
 }
 
-function provider(webhookSecret?: string) {
+function provider(
+  webhookSecret?: string,
+  overrides: Partial<HogsendEmailConfig> = {},
+) {
   return createHogsendEmailProvider({
     relayUrl: "https://cloud.hogsend.com",
     tenantToken: "hsrel_token",
     ...(webhookSecret ? { webhookSecret } : {}),
     fetch: vi.fn() as unknown as typeof fetch,
+    ...overrides,
   });
 }
 
@@ -204,7 +224,7 @@ describe("verifyWebhook fails closed", () => {
     expect(event.type).toBe("email.delivered");
     expect(event.messageId).toBe("0100018f-ses-message-id");
     expect(event.recipients).toEqual(["user@example.com"]);
-    expect(event.occurredAt).toBe("2026-08-10T09:30:00.000Z");
+    expect(event.occurredAt).toBe(OCCURRED_AT);
     expect(event.raw).toEqual(DELIVERED);
   });
 
@@ -265,7 +285,7 @@ describe("parseHogsendRelayWebhook → core EmailEvent", () => {
       type: "email.delivered",
       messageId: "0100018f-ses-message-id",
       recipients: ["user@example.com"],
-      occurredAt: "2026-08-10T09:30:00.000Z",
+      occurredAt: OCCURRED_AT,
       raw: DELIVERED,
     });
     expect(event.bounce).toBeUndefined();
@@ -367,5 +387,145 @@ describe("classifyHogsendRelayBounce", () => {
   it("is case-insensitive on the SES bounce type", () => {
     expect(classifyHogsendRelayBounce("permanent")).toBe("permanent");
     expect(classifyHogsendRelayBounce("TRANSIENT")).toBe("transient");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Replay window — the timestamp is INSIDE the signed body, so it is bound by
+// the HMAC and an attacker cannot move it. What it bounds is how long a
+// CAPTURED payload stays replayable.
+// ---------------------------------------------------------------------------
+
+const NOW = Date.parse("2026-08-11T12:00:00.000Z");
+
+/** A signed relay event whose `occurredAt` sits `ms` before {@link NOW}. */
+function aged(ms: number) {
+  return signed({
+    ...DELIVERED,
+    occurredAt: new Date(NOW - ms).toISOString(),
+  });
+}
+
+function freshnessProvider(overrides: Partial<HogsendEmailConfig> = {}) {
+  return provider(SECRET, { now: () => NOW, ...overrides });
+}
+
+describe("verifyWebhook rejects a stale payload", () => {
+  it("defaults to a 24-hour window", () => {
+    // HOURS, not minutes. See the note on HOGSEND_RELAY_MAX_AGE_MS: an SES
+    // DeliveryDelay can legitimately arrive long after the instant it
+    // describes, and a tight window turns that into a SILENTLY DROPPED bounce
+    // — which is worse than a replay, because a replayed event is one the
+    // engine already dedupes while a dropped one means suppression never
+    // happens at all.
+    expect(HOGSEND_RELAY_MAX_AGE_MS).toBe(24 * 60 * 60 * 1000);
+    expect(HOGSEND_RELAY_MAX_FUTURE_MS).toBe(5 * 60 * 1000);
+  });
+
+  it("accepts a payload just INSIDE the window", async () => {
+    const p = freshnessProvider();
+    const event = await verify(p, aged(HOGSEND_RELAY_MAX_AGE_MS - 1_000));
+    expect(event.type).toBe("email.delivered");
+  });
+
+  it("accepts a payload exactly AT the window edge", async () => {
+    const p = freshnessProvider();
+    await expect(
+      verify(p, aged(HOGSEND_RELAY_MAX_AGE_MS)),
+    ).resolves.toBeDefined();
+  });
+
+  it("rejects a payload just OUTSIDE the window", async () => {
+    const p = freshnessProvider();
+    await expect(
+      verify(p, aged(HOGSEND_RELAY_MAX_AGE_MS + 1_000)),
+    ).rejects.toThrow(/too old/i);
+  });
+
+  it("rejects a week-old captured payload even though its signature is valid", async () => {
+    // THE attack this closes: a payload captured off the wire replays forever
+    // while the environment's webhook secret is unchanged, and every replay
+    // re-runs the engine's bounce counter toward suppression.
+    const p = freshnessProvider();
+    const week = aged(7 * 24 * 60 * 60 * 1000);
+    // The signature itself is still perfectly good — freshness is the only
+    // thing refusing it.
+    expect(
+      verifyHogsendRelaySignature({
+        payload: week.payload,
+        secret: SECRET,
+        signature: week.headers[HOGSEND_RELAY_SIGNATURE_HEADER] as string,
+      }),
+    ).toBe(true);
+    await expect(verify(p, week)).rejects.toThrow(/too old/i);
+  });
+
+  it("honours a configured window", async () => {
+    const p = freshnessProvider({ webhookMaxAgeMs: 60_000 });
+    await expect(verify(p, aged(30_000))).resolves.toBeDefined();
+    await expect(verify(p, aged(90_000))).rejects.toThrow(/too old/i);
+  });
+
+  it("rejects a timestamp far in the FUTURE", async () => {
+    // Not because an attacker can forge one — the HMAC prevents that — but
+    // because a clock bug on OUR side would mint a payload that stays
+    // replayable effectively forever.
+    const p = freshnessProvider();
+    await expect(
+      verify(p, aged(-(HOGSEND_RELAY_MAX_FUTURE_MS + 60_000))),
+    ).rejects.toThrow(/future/i);
+  });
+
+  it("tolerates a small clock skew ahead", async () => {
+    const p = freshnessProvider();
+    await expect(
+      verify(p, aged(-(HOGSEND_RELAY_MAX_FUTURE_MS - 1_000))),
+    ).resolves.toBeDefined();
+  });
+
+  it("checks the signature BEFORE it reads the timestamp", async () => {
+    // Never trust a value out of a payload whose signature has not been
+    // checked. A stale payload with a BAD signature must be refused as a
+    // signature failure, not as a stale one.
+    const p = freshnessProvider();
+    const stale = aged(7 * 24 * 60 * 60 * 1000);
+    await expect(
+      verify(p, {
+        payload: stale.payload,
+        headers: { [HOGSEND_RELAY_SIGNATURE_HEADER]: "sha256=deadbeef" },
+      }),
+    ).rejects.toThrow(/signature/i);
+  });
+
+  it("leaves parseWebhook alone — it is the unverified path", async () => {
+    // `parseWebhook` exists for a caller that verified elsewhere. Freshness is
+    // an ANTI-REPLAY control, and a replay is only meaningful for a payload
+    // that authenticated, so the check belongs with verification.
+    const p = freshnessProvider();
+    const week = aged(7 * 24 * 60 * 60 * 1000);
+    expect(p.parseWebhook(week.payload).type).toBe("email.delivered");
+  });
+});
+
+describe("assertHogsendRelayFresh", () => {
+  it("fails CLOSED on a timestamp it cannot parse", () => {
+    // The schema's `.datetime()` is the first line and would normally catch
+    // this; the guard is here so the two cannot drift into a gap where an
+    // unparseable timestamp means "no timestamp, allow".
+    expect(() =>
+      assertHogsendRelayFresh({ occurredAt: "yesterday", now: NOW }),
+    ).toThrow(/could not be read/i);
+    expect(() => assertHogsendRelayFresh({ occurredAt: "", now: NOW })).toThrow(
+      /could not be read/i,
+    );
+  });
+
+  it("says how old the payload was, so an operator can widen the window", () => {
+    expect(() =>
+      assertHogsendRelayFresh({
+        occurredAt: new Date(NOW - 50 * 60 * 60 * 1000).toISOString(),
+        now: NOW,
+      }),
+    ).toThrow(/50h/);
   });
 });

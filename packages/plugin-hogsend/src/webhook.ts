@@ -134,6 +134,97 @@ export function verifyHogsendRelaySignature(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Freshness — the replay window
+// ---------------------------------------------------------------------------
+
+/**
+ * How old a signed payload may be. **Twenty-four hours, and the unit is not a
+ * typo.**
+ *
+ * The timestamp this bounds is `occurredAt`, which is already INSIDE the signed
+ * body — so it is covered by the HMAC and an attacker cannot move it. What this
+ * bounds is how long a payload CAPTURED off the wire stays replayable while the
+ * environment's webhook secret is unchanged. Without it, forever.
+ *
+ * **Do not "tighten" this to five minutes.** `occurredAt` is when the EVENT
+ * happened, not when the relay sent it, and an SES `DeliveryDelay` describes an
+ * instant that can precede its own notification by a long way. Between the two
+ * sit SES's emission, SNS's delivery and its own multi-day retry policy, the
+ * control plane's bounded retry, and this instance's availability. A minutes-
+ * scale window turns every one of those into a SILENTLY DROPPED bounce.
+ *
+ * And the asymmetry decides it: a replayed event is one the engine already
+ * dedupes, while a dropped one means suppression never happens at all — which
+ * is the exact failure the whole event-ingress path exists to prevent. Hours is
+ * the cautious choice here, not the lax one.
+ */
+export const HOGSEND_RELAY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How far AHEAD of our clock a payload's timestamp may sit.
+ *
+ * Not an attacker control — the HMAC already stops anyone forging a timestamp.
+ * This catches OUR OWN mistake: a clock bug on the relay (or a timezone
+ * arithmetic slip) that stamped an event a year into the future would mint a
+ * payload that stays inside the age window, and therefore replayable, for a
+ * year. Five minutes leaves room for ordinary NTP drift between two hosts.
+ */
+export const HOGSEND_RELAY_MAX_FUTURE_MS = 5 * 60 * 1000;
+
+/** Whole hours and minutes, so an operator can size the window from the error. */
+function describeAge(ms: number): string {
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.round((ms % 3_600_000) / 60_000);
+  return hours > 0 ? `${hours}h${minutes}m` : `${minutes}m`;
+}
+
+/**
+ * Refuse a relay payload whose timestamp is outside the replay window.
+ *
+ * FAILS CLOSED on a timestamp it cannot read. The schema's `.datetime()` is the
+ * first line and would normally catch that, and this is deliberately a second:
+ * a gap between the two must never resolve to "no timestamp, so allow".
+ *
+ * Exported so the window is testable — and auditable — on its own, rather than
+ * only through a provider.
+ */
+export function assertHogsendRelayFresh(opts: {
+  occurredAt: string;
+  now?: number;
+  maxAgeMs?: number;
+  maxFutureMs?: number;
+}): void {
+  const at = Date.parse(opts.occurredAt);
+  if (Number.isNaN(at)) {
+    throw new Error(
+      `Hogsend relay webhook: the payload timestamp could not be read (${JSON.stringify(
+        opts.occurredAt,
+      )}).`,
+    );
+  }
+
+  const now = opts.now ?? Date.now();
+  const maxAgeMs = opts.maxAgeMs ?? HOGSEND_RELAY_MAX_AGE_MS;
+  const maxFutureMs = opts.maxFutureMs ?? HOGSEND_RELAY_MAX_FUTURE_MS;
+  const age = now - at;
+
+  if (age > maxAgeMs) {
+    throw new Error(
+      `Hogsend relay webhook: the payload is too old (${describeAge(
+        age,
+      )}, limit ${describeAge(maxAgeMs)}) — refusing it as a possible replay.`,
+    );
+  }
+  if (-age > maxFutureMs) {
+    throw new Error(
+      `Hogsend relay webhook: the payload timestamp is ${describeAge(
+        -age,
+      )} in the future — refusing it.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Normalization into the provider-neutral EmailEvent
 // ---------------------------------------------------------------------------
 

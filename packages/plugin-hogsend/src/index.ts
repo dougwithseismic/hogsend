@@ -15,9 +15,12 @@ export {
 } from "./provider.js";
 // The relay webhook wire — owned HERE, produced by the control plane.
 export {
+  assertHogsendRelayFresh,
   classifyHogsendRelayBounce,
   HOGSEND_RELAY_EMAIL_EVENT_TYPES,
   HOGSEND_RELAY_EVENT_VERSION,
+  HOGSEND_RELAY_MAX_AGE_MS,
+  HOGSEND_RELAY_MAX_FUTURE_MS,
   HOGSEND_RELAY_SIGNATURE_HEADER,
   type HogsendRelayEmailEvent,
   type HogsendRelayEmailEventType,
