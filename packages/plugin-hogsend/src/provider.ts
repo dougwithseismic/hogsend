@@ -323,6 +323,14 @@ export function createHogsendEmailProvider(
       // The relay signs every webhook; this provider fails closed without the
       // secret.
       signedWebhooks: true,
+      // This transport CONSUMES `Idempotency-Key`: `toRelayMessage` lifts the
+      // header off `options.headers` and onto the relay REQUEST, so it never
+      // reaches the delivered message. Declaring it is what invites the engine
+      // to hand over its replay-stable key — the same key `email_sends` dedups
+      // on, and the only thing that can guard a crash replay (the relay's own
+      // fallback hashes message bytes, which differ on every attempt because
+      // `prepareTrackedHtml` mints fresh tracked-link ids).
+      consumesIdempotencyKey: true,
     },
     /**
      * PRESENCE IS THE GATE. Attaching this is what lights up the engine's

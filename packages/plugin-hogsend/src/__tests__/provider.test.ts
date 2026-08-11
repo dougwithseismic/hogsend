@@ -103,7 +103,19 @@ describe("identity + capabilities", () => {
       nativeTracking: false,
       scheduledSend: false,
       signedWebhooks: true,
+      consumesIdempotencyKey: true,
     });
+  });
+
+  it("DECLARES `consumesIdempotencyKey` — the engine reads only the flag", () => {
+    // This is what makes the engine thread its replay-stable key onto this
+    // wire, and it is safe ONLY because `send`/`sendBatch` lift the header off
+    // `options.headers` onto the relay REQUEST (see `toRelayMessage`), so it
+    // never reaches the delivered message. Dropping this line silently disables
+    // replay protection: the relay would fall back to hashing message bytes,
+    // which change on every attempt because `prepareTrackedHtml` mints fresh
+    // link ids — so a journey replayed after a worker crash sends twice.
+    expect(provider.capabilities?.consumesIdempotencyKey).toBe(true);
   });
 
   it("HAS a `domains` member — presence is the gate PRD 07 opened", () => {

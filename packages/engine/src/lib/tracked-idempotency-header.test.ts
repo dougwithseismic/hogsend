@@ -3,6 +3,7 @@ import test from "node:test";
 import type {
   EmailEvent,
   EmailProvider,
+  EmailProviderCapabilities,
   SendEmailOptions,
 } from "@hogsend/core";
 import { EmailAction, type TemplateRegistry } from "@hogsend/email";
@@ -94,16 +95,29 @@ function makeFakeDb() {
 }
 
 /**
- * A fake provider that only records what it was handed. Defaults to the
- * `hogsend` id because that is the one transport whose wire CONSUMES the
- * `Idempotency-Key` header (providerConsumesIdempotencyKey) — pass a
- * header-forwarding id (`resend`, `postmark`) to pin the negative posture.
+ * A fake provider that only records what it was handed.
+ *
+ * `capabilities` is what decides whether the wire gets the key, NEVER the id —
+ * so the fake takes the two independently and every test states both. The
+ * default is the consuming posture (`consumesIdempotencyKey: true`); pass
+ * `capabilities: {}` to model a header-forwarding transport (Resend, Postmark)
+ * that must never be handed an internal key.
  */
-function makeFakeProvider(id = "hogsend") {
+function makeFakeProvider(
+  over: { id?: string; capabilities?: EmailProviderCapabilities } = {},
+) {
+  const id = over.id ?? "hogsend";
+  // `in`, not a destructuring default: an EXPLICIT `capabilities: undefined`
+  // models the pre-registry provider shape (the field is optional on the
+  // contract) and must NOT silently fall back to the consuming default.
+  const capabilities =
+    "capabilities" in over
+      ? over.capabilities
+      : { consumesIdempotencyKey: true };
   const sends: SendEmailOptions[] = [];
   const provider = {
     meta: { id, name: "Fake" },
-    capabilities: {},
+    capabilities,
     send: async (options: SendEmailOptions) => {
       sends.push(options);
       return { id: "msg_fake_1" };
@@ -203,33 +217,72 @@ test("PRD 10 T4b: the derived replay-stable key reaches provider.send as Idempot
   assert.equal(sends[0]?.headers?.["X-Campaign"], "spring");
 });
 
-test("a header-forwarding provider (resend) NEVER receives the auto-threaded key", async () => {
-  // Resend and Postmark forward `SendEmailOptions.headers` verbatim onto the
-  // DELIVERED message, so threading the engine's key to them would stamp
-  // internal identifiers — Hatchet run ids + wait labels on journey sends, the
-  // recipient's own address on campaign sends — onto every outbound email of
-  // every existing deploy. The gate strips the key from the WIRE only: the
-  // `email_sends` row still records it, so the DB dedup layer is intact.
+for (const id of ["resend", "postmark"]) {
+  test(`a header-forwarding provider (${id}) NEVER receives the auto-threaded key`, async () => {
+    // Resend and Postmark forward `SendEmailOptions.headers` verbatim onto the
+    // DELIVERED message, so threading the engine's key to them would stamp
+    // internal identifiers — Hatchet run ids + wait labels on journey sends, the
+    // recipient's own address on campaign sends — onto every outbound email of
+    // every existing deploy. Neither declares `consumesIdempotencyKey`, and
+    // ABSENCE IS NOT CONSENT: the gate strips the key from the WIRE only, so the
+    // `email_sends` row still records it and the DB dedup layer is intact.
+    const { db, inserted } = makeFakeDb();
+    const { provider, sends } = makeFakeProvider({ id, capabilities: {} });
+    const { boundary } = createRecordingBoundary({
+      runAnchor: "run-abc",
+      currentLabel: "wait-for-activation",
+    });
+
+    await runWithJourneyBoundary(boundary, () =>
+      sendTrackedEmail({
+        db,
+        provider,
+        registry,
+        options: baseOptions({ headers: { "X-Campaign": "spring" } }),
+      }),
+    );
+
+    assert.equal(sends.length, 1);
+    assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), undefined);
+    // Layer 2 is unconditional: the row carries the derived key even though the
+    // wire does not.
+    assert.equal(
+      inserted[0]?.idempotencyKey,
+      deriveJourneyKey({
+        kind: "send",
+        anchor: "run-abc",
+        site: "wait-for-activation",
+        discriminant: "welcome",
+      }),
+    );
+    // Caller headers still travel untouched.
+    assert.equal(sends[0]?.headers?.["X-Campaign"], "spring");
+  });
+}
+
+test("a provider NAMED `hogsend` that does not DECLARE the capability gets NO key", async () => {
+  // The point of the whole PRD. The gate used to say yes to `meta.id ===
+  // "hogsend"`, which meant one first-party package got a behaviour no third
+  // party could opt into by writing correct code — and, worse, that a
+  // regression where the package STOPS declaring the capability would be
+  // invisible. The id is now inert: only the declaration speaks.
   const { db, inserted } = makeFakeDb();
-  const { provider, sends } = makeFakeProvider("resend");
+  const { provider, sends } = makeFakeProvider({
+    id: "hogsend",
+    capabilities: { nativeTracking: false, signedWebhooks: true },
+  });
   const { boundary } = createRecordingBoundary({
     runAnchor: "run-abc",
     currentLabel: "wait-for-activation",
   });
 
   await runWithJourneyBoundary(boundary, () =>
-    sendTrackedEmail({
-      db,
-      provider,
-      registry,
-      options: baseOptions({ headers: { "X-Campaign": "spring" } }),
-    }),
+    sendTrackedEmail({ db, provider, registry, options: baseOptions() }),
   );
 
   assert.equal(sends.length, 1);
   assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), undefined);
-  // Layer 2 is unconditional: the row carries the derived key even though the
-  // wire does not.
+  // Layer 2 is untouched by the gate either way.
   assert.equal(
     inserted[0]?.idempotencyKey,
     deriveJourneyKey({
@@ -239,16 +292,86 @@ test("a header-forwarding provider (resend) NEVER receives the auto-threaded key
       discriminant: "welcome",
     }),
   );
-  // Caller headers still travel untouched.
-  assert.equal(sends[0]?.headers?.["X-Campaign"], "spring");
+});
+
+test("a NON-`hogsend` provider that DECLARES the capability DOES get the key", async () => {
+  // The other half of the point: a third-party transport whose wire consumes
+  // the header opts in by DECLARATION alone. No engine change, no name check,
+  // no cast — it writes `consumesIdempotencyKey: true` and the key arrives.
+  const { db, inserted } = makeFakeDb();
+  const { provider, sends } = makeFakeProvider({
+    id: "acme-relay",
+    capabilities: { consumesIdempotencyKey: true },
+  });
+  const { boundary } = createRecordingBoundary({
+    runAnchor: "run-abc",
+    currentLabel: "wait-for-activation",
+  });
+
+  await runWithJourneyBoundary(boundary, () =>
+    sendTrackedEmail({ db, provider, registry, options: baseOptions() }),
+  );
+
+  const expected = deriveJourneyKey({
+    kind: "send",
+    anchor: "run-abc",
+    site: "wait-for-activation",
+    discriminant: "welcome",
+  });
+  assert.equal(sends.length, 1);
+  assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), expected);
+  assert.equal(inserted[0]?.idempotencyKey, expected);
+});
+
+test("`consumesIdempotencyKey: false` is a NO, exactly like omitting it", async () => {
+  const { db } = makeFakeDb();
+  const { provider, sends } = makeFakeProvider({
+    id: "acme-relay",
+    capabilities: { consumesIdempotencyKey: false },
+  });
+  const { boundary } = createRecordingBoundary({
+    runAnchor: "run-abc",
+    currentLabel: "wait-for-activation",
+  });
+
+  await runWithJourneyBoundary(boundary, () =>
+    sendTrackedEmail({ db, provider, registry, options: baseOptions() }),
+  );
+
+  assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), undefined);
+});
+
+test("a provider with NO `capabilities` at all gets no key (absence is not consent)", async () => {
+  // The pre-registry provider shape: `capabilities` is optional on the
+  // contract, so the gate has to read through an absent object without
+  // throwing and without defaulting to yes.
+  const { db } = makeFakeDb();
+  const { provider, sends } = makeFakeProvider({
+    id: "hogsend",
+    capabilities: undefined,
+  });
+  const { boundary } = createRecordingBoundary({
+    runAnchor: "run-abc",
+    currentLabel: "wait-for-activation",
+  });
+
+  await runWithJourneyBoundary(boundary, () =>
+    sendTrackedEmail({ db, provider, registry, options: baseOptions() }),
+  );
+
+  assert.equal(headerValue(sends[0]?.headers, "Idempotency-Key"), undefined);
 });
 
 test("an EXPLICIT caller Idempotency-Key header passes through to any provider", async () => {
   // Pre-threading behavior, preserved: a header the caller placed in
   // `options.headers` themselves is a deliberate choice, not the engine's —
-  // the gate never strips it, even for a header-forwarding provider.
+  // the gate never strips it, even for a header-forwarding provider that
+  // declares nothing.
   const { db } = makeFakeDb();
-  const { provider, sends } = makeFakeProvider("resend");
+  const { provider, sends } = makeFakeProvider({
+    id: "resend",
+    capabilities: {},
+  });
 
   await sendTrackedEmail({
     db,

@@ -11,6 +11,19 @@ import type { env as envSchema } from "../env.js";
 // guarded dynamic import of @hogsend/plugin-hogsend fires at module scope.
 process.env.HOGSEND_EMAIL_TOKEN = "hsrel_preset_test_token";
 
+// `lib/tracked.ts` (the home of the capability gate) validates the engine's env
+// contract at module scope, so these must be in place before it is imported.
+// Nothing here dials anything: the gate is a pure read of `provider.capabilities`.
+process.env.NODE_ENV ??= "test";
+process.env.LOG_LEVEL ??= "error";
+process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test";
+process.env.BETTER_AUTH_SECRET ??=
+  "test-secret-for-node-test-minimum-32-characters-long";
+process.env.HATCHET_CLIENT_TOKEN ??=
+  "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QifQ.eyJhdWQiOiJsb2NhbGhvc3QiLCJleHAiOjQ5MzMyNDA5ODMsImdycGNfYnJvYWRjYXN0X2FkZHJlc3MiOiJsb2NhbGhvc3Q6NzA3NyIsImlhdCI6MTc3OTY0MDk4MywiaXNzIjoibG9jYWxob3N0Iiwic2VydmVyX3VybCI6ImxvY2FsaG9zdCIsInN1YiI6InRlc3QtdGVuYW50LWlkIiwidG9rZW5faWQiOiJ0ZXN0LXRva2VuLWlkIn0.test";
+
+const { providerConsumesIdempotencyKey } = await import("./tracked.js");
+
 const RELAY = "https://cloud.example.com";
 
 async function preset(over: Record<string, string | undefined> = {}) {
@@ -38,6 +51,25 @@ test("HOGSEND_EMAIL_TOKEN set → the env preset registers the `hogsend` provide
   assert.equal(hogsend.capabilities?.nativeTracking, false);
   assert.equal(hogsend.capabilities?.scheduledSend, false);
   assert.equal(hogsend.capabilities?.signedWebhooks, true);
+  // The relay lifts `Idempotency-Key` off the message onto the relay REQUEST, so
+  // this transport is the one that may be handed the engine's internal key. It
+  // says so by DECLARING it — the engine no longer infers it from the id.
+  assert.equal(hogsend.capabilities?.consumesIdempotencyKey, true);
+  assert.equal(providerConsumesIdempotencyKey(hogsend), true);
+});
+
+test("the REAL resend provider declares no such capability → wire unchanged", async () => {
+  // The non-breaking-change claim, asserted rather than assumed. Resend forwards
+  // `SendEmailOptions.headers` verbatim onto the delivered message, so if this
+  // ever flipped, every existing self-hosted deploy would start stamping Hatchet
+  // run ids — and, on campaign sends, the recipient's own address — onto real
+  // customer mail on nothing more than an engine upgrade.
+  const providers = await preset({ RESEND_API_KEY: "re_test_key" });
+  const resend = providers.find((p) => p.meta?.id === "resend");
+
+  assert.ok(resend, "expected a provider with meta.id === 'resend'");
+  assert.equal(resend.capabilities?.consumesIdempotencyKey, undefined);
+  assert.equal(providerConsumesIdempotencyKey(resend), false);
 });
 
 test("the preset REGISTERS the provider; it does not make it active", async () => {

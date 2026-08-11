@@ -1,4 +1,4 @@
-import type { EmailProvider, EmailProviderCapabilities } from "@hogsend/core";
+import type { EmailProvider } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { emailSends } from "@hogsend/db";
 import type {
@@ -63,35 +63,29 @@ const IDEMPOTENCY_HEADER = "Idempotency-Key";
  * Does the ACTIVE provider's TRANSPORT consume the `Idempotency-Key` header —
  * lifting it off the message before anything reaches a recipient?
  *
- * The engine only volunteers its replay-stable key to a transport that reads
- * it. Resend and Postmark forward `SendEmailOptions.headers` VERBATIM onto the
- * delivered message (Resend `headers`, Postmark `Headers`), so threading the
- * key to them would stamp internal keys — which embed Hatchet run ids and wait
- * labels (`journeySend:<runId>:<site>:<template>`) and, for campaign sends, the
- * recipient's own address (`campaign:<id>:<email>`) — onto every outbound
- * email: a silent wire change for every existing deploy, which the PRD's
- * "byte-for-byte unchanged without the new env vars" criterion forbids.
+ * THE RULE: a provider gets the engine's replay-stable key if and only if it
+ * DECLARES `capabilities.consumesIdempotencyKey: true`. Nothing else qualifies
+ * it — not its id, not its package. A third party opts in the same way the
+ * first-party relay does, by writing the declaration.
  *
- * `@hogsend/plugin-hogsend` is the transport BUILT to consume it (it moves the
- * header onto the relay request and never onto the message), so it is gated in
- * by id. A third-party provider whose transport is likewise idempotent can opt
- * in with `consumesIdempotencyKey: true` in its `capabilities` — read
- * defensively here until that is promoted to a declared
- * `EmailProviderCapabilities` flag (core follow-up).
+ * Absence is NOT consent, and the default is the whole safety story. Resend and
+ * Postmark forward `SendEmailOptions.headers` VERBATIM onto the delivered
+ * message (Resend `headers`, Postmark `Headers`), so volunteering the key to a
+ * provider that never asked would stamp internal keys — which embed Hatchet run
+ * ids and wait labels (`journeySend:<runId>:<site>:<template>`) and, for
+ * campaign sends, the recipient's own address (`campaign:<id>:<email>`) — onto
+ * real customer mail, silently, on nothing more than an engine upgrade. So an
+ * absent or `false` flag means the delivered headers are byte-for-byte what
+ * they were before any of this existed.
  *
  * An `Idempotency-Key` the CALLER placed in `options.headers` themselves is
- * untouched by this gate: explicit headers pass through exactly as they did
- * before the key threading existed.
+ * untouched by this gate: explicit headers pass through regardless of what the
+ * provider declares, exactly as they did before the key threading existed.
  */
 export function providerConsumesIdempotencyKey(
   provider: EmailProvider,
 ): boolean {
-  const caps = provider.capabilities as
-    | (EmailProviderCapabilities & { consumesIdempotencyKey?: boolean })
-    | undefined;
-  return (
-    caps?.consumesIdempotencyKey === true || provider.meta?.id === "hogsend"
-  );
+  return provider.capabilities?.consumesIdempotencyKey === true;
 }
 
 /**

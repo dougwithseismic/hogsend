@@ -268,6 +268,33 @@ export interface EmailProviderCapabilities {
    * provider must fail-closed on its own (Postmark basic-auth).
    */
   signedWebhooks?: boolean;
+  /**
+   * Does this transport CONSUME an `Idempotency-Key` header — lift it off
+   * `SendEmailOptions.headers` and onto its own request — rather than forward
+   * it onto the delivered message?
+   *
+   * **DANGER. A provider that forwards `headers` verbatim MUST NOT set this.**
+   * Resend (`headers`) and Postmark (`Headers`) both do, so setting it there
+   * would stamp the engine's INTERNAL keys onto real customer mail: those keys
+   * embed Hatchet run ids and journey wait labels
+   * (`journeySend:<runId>:<site>:<template>`) and, on campaign sends, the
+   * RECIPIENT'S OWN EMAIL ADDRESS (`campaign:<id>:<email>`). The failure is
+   * silent — nothing errors, the mail just goes out carrying it — which is why
+   * it is opt-in by explicit declaration and never inferred.
+   *
+   * Absent or `false` ⇒ the engine never volunteers the key; the delivered
+   * message's headers are byte-for-byte what they were before this flag
+   * existed. Absence is NOT consent. Only declare it if you have checked what
+   * your `send` does with `options.headers`.
+   *
+   * Declaring it buys real replay protection: the engine hands over the same
+   * replay-stable key the `email_sends` unique index dedups on, so a transport
+   * that would otherwise have to hash the message bytes (which change on every
+   * attempt — `prepareTrackedHtml` mints fresh tracked-link ids per send) can
+   * guard a crash replay properly. An `Idempotency-Key` the CALLER put in
+   * `options.headers` is passed through untouched either way.
+   */
+  consumesIdempotencyKey?: boolean;
 }
 
 // ---------------------------------------------------------------------------
