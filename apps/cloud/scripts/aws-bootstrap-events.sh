@@ -20,7 +20,13 @@
 #      — scoped by `AWS:SourceAccount`, so another AWS account cannot aim its
 #      SES events at our topic.
 #   3. An INLINE policy on the relay user granting subscribe/unsubscribe on
-#      those two topics plus two read-only SES account verbs.
+#      those two topics, two read-only SES account verbs, and — separately and
+#      additively — the SES **v1** receipt-rule verbs plus the S3 read and SNS
+#      subscribe that inbound receiving needs (PRD 16).
+#
+# It deliberately does NOT create the inbound bucket or the inbound topic. See
+# "The three INBOUND statements" below for why, and for the resource policies
+# those two will need when they are created.
 #
 # Step 3 is inline and separately named rather than a new version of the managed
 # `HogsendEmailRelay` policy. That is deliberate: the managed policy is the
@@ -45,6 +51,15 @@ RELAY_USER="${RELAY_USER:-hogsend-cloud-relay}"
 INLINE_POLICY_NAME="${INLINE_POLICY_NAME:-HogsendEmailRelayEvents}"
 REGIONS=("us-east-1" "eu-west-1")
 DRY_RUN="${DRY_RUN:-}"
+
+# Inbound (PRD 16). Names only — this script does NOT create the bucket or the
+# inbound topic, it only grants the relay user access to them. An IAM grant
+# naming a resource that does not exist yet is inert and reversible; creating an
+# S3 bucket that will hold customers' inbound mail is a decision that belongs
+# with the provisioning that uses it, not with a one-shot bootstrap.
+INBOUND_TOPIC_NAME="${INBOUND_TOPIC_NAME:-hogsend-ses-inbound}"
+INBOUND_BUCKET="${INBOUND_BUCKET:-hogsend-ses-inbound}"
+INBOUND_PREFIX="${INBOUND_PREFIX:-inbound/}"
 
 export AWS_PAGER=""
 
@@ -160,6 +175,64 @@ done
 # ses:GetAccount and ses:ListEmailIdentities are read-only and were missing from
 # the original 20. Their absence is why the account's sandbox status and quota
 # cannot be read by our own tooling today.
+#
+# ## The three INBOUND statements (PRD 16)
+#
+# Separate statements, deliberately. The existing two are the audited artefact
+# behind the outbound event pipeline; widening either of them to cover receiving
+# would make one grant answer for two features with different blast radii.
+#
+# `SesInboundReceiptRules` grants exactly the nine v1 operations behind the
+# eight-verb `SesInboundClient` seam (src/ses/inbound). Note NINE for eight
+# verbs: `putRule` is a create-or-update, so it needs both `ses:CreateReceiptRule`
+# and `ses:UpdateReceiptRule` — the same shape `putEventDestination` has above.
+# Every receipt-rule verb is SES **v1**; the v2 API has no email receiving at all.
+#
+# `Resource: "*"` with a region condition matches the standard the managed
+# `HogsendEmailRelay` policy already sets and states its reasons for. We could
+# NOT confirm whether these actions accept a resource-level ARN: AWS's Service
+# Authorization Reference page for SES is client-rendered and would not load,
+# and the only receipt-rule ARN we found in AWS's own docs
+# (`arn:aws:ses:<region>:<account>:receipt-rule-set/<set>:receipt-rule/<rule>`)
+# appears there as an `AWS:SourceArn` CONDITION value on resource policies, which
+# is a different thing. The region condition is the tight scoping we can state
+# honestly; narrowing further is a follow-up once that page can be read.
+#
+# `SesInboundMessageRead` is s3:GetObject and nothing more. The relay READS the
+# stored MIME; it never writes it. SES writes it, as a service principal, under
+# a bucket policy (below). No s3:DeleteObject either — retention is a lifecycle
+# rule on the bucket, not a credential the control plane carries.
+#
+# `SesInboundTopicSubscriptions` mirrors the events grant exactly, including
+# naming each topic TWICE for the Unsubscribe/SubscriptionArn reason given above.
+#
+# ## What is NOT here, and belongs with the resources instead
+#
+# SES itself needs permission to WRITE to the bucket and PUBLISH to the topic.
+# Those are RESOURCE policies on the bucket and the topic, not grants on this
+# user, so they are created with those resources (PRD 16 task 3). AWS's own
+# documented form, for the record, so the next person does not have to re-derive
+# it — note it is scoped by BOTH SourceAccount and the receipt-rule SourceArn,
+# which is tighter than the AWS:SourceAccount-only standard the events topic
+# above uses:
+#
+#   {
+#     "Sid": "AllowSESPuts",
+#     "Effect": "Allow",
+#     "Principal": { "Service": "ses.amazonaws.com" },
+#     "Action": "s3:PutObject",
+#     "Resource": "arn:aws:s3:::<bucket>/*",
+#     "Condition": { "StringEquals": {
+#       "AWS:SourceAccount": "<account>",
+#       "AWS:SourceArn": "arn:aws:ses:<region>:<account>:receipt-rule-set/<set>:receipt-rule/<rule>"
+#     }}
+#   }
+#
+# A same-account SNS topic needs no such statement per AWS's docs, which give the
+# publish policy only for "an Amazon SNS topic that belongs to a different AWS
+# account" — but the inbound topic will carry one anyway, matching the events
+# topic's AWS:SourceAccount scoping, because an unscoped topic is one leaked ARN
+# away from a stranger injecting messages into our receive pipeline.
 # ---------------------------------------------------------------------------
 echo "=== relay user grant ==="
 
@@ -191,6 +264,49 @@ inline_policy="$(cat <<EOF
         "ses:ListEmailIdentities"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "SesInboundReceiptRules",
+      "Effect": "Allow",
+      "Action": [
+        "ses:CreateReceiptRuleSet",
+        "ses:DescribeReceiptRuleSet",
+        "ses:DeleteReceiptRuleSet",
+        "ses:DescribeActiveReceiptRuleSet",
+        "ses:SetActiveReceiptRuleSet",
+        "ses:CreateReceiptRule",
+        "ses:UpdateReceiptRule",
+        "ses:DescribeReceiptRule",
+        "ses:DeleteReceiptRule"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": ["us-east-1", "eu-west-1"]
+        }
+      }
+    },
+    {
+      "Sid": "SesInboundMessageRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${INBOUND_BUCKET}/${INBOUND_PREFIX}*"
+    },
+    {
+      "Sid": "SesInboundTopicSubscriptions",
+      "Effect": "Allow",
+      "Action": [
+        "sns:Subscribe",
+        "sns:Unsubscribe",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": [
+        "arn:aws:sns:us-east-1:${ACCOUNT_ID}:${INBOUND_TOPIC_NAME}",
+        "arn:aws:sns:eu-west-1:${ACCOUNT_ID}:${INBOUND_TOPIC_NAME}",
+        "arn:aws:sns:us-east-1:${ACCOUNT_ID}:${INBOUND_TOPIC_NAME}:*",
+        "arn:aws:sns:eu-west-1:${ACCOUNT_ID}:${INBOUND_TOPIC_NAME}:*"
+      ]
     }
   ]
 }
@@ -211,3 +327,10 @@ echo "Add these to apps/cloud/.env.local:"
 echo
 echo "CLOUD_SES_SNS_TOPIC_ARN_US=${TOPIC_ARNS[0]}"
 echo "CLOUD_SES_SNS_TOPIC_ARN_EU=${TOPIC_ARNS[1]}"
+echo
+echo "Inbound (PRD 16): the relay user is now GRANTED against these names, but"
+echo "neither resource is created yet — that is PRD 16 task 3's job, together"
+echo "with the SES-service bucket and topic policies documented in this script."
+echo
+echo "  bucket: ${INBOUND_BUCKET} (prefix ${INBOUND_PREFIX})"
+echo "  topic:  ${INBOUND_TOPIC_NAME} in each of ${REGIONS[*]}"

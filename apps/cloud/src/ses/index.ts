@@ -76,7 +76,7 @@ export function getSesClient(region: SubstrateRegion): SesClient {
   const cached = clients.get(region);
   if (cached) return cached;
 
-  const credentials = readCredentials();
+  const credentials = readSesCredentials();
   const client: SesClient = credentials
     ? new AwsSesClient({ region, credentials })
     : new FakeSesClient({ region });
@@ -115,8 +115,14 @@ export function resetSesClients(): void {
  * EXACTLY ONE is a misconfiguration and fails LOUDLY (DECISIONS §7.1): silently
  * degrading to the Fake in production would mean a control plane reporting
  * provisioned tenants and delivered email that never existed.
+ *
+ * EXPORTED because it is one of exactly two things the INBOUND seam
+ * (`ses/inbound`) shares with this one — the other being the
+ * `SubstrateRegion → SesRegion` mapping. A second copy of this gate would let a
+ * half-configured account run the real client on one seam and the Fake on the
+ * other, which is a state no error message would explain.
  */
-function readCredentials(): {
+export function readSesCredentials(): {
   accessKeyId: string;
   secretAccessKey: string;
 } | null {
