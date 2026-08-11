@@ -174,6 +174,49 @@ Three consequences that reshape the tasks below:
 This is the fifth time in this wave that reading the primary source before building changed the plan,
 and the second time it deleted an assumption the PRD had already written down as settled.
 
+## Task 3's architecture is DECIDED: one shared active rule set, domains packed into few rules
+
+The seam's build surfaced this as an open question framed as "rule-set-per-tenant caps a region at 40
+tenants". Settled 2026-08-11 against AWS's own quota table and the `ReceiptRule` API reference, and the
+framing was wrong in a way that makes the answer easy.
+
+**Every email-receiving quota is `Adjustable: No`** — 200 rules per set, 40 sets per account, 500
+recipients per rule, 10 actions per rule. Unlike sending, where the 24-hour volume, the send rate and
+the 10,000-tenant ceiling are all adjustable and identities are negotiable through an Account Manager,
+none of the receiving numbers can be raised. So the design has to live inside them.
+
+**But rule-set-per-tenant was never available.** Only ONE rule set is active per account per region,
+so the 40 is close to irrelevant: forty sets can exist and thirty-nine of them do nothing. A shared
+active set is not a compromise, it is the only shape.
+
+**And a rule matches DOMAINS, not just addresses.** From `API_ReceiptRule`, verbatim: *"The recipient
+domains and email addresses that the receipt rule applies to."* At 500 recipients per rule and 200
+rules per set:
+
+```
+1 active rule set × 200 rules × 500 recipient domains = 100,000 domains per region
+```
+
+Every tenant's `reply.<domain>` can share a rule, because every tenant shares the same ACTION — one S3
+bucket plus one SNS topic, with the control plane demultiplexing by recipient. A handful of rules
+carries thousands of customers, so task 3 packs domains into rules rather than minting a rule per
+tenant.
+
+**What binds first is not receiving at all.** Identity verification is 10,000 per region, and every
+sending domain already consumes one. That ceiling arrives long before any receipt-rule limit, and it
+is the one AWS explicitly negotiates.
+
+### The constraint that IS dangerous is shared fate, not a number
+
+Activating a rule set **silently deactivates whatever was active**, account-wide, across every tenant
+in the region. There is no per-tenant isolation here at all — this is the receiving twin of the
+cross-tenant suppression leak DECISIONS §3 exists to prevent.
+
+So the rule for task 3: **never blind-activate.** Read `getActiveRuleSet` first, adopt it if it is
+ours, and REFUSE if it is a set we do not own rather than displacing it. The live probe that settled
+the Fake's behaviours was written to that rule — it read the active set first and would have refused
+to continue had anything been active — and provisioning must hold the same line.
+
 ## Tasks
 
 1. ~~**Confirm from AWS's docs**: inbound region availability, the SNS payload size limit, and whether
