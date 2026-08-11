@@ -102,9 +102,20 @@ describe("identity + capabilities", () => {
     expect(provider.capabilities).toEqual({
       nativeTracking: false,
       scheduledSend: false,
+      attachments: true,
       signedWebhooks: true,
       consumesIdempotencyKey: true,
     });
+  });
+
+  it("DECLARES `attachments` — the flag is load-bearing consent", () => {
+    // The engine refuses to hand attachments to a provider that has not
+    // declared it can carry them: an absent flag means a send WITH files
+    // fails loudly instead of delivering the message without them (a receipt
+    // minus its invoice looks sent from every dashboard). Dropping this line
+    // turns every attachment send through this provider into that loud
+    // failure.
+    expect(provider.capabilities?.attachments).toBe(true);
   });
 
   it("DECLARES `consumesIdempotencyKey` — the engine reads only the flag", () => {
@@ -240,6 +251,215 @@ describe("HTML-only wire", () => {
   });
 });
 
+describe("attachments on the wire", () => {
+  it("pins the wire attachment shape FIELD BY FIELD — the relay is a hand-synced twin", async () => {
+    // `apps/cloud/src/lib/email-attachments.ts` (`WireEmailAttachment`) is the
+    // counterpart this shape must move with. plugin-hogsend and apps/cloud
+    // are separate packages with NO compile-time link — nothing but this test
+    // and the relay's strict zod schema holds the two shapes together, which
+    // is why every key and every type is pinned here exactly rather than
+    // matched loosely. A drift the relay tolerates would otherwise ship
+    // unnoticed until its schema tightens.
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send({
+      ...MESSAGE,
+      attachments: [
+        {
+          filename: "invoice.pdf",
+          content: new Uint8Array([1, 2, 3]),
+          contentType: "application/pdf",
+          disposition: "inline",
+          contentId: "inv-1",
+        },
+      ],
+    });
+
+    const posted = (
+      relay.calls[0]?.body.message?.attachments as Array<
+        Record<string, unknown>
+      >
+    )[0];
+    expect(posted).toBeDefined();
+    // Exact keys — nothing extra rides along, nothing is renamed.
+    expect(Object.keys(posted ?? {}).sort()).toEqual([
+      "content",
+      "contentId",
+      "contentType",
+      "disposition",
+      "filename",
+    ]);
+    // Exact types + values: content is a base64 STRING, always — JSON cannot
+    // carry raw bytes, so the wire has no bytes-vs-base64 discriminant.
+    expect(posted).toEqual({
+      filename: "invoice.pdf",
+      content: "AQID",
+      contentType: "application/pdf",
+      disposition: "inline",
+      contentId: "inv-1",
+    });
+    expect(typeof posted?.content).toBe("string");
+  });
+
+  it("posts a Uint8Array attachment as its base64 encoding", async () => {
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send({
+      ...MESSAGE,
+      attachments: [
+        {
+          filename: "hello.txt",
+          // "hello" as bytes → "aGVsbG8=" on the wire.
+          content: new Uint8Array([104, 101, 108, 108, 111]),
+        },
+      ],
+    });
+
+    const posted = (
+      relay.calls[0]?.body.message?.attachments as Array<
+        Record<string, unknown>
+      >
+    )[0];
+    expect(posted).toEqual({ filename: "hello.txt", content: "aGVsbG8=" });
+  });
+
+  it("passes a { base64 } attachment through VERBATIM, never re-encoded", async () => {
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+    // Unpadded on purpose: a decode → re-encode round-trip would come back
+    // padded ("aGVsbG8gd29ybGQ="), so byte equality here proves the string
+    // was never touched. The round-trip is not just wasted work on what can
+    // be a ~33 MB string — `Buffer.from(s, "base64")` silently drops
+    // characters it does not recognise, so re-encoding would launder invalid
+    // content into plausible bytes the relay's validity check can no longer
+    // refuse.
+    const unpadded = "aGVsbG8gd29ybGQ";
+
+    await provider.send({
+      ...MESSAGE,
+      attachments: [{ filename: "hello.txt", content: { base64: unpadded } }],
+    });
+
+    const posted = (
+      relay.calls[0]?.body.message?.attachments as Array<
+        Record<string, unknown>
+      >
+    )[0];
+    expect(posted?.content).toBe(unpadded);
+  });
+
+  it("omits absent optional attachment fields rather than sending undefined", async () => {
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send({
+      ...MESSAGE,
+      attachments: [{ filename: "a.bin", content: new Uint8Array([1]) }],
+    });
+
+    const posted = (
+      relay.calls[0]?.body.message?.attachments as Array<
+        Record<string, unknown>
+      >
+    )[0];
+    expect(Object.keys(posted ?? {}).sort()).toEqual(["content", "filename"]);
+  });
+
+  it("sends NO attachments key when there are none — absent or []", async () => {
+    // The attachment-free request body must stay byte-identical to what it
+    // was before attachments existed; an empty array must not become a
+    // schema-visible `"attachments":[]` on the wire.
+    const relay = stubRelay(
+      { body: { id: "ses_msg_1" } },
+      { body: { id: "ses_msg_2" } },
+    );
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send(MESSAGE);
+    await provider.send({ ...MESSAGE, attachments: [] });
+
+    for (const call of relay.calls) {
+      expect(call.body.message).not.toHaveProperty("attachments");
+      expect(call.rawBody).not.toContain("attachments");
+    }
+  });
+
+  it("sendBatch carries each item's OWN attachments", async () => {
+    const relay = stubRelay({
+      body: {
+        results: [
+          { status: "sent", id: "ses_a" },
+          { status: "sent", id: "ses_b" },
+        ],
+      },
+    });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.sendBatch([
+      {
+        from: "f@h.com",
+        to: "a@example.com",
+        subject: "s",
+        html: "<p>a</p>",
+        attachments: [
+          { filename: "a.txt", content: new Uint8Array([104, 105]) },
+        ],
+      },
+      { from: "f@h.com", to: "b@example.com", subject: "s", html: "<p>b</p>" },
+    ]);
+
+    const items = relay.calls[0]?.body.items ?? [];
+    expect(items[0]?.message.attachments).toEqual([
+      { filename: "a.txt", content: "aGk=" },
+    ]);
+    // The attachment-free item stays attachment-free — no cross-item bleed.
+    expect(items[1]?.message).not.toHaveProperty("attachments");
+  });
+
+  it("a caller-supplied Idempotency-Key still wins, verbatim, with attachments present", async () => {
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send({
+      ...MESSAGE,
+      headers: { "Idempotency-Key": "journeySend:run_9:invoice" },
+      attachments: [
+        { filename: "invoice.pdf", content: new Uint8Array([1, 2, 3]) },
+      ],
+    });
+
+    const call = relay.calls[0];
+    expect(call?.headers[HOGSEND_IDEMPOTENCY_HEADER]).toBe(
+      "journeySend:run_9:invoice",
+    );
+    // Still transport metadata, never a delivered SMTP header.
+    expect(call?.body.message).not.toHaveProperty("headers");
+  });
+});
+
 describe("idempotency key", () => {
   it("forwards a caller-supplied key as the Idempotency-Key header", async () => {
     const relay = stubRelay({ body: { id: "ses_msg_1" } });
@@ -329,6 +549,112 @@ describe("idempotency key", () => {
     );
     expect(keys[0]).toBe(keys[1]);
     expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  it("derives the EXACT key it always has for a no-attachment message", async () => {
+    // Hardcoded on purpose. The derived key is a LIVE dedup key — the relay
+    // remembers it for 7 days — so a release that shifts its value for the
+    // same bytes silently changes every existing customer's replay behaviour:
+    // an in-window replay stops deduping and sends twice. The attachment work
+    // rebuilt `derivedIdempotencyKey` around a digest projection; this pin is
+    // what proves a message with no attachments still hashes the message
+    // object itself, byte for byte. If this test fails, the fix is in the
+    // provider, not here.
+    const relay = stubRelay({ body: { id: "ses_msg_1" } });
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send(MESSAGE);
+
+    expect(relay.calls[0]?.headers[HOGSEND_IDEMPOTENCY_HEADER]).toBe(
+      "hs_auto_31bb79af6780405189db4dd3a8ff033e6e6ec45660f4622da2c97289d8e1fdd3",
+    );
+  });
+
+  it("derives the same key for a replay carrying the same attachment bytes", async () => {
+    const relay = stubRelay(
+      { body: { id: "ses_msg_1" } },
+      { body: { id: "ses_msg_1" } },
+    );
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+    const attached = () => ({
+      ...MESSAGE,
+      attachments: [
+        { filename: "report.bin", content: new Uint8Array([1, 2, 3, 4]) },
+      ],
+    });
+
+    await provider.send(attached());
+    await provider.send(attached());
+
+    const keys = relay.calls.map(
+      (c) => c.headers[HOGSEND_IDEMPOTENCY_HEADER] ?? "",
+    );
+    expect(keys[0]).toBeTruthy();
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("derives DIFFERENT keys for different bytes behind the same filename and size", async () => {
+    // THE anti-collision assertion — written deliberately. A key derived from
+    // filename + size alone would make these two sends ONE: the relay would
+    // answer the second with the first's id and never deliver it, silently.
+    // The key's projection digests the attachment CONTENT, so two files that
+    // agree on every visible property still diverge.
+    const relay = stubRelay(
+      { body: { id: "ses_msg_1" } },
+      { body: { id: "ses_msg_2" } },
+    );
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send({
+      ...MESSAGE,
+      attachments: [
+        { filename: "report.bin", content: new Uint8Array([1, 2, 3, 4]) },
+      ],
+    });
+    await provider.send({
+      ...MESSAGE,
+      attachments: [
+        { filename: "report.bin", content: new Uint8Array([4, 3, 2, 1]) },
+      ],
+    });
+
+    const keys = relay.calls.map(
+      (c) => c.headers[HOGSEND_IDEMPOTENCY_HEADER] ?? "",
+    );
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBeTruthy();
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("differs from the no-attachment key when an attachment is present", async () => {
+    const relay = stubRelay(
+      { body: { id: "ses_msg_1" } },
+      { body: { id: "ses_msg_2" } },
+    );
+    const provider = createHogsendEmailProvider({
+      ...CONFIG,
+      fetch: relay.fetch,
+    });
+
+    await provider.send(MESSAGE);
+    await provider.send({
+      ...MESSAGE,
+      attachments: [{ filename: "a.txt", content: new Uint8Array([104]) }],
+    });
+
+    const keys = relay.calls.map(
+      (c) => c.headers[HOGSEND_IDEMPOTENCY_HEADER] ?? "",
+    );
+    expect(keys[0]).not.toBe(keys[1]);
   });
 });
 

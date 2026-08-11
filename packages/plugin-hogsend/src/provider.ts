@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   type BatchEmailItem,
   defineEmailProvider,
+  type EmailAttachment,
   type EmailEvent,
   type EmailProvider,
   normalizeRecipients,
@@ -72,6 +73,28 @@ export interface HogsendEmailConfig {
   logger?: { warn: (message: string) => void };
 }
 
+/**
+ * One attachment as the relay takes it: core's neutral shape with `content`
+ * as a base64 STRING, always. JSON cannot carry raw bytes, so the wire has no
+ * bytes-vs-base64 discriminant to get wrong — see {@link toRelayAttachment}
+ * for the translation from core's discriminated `EmailAttachment`.
+ *
+ * HAND-SYNCED counterpart: `apps/cloud/src/lib/email-attachments.ts`
+ * (`WireEmailAttachment`). The relay is a separate package with no
+ * compile-time link to this one, so no compiler proves the two shapes agree —
+ * only the relay's strict zod schema (a drift here surfaces as its 400) and
+ * the field-by-field pin in `provider.test.ts`. A change to either side must
+ * be made in both.
+ */
+interface RelayAttachment {
+  filename: string;
+  /** The file's bytes, base64-encoded. ALWAYS base64 — see the header note. */
+  content: string;
+  contentType?: string;
+  disposition?: "attachment" | "inline";
+  contentId?: string;
+}
+
 /** The relay's strict message body. Every field is built, never spread. */
 interface RelayMessage {
   from: string;
@@ -84,12 +107,44 @@ interface RelayMessage {
   text?: string;
   headers?: Record<string, string>;
   tags?: Array<{ name: string; value: string }>;
+  attachments?: RelayAttachment[];
 }
 
 /** Omit an empty recipient list rather than sending `[]`. */
 function list(v?: string | string[]): string[] | undefined {
   const values = normalizeRecipients(v);
   return values.length > 0 ? values : undefined;
+}
+
+/**
+ * Core's neutral attachment onto the relay wire.
+ *
+ * Raw bytes are base64-encoded here, because JSON is the wire. The `{ base64 }`
+ * leg passes through VERBATIM — never decoded and re-encoded. A round-trip
+ * would be pointless work on a string that can run ~33 MB, and it is also a
+ * chance to corrupt: `Buffer.from(s, "base64")` silently discards characters
+ * it does not recognise, so re-encoding launders invalid content into
+ * plausible bytes where the relay's own validity check would have refused the
+ * original loudly. Absent optional fields are OMITTED, never sent as
+ * `undefined` — the relay's schema is strict.
+ */
+function toRelayAttachment(attachment: EmailAttachment): RelayAttachment {
+  return {
+    filename: attachment.filename,
+    content:
+      attachment.content instanceof Uint8Array
+        ? Buffer.from(attachment.content).toString("base64")
+        : attachment.content.base64,
+    ...(attachment.contentType !== undefined
+      ? { contentType: attachment.contentType }
+      : {}),
+    ...(attachment.disposition !== undefined
+      ? { disposition: attachment.disposition }
+      : {}),
+    ...(attachment.contentId !== undefined
+      ? { contentId: attachment.contentId }
+      : {}),
+  };
 }
 
 /**
@@ -139,10 +194,43 @@ function takeIdempotencyKey(headers?: Record<string, string>): {
  *   back as one: the second returns the first's id and is never delivered.
  *   Untracked paths (`sendRaw`, tracking disabled) are the exposed surface —
  *   tracked sends always differ per send (the open pixel embeds the send id).
+ * - **Attachments enter the key by DIGEST, not by inclusion.** Stringifying a
+ *   message whose attachment runs ~33 MB of base64 would allocate the whole
+ *   thing as one string just to hash it, on every send — so the key is
+ *   derived from a projection where each attachment's `content` is replaced
+ *   by its own sha256: one pass over the bytes, bounded stringify. The digest
+ *   must cover the CONTENT, not merely the filename and size: a key blind to
+ *   the bytes would make two different files behind the same name and length
+ *   ONE key, and the relay would treat the second send as a replay of the
+ *   first and silently never deliver it — the same collapse the
+ *   truncation note below refuses. A message with no attachments hashes the
+ *   message object itself, so its key is byte-identical to what this
+ *   function derived before attachments existed (pinned in the tests).
  */
 function derivedIdempotencyKey(message: RelayMessage): string {
+  const { attachments, ...rest } = message;
+  const source = attachments
+    ? {
+        ...rest,
+        attachments: attachments.map((attachment) => ({
+          filename: attachment.filename,
+          ...(attachment.contentType !== undefined
+            ? { contentType: attachment.contentType }
+            : {}),
+          ...(attachment.disposition !== undefined
+            ? { disposition: attachment.disposition }
+            : {}),
+          ...(attachment.contentId !== undefined
+            ? { contentId: attachment.contentId }
+            : {}),
+          sha256: createHash("sha256")
+            .update(attachment.content, "utf8")
+            .digest("hex"),
+        })),
+      }
+    : message;
   const digest = createHash("sha256")
-    .update(JSON.stringify(message), "utf8")
+    .update(JSON.stringify(source), "utf8")
     .digest("hex");
   return `hs_auto_${digest}`;
 }
@@ -169,6 +257,11 @@ function toRelayMessage(options: SendEmailOptions | BatchEmailItem): {
     ...(list(options.replyTo) ? { replyTo: list(options.replyTo) } : {}),
     ...(rest ? { headers: rest } : {}),
     ...(options.tags?.length ? { tags: options.tags } : {}),
+    // Absent or `[]` ⇒ no `attachments` key at all: an attachment-free
+    // request body stays byte-identical to what it was before PRD 17.
+    ...(options.attachments?.length
+      ? { attachments: options.attachments.map(toRelayAttachment) }
+      : {}),
   };
 
   // A caller's key travels VERBATIM. Truncating it to the relay's 255-character
@@ -320,6 +413,13 @@ export function createHogsendEmailProvider(
       nativeTracking: false,
       // No scheduled send. `ctx.sleepUntil` is durable, visible, cancellable.
       scheduledSend: false,
+      // This wire CARRIES attachments: the relay accepts them and SES v2
+      // takes them as structured `Simple` content fields, so no MIME is
+      // assembled anywhere in the path. The flag is load-bearing consent —
+      // absent, the engine must fail an attachment send LOUDLY rather than
+      // deliver the message without its files, because a receipt that
+      // arrives minus its invoice looks sent from every dashboard.
+      attachments: true,
       // The relay signs every webhook; this provider fails closed without the
       // secret.
       signedWebhooks: true,
