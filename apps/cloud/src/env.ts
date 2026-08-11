@@ -368,6 +368,25 @@ export const env = createEnv({
     // there is no expected one.
     CLOUD_SES_SNS_TOPIC_ARN_US: z.string().min(1).optional(),
     CLOUD_SES_SNS_TOPIC_ARN_EU: z.string().min(1).optional(),
+    // Where SES puts an INBOUND message, and who it tells (PRD 16). The action
+    // on every receipt rule is S3 + SNS and never SNS alone: SES caps an
+    // SNS-published message at 150 KB and an S3 object at 40 MB, both
+    // "Adjustable: No", so an SNS-only design fails on any real reply carrying
+    // a phone photo while passing every hand-written test fixture.
+    //
+    // ONE bucket for every region, and a topic PER region. That split is AWS's,
+    // verbatim: "With the exception of Amazon S3 buckets, all of the AWS
+    // resources that you use for receiving email with SES have to be in the
+    // same AWS Region as the SES endpoint."
+    //
+    // OPTIONAL, and absence is a MODE: a control plane with no bucket simply
+    // cannot turn inbound on, which is the supported default — inbound is
+    // opt-in per domain and `Reply-To` needs none of it. HALF configured is
+    // treated as absent (`resolveInboundStore`), because a bucket with no topic
+    // stores a customer's reply where nothing is listening.
+    CLOUD_SES_INBOUND_BUCKET: z.string().min(1).optional(),
+    CLOUD_SES_INBOUND_TOPIC_ARN_US: z.string().min(1).optional(),
+    CLOUD_SES_INBOUND_TOPIC_ARN_EU: z.string().min(1).optional(),
     // The shared secret the EventBridge API destination's connection sends on
     // every SES reputation event (PRD 08). ONE secret, not one per region: a
     // reputation event names its own tenant and the tenant resolves to the

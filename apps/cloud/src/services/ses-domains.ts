@@ -131,7 +131,13 @@ export class NoSesTenancyError extends CloudServiceError {
   }
 }
 
-interface Tenancy {
+/**
+ * The three facts every per-domain operation needs. Exported because inbound
+ * receiving (`ses-inbound-domains.ts`) needs exactly the same ones, and two
+ * modules deriving "which region is this environment's SES in" independently is
+ * how a rule gets written in a region nothing else addresses.
+ */
+export interface Tenancy {
   organizationId: string;
   tenantName: string;
   tenantArn: string;
@@ -537,7 +543,7 @@ function identityArn(tenantArn: string, domain: string): string {
   return `arn:${partition}:${service}:${region}:${account}:identity/${domain}`;
 }
 
-async function loadTenancy(
+export async function loadTenancy(
   db: CloudDb,
   environmentId: string,
 ): Promise<Tenancy> {
