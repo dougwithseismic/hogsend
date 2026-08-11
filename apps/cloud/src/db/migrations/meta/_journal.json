@@ -169,6 +169,13 @@
       "when": 1786415951398,
       "tag": "0023_small_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786480374993,
+      "tag": "0024_colossal_inertia",
+      "breakpoints": true
     }
   ]
 }

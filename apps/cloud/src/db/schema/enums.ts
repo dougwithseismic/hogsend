@@ -65,6 +65,31 @@ export const emailEventStatusEnum = cloud.enum("cloud_email_event_status", [
 ]);
 
 /**
+ * What became of one RECEIVED message (`email_inbound_messages`, PRD 16).
+ *
+ * Deliberately its own type rather than a fifth value bolted onto
+ * {@link emailEventStatusEnum}: the two tables answer different questions, and
+ * `suppressed` — which only inbound has — is the one value that must never be
+ * confusable with `dropped`.
+ *
+ * `pending` — recorded, not yet handed to the instance. `delivered` — the
+ * instance accepted the `email.replied` event. `suppressed` — an auto-responder
+ * (`Auto-Submitted`, `Precedence: bulk`) or a message too large to parse: the
+ * message is STORED and referenced and no event is emitted, which is a success,
+ * not a failure. Emitting for an auto-responder is how a mail loop starts.
+ * `dropped` — TERMINAL and not a failure either: the envelope recipient
+ * resolved to no environment, so there was nobody to deliver to and
+ * broadcasting was never an option. `failed` — bounded retry exhausted.
+ */
+export const emailInboundStatusEnum = cloud.enum("cloud_email_inbound_status", [
+  "pending",
+  "delivered",
+  "suppressed",
+  "dropped",
+  "failed",
+]);
+
+/**
  * The reputation policy SES enforces for ONE tenant, mirrored on `ses_tenants`.
  *
  * `NONE` observes — findings are still recorded and still visible, they just do

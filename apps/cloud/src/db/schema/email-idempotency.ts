@@ -63,5 +63,16 @@ export const emailIdempotency = cloud.table(
       table.environmentId,
       table.createdAt,
     ),
+    // THE INBOUND CORRELATION'S access path (PRD 16 task 4). A received reply
+    // names the message id it answers, and the ONLY safe way to use that
+    // attacker-controlled string is to ask whether THIS environment sent it.
+    // That question runs once per reply against the busiest table the relay
+    // writes, so without this it is a sequential scan on the hot path — and
+    // leading with `environment_id` is what makes the tenant scope part of the
+    // index rather than a filter applied after the fact.
+    index("email_idempotency_environment_message_id_idx").on(
+      table.environmentId,
+      table.messageId,
+    ),
   ],
 );

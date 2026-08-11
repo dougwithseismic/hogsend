@@ -117,6 +117,88 @@ export async function deleteInboundConfig(
   });
 }
 
+/**
+ * THE TENANT BOUNDARY of the receive path: which environment does this envelope
+ * recipient belong to?
+ *
+ * The recipient is `<anything>@<label>.<domain>` and the pair we hold is
+ * (domain, label), so the derivation is exact rather than a guess:
+ * `assertInboundLabel` refuses a label containing a dot, so `<label>.<domain>`
+ * splits at the FIRST dot and nowhere else. `hello@reply.acme.com` can only
+ * ever mean label `reply`, domain `acme.com`.
+ *
+ * It is a SCAN over the environments that have inbound configured, and that is
+ * a deliberate trade rather than an oversight. The forwarding address is
+ * ciphertext (see this module's note), so there is nothing to index on; the row
+ * count is the number of environments that have opted INTO inbound, which is a
+ * small subset of a small subset; and a received reply is orders of magnitude
+ * rarer than a send. If that ever stops being true, the fix is a plaintext
+ * `(domain, label) -> environment` lookup table written alongside this payload -
+ * NOT a widening of what is stored in clear here.
+ *
+ * Returns `null` for a recipient nobody has enabled. That is an ordinary state
+ * of the world: SES matches a rule on a DOMAIN, so a message can legitimately
+ * arrive for a name whose config was deleted a moment earlier, and the caller
+ * records it rather than throwing.
+ */
+export interface InboundRecipientOwner {
+  environmentId: string;
+  /** The customer domain, e.g. `acme.com`. */
+  domain: string;
+  label: string;
+  forwardTo: string;
+}
+
+export async function findInboundRecipientOwner(
+  recipient: string,
+  deps: InboundConfigDeps = {},
+): Promise<InboundRecipientOwner | null> {
+  const at = recipient.lastIndexOf("@");
+  if (at < 0) return null;
+  const host = recipient
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
+
+  const dot = host.indexOf(".");
+  if (dot <= 0) return null;
+  const label = host.slice(0, dot);
+  const domain = host.slice(dot + 1);
+  // A base with no dot of its own is not a registrable domain, so the recipient
+  // was addressed at an apex we never publish for. Refuse rather than search.
+  if (!domain.includes(".")) return null;
+
+  const db = deps.db ?? defaultDb;
+  const rows = await db
+    .select({
+      environmentId: providerKeys.environmentId,
+      encryptedPayload: providerKeys.encryptedPayload,
+    })
+    .from(providerKeys)
+    .where(eq(providerKeys.provider, HOGSEND_INBOUND_PROVIDER));
+
+  for (const row of rows) {
+    let payload: Record<string, string>;
+    try {
+      payload = decryptSecretPayload<Record<string, string>>(
+        row.encryptedPayload,
+      );
+    } catch {
+      // One unreadable row (a rotated encryption secret, a hand edit) must not
+      // make every OTHER tenant's replies unattributable. Skip it and keep
+      // looking; the row is still visible to an operator.
+      continue;
+    }
+    const forwardTo = payload[payloadField(domain, "forward")];
+    if (!forwardTo) continue;
+    if ((payload[payloadField(domain, "label")] ?? INBOUND_SUBDOMAIN) !== label)
+      continue;
+    return { environmentId: row.environmentId, domain, label, forwardTo };
+  }
+
+  return null;
+}
+
 async function mutatePayload(
   db: CloudDb,
   environmentId: string,
