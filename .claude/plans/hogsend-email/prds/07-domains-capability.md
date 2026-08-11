@@ -65,10 +65,18 @@ write **with no new UI**. This PRD is an interface implementation, not a wizard 
 
 ## Tasks
 
-1. **Implement the identity verbs** already declared on PRD 02's contract — `createIdentity` (BYODKIM
-   signing attributes), `getIdentity`, `setMailFrom`, `deleteIdentity` — in both the AWS client and
-   the Fake, with the Fake modelling a verification state a test can advance explicitly.
-   _Boundary:_ `apps/cloud` · _Depends:_ none
+1. ~~**Implement the identity verbs.**~~ **ALREADY DONE — do not rebuild.** PRD 02 shipped all four
+   (`createIdentity` with BYODKIM signing attributes, `getIdentity`, `setMailFrom`, `deleteIdentity`)
+   in both the AWS client and the Fake, and the Fake already models a verification state a test
+   advances explicitly via `__verifyIdentity`. **`apps/cloud/src/ses/**` is settled and out of
+   bounds.**
+
+   What remains of this task is only to CONFIRM the existing verbs carry what this PRD needs (the
+   BYODKIM `SigningAttributes`, the `hogsend` selector, `DkimAttributes.Status` /
+   `SigningAttributesOrigin` / `SigningEnabled` on read, and the `USE_DEFAULT_MAIL_FROM` behaviour on
+   `setMailFrom`). If something genuinely is missing, STOP and report it rather than editing the
+   seam, since a twentieth verb is a decision that belongs in PRD 02.
+   _Boundary:_ none (verification only) · _Depends:_ none
 
 2. **Keypair generation and encrypted storage.** 2048-bit RSA via `node:crypto`, PEM-stripped and
    newline-stripped to the exact format SES requires for both the private key and the published
