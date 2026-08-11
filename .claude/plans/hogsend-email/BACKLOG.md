@@ -18,6 +18,21 @@ enumerated) · `[x]` done.
 | 09 | [Allowance and metered overage](prds/09-allowance-and-overage.md) | `[x]` | 03, 06 | Feed `usage_counters.emailsCount` from the relay, enforce the plan allowance as a hard cap, report overage to Stripe through the existing billing contract, reconcile. |
 | 10 | [Env preset and consumer wiring](prds/10-env-preset-and-wiring.md) | `[x]` | 04, 06 | `emailProvidersFromEnv` gains a `hogsend` preset behind the guarded dynamic import; provisioner injects the env; `create-hogsend` template and docs updated. The last mile that makes a fresh Cloud instance send with no `RESEND_API_KEY`. |
 
+## Wave 2 — verification and debt (queued 2026-08-11)
+
+Wave 1 shipped 433 tests over the email surface, **none of which have sent a byte to AWS**. Wave 2 is
+about closing the gap between "the suite is green" and "we know this works", plus the one design debt
+wave 1 knowingly took.
+
+| # | PRD | Status | Depends | Scope |
+| --- | --- | --- | --- | --- |
+| 11 | [Live SES contract walkthrough](prds/11-live-ses-contract-walkthrough.md) | `[ ]` | 02, 06, 07 | One human-run script that walks the real provisioning path against a real AWS account and diffs every answer against `FakeSesClient`. Runs in SES **sandbox**, so it is unblocked the day the account exists rather than after production access. The divergences are the deliverable. |
+| 12 | [Scaffold verify covers plugin-hogsend](prds/12-scaffold-verify-hogsend-plugin.md) | `[ ]` | 10 | Extend the scaffold smoke's step 7b to actually load `@hogsend/plugin-hogsend` under plain `node` and assert its factory export. Today the idiom is proven for `plugin-apollo` only, and it breaks per-package (#611). |
+| 13 | [Declare `consumesIdempotencyKey`](prds/13-consumes-idempotency-key-capability.md) | `[ ]` | 10 | Retire the `meta.id === "hogsend"` hardcode behind a declared `EmailProviderCapabilities` flag, so a third-party provider can opt into key threading by writing correct code rather than by being named right. |
+
+Order is by time-value, not dependency: 11 first because the AWS account is being created now and the
+script should be waiting when it lands.
+
 ## Build order rationale
 
 01 runs in parallel with everything because it is calendar time, not engineering time.
@@ -66,6 +81,6 @@ Populated during BUILD as each `[~]` lands. See DECISIONS §7 for the known ones
 | 01 | Create the `hogsend-email-prod` AWS account and the `hogsend-cloud-relay` IAM user. Policy JSON is written and every action name verified: `docs/ses-production-access-request.md` Appendix A. | open |
 | 01 | Submit the production-access request for BOTH `us-east-1` and `eu-west-1`. Text is written and ready to send. | open |
 | 01 | Approve the AUP and ToS copy. Each carries inline `Needs Doug` blocks at the specific open questions. | open |
-| 01 | Create `abuse@hogsend.com` as a real monitored mailbox, or decide it becomes `hello@hogsend.com`. It is cited in the AUP §6.6/§8.1 and in the AWS request. | open |
+| 01 | ~~Create `abuse@hogsend.com` as a real monitored mailbox.~~ **RESOLVED 2026-08-11.** It was never actually blocked: hogsend.com already had a Cloudflare Email Routing catch-all forwarding every address to `doug@withseismic.com`, so `abuse@` has been reachable the whole time. An explicit named rule (`abuse`, literal matcher, priority 10) was added so the address survives the catch-all ever being disabled or narrowed. | done |
 | 01 | Confirm the trust-tier and suspension constants proposed in PRD 08. They are already published to customers in the AUP §5, so the two move together. | open |
 </content>
