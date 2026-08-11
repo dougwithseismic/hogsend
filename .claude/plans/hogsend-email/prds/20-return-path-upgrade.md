@@ -107,3 +107,69 @@ records when it is on, is told what it buys and what it costs, is never told it 
 gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 across `374bce4b` (core → plugin → engine) and `cc4c2908` (Studio + CLI).
+check-types 53/53 · cloud 1570 · engine 162 · cli 380 · studio 16 (new) · build green.
+
+### The capability was already there; only the path to it was missing
+
+Worth stating plainly because it shaped the whole PRD: no SES behaviour was written here. `apps/cloud`
+already implemented `setReturnPath`, derived the MX + SPF records and validated the label (PRD 15),
+and `plugin-hogsend` already called it. What did not exist was a method on the neutral contract, a
+route, or a control. The feature was complete and unreachable.
+
+### Decisions worth keeping
+
+**`setReturnPath` is OPTIONAL on the core `DomainsCapability`, not a Hogsend extra.** A custom MAIL
+FROM is a standard ESP concept. Optional means absence is the gate, exactly like `verify`, and the
+router answers 501 through the pattern it already had. There are TWO unsupported cases — no `domains`
+at all, and `domains` without `setReturnPath` — and both 501 rather than throwing.
+
+**The plugin retyped rather than delegated.** Its bespoke method and the core one were already
+field-for-field identical, so delegation would have left two names for one wire and a permanent
+"which do I call?". The old name survives as a type alias so existing importers keep compiling.
+
+**The label regex is mirrored into core, and the parity test lives in `apps/cloud`.** Core cannot
+import from an app, so a second copy is unavoidable. The pin therefore has to sit where BOTH imports
+are legal, which is the control plane and nowhere else. It asserts source, flags AND that the two
+validators agree on behaviour for the same inputs — including that core answers `null` where the
+control plane throws. The first attempt asserted against a hardcoded string and was blind to exactly
+the drift it was named for; caught in review.
+
+**On/off is DERIVED from the reported records**, because the status wire carries no boolean — the
+engine reports MX + SPF only while the return path is on. `returnPathSupported` IS on the wire,
+computed engine-side from `typeof provider.domains?.setReturnPath === "function"`, and typed optional
+so an older engine that never sends it renders no control rather than white-screening Setup. That is
+PRD 15's skew lesson applied without being re-learned.
+
+### The copy, verbatim
+
+> Gmail stops showing "via amazonses.com" under your sender name, and SPF passes on your own domain.
+> Costs two more DNS records (MX and SPF).
+
+> Bounce traffic routes through a subdomain of your domain in place of the provider's own. Where your
+> incoming mail lands does not change.
+
+Benefit in the customer's terms, cost in the same breath, mechanism underneath. The second line
+answers the replies question without raising it — "in place of" was chosen over "replacing"
+deliberately, because a test on each surface asserts the substring `repl` cannot appear. That test is
+not pedantry: believing this feature delivers replies is the specific error PRD 20 exists to correct.
+
+### Verified by mutation, not by assertion count
+
+Ten mutations on the UI surfaces, ten kills. The one worth recording: mutating the default label to
+`notifications` was initially killed only by luck, because the default assertions referenced the
+constant rather than the literal `send` — a test that would have passed had the default changed. It
+was hardened to pin the literal and re-run. A self-referential assertion is the quiet form of a
+vacuous test.
+
+### Open, deliberately
+
+The benefit/mechanism copy is two hand-synced literals with cross-referencing comments and a `repl`
+test on each side, because the engine does not serve return-path copy the way it serves `guidance`.
+If drift ever bites, PRD 15's engine-owned-guidance pattern is the fix — an engine change, not a
+surface one.
+
+Studio had NO test infrastructure before this. It gained vitest with static server rendering rather
+than a DOM stack, so there is no click-through test; the enable/disable flow is pinned engine-side
+plus by the card's derivation units and the CLI's table test.
