@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AwsSesClient } from "../ses/aws";
 import { resolveSesRegion, SES_VERBS } from "../ses/contract";
-import { FAKE_SES_ID, FakeSesClient } from "../ses/fake";
+import { FAKE_SES_CLOCK, FAKE_SES_ID, FakeSesClient } from "../ses/fake";
 import type { SesMessage } from "../ses/types";
 import { SesError } from "../ses/types";
 
@@ -10,9 +10,11 @@ import { SesError } from "../ses/types";
  * its state machine is the thing under test here, not a convenience.
  *
  * Two properties are asserted relentlessly:
- *  1. DETERMINISM — no clock, no RNG. Two fresh instances driven with the same
- *     inputs produce byte-identical output, which is what lets a downstream
- *     suite assert an id rather than record a sample.
+ *  1. DETERMINISM — no wall-clock, no RNG. Two fresh instances driven with the
+ *     same inputs produce byte-identical output, which is what lets a
+ *     downstream suite assert an id rather than record a sample. The one
+ *     timestamp AWS makes the Fake report comes off a clock that is a FIXED
+ *     constant unless a test injects its own.
  *  2. REAL TRANSITIONS — an identity is unverified until something verifies it,
  *     a paused tenant refuses to send. A fake that answered "verified" on
  *     creation would let PRD 07 ship a domain flow that never waits.
@@ -451,7 +453,7 @@ describe("FakeSesClient sending", () => {
 });
 
 describe("FakeSesClient identities", () => {
-  it("creates an identity UNVERIFIED, and only an explicit step verifies it", async () => {
+  it("creates an identity NOT_STARTED, and only an explicit step verifies it", async () => {
     const client = fake();
 
     const created = await client.createIdentity({
@@ -460,10 +462,16 @@ describe("FakeSesClient identities", () => {
     });
 
     expect(created.verifiedForSending).toBe(false);
-    expect(created.verificationStatus).toBe("PENDING");
+    // `NOT_STARTED`, not `PENDING`, and this is AWS's observed answer rather
+    // than a preference: the first live run (2026-08-11) had SES return
+    // `NOT_STARTED` for both statuses on a freshly created identity, and the
+    // SESv2 API Reference documents it as "The DKIM verification process
+    // hasn't been initiated for the domain". The Fake said `PENDING`, so every
+    // test reading it was reading a state AWS never returns here.
+    expect(created.verificationStatus).toBe("NOT_STARTED");
     expect(created.dkim).toMatchObject({
       origin: "EXTERNAL",
-      status: "PENDING",
+      status: "NOT_STARTED",
       signingEnabled: true,
     });
 
@@ -474,9 +482,64 @@ describe("FakeSesClient identities", () => {
     expect(verified.dkim.status).toBe("SUCCESS");
   });
 
+  it("promotes NOT_STARTED to PENDING on the first read, as AWS does", async () => {
+    // The status is NOT static, and only the live run of 2026-08-11 showed it:
+    // `createIdentity` answered `NOT_STARTED` and `getIdentity` on the very
+    // next call answered `PENDING`, because SES begins the DNS lookup
+    // asynchronously as soon as the identity exists.
+    //
+    // This is the sequence every domain poller actually sees, so a Fake pinned
+    // at `NOT_STARTED` would teach those callers a state that exists for one
+    // call only. Pinned here because it is behaviour, not an implementation
+    // detail — if the promotion is ever removed, this goes red.
+    const client = fake();
+    const created = await client.createIdentity({
+      domain: DOMAIN,
+      dkim: { selector: "hogsend", privateKey: "PRIVATE" },
+    });
+    expect(created.verificationStatus).toBe("NOT_STARTED");
+    expect(created.dkim.status).toBe("NOT_STARTED");
+
+    const first = await client.getIdentity({ identity: DOMAIN });
+    expect(first.verificationStatus).toBe("PENDING");
+    expect(first.dkim.status).toBe("PENDING");
+
+    // Idempotent: it does not oscillate, and it never regresses a verified one.
+    const second = await client.getIdentity({ identity: DOMAIN });
+    expect(second.verificationStatus).toBe("PENDING");
+
+    client.__verifyIdentity(DOMAIN);
+    const verified = await client.getIdentity({ identity: DOMAIN });
+    expect(verified.verificationStatus).toBe("SUCCESS");
+    expect(verified.dkim.status).toBe("SUCCESS");
+  });
+
+  it("echoes the BYODKIM SELECTOR back as dkim.tokens, exactly as AWS does", async () => {
+    const client = fake();
+    const created = await client.createIdentity({
+      domain: DOMAIN,
+      dkim: { selector: "hogsend", privateKey: "PRIVATE" },
+    });
+
+    // AWS SESv2 API Reference, `DkimAttributes` → `Tokens`: "If you configured
+    // DKIM authentication for the domain by providing your own public-private
+    // key pair, then this object contains the selector for the public key."
+    // It is our own selector coming back, NOT an Easy DKIM CNAME token, so it
+    // implies NO second DNS record and the ONE TXT record claim is intact.
+    // AWS returned `["hogsend"]` live on 2026-08-11 where the Fake returned
+    // `[]`.
+    expect(created.dkim.tokens).toEqual(["hogsend"]);
+    expect(
+      (await client.getIdentity({ identity: DOMAIN })).dkim.tokens,
+    ).toEqual(["hogsend"]);
+  });
+
   it("marks Easy DKIM when no BYODKIM key is supplied", async () => {
     const created = await fake().createIdentity({ domain: DOMAIN });
     expect(created.dkim.origin).toBe("AWS_SES");
+    // The other origin, where tokens really ARE the CNAMEs a customer has to
+    // publish — three of them, which is the record count BYODKIM avoids.
+    expect(created.dkim.tokens).toHaveLength(3);
   });
 
   it("can be driven to a failed verification", async () => {
@@ -659,7 +722,30 @@ describe("FakeSesClient reputation", () => {
     ).rejects.toMatchObject({ kind: "not_found" });
   });
 
-  it("round-trips an operator pause through the reputation entity", async () => {
+  it("reports impact and the policy ARN BEFORE any customer write, as AWS does", async () => {
+    const client = await tenantFake();
+    const { arn } = await client.getTenant({ tenantName: TENANT });
+    await client.setReputationPolicy({ tenantName: TENANT, policy: "NONE" });
+
+    const entity = await client.getReputationEntity({ tenantName: TENANT });
+
+    // AWS returns BOTH of these on an untouched entity — observed live on
+    // 2026-08-11, where the Fake omitted them entirely. The policy travels as
+    // an AWS-owned ARN and `impact` is the entity's reputation impact, which
+    // is `NONE` on a healthy tenant.
+    expect(entity).toEqual({
+      reference: arn,
+      sendingStatus: "ENABLED",
+      policy: "NONE",
+      policyArn: "arn:aws:ses:us-east-1:aws:reputation-policy/none",
+      impact: "NONE",
+    });
+    // And STILL no customer-managed record: AWS omits it until a customer
+    // write exists, and PRD 08's enforcement branches on that absence.
+    expect(entity.customerManagedStatus).toBeUndefined();
+  });
+
+  it("adds the customer-managed record, with AWS's own cause and timestamp, AFTER a write", async () => {
     const client = await tenantFake();
 
     await client.setTenantSendingStatus({
@@ -668,8 +754,50 @@ describe("FakeSesClient reputation", () => {
     });
 
     const entity = await client.getReputationEntity({ tenantName: TENANT });
-    expect(entity.customerManagedStatus).toEqual({ status: "DISABLED" });
+    // AWS's literal cause string for a `PutTenantSendingStatus` write, quoted
+    // from the live run rather than invented, plus the timestamp it stamps.
+    expect(entity.customerManagedStatus).toEqual({
+      status: "DISABLED",
+      cause: "Status manually updated.",
+      lastUpdatedAt: FAKE_SES_CLOCK,
+    });
     expect(entity.sendingStatus).toBe("DISABLED");
+    // The two fields AWS reports either side of a customer write, unchanged by
+    // it: a tenant nobody set a policy on is on `STANDARD`.
+    expect(entity.impact).toBe("NONE");
+    expect(entity.policyArn).toBe(
+      "arn:aws:ses:us-east-1:aws:reputation-policy/standard",
+    );
+  });
+
+  it("stamps that timestamp from an injectable clock, fixed by default", async () => {
+    // The Fake backs the whole control-plane suite, so its default clock is a
+    // CONSTANT, never `new Date()`. A test that needs two writes to be
+    // distinguishable injects its own; nothing else ever sees wall-clock.
+    let tick = 0;
+    const client = new FakeSesClient({
+      region: "us",
+      now: () => new Date(Date.UTC(2030, 0, 1, 0, 0, ++tick)),
+    });
+    await client.createTenant({ tenantName: TENANT });
+
+    await client.setTenantSendingStatus({
+      tenantName: TENANT,
+      status: "DISABLED",
+    });
+    const first = await client.getReputationEntity({ tenantName: TENANT });
+    await client.setTenantSendingStatus({
+      tenantName: TENANT,
+      status: "ENABLED",
+    });
+    const second = await client.getReputationEntity({ tenantName: TENANT });
+
+    expect(first.customerManagedStatus?.lastUpdatedAt).toBe(
+      "2030-01-01T00:00:01.000Z",
+    );
+    expect(second.customerManagedStatus?.lastUpdatedAt).toBe(
+      "2030-01-01T00:00:02.000Z",
+    );
   });
 
   it("lists nothing until a recommendation is scripted, then filters", async () => {

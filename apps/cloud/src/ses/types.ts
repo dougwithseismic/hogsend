@@ -339,7 +339,18 @@ export interface SesIdentityDkim {
   status: SesDkimStatus;
   signingEnabled: boolean;
   origin: SesDkimOrigin;
-  /** Easy DKIM's CNAME tokens. Empty for BYODKIM. */
+  /**
+   * `DkimAttributes.Tokens`, and it means TWO different things depending on
+   * `origin` — read it with that, never on its own:
+   *
+   *  - `AWS_SES` (Easy DKIM): the CNAME tokens the customer must publish, one
+   *    record each.
+   *  - `EXTERNAL` (BYODKIM): the SELECTOR we supplied, echoed back — "this
+   *    object contains the selector for the public key" (SESv2 API Reference,
+   *    `DkimAttributes`). NO record is implied, so the ONE TXT record claim in
+   *    DECISIONS §2 is intact. Live AWS returned `["hogsend"]` on 2026-08-11
+   *    where this repo assumed `[]`.
+   */
   tokens: string[];
 }
 
@@ -447,8 +458,20 @@ export interface SesReputationEntity {
   customerManagedStatus?: SesReputationStatusRecord;
   /** Set by AWS's own reputation policy. An operator cannot argue with it. */
   awsSesManagedStatus?: SesReputationStatusRecord;
-  impact?: SesRecommendationImpact;
+  /** How much reputation trouble this entity is in. `NONE` on a healthy one. */
+  impact?: SesReputationImpact;
 }
+
+/**
+ * An ENTITY's reputation impact, which is NOT the recommendation enum.
+ *
+ * AWS returned `NONE` on a freshly created tenant on 2026-08-11, and the SDK's
+ * own `RecommendationImpact` (`HIGH | LOW`) cannot express it — SDK enums are
+ * open, so the wire value arrives regardless and only the TYPE would have been
+ * wrong. Widened here rather than in `SesRecommendationImpact`, because
+ * `listRecommendations` really does answer only the two.
+ */
+export type SesReputationImpact = SesRecommendationImpact | "NONE";
 
 export type SesRecommendationType =
   | "BIMI"

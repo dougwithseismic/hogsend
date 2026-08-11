@@ -102,8 +102,16 @@ export interface WalkthroughDkim {
   awsOrigin?: string;
   awsStatus?: string;
   /**
-   * Easy DKIM's CNAME tokens. MUST be empty for BYODKIM — anything here means
-   * AWS wants more than the one TXT record PRD 07 promises.
+   * `DkimAttributes.Tokens`, verbatim. What it MEANS depends entirely on
+   * `awsOrigin`, and reading it as "extra records" cost this script a false
+   * product alarm on its first live run:
+   *
+   *  - `EXTERNAL` (BYODKIM, ours): AWS echoes back the SELECTOR we supplied —
+   *    "this object contains the selector for the public key" (SESv2 API
+   *    Reference, `DkimAttributes`). No CNAME is implied, and the ONE TXT
+   *    record PRD 07 promises is still the whole story.
+   *  - `AWS_SES` (Easy DKIM): these are the CNAME tokens the customer really
+   *    would have to publish, and each one is a record we did not promise.
    */
   awsTokens: string[];
 }
@@ -333,17 +341,34 @@ export async function executeWalkthrough(
     },
     real: () => real.createIdentity(identityInput),
     fake: () => fake.createIdentity(identityInput),
-    note: "BYODKIM: `dkim.origin` must be EXTERNAL and `dkim.tokens` must be EMPTY, or AWS wants more than the ONE TXT record PRD 07 promises",
+    note: "BYODKIM: `dkim.origin` must be EXTERNAL, and `dkim.tokens` is then the SELECTOR echoed back (SESv2 API Reference, DkimAttributes) — tokens under an AWS_SES origin are Easy DKIM CNAMEs and WOULD be extra records",
   });
   if (identities.real) {
     dkim.awsOrigin = identities.real.dkim.origin;
     dkim.awsStatus = identities.real.dkim.status;
     dkim.awsTokens = [...identities.real.dkim.tokens];
-    if (dkim.awsTokens.length > 0) {
+    // Keyed on ORIGIN, never on emptiness. AWS returned `["hogsend"]` — our
+    // own selector — on the first live run, and the emptiness check read that
+    // as "AWS wants a second record", which is the one finding that would
+    // invalidate the product's headline claim. The primary source settles it:
+    // for `EXTERNAL` the field carries the selector for the public key and
+    // implies no CNAME at all. Under `AWS_SES` the same field really is the
+    // set of CNAMEs, so the alarm belongs THERE.
+    if (dkim.awsOrigin === "AWS_SES" && dkim.awsTokens.length > 0) {
       notes.push(
-        `AWS returned ${dkim.awsTokens.length} Easy-DKIM token(s) for a BYODKIM identity. PRD 07 claims ONE TXT record; this would make it ${
+        `AWS returned ${dkim.awsTokens.length} Easy DKIM CNAME token(s) under origin AWS_SES. PRD 07 claims ONE TXT record; this would make it ${
           1 + dkim.awsTokens.length
         }.`,
+      );
+    } else if (
+      dkim.awsOrigin === "EXTERNAL" &&
+      (dkim.awsTokens.length !== 1 || dkim.awsTokens[0] !== keypair.selector)
+    ) {
+      // The echo is only reassuring while it IS an echo: anything else means
+      // SES is verifying against a selector we never sent, and the record the
+      // customer published signs nothing.
+      notes.push(
+        `AWS echoed ${JSON.stringify(dkim.awsTokens)} for a BYODKIM identity created with selector "${keypair.selector}". The one TXT record is published under OUR selector, so this does not match what SES is looking for.`,
       );
     }
     if (identities.real.dkim.origin !== "EXTERNAL") {

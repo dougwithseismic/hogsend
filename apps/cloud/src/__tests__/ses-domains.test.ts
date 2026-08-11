@@ -267,10 +267,14 @@ describe("create", () => {
       dkim: { selector: "hogsend", privateKey: key?.privateKey },
     });
 
-    // BYODKIM, so SES issues no Easy DKIM CNAME tokens at all.
+    // BYODKIM, so SES issues no Easy DKIM CNAME tokens at all: `tokens` comes
+    // back carrying OUR SELECTOR, echoed — "this object contains the selector
+    // for the public key" (SESv2 API Reference, `DkimAttributes`), confirmed
+    // live on 2026-08-11. It implies no second DNS record, which is why the
+    // record COUNT assertions elsewhere in this file still read 1.
     const identity = await fixture.ses.getIdentity({ identity: DOMAIN });
     expect(identity.dkim.origin).toBe("EXTERNAL");
-    expect(identity.dkim.tokens).toEqual([]);
+    expect(identity.dkim.tokens).toEqual(["hogsend"]);
   });
 
   it("associates the identity with the environment's SES tenant", async () => {

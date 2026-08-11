@@ -98,8 +98,16 @@ export function renderReport(report: WalkthroughReport): string {
     say(`  ${record.type}  ${record.name}`);
     say(`        ${record.value}`);
   }
+  // Under `EXTERNAL` these are NOT records: AWS echoes the selector we
+  // supplied (SESv2 API Reference, `DkimAttributes`), so printing them as
+  // unexpected CNAMEs told a reader the one-record claim had broken when it
+  // had not. Under `AWS_SES` they are exactly that, and the note above says so.
   for (const token of report.dkim.awsTokens) {
-    say(`  CNAME (unexpected for BYODKIM)  ${token}`);
+    say(
+      report.dkim.awsOrigin === "EXTERNAL"
+        ? `  selector echoed by SES (no record implied)  ${token}`
+        : `  CNAME (Easy DKIM — an EXTRA record)  ${token}`,
+    );
   }
 
   if (report.notes.length > 0) {

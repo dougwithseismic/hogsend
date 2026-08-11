@@ -1,4 +1,5 @@
 import type { SubstrateRegion } from "../substrate/types";
+import { reputationPolicyArn } from "./aws";
 import { resolveSesRegion, type SesClient } from "./contract";
 import {
   type SesBatchEntryResult,
@@ -39,6 +40,8 @@ import {
  * The in-memory SES client: every control-plane test and all of local dev.
  *
  * DETERMINISTIC by construction — no `Date.now()`, no randomness, no timers.
+ * The one timestamp AWS makes it report comes off an injectable clock that
+ * defaults to a FIXED instant (`FAKE_SES_CLOCK`), never wall-clock.
  * Tenant ids and ARNs are DERIVED from the tenant name, so two instances driven
  * with the same inputs produce byte-identical output and a test that asserts an
  * id is asserting a fact rather than recording a sample. Message ids count up
@@ -80,6 +83,34 @@ export const FAKE_SES_ID = "fake";
 /** Obviously-not-real account id, so a leak into a live path is visible. */
 const FAKE_ACCOUNT_ID = "000000000000";
 
+/**
+ * The instant every timestamp the Fake stamps carries, unless a caller injects
+ * a clock.
+ *
+ * A CONSTANT rather than `new Date()`, and that is load-bearing: 1473 tests
+ * read this Fake, and a wall-clock field is a value no test can assert and
+ * every snapshot has to strip. A test that genuinely needs two writes to be
+ * distinguishable passes its own `now`.
+ */
+export const FAKE_SES_CLOCK = "2026-01-01T00:00:00.000Z";
+
+/**
+ * AWS's own `Cause` on the customer-managed status record, verbatim from the
+ * live run of 2026-08-11: a `PutTenantSendingStatus` write comes back as
+ * "Status manually updated." The Fake omitted the field entirely, so PRD 08's
+ * enforcement tests were reading a record shape that does not exist.
+ */
+const CUSTOMER_STATUS_CAUSE = "Status manually updated.";
+
+/**
+ * The reputation impact AWS reports for a healthy entity — observed on a
+ * freshly created tenant, both before and after a customer write, where the
+ * Fake reported nothing at all. The Fake models only this value: an entity
+ * AWS has actually impacted is a state no test here can reach, and inventing
+ * a poke for it would be modelling a transition we have never seen.
+ */
+const FAKE_REPUTATION_IMPACT = "NONE" as const;
+
 export type FakeSesMethod = Exclude<
   keyof SesClient,
   "id" | "region" | "awsRegion"
@@ -103,6 +134,8 @@ export interface FakeSesTenantState {
    * presence — so the fake must not fabricate one.
    */
   customerStatusSet?: boolean;
+  /** When that write happened, off the injected clock. AWS stamps one. */
+  customerStatusUpdatedAt?: string;
   /**
    * What AWS's own reputation policy set, through `__pauseTenant`. Modelled
    * separately because the two answer different questions — "did an operator
@@ -137,6 +170,12 @@ export interface FakeSesSentMessage {
 
 export interface FakeSesClientOptions {
   region: SubstrateRegion;
+  /**
+   * The clock AWS's own timestamps are stamped from. Defaults to a FIXED
+   * instant (`FAKE_SES_CLOCK`), never wall-clock — determinism is this Fake's
+   * first property. Inject one only to tell two writes apart.
+   */
+  now?: () => Date;
 }
 
 export class FakeSesClient implements SesClient {
@@ -159,6 +198,7 @@ export class FakeSesClient implements SesClient {
   private readonly scriptedFailures = new Map<FakeSesMethod, SesError[]>();
   private accountPaused = false;
   private messageCounter = 0;
+  private readonly now: () => Date;
 
   constructor(options: FakeSesClientOptions) {
     // Same guard as the AWS client, and for the same reason: a fake that
@@ -166,6 +206,7 @@ export class FakeSesClient implements SesClient {
     // the first live provision.
     this.awsRegion = resolveSesRegion(options.region);
     this.region = options.region;
+    this.now = options.now ?? (() => new Date(FAKE_SES_CLOCK));
   }
 
   // -- Test affordances -----------------------------------------------------
@@ -443,15 +484,26 @@ export class FakeSesClient implements SesClient {
       // NEVER verified on creation: the tenant has not published DNS yet, and
       // claiming otherwise would let PRD 07's wait be skipped entirely.
       verifiedForSending: false,
-      verificationStatus: "PENDING",
+      // `NOT_STARTED`, which is what AWS returned on the first live run
+      // (2026-08-11) where the Fake said `PENDING`. The SESv2 API Reference
+      // documents it as "The DKIM verification process hasn't been initiated
+      // for the domain" — precisely a domain whose DNS is not out yet.
+      verificationStatus: "NOT_STARTED",
       dkim: {
-        status: "PENDING",
+        status: "NOT_STARTED",
         signingEnabled: true,
         origin: input.dkim ? "EXTERNAL" : "AWS_SES",
-        // Easy DKIM issues three CNAME tokens; BYODKIM issues none, because the
-        // key is ours and one TXT record carries the public half.
+        // Easy DKIM issues three CNAME tokens the customer must publish.
+        // BYODKIM issues no CNAME at all: what comes back is the SELECTOR we
+        // supplied, echoed. "If you configured DKIM authentication for the
+        // domain by providing your own public-private key pair, then this
+        // object contains the selector for the public key" (SESv2 API
+        // Reference, `DkimAttributes` → `Tokens`). So a non-empty `tokens`
+        // here implies NO second DNS record, and the ONE TXT record claim
+        // stands. The Fake returned `[]` until 2026-08-11, which taught every
+        // reader that a token list means Easy DKIM.
         tokens: input.dkim
-          ? []
+          ? [input.dkim.selector]
           : ["fake-token-1", "fake-token-2", "fake-token-3"],
       },
       ...(input.configurationSetName
@@ -462,9 +514,34 @@ export class FakeSesClient implements SesClient {
     return cloneIdentity(identity);
   }
 
+  /**
+   * Reading an identity STARTS its verification, because that is what AWS does.
+   *
+   * The status is not static, and the live run of 2026-08-11 is the only reason
+   * we know: `createIdentity` answered `NOT_STARTED`, and `getIdentity` on the
+   * very next call answered `PENDING`. SES kicks off the DNS lookup
+   * asynchronously right after the identity exists, so by the time anything
+   * reads it back the process has begun.
+   *
+   * It matters because every caller that polls a domain reads through here.
+   * A Fake pinned at `NOT_STARTED` would teach those tests that the state a
+   * poller sees is the state creation returned, and it never is — the real
+   * sequence is NOT_STARTED once, then PENDING until SUCCESS or FAILED.
+   *
+   * The promotion is PERSISTED rather than computed per call, so it happens
+   * exactly once and the Fake stays deterministic: same call sequence in, same
+   * answers out, with no clock involved.
+   */
   async getIdentity(input: SesIdentityRef): Promise<SesIdentity> {
     this.record("getIdentity", [input]);
-    return cloneIdentity(this.mustGetIdentity(input.identity));
+    const identity = this.mustGetIdentity(input.identity);
+    if (identity.verificationStatus === "NOT_STARTED") {
+      identity.verificationStatus = "PENDING";
+    }
+    if (identity.dkim.status === "NOT_STARTED") {
+      identity.dkim.status = "PENDING";
+    }
+    return cloneIdentity(identity);
   }
 
   async setMailFrom(input: SesSetMailFromInput): Promise<void> {
@@ -499,6 +576,7 @@ export class FakeSesClient implements SesClient {
     const tenant = this.mustGetTenant(input.tenantName);
     tenant.sendingStatus = input.status;
     tenant.customerStatusSet = true;
+    tenant.customerStatusUpdatedAt = this.now().toISOString();
   }
 
   async getReputationEntity(
@@ -516,11 +594,31 @@ export class FakeSesClient implements SesClient {
       reference: tenant.arn,
       sendingStatus: effectiveSendingStatus(tenant),
       policy: tenant.reputationPolicy,
+      // The SAME fact in AWS's own encoding, and AWS returns BOTH: a policy
+      // travels as an AWS-owned ARN, and the live run of 2026-08-11 read one
+      // back on an entity nobody had written a status to. Derived from
+      // `reputationPolicyArn` rather than spelled again here, so the ARN a
+      // test reads is byte-identical to the one `setReputationPolicy` sends.
+      policyArn: reputationPolicyArn(this.awsRegion, tenant.reputationPolicy),
+      // Present on a healthy entity too, before any customer write — the Fake
+      // omitted it entirely, so PRD 08 was taught an entity shape with no
+      // impact field at all.
+      impact: FAKE_REPUTATION_IMPACT,
       // ABSENT until a customer write exists, exactly like AWS: a reconciler
       // asking "has an operator ever touched this entity?" branches on the
-      // record's presence, and a fabricated one would mislead it.
+      // record's presence, and a fabricated one would mislead it. Once it
+      // exists AWS fills in its own cause and a timestamp, both of which the
+      // Fake omitted.
       ...(tenant.customerStatusSet
-        ? { customerManagedStatus: { status: tenant.sendingStatus } }
+        ? {
+            customerManagedStatus: {
+              status: tenant.sendingStatus,
+              cause: CUSTOMER_STATUS_CAUSE,
+              ...(tenant.customerStatusUpdatedAt === undefined
+                ? {}
+                : { lastUpdatedAt: tenant.customerStatusUpdatedAt }),
+            },
+          }
         : {}),
       ...(tenant.awsManagedStatus
         ? { awsSesManagedStatus: { ...tenant.awsManagedStatus } }

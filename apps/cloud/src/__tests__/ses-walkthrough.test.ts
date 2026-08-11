@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SES_VERBS, type SesClient } from "../ses/contract";
 import { FakeSesClient } from "../ses/fake";
+import type {
+  SesCreateIdentityInput,
+  SesIdentity,
+  SesIdentityRef,
+} from "../ses/types";
 import { SesError } from "../ses/types";
 import type { TenantCensus } from "../ses-walkthrough";
 import {
@@ -48,6 +53,37 @@ function options(extra: string[] = []) {
     IDENTITY_BASE,
     ...extra,
   ]);
+}
+
+/**
+ * A stand-in for an AWS that answers with a DKIM block of its own.
+ *
+ * The walkthrough's token check reads what the REAL side reported, and with a
+ * Fake on both sides that is always a correct BYODKIM echo — so the branch
+ * that matters (tokens under an `AWS_SES` origin, which really are CNAMEs) is
+ * unreachable without overriding one side's answer.
+ */
+class DkimOverridingSes extends FakeSesClient {
+  private readonly dkimOverride: Partial<SesIdentity["dkim"]>;
+
+  constructor(dkimOverride: Partial<SesIdentity["dkim"]>) {
+    super({ region: "us" });
+    this.dkimOverride = dkimOverride;
+  }
+
+  override async createIdentity(
+    input: SesCreateIdentityInput,
+  ): Promise<SesIdentity> {
+    return this.patch(await super.createIdentity(input));
+  }
+
+  override async getIdentity(input: SesIdentityRef): Promise<SesIdentity> {
+    return this.patch(await super.getIdentity(input));
+  }
+
+  private patch(identity: SesIdentity): SesIdentity {
+    return { ...identity, dkim: { ...identity.dkim, ...this.dkimOverride } };
+  }
 }
 
 /** A fixed keypair, so a test can assert the private half never surfaces. */
@@ -472,8 +508,9 @@ describe("executeWalkthrough", () => {
   async function run(
     extra: string[] = [],
     seedReal: (client: FakeSesClient) => void = () => {},
+    realClient?: FakeSesClient,
   ) {
-    const real = new FakeSesClient({ region: "us" });
+    const real = realClient ?? new FakeSesClient({ region: "us" });
     const fake = new FakeSesClient({ region: "us" });
     seedReal(real);
     const parsed = options(extra);
@@ -507,6 +544,51 @@ describe("executeWalkthrough", () => {
     const { real, names } = await run();
     expect(real.__tenant(names.tenantName)).toBeUndefined();
     expect(real.__configurationSet(names.configurationSetName)).toBeUndefined();
+  });
+
+  it("treats the echoed SELECTOR as the one record, not a second one", async () => {
+    const { result } = await run();
+
+    // AWS echoes the selector we supplied back in `DkimAttributes.Tokens` for
+    // a BYODKIM identity — "this object contains the selector for the public
+    // key" (SESv2 API Reference, `DkimAttributes`) — so a non-empty list here
+    // is NOT a CNAME the customer has to publish and the ONE TXT record claim
+    // survives. The walkthrough used to warn on emptiness alone, which would
+    // have raised a false product alarm on every run.
+    expect(result.dkim.awsTokens).toEqual([KEYPAIR.selector]);
+    expect(result.notes.filter((note) => /token/i.test(note))).toEqual([]);
+  });
+
+  it("WARNS when tokens arrive with an AWS_SES origin, where they are real CNAMEs", async () => {
+    const { result } = await run(
+      [],
+      () => {},
+      new DkimOverridingSes({
+        origin: "AWS_SES",
+        tokens: ["tok-1", "tok-2", "tok-3"],
+      }),
+    );
+
+    // The case the emptiness check was reaching for and missed: Easy DKIM
+    // tokens really would make it four records, and only the ORIGIN can tell
+    // them apart from the selector echo.
+    const warning = result.notes.find((note) => /Easy DKIM/i.test(note));
+    expect(warning).toBeDefined();
+    expect(warning).toMatch(/make it 4/);
+  });
+
+  it("WARNS when a BYODKIM echo is not the selector we supplied", async () => {
+    const { result } = await run(
+      [],
+      () => {},
+      new DkimOverridingSes({ origin: "EXTERNAL", tokens: ["someone-elses"] }),
+    );
+
+    // The echo is only reassuring while it IS an echo. Anything else means
+    // SES read a selector we did not send, and the published record is wrong.
+    expect(result.notes.find((note) => /selector/i.test(note))).toMatch(
+      /someone-elses/,
+    );
   });
 
   it("reports the ONE TXT record BYODKIM claims", async () => {
