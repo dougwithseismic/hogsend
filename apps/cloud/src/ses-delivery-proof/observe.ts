@@ -35,6 +35,16 @@ export interface ObservedEvent extends ExpectedEvent {
   attempts: number | null;
   lastError: string | null;
   typeMatches: boolean;
+  /**
+   * SES's `bounceSubType`, read off the row's normalized payload, when the
+   * event carries a bounce block. The suppression probe's whole verdict hangs
+   * on this field: SES ACCEPTS a send to a suppressed address ("accepts the
+   * message, but doesn't send it") and the only observable difference is the
+   * resulting bounce's subtype — `General` for a real simulator bounce,
+   * `Suppressed`/`OnAccountSuppressionList`/`OnTenantSuppressionList` when a
+   * suppression list acted.
+   */
+  bounceSubType: string | null;
 }
 
 export const DEFAULT_POLL_INTERVAL_MS = 3_000;
@@ -86,6 +96,7 @@ export async function observeEmailEvents(input: {
         attempts: null,
         lastError: null,
         typeMatches: false,
+        bounceSubType: null,
       };
     }
     return {
@@ -96,6 +107,18 @@ export async function observeEmailEvents(input: {
       attempts: row.attempts,
       lastError: row.lastError,
       typeMatches: row.type === event.expectedType,
+      bounceSubType: bounceSubTypeOf(row.payload),
     };
   });
+}
+
+/** `payload.bounce.subType` — the normalized relay event's bounce block
+ * carries SES's `bounceSubType` verbatim (`lib/ses-events.ts`). */
+function bounceSubTypeOf(payload: Record<string, unknown>): string | null {
+  const bounce = payload.bounce;
+  if (!bounce || typeof bounce !== "object" || Array.isArray(bounce)) {
+    return null;
+  }
+  const subType = (bounce as Record<string, unknown>).subType;
+  return typeof subType === "string" && subType.length > 0 ? subType : null;
 }

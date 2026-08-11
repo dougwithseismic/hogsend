@@ -104,7 +104,7 @@ export function renderProofReport(report: DeliveryProofReport): string {
   );
   if (report.probeMessageId) {
     say(
-      `  suppression probe: message ${report.probeMessageId} (its own bounce event arrives after observation and is expected residue)`,
+      `  suppression probe: message ${report.probeMessageId} — judged by its own bounce subtype (see suppression_check above)`,
     );
   }
 

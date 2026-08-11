@@ -11,14 +11,16 @@ import {
 } from "vitest";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
-import { emailEvents, organizations } from "../db/schema";
+import { emailEvents, organizations, sesTenants } from "../db/schema";
 import { env } from "../env";
 import { normalizeSesNotification } from "../lib/ses-events";
 import { ingestSesEvent } from "../services/email-events";
+import { AWS_SES_ID } from "../ses/aws";
 import type { SesClient } from "../ses/contract";
-import { FakeSesClient } from "../ses/fake";
+import { FakeSesClient, type FakeSesSentMessage } from "../ses/fake";
 import { SesError } from "../ses/types";
 import type {
+  DeliveryProofDeps,
   DeliveryProofReport,
   ProofNames,
   ProofSnsClient,
@@ -128,18 +130,23 @@ function fakeSns(
 }
 
 /**
- * Play the part of SES + SNS + the control-plane ingress for everything the
- * Fake has "sent": normalize an AWS-verbatim fixture carrying the sent message
- * id and the run's tenant tag, then hand it to the REAL `ingestSesEvent` with
- * the REAL database — whose tenant resolution reads the rows the proof script
+ * Play the part of SES + SNS + the control-plane ingress for the given sent
+ * messages: normalize an AWS-verbatim fixture carrying the sent message id and
+ * the run's tenant tag, then hand it to the REAL `ingestSesEvent` with the
+ * REAL database — whose tenant resolution reads the rows the proof script
  * itself registered, and whose signed instance hop POSTs (default fetch,
  * loopback) to the proof's own stub instance.
+ *
+ * Safe to replay on every poll: the dedupe key collapses an already-ingested
+ * send into a `duplicate` outcome without touching the stub again, so callers
+ * can hand it `real.__sent()` each time the proof sleeps and the probe's
+ * mid-observation send still gets its bounce ingested exactly once.
  */
 async function playAwsPipeline(
-  real: FakeSesClient,
+  sends: FakeSesSentMessage[],
   names: ProofNames,
 ): Promise<void> {
-  for (const sent of real.__sent()) {
+  for (const sent of sends) {
     const to = sent.message.to[0] ?? "";
     const fixture = to.startsWith("success+")
       ? sesDeliveryNotification()
@@ -465,15 +472,16 @@ async function runExecute(overrides: ExecuteOverrides = {}) {
   const real = overrides.real ?? seededFake();
   const sns = overrides.sns ?? fakeSns();
 
-  let ingested = false;
   const sleep =
     overrides.sleep ??
     (async () => {
       // The moment SES, SNS and the control-plane ingress would act: once the
-      // sends exist, drive each through the REAL ingest exactly once.
-      if (!ingested && real.__sent().length >= 3) {
-        ingested = true;
-        await playAwsPipeline(real, names);
+      // sends exist, drive each through the REAL ingest. Replayed on every
+      // poll (rather than gated to run once) because the suppression probe's
+      // send appears MID-observation — its bounce must be ingested too, and
+      // the dedupe key makes the replay idempotent for everything earlier.
+      if (real.__sent().length >= 3) {
+        await playAwsPipeline(real.__sent(), names);
       }
     });
 
@@ -522,8 +530,10 @@ describe("executeProof — the happy chain", () => {
       "email.delivered",
     ]);
 
-    // The stub saw all three, every signature valid.
-    expect(result.stub.received).toBe(3);
+    // The stub saw all FOUR deliveries — the three scenarios plus the
+    // suppression probe's own bounce, which the proof now waits for and
+    // judges by subtype — every signature valid.
+    expect(result.stub.received).toBe(4);
     expect(result.stub.signatureFailures).toBe(0);
 
     // The report accounts for EVERY link — a bare pass is a failure.
@@ -542,8 +552,17 @@ describe("executeProof — the happy chain", () => {
     expect(statuses.get("instance_hop")).toBe("exercised");
     // Honest, by design: the stub is not an engine instance.
     expect(statuses.get("engine_terminal_status")).toBe("not_exercised");
-    expect(statuses.get("suppression_check")).toBe("exercised");
     expect(statuses.get("reject_leg")).toBe("not_exercised");
+
+    // The suppression verdict came from the probe's OWN bounce event — a
+    // suppressed send is ACCEPTED by SES, so acceptance can never be the
+    // evidence. The detail names the simulator's normal `General` subtype.
+    expect(result.probeMessageId).toBeDefined();
+    const suppression = result.links.find(
+      (link) => link.id === "suppression_check",
+    );
+    expect(suppression?.status).toBe("exercised");
+    expect(suppression?.detail).toContain("General");
 
     // The subscription named the region's ingress endpoint, and was removed.
     expect(sns.subscribed).toEqual([
@@ -672,15 +691,169 @@ describe("executeProof — teardown on mid-run failure", () => {
   });
 });
 
-describe("executeProof — the suppression finding", () => {
-  it("reports LOUDLY when the simulator bounce address got suppressed", async () => {
-    const real = seededFake();
-    const names = proofNames(nextRunId());
-    let ingested = false;
-    const result = await executeProof({
+describe("executeProof — the suppression probe judges by bounce subtype", () => {
+  /** The executeProof input every probe test shares; only `sleep` varies. */
+  function probeInput(
+    real: FakeSesClient,
+    names: ProofNames,
+    sleep: (ms: number) => Promise<void>,
+  ) {
+    return {
       client: real,
       sns: fakeSns().client,
       db,
+      names,
+      region: "us" as const,
+      sendFrom: SEND_FROM,
+      publicUrl: PUBLIC_URL,
+      topicArn: TOPIC_ARN,
+      webhookSecret: WEBHOOK_SECRET,
+      observeSeconds: 10,
+      subscribeWaitSeconds: 10,
+      out: () => {},
+      sleep,
+    };
+  }
+
+  /**
+   * Ingest the probe's bounce the way REAL SES reports a suppressed send:
+   * the send was ACCEPTED ("SES accepts the message, but doesn't send it"),
+   * and the only evidence is a Bounce event whose subtype names the list.
+   */
+  async function ingestProbeBounce(
+    probe: FakeSesSentMessage,
+    names: ProofNames,
+    bounceSubType: string,
+  ): Promise<void> {
+    const fixture = sesBounceNotification();
+    (fixture.bounce as Record<string, unknown>).bounceSubType = bounceSubType;
+    const tagged = tagForEnvironment(fixture, names.environmentId);
+    const mail = tagged.mail as Record<string, unknown>;
+    tagged.mail = {
+      ...mail,
+      messageId: probe.messageId,
+      destination: [probe.message.to[0]],
+    };
+    const normalized = normalizeSesNotification(tagged);
+    if (!normalized) throw new Error("the probe fixture did not normalize");
+    await ingestSesEvent({ region: "us", normalized }, { db });
+  }
+
+  it("reports the FINDING when the ACCEPTED probe bounces OnAccountSuppressionList", async () => {
+    const real = seededFake();
+    const names = proofNames(nextRunId());
+    const result = await executeProof(
+      probeInput(real, names, async () => {
+        const sent = real.__sent();
+        if (sent.length < 3) return;
+        // The three scenario sends travel the normal pipeline...
+        await playAwsPipeline(sent.slice(0, 3), names);
+        // ...and the probe — REAL SES never throws for a suppressed address,
+        // it accepts and bounces with a suppression-named subtype.
+        const probe = sent[3];
+        if (probe) {
+          await ingestProbeBounce(probe, names, "OnAccountSuppressionList");
+        }
+      }),
+    );
+
+    // The send step SUCCEEDED — acceptance is exactly what suppression looks
+    // like on the send wire — while the link failed and the finding shouts.
+    expect(
+      result.steps.find((step) => step.label === "suppression probe re-send")
+        ?.status,
+    ).toBe("ok");
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatch(/suppress/i);
+    expect(result.findings[0]).toContain("OnAccountSuppressionList");
+    expect(linkById(result).get("suppression_check")).toBe("failed");
+    // A finding is a FINDING, not an abort: the run still completed and the
+    // report still accounts for every link.
+    expect(result.aborted).toBeUndefined();
+  });
+
+  it("classifies a throttled probe send as a failed step, NOT as suppression", async () => {
+    const real = seededFake();
+    const names = proofNames(nextRunId());
+    let armed = false;
+    const result = await executeProof(
+      probeInput(real, names, async () => {
+        if (real.__sent().length < 3) return;
+        await playAwsPipeline(real.__sent(), names);
+        if (!armed) {
+          armed = true;
+          // The PRD-warned case: the 4th send of a burst trips the young
+          // account's quota. Suppression logic never ran, so blaming it
+          // would be a false report.
+          real.failNext(
+            "sendEmail",
+            new SesError("Too many requests", {
+              kind: "transient",
+              operation: "sendEmail",
+            }),
+          );
+        }
+      }),
+    );
+
+    expect(result.findings).toEqual([]);
+    expect(linkById(result).get("suppression_check")).toBe("failed");
+    expect(
+      result.steps.find((step) => step.label === "suppression probe re-send")
+        ?.status,
+    ).toBe("failed");
+    expect(result.aborted).toBeUndefined();
+  });
+
+  it("still reports a suppression-SHAPED send refusal as the finding", async () => {
+    const real = seededFake();
+    const names = proofNames(nextRunId());
+    let armed = false;
+    const result = await executeProof(
+      probeInput(real, names, async () => {
+        if (real.__sent().length < 3) return;
+        await playAwsPipeline(real.__sent(), names);
+        if (!armed) {
+          armed = true;
+          real.failNext(
+            "sendEmail",
+            new SesError("recipient is on the suppression list", {
+              kind: "invalid",
+              operation: "sendEmail",
+            }),
+          );
+        }
+      }),
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatch(/suppress/i);
+    expect(linkById(result).get("suppression_check")).toBe("failed");
+    expect(result.aborted).toBeUndefined();
+  });
+});
+
+describe("executeProof — the run-scoped rows never strand", () => {
+  it("sweeps the organization when registration fails partway through", async () => {
+    const real = seededFake();
+    const names = proofNames(nextRunId());
+    // A db whose sesTenants insert fails — the LAST of registration's four
+    // sequential non-transactional writes, so the organization, environment
+    // and stack rows already exist in the REAL control-plane db when it
+    // throws. Everything else (the deletes the cleanup runs, the selects)
+    // passes straight through to the real db via the prototype chain.
+    const failingDb = Object.create(db) as typeof db;
+    failingDb.insert = ((table: unknown) => {
+      if (table === sesTenants) {
+        throw new Error("scripted failure: the sesTenants insert died");
+      }
+      return db.insert(table as never);
+    }) as typeof db.insert;
+
+    const result = await executeProof({
+      client: real,
+      sns: fakeSns().client,
+      db: failingDb,
       names,
       region: "us",
       sendFrom: SEND_FROM,
@@ -690,24 +863,131 @@ describe("executeProof — the suppression finding", () => {
       observeSeconds: 10,
       subscribeWaitSeconds: 10,
       out: () => {},
-      sleep: async () => {
-        if (!ingested && real.__sent().length >= 3) {
-          ingested = true;
-          await playAwsPipeline(real, names);
-          // AWS documents the simulator bounce address as NOT added to the
-          // suppression list — model the pipeline suppressing it anyway, which
-          // is exactly the real finding the probe send exists to surface.
-          real.__rejectRecipient(simulatorRecipient("bounce", names.runId));
-        }
-      },
+      sleep: async () => {},
     });
 
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]).toMatch(/suppress/i);
-    expect(linkById(result).get("suppression_check")).toBe("failed");
-    // A finding is a FINDING, not an abort: the run still completed and the
-    // report still accounts for every link.
-    expect(result.aborted).toBeUndefined();
+    expect(result.aborted).toMatch(/register run-scoped stack rows/);
+    expect(result.cleanup.order.join("\n")).toMatch(/unregister/);
+    // The partial rows are GONE: the unregister step was registered before
+    // the inserts ran, and the org delete cascades whatever subset existed.
+    const orgs = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, names.organizationId));
+    expect(orgs).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The runner end to end: the exit code is the single gate against a false pass
+// ---------------------------------------------------------------------------
+
+/**
+ * The Fake wearing the AWS id, so the REAL runner can be driven end to end:
+ * `runDeliveryProof` (correctly) refuses any client that is not "aws", and
+ * these tests exist to prove the runner's own exit-code mapping and scrub —
+ * which no executeProof-level test can reach.
+ */
+function awsLookalike(): FakeSesClient {
+  const fake = seededFake();
+  Object.defineProperty(fake, "id", { value: AWS_SES_ID });
+  return fake;
+}
+
+function e2eDeps(
+  real: FakeSesClient,
+  overrides: Partial<DeliveryProofDeps> = {},
+): DeliveryProofDeps {
+  return {
+    env: CREDS,
+    resolveClient: () => real,
+    census: () => async () => [],
+    snsFactory: () => fakeSns().client,
+    db,
+    fetchImpl: (async () =>
+      new Response("ok", { status: 200 })) as unknown as typeof fetch,
+    // Bounded so a deadline poll spins on a short timer, not a hot loop.
+    sleep: (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 25))),
+    webhookSecret: WEBHOOK_SECRET,
+    out: () => {},
+    ...overrides,
+  };
+}
+
+describe("runDeliveryProof — the exit code is the gate", () => {
+  it("exits non-zero when a link fails (the events never arrive)", async () => {
+    const real = awsLookalike();
+    // Nothing plays the AWS pipeline, so no event ever reaches email_events:
+    // every event link fails, and the probe's bounce never arrives either.
+    const result = await runDeliveryProof(
+      baseArgs(["--run-id", nextRunId(), "--observe-seconds", "1"]),
+      e2eDeps(real),
+    );
+
+    expect(result.refusal).toBeUndefined();
+    expect(result.report?.links.some((link) => link.status === "failed")).toBe(
+      true,
+    );
+    // The probe was ACCEPTED but unproven — acceptance alone must never
+    // report "not suppressed".
+    expect(
+      result.report?.links.find((link) => link.id === "suppression_check")
+        ?.status,
+    ).toBe("failed");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("exits 0 when every link proves out end to end", async () => {
+    const runId = nextRunId();
+    const names = proofNames(runId);
+    const real = awsLookalike();
+    const result = await runDeliveryProof(
+      baseArgs(["--run-id", runId, "--observe-seconds", "10"]),
+      e2eDeps(real, {
+        sleep: async () => {
+          if (real.__sent().length >= 3) {
+            await playAwsPipeline(real.__sent(), names);
+          }
+        },
+      }),
+    );
+
+    expect(result.report?.aborted).toBeUndefined();
+    expect(result.report?.findings).toEqual([]);
+    expect(result.report?.cleanup.failed).toEqual([]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("scrubs the webhook secret out of an error a step quoted verbatim", async () => {
+    const real = awsLookalike();
+    const lines: string[] = [];
+    const failingSns: ProofSnsClient = {
+      async subscribe() {
+        // Play an SNS error whose body echoed the request verbatim — the
+        // exact path the scrub exists for: the secret riding an error
+        // message into steps, link details and the abort line.
+        throw new Error(
+          `InvalidParameter: request rejected (saw secret ${WEBHOOK_SECRET})`,
+        );
+      },
+      async findSubscription() {
+        return { status: "absent" as const };
+      },
+      async unsubscribe() {},
+    };
+    const result = await runDeliveryProof(
+      baseArgs(["--run-id", nextRunId(), "--observe-seconds", "1", "--json"]),
+      e2eDeps(real, {
+        snsFactory: () => failingSns,
+        out: (line) => lines.push(line),
+      }),
+    );
+
+    const printed = lines.join("\n");
+    expect(printed).toContain("<redacted>");
+    expect(printed).not.toContain(WEBHOOK_SECRET);
+    expect(result.exitCode).toBe(1);
   });
 });
 

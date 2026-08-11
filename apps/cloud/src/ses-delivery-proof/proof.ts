@@ -91,7 +91,8 @@ export const PROOF_LINK_TITLES: Record<ProofLinkId, string> = {
   event_complained: "Complaint: SES → SNS → ingress → email_events",
   instance_hop: "signed instance hop → run-scoped stub stack",
   engine_terminal_status: "engine handleWebhook → email_sends terminal status",
-  suppression_check: "simulator bounce NOT suppressed (probe re-send)",
+  suppression_check:
+    "simulator bounce NOT suppressed (judged by the probe's bounce subtype)",
   reject_leg: "Reject via EICAR attachment",
 };
 
@@ -385,6 +386,25 @@ export async function executeProof(
     const startedStub = stub;
     cleanup.push("close-stub-instance", () => startedStub.close());
 
+    // The unregister step is pushed BEFORE the inserts run, unlike every AWS
+    // step: registration is four sequential non-transactional writes, so a
+    // failure between them would otherwise strand the earlier rows in the
+    // REAL control-plane db forever (the next run has a different runId and
+    // nothing sweeps them). Pushing first is safe because the organization
+    // row is written first and every other row cascades from it — the one
+    // delete removes whatever subset exists, and deleting an organization
+    // that was never inserted is a no-op.
+    // The unregister step is pushed BEFORE the inserts run, unlike every AWS
+    // step: registration is four sequential non-transactional writes, so a
+    // failure between them would otherwise strand the earlier rows in the
+    // REAL control-plane db forever (the next run has a different runId and
+    // nothing sweeps them). Pushing first is safe because the organization
+    // row is written first and every other row cascades from it — the one
+    // delete removes whatever subset exists, and deleting an organization
+    // that was never inserted is a no-op.
+    cleanup.push(`unregister-proof-stack ${names.organizationId}`, () =>
+      unregisterProofStack(db, names.organizationId),
+    );
     await phase("instance_hop", "register run-scoped stack rows", () =>
       registerProofStack(db, {
         names,
@@ -394,9 +414,6 @@ export async function executeProof(
         instanceUrl: startedStub.url,
         webhookSecret: input.webhookSecret,
       }),
-    );
-    cleanup.push(`unregister-proof-stack ${names.organizationId}`, () =>
-      unregisterProofStack(db, names.organizationId),
     );
     notes.push(
       "instance hop: design call (b) — a run-scoped stack row aims the " +
@@ -599,29 +616,30 @@ export async function executeProof(
     }
 
     // -- the suppression probe -----------------------------------------------
-    // AWS documents the simulator's bounce address as NOT added to the
-    // suppression list, so this re-send must be ACCEPTED. A refusal here is a
-    // REAL FINDING about our own suppression logic — reported loudly, never
-    // accommodated, and never allowed to abort the run (the report is the
-    // point).
+    // A suppressed re-send is ACCEPTED, not refused: AWS documents that SES
+    // "accepts the message, but doesn't send it" when the address is on the
+    // applicable suppression list, so `sendEmail` returning a message id
+    // proves NOTHING either way. The one observable that answers the question
+    // is the probe's OWN Bounce event: the simulator's real bounce arrives
+    // Permanent/General, while every suppression outcome arrives with a
+    // suppression-named subtype (`Suppressed`, `OnAccountSuppressionList`,
+    // `OnTenantSuppressionList`, `EmailValidationSuppressed` — the SNS event
+    // publishing contents table). Which list applies: a tenant defaults to
+    // ACCOUNT scope and THIS run's tenant never calls `putSuppressionScope`,
+    // so the account-level list governs the probe — but production tenants
+    // opt into TENANT scope (`services/ses-tenants.ts`), where SES uses the
+    // tenant's list INSTEAD. Judging by the bounce subtype is correct under
+    // either scope; reading one list via `GetSuppressedDestination` would
+    // not be, which is why no read verb (and no new IAM grant) exists here.
+    let probe: { messageId: string } | undefined;
     try {
-      const probe = await client.sendEmail({
+      probe = await client.sendEmail({
         tenantName: names.tenantName,
         configurationSetName: names.configurationSetName,
         message: proofMessage(input.sendFrom, recipients.bounce, names.runId),
       });
       probeMessageId = probe.messageId;
       steps.push({ label: "suppression probe re-send", status: "ok" });
-      setLink(
-        "suppression_check",
-        "exercised",
-        `re-send to ${recipients.bounce} accepted (${probe.messageId}) — the bounce address was NOT suppressed`,
-      );
-      notes.push(
-        "the suppression probe produces one more Bounce event after " +
-          "observation stops; if it lands after teardown it records as an " +
-          "inert dropped row.",
-      );
     } catch (error) {
       const detail = errorMessage(error);
       steps.push({
@@ -630,9 +648,76 @@ export async function executeProof(
         detail,
       });
       setLink("suppression_check", "failed", detail);
-      findings.push(
-        `the pipeline SUPPRESSED the simulator bounce address ${recipients.bounce} — AWS documents that address as NOT added to the suppression list, so this is OUR suppression logic acting on a documented-safe recipient: ${detail}`,
-      );
+      // ONLY a suppression-shaped refusal is the finding. Anything else — a
+      // TooManyRequests on the 4th send of a burst is the PRD-warned case —
+      // is a failed step, and blaming suppression logic that never ran would
+      // be exactly the false report this script exists not to produce.
+      if (/suppress/i.test(detail)) {
+        findings.push(
+          `the probe re-send to ${recipients.bounce} was REFUSED with a suppression-shaped error — AWS documents that address as NOT added to the suppression list, so this is suppression acting on a documented-safe recipient: ${detail}`,
+        );
+      }
+    }
+    if (probe) {
+      const accepted = probe;
+      try {
+        const [probeEvent] = await observeEmailEvents({
+          db,
+          expected: [
+            {
+              scenario: "bounce",
+              recipient: recipients.bounce,
+              messageId: accepted.messageId,
+              expectedType: EXPECTED_TYPE_BY_SCENARIO.bounce,
+            },
+          ],
+          deadlineMs: input.observeSeconds * 1_000,
+          sleep,
+          now,
+        });
+        if (!probeEvent?.arrived || !probeEvent.typeMatches) {
+          setLink(
+            "suppression_check",
+            "failed",
+            `probe re-send accepted (${accepted.messageId}) but its Bounce event ${
+              probeEvent?.arrived
+                ? `normalized to ${probeEvent.type ?? "<none>"}, not email.bounced`
+                : `did not arrive within ${input.observeSeconds}s`
+            } — SES accepts a suppressed send too, so acceptance alone proves nothing and the question is UNANSWERED`,
+          );
+          notes.push(
+            "the probe's bounce was not observed before teardown; if it " +
+              "lands afterwards it records as an inert dropped row.",
+          );
+        } else if (isSuppressedBounce(probeEvent.bounceSubType)) {
+          setLink(
+            "suppression_check",
+            "failed",
+            `probe re-send accepted (${accepted.messageId}) and then bounced ${probeEvent.bounceSubType} — a suppression list acted`,
+          );
+          findings.push(
+            `the probe re-send to ${recipients.bounce} was accepted (${accepted.messageId}) and then SUPPRESSED: its bounce subtype is ${probeEvent.bounceSubType}, which names the suppression list that acted — AWS documents the simulator bounce address as NOT added to the suppression list, so this is suppression acting on a documented-safe recipient`,
+          );
+        } else {
+          setLink(
+            "suppression_check",
+            "exercised",
+            `probe re-send (${accepted.messageId}) bounced ${
+              probeEvent.bounceSubType ?? "<no subtype>"
+            } — a suppressed send bounces with a suppression-named subtype, so the bounce address was NOT suppressed`,
+          );
+        }
+      } catch (error) {
+        // The probe must never abort the run — an unanswerable probe is a
+        // failed link in the report, which is the point.
+        const detail = errorMessage(error);
+        steps.push({ label: "observe probe bounce", status: "failed", detail });
+        setLink(
+          "suppression_check",
+          "failed",
+          `probe re-send accepted (${accepted.messageId}) but observing its bounce failed: ${detail}`,
+        );
+      }
     }
   } catch (error) {
     aborted = error instanceof ProofAbort ? error.message : errorMessage(error);
@@ -677,6 +762,19 @@ function proofMessage(from: string, to: string, runId: string): SesMessage {
     subject: `Hogsend SES delivery proof ${runId}`,
     text: `Delivery proof ${runId}. This message exists only to make the SES mailbox simulator emit an event; nobody reads it.`,
   };
+}
+
+/**
+ * Whether a bounce subtype names a suppression list. Every suppression
+ * outcome AWS documents — `Suppressed` (global list),
+ * `OnAccountSuppressionList`, `OnTenantSuppressionList`,
+ * `EmailValidationSuppressed` — carries the word in its subtype, and a real
+ * simulator bounce is `General`. Matched by substring rather than a closed
+ * list so a future suppression subtype classifies as the finding it is
+ * instead of as a clean pass.
+ */
+function isSuppressedBounce(subType: string | null): boolean {
+  return subType !== null && /suppress/i.test(subType);
 }
 
 /**

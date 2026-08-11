@@ -47,13 +47,13 @@ export interface ProofSnsClient {
     endpoint: string;
   }): Promise<ProofSubscriptionState>;
   /**
-   * Live caveat, recorded where the caller will read it: the relay grant names
-   * the TOPIC ARN, and AWS authorizes `Unsubscribe` against the subscription's
-   * own ARN (`<topic>:<uuid>`), which a topic-ARN resource entry does not
-   * match. If AWS refuses this live, the cleanup stack REPORTS it (never
-   * swallows it) and the fix is one `:*` suffix in the bootstrap grant. An
-   * unconfirmed subscription needs no removal either way — SNS expires it on
-   * its own after three days.
+   * AWS authorizes `Unsubscribe` against the subscription's own ARN
+   * (`<topic>:<uuid>`), and which form IAM matches is not documented — so the
+   * relay grant (`HogsendEmailRelayEvents`, scripts/aws-bootstrap-events.sh)
+   * names each topic TWICE, the topic ARN and `<topic>:*`, covering this call
+   * whichever one AWS checks. If AWS still refuses it live, the cleanup stack
+   * REPORTS it (never swallows it). An unconfirmed subscription needs no
+   * removal either way — SNS expires it on its own after three days.
    */
   unsubscribe(input: { subscriptionArn: string }): Promise<void>;
 }
