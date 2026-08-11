@@ -94,6 +94,13 @@ That is precisely the shape PRD 14 exists to prevent, in the one verb pair that 
    _Boundary:_ `apps/cloud` · _Depends:_ task 2
 4. **Re-run the live walkthrough** with a verified sender and confirm the send verbs compare clean.
    _Boundary:_ none · _Depends:_ tasks 1-3
+5. **The walkthrough refuses its own documented invocation.** `pnpm --filter @hogsend/cloud
+   ses:walkthrough -- --i-know-this-hits-aws` forwards the literal `--` separator into `argv`, and the
+   parser refuses unknown arguments, so the command in its own header comment exits 1 with
+   `unknown argument "--"`. The delivery-proof script hit this and fixed it in its own parser
+   (skip a bare `--`; a separator can mask no typo); the walkthrough was left alone as out of scope
+   and it cost a real run today. Apply the same one-case fix.
+   _Boundary:_ `apps/cloud` · _Depends:_ none
 
 ## Seams
 
