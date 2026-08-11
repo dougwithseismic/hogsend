@@ -148,6 +148,15 @@ done
 # it afterwards, which is what makes a tunnelled local proof possible without a
 # standing subscription pointing at a URL that stopped existing.
 #
+# The resource list names each topic TWICE — the topic ARN and `<topic>:*`.
+# `Subscribe` is authorized against the topic, but `Unsubscribe` takes a
+# SubscriptionArn, which AWS's own API reference documents as the topic ARN with
+# a uuid appended (`…:My-Topic:80289ba6-…`). Which of the two IAM matches against
+# is not stated anywhere we could find, and the cost of being wrong is asymmetric:
+# guessing right saves four characters, guessing wrong strands a live
+# subscription pointing at a tunnel that no longer exists, on a topic feeding our
+# bounce pipeline. Both entries stay scoped to this one topic.
+#
 # ses:GetAccount and ses:ListEmailIdentities are read-only and were missing from
 # the original 20. Their absence is why the account's sandbox status and quota
 # cannot be read by our own tooling today.
@@ -169,7 +178,9 @@ inline_policy="$(cat <<EOF
       ],
       "Resource": [
         "arn:aws:sns:us-east-1:${ACCOUNT_ID}:${TOPIC_NAME}",
-        "arn:aws:sns:eu-west-1:${ACCOUNT_ID}:${TOPIC_NAME}"
+        "arn:aws:sns:eu-west-1:${ACCOUNT_ID}:${TOPIC_NAME}",
+        "arn:aws:sns:us-east-1:${ACCOUNT_ID}:${TOPIC_NAME}:*",
+        "arn:aws:sns:eu-west-1:${ACCOUNT_ID}:${TOPIC_NAME}:*"
       ]
     },
     {

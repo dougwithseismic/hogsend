@@ -147,6 +147,43 @@ wave met a primary source, the source won. Findings:
 - **`ses:GetAccount` and `ses:ListEmailIdentities` are NOT granted**, which is why our own tooling
   cannot read the account's sandbox status or quota. Added to the relay grant below.
 
+### THE SEND VERBS RAN. 2026-08-11, against real SES, first attempt, no divergences.
+
+Doug clicked the verification link for `ses-proof@hogsend.com` and the identity went
+`VerifiedForSendingStatus: true`. A send needs no SNS — SNS only carries the answer BACK — so the
+biggest unknown in the wave was provable immediately rather than after the admin bootstrap. It was,
+through our own `AwsSesClient` rather than the raw SDK, so what passed is our implementation:
+
+| Step | Result |
+| --- | --- |
+| `createTenant` | `env-ses-walkthrough-probemsouehtq`, `ENABLED` |
+| `createConfigurationSet` | ok |
+| `associateResource` (config set) | ok |
+| `associateResource` (identity) | ok |
+| **`sendEmail`** → `success+…@simulator` | `0100019ff189d429-e4511161-032f-4588-82f8-53f2b862e736-000000` |
+| **`sendEmail`** → `bounce+…@simulator` | `0100019ff189d551-4389c2fb-ad91-404d-95de-e7f3ddb5898c-000000` |
+| **`sendBatch`** (2 messages) | both `sent` |
+| **`sendEmail` + attachment** | `0100019ff189d863-b0ad19ed-bc3f-4027-b4ad-4e0621a8a92b-000000` |
+| teardown (disassociate, delete ×2) | ok |
+
+11/11. The tenant prefix was the walkthrough's, so a crash would have been sweepable; nothing was
+left behind.
+
+Three things this settles and one it does not:
+
+- **`sendEmail` and `sendBatch` work** — PRD 11 could not prove them and the whole wave rested on
+  them. Zero divergences from `FakeSesClient` on either, which is the first time a live run in this
+  wave found none (PRD 11's found ten).
+- **Tenant-scoped sending works end to end** — tenant, configuration set, and both resource
+  associations, which is the isolation guarantee DECISIONS §3.2 rests on.
+- **SES accepts our attachments** — PRD 17 shipped on the strength of AWS's docs and the SDK types
+  and had never put a byte on the wire.
+- **It does NOT prove the attachment bytes are CORRECT.** Acceptance is not integrity, and the
+  failure mode `ses/types.ts` warns about is precisely one that still sends successfully: content
+  that is already base64 gets encoded a second time and delivers a corrupt file with no error at any
+  layer. A simulator address cannot answer this. The only test that can is a real inbox, opened by a
+  human. **Owed, and not yet done.**
+
 ### `scripts/aws-bootstrap-events.sh` — the admin-credentialed step, scripted
 
 The relay user cannot create an SNS topic and cannot widen its own policy. Correct posture, and also
