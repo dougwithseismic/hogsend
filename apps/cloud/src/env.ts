@@ -350,6 +350,19 @@ export const env = createEnv({
     // is live, never the key it holds.
     CLOUD_AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
     CLOUD_AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // The SNS topic each region's SES configuration sets publish delivery,
+    // bounce, complaint and delay events to (PRD 05). One per region, because
+    // SES tenants are region-scoped and do not replicate; the tenant is
+    // identified by the event's own tag, not by the topic.
+    //
+    // OPTIONAL, and absence is a MODE: with no topic the provisioner skips the
+    // event destination and the control plane behaves exactly as it does
+    // today. It is NOT a permissive default — the ingress endpoint refuses
+    // EVERY message when its region has no configured topic, because AWS's own
+    // guidance is to reject an unexpected `TopicArn` and with none configured
+    // there is no expected one.
+    CLOUD_SES_SNS_TOPIC_ARN_US: z.string().min(1).optional(),
+    CLOUD_SES_SNS_TOPIC_ARN_EU: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

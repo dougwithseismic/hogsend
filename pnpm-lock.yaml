@@ -195,6 +195,9 @@ importers:
       '@hatchet-dev/typescript-sdk':
         specifier: ^1.28.0
         version: 1.28.0(@grpc/grpc-js@1.14.4)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@opentelemetry/api@1.9.1)(zod@4.4.3)
+      '@hogsend/plugin-hogsend':
+        specifier: workspace:*
+        version: link:../../packages/plugin-hogsend
       '@t3-oss/env-core':
         specifier: ^0.13.11
         version: 0.13.11(typescript@5.9.2)(zod@4.4.3)

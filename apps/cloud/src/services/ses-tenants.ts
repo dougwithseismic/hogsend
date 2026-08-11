@@ -18,10 +18,12 @@ import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import {
   SesError,
   type SesErrorKind,
+  type SesEventType,
   type SesRegion,
   type SesReputationPolicy,
   type SesSuppressionReason,
 } from "../ses/types";
+import { sesEventTopicArn } from "../sns/topics";
 import type { SubstrateRegion } from "../substrate/types";
 import { type CloudWriter, writeAudit } from "./audit";
 import { NotFoundError } from "./errors";
@@ -87,6 +89,11 @@ const WEBHOOK_SECRET_BYTES = 32;
 export const SES_PROVISION_STEPS = [
   "create-tenant",
   "create-configuration-set",
+  // CONDITIONAL — the only one. Skipped when the region has no configured SNS
+  // topic (`CLOUD_SES_SNS_TOPIC_ARN_*`), which is the supported no-AWS default.
+  // The returned `steps` therefore reports what actually ran, rather than
+  // claiming a destination that was never attached.
+  "put-event-destination",
   "associate-configuration-set",
   "put-suppression-scope",
   "set-reputation-policy",
@@ -94,6 +101,25 @@ export const SES_PROVISION_STEPS = [
   // tenant but no relay token is one nothing could ever send through.
   "persist",
 ] as const;
+
+/**
+ * The SES event types this stack's configuration sets publish (PRD 05).
+ *
+ * FOUR, and deliberately not six. `OPEN` and `CLICK` are absent because opens
+ * and clicks are FIRST-PARTY and sovereign — the engine's own `/v1/t/o` and
+ * `/v1/t/c` are the single source of truth, and subscribing to SES's would give
+ * the engine two disagreeing answers to one question. `SEND` and `REJECT` are
+ * absent because the relay already knows what it sent.
+ */
+export const SES_PUBLISHED_EVENT_TYPES: readonly SesEventType[] = [
+  "DELIVERY",
+  "BOUNCE",
+  "COMPLAINT",
+  "DELIVERY_DELAY",
+];
+
+/** The event destination's name on the configuration set. One per set. */
+export const SES_EVENT_DESTINATION_NAME = "hogsend-events";
 
 export type SesProvisionStep = (typeof SES_PROVISION_STEPS)[number];
 
@@ -119,6 +145,11 @@ export type SesProvisionStep = (typeof SES_PROVISION_STEPS)[number];
  *
  * The genuinely load-bearing part is that a configuration set left behind keeps
  * publishing events for an environment that no longer exists.
+ *
+ * There is deliberately NO `delete-event-destination` step. A destination is a
+ * child of its configuration set, so `DeleteConfigurationSet` takes it with it;
+ * a separate delete would be one more call that can only ever fail with
+ * `not_found`.
  */
 export const SES_DEPROVISION_STEPS = [
   "disassociate-configuration-set",
@@ -168,6 +199,11 @@ export interface SesTenantDeps {
   db?: CloudDb;
   /** Defaults to the process-wide client for the environment's region. */
   ses?: SesClient;
+  /**
+   * The SNS topic the configuration set publishes events to. Defaults to the
+   * region's configured topic; `null` skips the event destination entirely.
+   */
+  snsTopicArn?: string | null;
 }
 
 const targetSchema = z.object({
@@ -212,6 +248,28 @@ export async function provisionSesTenant(
     ses.createConfigurationSet({ configurationSetName }),
   );
   steps.push("create-configuration-set");
+
+  // ---- put-event-destination ----------------------------------------------
+  // Without this the configuration set publishes NOTHING, so no bounce or
+  // complaint ever reaches the tenant's engine: suppression never happens and
+  // `email_sends` never reaches a terminal status. The verb is a PUT (the seam
+  // does the create-then-update dance AWS has no single operation for), so a
+  // re-drive restates it.
+  //
+  // Skipped — not failed — when the region has no configured topic. A control
+  // plane with no AWS account is the supported default, and there is nothing to
+  // publish to; the provision still completes and `steps` says so.
+  const snsTopicArn = deps.snsTopicArn ?? sesEventTopicArn(region);
+  if (snsTopicArn) {
+    await ses.putEventDestination({
+      configurationSetName,
+      eventDestinationName: SES_EVENT_DESTINATION_NAME,
+      snsTopicArn,
+      eventTypes: [...SES_PUBLISHED_EVENT_TYPES],
+      enabled: true,
+    });
+    steps.push("put-event-destination");
+  }
 
   // ---- associate-configuration-set ----------------------------------------
   // Set membership: the seam promises re-asserting an association is a no-op,

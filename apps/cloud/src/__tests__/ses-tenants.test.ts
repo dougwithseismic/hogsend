@@ -17,6 +17,7 @@ import {
   deprovisionSesTenant,
   getSesTenant,
   provisionSesTenant,
+  SES_EVENT_DESTINATION_NAME,
   SES_PROVISION_STEPS,
   type SesProvisionStep,
 } from "../services/ses-tenants";
@@ -45,6 +46,19 @@ import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 
 const US_ORG = "ses-tenant-test-org-us";
 const EU_ORG = "ses-tenant-test-org-eu";
+
+/**
+ * The region's SNS topic (PRD 05). Passed EXPLICITLY rather than read from the
+ * environment, because `put-event-destination` is the one conditional step:
+ * with no topic configured it is skipped, and the tests need to drive both
+ * sides of that.
+ */
+const TOPIC_ARN = "arn:aws:sns:us-east-1:123456789012:hogsend-email-events-us";
+
+/** What runs when no SNS topic is configured — everything but the destination. */
+const STEPS_WITHOUT_TOPIC = SES_PROVISION_STEPS.filter(
+  (step) => step !== "put-event-destination",
+);
 
 let seq = 0;
 
@@ -120,6 +134,10 @@ const FAILURE_INJECTORS: Record<SesProvisionStep, () => { db?: CloudDb }> = {
     fake().failNext("createConfigurationSet");
     return {};
   },
+  "put-event-destination": () => {
+    fake().failNext("putEventDestination");
+    return {};
+  },
   "associate-configuration-set": () => {
     fake().failNext("associateResource");
     return {};
@@ -166,7 +184,9 @@ describe("provisionSesTenant", () => {
     const configurationSetName = sesConfigurationSetName(environmentId);
     expect(result.summary.tenantName).toBe(tenantName);
     expect(result.summary.configurationSetName).toBe(configurationSetName);
-    expect(result.steps).toEqual([...SES_PROVISION_STEPS]);
+    // No topic configured here, so the event destination is SKIPPED and the
+    // returned steps say so rather than claiming one was attached.
+    expect(result.steps).toEqual([...STEPS_WITHOUT_TOPIC]);
 
     const tenant = fake().__tenant(tenantName);
     expect(tenant).toBeDefined();
@@ -176,6 +196,69 @@ describe("provisionSesTenant", () => {
     expect(tenant?.resources).toEqual([
       `${tenant?.arn.replace(/:tenant\/.*$/, "")}:configuration-set/${configurationSetName}`,
     ]);
+  });
+
+  it("attaches the SNS event destination, publishing exactly four event types", async () => {
+    // Without a destination the configuration set publishes NOTHING, so no
+    // bounce or complaint ever reaches the tenant's engine: suppression never
+    // happens and `email_sends` never reaches a terminal status.
+    const environmentId = await seedEnvironment();
+    const result = await provisionSesTenant(
+      { environmentId },
+      { snsTopicArn: TOPIC_ARN },
+    );
+
+    expect(result.steps).toEqual([...SES_PROVISION_STEPS]);
+
+    const set = fake().__configurationSet(
+      sesConfigurationSetName(environmentId),
+    );
+    expect(set?.eventDestinations).toHaveLength(1);
+    const destination = set?.eventDestinations[0];
+    expect(destination?.name).toBe(SES_EVENT_DESTINATION_NAME);
+    expect(destination?.snsTopicArn).toBe(TOPIC_ARN);
+    expect(destination?.enabled).toBe(true);
+    // FOUR. `OPEN` and `CLICK` are ABSENT by design — opens and clicks are
+    // first-party and sovereign, and subscribing to SES's would give the engine
+    // two disagreeing sources of truth for one fact.
+    expect([...(destination?.eventTypes ?? [])].sort()).toEqual([
+      "BOUNCE",
+      "COMPLAINT",
+      "DELIVERY",
+      "DELIVERY_DELAY",
+    ]);
+    expect(destination?.eventTypes).not.toContain("OPEN");
+    expect(destination?.eventTypes).not.toContain("CLICK");
+  });
+
+  it("re-asserts the event destination on a re-drive rather than duplicating it", async () => {
+    const environmentId = await seedEnvironment();
+    await provisionSesTenant({ environmentId }, { snsTopicArn: TOPIC_ARN });
+    await provisionSesTenant({ environmentId }, { snsTopicArn: TOPIC_ARN });
+
+    const set = fake().__configurationSet(
+      sesConfigurationSetName(environmentId),
+    );
+    // A PUT, not an append: the seam does the create-then-update dance AWS has
+    // no single operation for.
+    expect(set?.eventDestinations).toHaveLength(1);
+  });
+
+  it("skips the event destination — and says so — when no topic is configured", async () => {
+    // A control plane with no AWS account is the SUPPORTED default. There is
+    // nothing to publish to, and a provision that failed over it would make the
+    // no-credentials mode unusable.
+    const environmentId = await seedEnvironment();
+    const result = await provisionSesTenant(
+      { environmentId },
+      { snsTopicArn: null },
+    );
+
+    expect(result.steps).not.toContain("put-event-destination");
+    expect(
+      fake().__configurationSet(sesConfigurationSetName(environmentId))
+        ?.eventDestinations,
+    ).toHaveLength(0);
   });
 
   it("puts the suppression scope on the TENANT, for bounces AND complaints", async () => {
@@ -283,11 +366,17 @@ describe("provisionSesTenant", () => {
 
       const overrides = FAILURE_INJECTORS[step]();
       await expect(
-        provisionSesTenant({ environmentId }, overrides),
+        provisionSesTenant(
+          { environmentId },
+          { ...overrides, snsTopicArn: TOPIC_ARN },
+        ),
       ).rejects.toThrow();
 
       // The re-drive: same call, nothing else.
-      const result = await provisionSesTenant({ environmentId });
+      const result = await provisionSesTenant(
+        { environmentId },
+        { snsTopicArn: TOPIC_ARN },
+      );
 
       const tenant = fake().__tenant(tenantName);
       expect(tenant, `step ${step}`).toBeDefined();

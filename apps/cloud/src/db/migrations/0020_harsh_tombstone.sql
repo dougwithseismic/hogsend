@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "ses_tenants_tenant_name_unique_idx" ON "cloud"."ses_tenants" USING btree ("tenant_name");

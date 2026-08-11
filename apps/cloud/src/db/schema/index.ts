@@ -8,6 +8,7 @@ export * from "./auth";
 export * from "./builds";
 export * from "./cells";
 export * from "./cli-sessions";
+export * from "./email-events";
 export * from "./email-idempotency";
 export * from "./email-sending-status";
 export * from "./enums";

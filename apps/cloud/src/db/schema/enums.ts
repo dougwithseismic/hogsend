@@ -48,6 +48,23 @@ export const emailSendingStatusEnum = cloud.enum("cloud_email_sending_status", [
 ]);
 
 /**
+ * What became of one consumed SES status event (`email_events`, PRD 05).
+ *
+ * `pending` — recorded, not yet handed to the instance. `delivered` — the
+ * instance accepted it. `dropped` — TERMINAL and not a failure: the event's
+ * SES tenant resolved to no environment, so there was nobody to deliver it
+ * to and broadcasting was never an option. `failed` — bounded retry exhausted;
+ * the row keeps the attempt count and the last error rather than the loop
+ * running forever.
+ */
+export const emailEventStatusEnum = cloud.enum("cloud_email_event_status", [
+  "pending",
+  "delivered",
+  "dropped",
+  "failed",
+]);
+
+/**
  * The reputation policy SES enforces for ONE tenant, mirrored on `ses_tenants`.
  *
  * `NONE` observes — findings are still recorded and still visible, they just do

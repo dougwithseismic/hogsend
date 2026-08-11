@@ -88,11 +88,22 @@ export const sesTenants = cloud.table(
       .notNull(),
     ...timestamps,
   },
-  // One tenancy per environment (DECISIONS §3.2), and the upsert arbiter a
-  // re-driven provision converges through.
   (table) => [
+    // One tenancy per environment (DECISIONS §3.2), and the upsert arbiter a
+    // re-driven provision converges through.
     uniqueIndex("ses_tenants_environment_id_unique_idx").on(
       table.environmentId,
     ),
+    // THE event ingress's access path (PRD 05): an SES notification names its
+    // tenant, and this row is what turns that name into an environment, an
+    // instance URL and a webhook secret. It runs once per delivered, bounced
+    // and complained message across every tenant, so a sequential scan here
+    // would be the busiest one in the control plane.
+    //
+    // UNIQUE rather than plain, because it states the invariant the resolver
+    // already relies on: `tenant_name` is `env-<environmentId>` and
+    // `environment_id` is unique, so two rows sharing a name is impossible and
+    // the resolver's `.limit(1)` is total rather than arbitrary.
+    uniqueIndex("ses_tenants_tenant_name_unique_idx").on(table.tenantName),
   ],
 );

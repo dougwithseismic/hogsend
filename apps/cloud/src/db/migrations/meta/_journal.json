@@ -134,6 +134,20 @@
       "when": 1786404826128,
       "tag": "0018_true_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786407731429,
+      "tag": "0019_fuzzy_jocasta",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786408814057,
+      "tag": "0020_harsh_tombstone",
+      "breakpoints": true
     }
   ]
 }
