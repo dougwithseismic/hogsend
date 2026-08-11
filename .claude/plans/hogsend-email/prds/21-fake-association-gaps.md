@@ -42,7 +42,36 @@ Behind the wrong ARN sits a real gap. AWS answered `NotFoundException` because t
 absent; `FakeSesClient` answered `ok`. **The Fake does not check that the resource being associated
 exists.** Any test that associates a typo'd or unprovisioned identity is green, and production 404s.
 
-## Finding 3 — the Fake SENDS without the tenant owning the identity. This is the serious one.
+## Finding 3 — CORRECTED. The Fake does NOT send without association; it was fooled into thinking it had one.
+
+**The original wording of this section was wrong and is retained below only so the correction is
+legible.** It claimed the Fake sends without the tenant owning the identity, and therefore that every
+send test in the repo was certifying a path SES would refuse. That is false, and the evidence was one
+`grep` away.
+
+`FakeSesClient.sendEmail` HAS enforced the association rule since commit `7b01b124` (PRD 14):
+
+```
+fake SES: identity ${identityKey} is not associated with tenant ${tenantName}
+```
+
+What actually happened on the live run is narrower and less alarming. The walkthrough seeds the Fake
+with the sender identity (`createIdentity` + `__verifyIdentity`) before associating it, using the name
+its own derivation produced. That derivation was `domainOfAddress(sendFrom)` — finding 1 — so the Fake
+was handed a verified `hogsend.com` identity, associated it, and then sent successfully against a
+world in which that identity genuinely existed. AWS, where it does not exist, answered `NotFoundException`
+on the association and `AccessDeniedException` on the send.
+
+So the Fake's send rule was never bypassed. It was satisfied by a fiction, and the fiction was
+admitted by the one genuine Fake gap: **`associateResource` did not check that the resource exists**
+(finding 2). Fixing that one check closes the whole cascade, which is why so few tests reddened —
+the correct interpretation of a number I had predicted would be large.
+
+The general lesson is the one this wave keeps paying for: a divergence report names the two things
+that disagree, not which of them is wrong. Both readings had to be checked against the source and I
+published one before doing that.
+
+### Original (incorrect) wording
 
 ```
 sendEmail  aws=error:invalid
