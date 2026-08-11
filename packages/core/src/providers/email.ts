@@ -28,15 +28,260 @@ export interface SendEmailOptions {
    */
   tags?: Array<{ name: string; value: string }>;
   headers?: Record<string, string>;
+  /**
+   * Neutral attachments; each provider translates onto its own wire (SES
+   * structured `Attachments`, Resend/Postmark native fields — nobody writes
+   * MIME). Validate with {@link assertValidAttachments} before the wire, and
+   * only send them to a provider declaring `capabilities.attachments`.
+   */
+  attachments?: EmailAttachment[];
   /** Honored only when `capabilities.scheduledSend`; else logged + ignored. */
   scheduledAt?: string;
 }
 
-/** A single batch item — the send wire minus the per-message `scheduledAt`. */
+/**
+ * A single batch item — the send wire minus the per-message `scheduledAt`.
+ * `attachments` is deliberately INHERITED: every provider's `sendBatch` is (or
+ * wraps) a loop over single sends, so attachments flow through batch the
+ * moment single-send carries them, with no batch-specific shape to drift.
+ */
 export type BatchEmailItem = Omit<SendEmailOptions, "scheduledAt">;
 
 export interface SendResult {
   id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (neutral shape, published limits, shared validation)
+// ---------------------------------------------------------------------------
+
+/**
+ * The provider-neutral attachment. Content is bytes we never execute and
+ * never parse — no thumbnailing, no preview, no archive inspection. Size,
+ * filename shape, and count ({@link assertValidAttachments}) are the ONLY
+ * things this layer looks at.
+ */
+export interface EmailAttachment {
+  /** Shown to the recipient. Max {@link ATTACHMENT_FILENAME_MAX}; no CR/LF/NUL. */
+  filename: string;
+  /**
+   * The file's content. Raw bytes (`Uint8Array`) are the bare common case;
+   * already-base64 content must be DECLARED via the `{ base64 }` wrapper,
+   * never handed over as a bare string. That asymmetry is deliberate: the AWS
+   * SDK base64-encodes `RawContent` itself, so a base64 string mistaken for
+   * raw content gets encoded AGAIN and produces a corrupt file that still
+   * sends successfully — nothing errors at any layer; the recipient just gets
+   * a broken PDF. No heuristic can catch it either: a base64 string is
+   * indistinguishable from a text file whose contents happen to be base64. So
+   * the caller declares which one they hold, and the friction sits on the
+   * dangerous path.
+   */
+  content: Uint8Array | { base64: string };
+  /**
+   * Omit to let the provider default — never guessed from the filename here.
+   * Max {@link ATTACHMENT_CONTENT_TYPE_MAX} chars.
+   */
+  contentType?: string;
+  /** `inline` embeds into the HTML via {@link contentId}; default `attachment`. */
+  disposition?: "attachment" | "inline";
+  /**
+   * References an `inline` attachment from the HTML (`cid:` URL). Max
+   * {@link ATTACHMENT_CONTENT_ID_MAX} chars; must be non-empty when present.
+   */
+  contentId?: string;
+}
+
+/** SES `FileName` constraint (SESv2 `Attachment` API reference): max 255. */
+export const ATTACHMENT_FILENAME_MAX = 255;
+
+/**
+ * SES `ContentType` constraint: 1–78 characters. Genuinely 78, not a typo —
+ * the kind of cap that is invisible until a `multipart/…; boundary=…`-shaped
+ * value hits it, so we reject it here rather than letting SES 400 at the wire.
+ */
+export const ATTACHMENT_CONTENT_TYPE_MAX = 78;
+
+/** SES `ContentId` constraint: 1–78 characters. */
+export const ATTACHMENT_CONTENT_ID_MAX = 78;
+
+/**
+ * Per-message attachment count cap. SES's real quota is 500 MIME parts per
+ * message, but nothing sane sends hundreds of files — a cheap explicit cap
+ * here beats discovering the quota at the wire.
+ */
+export const MAX_ATTACHMENT_COUNT = 20;
+
+/**
+ * Total RAW bytes across ALL attachments on one message.
+ *
+ * Two different numbers are in play and confusing them is the failure mode:
+ * SES v2's ceiling is 40 MB AFTER base64 encoding (the v1 API's ceiling is
+ * 10 MB — we are on v2; do not copy the v1 figure out of a blog post). Base64
+ * inflates by 4/3, so 25 MiB of raw attachment bytes encodes to ~33.3 MB,
+ * leaving comfortable headroom for the HTML body, the text alternative and
+ * headers inside SES's 40 MB. We enforce on RAW bytes because that is the
+ * number a customer can check on their own file.
+ *
+ * Honest caveat: many receiving mail servers cap the whole message around
+ * 25 MB, so a large attachment can be accepted by SES and still refused
+ * downstream. This limit is what we can enforce, not a delivery guarantee.
+ */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Thrown by {@link assertValidAttachments}. Shared by the relay (400 before
+ * SES ever sees the message) and the engine mailer (throw before a send) so
+ * both give IDENTICAL answers; `code` lets callers map it to a status without
+ * string-matching the message.
+ */
+export class InvalidAttachmentError extends Error {
+  readonly code = "invalid_attachment";
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAttachmentError";
+  }
+}
+
+/**
+ * Raw (pre-base64) byte length of one attachment's content. For `{ base64 }`
+ * this is the DECODED length computed from the string — a base64 string is
+ * 4/3 the size of what it represents, and counting the encoded length instead
+ * would make the byte cap wrong by a third in the permissive direction.
+ * Handles `=` padding, unpadded strings, and MIME-style line wrapping
+ * (whitespace is not content).
+ */
+export function attachmentByteLength(attachment: EmailAttachment): number {
+  const { content } = attachment;
+  if (content instanceof Uint8Array) return content.byteLength;
+  const b64 = content.base64.replace(/\s+/g, "");
+  let padding = 0;
+  if (b64.endsWith("==")) padding = 2;
+  else if (b64.endsWith("=")) padding = 1;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
+/**
+ * One-decimal MiB rendering for the size error. Two nine-digit byte counts
+ * differing in the last digit are unreadable at the moment someone needs them
+ * — the MiB form answers "1 byte over or 10 MB over?" at a glance, while the
+ * exact counts stay in the message for machines (and tests) to parse.
+ */
+function formatMiB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+/** CR/LF/NUL — string checks, not a regex, so no control chars in a pattern. */
+function hasForbiddenControlChars(value: string): boolean {
+  return (
+    value.includes("\r") || value.includes("\n") || value.includes("\u0000")
+  );
+}
+
+/**
+ * Names the offender for error messages: by filename where it has a printable
+ * one, else by index — an operator reading a 400 needs to know WHICH file.
+ */
+function describeAttachment(
+  attachment: EmailAttachment,
+  index: number,
+): string {
+  const name =
+    typeof attachment.filename === "string" ? attachment.filename.trim() : "";
+  if (name.length === 0 || hasForbiddenControlChars(name)) {
+    return `attachment ${index}`;
+  }
+  const shown = name.length > 60 ? `${name.slice(0, 57)}…` : name;
+  return `attachment ${index} ("${shown}")`;
+}
+
+/**
+ * Throws {@link InvalidAttachmentError} on the FIRST problem, naming the
+ * offending attachment and — for the size cap — both the limit and the actual
+ * total, because "too big" without numbers is not actionable.
+ *
+ * On CR/LF/NUL: SES assembles the MIME itself now, so we cannot inject a
+ * header even in principle — this is NOT the classic header-injection fix. We
+ * reject them anyway because it costs three lines, and "the layer below
+ * probably sanitizes this" is not a control: Resend and Postmark are separate
+ * implementations with their own assembly, and this contract is the one thing
+ * all three share.
+ *
+ * Deliberately NO blocked-extension list: SES publishes and enforces its own,
+ * and it moves. A vendored copy goes stale in the direction that hurts most —
+ * refusing a file SES would have accepted. Let SES refuse, and surface its
+ * refusal verbatim (that is `email.rejected`'s job).
+ */
+export function assertValidAttachments(attachments: EmailAttachment[]): void {
+  if (attachments.length > MAX_ATTACHMENT_COUNT) {
+    throw new InvalidAttachmentError(
+      `Too many attachments: ${attachments.length} (limit ${MAX_ATTACHMENT_COUNT})`,
+    );
+  }
+  let totalBytes = 0;
+  for (const [index, attachment] of attachments.entries()) {
+    const label = describeAttachment(attachment, index);
+    const { filename, contentType, contentId } = attachment;
+    // A JS consumer with no compiler reaches this validator too, so a missing
+    // or non-string field is ordinary input, not a contrived one. It must be
+    // THEIR error (the relay maps `code` to a 400), never our TypeError — a
+    // raw TypeError escapes as a 500 and tells the customer WE broke.
+    if (typeof filename !== "string" || filename.trim().length === 0) {
+      throw new InvalidAttachmentError(
+        `${label} has a missing or empty filename`,
+      );
+    }
+    if (hasForbiddenControlChars(filename)) {
+      throw new InvalidAttachmentError(
+        `${label} filename contains CR, LF or NUL`,
+      );
+    }
+    if (filename.length > ATTACHMENT_FILENAME_MAX) {
+      throw new InvalidAttachmentError(
+        `${label} filename is ${filename.length} characters (limit ${ATTACHMENT_FILENAME_MAX})`,
+      );
+    }
+    if (contentType !== undefined) {
+      if (typeof contentType !== "string") {
+        throw new InvalidAttachmentError(
+          `${label} contentType must be a string`,
+        );
+      }
+      if (hasForbiddenControlChars(contentType)) {
+        throw new InvalidAttachmentError(
+          `${label} contentType contains CR, LF or NUL`,
+        );
+      }
+      if (contentType.length > ATTACHMENT_CONTENT_TYPE_MAX) {
+        throw new InvalidAttachmentError(
+          `${label} contentType is ${contentType.length} characters (limit ${ATTACHMENT_CONTENT_TYPE_MAX})`,
+        );
+      }
+    }
+    if (contentId !== undefined) {
+      if (typeof contentId !== "string") {
+        throw new InvalidAttachmentError(`${label} contentId must be a string`);
+      }
+      if (contentId.length === 0) {
+        throw new InvalidAttachmentError(`${label} has an empty contentId`);
+      }
+      if (hasForbiddenControlChars(contentId)) {
+        throw new InvalidAttachmentError(
+          `${label} contentId contains CR, LF or NUL`,
+        );
+      }
+      if (contentId.length > ATTACHMENT_CONTENT_ID_MAX) {
+        throw new InvalidAttachmentError(
+          `${label} contentId is ${contentId.length} characters (limit ${ATTACHMENT_CONTENT_ID_MAX})`,
+        );
+      }
+    }
+    totalBytes += attachmentByteLength(attachment);
+  }
+  if (totalBytes > MAX_ATTACHMENT_BYTES) {
+    throw new InvalidAttachmentError(
+      `Attachments total ${formatMiB(totalBytes)} (${totalBytes} raw bytes), over the ${formatMiB(MAX_ATTACHMENT_BYTES)} limit (${MAX_ATTACHMENT_BYTES} bytes)`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +542,15 @@ export interface EmailProviderCapabilities {
   nativeTracking?: boolean;
   /** Honors `SendEmailOptions.scheduledAt` (Resend yes; Postmark/SES no). */
   scheduledSend?: boolean;
+  /**
+   * Carries `SendEmailOptions.attachments` on its wire. Absence is NOT
+   * consent — an absent flag means the provider CANNOT carry them, and the
+   * engine must fail LOUDLY at send time rather than deliver the message
+   * without its files: a receipt that arrives minus its invoice looks
+   * delivered from every dashboard, and nobody notices until the customer
+   * does. Only declare it once your `send` actually translates the field.
+   */
+  attachments?: boolean;
   /**
    * Has a crypto signature scheme (Resend svix; SES SNS cert). `false` = the
    * provider must fail-closed on its own (Postmark basic-auth).
