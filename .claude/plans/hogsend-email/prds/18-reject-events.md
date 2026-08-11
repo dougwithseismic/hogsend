@@ -94,3 +94,23 @@ suppresses nothing.
 the no-suppression assertion is mutation-checked, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 (`979b4d3c`). Cloud 1492 → 1502; engine 131 tests.
+
+`email.rejected` is terminal and suppresses nothing. Mutation-checked BOTH failure modes, because
+each is a different code path and the first one alone would have been a weak proof: mapping the
+status to `bounced` turns the terminal test red, and adding `handleBounce` to the reject branch turns
+two no-suppression tests red — including a defensive one, "a reject carrying a bounce block STILL
+suppresses nothing", which covers a malformed event carrying both shapes.
+
+The reason travels in its own `EmailEvent.reject` field rather than inside `bounce`. That is not
+tidiness: `bounce` is what the suppression path reads, so keeping the reason out of it means no
+handler can misread a reject as a bounce class even by accident.
+
+**Unrelated bug found while reviewing this, worth its own note.** `apps/cloud/src/lib/ses-events.ts`
+contained a LITERAL NUL byte, present since `9bd125fd`. The NUL is a deliberate and correct hash
+field separator (it cannot occur inside a field, so `["a","b"]` and `["ab"]` cannot canonicalize
+alike) — writing it literally is what was wrong. Git classifies any file containing a NUL as BINARY,
+so **every review of the SNS event normalizer since it was written saw `Bin 10451 -> 13270 bytes`
+instead of a diff.** A security-relevant file was silently exempt from code review. Now written as
+`\u0000`: identical at runtime, and the file diffs as text.
