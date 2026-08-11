@@ -106,9 +106,12 @@ describe("identity + capabilities", () => {
     });
   });
 
-  it("has NO `domains` member — presence is the gate and PRD 07 adds it", () => {
-    expect(provider.domains).toBeUndefined();
-    expect("domains" in provider).toBe(false);
+  it("HAS a `domains` member — presence is the gate PRD 07 opened", () => {
+    // Dropping it silently reports `supported: false` on the engine's admin
+    // domain routes, `hogsend domain` and Studio Setup, with no error anywhere.
+    // The capability's own behaviour is covered in `domains.test.ts`.
+    expect(provider.domains).toBeDefined();
+    expect("domains" in provider).toBe(true);
   });
 });
 

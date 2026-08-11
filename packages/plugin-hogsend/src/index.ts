@@ -1,3 +1,10 @@
+// The sending-domain capability (the gate that lights up admin/CLI/Studio).
+export {
+  createHogsendRelayDomains,
+  type HogsendDomainsCapability,
+  type HogsendDomainsConfig,
+  type HogsendReturnPathResult,
+} from "./domains.js";
 // Typed relay failures — the shape of a refusal survives to the journey.
 export {
   HogsendRelayBatchError,

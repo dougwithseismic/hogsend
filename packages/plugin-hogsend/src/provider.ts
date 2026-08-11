@@ -8,6 +8,7 @@ import {
   type SendEmailOptions,
   type SendResult,
 } from "@hogsend/core";
+import { createHogsendRelayDomains } from "./domains.js";
 import {
   HogsendRelayBatchError,
   type HogsendRelayBatchFailure,
@@ -323,9 +324,21 @@ export function createHogsendEmailProvider(
       // secret.
       signedWebhooks: true,
     },
-    // NO `domains` member: presence is the engine's capability gate and PRD 07
-    // adds it. Absent, the domain routes report `supported: false` and every
-    // other surface degrades correctly.
+    /**
+     * PRESENCE IS THE GATE. Attaching this is what lights up the engine's
+     * admin domain routes, the `hogsend domain` CLI, Studio Setup and the
+     * CLI's one-click `dns-apply` — no new UI anywhere.
+     *
+     * It rides the same relay token as the send wire, because the instance has
+     * no AWS access of its own. The branded-return-path toggle is not on the
+     * neutral `DomainsCapability`, so a caller that wants it constructs
+     * `createHogsendRelayDomains` directly.
+     */
+    domains: createHogsendRelayDomains({
+      relayUrl: cfg.relayUrl,
+      tenantToken: cfg.tenantToken,
+      ...(cfg.fetch ? { fetch: cfg.fetch } : {}),
+    }),
 
     async send(options: SendEmailOptions): Promise<SendResult> {
       warnScheduled(options.scheduledAt);
