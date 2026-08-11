@@ -54,22 +54,60 @@ So the engine's source is compiled under whatever config and dependency graph th
 
 That leaves what the engine's imports RESOLVE TO inside a consumer install.
 
-## Leading hypothesis (NOT yet confirmed — say so until it is)
+## CONFIRMED against the PUBLISHED package, and the severity is NARROWER than first stated
 
-A transitive dependency resolves to a different version in a fresh consumer install than the
-monorepo's lockfile pins, turning some types into `any` and cascading into `TS7006`/`TS7053`.
+The first reproduction used a locally packed tarball, which only proves something about this working
+tree. Redone properly with the real customer command:
 
-`drizzle-orm` is the prime suspect on three counts: the engine declares it as the RANGE `^0.45.2`, so
-a fresh install may take a newer minor; **116 engine source files import it**; and the failing types
-named in the errors are its own (`PgColumn<…>`, `SQL<unknown>`).
+```
+pnpm dlx create-hogsend@latest customer-app --pm pnpm --no-git
+cd customer-app && pnpm check-types
+```
 
-This would also explain PRD 12's CI-vs-local puzzle without anything being flaky: two installs at
-different times resolve different versions, and pnpm 11's release-age quarantine adds a second way for
-the two to disagree.
+Installing `@hogsend/engine@0.63.0` **from npm**: the same 33 errors, same codes, same files, zero in
+the customer's own source.
 
-**The next experiment is one command:** re-run `verify-scaffold.sh` with its `trap cleanup EXIT`
-disabled and compare the scaffolded app's resolved `drizzle-orm` against the monorepo's. Confirm
-before fixing.
+**But the app is NOT broken, and an earlier note here implied it was.** Measured on the same scaffold:
+
+| Step | Result |
+| --- | --- |
+| scaffold | works |
+| `pnpm install` | works |
+| **`pnpm build`** | **works** — `dist/index.js` 3.59 MB, `dist/worker.js` 3.58 MB, success in 374ms |
+| `pnpm check-types` | **fails, 33 errors, all inside `@hogsend/engine`** |
+
+So this is a developer-experience defect, not a broken product: tsup bundles and the app runs. What it
+costs is the customer's ability to use `check-types` at all — their own errors are buried under 33 of
+ours, which makes the script worthless exactly when they need it.
+
+## Root cause NOT yet identified. Five hypotheses falsified — do not re-run these.
+
+Recorded so the next person starts from the frontier rather than the beginning.
+
+| # | Hypothesis | Test | Result |
+| --- | --- | --- | --- |
+| 1 | Transitive version drift (`drizzle-orm`) | compared resolved versions | **FALSE** — both `0.45.2` |
+| 2 | TypeScript version differs | compared both | **FALSE** — both `5.9.2` |
+| 3 | `moduleResolution: Bundler` vs `NodeNext` | compiled engine under Bundler in-repo | **FALSE** — 0 errors |
+| 4 | Missing `@types/pg` (present in the monorepo's drizzle peer set, absent in the customer's) | installed it in the scaffold | **FALSE** — still 33 |
+| 5 | `types: ["node"]` narrowing in the template | removed it, re-ran | **FALSE** — still 33 |
+| 6 | zod version skew / two copies | compared | **FALSE** — both resolve `4.4.3`, one copy each |
+| 7 | `@hatchet-dev/typescript-sdk/v1` unresolvable without the engine's `paths` mapping | `require.resolve` from the scaffold | **FALSE** — resolves fine |
+
+**PRD 12's original description deserves partial credit and this PRD's first draft was too dismissive
+of it.** It called these "zod `.refine` inference errors". The error CODES are `TS7006`/`TS7053`, not
+a zod-specific code, which is what prompted the correction — but several of the failures ARE inside
+zod chains. `routes/admin/settings.ts:55` is `.transform((v) => v.toUpperCase())`, and `v` is the
+implicit `any`. So the shape of the original diagnosis was closer than "no zod anywhere" allowed.
+Eight of the thirteen `TS7006`s are single-letter callback parameters of exactly this kind.
+
+What remains: zod's generic inference produces typed callback parameters when the engine compiles in
+the monorepo and `any` when the SAME zod version compiles the SAME source inside a consumer install.
+The difference is therefore in the module graph or the program shape, not in a version. That is the
+next thing to isolate.
+
+A reproduction is preserved at the path recorded in the session scratchpad
+(`/tmp/hogsend-real-customer.*/customer-app`) — a real npm install, already failing, ready to bisect.
 
 ## Locked decisions
 
