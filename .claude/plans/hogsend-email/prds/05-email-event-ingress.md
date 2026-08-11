@@ -101,4 +101,46 @@ A signed SES notification fixture travels end to end into a normalized `EmailEve
 case is tested and mutation-checked, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-10 (`9bd125fd`, plus `601c420e` for the plugin half). Cloud suite 1190 → 1272.
+
+**EARS 7 was half-unsatisfiable when this PRD started, and that is the note worth keeping.** The line
+requires the instance to reject a payload older than the configured skew. `plugin-hogsend.verifyWebhook`
+checked the signature and nothing else, so the replay window was unbounded: a captured valid payload
+stayed valid forever while the environment's secret was unchanged.
+
+The author found it and **reported it instead of working around it**. The available workaround was to
+add an `x-hogsend-timestamp` header the plugin ignores, which would have satisfied the EARS line on
+paper and left the window exactly as open, while reading as closed to the next person who audited it.
+That is the failure mode this stack keeps recording, and refusing it is why the gap got closed rather
+than papered over.
+
+The fix was small because the timestamp was already inside the HMAC'd body as `occurredAt`. The
+instance simply never read it. No new header.
+
+**The skew is 24 hours and must not be "tightened".** `occurredAt` is when the EVENT happened, not
+when the relay sent it, and an SES `DeliveryDelay` describes an instant that can precede its own
+notification by a long way. SNS's retry policy, the control plane's retries, and the instance's own
+availability all sit in between. The asymmetry decides it: **a dropped bounce is worse than a replayed
+one**, because a replay re-delivers an event the engine already dedupes, while a drop means
+suppression never happens at all, which is the exact failure this whole path exists to prevent. A
+5-minute FUTURE bound guards our own clock bugs, not an attacker (the HMAC already stops forgery) —
+without it a timestamp stamped a year ahead would stay replayable for a year.
+
+**The SSRF surface, since it is the whole security boundary.** A forged event writes bounces and
+complaints for a tenant, which suppresses arbitrary addresses and damages their reputation. So:
+validation happens BEFORE the fetch and reads `url.hostname`, never the raw string, because
+`https://sns.us-east-1.amazonaws.com@evil.com/x.pem` has a host of `evil.com` and any regex over the
+whole URL reads it as ours. Redirects are disabled so a 3xx cannot become a hop to the instance
+metadata service. The signed string is rebuilt per AWS's documented field set and order per message
+type rather than by reserializing what arrived. An unexpected `SignatureVersion` is refused rather
+than defaulted. Subscription confirmation fires only for topics we own, because blindly fetching an
+arriving `SubscribeURL` is the same SSRF through another door.
+
+Four event types only (`DELIVERY`, `BOUNCE`, `COMPLAINT`, `DELIVERY_DELAY`). Opens and clicks are
+first-party and sovereign; subscribing to SES's would give the engine two disagreeing answers to one
+question.
+
+The outbound hop imports `signHogsendRelayWebhook` from the plugin rather than reimplementing it, so
+there is no second implementation to drift.
 </content>
