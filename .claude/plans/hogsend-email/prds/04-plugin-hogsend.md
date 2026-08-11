@@ -25,6 +25,20 @@ preferences, and writes no `email_sends` row. If a reviewer finds any of that in
   PRD 10 does the wiring; this PRD just must not make itself mandatory.
 - **`verifyWebhook` fails closed.** No secret configured means every webhook is rejected. Postmark
   set this precedent and it is the right one.
+- **`verifyWebhook` also bounds the replay window** (added 2026-08-10, during PRD 05, after that
+  PRD's author found the gap rather than working around it). The signature alone leaves replay
+  unbounded: a captured valid payload stays valid forever. The timestamp is already inside the HMAC'd
+  body as `occurredAt`, so it is bound and unforgeable, and the check is simply to read it — no
+  extra header, since an unverified header the plugin ignores is signature theatre that reads as
+  "done" to the next auditor.
+
+  Order is signature → parse → timestamp; never read a timestamp out of a payload whose signature is
+  unchecked. Bounded both ways: stale rejected, far-future rejected (guarding our own clock bugs
+  rather than an attacker, who cannot forge one). **The skew defaults to hours, not minutes**, and
+  that is deliberate: SES `DeliveryDelay` events legitimately arrive long after `occurredAt`, and
+  they must survive SNS's retries plus the control plane's before reaching the instance. A dropped
+  bounce is worse than a replayed one, because a replay re-delivers an event the engine already
+  dedupes while a drop means suppression never happens at all.
 - **Errors from the relay pass through with their shape intact.** A `403 tenant_paused` becomes a
   typed error the mailer can record, not a generic send failure. The whole point of the fail-loud
   decision is that the reason survives to the journey.
