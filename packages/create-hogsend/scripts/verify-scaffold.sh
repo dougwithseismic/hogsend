@@ -17,8 +17,8 @@ REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
 # Opt-in provider plugins (`--with <id>`). NOT scaffold defaults — a separate
 # list because release-doctor asserts PACKAGES above equals HOGSEND_PACKAGES +
-# the template's @hogsend deps, and these three belong to neither.
-OPT_IN_PLUGINS=(plugin-apollo plugin-postmark plugin-twilio)
+# the template's @hogsend deps, and these belong to neither.
+OPT_IN_PLUGINS=(plugin-apollo plugin-hogsend plugin-postmark plugin-twilio)
 
 TARBALLS=""
 APP_PARENT=""
@@ -363,10 +363,12 @@ fi
 echo "    headless admin env OK"
 
 # --- 3d2. --with is repeatable + comma-separated, and surfaces env blocks ---
-echo "==> [3d2] scaffold (--with postmark,twilio) deps + env blocks"
+echo "==> [3d2] scaffold (--with hogsend,postmark,twilio) deps + env blocks"
 WITH_DIR="$APP_PARENT/with-plugins"
 (cd "$APP_PARENT" && node "$CLI" with-plugins --pm pnpm --no-install --no-git \
-  --no-skills --with postmark,twilio --use-tarballs "$TARBALLS")
+  --no-skills --with hogsend,postmark,twilio --use-tarballs "$TARBALLS")
+grep -q '"@hogsend/plugin-hogsend": "file:' "$WITH_DIR/package.json" \
+  || fail "--with hogsend did not add @hogsend/plugin-hogsend"
 grep -q '"@hogsend/plugin-postmark": "file:' "$WITH_DIR/package.json" \
   || fail "--with postmark,twilio did not add @hogsend/plugin-postmark"
 grep -q '"@hogsend/plugin-twilio": "file:' "$WITH_DIR/package.json" \
@@ -374,6 +376,8 @@ grep -q '"@hogsend/plugin-twilio": "file:' "$WITH_DIR/package.json" \
 # Unlike apollo, these credentials are not in the template — the scaffold must
 # surface their commented blocks (keys only, never a placeholder value).
 WITH_ENV="$(cat "$WITH_DIR/.env.example")"
+grep -q '^# HOGSEND_EMAIL_TOKEN=$' <<<"$WITH_ENV" \
+  || fail "--with hogsend did not surface HOGSEND_EMAIL_TOKEN in .env.example"
 grep -q '^# POSTMARK_SERVER_TOKEN=$' <<<"$WITH_ENV" \
   || fail "--with postmark did not surface POSTMARK_SERVER_TOKEN in .env.example"
 grep -q '^# TWILIO_ACCOUNT_SID=$' <<<"$WITH_ENV" \

@@ -37,7 +37,7 @@ import {
   TestModeNoRedirectError,
 } from "./test-mode.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
-import { sendTrackedEmail } from "./tracked.js";
+import { sendTrackedEmail, withIdempotencyHeader } from "./tracked.js";
 import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
 
 // Fallback logger for the provider-webhook outbound emit — `config.logger` is
@@ -210,7 +210,11 @@ export function createTrackedMailer(
         subject: wireSubject,
         html,
         tags: options.tags,
-        headers: options.headers,
+        // Same wire contract as the tracked path (see withIdempotencyHeader):
+        // the key rides as a header so the provider-neutral SendEmailOptions
+        // needs no field for it. This no-db branch never auto-derives a journey
+        // key, so only a caller-supplied one travels here.
+        headers: withIdempotencyHeader(options.headers, options.idempotencyKey),
         replyTo: options.replyTo,
       });
 

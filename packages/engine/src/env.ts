@@ -130,6 +130,29 @@ export const env = createEnv({
     POSTMARK_MESSAGE_STREAM: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_USER: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_PASS: z.string().min(1).optional(),
+    // --- Hogsend Email (Cloud-only first-party sending; opt-in provider) ---
+    // The environment's relay token (`hsrel_…`), minted by Hogsend Cloud at
+    // provision time. It is the ONLY credential a tenant instance holds — the
+    // AWS credentials never leave the control plane.
+    //
+    // Its ABSENCE is a mode, not a gap: with no token `@hogsend/plugin-hogsend`
+    // is never imported at all, so a self-hosted deploy that will never send
+    // through Cloud never touches the package and behaves exactly as before.
+    // Present, a preset is built — and like Postmark it NEVER changes the
+    // active provider on its own; set EMAIL_PROVIDER=hogsend to activate it.
+    HOGSEND_EMAIL_TOKEN: z.string().min(1).optional(),
+    // Origin of the Hogsend Cloud control plane the send relay lives on (the
+    // provisioner injects its own CLOUD_PUBLIC_URL here). NO default ON
+    // PURPOSE: staging and production control planes are different origins, so
+    // a guessed default would point a tenant's mail at the wrong one. A token
+    // set WITHOUT this is a misconfiguration — the preset warns and skips
+    // rather than building a provider aimed at nowhere.
+    HOGSEND_EMAIL_RELAY_URL: z.string().url().optional(),
+    // HMAC secret the relay signs its status webhooks with. Absent ⇒ the
+    // provider FAILS CLOSED: every inbound webhook is rejected before it is
+    // parsed, so an unauthenticated status update can never mark a contact
+    // bounced. Sending is unaffected; only status updates stop.
+    HOGSEND_EMAIL_WEBHOOK_SECRET: z.string().min(1).optional(),
     // --- Base-currency FX lens (optional; docs/groups.md §Base-currency lens) ---
     // The operator's reporting currency. UNSET = the lens is OFF everywhere
     // (zero behavior change): no converted figures, no converted ranking. Set

@@ -18,7 +18,7 @@
  * scaffold-side half.
  */
 
-export type OptionalPluginId = "apollo" | "postmark" | "twilio";
+export type OptionalPluginId = "apollo" | "hogsend" | "postmark" | "twilio";
 
 export interface OptionalPlugin {
   /** The `--with <id>` / multiselect value. */
@@ -53,6 +53,24 @@ export const OPTIONAL_PLUGINS: OptionalPlugin[] = [
 # direct dependency of this app). Set the key and the engine's env preset
 # registers the provider on boot; no code change needed.
 # APOLLO_API_KEY=`,
+  },
+  {
+    id: "hogsend",
+    pkg: "@hogsend/plugin-hogsend",
+    label: "Hogsend Email (Hogsend Cloud)",
+    hint: "first-party sending through Hogsend Cloud — needs HOGSEND_EMAIL_TOKEN",
+    envKey: "HOGSEND_EMAIL_TOKEN",
+    envBlock: `# Hogsend Email (selected at scaffold time — @hogsend/plugin-hogsend is a
+# direct dependency of this app). Sending through Hogsend Cloud's relay, so the
+# credentials come from Cloud: a provisioned environment injects all three, and
+# nothing else issues them. Set the token and the engine's env preset registers
+# the provider on boot; EMAIL_PROVIDER=hogsend makes it the active sender
+# (Resend stays the default otherwise). The webhook secret is what delivery and
+# bounce updates are authenticated with — without it they are all rejected.
+# HOGSEND_EMAIL_TOKEN=
+# HOGSEND_EMAIL_RELAY_URL=
+# HOGSEND_EMAIL_WEBHOOK_SECRET=
+# EMAIL_PROVIDER=hogsend`,
   },
   {
     id: "postmark",

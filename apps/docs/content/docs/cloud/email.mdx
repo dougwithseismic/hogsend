@@ -1,0 +1,97 @@
+---
+title: Hogsend Email
+description: Sending included with Hogsend Cloud. Verify your domain with one DNS record and send. No Resend account, no API key to paste, and BYO providers still fully supported.
+---
+
+Hogsend Email is the sending wire that comes with a Hogsend Cloud instance. Your environment is provisioned with a sending identity, the engine registers the provider on boot, and `sendEmail()` works.
+
+There is nothing to sign up for and no key to paste. Provisioning injects the credentials into your stack; you verify a domain and send.
+
+Hogsend Email is part of Cloud. It is not a standalone product and there is no separate signup for it.
+
+## What it changes for you
+
+Nothing about how you write journeys, and nothing about who owns your templates.
+
+The [`EmailProvider`](/docs/guides/email#the-emailprovider-contract-swapping-providers) is a dumb wire. The engine keeps everything above it: React Email rendering, preference and suppression checks, link and open tracking, the `email_sends` row, the unsubscribe surface. Swapping the wire changes none of that.
+
+| Piece | Where it lives |
+|---|---|
+| Your `.tsx` templates and their registry | your repo, `src/emails/` |
+| Render, preferences, tracking, `email_sends` | the engine |
+| The send wire and status webhooks | Hogsend Email |
+| Your open and click data | your instance, first party |
+
+Open and click tracking stays first party. Native provider tracking is off, so the numbers in your Studio are the ones your own endpoints recorded.
+
+## Setting up your domain
+
+One TXT record.
+
+```
+Type  TXT
+Name  hogsend._domainkey.yourdomain.com
+Value p=MIIBIjANBgkq...
+```
+
+That is DKIM, with a 2048-bit key Hogsend generates and holds encrypted. The private key is never shown, never logged, and never leaves the control plane.
+
+One record is enough because the return path stays on the default. SPF passes for it natively and DMARC passes on DKIM alignment. Providers that ask for three records do so because they put every customer on a custom return path by default.
+
+The setup runs through the [`hogsend domain`](/docs/cli/domain) CLI and Studio Setup, the same surfaces every other provider uses. On Cloudflare and Vercel the CLI can write the record for you.
+
+```bash
+hogsend domain add yourdomain.com
+hogsend domain check
+```
+
+## The branded return path
+
+Off by default. Turning it on moves your bounce address from an `amazonses.com` subdomain to `send.yourdomain.com`, and adds an MX record and an SPF record to the one above.
+
+It has to be a subdomain of the domain you verified. A Hogsend-owned bounce domain is not available for this, and no provider can offer one: the mail-from domain must sit under the identity's parent domain.
+
+If those records later break, mail keeps flowing on the default return path. A DNS mistake months from now does not become an outage.
+
+## When sending is paused
+
+AWS enforces reputation per tenant. Your environment is its own tenant, so a bounce problem in one instance is scoped to that instance.
+
+If sending is paused, every send fails immediately with an explicit paused status, the recorded reason and the time it happened. There is no queue and no fallback to another provider. Your journeys record the failure like any other send failure, and Studio shows the status and the pause history.
+
+The owner of the environment gets a notice once per pause event. Reinstatement is a human review, so there is no unpause button.
+
+Failing closed is deliberate. Silently rerouting paused mail through a second provider moves a deliverability problem instead of surfacing it.
+
+## Bringing your own provider
+
+Resend and Postmark are fully supported on Cloud, and Resend stays the default for self-hosted deploys.
+
+Hogsend Email is an additional entry in the provider registry, never a replacement. Set `EMAIL_PROVIDER` to the id you want and the engine sends through it:
+
+```bash
+EMAIL_PROVIDER=resend    # RESEND_API_KEY
+EMAIL_PROVIDER=postmark  # POSTMARK_SERVER_TOKEN, @hogsend/plugin-postmark installed
+EMAIL_PROVIDER=hogsend   # injected by Cloud provisioning
+```
+
+If `EMAIL_PROVIDER` names a provider that is not registered, the container throws at boot and lists the ids that are. It never falls back silently.
+
+A provider you write yourself works the same way. See [implementing another provider](/docs/guides/email#implementing-another-provider-yourself-ses-a-custom-transport).
+
+## Self-hosting
+
+A self-hosted deploy that sets none of these variables is unaffected. `@hogsend/plugin-hogsend` is an opt-in package behind a guarded import: with no `HOGSEND_EMAIL_TOKEN` the engine never loads it.
+
+The instance holds a relay token and nothing else. AWS credentials stay in the control plane, which is why sends go through a relay rather than each instance holding its own cloud credentials.
+
+## Environment variables
+
+Cloud provisioning sets all four. You do not set them by hand on a Cloud instance.
+
+| Variable | Meaning |
+|---|---|
+| `HOGSEND_EMAIL_TOKEN` | The environment's relay token. Its presence is what loads the provider package. |
+| `HOGSEND_EMAIL_RELAY_URL` | The control plane the sends relay through. |
+| `HOGSEND_EMAIL_WEBHOOK_SECRET` | Signs delivery and bounce webhooks. Without it they are all rejected. |
+| `EMAIL_PROVIDER` | `hogsend` to make it the active wire. Registering a provider does not select it. |

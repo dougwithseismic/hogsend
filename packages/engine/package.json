@@ -69,6 +69,7 @@
   },
   "optionalDependencies": {
     "@hogsend/plugin-apollo": "workspace:^",
+    "@hogsend/plugin-hogsend": "workspace:^",
     "@hogsend/plugin-postmark": "workspace:^",
     "@hogsend/plugin-twilio": "workspace:^"
   },

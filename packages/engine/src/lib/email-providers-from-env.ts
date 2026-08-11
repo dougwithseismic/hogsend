@@ -47,6 +47,38 @@ if (process.env.POSTMARK_SERVER_TOKEN) {
 }
 
 /**
+ * `@hogsend/plugin-hogsend` is OPT-IN for exactly the same reasons as Postmark,
+ * and loaded exactly the same way: an engine `optionalDependency` behind a
+ * top-level guarded dynamic import whose specifier is ASSEMBLED AT RUNTIME. A
+ * string literal here would make `tsc` resolve the module's types and fail with
+ * TS2307 for every consumer that doesn't have the package installed — including
+ * every fresh `create-hogsend` app, which is not covered by this repo's own
+ * type-check and so would only surface after publish.
+ *
+ * The gate is `HOGSEND_EMAIL_TOKEN`: absent, the `import()` never fires, so a
+ * self-hosted deploy that will never send through Hogsend Cloud never touches
+ * the package.
+ */
+type CreateHogsendEmailProvider = (cfg: {
+  relayUrl: string;
+  tenantToken: string;
+  webhookSecret?: string;
+}) => EmailProvider;
+
+const HOGSEND_PACKAGE = ["@hogsend", "plugin-hogsend"].join("/");
+
+let createHogsendEmailProvider: CreateHogsendEmailProvider | null = null;
+if (process.env.HOGSEND_EMAIL_TOKEN) {
+  createHogsendEmailProvider =
+    await loadOptionalPlugin<CreateHogsendEmailProvider>({
+      specifier: HOGSEND_PACKAGE,
+      exportName: "createHogsendEmailProvider",
+      enabledBy: "HOGSEND_EMAIL_TOKEN is set",
+      onFailure: (message) => console.warn(message),
+    });
+}
+
+/**
  * Build the env-enabled email-provider presets. Mirrors `destinationsFromEnv`:
  * a preset is constructed ONLY when its credential is present, so a
  * Postmark-only deploy (no `RESEND_API_KEY`) contributes no Resend provider.
@@ -92,6 +124,41 @@ export function emailProvidersFromEnv(env: typeof envSchema): EmailProvider[] {
           : {}),
       }),
     );
+  }
+
+  // Hogsend Email is OPT-IN twice over: the package only loads when
+  // HOGSEND_EMAIL_TOKEN is set (see the guarded import above), and registering
+  // it does NOT select it — EMAIL_PROVIDER=hogsend does, exactly as Postmark
+  // works. The Cloud provisioner injects both, so a Cloud instance gets it by
+  // default while every self-hosted default is untouched.
+  //
+  // The relay URL is required to BUILD it. A token with no URL is a
+  // misconfiguration, and a provider aimed at `undefined/api/email/send` would
+  // defer that config error to the first real send — so it warns here and skips.
+  // If `hogsend` was the selected provider the container then throws its own
+  // "not registered" error at boot, and the two lines together say exactly what
+  // is missing.
+  if (env.HOGSEND_EMAIL_TOKEN && createHogsendEmailProvider) {
+    if (!env.HOGSEND_EMAIL_RELAY_URL) {
+      console.warn(
+        "HOGSEND_EMAIL_TOKEN is set, but its env preset is skipped: " +
+          "HOGSEND_EMAIL_RELAY_URL is unset, so there is no Hogsend Cloud " +
+          "control plane to relay sends to. Set it to your control plane " +
+          "origin (Cloud provisioning injects it automatically).",
+      );
+    } else {
+      providers.push(
+        createHogsendEmailProvider({
+          relayUrl: env.HOGSEND_EMAIL_RELAY_URL,
+          tenantToken: env.HOGSEND_EMAIL_TOKEN,
+          // Absent ⇒ the provider fails closed on every inbound webhook. Sends
+          // still work; only status updates stop.
+          ...(env.HOGSEND_EMAIL_WEBHOOK_SECRET
+            ? { webhookSecret: env.HOGSEND_EMAIL_WEBHOOK_SECRET }
+            : {}),
+        }),
+      );
+    }
   }
 
   return providers;

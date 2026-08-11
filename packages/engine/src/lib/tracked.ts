@@ -56,6 +56,45 @@ export type PrepareTrackedHtmlFn = (opts: {
   db: Database;
 }) => Promise<string>;
 
+/** The neutral transport header a send's idempotency key travels on. */
+const IDEMPOTENCY_HEADER = "Idempotency-Key";
+
+/**
+ * Thread the send's replay-stable idempotency key onto the provider wire.
+ *
+ * `SendEmailOptions` has no `idempotencyKey` field — the contract is
+ * deliberately provider-NEUTRAL, so the key rides as a header. A provider that
+ * has no use for it ignores it (Resend, Postmark); a provider whose transport is
+ * itself idempotent reads it (`@hogsend/plugin-hogsend` lifts it back off the
+ * headers and never lets it reach the recipient as an SMTP header).
+ *
+ * This is load-bearing rather than a nicety. A transport that has to invent its
+ * own key can only hash the message bytes, and that CANNOT protect a crash
+ * replay: `prepareTrackedHtml` mints fresh `tracked_links` ids and an open pixel
+ * carrying the send id on every attempt, so a re-drive of the SAME logical send
+ * produces different HTML, a different hash, and no replay protection at all. A
+ * journey replayed after a worker crash would send twice. The engine already
+ * holds the only key that survives a replay (`journeySend:<runId>:<site>:<template>`,
+ * the same one the `email_sends` unique index dedups on), so it hands it over —
+ * one key, both dedup layers.
+ *
+ * An `Idempotency-Key` the CALLER already set is never clobbered: an explicit
+ * header is a deliberate override, and silently replacing it would make two
+ * distinct sends look like one to the transport.
+ */
+export function withIdempotencyHeader(
+  headers: Record<string, string> | undefined,
+  key: string | undefined,
+): Record<string, string> | undefined {
+  if (!key) return headers;
+  const lower = IDEMPOTENCY_HEADER.toLowerCase();
+  const already = Object.keys(headers ?? {}).some(
+    (name) => name.toLowerCase() === lower,
+  );
+  if (already) return headers;
+  return { ...(headers ?? {}), [IDEMPOTENCY_HEADER]: key };
+}
+
 interface TrackedEmailDeps {
   db: Database;
   provider: EmailProvider;
@@ -384,7 +423,9 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     });
   }
 
-  const sendHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+  const sendHeaders: Record<string, string> = {
+    ...(withIdempotencyHeader(options.headers, options.idempotencyKey) ?? {}),
+  };
   if (unsubscribeUrl && !("List-Unsubscribe" in sendHeaders)) {
     sendHeaders["List-Unsubscribe"] = `<${unsubscribeUrl}>`;
     sendHeaders["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
