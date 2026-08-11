@@ -110,3 +110,60 @@ A real bounce from the SES simulator travels the entire path into a terminal `em
 and the report names every link it exercised.
 
 ## Implementation Notes
+
+### Task 1 — the public endpoint is a `cloudflared` quick tunnel (decided 2026-08-11)
+
+**Decided: tunnel, not a deploy.** `cloudflared` is already installed on the build machine and
+`scripts/discord-tunnel.sh` is in-repo precedent for exactly this shape — a quick tunnel
+(`cloudflared tunnel --url http://localhost:3004`) hands back a public `*.trycloudflare.com` HTTPS URL
+with **no Cloudflare account, no token and no DNS record**. SNS will confirm an HTTPS subscription
+against it like any other endpoint.
+
+The alternative — deploying the control plane to Railway — was rejected because it reopens a gate this
+wave deliberately closed. Promoting `CLOUD_AWS_ACCESS_KEY_ID`/`CLOUD_AWS_SECRET_ACCESS_KEY` to Railway
+is the switch that makes the *hosted* control plane create real SES resources for every provisioning
+run, and PRD 14's seam register holds that closed until the Fake is trusted. Proving the delivery path
+must not require throwing that switch; a tunnel proves the same chain and reverts by pressing Ctrl-C.
+
+Consequence to design around, not around which to design: **a quick-tunnel URL is ephemeral and
+differs per run.** So the subscription is created by the proof script at the start of a run and
+deleted at the end, rather than being standing infrastructure. That is why the relay grant below asks
+for `sns:Subscribe`/`sns:Unsubscribe` rather than a topic Doug subscribes once by hand.
+
+### The account probe that reset the task list (2026-08-11)
+
+Read against the real account before planning any of this, because the last four times a plan in this
+wave met a primary source, the source won. Findings:
+
+- **The relay credentials are live and the account is clean.** `ListTenants` returns `[]` in both
+  `us-east-1` and `eu-west-1` — PRD 11's walkthrough tore down everything it created.
+- **`ses:SendEmail` is already granted.** The two verbs that have never run are not blocked by
+  permissions. This contradicted the working assumption that production access gated the send proof;
+  it does not, and neither does IAM.
+- **Nothing is verified in either region.** `GetEmailIdentity` (granted) was probed against eight
+  candidate names — `hogsend.com`, `withseismic.com`, `doug@withseismic.com` and five others — and
+  every one returned `NotFoundException`. So a live send needs an identity created first; there is no
+  pre-existing one to borrow.
+- **`ses:GetAccount` and `ses:ListEmailIdentities` are NOT granted**, which is why our own tooling
+  cannot read the account's sandbox status or quota. Added to the relay grant below.
+
+### `scripts/aws-bootstrap-events.sh` — the admin-credentialed step, scripted
+
+The relay user cannot create an SNS topic and cannot widen its own policy. Correct posture, and also
+the reason the event pipeline has never run. Rather than a six-journey console runbook, the whole
+admin step is one idempotent script: two SNS topics, a `SourceAccount`-scoped publish policy on each,
+and one additive inline grant on the relay user.
+
+Two choices inside it worth stating:
+
+- **The topic policy is scoped by `AWS:SourceAccount`.** Unscoped, the policy reads "any SES account
+  anywhere may publish here", and anyone who learned the ARN could inject bounce events into a
+  pipeline that our ingress trusts to mark sends permanently failed and to suppress recipients.
+- **The relay grant is a separately-named INLINE policy, not a new version of `HogsendEmailRelay`.**
+  That managed policy is quoted verbatim in `docs/ses-production-access-request.md` as the artefact AWS
+  is being asked to review; a script that rewrote it would silently invalidate the document. Additive
+  and separately named is reversible with one delete and reads honestly in the console.
+
+It refuses when run with the relay credentials rather than failing three times with an `AccessDenied`
+that reads like a script bug — verified by running it that way.
+

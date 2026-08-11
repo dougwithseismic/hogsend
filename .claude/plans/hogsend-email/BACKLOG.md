@@ -40,6 +40,20 @@ wave 1 knowingly took.
 Order is by time-value, not dependency: 11 first because the AWS account is being created now and the
 script should be waiting when it lands.
 
+### Reprioritised 2026-08-11 — launch-critical first
+
+Doug's call: push to a real cloud-customer test rather than continue feature work, and live AWS runs
+are authorized again (his judgement on the open account-review case, stated explicitly). He was also
+right on the technical point that reordered this list: **the sandbox can send**, via the mailbox
+simulator, so the delivery proof was never gated on production access.
+
+A probe of the real account then removed two more assumed blockers — `ses:SendEmail` is already
+granted, and `cloudflared` is installed so the public HTTPS endpoint needs no account. See PRD 19's
+notes. The remaining blockers are three small, precise, human steps rather than engineering.
+
+New order: **19** (prove delivery) → **20** (return-path upgrade, fully unblocked code) → **16**
+(inbound replies) → **12**. PRDs 16 and 20 are feature work and do not block launch; 19 does.
+
 ## Build order rationale
 
 01 runs in parallel with everything because it is calendar time, not engineering time.
@@ -90,7 +104,10 @@ Populated during BUILD as each `[~]` lands. See DECISIONS §7 for the known ones
 | 11 | Delete `~/Downloads/hogsend-cloud-relay_accessKeys.csv` from the local machine. | open |
 | 14 | Do NOT promote `CLOUD_AWS_ACCESS_KEY_ID`/`CLOUD_AWS_SECRET_ACCESS_KEY` to Railway until (a) PRD 14 closes the Fake divergences and (b) production access is granted. Those two vars are the switch that makes the control plane create REAL SES resources per customer; `getSesClient` falls back to the Fake without them. | open |
 | 14 | A real SNS topic in the SES account + `sns:` actions on the relay policy, so `putEventDestination` can be proven. Untested today. | open |
-| 19 | ~~A verified recipient for a real sandbox send.~~ **NOT NEEDED — corrected 2026-08-11.** SES's mailbox simulator (`success@`/`bounce@`/`complaint@simulator.amazonses.com`) works in sandbox with no recipient verification, does not affect reputation or quota, and emits real events. The remaining ask is a public HTTPS endpoint for SNS plus `sns:` actions on the relay policy. | open |
+| 19 | ~~A verified recipient for a real sandbox send.~~ **NOT NEEDED — corrected 2026-08-11.** SES's mailbox simulator (`success@`/`bounce@`/`complaint@simulator.amazonses.com`) works in sandbox with no recipient verification, does not affect reputation or quota, and emits real events. | done |
+| 19 | ~~A public HTTPS endpoint for SNS.~~ **SELF-SERVED 2026-08-11.** `cloudflared` is installed and `scripts/discord-tunnel.sh` is in-repo precedent; a quick tunnel gives a public `*.trycloudflare.com` URL with no account, no token and no DNS. Rejected the Railway alternative because it reopens the deliberately-closed credential gate. | done |
+| 19 | **RUN `apps/cloud/scripts/aws-bootstrap-events.sh` with ADMIN credentials** (`aws configure`, then the script; `DRY_RUN=1` to preview). Idempotent. Creates the two SNS topics + `SourceAccount`-scoped publish policies, and adds an additive inline grant to the relay user (`sns:Subscribe`/`Unsubscribe`, plus the read-only `ses:GetAccount`/`ses:ListEmailIdentities` that were missing from the original 20). Prints the two `CLOUD_SES_SNS_TOPIC_ARN_*` lines to paste into `apps/cloud/.env.local`. The relay key cannot do any of this by design, and the script refuses if run with it. | open |
+| 19 | **CLICK the SES verification link** for `ses-proof@hogsend.com`. The identity was created on 2026-08-11 (`CreateEmailIdentity`, `us-east-1`), so AWS's mail is already in flight and lands via the hogsend.com catch-all at `doug@withseismic.com`. A verified FROM is the last thing standing between here and a real send: the mailbox simulator needs no recipient verification, but SES still requires the sender. | open |
 | 01 | Approve the AUP and ToS copy. Each carries inline `Needs Doug` blocks at the specific open questions. | open |
 | 01 | ~~Create `abuse@hogsend.com` as a real monitored mailbox.~~ **RESOLVED 2026-08-11.** It was never actually blocked: hogsend.com already had a Cloudflare Email Routing catch-all forwarding every address to `doug@withseismic.com`, so `abuse@` has been reachable the whole time. An explicit named rule (`abuse`, literal matcher, priority 10) was added so the address survives the catch-all ever being disabled or narrowed. | done |
 | 12 | INVESTIGATE the scaffold-smoke divergence: `pnpm --filter create-hogsend verify` fails locally at step 5 with 33 zod `.refine` inference errors, at the branch base as well as on the branch, with and without a prior `pnpm build` — while CI ran the same step on the same commit and passed. Until this is understood, a green CI is not evidence that a published scaffold type-checks. PRD 12's own assertion has never executed. | open |
