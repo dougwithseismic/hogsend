@@ -131,3 +131,30 @@ The walkthrough re-run against real AWS reports zero divergences for these verbs
 question is answered from a citation rather than an assumption, and gates are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 (`43ce5779`). Cloud suite 1473 → 1480. **The walkthrough now reports 0
+divergences against real AWS**, exit 0: "The Fake told the truth for everything this run exercised."
+
+**The finding worth carrying forward: the identity status is not static.** AWS answered
+`NOT_STARTED` from `createIdentity` and `PENDING` from `getIdentity` on the very next call — SES
+begins the DNS lookup asynchronously as soon as the identity exists. Correcting `createIdentity` to
+`NOT_STARTED` alone therefore INTRODUCED a new divergence at `getIdentity`, which is how it was
+caught: a second live run, not reasoning. `NOT_STARTED` exists for exactly one call, and every domain
+poller reads through `getIdentity`, so the state a poller sees is always `PENDING`. The Fake now
+promotes on first read and a test pins it.
+
+**Two of the ten were type-level, not value-level.** `impact` was typed `HIGH | LOW`; AWS returns
+`NONE` for a healthy entity. SDK enums are open, so the wire value arrived regardless and only the
+TYPE was wrong — nothing would have thrown, the branch would just have been unreachable. Widened as
+`SesReputationImpact` rather than polluting `SesRecommendationImpact`, since `listRecommendations`
+really does answer only the two.
+
+**Determinism was preserved deliberately.** AWS stamps `lastUpdatedAt`, and 1480 tests read this
+Fake, so the timestamp comes off an injectable clock defaulting to a FIXED instant
+(`FAKE_SES_CLOCK`), never wall-clock. A test that needs two writes distinguishable passes its own
+`now`.
+
+**Still unproven, and this is the honest gap:** `putEventDestination`, `sendEmail` and `sendBatch`
+were SKIPPED, not passed. The first needs a real SNS topic; the other two need a verified sender and
+(in sandbox) a verified recipient. **The two verbs that actually deliver mail have never run against
+AWS.** Everything around them is now proven; the send itself is not.
