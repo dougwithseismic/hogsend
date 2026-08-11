@@ -194,9 +194,32 @@ running the thing, against a plan that said otherwise.
 
 `cloud 1662 · engine 162 · cli 380 · studio 16 · core + plugins green · check-types 53/53 · build green`
 
-A parallel branch `chore/dep-refresh` was bringing dependencies to latest in gated stages
-(TypeScript 5.9.2 → 7.0.2 among them). **TS 7 does NOT fix #657** — identical 33 errors. Check that
-branch's state before assuming anything about it.
+## The dependency sweep — `chore/dep-refresh`
+
+A separate branch off `main`, deliberately NOT mixed into the email wave: a breakage there must not be
+ambiguous with work proven against real AWS. **12 commits, clean tree, nothing pushed.**
+
+Applied, each its own gated commit: in-range minors/patches · `@types/node` unified on 26.2.0 ·
+`jsdom` 26→30 · `lucide-react` 0.474→1.31 · `vite` 6→8 with `@vitejs/plugin-react` 4→6 ·
+`motion` 12→13 · `ioredis` 5→6 · **`postmark` 4→5** · `ai` 6→7 · `openai` 6→7 · both deprecated
+packages resolved · exact-pinned stragglers.
+
+**TypeScript stayed on 5.9.2** — there is no 5.9.2→7.0.2 commit. That was an authorised outcome
+(reverting it with a clear reason beats forcing it green by weakening something), but **the reason is
+not yet recorded** — the agent had not reported when the session ended. Get that before anyone retries
+it.
+
+Two things to check before trusting this branch:
+
+- **`postmark` 4→5 is a live email provider customers send through.** A behaviour change there is a
+  product risk our suite cannot see, since every test runs against a fake. Read the changelog against
+  `packages/plugin-postmark` before merging.
+- **Independent verification.** Its gate results were self-reported and I did not re-run them. Do that
+  before merging, the same way every other claim in this wave was re-checked.
+
+Unrelated but worth knowing: **`packages/brand-media` is already on `typescript@^7.0.2` on `main`**, so
+TS 7 is in use in one corner of the repo and works there. That predates the sweep. It also means
+#657's "TS 7 changes nothing" result is about the ENGINE's source, not about TS 7 being unusable here.
 
 ---
 
