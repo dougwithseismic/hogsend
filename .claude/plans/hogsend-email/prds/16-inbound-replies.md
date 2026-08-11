@@ -11,6 +11,34 @@ codebase.**
 This is the feature that turns lifecycle email from broadcast into conversation, and it is the one
 thing an ESP-shaped product is expected to have that we do not.
 
+## Reply-To is the DEFAULT, and it already works — read this before building anything
+
+Doug asked the right question: *"do we even need to know about replies? Shouldn't it go to their
+email inbox?"* For most customers, yes, and it already does.
+
+`replyTo` is plumbed end to end TODAY — engine mailer → `SendEmailOptions` → plugin-hogsend → relay →
+SES `ReplyToAddresses`. A customer sets `Reply-To: support@theircompany.com` and the reply lands in
+their Google Workspace like any other mail. **No inbound infrastructure, no MX change, no DNS, no
+build.** That is the right default and it must stay the right default.
+
+**So this PRD is NOT "how do customers receive replies".** It is one narrower thing:
+
+> **so a JOURNEY can know a human replied, and stop.**
+
+Without it a contact replies "please stop emailing me" and the sequence sends three more. That is the
+single most-requested lifecycle behaviour and it is the only thing `Reply-To` cannot deliver.
+
+Consequences that follow directly, and that a builder must not lose:
+
+- **Inbound is OPT-IN per domain, never automatic.** A customer who just wants replies in their inbox
+  sets `Reply-To` and touches no DNS.
+- **When inbound IS on, forwarding is MANDATORY, not an option.** A person replying to a human
+  expects a human to read it. If we intercept a reply and only emit an event, we have broken their
+  business to gain a feature. Forward first, emit second; a forwarding failure is an incident, not a
+  warning.
+- **The event is the product; the mailbox is not.** We are not building an inbox, a threading UI, or
+  a helpdesk. Store the raw message, emit `email.replied`, forward to the human. Stop there.
+
 ## The safety rule that shapes the whole design
 
 **Never point MX at SES for a customer's root domain.** Their root MX is their real mailbox — Google
@@ -41,8 +69,11 @@ merely discouraged:
   reported as uncorrelated rather than dropped.
 - **Journeys can wait on it.** `ctx.waitForEvent({ event: "email.replied" })` should work with no new
   primitive — verify that claim rather than assuming it.
-- **Forwarding is opt-in and separate from the event.** Some customers want the reply in a human
-  inbox; some want it only as an event. Both, neither, or either.
+- **Forwarding is MANDATORY whenever inbound is on** (this supersedes an earlier draft of this line
+  that called it opt-in — the two contradicted each other and this is the correct one). A person
+  replying to a human expects a human to read it, so intercepting a reply and emitting only an event
+  breaks their business to gain a feature. Forward first, emit second. A forwarding failure is an
+  incident, not a warning. The destination is configurable; whether to forward at all is not.
 - **Spam and loop protection is mandatory, not a follow-on.** An auto-responder replying to our
   address can loop. Honour `Auto-Submitted` / `Precedence: bulk` headers and never emit an event for
   a message that carries them.
@@ -61,8 +92,10 @@ merely discouraged:
   and SHALL NOT emit an event.
 - WHEN a reply cannot be correlated to an `email_sends` row, the system SHALL still store and deliver
   it, and SHALL mark it uncorrelated.
-- WHEN forwarding is enabled, the system SHALL forward to the configured address, and a forwarding
-  failure SHALL NOT lose the stored message or the event.
+- WHEN inbound is enabled for a domain, the system SHALL forward every received message to the
+  configured human address, and a forwarding failure SHALL NOT lose the stored message or the event.
+- WHEN inbound is enabled without a forwarding address configured, the system SHALL refuse to enable
+  it, because that configuration silently swallows a customer's replies.
 - WHEN inbound is disabled for a domain, the system SHALL stop emitting events and SHALL report the
   MX record as no longer required.
 
@@ -82,7 +115,7 @@ merely discouraged:
    _Boundary:_ `apps/cloud` · _Depends:_ task 3
 5. **`email.replied` on the outbound spine** + the engine-side ingest so journeys can wait on it.
    _Boundary:_ `packages/engine` · _Depends:_ task 4
-6. **Optional forwarding.**
+6. **Forwarding to the human address** (mandatory whenever inbound is on).
    _Boundary:_ `apps/cloud` · _Depends:_ task 4
 7. **Tests**, including the apex-MX refusal, the auto-responder loop guard, and an uncorrelated reply.
    _Boundary:_ `apps/cloud` · _Depends:_ tasks 2-6
