@@ -49,6 +49,31 @@ GOOD ENOUGH HERE. Whatever the docs say, record the citation.
 - If it implies a second record: that is a product-level finding. STOP and report it rather than
   quietly changing the Fake, because it would invalidate the marketing claim, the docs, and PRD 07.
 
+## Task 1 is ANSWERED — the one-record claim survives
+
+Settled 2026-08-11 against the primary source, **not** by reasoning.
+
+**Source:** AWS SESv2 API Reference, `DkimAttributes`
+(`https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_DkimAttributes.html`), the `Tokens`
+field, verbatim:
+
+> "If you used Easy DKIM to configure DKIM authentication for the domain, then this object contains a
+> set of unique strings that you use to create a set of CNAME records… If you configured DKIM
+> authentication for the domain by providing your own public-private key pair, then this object
+> contains **the selector for the public key**."
+
+The same page's preamble is equally explicit: "If you provided a public key to perform DKIM
+authentication, Amazon SES tries to find **a TXT record** that uses the selector that you specified."
+
+**Therefore `Tokens: ["hogsend"]` is our own selector echoed back. It implies NO second DNS record,
+and the ONE TXT record claim is intact.** The walkthrough's warning ("this would make it 2") and PRD
+07's note ("`dkim.tokens` must be EMPTY") are both wrong and must be corrected — a non-empty
+`tokens` is only alarming when `SigningAttributesOrigin` is `AWS_SES`, where it really is CNAME
+tokens. Rewrite the assertion to check ORIGIN, not emptiness.
+
+The same page also documents `NOT_STARTED` as a valid `Status` ("The DKIM verification process hasn't
+been initiated for the domain"), confirming AWS's answer rather than the Fake's `PENDING`.
+
 ## Locked decisions
 
 - **The Fake moves toward AWS, never the reverse.** AWS's observed behaviour is the specification.
