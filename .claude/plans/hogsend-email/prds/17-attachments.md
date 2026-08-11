@@ -179,3 +179,93 @@ tracking still works, an oversized send is refused with a clear error naming bot
 are green.
 
 ## Implementation Notes
+
+Shipped 2026-08-11 across `d1352eaf` (the docs correction), `28e148c4` (core), `4eb4bceb` (SES seam),
+`abd8535a` (relay), `f67932d4` (plugin-hogsend), `77cb75ed` (engine mailer), `6f39a144` (Resend +
+Postmark), `635f736b` (simplify).
+
+Suites after: cloud 1503 → **1526**, engine 142 → **150**, core 129 → **132**, plugin-hogsend 112,
+plugin-resend 56, plugin-postmark 44. Full-repo check-types 52/52.
+
+### Task 1 was the whole game
+
+Confirming the Simple-vs-Raw constraint from AWS's docs refuted this PRD's premise and deleted its two
+hardest tasks — a hand-written MIME assembler and a second send mode on the seam. Everything below was
+cheap because that ran first.
+
+### Four SDK facts that changed the code, none of them guessable
+
+1. **Resend's BATCH API cannot carry attachments at all.**
+   `CreateBatchEmailOptions = Omit<CreateEmailOptions, 'attachments' | 'scheduledAt'>`, commented "not
+   supported in the batch API". Passing them **type-checks and silently drops the files** — the exact
+   receipt-minus-invoice failure `capabilities.attachments` exists to prevent, one layer lower. A
+   batch carrying any attachment now falls back to per-item single sends. Costs throughput on that
+   path; a partition strategy (attachment items single, rest batched) is the drop-in refinement if a
+   real attachment-heavy Resend campaign ever appears.
+2. **The inline convention differs per provider.** Resend takes the BARE content id and the `cid:`
+   prefix belongs in the HTML; Postmark wants the prefix INSIDE `ContentID`. Both read off the SDKs'
+   own types. Getting this backwards makes inline images render as plain attachments, silently.
+3. **Postmark's `ContentType` is REQUIRED where SES's is optional.** So "omit it and let the provider
+   default" is unimplementable there; that leg supplies `application/octet-stream`. One optional field,
+   three different provider behaviours — which is precisely what "the contract stays neutral, each
+   provider translates" was for.
+4. **Resend has no send-side disposition field** (it exists only on the READ-side `AttachmentData`), so
+   `disposition: "inline"` with no `contentId` has no representation. It degrades to a regular
+   attachment rather than throwing: with no id nothing in the HTML can reference the file, so no image
+   can fail to render and only a presentation hint is lost.
+
+### The base64 regex that would have 500'd a valid attachment
+
+The textbook base64 validator, `^(?:[A-Za-z0-9+/]{4})*(?:…)?$`, throws
+`RangeError: Maximum call stack size exceeded` on a ~28M-character string, because V8 gives a
+quantified GROUP one stack frame per repetition. Verified directly: it throws where a flat character
+class runs the same input in 22ms. It would have fired **inside the validator whose entire job is
+returning a clean 400**, so a customer attaching a valid 20 MiB file would have received a 500. The
+grouping rules the regex can no longer express are two explicit length checks instead.
+
+### The idempotency-key trap
+
+`plugin-hogsend` derives its fallback key from `sha256(JSON.stringify(message))`. Naively including
+attachments allocates the whole ~33 MB message as a string per send; the obvious fix — hashing filename
+plus size — is far worse, because two DIFFERENT files with the same name and length collapse to one
+key and the relay silently returns the first send's id and never delivers the second. That is the
+failure the function's own comment already warned about for key truncation. The key is now derived
+from a projection substituting a sha256 of each attachment's content.
+
+The no-attachment key had to stay byte-identical, since the relay remembers derived keys for 7 days
+and a shift would silently stop deduping in-window replays for every existing send. It is pinned with
+a hardcoded value, **independently re-derived from the pre-change algorithm** rather than captured
+from the new code.
+
+### Two silent-drop paths found beyond the brief
+
+`sendRaw` and `sendBatch` in the engine mailer: core's `SendEmailOptions` spread already let
+attachments flow through both unchecked, so a non-capable provider would have sent the message minus
+its files and reported success. Both now gated; `sendBatch` gates every item before any item dispatches.
+
+### Verified, not assumed
+
+- **Replay keying is untouched.** `deriveJourneyKey` takes only `{ kind, anchor, site, discriminant }`
+  and the Layer-1 memo deps are `[resolvedIdempotencyKey]`, so attachments reach neither and a
+  replayed send derives the identical key. No journey-authoring rule.
+- **No migration needed.** `email_sends.metadata` (jsonb) absorbed `{ filename, sizeBytes, contentType }`
+  per attachment, as its own schema comment anticipated. Bytes are never stored.
+
+### Mutation-checked, every one on a silent failure
+
+| mutation | tests red |
+| --- | --- |
+| always emit the `Attachments` key | 2 (byte-identical wire) |
+| pass base64 through as a string (double-encode) | 1 |
+| disable the relay attachment gate | 6, incl. "SES untouched" |
+| digest filename+length instead of content | 1 (anti-collision) |
+| disable the capability gate | 1 (before send AND before any row) |
+| record content bytes in metadata | 1 (never the bytes) |
+| remove the Resend batch fallback | 1 |
+
+### Deliberate, and worth not re-litigating
+
+No blocked-extension list (SES publishes and enforces one that moves; a stale copy refuses files SES
+accepts). No content-type guessing from filenames. No inspection of the bytes at all. Size cap is PER
+MESSAGE, matching SES's own. Allowance still meters by message, not by byte — a 25 MiB attachment
+costs the same as a 10 KB email, deferred deliberately.
