@@ -19,12 +19,14 @@ import {
   provisionSesTenant,
   SES_EVENT_DESTINATION_NAME,
   SES_PROVISION_STEPS,
+  SES_PUBLISHED_EVENT_TYPES,
   type SesProvisionStep,
 } from "../services/ses-tenants";
 import type { SesClient } from "../ses/contract";
 import { FakeSesClient } from "../ses/fake";
 import { getFakeSesClient, getSesClient, resetSesClients } from "../ses/index";
 import { sesConfigurationSetName, sesTenantName } from "../ses/names";
+import { WALKTHROUGH_PUBLISHED_EVENT_TYPES } from "../ses-walkthrough/walkthrough";
 
 /**
  * SES tenant provisioning (PRD 06), against the deterministic Fake. Nothing
@@ -198,7 +200,7 @@ describe("provisionSesTenant", () => {
     ]);
   });
 
-  it("attaches the SNS event destination, publishing exactly four event types", async () => {
+  it("attaches the SNS event destination, publishing exactly five event types", async () => {
     // Without a destination the configuration set publishes NOTHING, so no
     // bounce or complaint ever reaches the tenant's engine: suppression never
     // happens and `email_sends` never reaches a terminal status.
@@ -218,17 +220,22 @@ describe("provisionSesTenant", () => {
     expect(destination?.name).toBe(SES_EVENT_DESTINATION_NAME);
     expect(destination?.snsTopicArn).toBe(TOPIC_ARN);
     expect(destination?.enabled).toBe(true);
-    // FOUR. `OPEN` and `CLICK` are ABSENT by design — opens and clicks are
+    // FIVE. `OPEN` and `CLICK` are ABSENT by design — opens and clicks are
     // first-party and sovereign, and subscribing to SES's would give the engine
-    // two disagreeing sources of truth for one fact.
+    // two disagreeing sources of truth for one fact. `SEND` is absent because
+    // the relay really does already know what it sent. `REJECT` is PRESENT
+    // (PRD 18) because it is the one outcome the relay cannot infer: SES
+    // accepted the message, returned an id, then discarded it.
     expect([...(destination?.eventTypes ?? [])].sort()).toEqual([
       "BOUNCE",
       "COMPLAINT",
       "DELIVERY",
       "DELIVERY_DELAY",
+      "REJECT",
     ]);
     expect(destination?.eventTypes).not.toContain("OPEN");
     expect(destination?.eventTypes).not.toContain("CLICK");
+    expect(destination?.eventTypes).not.toContain("SEND");
   });
 
   it("re-asserts the event destination on a re-drive rather than duplicating it", async () => {
@@ -242,6 +249,55 @@ describe("provisionSesTenant", () => {
     // A PUT, not an append: the seam does the create-then-update dance AWS has
     // no single operation for.
     expect(set?.eventDestinations).toHaveLength(1);
+  });
+
+  it("keeps the live walkthrough subscribing to the SAME set", () => {
+    // The walkthrough (PRD 11) holds its own copy of this list because it is a
+    // standalone script that must not import the db-bound tenant service. A
+    // copy that drifts has the one script we use to prove the Fake matches AWS
+    // exercising a shape production no longer sends — so the copy is pinned
+    // here rather than trusted.
+    expect([...WALKTHROUGH_PUBLISHED_EVENT_TYPES]).toEqual([
+      ...SES_PUBLISHED_EVENT_TYPES,
+    ]);
+  });
+
+  it("adds REJECT to a destination provisioned before PRD 18 existed", async () => {
+    // THE back-compat line. Every configuration set already out there carries
+    // the OLD four types, and `CreateConfigurationSetEventDestination` fails
+    // with `already_exists` on one — so an implementation that only ever
+    // CREATED would either duplicate the destination or fail the whole
+    // re-drive, and those tenants would never start publishing Reject.
+    const environmentId = await seedEnvironment();
+    const configurationSetName = sesConfigurationSetName(environmentId);
+
+    // Stand up the pre-PRD-18 world by hand: the set exists and its ONE
+    // destination names the old four.
+    await fake().createConfigurationSet({ configurationSetName });
+    await fake().putEventDestination({
+      configurationSetName,
+      eventDestinationName: SES_EVENT_DESTINATION_NAME,
+      snsTopicArn: TOPIC_ARN,
+      eventTypes: ["DELIVERY", "BOUNCE", "COMPLAINT", "DELIVERY_DELAY"],
+      enabled: true,
+    });
+
+    const result = await provisionSesTenant(
+      { environmentId },
+      { snsTopicArn: TOPIC_ARN },
+    );
+
+    expect(result.steps).toContain("put-event-destination");
+    const set = fake().__configurationSet(configurationSetName);
+    // Converged, not duplicated.
+    expect(set?.eventDestinations).toHaveLength(1);
+    expect([...(set?.eventDestinations[0]?.eventTypes ?? [])].sort()).toEqual([
+      "BOUNCE",
+      "COMPLAINT",
+      "DELIVERY",
+      "DELIVERY_DELAY",
+      "REJECT",
+    ]);
   });
 
   it("skips the event destination — and says so — when no topic is configured", async () => {

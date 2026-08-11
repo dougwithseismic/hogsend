@@ -70,7 +70,30 @@ export type EmailEventType =
   | "email.complained"
   | "email.delivery_delayed"
   | "email.opened"
-  | "email.clicked";
+  | "email.clicked"
+  /**
+   * The provider ACCEPTED the message, returned a message id, and then threw
+   * it away. SES's `Reject` is the reference case: "the only possible value
+   * [of `reason`] is `Bad content`, which means that Amazon SES detected that
+   * the email contained a virus. When a message is rejected, Amazon SES stops
+   * processing it, and doesn't attempt to deliver it to the recipient's mail
+   * server."
+   *
+   * It is its own type rather than an `email.bounced` with some class, and
+   * that distinction is the whole point: **a reject is OUR fault, not the
+   * recipient's.** Their address is fine; our content carried a virus. A
+   * `permanent` bounce auto-suppresses, so folding a reject onto one would let
+   * a single bad attachment permanently block a deliverable address — silent,
+   * irreversible from the customer's side, and discovered months later.
+   *
+   * So the engine treats it as TERMINAL (no later event is coming for that
+   * message) and SUPPRESSING NOTHING: no `bounceCount` increment, no
+   * suppression list, no effect on a bounce rate.
+   *
+   * Provider-neutral by construction even though only the Hogsend provider
+   * emits it today — every ESP has an accepted-then-discarded outcome.
+   */
+  | "email.rejected";
 
 /**
  * Provider-neutral bounce classification. Drives suppression: `permanent`
@@ -103,6 +126,17 @@ export interface EmailEvent {
     code: string;
     reason?: string;
   };
+  /**
+   * Present on `email.rejected`, carrying the provider's reason VERBATIM
+   * (SES documents `Bad content` as the only value today — do not parse it,
+   * map it, or assume it stays the only one).
+   *
+   * Deliberately NOT folded into {@link EmailEvent.bounce}: `bounce` drives
+   * suppression, and a reject must never reach that path. Keeping the reason
+   * in its own field means no handler can accidentally read a reject as a
+   * bounce class.
+   */
+  reject?: { reason: string };
   /** Present on `email.clicked` (native-tracking echo only; first-party owns clicks). */
   click?: { url: string; at?: string; ip?: string; ua?: string };
   /** The untouched provider payload, for handler escape-hatch + debugging. */

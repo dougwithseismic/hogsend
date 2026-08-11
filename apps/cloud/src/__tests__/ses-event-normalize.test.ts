@@ -16,6 +16,7 @@ import {
   sesDeliveryDelayNotification,
   sesDeliveryNotification,
   sesOpenNotification,
+  sesRejectNotification,
   sesSendNotification,
   tagForEnvironment,
 } from "./helpers/ses-notifications";
@@ -38,12 +39,13 @@ function normalize(payload: Record<string, unknown>) {
 }
 
 describe("normalizeSesNotification — what is consumed", () => {
-  it("consumes exactly Delivery, Bounce, Complaint and DeliveryDelay", () => {
+  it("consumes exactly Delivery, Bounce, Complaint, DeliveryDelay and Reject", () => {
     expect([...SES_CONSUMED_EVENT_TYPES]).toEqual([
       "Delivery",
       "Bounce",
       "Complaint",
       "DeliveryDelay",
+      "Reject",
     ]);
   });
 
@@ -177,6 +179,77 @@ describe("normalizeSesNotification — DeliveryDelay", () => {
     });
     expect(event.bounce).toBeUndefined();
     expect(hogsendRelayEmailEventSchema.safeParse(event).success).toBe(true);
+  });
+});
+
+describe("normalizeSesNotification — Reject (PRD 18)", () => {
+  it("normalizes AWS's Reject example", () => {
+    const { event } = normalize(sesRejectNotification());
+
+    expect(event).toMatchObject({
+      type: "email.rejected",
+      messageId: "EXAMPLE7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+      // The `reject` object carries NO timestamp of its own — `reason` is its
+      // only documented field — so `mail.timestamp` is the honest answer.
+      occurredAt: "2016-10-14T17:38:15.211Z",
+      reject: { reason: "Bad content" },
+    });
+    expect(hogsendRelayEmailEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("attaches NO bounce block", () => {
+    // A reject is not a bounce and must never touch the suppression path: the
+    // recipient's address is fine, our content carried a virus.
+    expect(normalize(sesRejectNotification()).event.bounce).toBeUndefined();
+  });
+
+  it("names `mail.destination`, because a reject is MESSAGE-scoped", () => {
+    // The one event type where `mail.destination` is correct rather than a
+    // convenience fallback: SES stopped processing the MESSAGE, so every
+    // destination is affected identically. Safe here precisely because
+    // `email.rejected` suppresses nothing.
+    const payload = sesRejectNotification();
+    (payload.mail as Record<string, unknown>).destination = [
+      "one@example.com",
+      "two@example.com",
+    ];
+    expect(normalize(payload).event.recipients).toEqual([
+      "one@example.com",
+      "two@example.com",
+    ]);
+  });
+
+  it("carries the reason VERBATIM rather than parsing or mapping it", () => {
+    // `Bad content` is the only value AWS documents TODAY. A normalizer that
+    // switched on it would silently drop the next one.
+    const payload = sesRejectNotification();
+    (payload.reject as Record<string, unknown>).reason =
+      "Some future AWS reject reason";
+    expect(normalize(payload).event.reject?.reason).toBe(
+      "Some future AWS reject reason",
+    );
+  });
+
+  it("is still consumed when SES states no reason at all", () => {
+    // Losing the whole terminal event because one optional string was absent
+    // would put the send back in the exact limbo this PRD exists to end.
+    const payload = sesRejectNotification();
+    delete (payload as Record<string, unknown>).reject;
+    const { event } = normalize(payload);
+    expect(event.type).toBe("email.rejected");
+    expect(event.reject).toBeUndefined();
+    expect(hogsendRelayEmailEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("has a dedupe key stable across redeliveries and distinct per message", () => {
+    // SNS is at-least-once and a Reject has no `feedbackId`, so the key rests
+    // on `mail.timestamp` + messageId — both fixed for one message.
+    expect(normalize(sesRejectNotification()).dedupeKey).toBe(
+      normalize(sesRejectNotification()).dedupeKey,
+    );
+    expect(normalize(sesRejectNotification()).dedupeKey).not.toBe(
+      normalize(sesDeliveryNotification()).dedupeKey,
+    );
   });
 });
 
@@ -316,6 +389,18 @@ describe("round trip through plugin-hogsend.parseWebhook", () => {
       JSON.stringify(normalize(sesDeliveryDelayNotification()).event),
     );
     expect(parsed.type).toBe("email.delivery_delayed");
+    expect(parsed.bounce).toBeUndefined();
+  });
+
+  it("a Reject becomes an EmailEvent with a reason and NO bounce", () => {
+    // The EARS line proved end to end, across both sides of the wire: SES
+    // `Reject` → `email.rejected` carrying `Bad content`, and nothing the
+    // engine's suppression path can read.
+    const parsed = parseHogsendRelayWebhook(
+      JSON.stringify(normalize(sesRejectNotification()).event),
+    );
+    expect(parsed.type).toBe("email.rejected");
+    expect(parsed.reject).toEqual({ reason: "Bad content" });
     expect(parsed.bounce).toBeUndefined();
   });
 });

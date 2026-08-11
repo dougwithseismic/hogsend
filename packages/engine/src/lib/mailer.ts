@@ -67,6 +67,18 @@ const WEBHOOK_TO_STATUS: Partial<Record<EmailEventType, string>> = {
   "email.clicked": "clicked",
   "email.bounced": "bounced",
   "email.complained": "complained",
+  /**
+   * TERMINAL (PRD 18). The provider accepted the message, returned an id, and
+   * then discarded it — no delivery, no bounce, no later event of any kind is
+   * coming, so a row left at `sent` would stay non-terminal forever.
+   *
+   * `failed` rather than `bounced`, deliberately: `bounced` carries a
+   * classification the engine SUPPRESSES on, and a reject is our content
+   * failing rather than the recipient's address. It has no timestamp column of
+   * its own and none is invented here — `updatedAt` is when we learned, and the
+   * verbatim reason reaches the consumer on the event (`EmailEvent.reject`).
+   */
+  "email.rejected": "failed",
 };
 
 /** Max recipients we will iterate on a bounce/complaint, to avoid a fan-out
@@ -406,6 +418,25 @@ export function createTrackedMailer(
         await emitProviderEmailEvent("email.complained", event.messageId);
         await handleComplaint(event.recipients);
         break;
+      case "email.rejected":
+        // TERMINAL, and SUPPRESSING NOTHING (PRD 18). The provider accepted
+        // the message, returned an id, then threw it away — SES's `Reject`,
+        // whose only documented reason is `Bad content` (a virus we sent).
+        //
+        // Note what is deliberately ABSENT below, because each omission is the
+        // decision rather than an oversight:
+        //  - NO `handleBounce`. The recipient's address is fine. Incrementing
+        //    `bounceCount` toward the suppression threshold would let one bad
+        //    attachment permanently block a deliverable address, silently, with
+        //    nothing the customer could undo.
+        //  - NO bounce facts on the row. A reject is not a bounce, and writing
+        //    `bouncedAt` would fold it into every bounce-rate read.
+        //  - NO outbound emit. The outbound catalog is mirrored by hand into
+        //    `@hogsend/cli` and `@hogsend/client`, both outside this change's
+        //    boundary; the `WebhookHandlerMap` slot the neutral type gets for
+        //    free is the in-boundary seam for a consumer that wants to react.
+        await updateEmailStatus(event.type, event.messageId);
+        break;
       case "email.delivery_delayed":
         // No-op: providers now map transient bounces to `email.bounced` with
         // `class:'transient'`, so soft bounces are recorded there instead.
@@ -552,13 +583,17 @@ export function createTrackedMailer(
 
     const timestampField = WEBHOOK_TO_STATUS_FIELD[eventType];
     const status = WEBHOOK_TO_STATUS[eventType];
-    if (!timestampField || !status) return;
+    // The STATUS is what makes a row terminal; the timestamp column is
+    // optional. `email.rejected` has a status and no column of its own, and
+    // borrowing `bouncedAt` for it would quietly fold every reject into the
+    // bounce-rate reads. Every other type still writes both.
+    if (!status) return;
 
     await db
       .update(emailSends)
       .set({
         status: status as typeof emailSends.$inferSelect.status,
-        [timestampField]: new Date(),
+        ...(timestampField ? { [timestampField]: new Date() } : {}),
         ...(extra?.bounceType ? { bounceType: extra.bounceType } : {}),
         ...(extra?.bounceReason ? { bounceReason: extra.bounceReason } : {}),
         updatedAt: new Date(),

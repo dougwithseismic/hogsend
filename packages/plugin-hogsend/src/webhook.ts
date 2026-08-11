@@ -37,6 +37,16 @@ export const HOGSEND_RELAY_EMAIL_EVENT_TYPES = [
   "email.bounced",
   "email.complained",
   "email.delivery_delayed",
+  /**
+   * SES accepted the message, returned a message id, and then discarded it —
+   * `Reject`, whose only documented reason is `Bad content` (a virus). It is
+   * the one outcome the relay CANNOT infer from its own send call, which is
+   * why it belongs on this wire even though the relay knows what it sent.
+   *
+   * Terminal, and suppressing NOTHING. See `EmailEventType` in `@hogsend/core`
+   * for why folding it onto `email.bounced` would be a data-loss bug.
+   */
+  "email.rejected",
 ] as const;
 
 export type HogsendRelayEmailEventType =
@@ -51,6 +61,17 @@ export const hogsendRelayBounceSchema = z.object({
   type: z.string().min(1),
   subType: z.string().min(1).optional(),
   reason: z.string().optional(),
+});
+
+/**
+ * The reject facts, exactly as SES states them. Its own block rather than a
+ * `bounce` with an odd `type`: `bounce` is what the engine classifies for
+ * SUPPRESSION, and a reject must be structurally unable to reach that path.
+ * `reason` is SES's `Reject.reason` VERBATIM — `Bad content` is the only value
+ * AWS documents today, and it is neither parsed nor mapped here.
+ */
+export const hogsendRelayRejectSchema = z.object({
+  reason: z.string().min(1),
 });
 
 /**
@@ -72,6 +93,8 @@ export const hogsendRelayEmailEventSchema = z.object({
   recipients: z.array(z.string()),
   occurredAt: z.string().datetime(),
   bounce: hogsendRelayBounceSchema.optional(),
+  /** Present on `email.rejected` only. Never drives suppression. */
+  reject: hogsendRelayRejectSchema.optional(),
   /** The verbatim SES/SNS notification, for debugging and `EmailEvent.raw`. */
   raw: z.unknown().optional(),
 });
@@ -256,6 +279,13 @@ function toBounce(
 ): EmailEvent["bounce"] | undefined {
   // A delay is NOT a bounce. Attaching one would drive the engine's suppression
   // path off a message that may still be delivered.
+  //
+  // Neither is a REJECT, and there the stakes are higher: the recipient's
+  // address is fine and it was our content SES objected to, so a bounce block
+  // here would put a good address one `class: "permanent"` away from permanent
+  // suppression. The gate is on the EVENT TYPE rather than on the presence of
+  // the block, so a relay that wrongly populated `bounce` on a reject still
+  // cannot smuggle a suppressing class through.
   if (event.type !== "email.bounced" && event.type !== "email.complained") {
     return undefined;
   }
@@ -305,12 +335,19 @@ export function parseHogsendRelayWebhook(payload: string): EmailEvent {
 
   const event = parsed.data;
   const bounce = toBounce(event);
+  // The reason rides ONLY on the event type that has one, so no other handler
+  // can read it, and it is passed through untouched — SES's `Bad content` is
+  // the only documented value today and this makes no assumption that it stays
+  // the only one.
+  const reject =
+    event.type === "email.rejected" && event.reject ? event.reject : undefined;
   return {
     type: event.type,
     messageId: event.messageId,
     recipients: event.recipients,
     occurredAt: event.occurredAt,
     ...(bounce ? { bounce } : {}),
+    ...(reject ? { reject } : {}),
     raw: event,
   };
 }

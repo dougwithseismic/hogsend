@@ -33,6 +33,7 @@ export {
   type HogsendRelayEmailEventType,
   hogsendRelayBounceSchema,
   hogsendRelayEmailEventSchema,
+  hogsendRelayRejectSchema,
   parseHogsendRelayWebhook,
   signHogsendRelayWebhook,
   verifyHogsendRelaySignature,

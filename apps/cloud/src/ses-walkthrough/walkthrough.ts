@@ -58,12 +58,21 @@ import type { WalkthroughNames } from "./naming";
 /** Both reasons, matching `SES_SUPPRESSED_REASONS` in the tenant service. */
 const SUPPRESSED_REASONS: SesSuppressionReason[] = ["BOUNCE", "COMPLAINT"];
 
-/** The four the configuration set publishes (`SES_PUBLISHED_EVENT_TYPES`). */
-const PUBLISHED_EVENT_TYPES: SesEventType[] = [
+/**
+ * The five the configuration set publishes, mirroring
+ * `SES_PUBLISHED_EVENT_TYPES` in the tenant service.
+ *
+ * A COPY rather than an import, because this script is standalone and the
+ * tenant service reaches the control-plane database. `ses-tenants.test.ts`
+ * pins the two lists equal, so the copy cannot drift into exercising a shape
+ * production no longer sends.
+ */
+export const WALKTHROUGH_PUBLISHED_EVENT_TYPES: SesEventType[] = [
   "DELIVERY",
   "BOUNCE",
   "COMPLAINT",
   "DELIVERY_DELAY",
+  "REJECT",
 ];
 
 /**
@@ -260,7 +269,7 @@ export async function executeWalkthrough(
       configurationSetName: names.configurationSetName,
       eventDestinationName: names.eventDestinationName,
       snsTopicArn: options.snsTopicArn,
-      eventTypes: PUBLISHED_EVENT_TYPES,
+      eventTypes: WALKTHROUGH_PUBLISHED_EVENT_TYPES,
       enabled: true,
     };
     await recorder.compare({

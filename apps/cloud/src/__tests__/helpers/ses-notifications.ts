@@ -205,6 +205,71 @@ export function sesDeliveryDelayNotification(): Record<string, unknown> {
   });
 }
 
+/**
+ * AWS's Reject record, verbatim.
+ *
+ * Two properties of this shape are load-bearing and neither is guessable:
+ *
+ *  - **the `reject` object has NO timestamp.** Its only documented field is
+ *    `reason`, so `occurredAt` can only come from `mail.timestamp` — which is
+ *    also what makes the dedupe key stable across SNS redeliveries;
+ *  - **it names no recipients.** A reject is MESSAGE-scoped ("Amazon SES stops
+ *    processing it"), so `mail.destination` is the only recipient list there
+ *    is, and it is the right one.
+ *
+ * `mail.destination` here really is `sender@example.com` in AWS's example, odd
+ * as that looks next to the `To` header. Copied rather than corrected: the
+ * point of a verbatim fixture is that it does not quietly agree with us.
+ */
+export function sesRejectNotification(): Record<string, unknown> {
+  return clone({
+    eventType: "Reject",
+    mail: {
+      timestamp: "2016-10-14T17:38:15.211Z",
+      source: "sender@example.com",
+      sourceArn:
+        "arn:aws:ses:us-east-1:123456789012:identity/sender@example.com",
+      sendingAccountId: "123456789012",
+      messageId: "EXAMPLE7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+      destination: ["sender@example.com"],
+      headersTruncated: false,
+      headers: [
+        { name: "From", value: "sender@example.com" },
+        { name: "To", value: "recipient@example.com" },
+        { name: "Subject", value: "Message sent from Amazon SES" },
+        { name: "MIME-Version", value: "1.0" },
+        {
+          name: "Content-Type",
+          value: 'multipart/mixed; boundary="qMm9M+Fa2AknHoGS"',
+        },
+        {
+          name: "X-SES-MESSAGE-TAGS",
+          value:
+            "myCustomTag1=myCustomTagValue1, myCustomTag2=myCustomTagValue2",
+        },
+      ],
+      commonHeaders: {
+        from: ["sender@example.com"],
+        to: ["recipient@example.com"],
+        messageId:
+          "EXAMPLE7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+        subject: "Message sent from Amazon SES",
+      },
+      tags: {
+        "ses:configuration-set": ["ConfigSet"],
+        "ses:source-ip": ["192.0.2.0"],
+        "ses:from-domain": ["example.com"],
+        "ses:caller-identity": ["ses_user"],
+        myCustomTag1: ["myCustomTagValue1"],
+        myCustomTag2: ["myCustomTagValue2"],
+      },
+    },
+    reject: {
+      reason: "Bad content",
+    },
+  });
+}
+
 /** AWS's Send record, verbatim — one of the types we deliberately DROP. */
 export function sesSendNotification(): Record<string, unknown> {
   return clone({

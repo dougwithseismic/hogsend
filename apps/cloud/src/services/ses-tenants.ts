@@ -103,19 +103,34 @@ export const SES_PROVISION_STEPS = [
 ] as const;
 
 /**
- * The SES event types this stack's configuration sets publish (PRD 05).
+ * The SES event types this stack's configuration sets publish (PRD 05, PRD 18).
  *
- * FOUR, and deliberately not six. `OPEN` and `CLICK` are absent because opens
- * and clicks are FIRST-PARTY and sovereign — the engine's own `/v1/t/o` and
- * `/v1/t/c` are the single source of truth, and subscribing to SES's would give
- * the engine two disagreeing answers to one question. `SEND` and `REJECT` are
- * absent because the relay already knows what it sent.
+ * FIVE. `OPEN` and `CLICK` are absent because opens and clicks are FIRST-PARTY
+ * and sovereign — the engine's own `/v1/t/o` and `/v1/t/c` are the single
+ * source of truth, and subscribing to SES's would give the engine two
+ * disagreeing answers to one question. `SEND` is absent because the relay
+ * really does already know what it sent.
+ *
+ * **`REJECT` is here, and the comment above used to claim it was absent for
+ * the same reason as `SEND`. That was half true and the wrong half.** A
+ * `Reject` arrives AFTER the send call returned a message id: SES accepted the
+ * message, detected a virus in it, and stopped — "doesn't attempt to deliver
+ * it to the recipient's mail server", in AWS's words. No bounce follows, no
+ * delivery follows, nothing follows. Without this subscription that
+ * `email_sends` row never reaches a terminal state, so the customer sees a
+ * send that looks fine and a recipient who got nothing, with no explanation
+ * anywhere. It is the one outcome the relay CANNOT infer from its own call.
+ *
+ * Adding it is safe on a re-drive: `putEventDestination` is a PUT (see the
+ * seam's create-then-update note), so a configuration set provisioned with the
+ * old four converges to five rather than duplicating or failing.
  */
 export const SES_PUBLISHED_EVENT_TYPES: readonly SesEventType[] = [
   "DELIVERY",
   "BOUNCE",
   "COMPLAINT",
   "DELIVERY_DELAY",
+  "REJECT",
 ];
 
 /** The event destination's name on the configuration set. One per set. */

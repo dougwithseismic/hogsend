@@ -82,14 +82,17 @@ async function verify(
 // ---------------------------------------------------------------------------
 
 describe("HogsendRelayEmailEvent — the shape PRD 05 produces", () => {
-  it("carries only the four provider-owned statuses", () => {
+  it("carries only the five provider-owned statuses", () => {
     // Opens and clicks are FIRST-PARTY and sovereign — they must never appear
     // on a provider wire, or the engine would have two disagreeing sources.
+    // `email.rejected` (PRD 18) IS provider-owned: only SES knows it accepted
+    // a message and then discarded it.
     expect([...HOGSEND_RELAY_EMAIL_EVENT_TYPES]).toEqual([
       "email.delivered",
       "email.bounced",
       "email.complained",
       "email.delivery_delayed",
+      "email.rejected",
     ]);
   });
 
@@ -140,6 +143,62 @@ describe("HogsendRelayEmailEvent — the shape PRD 05 produces", () => {
         occurredAt: "yesterday",
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts a reject carrying SES's reason verbatim", () => {
+    const parsed = hogsendRelayEmailEventSchema.parse({
+      ...DELIVERED,
+      type: "email.rejected",
+      reject: { reason: "Bad content" },
+    });
+    expect(parsed.type).toBe("email.rejected");
+    expect(parsed.reject).toEqual({ reason: "Bad content" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// email.rejected — terminal, and structurally incapable of suppressing
+// ---------------------------------------------------------------------------
+
+describe("parseHogsendRelayWebhook — email.rejected (PRD 18)", () => {
+  const REJECTED: HogsendRelayEmailEvent = {
+    version: HOGSEND_RELAY_EVENT_VERSION,
+    type: "email.rejected",
+    messageId: "0100018f-ses-rejected-id",
+    recipients: ["user@example.com"],
+    occurredAt: OCCURRED_AT,
+    reject: { reason: "Bad content" },
+    raw: { eventType: "Reject" },
+  };
+
+  it("carries the reason verbatim onto the neutral EmailEvent", () => {
+    const parsed = parseHogsendRelayWebhook(JSON.stringify(REJECTED));
+    expect(parsed.type).toBe("email.rejected");
+    expect(parsed.reject).toEqual({ reason: "Bad content" });
+    expect(parsed.recipients).toEqual(["user@example.com"]);
+  });
+
+  it("attaches NO bounce block, so it cannot reach the suppression path", () => {
+    // THE assertion. The engine suppresses off `bounce.class === "permanent"`,
+    // so a reject that arrived carrying any bounce block would be one bad
+    // attachment away from permanently blocking a deliverable address.
+    const parsed = parseHogsendRelayWebhook(JSON.stringify(REJECTED));
+    expect(parsed.bounce).toBeUndefined();
+  });
+
+  it("still attaches no bounce when a relay wrongly sends one", () => {
+    // Belt and braces: the classification is driven by the EVENT TYPE, not by
+    // the presence of the block, so a mis-populated wire cannot smuggle a
+    // suppressing class through.
+    const parsed = parseHogsendRelayWebhook(
+      JSON.stringify({ ...REJECTED, bounce: { type: "Permanent" } }),
+    );
+    expect(parsed.bounce).toBeUndefined();
+  });
+
+  it("omits `reject` entirely on every other event type", () => {
+    const parsed = parseHogsendRelayWebhook(JSON.stringify(DELIVERED));
+    expect(parsed.reject).toBeUndefined();
   });
 });
 

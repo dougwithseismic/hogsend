@@ -12,6 +12,8 @@ import {
 } from "../db/schema";
 import { env } from "../env";
 import {
+  bounceRate,
+  complaintRate,
   decideSuspension,
   decideTrustTier,
   ESTABLISHED_MAX_BOUNCE_RATE,
@@ -122,7 +124,11 @@ async function park(
 /** Park a terminal SES outcome, the way PRD 05's ingress records one. */
 async function outcome(
   environmentId: string,
-  type: "email.delivered" | "email.bounced" | "email.complained",
+  type:
+    | "email.delivered"
+    | "email.bounced"
+    | "email.complained"
+    | "email.rejected",
   count: number,
   daysAgo = 1,
 ): Promise<void> {
@@ -920,6 +926,29 @@ describe("readTrustTierStats", () => {
     expect(stats.delivered).toBe(40);
     expect(stats.bounced).toBe(2);
     expect(stats.complained).toBe(1);
+  });
+
+  it("counts a reject toward NOTHING — not the bounce rate, not delivered", async () => {
+    // PRD 18. A reject is OUR content failing, not the recipient's address
+    // failing, so it must not move the number that pauses a tenant. The rates
+    // are computed by TYPE off `email_events`, which is exactly why the neutral
+    // type had to be its own rather than an `email.bounced` variant.
+    const a = await seed();
+    await park(a.environmentId, 1, 100);
+    await outcome(a.environmentId, "email.delivered", 40);
+    await outcome(a.environmentId, "email.rejected", 30);
+
+    const stats = await readTrustTierStats({
+      environmentId: a.environmentId,
+      now: NOW,
+      db,
+    });
+
+    expect(stats.bounced).toBe(0);
+    expect(stats.complained).toBe(0);
+    expect(stats.delivered).toBe(40);
+    expect(bounceRate(stats)).toBe(0);
+    expect(complaintRate(stats)).toBe(0);
   });
 });
 
