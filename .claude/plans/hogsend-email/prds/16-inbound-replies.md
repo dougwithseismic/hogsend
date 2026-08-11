@@ -217,6 +217,51 @@ ours, and REFUSE if it is a set we do not own rather than displacing it. The liv
 the Fake's behaviours was written to that rule — it read the active set first and would have refused
 to continue had anything been active — and provisioning must hold the same line.
 
+## Three facts settled live, 2026-08-11 — one of them contradicts AWS's own docs
+
+### 500 recipients per rule is CORRECT. The console walkthrough is wrong.
+
+AWS says both numbers. The service-quotas page: *"Maximum number of recipients per receipt rule: 500.
+Adjustable: No."* The console walkthrough: *"You can have a maximum of 100 recipient conditions per
+receipt rule."* Task 3's packing shards at 500, so if 100 were right the 101st customer domain would
+fail on a write the Fake accepts — the PRD 14 shape exactly.
+
+Probed with an `AddHeaderAction` (references nothing outside SES, so recipient validation is the only
+thing that can fail) against real SES:
+
+```
+ 100 recipients: REFUSED — InvalidParameterValue: Invalid recipient: r93.…invalid
+ 200 recipients: REFUSED — InvalidParameterValue: Invalid recipient: r192.…invalid
+ 500 recipients: REFUSED — InvalidParameterValue: Invalid recipient: r441.…invalid
+ 501 recipients: REFUSED — LimitExceededException: Too many recipients
+```
+
+The count check fires at **501 and not before**, while 100–500 fail only on the recipient SYNTAX of
+the throwaway `.invalid` names. **500 is the ceiling and the shipped constant is right.**
+
+Note the ordering, which is what makes the result readable: at 501 AWS refuses on COUNT before it
+looks at any individual recipient, so `LimitExceededException` is unambiguous.
+
+### SES validates recipient syntax
+
+`r0.<run>.inbound-probe.invalid` is refused as `Invalid recipient`. Recipient conditions must be
+plausible domains, so a test fixture cannot use RFC 2606's `.invalid` TLD and a real caller cannot
+pass a placeholder.
+
+### The S3 bucket must EXIST before a rule can name it
+
+The first attempt at the probe used our own seam, whose action is S3 + SNS, and every call died with:
+
+```
+InvalidS3ConfigurationException (HTTP 400): No such bucket: hogsend-ses-inbound
+```
+
+So SES resolves the bucket at rule-creation time. Provisioning therefore cannot create a rule before
+the bucket exists, which makes the bootstrap script's deliberate refusal to create it an ORDERING
+constraint rather than a preference: the bucket (with its SES-facing policy, encryption,
+public-access block and retention lifecycle) has to be a real step ahead of task 4, not an
+afterthought.
+
 ## Tasks
 
 1. ~~**Confirm from AWS's docs**: inbound region availability, the SNS payload size limit, and whether
