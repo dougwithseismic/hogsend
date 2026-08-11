@@ -195,6 +195,35 @@ Three corrections found by actually running these:
    fix is per-suite database isolation, which is out of scope here and worth its own task. Recorded
    so the next person to see it in CI does not spend an afternoon on a phantom.
 
+   ### Two DISTINCT pre-existing test defects, isolated at the end of the wave
+
+   Three consecutive full-repo runs went red at the end of this wave, each on a different task. Both
+   causes were chased to a clean reproduction and **neither is this stack's**: `apps/api` has zero
+   commits in this wave, and every workspace passes on its own (`cloud` 1425, `api` 2466, `engine`
+   119, `plugin-hogsend` 94). `apps/api`'s cumulative test time is LOWER than the baseline measured
+   before any of this existed (228.91s vs 235.14s), so nothing here made anything slower.
+
+   **Defect A — DB-heavy timeouts under load.** `contact-id-backfill.test.ts` hits its 30s ceiling
+   inside a full run and passes in 11s alone. Contention, not correctness. Worth raising the timeout
+   for the DB-heavy backfill suites, or isolating their database.
+
+   **Defect B — cross-file test pollution in `apps/api`, with an exact reproduction:**
+
+   ```bash
+   cd apps/api
+   pnpm vitest run src/__tests__/analytics-admin.test.ts                      # 15 pass
+   pnpm vitest run src/__tests__/analytics-admin.test.ts \
+                   src/__tests__/posthog-webhook-secret-store.test.ts         # 1 FAILS
+   ```
+
+   `posthog-webhook-secret-store.test.ts:41` sets a fixed secret (`minted_secret_for_inbound_test`)
+   into shared state and does not restore it, so `analytics-admin.test.ts` reads it instead of a
+   freshly minted one. Order-dependent, which is why it surfaces under some schedules and not
+   others. **This is a latent correctness gap in the tests, not the flake**: it will fail
+   deterministically for whoever next runs those two files together. Left unfixed deliberately —
+   fixing tests in a package this wave never touched needs the author's intent, and a guessed fix
+   there is worth less than this reproduction.
+
    Note for readers of test output: `@hogsend/api` logs a red `[ERROR/Admin] /WorkflowService/
    TriggerWorkflow UNAVAILABLE ... wrong version number` line during the run. That is a test
    deliberately exercising the no-Hatchet path, the suite passes, and it is not a failure.
