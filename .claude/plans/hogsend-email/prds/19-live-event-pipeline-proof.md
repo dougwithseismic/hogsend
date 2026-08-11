@@ -212,6 +212,33 @@ Three things this settles and one it does not:
   layer. A simulator address cannot answer this. The only test that can is a real inbox, opened by a
   human. **Owed, and not yet done.**
 
+### The instance hop: option (b), and the two EARS clauses it does NOT meet
+
+PRD 19 offered a choice for the instance-hop link — report it honestly as unexercised, or register a
+run-scoped stack pointing at a stub. **Option (b) was taken.** `registration.ts` writes a run-scoped
+org → environment → stack → `ses_tenants` chain through the production schema with `apiPublicUrl`
+pointing at a loopback listener, so tenant resolution, webhook-secret decryption, `postToInstance` and
+the HMAC are all REAL. The stub verifies with `verifyHogsendRelaySignature` imported from
+`@hogsend/plugin-hogsend` — the same function a real instance uses — so the two ends of the wire
+cannot drift apart inside the proof either.
+
+Recording the limit here rather than only in code, because a design call that lives only in a source
+comment is one nobody reviewing the spec will find:
+
+- **EARS 2-4's terminal clause is NOT met.** "The corresponding `email_sends` row SHALL reach a …
+  terminal status" needs the engine's `handleWebhook`, and a stub that impersonated a whole engine
+  would prove nothing about the engine. The chain stops at the signed hop and the report names
+  `engine_terminal_status` as permanently not exercised, with its reason.
+- **EARS 3's "classify it `permanent`" is asserted NOWHERE.** The proof checks the normalized type
+  (`email.bounced`) only; `bounceType` → `BounceClass` classification lives in the plugin's
+  `parseWebhook`, which is exactly the unexercised leg. Neither the run nor the report currently
+  speaks to `permanent`.
+
+Both are honest gaps rather than hidden ones, but they are gaps: this script proves the delivery path
+up to a real engine, not through one. Closing them means either standing up a real engine instance
+for the run or extending the stub to call the plugin's `parseWebhook` and assert the class — the
+latter is cheap and worth doing before this is called finished.
+
 ### `scripts/aws-bootstrap-events.sh` — the admin-credentialed step, scripted
 
 The relay user cannot create an SNS topic and cannot widen its own policy. Correct posture, and also
