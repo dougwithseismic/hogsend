@@ -1001,7 +1001,7 @@ function toSendEmailFields(message: SesMessage): {
         // `Attachments: []` would be a wire shape no caller means and nothing
         // has ever tested.
         ...(message.attachments?.length
-          ? { Attachments: message.attachments.map(toSesAttachment) }
+          ? { Attachments: message.attachments.map(toAwsAttachment) }
           : {}),
       },
     },
@@ -1031,7 +1031,11 @@ function toSendEmailFields(message: SesMessage): {
  * And an absent `contentType` stays absent — SES defaults; nothing here
  * guesses from the filename.
  */
-function toSesAttachment(attachment: SesAttachment): {
+// NOT to be confused with `lib/email-attachments.ts`'s `toSesAttachment`,
+// which is the PREVIOUS hop: relay wire → `SesAttachment`. This one is
+// `SesAttachment` → the AWS SDK's own shape. Two hops, two names, so grepping
+// either finds one thing.
+function toAwsAttachment(attachment: SesAttachment): {
   FileName: string;
   RawContent: Uint8Array;
   ContentType?: string;
