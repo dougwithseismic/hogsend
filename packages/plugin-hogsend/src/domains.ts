@@ -1,4 +1,10 @@
-import type { DnsRecord, DomainStatus, DomainsCapability } from "@hogsend/core";
+import type {
+  DnsRecord,
+  DomainStatus,
+  DomainsCapability,
+  ReturnPathState,
+  SetReturnPathInput,
+} from "@hogsend/core";
 import { HogsendRelayError } from "./errors.js";
 
 /**
@@ -37,29 +43,30 @@ export interface HogsendDomainsConfig {
   fetch?: typeof fetch;
 }
 
-/** What the branded-return-path toggle answers, in both directions. */
-export interface HogsendReturnPathResult {
-  /** What the control plane read back from SES AFTER the write. */
-  enabled: boolean;
-  /** `send.<domain>` when enabled, `null` when the default return path is back. */
-  mailFromDomain: string | null;
-  status: DomainStatus;
-}
+/**
+ * What the branded-return-path toggle answers, in both directions.
+ *
+ * Alias for the core {@link ReturnPathState}: PRD 20 promoted `setReturnPath`
+ * onto the neutral `DomainsCapability` (a custom MAIL FROM is a standard ESP
+ * concept, not a Hogsend invention), and the bespoke result this package
+ * shipped first was already field-for-field that shape. Kept as a name so
+ * existing importers keep compiling; new code should reach for
+ * `ReturnPathState` from `@hogsend/core`.
+ */
+export type HogsendReturnPathResult = ReturnPathState;
 
 /**
- * The contract, plus the one thing it has no room for.
+ * The core contract with the optional members this provider ALWAYS has.
  *
- * `DomainsCapability` is provider-neutral and a branded return path is not a
- * concept every provider has, so the toggle lives here rather than being pushed
- * into the shared interface. Engine surfaces that only know the contract are
- * unaffected; a caller that wants the toggle constructs this directly.
+ * RETYPED to the core `setReturnPath` rather than delegating to a second
+ * bespoke method: the shapes were already identical, so delegation would have
+ * left two names for one wire and a permanent "which one do I call?" question.
+ * One surface — the engine's admin route reaches the toggle through the
+ * neutral contract with no Hogsend-specific cast anywhere.
  */
 export interface HogsendDomainsCapability extends DomainsCapability {
   verify(domain: string): Promise<DomainStatus>;
-  setReturnPath(input: {
-    domain: string;
-    enabled: boolean;
-  }): Promise<HogsendReturnPathResult>;
+  setReturnPath(input: SetReturnPathInput): Promise<ReturnPathState>;
 }
 
 function asRecord(body: unknown): Record<string, unknown> {
@@ -174,14 +181,18 @@ export function createHogsendRelayDomains(
       return asDomainStatus(asRecord(body).status, VERIFY_PATH);
     },
 
-    async setReturnPath(input: {
-      domain: string;
-      enabled: boolean;
-    }): Promise<HogsendReturnPathResult> {
+    async setReturnPath(input: SetReturnPathInput): Promise<ReturnPathState> {
       const body = asRecord(
         await call(RETURN_PATH, {
           method: "POST",
-          body: { domain: input.domain, enabled: input.enabled },
+          body: {
+            domain: input.domain,
+            enabled: input.enabled,
+            // Omitted (not null) when unchosen: the control plane strict-parses
+            // the body, and its `send` default is what keeps records byte-stable
+            // for customers who never picked a label.
+            ...(input.label === undefined ? {} : { label: input.label }),
+          },
         }),
       );
       return {

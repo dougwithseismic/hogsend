@@ -1,9 +1,17 @@
-import type { DnsRecord, DnsRecordStatus, DomainStatus } from "@hogsend/core";
-import { describe, expect, it, vi } from "vitest";
+import type {
+  DnsRecord,
+  DnsRecordStatus,
+  DomainStatus,
+  DomainsCapability,
+  ReturnPathState,
+  SetReturnPathInput,
+} from "@hogsend/core";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   createHogsendEmailProvider,
   createHogsendRelayDomains,
   HogsendRelayError,
+  type HogsendReturnPathResult,
 } from "../index.js";
 
 /**
@@ -320,5 +328,58 @@ describe("the branded return path toggle", () => {
       enabled: true,
     });
     expect(result.enabled).toBe(false);
+  });
+
+  it("passes a chosen label through the wire verbatim", async () => {
+    const { capability, relay } = domains({
+      body: {
+        enabled: true,
+        mailFromDomain: `notifications.${DOMAIN}`,
+        status: brandedStatus(),
+      },
+    });
+
+    const result = await capability.setReturnPath({
+      domain: DOMAIN,
+      enabled: true,
+      label: "notifications",
+    });
+
+    expect(relay.calls[0]?.body).toEqual({
+      domain: DOMAIN,
+      enabled: true,
+      label: "notifications",
+    });
+    expect(result.mailFromDomain).toBe(`notifications.${DOMAIN}`);
+  });
+
+  it("omits the label key when none was chosen — the control plane's default applies", async () => {
+    // The control plane strict-parses the body (an unknown or null key is a
+    // 400), and its default is what keeps `send.<domain>` byte-stable for
+    // customers who never chose a label. Exact-equality: no stray key.
+    const { capability, relay } = domains({
+      body: {
+        enabled: true,
+        mailFromDomain: `send.${DOMAIN}`,
+        status: brandedStatus(),
+      },
+    });
+
+    await capability.setReturnPath({ domain: DOMAIN, enabled: true });
+    expect(relay.calls[0]?.body).toEqual({ domain: DOMAIN, enabled: true });
+  });
+
+  it("IS the core contract — one surface, not two", () => {
+    const { capability } = domains();
+
+    // The bespoke method satisfies `DomainsCapability.setReturnPath` exactly;
+    // the engine's admin route reaches it through the neutral contract with no
+    // Hogsend-specific cast anywhere.
+    expectTypeOf(capability.setReturnPath).toEqualTypeOf<
+      (input: SetReturnPathInput) => Promise<ReturnPathState>
+    >();
+    expectTypeOf<HogsendReturnPathResult>().toEqualTypeOf<ReturnPathState>();
+    const asCore: DomainsCapability = capability;
+    expect(typeof asCore.setReturnPath).toBe("function");
   });
 });

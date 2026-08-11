@@ -28,7 +28,9 @@ export type {
   /** @deprecated Use {@link EmailEvent}. Frozen `event.raw` cast target. */
   LegacyResendWebhookEvent,
   PostHogService,
+  ReturnPathState,
   SendResult,
+  SetReturnPathInput,
   /** @deprecated Use {@link EmailEvent}. Kept for one minor. */
   WebhookEvent,
   WebhookHandlerMap,

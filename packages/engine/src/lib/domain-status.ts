@@ -40,6 +40,14 @@ export interface EngineDomainStatus {
   providerId: string;
   /** `!!provider.domains` — presence of the capability is the gate. */
   supported: boolean;
+  /**
+   * Whether `provider.domains.setReturnPath` exists — the branded-return-path
+   * upgrade's own gate (PRD 20). Studio/CLI key the toggle off this so a
+   * provider without the method gets NO dead control; the POST would 501.
+   * Optional in the TYPE only for wire skew (an older engine never sends it,
+   * and clients ship separately from engines); this engine always sets it.
+   */
+  returnPathSupported?: boolean;
   /** `null` when `!supported || !domain` (the provider is never called then). */
   status: DomainStatus | null;
   testMode: TestModeState;
@@ -186,6 +194,8 @@ export function createDomainStatusService(deps: {
 
   const providerId = provider.meta?.id ?? "resend";
   const supported = Boolean(provider.domains);
+  const returnPathSupported =
+    typeof provider.domains?.setReturnPath === "function";
   const domain =
     env.EMAIL_DOMAIN ??
     hostPartOf(env.EMAIL_FROM) ??
@@ -284,6 +294,7 @@ export function createDomainStatusService(deps: {
       domain,
       providerId,
       supported,
+      returnPathSupported,
       status,
       testMode: {
         active: false,

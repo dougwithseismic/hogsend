@@ -438,9 +438,9 @@ export function createHogsendEmailProvider(
      * CLI's one-click `dns-apply` — no new UI anywhere.
      *
      * It rides the same relay token as the send wire, because the instance has
-     * no AWS access of its own. The branded-return-path toggle is not on the
-     * neutral `DomainsCapability`, so a caller that wants it constructs
-     * `createHogsendRelayDomains` directly.
+     * no AWS access of its own. The branded-return-path toggle is the neutral
+     * `DomainsCapability.setReturnPath` (PRD 20), so the engine's admin route
+     * reaches it here with no Hogsend-specific cast.
      */
     domains: createHogsendRelayDomains({
       relayUrl: cfg.relayUrl,
