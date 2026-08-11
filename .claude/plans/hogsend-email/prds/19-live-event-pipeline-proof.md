@@ -130,6 +130,34 @@ differs per run.** So the subscription is created by the proof script at the sta
 deleted at the end, rather than being standing infrastructure. That is why the relay grant below asks
 for `sns:Subscribe`/`sns:Unsubscribe` rather than a topic Doug subscribes once by hand.
 
+#### Correction: `cloudflared` quick tunnels DO NOT WORK here. Use `localhost.run`.
+
+The decision above (tunnel, not deploy) stands. The specific tunnel does not — measured, not assumed:
+
+- `cloudflared tunnel --url http://127.0.0.1:3004` registers a connection and prints a
+  `*.trycloudflare.com` URL, and **every request to it returns 404 from Cloudflare's edge**:
+  `server: cloudflare`, no origin headers, and Next never logs the request. 20 consecutive attempts
+  over five minutes, across two separate tunnels. cloudflared's own metrics counter incremented with
+  each request while the origin saw none, which is what rules out an origin-side cause. Cloudflare has
+  been progressively restricting account-less quick tunnels and this is consistent with that.
+- **`localhost.run` works, needs no account and no install** — it is plain SSH:
+
+  ```bash
+  ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 80:127.0.0.1:3004 nokey@localhost.run
+  ```
+
+  It prints `https://<random>.lhr.life`, TLS terminated. Verified end to end:
+  `GET /api/health` → `200 {"status":"ok","db":"ok","migrations":"in_sync"}`, and the request
+  appeared in the Next dev log, which is the check that the cloudflared attempt failed.
+
+Operational note kept deliberately: **the tunnel is brought up for a run and closed after it.** It
+publishes a dev control plane — auth, billing and CLI endpoints, under the publicly-known dev
+encryption secret — through a third party at a guessable-only-by-luck hostname. That is an acceptable
+cost for the minutes a proof takes and a silly one to leave running overnight.
+
+`scripts/discord-tunnel.sh` remains the in-repo precedent for the SHAPE, but its `cloudflared`
+dependency is now known-broken for this purpose; anything reaching for it should read this first.
+
 ### The account probe that reset the task list (2026-08-11)
 
 Read against the real account before planning any of this, because the last four times a plan in this
