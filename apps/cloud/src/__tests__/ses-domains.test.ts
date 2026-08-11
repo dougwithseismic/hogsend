@@ -308,6 +308,54 @@ describe("create", () => {
     ).resolves.toMatchObject({ messageId: expect.any(String) });
   });
 
+  it("heals a provision that died between createIdentity and associateResource", async () => {
+    // PRD 22. The interruption is the point: SES has the identity, no tenant
+    // owns it, and before the fix `create` returned a healthy-looking snapshot
+    // at its existing-identity check — forty lines above the association call —
+    // so the domain could never send and retrying never repaired it. Real AWS
+    // answers `AccessDeniedException` 403 on that send, observed 2026-08-11.
+    const fixture = await seed();
+    await fixture.ses.createIdentity({
+      domain: DOMAIN,
+      dkim: { selector: "hogsend", privateKey: "irrelevant-to-this-test" },
+    });
+    fixture.ses.__verifyIdentity(DOMAIN);
+
+    const orphaned = fixture.ses.sendEmail({
+      tenantName: fixture.tenantName,
+      message: {
+        from: `hello@${DOMAIN}`,
+        to: ["person@example.test"],
+        subject: "hi",
+        html: "<p>hi</p>",
+      },
+    });
+    await expect(orphaned).rejects.toThrow(/not associated/i);
+
+    await domains(fixture).create(DOMAIN);
+
+    // The whole assertion: after the retry the domain SENDS. Checking that
+    // `associateResource` was called would pass against a call that named the
+    // wrong ARN, which is the bug one layer down that PRD 21 fixed.
+    await expect(
+      fixture.ses.sendEmail({
+        tenantName: fixture.tenantName,
+        message: {
+          from: `hello@${DOMAIN}`,
+          to: ["person@example.test"],
+          subject: "hi",
+          html: "<p>hi</p>",
+        },
+      }),
+    ).resolves.toMatchObject({ messageId: expect.any(String) });
+
+    // And the heal stays a heal: the identity SES already had is not recreated,
+    // so no second keypair is minted and the customer's published record holds.
+    expect(
+      fixture.ses.calls.filter((c) => c.method === "createIdentity"),
+    ).toHaveLength(1);
+  });
+
   it("falls through to a lookup on an existing domain and mints no second keypair", async () => {
     const fixture = await seed();
     const first = await domains(fixture).create(DOMAIN);

@@ -94,3 +94,48 @@ An interrupted domain provision heals on retry, the healed domain sends, no seco
 minted, and gates are green.
 
 ## Implementation Notes
+
+Fixed 2026-08-11. `create()`'s existing-identity path now re-asserts the association through one
+`associateIdentity` helper shared with the fresh path — the bug was precisely that only one of the two
+paths had it.
+
+### The duplicate-association question was MEASURED, and the docs would have misled us
+
+The plan said not to guess what SES answers for associating an already-associated resource. Reading
+the API reference alone would have produced the wrong answer: `CreateTenantResourceAssociation`
+documents **`AlreadyExistsException` (HTTP 400)** among its errors, which reads like a duplicate is
+refused.
+
+A probe against real SES on 2026-08-11 — create tenant + configuration set, associate the same ARN
+twice, tear down — answered:
+
+```
+first  associateResource: OK
+second associateResource: OK  → AWS ACCEPTS a duplicate
+```
+
+So the Fake's long-standing "re-asserting an association is a no-op" is CORRECT, and had this PRD
+"fixed" the Fake to throw on the strength of the docs, it would have invented a divergence rather than
+closed one. That is the second time in this wave that a listed-but-unfired error nearly drove a wrong
+change.
+
+The production code still tolerates `already_exists`, deliberately and with the measurement recorded
+beside it. The asymmetry decides it: swallowing an error AWS never sends costs one branch, while a 400
+on the repair path would fail the very call that exists to unbrick a domain.
+
+### Verified by mutation
+
+Removing the `associateIdentity` call from the existing-identity path turns exactly one test red —
+the new `heals a provision that died between createIdentity and associateResource` — and restoring it
+returns the file to 38 passing.
+
+The test asserts the domain **SENDS** after the retry, not that `associateResource` was called.
+Asserting the call would pass against a call naming the wrong ARN, which is the bug one layer down
+that PRD 21 fixed the same day.
+
+### The sweep (task 4) found nothing else
+
+`services/ses-tenants.ts` provisioning is a linear sequence of idempotent steps wrapped in
+`tolerate(["already_exists"])`, with no early return upstream of a required side effect; a re-drive
+restates every one. Its comment claiming re-association is a no-op "in BOTH implementations" is now
+independently confirmed against real AWS by the probe above.

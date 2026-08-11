@@ -204,8 +204,27 @@ export function createHogsendDomains(
 
       // EARS 2. A domain SES already knows falls through to a lookup, and the
       // keypair branch below is never reached — so no second key is minted.
+      //
+      // The association is RE-ASSERTED on this path rather than assumed, and
+      // that is the whole of PRD 22. This early return used to sit forty lines
+      // above the `associateResource` call below, so a provision that died in
+      // between — a redeploy, a timeout, a cancelled run — left an identity SES
+      // knows about but no tenant owns. Every send from it then answers
+      // `AccessDeniedException` 403 ("Tenant not associated with resources",
+      // observed against real AWS on 2026-08-11), the domain reported itself
+      // healthy, and retrying took THIS return and never repaired it.
+      //
+      // Safe to repeat: a duplicate association was MEASURED against real SES
+      // on 2026-08-11 and answers 200. The API reference lists
+      // `AlreadyExistsException` for this operation, which is why it is
+      // tolerated below rather than trusted not to fire, but it does not fire
+      // for this — a Fake taught to throw here would have invented a
+      // divergence rather than closed one.
       const existing = await readIdentity(name);
-      if (existing) return snapshot(name, existing);
+      if (existing) {
+        await associateIdentity(ses, tenant, name);
+        return snapshot(name, existing);
+      }
 
       // A stored key ALWAYS wins. SES having lost the identity does not make
       // the record the customer published wrong; minting a new key would.
@@ -246,10 +265,7 @@ export function createHogsendDomains(
       // identity is ASSOCIATED with that tenant. Without this line every send
       // from the new domain is rejected — which is why the Fake models the same
       // precondition (PRD 02's implementation notes).
-      await ses.associateResource({
-        tenantName: tenant.tenantName,
-        resourceArn: identityArn(tenant.tenantArn, name),
-      });
+      await associateIdentity(ses, tenant, name);
 
       await writeAudit(db, {
         actor: input.actor ?? "system",
@@ -478,6 +494,36 @@ function recordStatus(
  * around a guessed account id fails as `not_found` at association time, which
  * reads like a missing resource rather than the misconfiguration it is.
  */
+/**
+ * Give the tenant ownership of the identity, idempotently.
+ *
+ * ONE function called from BOTH of `create`'s paths — the fresh one and the
+ * already-exists one — because the bug PRD 22 fixes was precisely that only the
+ * fresh path had it, forty lines below an early return.
+ *
+ * `already_exists` is tolerated rather than trusted not to fire. Measured
+ * against real SES on 2026-08-11, a duplicate `CreateTenantResourceAssociation`
+ * answers 200; but the API reference lists `AlreadyExistsException` for the
+ * operation, and the asymmetry decides it — swallowing an error AWS never sends
+ * costs one branch, while a 400 on the repair path would fail the very call
+ * that exists to unbrick a domain.
+ */
+async function associateIdentity(
+  ses: SesClient,
+  tenant: Tenancy,
+  domain: string,
+): Promise<void> {
+  try {
+    await ses.associateResource({
+      tenantName: tenant.tenantName,
+      resourceArn: identityArn(tenant.tenantArn, domain),
+    });
+  } catch (error) {
+    if (error instanceof SesError && error.kind === "already_exists") return;
+    throw error;
+  }
+}
+
 function identityArn(tenantArn: string, domain: string): string {
   const [prefix, partition, service, region, account] = tenantArn.split(":");
   if (prefix !== "arn" || !partition || !service || !region || !account) {
