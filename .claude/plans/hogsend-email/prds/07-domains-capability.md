@@ -25,7 +25,9 @@ write **with no new UI**. This PRD is an interface implementation, not a wizard 
   `PutEmailIdentityMailFromAttributes` for `send.<domain>` and adds the MX and SPF records. Per
   DECISIONS §2, the MAIL FROM subdomain must sit under the verified identity's parent domain, so a
   Hogsend-owned bounce domain is not available and this is the only shape on offer.
-- **`MailFromDomainNotVerified` behaviour is `USE_DEFAULT_MAIL_FROM`**, not `REJECT_MESSAGE`. If a
+- **`MailFromDomainNotVerified` behaviour is `USE_DEFAULT_VALUE`** (this PRD originally wrote
+  `USE_DEFAULT_MAIL_FROM`, which is not an AWS enum value — `BehaviorOnMxFailure` accepts
+  `USE_DEFAULT_VALUE | REJECT_MESSAGE`, and the build pinned AWS's literal), not `REJECT_MESSAGE`. If a
   customer's MX record breaks six months later, their mail must keep flowing on the default return
   path rather than hard-failing. Choosing reject here would convert a DNS mistake into an outage.
 - **The DKIM private key is stored encrypted in `provider_keys`** under the existing AES-256-GCM
@@ -50,7 +52,7 @@ write **with no new UI**. This PRD is an interface implementation, not a wizard 
   `SigningAttributesOrigin: EXTERNAL` and `SigningEnabled: true`, the system SHALL report
   `state: "verified"`.
 - WHEN the branded return path is enabled for a verified domain, the system SHALL call
-  `PutEmailIdentityMailFromAttributes` with `send.<domain>` and `USE_DEFAULT_MAIL_FROM` behaviour,
+  `PutEmailIdentityMailFromAttributes` with `send.<domain>` and `USE_DEFAULT_VALUE` behaviour,
   and SHALL add exactly two records to `records`: an MX at `send.<domain>` pointing at
   `feedback-smtp.<region>.amazonses.com` with priority 10, and a TXT at `send.<domain>` with
   `v=spf1 include:amazonses.com ~all`.
@@ -73,7 +75,7 @@ write **with no new UI**. This PRD is an interface implementation, not a wizard 
 
    What remains of this task is only to CONFIRM the existing verbs carry what this PRD needs (the
    BYODKIM `SigningAttributes`, the `hogsend` selector, `DkimAttributes.Status` /
-   `SigningAttributesOrigin` / `SigningEnabled` on read, and the `USE_DEFAULT_MAIL_FROM` behaviour on
+   `SigningAttributesOrigin` / `SigningEnabled` on read, and the `USE_DEFAULT_VALUE` behaviour on
    `setMailFrom`). If something genuinely is missing, STOP and report it rather than editing the
    seam, since a twentieth verb is a decision that belongs in PRD 02.
    _Boundary:_ none (verification only) · _Depends:_ none
