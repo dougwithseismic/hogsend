@@ -69,9 +69,17 @@ This is where the instance-per-tenant model and SES Tenants line up one-to-one.
    tolerant of already-exists.
    _Boundary:_ `apps/cloud` · _Depends:_ task 1
 
-3. **`deprovisionSesTenant(environmentId)`** — teardown, tolerant of already-absent, in dependency
-   order (associations before tenant, per the SES rule that an associated resource cannot be
-   deleted).
+3. **`deprovisionSesTenant(environmentId)`** — teardown, tolerant of already-absent, associations
+   before tenant.
+
+   **Correction, 2026-08-10.** This task originally justified the order "per the SES rule that an
+   associated resource cannot be deleted". **There is no such rule.** `DeleteTenant`'s API reference
+   states the opposite: "When you delete a tenant, its associations with resources are removed, but
+   the resources themselves are not deleted", and it documents only BadRequest, NotFound and
+   TooManyRequests. The order is kept as defence in depth, because an undocumented refusal is
+   cheaper to preempt than to discover during a customer teardown, but nothing may be built on the
+   assumption that AWS enforces it. Noted here because this brief is where the false claim entered
+   and it propagated into six code sites before review caught it.
    _Boundary:_ `apps/cloud` · _Depends:_ task 2
 
 4. **Relay token mint and injection.** Hash-at-rest, plaintext injected into the stack env once.

@@ -4,6 +4,7 @@ import type { CloudDb } from "../db";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import {
+  cloudAuditLog,
   environments,
   organizations,
   relayTokens,
@@ -418,8 +419,11 @@ describe("deprovisionSesTenant", () => {
     const result = await deprovisionSesTenant({ environmentId });
     expect(result.found).toBe(true);
 
-    // ORDER, from the call log. SES refuses to delete an associated resource,
-    // and the Fake does not model that — so the end state cannot prove it.
+    // ORDER, from the call log, because the end state cannot prove it: every
+    // resource is gone either way. This pins a CHOSEN order, not an AWS
+    // invariant — `DeleteTenant` explicitly removes its own associations and
+    // documents no conflict. See `SES_DEPROVISION_STEPS`. It earns its place by
+    // catching an accidental reorder, nothing more.
     expect(fake().calls.map((entry) => entry.method)).toEqual([
       "disassociateResource",
       "deleteTenant",
@@ -430,6 +434,56 @@ describe("deprovisionSesTenant", () => {
     expect(fake().__configurationSet(configurationSetName)).toBeUndefined();
     expect(await tokenRows(environmentId)).toHaveLength(0);
     expect(await tenantRow(environmentId)).toBeUndefined();
+  });
+
+  it("never writes the relay token or webhook secret to the audit trail", async () => {
+    // The provision-pipeline suite has a secret-leak fence, but it queries
+    // audit rows by `subject = stackId`. This service keys its own rows on the
+    // SES tenant row id and the relay token row id, so they fall OUTSIDE that
+    // query — the fence has a gap exactly where the secret is minted. This
+    // closes it by scanning EVERY row written during the provision.
+    const environmentId = await seedEnvironment();
+    const result = await provisionSesTenant({ environmentId });
+
+    // Guard the guard: a `not.toContain` against an empty or undefined needle
+    // is the vacuous green this whole stack keeps tripping over. If these ever
+    // stop being real secrets, this test must fail LOUDLY rather than pass.
+    expect(result.relayToken).toMatch(/^\S{16,}$/);
+    expect(result.webhookSecret).toMatch(/^\S{16,}$/);
+
+    const rows = await db.select().from(cloudAuditLog);
+    expect(rows.length).toBeGreaterThan(0);
+    const serialized = JSON.stringify(rows);
+
+    expect(serialized).not.toContain(result.relayToken);
+    expect(serialized).not.toContain(result.webhookSecret);
+  });
+
+  it("refuses to tear down a REAL tenant with the fake client", async () => {
+    // The leak this guards is reached entirely through steps that look like
+    // success. Every teardown step tolerates `not_found` (correct: the goal is
+    // an absence), and the fake answers `not_found` for everything it never
+    // minted. So a row provisioned against real AWS, torn down after the
+    // control plane lost its credentials, would report a clean success and
+    // delete the row — leaking the real tenant and configuration set forever,
+    // with the only record of them now gone.
+    const environmentId = await seedEnvironment();
+    await provisionSesTenant({ environmentId });
+
+    // Mark the row the way a REAL provision would have.
+    await db
+      .update(sesTenants)
+      .set({ available: true })
+      .where(eq(sesTenants.environmentId, environmentId));
+
+    await expect(deprovisionSesTenant({ environmentId })).rejects.toThrow(
+      /provisioned against AWS/,
+    );
+
+    // And it left everything intact, so a re-drive once credentials return
+    // still has something to delete.
+    expect(await tenantRow(environmentId)).toBeDefined();
+    expect(fake().__tenant(sesTenantName(environmentId))).toBeDefined();
   });
 
   it("tolerates every resource already being absent", async () => {

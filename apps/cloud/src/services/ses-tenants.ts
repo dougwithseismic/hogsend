@@ -47,10 +47,11 @@ import { insertRelayToken } from "./relay-tokens";
  *  - **A new tenant starts on reputation policy `NONE`** — observe before
  *    enforcing. A re-drive RE-ASSERTS the policy the row records rather than
  *    resetting it, so it can never walk back a PRD 08 promotion.
- *  - **Teardown is real and ordered.** Associations first (SES refuses to
- *    delete an associated resource), then the tenant, then the configuration
- *    set, then the credentials. A leaked configuration set keeps publishing
- *    events for an environment that no longer exists.
+ *  - **Teardown is real and ordered.** Associations first, then the tenant,
+ *    then the configuration set, then the credentials. A leaked configuration
+ *    set keeps publishing events for an environment that no longer exists.
+ *    See {@link SES_DEPROVISION_STEPS} for why the order is what it is, which
+ *    is NOT the reason it first appears to be.
  *  - **The relay token's plaintext exists exactly once**, returned by the call
  *    that mints it and never stored. `set-env` is the only consumer, and it
  *    runs in the very next pipeline step.
@@ -97,10 +98,27 @@ export const SES_PROVISION_STEPS = [
 export type SesProvisionStep = (typeof SES_PROVISION_STEPS)[number];
 
 /**
- * Teardown, in dependency order. The order is the whole content of this list:
- * SES refuses to delete a resource that is still associated with a tenant, and
- * a configuration set left behind keeps publishing events for an environment
- * that no longer exists.
+ * Teardown, in dependency order.
+ *
+ * **Read this before "simplifying" the order.** An earlier version of this
+ * comment claimed SES refuses to delete a resource that is still associated
+ * with a tenant. **That is not true, and it was never true.** `DeleteTenant`'s
+ * API reference says the opposite outright: "When you delete a tenant, its
+ * associations with resources are removed, but the resources themselves are not
+ * deleted", and its only documented errors are BadRequest, NotFound and
+ * TooManyRequests. There is no association conflict to preempt.
+ *
+ * We disassociate first anyway, for two reasons that survive that correction:
+ * an undocumented refusal is far cheaper to preempt than to discover during a
+ * customer teardown, and an explicit disassociation is one call whose absence
+ * would otherwise be indistinguishable from a silent no-op.
+ *
+ * So the order test pins a CHOSEN order, not an AWS invariant. It still earns
+ * its place by catching an accidental reorder, but do not build a precondition
+ * check on top of a constraint AWS does not have.
+ *
+ * The genuinely load-bearing part is that a configuration set left behind keeps
+ * publishing events for an environment that no longer exists.
  */
 export const SES_DEPROVISION_STEPS = [
   "disassociate-configuration-set",
@@ -348,12 +366,34 @@ export async function deprovisionSesTenant(
   // organization's current one. A tenant is region-scoped and does not
   // replicate, so addressing the wrong region would silently delete nothing.
   const ses = deps.ses ?? getSesClient(row.region);
+
+  // REFUSE to tear down a REAL tenant with a FAKE client.
+  //
+  // The two facts that make this necessary: every step below tolerates
+  // `not_found` (correctly — a deleted resource is the goal), and the Fake
+  // answers `not_found` for everything it never minted. Together they mean a
+  // row provisioned against real AWS, torn down after the control plane lost
+  // its credentials, would report a clean success, delete the row, and leak the
+  // real tenant and configuration set PERMANENTLY — with the only record of
+  // their existence now gone, so nothing could reconcile them later. That is
+  // precisely the leak this teardown exists to prevent, arrived at by a route
+  // that looks like success at every step.
+  //
+  // Parking the destroy is the right failure: the pipeline re-drives, and the
+  // resources are still there when the credentials come back.
+  if (row.available && ses.id !== AWS_SES_ID) {
+    throw new Error(
+      `refusing to deprovision SES tenant ${row.tenantName}: it was provisioned against AWS, but the active client is "${ses.id}". Restore CLOUD_AWS_ACCESS_KEY_ID/CLOUD_AWS_SECRET_ACCESS_KEY and re-drive — tearing down with the fake would report success and leak the real tenant and configuration set.`,
+    );
+  }
+
   const steps: SesDeprovisionStep[] = [];
 
   // ---- disassociate-configuration-set -------------------------------------
-  // BEFORE the tenant: SES refuses to delete a resource that is still
-  // associated, and the Fake does not model that — which is exactly why the
-  // order is asserted from the call log in the tests rather than from state.
+  // BEFORE the tenant, by choice rather than by an AWS rule — see
+  // `SES_DEPROVISION_STEPS`. Neither AWS nor the Fake refuses a delete on
+  // account of an association, so the end state cannot prove the order and the
+  // tests assert it from the call log instead.
   await tolerate(["not_found"], () =>
     ses.disassociateResource({
       tenantName: row.tenantName,
