@@ -233,9 +233,20 @@ suggests.
 
 Two things to check before trusting this branch:
 
-- **`postmark` 4→5 is a live email provider customers send through.** A behaviour change there is a
-  product risk our suite cannot see, since every test runs against a fake. Read the changelog against
-  `packages/plugin-postmark` before merging.
+- **`postmark` 4→5 — ASSESSED, and it is close to a non-event for us.** v5 lists five breaking
+  changes; `packages/plugin-postmark` uses only `new ServerClient(token)`, `sendEmail` and
+  `sendEmailBatch`, and configures no timeout, no proxy and never touches `httpClient`.
+
+  | v5 breaking change | Impact on us |
+  | --- | --- |
+  | Minimum Node is now 18 | None. We are on 22. |
+  | Proxy env vars no longer honoured automatically | None. None configured. |
+  | Empty `2xx` body resolves to `{}` not `""` | None that hides a failure: our `r.ErrorCode !== 0` check still throws on it rather than reporting a phantom success. |
+  | `httpClient.client` is no longer axios | None. We never reach for it. |
+  | **Timeout is now a total deadline via `AbortSignal.timeout()`** | **The only open one.** We set no timeout, so we inherit v5's default, and a slow-but-progressing large batch could now abort where it previously completed. Not testable without a real Postmark account and a large send. |
+
+  So: merge-able on the evidence, with the timeout as a known unknown worth a note rather than a
+  blocker.
 - **Independent verification.** Its gate results were self-reported and I did not re-run them. Do that
   before merging, the same way every other claim in this wave was re-checked.
 
