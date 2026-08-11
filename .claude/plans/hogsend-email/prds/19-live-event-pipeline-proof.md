@@ -212,6 +212,45 @@ Three things this settles and one it does not:
   layer. A simulator address cannot answer this. The only test that can is a real inbox, opened by a
   human. **Owed, and not yet done.**
 
+### THE PIPELINE IS PROVEN. 2026-08-11, run `20260811-181954-a99245`.
+
+```
+12 link(s) exercised, 2 NOT exercised (named above), 0 failed, 0 finding(s), 0 resource(s) left behind
+```
+
+| Event | Message | Normalized |
+| --- | --- | --- |
+| `success+…@simulator` | `0100019ff20d80bb-…` | `email.delivered` |
+| `bounce+…@simulator` | `0100019ff20d81d2-…` | `email.bounced` |
+| `complaint+…@simulator` | `0100019ff20d82ef-…` | `email.complained` |
+
+**`putEventDestination` ran for the first time** — the third verb PRD 11 could never prove. The whole
+chain executed: provision → event destination → `sns:Subscribe` → control-plane confirmation → three
+real sends → SES → SNS → the tunnel → the ingress → `email_events` → the signed instance hop. The stub
+received **5 signed deliveries with 0 signature failures**, each verified by
+`@hogsend/plugin-hogsend`'s own verifier. Teardown left nothing behind.
+
+Reading the account for the first time (`ses:GetAccount`, newly granted): **sandbox, sending enabled,
+200/day, 1/sec.**
+
+### The first run failed, and the failure was the PROOF's, not the product's
+
+Run `…-181819-4e8c9d` reported `event_complained` FAILED: "normalized to `email.delivered`, expected
+`email.complained`". The arithmetic in its own report contained the answer — **four messages were sent
+and the stub received FIVE signed deliveries.**
+
+A complained message is DELIVERED first and complained about afterwards, so SES publishes both events
+for it. `observeEmailEvents` correlated on `messageId` alone and returned whichever row landed first.
+The complaint had travelled the entire pipeline correctly and been forwarded to the instance; the
+observation looked at the wrong row and reported a working pipeline as broken.
+
+Fixed by making the expected TYPE part of the match key, with a deliberate fallback: a row of the
+wrong type is still reported as a wrong type rather than as "never arrived", because that divergence
+is the thing this script exists to surface.
+
+Worth keeping as a rule: **a red link is a claim about the observation as much as about the system.**
+Both had to be checked, and here the cheap arithmetic in the report settled it in one step.
+
 ### The review that found a false pass INSIDE the false-pass detector
 
 The script shipped green and was reviewed adversarially anyway. The review found that

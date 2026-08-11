@@ -66,6 +66,36 @@ export async function observeEmailEvents(input: {
   const startedAt = now();
   const messageIds = input.expected.map((event) => event.messageId);
 
+  /**
+   * ONE message can legitimately produce SEVERAL events, so the message id
+   * alone does not identify the one being waited for.
+   *
+   * The live run of 2026-08-11 proved it: `complaint@simulator` was reported as
+   * `email.delivered`, and the arithmetic said why — four messages were sent and
+   * the stub received FIVE signed deliveries. A complained message is DELIVERED
+   * first and complained about afterwards, so SES publishes both, and matching
+   * on the message id alone returned whichever row landed first. The pipeline
+   * had carried the complaint correctly the whole time; the observation was
+   * wrong, and it reported a green pipeline as a failure.
+   *
+   * So the expected TYPE is part of the key. A row of another type for the same
+   * message is not the answer to this question, and waiting must not stop
+   * because one arrived.
+   */
+  const matchFor = (
+    rows: (typeof emailEvents.$inferSelect)[],
+    event: ExpectedEvent,
+  ): typeof emailEvents.$inferSelect | undefined =>
+    rows.find(
+      (candidate) =>
+        candidate.messageId === event.messageId &&
+        candidate.type === event.expectedType,
+    ) ??
+    // Fall back to any row for the message, so a WRONG type is still reported
+    // as a wrong type rather than silently as "never arrived" — the divergence
+    // this script exists to surface.
+    rows.find((candidate) => candidate.messageId === event.messageId);
+
   let rows: (typeof emailEvents.$inferSelect)[] = [];
   for (;;) {
     rows = await input.db
@@ -75,7 +105,9 @@ export async function observeEmailEvents(input: {
 
     const settled = input.expected.every((event) => {
       const row = rows.find(
-        (candidate) => candidate.messageId === event.messageId,
+        (candidate) =>
+          candidate.messageId === event.messageId &&
+          candidate.type === event.expectedType,
       );
       return row !== undefined && row.status !== "pending";
     });
@@ -84,9 +116,7 @@ export async function observeEmailEvents(input: {
   }
 
   return input.expected.map((event) => {
-    const row = rows.find(
-      (candidate) => candidate.messageId === event.messageId,
-    );
+    const row = matchFor(rows, event);
     if (!row) {
       return {
         ...event,
