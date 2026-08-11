@@ -7,7 +7,7 @@ import type {
   SesIdentityRef,
 } from "../ses/types";
 import { SesError } from "../ses/types";
-import type { TenantCensus } from "../ses-walkthrough";
+import type { RecordedStep, TenantCensus } from "../ses-walkthrough";
 import {
   ACCESS_KEY_VAR,
   assertAccountSweepable,
@@ -662,6 +662,123 @@ describe("executeWalkthrough", () => {
     expect(batch?.real).toMatchObject({ outcome: "ok" });
 
     expect(result.divergences).toEqual([]);
+  });
+
+  /** The `associateResource` step that names the operator's sender. */
+  function senderAssociation(steps: RecordedStep[]) {
+    return steps.find(
+      (step) => step.label === "associateResource:sender-identity",
+    );
+  }
+
+  it("associates the ADDRESS identity when the account holds one", async () => {
+    // The bug the second live walkthrough found (2026-08-11). The script
+    // derived the sender's ARN from the address's DOMAIN unconditionally, so
+    // `ses-proof@hogsend.com` became `identity/hogsend.com` — an identity the
+    // account does not hold. AWS answered "Identity <hogsend.com> does not
+    // exist" and the two send verbs after it then failed 403, which read as a
+    // Fake divergence rather than as the probe bug it was.
+    const { result } = await run(
+      [
+        "--send-from",
+        "ses-proof@hogsend.com",
+        "--send-to",
+        "inbox@hogsend.com",
+      ],
+      (client) => {
+        // ONLY the address identity — the parent domain is not an identity at
+        // all, which is exactly the live account's shape.
+        void client.createIdentity({ domain: "ses-proof@hogsend.com" });
+        client.__verifyIdentity("ses-proof@hogsend.com");
+      },
+    );
+
+    const association = senderAssociation(result.steps);
+    expect(association?.status).toBe("compared");
+    expect(association?.input).toMatchObject({
+      resourceArn: expect.stringMatching(/identity\/ses-proof@hogsend\.com$/),
+    });
+    expect(result.steps.find((step) => step.verb === "sendEmail")?.status).toBe(
+      "compared",
+    );
+    expect(result.divergences).toEqual([]);
+    // And it SAYS which form it derived, so a reader of the report never has
+    // to re-derive it from the ARN.
+    expect(result.notes.find((note) => /EMAIL_ADDRESS/.test(note))).toMatch(
+      /ses-proof@hogsend\.com/,
+    );
+  });
+
+  it("associates the parent DOMAIN identity when that is what the account holds", async () => {
+    // The other identity type, and the reason the form is read off the ACCOUNT
+    // rather than off the address's shape: the same `--send-from` resolves to a
+    // different ARN depending on which identity exists.
+    const { result } = await run(
+      [
+        "--send-from",
+        "ops@verified.example.com",
+        "--send-to",
+        "inbox@verified.example.com",
+      ],
+      (client) => {
+        void client.createIdentity({ domain: "verified.example.com" });
+        client.__verifyIdentity("verified.example.com");
+      },
+    );
+
+    expect(senderAssociation(result.steps)?.input).toMatchObject({
+      resourceArn: expect.stringMatching(/identity\/verified\.example\.com$/),
+    });
+    expect(result.notes.find((note) => /\bDOMAIN\b/.test(note))).toMatch(
+      /verified\.example\.com/,
+    );
+    expect(result.divergences).toEqual([]);
+  });
+
+  it("skips the send leg when the account holds no verified sender", async () => {
+    // Never a guessed ARN and never a compared-and-diverged send: a sender the
+    // account cannot send from makes the send verbs UNEXERCISED, and the
+    // report has to say so rather than report a divergence of its own making.
+    const { result } = await run([
+      "--send-from",
+      "nobody@unheard-of.example.com",
+      "--send-to",
+      "inbox@unheard-of.example.com",
+    ]);
+
+    const send = result.steps.find((step) => step.verb === "sendEmail");
+    expect(send?.status).toBe("skipped");
+    expect(send?.skipReason).toMatch(/nobody@unheard-of\.example\.com/);
+    expect(send?.skipReason).toMatch(/neither exists/);
+    expect(senderAssociation(result.steps)).toBeUndefined();
+    expect(result.divergences).toEqual([]);
+  });
+
+  it("skips the send leg when the sender exists but is UNVERIFIED", async () => {
+    // A separate obstacle from "no such identity", and the report has to tell
+    // them apart: this one the operator fixes by finishing verification, the
+    // other by creating an identity. Never falls through to the parent domain
+    // either — SES resolves the send to the address identity that exists, so
+    // associating the domain's ARN would name a resource the send ignores.
+    const { result } = await run(
+      [
+        "--send-from",
+        "pending@half-done.example.com",
+        "--send-to",
+        "inbox@half-done.example.com",
+      ],
+      (client) => {
+        void client.createIdentity({ domain: "pending@half-done.example.com" });
+        void client.createIdentity({ domain: "half-done.example.com" });
+        client.__verifyIdentity("half-done.example.com");
+      },
+    );
+
+    const send = result.steps.find((step) => step.verb === "sendEmail");
+    expect(send?.status).toBe("skipped");
+    expect(send?.skipReason).toMatch(/EMAIL_ADDRESS/);
+    expect(send?.skipReason).toMatch(/NOT verified/);
+    expect(senderAssociation(result.steps)).toBeUndefined();
   });
 
   it("tears down in reverse and reports nothing left behind", async () => {

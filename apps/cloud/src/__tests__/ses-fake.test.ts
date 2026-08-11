@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AwsSesClient } from "../ses/aws";
+import { AwsSesClient, classifySesError } from "../ses/aws";
 import { resolveSesRegion, SES_VERBS } from "../ses/contract";
 import { FAKE_SES_CLOCK, FAKE_SES_ID, FakeSesClient } from "../ses/fake";
 import type { SesMessage } from "../ses/types";
@@ -258,6 +258,9 @@ describe("FakeSesClient tenants", () => {
   it("associates resources idempotently and refuses an unknown tenant", async () => {
     const client = await tenantFake();
     const resourceArn = `arn:aws:ses:us-east-1:000000000000:identity/${DOMAIN}`;
+    // The identity has to EXIST before it can be associated — the order
+    // production provisions in, and now the order the Fake enforces.
+    await client.createIdentity({ domain: DOMAIN });
 
     await client.associateResource({ tenantName: TENANT, resourceArn });
     await client.associateResource({ tenantName: TENANT, resourceArn });
@@ -272,6 +275,70 @@ describe("FakeSesClient tenants", () => {
     await expect(
       client.disassociateResource({ tenantName: TENANT, resourceArn }),
     ).rejects.toMatchObject({ kind: "not_found" });
+  });
+
+  it("refuses to associate a resource that does not exist", async () => {
+    // AWS's answer on the live walkthrough of 2026-08-11, verbatim: "Identity
+    // <hogsend.com> does not exist", a `NotFoundException` — where the Fake
+    // said `ok`. An association naming a typo'd, deleted or not-yet-created
+    // resource was therefore green here and 404s in production, and the send
+    // that follows it then 403s for a reason no test in this repo could see.
+    const client = await tenantFake();
+    const configurationSetArn =
+      "arn:aws:ses:us-east-1:000000000000:configuration-set/cs-1";
+
+    await expect(
+      client.associateResource({
+        tenantName: TENANT,
+        resourceArn: IDENTITY_ARN,
+      }),
+    ).rejects.toMatchObject({ kind: "not_found" });
+    await expect(
+      client.associateResource({
+        tenantName: TENANT,
+        resourceArn: configurationSetArn,
+      }),
+    ).rejects.toMatchObject({ kind: "not_found" });
+    // Refused means NOT recorded: a tenant must never come away holding a
+    // membership AWS rejected.
+    expect(client.__tenant(TENANT)?.resources).toEqual([]);
+
+    // Creating each resource is the ONE thing that unlocks its association —
+    // create-then-associate, the order both provisioners already use.
+    await client.createIdentity({ domain: DOMAIN });
+    await client.createConfigurationSet({ configurationSetName: "cs-1" });
+    await client.associateResource({
+      tenantName: TENANT,
+      resourceArn: IDENTITY_ARN,
+    });
+    await client.associateResource({
+      tenantName: TENANT,
+      resourceArn: configurationSetArn,
+    });
+    expect(client.__tenant(TENANT)?.resources).toEqual([
+      IDENTITY_ARN,
+      configurationSetArn,
+    ]);
+  });
+
+  it("refuses an ARN naming a resource no tenant can hold", async () => {
+    // A tenant associates exactly two kinds of resource, so an ARN of any
+    // other shape is one whose existence the Fake cannot check. Waving it
+    // through unchecked is precisely the hole the rule above closes, so it is
+    // refused instead — `invalid`, because the ARN is the thing that is wrong,
+    // not a resource that is missing.
+    const client = await tenantFake();
+
+    await expect(
+      client.associateResource({
+        tenantName: TENANT,
+        resourceArn: "arn:aws:sns:us-east-1:000000000000:hogsend-ses-events",
+      }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+    await expect(
+      client.associateResource({ tenantName: TENANT, resourceArn: DOMAIN }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+    expect(client.__tenant(TENANT)?.resources).toEqual([]);
   });
 });
 
@@ -440,6 +507,65 @@ describe("FakeSesClient sending", () => {
         message: message({ from: "Acme <hello@acme.test>" }),
       }),
     ).resolves.toEqual({ messageId: "fake-ses-message-1" });
+  });
+
+  it("refuses it with the KIND the AWS client gives AWS's own refusal", async () => {
+    // The Fake modelling the rule is only half of it: a caller branches on
+    // `kind`, so the Fake's refusal has to CLASSIFY the way the real one does
+    // or a recovery path tested here is dead code in production. AWS's answer
+    // is verbatim from the live walkthrough of 2026-08-11 — an
+    // `AccessDeniedException`, HTTP 403 — and the expectation is derived from
+    // `classifySesError` rather than spelled out, so the two cannot drift.
+    const aws = classifySesError(
+      Object.assign(
+        new Error(
+          "Tenant not associated with resources [arn:aws:ses:us-east-1:929600381829:identity/ses-proof@hogsend.com]",
+        ),
+        {
+          name: "AccessDeniedException",
+          $metadata: { httpStatusCode: 403 },
+        },
+      ),
+      "sendEmail",
+    );
+
+    const client = await tenantFake();
+    await client.createIdentity({ domain: DOMAIN });
+    client.__verifyIdentity(DOMAIN);
+    const refusal = await client
+      .sendEmail({ tenantName: TENANT, message: message() })
+      .catch((thrown: unknown) => thrown);
+
+    expect(refusal).toBeInstanceOf(SesError);
+    expect((refusal as SesError).kind).toBe(aws.kind);
+    // And permanent on both sides: a retry cannot associate anything.
+    expect((refusal as SesError).retryable).toBe(aws.retryable);
+    expect(aws.retryable).toBe(false);
+  });
+
+  it("refuses an unassociated identity per ENTRY across a batch", async () => {
+    // `sendBatch` fans out one send per message, so the association rule has
+    // to reach every entry rather than only the first. The live walkthrough
+    // diverged on all five compared per-entry fields for exactly this reason:
+    // AWS refused each entry and the Fake had no failure to report.
+    const client = await tenantFake();
+    await client.createIdentity({ domain: DOMAIN });
+    client.__verifyIdentity(DOMAIN);
+
+    const result = await client.sendBatch({
+      tenantName: TENANT,
+      messages: [message({ to: ["one@example.test"] }), message()],
+    });
+
+    expect(result.results).toHaveLength(2);
+    expect(result.results.every((entry) => entry.status === "failed")).toBe(
+      true,
+    );
+    expect(result.results[0]).toMatchObject({
+      status: "failed",
+      kind: "invalid",
+    });
+    expect(client.__sent()).toHaveLength(0);
   });
 
   it("fails CLOSED and non-retryably while the tenant is paused", async () => {

@@ -13,7 +13,11 @@ import {
   type SesSuppressionReason,
   type SesTenant,
 } from "../ses/types";
-import { domainOfAddress, tenantScopedArn } from "./arns";
+import {
+  type SenderIdentityCandidate,
+  senderIdentityCandidates,
+  tenantScopedArn,
+} from "./arns";
 import { type CleanupReport, CleanupStack } from "./cleanup";
 import {
   type Divergence,
@@ -456,23 +460,32 @@ export async function executeWalkthrough(
   // DNS, so AWS will never verify it. A send therefore needs an identity the
   // account already holds, associated with this run's tenant for the duration.
   const { sendFrom, sendTo } = options;
-  if (sendFrom && sendTo) {
-    const senderDomain = domainOfAddress(sendFrom);
+  // WHICH identity SES will reference for this `from` is a fact about the
+  // ACCOUNT, so it is asked rather than derived from the address's shape.
+  const sender =
+    sendFrom && sendTo
+      ? await resolveSenderIdentity(real, sendFrom)
+      : undefined;
+  if (sendFrom && sendTo && sender?.verified) {
+    const senderName = sender.candidate.name;
+    notes.push(
+      `--send-from ${sendFrom} resolves to the ${sender.candidate.type} identity "${senderName}", and that is the identity ARN this run associates. SES holds an address either as an identity of its own or under its parent domain, so the form is read off the account: taking the parent domain unconditionally is what made the 2026-08-11 run associate an identity that does not exist.`,
+    );
     const realSenderArn = tenantScopedArn(
       realTenant.arn,
       "identity",
-      senderDomain,
+      senderName,
     );
     const fakeSenderArn = tenantScopedArn(
       fakeTenant.arn,
       "identity",
-      senderDomain,
+      senderName,
     );
     // The one place the Fake is advanced rather than driven: the real account
     // already holds this identity, verified, and `__verifyIdentity` is exactly
     // the affordance for reaching a state AWS reached through DNS.
-    await fake.createIdentity({ domain: senderDomain });
-    fake.__verifyIdentity(senderDomain);
+    await fake.createIdentity({ domain: senderName });
+    fake.__verifyIdentity(senderName);
 
     const associatedSender = await recorder.compare({
       verb: "associateResource",
@@ -490,7 +503,7 @@ export async function executeWalkthrough(
         }),
     });
     if (associatedSender.ok) {
-      cleanup.push(`disassociate-sender-identity ${senderDomain}`, () =>
+      cleanup.push(`disassociate-sender-identity ${senderName}`, () =>
         tolerate(() =>
           real.disassociateResource({
             tenantName: names.tenantName,
@@ -553,8 +566,7 @@ export async function executeWalkthrough(
       note: "sendBatch fans out SendEmail rather than calling SendBulkEmail; the shape under test is the PER-ENTRY result, not a bulk response",
     });
   } else {
-    const reason =
-      "no --send-from/--send-to: a send needs an identity the account has already VERIFIED (the run-scoped identity never can be — nobody publishes its DNS)";
+    const reason = sendSkipReason(sendFrom, sendTo, sender);
     recorder.skip({ verb: "sendEmail", reason });
     recorder.skip({ verb: "sendBatch", reason });
   }
@@ -727,6 +739,74 @@ export async function executeWalkthrough(
   });
 
   return finish();
+}
+
+interface ResolvedSender {
+  candidate: SenderIdentityCandidate;
+  /** SES will not send from an identity it has not verified. */
+  verified: boolean;
+}
+
+/**
+ * Which identity SES will reference when it sends from `--send-from`, asked of
+ * the ACCOUNT rather than derived from the address's shape.
+ *
+ * `--send-from` may name an EMAIL_ADDRESS identity or an address sitting under
+ * a DOMAIN identity, and the two produce different ARNs. The second live
+ * walkthrough (2026-08-11) assumed the domain, so `ses-proof@hogsend.com`
+ * became `identity/hogsend.com` — which the account does not hold. AWS answered
+ * "Identity <hogsend.com> does not exist", and the two send verbs after it then
+ * failed 403 with "Tenant not associated with resources", which read as a Fake
+ * divergence rather than as the probe bug it was.
+ *
+ * The FIRST candidate the account holds wins, whether or not it is verified,
+ * because that is the one SES resolves the send to: falling through to the
+ * parent domain because the address identity is unverified would associate an
+ * ARN the send never references. Verification is reported instead, and the
+ * caller skips the send with that reason.
+ *
+ * `undefined` means the account holds neither form. A read, so it adds no
+ * permission the walkthrough does not already need for `getIdentity`.
+ */
+async function resolveSenderIdentity(
+  real: SesClient,
+  sendFrom: string,
+): Promise<ResolvedSender | undefined> {
+  for (const candidate of senderIdentityCandidates(sendFrom)) {
+    let identity: SesIdentity;
+    try {
+      identity = await real.getIdentity({ identity: candidate.name });
+    } catch (error) {
+      // Absent is an ordinary answer here — it is how the account says "not
+      // this form". Anything else is a real failure and belongs to the caller.
+      if (error instanceof SesError && error.kind === "not_found") continue;
+      throw error;
+    }
+    return { candidate, verified: identity.verifiedForSending };
+  }
+  return undefined;
+}
+
+/**
+ * Why the send pair went unexercised. A verb nobody exercised is a verb whose
+ * Fake is still unproven, so the reason has to name the actual obstacle rather
+ * than collapse three different ones into "no sender".
+ */
+function sendSkipReason(
+  sendFrom: string | undefined,
+  sendTo: string | undefined,
+  sender: ResolvedSender | undefined,
+): string {
+  if (!sendFrom || !sendTo) {
+    return "no --send-from/--send-to: a send needs an identity the account has already VERIFIED (the run-scoped identity never can be — nobody publishes its DNS)";
+  }
+  if (!sender) {
+    const tried = senderIdentityCandidates(sendFrom)
+      .map((candidate) => `${candidate.type} ${candidate.name}`)
+      .join(" or ");
+    return `--send-from ${sendFrom} names no identity this account holds: SES would resolve it to ${tried}, and neither exists — associating a guessed ARN fails as not_found and takes the send verbs down with it`;
+  }
+  return `--send-from ${sendFrom} resolves to the ${sender.candidate.type} identity "${sender.candidate.name}", which exists but is NOT verified for sending — SES refuses the send, so comparing it would report a divergence of the script's own making`;
 }
 
 /**

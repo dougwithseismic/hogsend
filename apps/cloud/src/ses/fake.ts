@@ -63,7 +63,11 @@ import {
  * succeed if all referenced resources ... are associated with this tenant").
  * A fake that delivered anyway would certify the two production-only failures
  * this seam exists to catch: send-before-verify, and a provision that forgot
- * `associateResource`. Attachments ride the recorded message VERBATIM —
+ * `associateResource`. The association itself carries the matching rule from
+ * the other side — `associateResource` answers `not_found` for a resource that
+ * does not exist, as AWS does — so a provision cannot satisfy the send-path
+ * check by associating a resource it never created. Attachments ride the
+ * recorded message VERBATIM —
  * `__sent()` is where a test reads back exactly what crossed the seam, files
  * included. Deliberately NOT modelled on the send path, so nobody assumes
  * coverage: configuration-set existence, association, and SES's attachment
@@ -424,6 +428,13 @@ export class FakeSesClient implements SesClient {
   async associateResource(input: SesResourceAssociationInput): Promise<void> {
     this.record("associateResource", [input]);
     const tenant = this.mustGetTenant(input.tenantName);
+    // An association names a resource, and the resource has to BE there. AWS
+    // answered `NotFoundException` — "Identity <hogsend.com> does not exist" —
+    // on the live run of 2026-08-11 where the Fake answered `ok`, so an
+    // association naming a typo'd, deleted or not-yet-created resource was
+    // green in every test here and 404s in production. The send that follows
+    // it then 403s, which is the failure this seam exists to catch.
+    this.mustGetAssociableResource(input.resourceArn);
     // Set membership: re-asserting an association is a no-op, not a conflict.
     if (!tenant.resources.includes(input.resourceArn)) {
       tenant.resources.push(input.resourceArn);
@@ -759,6 +770,40 @@ export class FakeSesClient implements SesClient {
     return found;
   }
 
+  /**
+   * Prove the resource an association ARN names actually exists.
+   *
+   * A tenant holds exactly two kinds of resource — an email identity and a
+   * configuration set — so the ARN is read for its resource segment and the
+   * thing it names is looked up in the state this Fake actually holds. That is
+   * the RULE, not a check aimed at the one ARN the live run got wrong: any
+   * association of anything absent answers `not_found`, whichever verb built
+   * the ARN.
+   *
+   * An ARN of any OTHER shape is refused rather than waved through. Its
+   * existence is not something the Fake can check, and accepting an unverified
+   * membership is exactly the hole being closed here. `invalid` rather than
+   * `not_found`, because what is wrong is the ARN itself, not a resource that
+   * has gone missing.
+   */
+  private mustGetAssociableResource(resourceArn: string): void {
+    const { type, name } = parseResourceArn(resourceArn);
+    if (type === "identity") {
+      this.mustGetIdentity(name);
+      return;
+    }
+    if (type === "configuration-set") {
+      this.mustGetConfigurationSet(name);
+      return;
+    }
+    throw new SesError(
+      `fake SES: ${JSON.stringify(
+        resourceArn,
+      )} does not name a resource a tenant can be associated with (an email identity or a configuration set)`,
+      { kind: "invalid", operation: "associateResource" },
+    );
+  }
+
   private mustGetConfigurationSet(
     configurationSetName: string,
   ): FakeSesConfigurationSetState {
@@ -802,6 +847,25 @@ function cloneIdentity(identity: SesIdentity): SesIdentity {
 function fromAddrSpec(from: string): string {
   const angle = /<([^<>]*)>\s*$/.exec(from);
   return (angle?.[1] ?? from).trim().toLowerCase();
+}
+
+/**
+ * The `<type>/<name>` tail of a resource ARN, or two empty strings when there
+ * is no such tail.
+ *
+ * Split at the SIXTH colon-separated field and then at the FIRST slash: an
+ * ARN's first five fields are fixed, and everything after them is the resource,
+ * which may itself contain colons. An email identity's name is a domain or an
+ * email address — `identity/ses-proof@hogsend.com` is a real one — so the
+ * `@` is carried through untouched.
+ */
+function parseResourceArn(arn: string): { type: string; name: string } {
+  const fields = arn.split(":");
+  const resource = fields.length > 5 ? fields.slice(5).join(":") : "";
+  const slash = resource.indexOf("/");
+  return slash < 0
+    ? { type: "", name: "" }
+    : { type: resource.slice(0, slash), name: resource.slice(slash + 1) };
 }
 
 function toSesError(thrown: unknown): SesError {

@@ -14,7 +14,12 @@
  * comparison logic can be tested without an AWS account.
  */
 
-export { domainOfAddress, tenantScopedArn } from "./arns";
+export type { SenderIdentityCandidate, SesIdentityType } from "./arns";
+export {
+  domainOfAddress,
+  senderIdentityCandidates,
+  tenantScopedArn,
+} from "./arns";
 export type { AwsTenantCensusOptions, TenantCensus } from "./census";
 export { awsTenantCensus } from "./census";
 export type { CleanupFailure, CleanupReport } from "./cleanup";
