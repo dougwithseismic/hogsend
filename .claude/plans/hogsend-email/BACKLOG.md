@@ -28,6 +28,7 @@ wave 1 knowingly took.
 | --- | --- | --- | --- | --- |
 | 11 | [Live SES contract walkthrough](prds/11-live-ses-contract-walkthrough.md) | `[~]` | 02, 06, 07 | One human-run script that walks the real provisioning path against a real AWS account and diffs every answer against `FakeSesClient`. Runs in SES **sandbox**, so it is unblocked the day the account exists rather than after production access. The divergences are the deliverable. |
 | 12 | [Scaffold verify covers plugin-hogsend](prds/12-scaffold-verify-hogsend-plugin.md) | `[~]` | 10 | Extend the scaffold smoke's step 7b to actually load `@hogsend/plugin-hogsend` under plain `node` and assert its factory export. Today the idiom is proven for `plugin-apollo` only, and it breaks per-package (#611). |
+| 14 | [Correct the Fake against real AWS](prds/14-fake-vs-aws-corrections.md) | `[ ]` | 11 | The first live run found 10 places where 1473 green tests assert something SES does not do. Move the Fake to match AWS. Settle the BYODKIM `Tokens` question from AWS's docs first — it decides whether the one-DNS-record claim survives. |
 | 13 | [Declare `consumesIdempotencyKey`](prds/13-consumes-idempotency-key-capability.md) | `[x]` | 10 | Retire the `meta.id === "hogsend"` hardcode behind a declared `EmailProviderCapabilities` flag, so a third-party provider can opt into key threading by writing correct code rather than by being named right. |
 
 Order is by time-value, not dependency: 11 first because the AWS account is being created now and the
@@ -78,8 +79,12 @@ Populated during BUILD as each `[~]` lands. See DECISIONS §7 for the known ones
 
 | PRD | External ask | Status |
 | --- | --- | --- |
-| 01 | Create the `hogsend-email-prod` AWS account and the `hogsend-cloud-relay` IAM user. Policy JSON is written and every action name verified: `docs/ses-production-access-request.md` Appendix A. | open |
-| 01 | Submit the production-access request for BOTH `us-east-1` and `eu-west-1`. Text is written and ready to send. | open |
+| 01 | ~~Create the AWS account and the `hogsend-cloud-relay` IAM user.~~ **DONE 2026-08-11.** Used the existing `dougwithseismic` account (929600381829) rather than a dedicated one: it sends no other email, startup credits land on it, and BYODKIM means a later migration needs no customer DNS change. Policy `HogsendEmailRelay` (20 actions incl. `ses:ListTenants`), user `hogsend-cloud-relay`, creds in `apps/cloud/.env.local`. | done |
+| 01 | Submit the production-access request for BOTH `us-east-1` and `eu-west-1`. Text is written and ready to send. **STILL THE ONLY ITEM ON SOMEONE ELSE'S CLOCK.** | open |
+| 11 | Delete `~/Downloads/hogsend-cloud-relay_accessKeys.csv` from the local machine. | open |
+| 14 | Do NOT promote `CLOUD_AWS_ACCESS_KEY_ID`/`CLOUD_AWS_SECRET_ACCESS_KEY` to Railway until (a) PRD 14 closes the Fake divergences and (b) production access is granted. Those two vars are the switch that makes the control plane create REAL SES resources per customer; `getSesClient` falls back to the Fake without them. | open |
+| 14 | A real SNS topic in the SES account + `sns:` actions on the relay policy, so `putEventDestination` can be proven. Untested today. | open |
+| 14 | A verified recipient address for a real sandbox send (`sendEmail`/`sendBatch` are the only wires never exercised against AWS). Needs a human to click AWS's verification link. | open |
 | 01 | Approve the AUP and ToS copy. Each carries inline `Needs Doug` blocks at the specific open questions. | open |
 | 01 | ~~Create `abuse@hogsend.com` as a real monitored mailbox.~~ **RESOLVED 2026-08-11.** It was never actually blocked: hogsend.com already had a Cloudflare Email Routing catch-all forwarding every address to `doug@withseismic.com`, so `abuse@` has been reachable the whole time. An explicit named rule (`abuse`, literal matcher, priority 10) was added so the address survives the catch-all ever being disabled or narrowed. | done |
 | 12 | INVESTIGATE the scaffold-smoke divergence: `pnpm --filter create-hogsend verify` fails locally at step 5 with 33 zod `.refine` inference errors, at the branch base as well as on the branch, with and without a prior `pnpm build` — while CI ran the same step on the same commit and passed. Until this is understood, a green CI is not evidence that a published scaffold type-checks. PRD 12's own assertion has never executed. | open |
