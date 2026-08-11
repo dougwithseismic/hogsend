@@ -141,3 +141,36 @@ The live walkthrough reports zero divergences across all 22 verbs including the 
 Fake refuses a send the real service would refuse.
 
 ## Implementation Notes
+
+### Task 4 — the live re-run. CLEAN.
+
+Run `20260811-181105-894368`, `us-east-1`:
+
+```
+22 verb call(s) compared, 1 skipped, 0 divergence(s), 0 resource(s) left behind
+The Fake told the truth for everything this run exercised.
+```
+
+**Including `sendEmail` and `sendBatch`, which had never been compared against AWS before today.** The
+walkthrough now reports which identity form it resolved and why:
+
+> `--send-from ses-proof@hogsend.com` resolves to the EMAIL_ADDRESS identity `ses-proof@hogsend.com`,
+> and that is the identity ARN this run associates. SES holds an address either as an identity of its
+> own or under its parent domain, so the form is read off the account: taking the parent domain
+> unconditionally is what made the 2026-08-11 run associate an identity that does not exist.
+
+The one skip is `putEventDestination`, which needs a real SNS topic — the outstanding admin bootstrap.
+Every other verb in the nineteen-verb contract is now confirmed against real AWS.
+
+DKIM held for the third time: `origin=EXTERNAL`, `tokens=1`, ONE TXT record, the token echoed as the
+selector rather than implying a second record.
+
+### What the two fixes actually were
+
+Exactly **one** existing test went red when `associateResource` learned that resources must exist —
+measured, not estimated. It was asserting that associating `identity/acme.test` succeeds on a client
+where that identity had never been created. Repaired by creating it first, which is the order both
+production provisioners already use.
+
+That number being 1 rather than 40 is what falsified this PRD's original Finding 3, and the correction
+is recorded above rather than quietly edited away.
