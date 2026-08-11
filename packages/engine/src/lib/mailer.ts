@@ -14,6 +14,7 @@ import type {
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, inArray, sql } from "drizzle-orm";
+import { assertAttachmentsSendable } from "./attachments.js";
 import type { DomainStatusService } from "./domain-status.js";
 import {
   type EmailService,
@@ -174,8 +175,16 @@ export function createTrackedMailer(
             skipPreferenceCheck: options.skipPreferenceCheck,
             idempotencyKey: options.idempotencyKey,
             baseUrl: config.baseUrl,
+            attachments: options.attachments,
           },
         });
+      }
+
+      // No-db attachment gate (the db path guards inside sendTrackedEmailInner,
+      // before any row is written): validate + capability-check BEFORE render or
+      // provider dispatch — never send the message without its files.
+      if (options.attachments?.length) {
+        assertAttachmentsSendable(provider, options.attachments);
       }
 
       const { element, subject: defaultSubject } = getTemplate({
@@ -238,6 +247,11 @@ export function createTrackedMailer(
             : undefined,
         ),
         replyTo: options.replyTo,
+        // Conditionally spread: a send with no attachments hands the provider
+        // options with NO `attachments` key — byte-identical to today's wire.
+        ...(options.attachments?.length
+          ? { attachments: options.attachments }
+          : {}),
       });
 
       return trackedSendResult({
@@ -248,6 +262,12 @@ export function createTrackedMailer(
     },
 
     async sendRaw(options: SendRawOptions): Promise<SendResult> {
+      // SendRawOptions IS the core wire contract (minus `from`), so attachments
+      // already ride the `...gated` spreads below — the only thing missing
+      // would be the gate. Validate + capability-check before anything else.
+      if (options.attachments?.length) {
+        assertAttachmentsSendable(provider, options.attachments);
+      }
       const gated = applyScheduledAtGate(options);
       const from = resolveFrom(options.from);
 
@@ -288,6 +308,16 @@ export function createTrackedMailer(
     async sendBatch(options: {
       emails: BatchEmailItem[];
     }): Promise<{ results: SendResult[] }> {
+      // BatchEmailItem inherits `attachments` from the core wire contract, so
+      // they already flow through the item spreads below. Gate EVERY item
+      // before ANY item reaches the provider — a partial batch where later
+      // items silently drop their files is exactly the failure the loud gate
+      // exists to prevent.
+      for (const item of options.emails) {
+        if (item.attachments?.length) {
+          assertAttachmentsSendable(provider, item.attachments);
+        }
+      }
       const testMode = resolveTestMode(domainStatus);
 
       if (testMode) {

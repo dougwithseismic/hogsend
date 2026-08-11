@@ -306,6 +306,13 @@ export {
 } from "./lib/analytics-identity.js";
 export { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 export { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
+// --- Attachments (engine-side gate + email_sends metadata shape, PRD 17) ---
+export {
+  type AttachmentSendMetadata,
+  AttachmentsUnsupportedError,
+  assertAttachmentsSendable,
+  attachmentSendMetadata,
+} from "./lib/attachments.js";
 // --- Auth ---
 export {
   type Auth,

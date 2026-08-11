@@ -1,3 +1,4 @@
+import type { EmailAttachment } from "@hogsend/core";
 import { generateUnsubscribeUrl, type TemplateName } from "@hogsend/email";
 import {
   deriveJourneyKey,
@@ -65,6 +66,18 @@ export interface SendEmailOptions {
    * engine throws an intra-run key-collision error. Additive and optional.
    */
   idempotencyLabel?: string;
+  /**
+   * Files to send with the email (invoices, receipts, tickets, exports).
+   * Neutral {@link EmailAttachment} shape; validated + capability-gated by the
+   * tracked mailer BEFORE any work — a provider that does not declare
+   * `capabilities.attachments` throws rather than delivering the message
+   * without its files. Attachments do NOT enter the replay-stable idempotency
+   * key (that stays `kind:anchor:site:template`), so no authoring change is
+   * needed for exactly-once — but if something NON-deterministic picks the
+   * attachment, wrap that choice in `ctx.once` like any other non-deterministic
+   * send input.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResult {
@@ -154,6 +167,7 @@ export async function sendEmail(
       { name: "userId", value: opts.userId },
     ],
     headers,
+    attachments: opts.attachments,
   } as unknown as EmailServiceSendOptions;
 
   const effect = {
@@ -172,6 +186,9 @@ export async function sendEmail(
     ...(resolvedIdempotencyKey
       ? { idempotencyKey: resolvedIdempotencyKey }
       : {}),
+    // Carried on the effect so a scoped services.email override (deterministic
+    // journey harnesses) sees the files too, instead of silently dropping them.
+    ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
   };
 
   // Layer 1 (fast path): when inside a journey on an eviction-capable engine,

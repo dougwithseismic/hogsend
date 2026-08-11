@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { EmailAttachment } from "@hogsend/core";
 
 /**
  * The minimal slice of Hatchet's `DurableContext` the boundary needs for its
@@ -25,6 +26,13 @@ export interface JourneyEmailEffect {
   journeyName?: string;
   journeyStateId?: string;
   idempotencyKey?: string;
+  /**
+   * Neutral attachments (PRD 17), carried so a scoped `services.email`
+   * override observes the files a send would carry rather than silently
+   * dropping them. Deliberately NOT part of any derived idempotency key —
+   * the key stays `kind:anchor:site:template`.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface JourneySmsEffect {

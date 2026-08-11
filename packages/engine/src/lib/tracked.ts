@@ -21,6 +21,10 @@ import {
 } from "../journeys/journey-boundary.js";
 import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import {
+  assertAttachmentsSendable,
+  attachmentSendMetadata,
+} from "./attachments.js";
 import { lookupContactIdByKey } from "./contacts.js";
 import type { TestModeState } from "./domain-status.js";
 import {
@@ -196,6 +200,18 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     testMode,
     options,
   } = opts;
+
+  // Attachment gate (PRD 17) — BEFORE any other work: no row is written, no
+  // template rendered, no provider reached for a send whose files are invalid
+  // or whose provider cannot carry them. Validation here is deliberate defence
+  // in depth with the relay (a Resend/Postmark send never passes through the
+  // relay, so this is the only pre-wire gate on those paths); the capability
+  // check fails LOUDLY rather than quietly sending the message without its
+  // files — see assertAttachmentsSendable for why absence of the flag is not
+  // consent.
+  if (options.attachments?.length) {
+    assertAttachmentsSendable(provider, options.attachments);
+  }
 
   // Test-mode redirect (resolved by the mailer; null ⇒ live). When active, the
   // wire `to`/`from`/`subject` + the email_sends row are redirected, but EVERY
@@ -551,6 +567,17 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   const wireSubject = redirect ? redirect.subject : subject;
   const wireFrom = redirect ? redirect.from : options.from;
 
+  // `email_sends` records that the message HAD attachments — filenames, raw
+  // sizes, content types — NEVER the content bytes (attachmentSendMetadata).
+  // Rides the existing jsonb `metadata` column alongside the test-mode marker;
+  // no schema change.
+  const rowMetadata: Record<string, unknown> = {
+    ...(redirect ? { testMode: true, originalTo: options.to } : {}),
+    ...(options.attachments?.length
+      ? { attachments: attachmentSendMetadata(options.attachments) }
+      : {}),
+  };
+
   // Re-driving an orphaned "queued" row (crash before the provider returned):
   // reuse that row instead of inserting a second one, so the provider call is
   // re-attempted while the unique idempotency key stays honored.
@@ -571,9 +598,7 @@ async function sendTrackedEmailInner<K extends TemplateName>(
       contactId: sendContactId,
       status: "queued",
       idempotencyKey: options.idempotencyKey,
-      ...(redirect
-        ? { metadata: { testMode: true, originalTo: options.to } }
-        : {}),
+      ...(Object.keys(rowMetadata).length > 0 ? { metadata: rowMetadata } : {}),
     });
 
     // With an idempotency key, swallow a concurrent-insert collision on the
@@ -626,6 +651,12 @@ async function sendTrackedEmailInner<K extends TemplateName>(
           })
         : rawHtml;
 
+    // Tracking FIRST, attachments alongside (PRD 17 locked order): the html
+    // above is the TRACKED html — links rewritten, open pixel injected — and
+    // the attachments ride next to it on the same wire call. An attachment
+    // never causes tracking to be skipped. Conditionally spread so a send with
+    // no attachments hands the provider options with NO `attachments` key at
+    // all — byte-identical to today's wire.
     const result = await provider.send({
       from: wireFrom,
       to: wireTo,
@@ -634,6 +665,9 @@ async function sendTrackedEmailInner<K extends TemplateName>(
       tags: options.tags,
       headers: sendHeaders,
       replyTo: options.replyTo,
+      ...(options.attachments?.length
+        ? { attachments: options.attachments }
+        : {}),
     });
 
     const sentAt = new Date();
