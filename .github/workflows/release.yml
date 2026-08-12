@@ -136,39 +136,16 @@ jobs:
   # scaffold's docker build installs the just-published @hogsend/* versions from
   # npm, so resolvability is already proven). The push is idempotent — re-running
   # the workflow overwrites the same tag with the same content.
+  # The job body lives in its own reusable workflow so the SAME definition can
+  # also be run on demand (workflow_dispatch) — see
+  # .github/workflows/default-image.yml. Two copies of these steps would drift,
+  # and drift between "what a release publishes" and "what a human republishes"
+  # is exactly the gap that let three unbootable images reach the fleet.
   default-image:
     name: Default scaffold image
     needs: release
     if: needs.release.outputs.published == 'true'
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/default-image.yml
     permissions:
       packages: write # push to GHCR
       contents: read
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # The scaffold step prefers create-hogsend's dist and only falls back to
-      # `pnpm exec tsx` — which pnpm refuses from the script's out-of-workspace
-      # temp dir (ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE, the 0.63.0 failure).
-      # Building dist here makes the preferred path the one that runs.
-      - run: pnpm --filter create-hogsend build
-      - name: Log in to GHCR
-        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
-      # Scaffold → docker build → preflight (all three run modes) → push. The
-      # same pipeline a tenant publish uses; dev-mode env defaults mean the
-      # script needs no secrets. Retries once after 5 minutes because a freshly
-      # published version can lag on npm's anonymous read path.
-      - name: Build, preflight and push hogsend-default
-        env:
-          CLOUD_IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-        run: |
-          pnpm --filter @hogsend/cloud build:default-image || {
-            echo "first attempt failed — waiting 5m for npm read-path propagation, then retrying"
-            sleep 300
-            pnpm --filter @hogsend/cloud build:default-image
-          }
