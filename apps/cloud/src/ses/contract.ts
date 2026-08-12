@@ -1,6 +1,7 @@
 import type { SubstrateRegion } from "../substrate/types";
 import {
   SES_REGION_BY_SUBSTRATE_REGION,
+  type SesAccount,
   type SesConfigurationSetRef,
   type SesCreateConfigurationSetInput,
   type SesCreateIdentityInput,
@@ -28,10 +29,10 @@ import {
 } from "./types";
 
 /**
- * The frozen SES seam: NINETEEN verbs, two implementations (`FakeSesClient`,
+ * The frozen SES seam: TWENTY verbs, two implementations (`FakeSesClient`,
  * `AwsSesClient`).
  *
- * A later PRD that needs a twentieth adds it HERE first, in both
+ * A later PRD that needs a twenty-first adds it HERE first, in both
  * implementations and in `SES_VERBS` — that is the entire point of having a
  * seam rather than letting each PRD bolt one AWS call onto whatever it is
  * doing.
@@ -127,6 +128,16 @@ export interface SesClient {
   listRecommendations(
     input?: SesListRecommendationsInput,
   ): Promise<SesRecommendationsPage>;
+
+  // -- Account (PRD 06's activation gate) -----------------------------------
+
+  /**
+   * "Can this account send mail?", which is NOT the same question as "do we
+   * hold AWS credentials" — see {@link SesAccount}. Read once per region and
+   * cached (`services/ses-availability.ts`); no provision pays a round trip
+   * for it.
+   */
+  getAccount(): Promise<SesAccount>;
 }
 
 /** Every verb on the seam, minus the three identity properties. */
@@ -135,7 +146,7 @@ export type SesVerb = Exclude<keyof SesClient, "id" | "region" | "awsRegion">;
 /**
  * The verbs, as a runtime value.
  *
- * It exists so a test can assert the SURFACE — nineteen verbs, both
+ * It exists so a test can assert the SURFACE — twenty verbs, both
  * implementations answering all of them. A verb quietly dropped from the
  * interface takes its callers' behaviour with it and nothing else notices,
  * because a Fake that no longer has a method is just a Fake nobody calls.
@@ -160,6 +171,7 @@ export const SES_VERBS = [
   "setTenantSendingStatus",
   "getReputationEntity",
   "listRecommendations",
+  "getAccount",
 ] as const satisfies readonly SesVerb[];
 
 /** Compile-time exhaustiveness: adding a verb to `SesClient` without adding it

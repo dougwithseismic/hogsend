@@ -548,3 +548,43 @@ export interface SesRecommendationsPage {
   recommendations: SesRecommendation[];
   nextToken?: string;
 }
+
+/**
+ * AWS's own reputation verdict on the ACCOUNT, from `GetAccount`.
+ *
+ * `HEALTHY | PROBATION | SHUTDOWN` are the three AWS documents, and `SHUTDOWN`
+ * is the one that stops mail — the account's ability to send is paused until a
+ * human resolves it; `PROBATION` is a warning and still sends. A `string`
+ * rather than that union deliberately: the SDK types it open, so a fourth
+ * value would arrive on the wire regardless and only the TYPE would have been
+ * wrong (the same lesson `SesReputationImpact` records). Nothing branches on
+ * it — the gate reads `sendingEnabled`, which AWS sets alongside it.
+ */
+export type SesEnforcementStatus = string;
+
+/**
+ * The ACCOUNT read (`GetAccount`), region-scoped like everything else here.
+ *
+ * It exists for ONE question, and it is not a nicety: **can this account
+ * actually send mail?** Holding AWS credentials does not answer it. Until AWS
+ * grants production access the account is in the SES *sandbox* — 200 messages
+ * a day, and only to identities we verified ourselves, with every other
+ * recipient refused as `MessageRejected`. Provisioning read "do we hold
+ * credentials" as "can we send" and would have activated Hogsend Email on a
+ * sandbox account for every customer the moment the credentials reached
+ * Railway.
+ *
+ * Sandbox status is per REGION, so this is never cached across regions.
+ */
+export interface SesAccount {
+  /** False → SANDBOX. Verified identities only, capped, everything else
+   * refused. */
+  productionAccessEnabled: boolean;
+  /** Account-level sending. False → every tenant is down, whatever its own
+   * status says. */
+  sendingEnabled: boolean;
+  enforcementStatus?: SesEnforcementStatus;
+  /** `-1` means unlimited, per AWS. */
+  max24HourSend?: number;
+  maxSendRate?: number;
+}

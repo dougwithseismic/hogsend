@@ -91,13 +91,51 @@ describe("resolveSesRegion", () => {
   });
 });
 
+describe("the account read", () => {
+  it("answers the SANDBOX account we actually have, verbatim from AWS", async () => {
+    // Observed against the live account on 2026-08-11 (`aws sesv2
+    // get-account`): production access NOT granted, sending enabled, 200 a
+    // day, 1 a second. The Fake models AWS, and AWS's answer here is what
+    // decides whether Hogsend Email may be activated at all — a Fake that
+    // reported production access would certify the exact bug the gate exists
+    // to stop.
+    const account = await fake().getAccount();
+    expect(account).toEqual({
+      productionAccessEnabled: false,
+      sendingEnabled: true,
+      enforcementStatus: "HEALTHY",
+      max24HourSend: 200,
+      maxSendRate: 1,
+    });
+  });
+
+  it("moves to production access, and to a SHUTDOWN account, as AWS does", async () => {
+    const client = fake();
+    client.__grantProductionAccess();
+    const granted = await client.getAccount();
+    expect(granted.productionAccessEnabled).toBe(true);
+    // The opening quota requested in `docs/ses-production-access-request.md`.
+    expect(granted.max24HourSend).toBe(50_000);
+    expect(granted.maxSendRate).toBe(14);
+
+    // The same account pause `sendEmail` already refuses on, read through the
+    // account: AWS reports it as `SendingEnabled: false` with an
+    // `EnforcementStatus` of `SHUTDOWN`.
+    client.__pauseAccount();
+    const paused = await client.getAccount();
+    expect(paused.sendingEnabled).toBe(false);
+    expect(paused.enforcementStatus).toBe("SHUTDOWN");
+    expect(paused.productionAccessEnabled).toBe(true);
+  });
+});
+
 describe("the SES contract surface", () => {
-  it("is exactly NINETEEN verbs, and both implementations answer all of them", () => {
+  it("is exactly TWENTY verbs, and both implementations answer all of them", () => {
     // A silent drop is the failure this guards: a verb deleted from the
     // interface takes its callers' behaviour with it and nothing else notices,
     // because a Fake that no longer has a method is just a Fake nobody calls.
-    expect(SES_VERBS).toHaveLength(19);
-    expect(new Set(SES_VERBS).size).toBe(19);
+    expect(SES_VERBS).toHaveLength(20);
+    expect(new Set(SES_VERBS).size).toBe(20);
 
     const implementations = [
       new FakeSesClient({ region: "us" }),

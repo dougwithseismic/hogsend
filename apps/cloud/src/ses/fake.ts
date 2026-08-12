@@ -2,6 +2,7 @@ import type { SubstrateRegion } from "../substrate/types";
 import { reputationPolicyArn } from "./aws";
 import { resolveSesRegion, type SesClient } from "./contract";
 import {
+  type SesAccount,
   type SesBatchEntryResult,
   type SesConfigurationSetRef,
   type SesCreateConfigurationSetInput,
@@ -123,6 +124,27 @@ const CUSTOMER_STATUS_CAUSE = "Status manually updated.";
  */
 const FAKE_REPUTATION_IMPACT = "NONE" as const;
 
+/**
+ * The sandbox quota, verbatim from `aws sesv2 get-account` on 2026-08-11:
+ * 200 messages a day, 1 a second, to self-verified addresses only.
+ */
+const FAKE_SANDBOX_SEND_QUOTA = {
+  max24HourSend: 200,
+  maxSendRate: 1,
+} as const;
+
+/**
+ * What the quota becomes once production access is granted — the OPENING
+ * quota requested in `docs/ses-production-access-request.md`, which is the
+ * only figure we have. Nothing branches on it (the gate reads
+ * `productionAccessEnabled` and `sendingEnabled`); it is here so a test that
+ * prints an account does not read a sandbox cap on a production account.
+ */
+const PRODUCTION_SEND_QUOTA = {
+  max24HourSend: 50_000,
+  maxSendRate: 14,
+} as const;
+
 export type FakeSesMethod = Exclude<
   keyof SesClient,
   "id" | "region" | "awsRegion"
@@ -209,6 +231,8 @@ export class FakeSesClient implements SesClient {
   private readonly rejectedRecipients = new Set<string>();
   private readonly scriptedFailures = new Map<FakeSesMethod, SesError[]>();
   private accountPaused = false;
+  /** SANDBOX by default — the real account's state. See `getAccount`. */
+  private productionAccess = false;
   private messageCounter = 0;
   private readonly now: () => Date;
 
@@ -246,6 +270,7 @@ export class FakeSesClient implements SesClient {
     this.recommendations.length = 0;
     this.calls.length = 0;
     this.accountPaused = false;
+    this.productionAccess = false;
     this.messageCounter = 0;
     return this;
   }
@@ -298,6 +323,16 @@ export class FakeSesClient implements SesClient {
   /** Pause the whole ACCOUNT — every tenant is down (DECISIONS §2's caveat). */
   __pauseAccount(paused = true): this {
     this.accountPaused = paused;
+    return this;
+  }
+
+  /**
+   * Take the account OUT of the sandbox, the way an AWS support decision
+   * does. A poke rather than a verb because SES has no API for it: production
+   * access is granted by a human at AWS.
+   */
+  __grantProductionAccess(granted = true): this {
+    this.productionAccess = granted;
     return this;
   }
 
@@ -662,6 +697,34 @@ export class FakeSesClient implements SesClient {
     // No paging: the fake holds whatever a test put in it, and inventing a
     // page boundary would be a behaviour AWS does not guarantee either.
     return { recommendations: recommendations.map((r) => ({ ...r })) };
+  }
+
+  // -- Account --------------------------------------------------------------
+
+  /**
+   * The account, defaulting to the SANDBOX — because that is what the real
+   * account IS, read on 2026-08-11: `ProductionAccessEnabled=false`,
+   * `SendingEnabled=true`, 200 a day, 1 a second.
+   *
+   * The default is the load-bearing part. This Fake decides, in every test,
+   * whether a provision may activate Hogsend Email; a Fake that answered
+   * "production access" would hand a green test to the exact bug the gate
+   * exists to stop, which is PRD 14's lesson stated as a default value.
+   * `__grantProductionAccess()` moves it, because AWS moves it — by a support
+   * decision, never by an API call, which is why there is no verb for it.
+   */
+  async getAccount(): Promise<SesAccount> {
+    this.record("getAccount", []);
+    return {
+      productionAccessEnabled: this.productionAccess,
+      // The account pause `sendEmail` already refuses on, read from the other
+      // side: AWS reports a suspended account as `SendingEnabled: false`.
+      sendingEnabled: !this.accountPaused,
+      enforcementStatus: this.accountPaused ? "SHUTDOWN" : "HEALTHY",
+      ...(this.productionAccess
+        ? PRODUCTION_SEND_QUOTA
+        : FAKE_SANDBOX_SEND_QUOTA),
+    };
   }
 
   // -- Internals ------------------------------------------------------------

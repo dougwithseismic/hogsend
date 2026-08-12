@@ -147,7 +147,7 @@ We subscribe to the SES EventBridge events on the default bus and act on all fou
   paused tenant fails closed at our edge without an AWS round trip, and the failure names the
   recorded cause.
 - Advisor Recommendation Status Open and Closed. An open finding records its type, impact and
-  description, demotes the tenant to Strict, and notifies the customer.
+  description and demotes the tenant to Strict.
 
 A paused tenant has no escape hatch. Our product supports customer-supplied email providers as an
 alternative, and a tenant paused for reputation is blocked from rerouting through one. Nothing is
@@ -248,8 +248,14 @@ customer-managed policy. See `DECISIONS.md §7.1`.
 The policy grants the verbs of the PRD 02 contract and nothing else. There is no `ses:*`. Every
 action name below was confirmed against a primary AWS source; see Appendix B.
 
-`ses:GetTenant` and `ses:GetReputationEntity` were added to PRD 02's contract after this appendix
-was first drafted; see "Resolved after this appendix was drafted" below.
+`ses:GetTenant`, `ses:GetReputationEntity` and `ses:GetAccount` were added to PRD 02's contract
+after this appendix was first drafted; see "Resolved after this appendix was drafted" below.
+
+`ses:GetAccount` is the one action here whose ABSENCE is silent rather than loud: provisioning reads
+it to decide whether the account can actually send, and a client that cannot read it fails CLOSED —
+every new instance stays on its own email provider and Hogsend Email is never activated. That is the
+safe direction, and it is also indistinguishable from "production access was never granted" unless
+somebody reads the recorded reason on the provision.
 
 ```json
 {
@@ -277,7 +283,8 @@ was first drafted; see "Resolved after this appendix was drafted" below.
         "ses:UpdateReputationEntityPolicy",
         "ses:UpdateReputationEntityCustomerManagedStatus",
         "ses:GetReputationEntity",
-        "ses:ListRecommendations"
+        "ses:ListRecommendations",
+        "ses:GetAccount"
       ],
       "Resource": "*",
       "Condition": {
@@ -363,8 +370,9 @@ from an SDK method name.
 | `setTenantSendingStatus` | `ses:UpdateReputationEntityCustomerManagedStatus` | yes, see note 3 |
 | `getReputationEntity` | `ses:GetReputationEntity` | yes |
 | `listRecommendations` | `ses:ListRecommendations` | yes |
+| `getAccount` | `ses:GetAccount` | yes, see note 4 |
 
-Nineteen verbs, twenty IAM actions: `putEventDestination` needs both the create and the update
+Twenty verbs, twenty-one IAM actions: `putEventDestination` needs both the create and the update
 action because it is implemented as create-then-update-on-already-exists (note 2).
 
 **Note 0.** `ses:SendBulkEmail` is deliberately NOT granted. `sendBatch` fans out one `SendEmail`
@@ -406,6 +414,14 @@ AWS-owned ARN (`arn:aws:ses:${Region}:aws:reputation-policy/${name}`), so
 another reason `Resource: "*"` stands until PRD 06 proves a narrower set.
 Sources: `https://docs.aws.amazon.com/ses/latest/dg/tenants.html`,
 `https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_UpdateReputationEntityPolicy.html`.
+
+**Note 4.** `ses:GetAccount` is a READ of the account's own state — production access, account-level
+sending, quota — and it is the gate on activating Hogsend Email at all: sending is only offered to a
+customer once `ProductionAccessEnabled` is true, which is a fact only AWS can report. It was granted
+to `hogsend-cloud-relay` on 2026-08-11 by `apps/cloud/scripts/aws-bootstrap-events.sh` as part of
+the additive `HogsendEmailRelayEvents` grant, alongside `ses:ListEmailIdentities`. Verified live the
+same day: `prod=false`, sending enabled, 200/day, 1/sec.
+Source: `https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetAccount.html`.
 
 **Unconfirmed:** none. Every action name above appears verbatim in the AWS service reference for
 `ses`. If a name later fails with `AccessDenied`, check the region first: the tenant and reputation

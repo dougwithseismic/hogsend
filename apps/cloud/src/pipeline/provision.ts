@@ -800,6 +800,14 @@ export async function runProvisionPipeline(
       awsRegion: sesTenant.summary.awsRegion,
       reputationPolicy: sesTenant.summary.reputationPolicy,
       available: sesTenant.summary.available,
+      // The step never fails over an unavailable tenancy — the instance simply
+      // keeps another provider — so the REASON is the only thing that tells an
+      // operator whether to chase credentials, chase AWS support for
+      // production access, or do nothing at all.
+      unavailableReason: sesTenant.availability.reason,
+      unavailableDetail: sesTenant.summary.available
+        ? null
+        : sesTenant.availability.detail,
       relayTokenRotated: sesTenant.relayTokenRotated,
     });
 
@@ -1241,15 +1249,21 @@ async function mintTenantCredentials(args: {
  * Whether a freshly provisioned instance SENDS through Hogsend Email.
  *
  * DECISIONS §6 says new provisions default to it. `available` is the whole
- * condition, and it is false exactly when the SES factory yielded the Fake.
+ * condition, and it means "the SES account behind this tenancy can actually
+ * SEND" — decided by `services/ses-availability.ts`, which reads AWS's own
+ * `GetAccount`, not by whether we hold credentials.
  *
- * Activating over the Fake would be the worst available outcome: every send
- * would "succeed" against an in-memory client and no mail would ever leave.
- * Silent non-delivery beats a loud failure only in the sense that nobody
- * notices, which is precisely what makes it worse. So an environment
- * provisioned with no AWS credentials keeps whatever provider it already had,
- * and its three `HOGSEND_EMAIL_*` variables stay inert until a real tenancy
- * exists.
+ * Two ways to get that wrong, and both are silent:
+ *  - Activating over the FAKE: every send "succeeds" against an in-memory
+ *    client and no mail ever leaves. Silent non-delivery beats a loud failure
+ *    only in the sense that nobody notices, which is what makes it worse.
+ *  - Activating on a SANDBOX account: real credentials, real API, and every
+ *    customer send refused with `MessageRejected` because the account may only
+ *    mail identities we verified ourselves.
+ *
+ * So an environment whose account cannot send keeps whatever provider it
+ * already had, and its three `HOGSEND_EMAIL_*` variables stay inert until a
+ * real, production-access tenancy exists.
  *
  * Setting this is NOT unconditionally safe. The engine preset activates on
  * `HOGSEND_EMAIL_TOKEN`, but it loads `@hogsend/plugin-hogsend` through a

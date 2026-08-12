@@ -1,6 +1,7 @@
 import type {
   CreateEmailIdentityResponse,
   CreateTenantResponse,
+  GetAccountResponse,
   GetEmailIdentityResponse,
   GetReputationEntityResponse,
   GetTenantResponse,
@@ -17,6 +18,7 @@ import {
   DeleteEmailIdentityCommand,
   DeleteTenantCommand,
   DeleteTenantResourceAssociationCommand,
+  GetAccountCommand,
   GetEmailIdentityCommand,
   GetReputationEntityCommand,
   GetTenantCommand,
@@ -32,6 +34,7 @@ import {
 import type { SubstrateRegion } from "../substrate/types";
 import { resolveSesRegion, type SesClient } from "./contract";
 import {
+  type SesAccount,
   type SesAttachment,
   type SesBatchEntryResult,
   type SesConfigurationSetRef,
@@ -652,6 +655,36 @@ export class AwsSesClient implements SesClient {
     return {
       recommendations: (response.Recommendations ?? []).map(toRecommendation),
       ...(response.NextToken ? { nextToken: response.NextToken } : {}),
+    };
+  }
+
+  /**
+   * The account read — `ses:GetAccount`, granted to the relay user by
+   * `scripts/aws-bootstrap-events.sh`.
+   *
+   * Every field is optional on the wire, and the two the activation gate reads
+   * default to FALSE rather than true: an answer AWS did not give must never
+   * be read as permission to send. The gate treats a THROW the same way (see
+   * `services/ses-availability.ts`), so a missing IAM grant degrades to "not
+   * available" instead of to "assume production".
+   */
+  async getAccount(): Promise<SesAccount> {
+    const response = await this.call<GetAccountResponse>(
+      "getAccount",
+      new GetAccountCommand({}),
+    );
+    return {
+      productionAccessEnabled: response.ProductionAccessEnabled ?? false,
+      sendingEnabled: response.SendingEnabled ?? false,
+      ...(response.EnforcementStatus === undefined
+        ? {}
+        : { enforcementStatus: response.EnforcementStatus }),
+      ...(response.SendQuota?.Max24HourSend === undefined
+        ? {}
+        : { max24HourSend: response.SendQuota.Max24HourSend }),
+      ...(response.SendQuota?.MaxSendRate === undefined
+        ? {}
+        : { maxSendRate: response.SendQuota.MaxSendRate }),
     };
   }
 

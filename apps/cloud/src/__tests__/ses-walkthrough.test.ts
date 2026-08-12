@@ -528,7 +528,7 @@ describe("executeWalkthrough", () => {
     return { real, fake, result, names };
   }
 
-  it("accounts for every one of the nineteen contract verbs", async () => {
+  it("accounts for every one of the twenty contract verbs", async () => {
     const { result } = await run();
     const seen = new Set(result.steps.map((step) => step.verb));
     expect([...SES_VERBS].filter((verb) => !seen.has(verb))).toEqual([]);

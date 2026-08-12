@@ -28,6 +28,10 @@ import type { SubstrateRegion } from "../substrate/types";
 import { type CloudWriter, writeAudit } from "./audit";
 import { NotFoundError } from "./errors";
 import { insertRelayToken } from "./relay-tokens";
+import {
+  resolveSesAvailability,
+  type SesAvailability,
+} from "./ses-availability";
 
 /**
  * One SES tenant per Cloud environment (DECISIONS §3.2), minted here and torn
@@ -59,7 +63,10 @@ import { insertRelayToken } from "./relay-tokens";
  *    runs in the very next pipeline step.
  *  - **No AWS credentials is a MODE, not a failure.** The factory yields the
  *    Fake, provisioning completes exactly as it does today, and the row is
- *    marked `available: false`.
+ *    marked `available: false`. The same is true of a SANDBOX account, and of
+ *    an account that cannot be read: `available` means "this account can
+ *    SEND", never "we hold credentials" (`services/ses-availability.ts`), and
+ *    the refusal always carries a recorded reason.
  */
 
 /** The actor recorded when a caller does not name one. */
@@ -193,6 +200,13 @@ export interface SesTenantSummary {
 export interface ProvisionSesTenantResult {
   summary: SesTenantSummary;
   /**
+   * Whether Hogsend Email may be activated for this environment, and — when it
+   * may not — the reason, for the provision record. `summary.available` is the
+   * same verdict as stored on the row; this carries the WHY, which the row
+   * does not.
+   */
+  availability: SesAvailability;
+  /**
    * The relay token PLAINTEXT. The only copy that will ever exist: the caller
    * injects it into the stack's environment and drops it.
    */
@@ -321,7 +335,13 @@ export async function provisionSesTenant(
   steps.push("set-reputation-policy");
 
   // ---- persist ------------------------------------------------------------
-  const available = ses.id === AWS_SES_ID;
+  // "Can this account SEND?", not "do we hold credentials" — the whole reason
+  // `resolveSesAvailability` exists. Cached per region, so this is free on all
+  // but the first provision after a boot, and it fails CLOSED: a sandbox
+  // account, a paused account, or an account we could not read all leave
+  // Hogsend Email inactive, with the reason recorded below.
+  const availability = await resolveSesAvailability(ses);
+  const available = availability.available;
   const persisted = await db.transaction(async (tx) => {
     // Locks the environment's organization, which serialises two concurrent
     // provisions of one environment behind each other rather than letting both
@@ -388,6 +408,11 @@ export async function provisionSesTenant(
         awsRegion,
         reputationPolicy,
         available,
+        // WHY, whenever the answer is no. Without it `available: false` reads
+        // like the step silently did nothing, and the operator's next move
+        // (chase the credentials? chase AWS support?) is a guess.
+        unavailableReason: availability.reason,
+        unavailableDetail: available ? null : availability.detail,
       },
     });
     await writeAudit(tx, {
@@ -409,6 +434,7 @@ export async function provisionSesTenant(
 
   return {
     summary: toSummary(persisted.row),
+    availability,
     relayToken: persisted.relayToken,
     webhookSecret: persisted.webhookSecret,
     relayTokenRotated: persisted.relayTokenRotated,

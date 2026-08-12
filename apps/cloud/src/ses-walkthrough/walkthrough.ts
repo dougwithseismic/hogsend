@@ -668,6 +668,36 @@ export async function executeWalkthrough(
     );
   }
 
+  // -- getAccount -----------------------------------------------------------
+  // The launch gate, read rather than assumed. Account-scoped like
+  // `listRecommendations`, so every VALUE is volatile — the Fake cannot know
+  // whether AWS has granted this account production access, and the day it
+  // does the walkthrough must not report that as a Fake defect. The SHAPE is
+  // still compared, which is the part provisioning branches on.
+  const account = await recorder.compare({
+    verb: "getAccount",
+    input: {},
+    volatile: [
+      "productionAccessEnabled",
+      "sendingEnabled",
+      "enforcementStatus",
+      "max24HourSend",
+      "maxSendRate",
+    ],
+    real: () => real.getAccount(),
+    fake: () => fake.getAccount(),
+    note: "account-scoped: values are the real account's, not the Fake's to know. `productionAccessEnabled: false` means SANDBOX — provisioning will NOT activate Hogsend Email",
+  });
+  if (account.real) {
+    notes.push(
+      `getAccount: ${
+        account.real.productionAccessEnabled ? "PRODUCTION access" : "SANDBOX"
+      }, sending ${account.real.sendingEnabled ? "enabled" : "DISABLED"}, ${
+        account.real.max24HourSend ?? "?"
+      }/day, ${account.real.maxSendRate ?? "?"}/sec`,
+    );
+  }
+
   // -- teardown, through the recorder ---------------------------------------
   // The destructive verbs are COMPARED rather than left to the cleanup stack,
   // because their answers are as much a part of the contract as the creates —

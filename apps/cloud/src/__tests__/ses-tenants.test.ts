@@ -1,5 +1,5 @@
-import { eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, eq, inArray } from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CloudDb } from "../db";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
@@ -13,6 +13,7 @@ import {
 import { env } from "../env";
 import { decryptSecretPayload } from "../lib/crypto";
 import { RelayTokenService } from "../services/relay-tokens";
+import { resetSesAvailabilityCache } from "../services/ses-availability";
 import {
   deprovisionSesTenant,
   getSesTenant,
@@ -175,6 +176,14 @@ afterAll(async () => {
   await cleanup();
   resetSesClients();
   await sqlClient.end();
+});
+
+beforeEach(() => {
+  // Both are process-wide and both decide `available`, so a test that grants
+  // production access must not leak it into the next one — the SANDBOX answer
+  // is the account's real state and has to stay the default here.
+  fake().__grantProductionAccess(false);
+  resetSesAvailabilityCache();
 });
 
 describe("provisionSesTenant", () => {
@@ -403,7 +412,11 @@ describe("provisionSesTenant", () => {
     expect((await tenantRow(environmentId))?.available).toBe(false);
   });
 
-  it("marks the tenant available when a real AWS client minted it", async () => {
+  it("marks the tenant available when a real AWS client minted it on a PRODUCTION account", async () => {
+    // Both halves are needed, and the second is the one that was missing:
+    // real credentials AND an account AWS has taken out of the sandbox.
+    fake().__grantProductionAccess();
+    resetSesAvailabilityCache();
     const environmentId = await seedEnvironment();
     const result = await provisionSesTenant(
       { environmentId },
@@ -411,7 +424,62 @@ describe("provisionSesTenant", () => {
     );
 
     expect(result.summary.available).toBe(true);
+    expect(result.availability.reason).toBeNull();
     expect((await tenantRow(environmentId))?.available).toBe(true);
+  });
+
+  it("refuses to activate Hogsend Email on a SANDBOX account, and records WHY", async () => {
+    // Real credentials, sandbox account — the state the AWS account is in
+    // TODAY. The old check (`ses.id === AWS_SES_ID`) said "available" here, so
+    // promoting the credentials to Railway would have pointed every new
+    // instance at an account that can only mail its own verified addresses and
+    // answers `MessageRejected` to everything else.
+    const environmentId = await seedEnvironment();
+    const result = await provisionSesTenant(
+      { environmentId, actor: "sandbox-test" },
+      { ses: asAwsClient(getSesClient("us")) },
+    );
+
+    // The provision SUCCEEDS: an instance on another provider works.
+    expect(result.steps).toEqual([...STEPS_WITHOUT_TOPIC]);
+    expect(result.summary.available).toBe(false);
+    expect((await tenantRow(environmentId))?.available).toBe(false);
+
+    // And the reason is in the provision RECORD, so an operator reading it
+    // does not conclude the step silently did nothing.
+    expect(result.availability.reason).toBe("sandbox");
+    const [audit] = await db
+      .select()
+      .from(cloudAuditLog)
+      .where(
+        and(
+          eq(cloudAuditLog.actor, "sandbox-test"),
+          eq(cloudAuditLog.action, "ses_tenant.provisioned"),
+        ),
+      );
+    expect(audit?.detail).toMatchObject({
+      available: false,
+      unavailableReason: "sandbox",
+    });
+    expect(
+      (audit?.detail as { unavailableDetail?: string })?.unavailableDetail,
+    ).toMatch(/sandbox/i);
+  });
+
+  it("fails CLOSED when the SES account cannot be read", async () => {
+    fake().__grantProductionAccess();
+    resetSesAvailabilityCache();
+    fake().failNext("getAccount");
+    const environmentId = await seedEnvironment();
+
+    const result = await provisionSesTenant(
+      { environmentId },
+      { ses: asAwsClient(getSesClient("us")) },
+    );
+
+    expect(result.summary.available).toBe(false);
+    expect(result.availability.reason).toBe("account-unreadable");
+    expect((await tenantRow(environmentId))?.available).toBe(false);
   });
 
   it("converges after a failure at EVERY step, with no duplicate resources", async () => {
