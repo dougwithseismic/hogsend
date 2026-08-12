@@ -103,8 +103,35 @@ Eight of the thirteen `TS7006`s are single-letter callback parameters of exactly
 
 What remains: zod's generic inference produces typed callback parameters when the engine compiles in
 the monorepo and `any` when the SAME zod version compiles the SAME source inside a consumer install.
-The difference is therefore in the module graph or the program shape, not in a version. That is the
-next thing to isolate.
+~~The difference is therefore in the module graph or the program shape, not in a version.~~
+
+**SOLVED 2026-08-12, and that last sentence was wrong.** It IS a version — just not zod's, drizzle's
+or TypeScript's, which is why four separate version comparisons all came back clean. The culprit is
+the WRAPPER: `@hono/zod-openapi@1.5.2` ships broken declarations. Its `dist/index.d.mts` imports only
+`{ ZodError, ZodType }` from zod (`z` dropped) and then says `import z = zodModule.z` where
+`zodModule` is never declared, so `z` is `any` and every `z.object()` chain downstream is `any` too.
+
+Two things this reconciles, worth recording so nobody re-derives them:
+
+- **H6 (mismatched zod) was correctly falsified and still missed it.** zod really is identical — one
+  copy, 4.4.3, same physical path from engine, app and wrapper alike. H6 tested the right idea at the
+  wrong altitude: the break is one layer up, in the package that re-exports `z`.
+- **The original "zod `.refine` inference" description was closer than "no zod anywhere" allowed.**
+  `routes/admin/settings.ts:55` really is zod inference; the `z` just arrives through a wrapper. Both
+  descriptions were half right, which is why each survived a check the other should have failed.
+
+`skipLibCheck: true` is not merely unhelpful here — it ACTIVELY HIDES the error that names the cause.
+Turn it off and the whole thing collapses to one line:
+`@hono/zod-openapi@1.5.2/dist/index.d.mts(259,12): error TS2503: Cannot find namespace 'zodModule'.`
+
+We are pinned to 1.4.0 by our lockfile alone; the engine declares `^1.4.0` and a fresh scaffold ships
+no lockfile, so it floats to latest. `pnpm update` would break us identically. 1.4.0 is also the only
+clean version that still carries the `types` export condition — 1.5.0 dropped it and never restored
+it — which is why the pin is 1.4.0 rather than 1.5.1.
+
+Follow-up, not folded into the fix: the scaffold smoke failed correctly throughout, but its output
+read as "our source is wrong" rather than "a shipped dependency's types are wrong". Making it name
+the offending package would have collapsed this investigation to minutes.
 
 A reproduction is preserved at the path recorded in the session scratchpad
 (`/tmp/hogsend-real-customer.*/customer-app`) — a real npm install, already failing, ready to bisect.
