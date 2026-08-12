@@ -29,10 +29,11 @@ REGIONS=("us-east-1" "eu-west-1")
 BUCKET_REGION="us-east-1"
 TOPIC_NAME="hogsend-ses-inbound"
 
-# Objects are a SPOOL, not an archive. The receive path fetches the MIME and
-# deletes it once stored, so anything still here is a failure that was not
-# retried. Seven days is long enough to debug one, short enough that a
-# customer's mail body is not sitting in our account indefinitely.
+# THE retention policy for raw inbound message bodies, not a backstop. Nothing
+# deletes an object after a successful receive: the relay is granted
+# s3:GetObject and nothing else, so a credential that ships to the control
+# plane cannot destroy a customer's mail. The parsed message is durable in
+# Postgres well before this expires; the object is the original bytes.
 SPOOL_EXPIRY_DAYS=7
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }

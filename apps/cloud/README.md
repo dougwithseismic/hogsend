@@ -11,7 +11,7 @@ already done for account `929600381829`.
 | Identity | Used for | Can |
 | --- | --- | --- |
 | An administrator (or root) | The one-time setup below | Create buckets, topics and IAM policies |
-| IAM user `hogsend-cloud-relay` | Everything at runtime | Send, manage domains, drain the inbound spool |
+| IAM user `hogsend-cloud-relay` | Everything at runtime | Send, manage domains, read the inbound spool |
 
 The relay deliberately **cannot** create a bucket or an SNS topic. A service that can mint its own
 storage can mint somebody else's, so infrastructure creation stays outside the process that handles
@@ -57,11 +57,15 @@ exact ARN to AWS. Any other name is a silent 403 at runtime and a false statemen
 One bucket but two topics, because S3 is the documented exception to SES's rule that inbound
 resources live in the SES endpoint's region.
 
-### The bucket is a spool, not an archive
+### The lifecycle rule is the only retention
 
-The receive path fetches each message and deletes it once stored. That is why the relay holds
-`s3:DeleteObject`, and why the seven-day lifecycle rule is a backstop for failures rather than the
-normal path — anything still in the bucket is a receive that did not complete.
+SES writes the raw MIME; the relay only **reads** it. Nothing deletes an object after a successful
+receive — the relay is granted `s3:GetObject` and nothing else, deliberately, so a credential that
+ships to the control plane cannot destroy a customer's mail.
+
+That makes the seven-day expiry the real retention policy for raw inbound message bodies, not a
+backstop. Changing it changes how long customer mail sits in our account. The parsed message is
+already durable in Postgres by then; the object is the original bytes.
 
 ### Receipt rules are SES v1
 
@@ -95,17 +99,23 @@ Read the config back only after proving the access works, because a policy that 
 still be denied at runtime:
 
 ```bash
-# As an administrator: write a probe object.
+# As an administrator: write a probe object under the prefix, and clean up after.
 aws s3api put-object --bucket hogsend-ses-inbound --key inbound/__probe.txt --body /tmp/probe.txt
 
-# As the relay: read it, then delete it. This is the sequence the receive path performs.
+# As the relay: read it. This is what the receive path does, and all it may do.
 aws s3api get-object --bucket hogsend-ses-inbound --key inbound/__probe.txt /tmp/got.txt
+
+# As the relay: this MUST be denied. The grant stops at the prefix.
+aws s3api get-object --bucket hogsend-ses-inbound --key outside.txt /tmp/x
+
+# As an administrator again — the relay cannot delete, by design.
 aws s3api delete-object --bucket hogsend-ses-inbound --key inbound/__probe.txt
 ```
 
-Note that `head-object` on a key that does not exist returns 403, not 404, when the caller has
-`s3:GetObject` but not `s3:ListBucket`. That is S3 refusing to confirm which keys exist, not a
-permission failure — do not use it to test access.
+Two traps here. `head-object` on a key that does not exist returns 403, not 404, when the caller has
+`s3:GetObject` but not `s3:ListBucket` — S3 refusing to confirm which keys exist, not a permission
+failure, so do not use it to test access. And a delete attempted with the relay's credentials will
+fail; that is the correct result, not a broken setup.
 
 ## Production access
 
