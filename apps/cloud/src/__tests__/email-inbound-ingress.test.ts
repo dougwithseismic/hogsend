@@ -23,6 +23,14 @@ import {
 } from "../lib/email-inbound-ingress";
 import { INBOUND_OBJECT_KEY_PREFIX } from "../lib/inbound-domains";
 import {
+  parseSesInboundNotification,
+  type SesInboundNotification,
+} from "../lib/ses-inbound-notifications";
+import {
+  EMAIL_INBOUND_PENDING_CLAIM_MS,
+  ingestInboundMessage,
+} from "../services/email-inbound";
+import {
   createInboundObjectFetcher,
   type InboundS3Transport,
 } from "../services/email-inbound-objects";
@@ -884,5 +892,192 @@ describe("instance delivery", () => {
     expect(row?.attempts).toBeGreaterThan(0);
     expect(row?.lastError).toContain("503");
     expect(row?.objectKey).toBe(objectKeyFor(result.messageId));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An abandoned `pending` row — the process died between the insert and settle
+// ---------------------------------------------------------------------------
+
+describe("pending recovery", () => {
+  /** The notification exactly as the ingress hands it to the service. */
+  function notificationFor(messageId: string): SesInboundNotification {
+    const parsed = parseSesInboundNotification(
+      receivedNotification({
+        messageId,
+        recipients: [`hello@reply.${A_DOMAIN}`],
+      }),
+      {
+        bucket: BUCKET,
+        objectKeyPrefix: INBOUND_OBJECT_KEY_PREFIX,
+        region: "us",
+      },
+    );
+    if (!parsed.ok) throw new Error(`fixture did not parse: ${parsed.reason}`);
+    return parsed.notification;
+  }
+
+  /** Same crash the status wire's twin test simulates: the injected sleep —
+   * the seam BETWEEN delivery attempts — throws, so control never reaches
+   * `settle` and the row is left `pending`. */
+  async function crashMidDelivery(
+    notification: SesInboundNotification,
+    fetchObject: ReturnType<typeof fakeS3>["fetcher"],
+  ) {
+    const unreachable = (async () => {
+      throw new Error("connect ECONNRESET");
+    }) as unknown as typeof fetch;
+    await expect(
+      ingestInboundMessage(
+        { region: "us", notification },
+        {
+          db,
+          fetchObject,
+          fetchImpl: unreachable,
+          sleep: async () => {
+            throw new Error("process died before settle");
+          },
+        },
+      ),
+    ).rejects.toThrow("process died before settle");
+  }
+
+  it("recovers a pending row the process abandoned, and delivers the reply", async () => {
+    const messageId = freshMessageId();
+    const key = objectKeyFor(messageId);
+    const raw = rawMessage({});
+    const s3 = fakeS3(new Map([[key, { size: raw.byteLength, body: raw }]]));
+    const notification = notificationFor(messageId);
+
+    await crashMidDelivery(notification, s3.fetcher);
+    const [abandoned] = await inboundRows(messageId);
+    expect(abandoned?.status).toBe("pending");
+
+    // SNS redelivers. A reply we accepted and then lost is PRD 16's named
+    // failure, so the redelivery must be able to finish the job.
+    const net = recordingFetch();
+    const outcome = await ingestInboundMessage(
+      { region: "us", notification },
+      {
+        db,
+        fetchObject: s3.fetcher,
+        fetchImpl: net.fetchImpl,
+        sleep: async () => {},
+        now: new Date(Date.now() + EMAIL_INBOUND_PENDING_CLAIM_MS + 60_000),
+      },
+    );
+
+    expect(outcome.status).toBe("delivered");
+    expect(net.deliveries).toHaveLength(1);
+    expect(payloadOf(net.deliveries).type).toBe("email.replied");
+    const [row] = await inboundRows(messageId);
+    expect(row?.status).toBe("delivered");
+  });
+
+  it("answers an early redelivery with a retry-inviting non-2xx, then recovers on the one it invited", async () => {
+    // THE REAL SNS TIMELINE, at the HTTP layer — the same proof the status
+    // wire's twin test makes: a 200 on the early retry would stop SNS forever
+    // and orphan the pending row, so it must be a temporary non-2xx instead.
+    const messageId = freshMessageId();
+    const key = objectKeyFor(messageId);
+    const raw = rawMessage({});
+    const s3 = fakeS3(new Map([[key, { size: raw.byteLength, body: raw }]]));
+    const post = (over: Partial<SesInboundIngressDeps>) =>
+      handleSesInboundNotification(
+        request(
+          snsNotification(
+            receivedNotification({
+              messageId,
+              recipients: [`hello@reply.${A_DOMAIN}`],
+            }),
+            { topicArn: TOPIC_ARN },
+          ),
+        ),
+        "us",
+        deps({ fetchObject: s3.fetcher, ...over }),
+      );
+
+    // T0: the process dies mid-delivery — insert done, settle never reached.
+    const unreachable = (async () => {
+      throw new Error("connect ECONNRESET");
+    }) as unknown as typeof fetch;
+    await expect(
+      post({
+        fetchImpl: unreachable,
+        sleep: async () => {
+          throw new Error("process died before settle");
+        },
+      }),
+    ).rejects.toThrow("process died before settle");
+
+    // T0 + seconds: SNS's early retry. Must invite another, deliver nothing.
+    const early = recordingFetch();
+    const earlyResponse = await post({ fetchImpl: early.fetchImpl });
+    expect(earlyResponse.status).toBe(503);
+    expect(early.deliveries).toHaveLength(0);
+
+    // The retry the 503 invited, now past the window: claims and delivers.
+    const late = recordingFetch();
+    const lateResponse = await post({
+      fetchImpl: late.fetchImpl,
+      now: new Date(Date.now() + EMAIL_INBOUND_PENDING_CLAIM_MS + 60_000),
+    });
+    expect(lateResponse.status).toBe(200);
+    expect(
+      ((await lateResponse.json()) as Record<string, unknown>).action,
+    ).toBe("delivered");
+    expect(late.deliveries).toHaveLength(1);
+    const [row] = await inboundRows(messageId);
+    expect(row?.status).toBe("delivered");
+  });
+
+  it("does NOT recover a pending row that is at the wire right now", async () => {
+    // A YOUNG pending row means a concurrent request is mid-flight, and
+    // recovering it would emit the same human's reply twice.
+    const messageId = freshMessageId();
+    const key = objectKeyFor(messageId);
+    const raw = rawMessage({});
+    const s3 = fakeS3(new Map([[key, { size: raw.byteLength, body: raw }]]));
+    const notification = notificationFor(messageId);
+
+    let release!: (response: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let atTheWire!: () => void;
+    const wireReached = new Promise<void>((resolve) => {
+      atTheWire = resolve;
+    });
+    let holds = 0;
+    const gated = (async () => {
+      holds += 1;
+      atTheWire();
+      return gate;
+    }) as unknown as typeof fetch;
+
+    const first = ingestInboundMessage(
+      { region: "us", notification },
+      { db, fetchObject: s3.fetcher, fetchImpl: gated, sleep: async () => {} },
+    );
+    await wireReached;
+
+    const net = recordingFetch();
+    const second = await ingestInboundMessage(
+      { region: "us", notification },
+      {
+        db,
+        fetchObject: s3.fetcher,
+        fetchImpl: net.fetchImpl,
+        sleep: async () => {},
+      },
+    );
+    // `in_flight`, not `duplicate`: no second delivery, but the answer is
+    // TEMPORARY — the ingress maps it to a non-2xx so SNS comes back.
+    expect(second.status).toBe("in_flight");
+    expect(net.deliveries).toHaveLength(0);
+
+    release(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    expect((await first).status).toBe("delivered");
+    expect(holds).toBe(1);
   });
 });

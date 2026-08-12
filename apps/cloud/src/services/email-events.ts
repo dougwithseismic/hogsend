@@ -2,7 +2,7 @@ import {
   HOGSEND_RELAY_SIGNATURE_HEADER,
   signHogsendRelayWebhook,
 } from "@hogsend/plugin-hogsend";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { emailEvents, sesTenants, stacks } from "../db/schema";
@@ -61,6 +61,29 @@ export const EMAIL_EVENT_ATTEMPTS_PER_REQUEST = 3;
  */
 export const EMAIL_EVENT_MAX_ATTEMPTS = 9;
 
+/**
+ * How long a `pending` row may sit untouched before a redelivery may claim it
+ * as ABANDONED — the process died between the insert and `settle` (a redeploy,
+ * an OOM, SNS timing the request out), so nobody is coming back for it.
+ *
+ * Sized against the WORST-CASE LIVE REQUEST, not against SNS. The longest a
+ * live request can hold `pending` is bounded and small:
+ * {@link EMAIL_EVENT_ATTEMPTS_PER_REQUEST} POSTs of at most 5 seconds each
+ * plus 1.25 seconds of in-request backoff — under twenty seconds — plus
+ * single-digit-second DB work around them. Sixty seconds is ~3× that bound,
+ * with the rest of the margin absorbing clock skew between control-plane
+ * instances (the cutoff compares THIS process's clock against a timestamp
+ * another instance wrote).
+ *
+ * The window can afford to be tight because a redelivery arriving INSIDE it is
+ * answered `in_flight` → HTTP 503, which keeps SNS's own retry schedule — the
+ * durable one — alive. The window therefore only ever DELAYS recovery; it
+ * never forfeits it. Without that non-2xx a row abandoned mid-flight answered
+ * `duplicate` → 200 on the retry SNS sends within seconds, SNS stopped for
+ * good, and the bounce was lost — a suppression that never happens.
+ */
+export const EMAIL_EVENT_PENDING_CLAIM_MS = 60 * 1000;
+
 /** Backoff between in-request attempts. Bounded so the whole request fits
  * comfortably inside SNS's delivery timeout. */
 const RETRY_BACKOFF_MS = [250, 1_000];
@@ -75,8 +98,15 @@ export function instanceWebhookUrl(apiPublicUrl: string): string {
 
 export type EmailEventOutcome =
   | { status: "delivered"; eventId: string; attempts: number }
-  /** Already seen. The at-least-once collapse; nothing was delivered again. */
+  /** Already seen AND settled. The at-least-once collapse; nothing was
+   * delivered again, and nothing ever will be. A FINAL answer (HTTP 200). */
   | { status: "duplicate"; eventId: string }
+  /** Seen and NOT settled, but not claimable right now — a concurrent request
+   * may be at the wire. A TEMPORARY answer: the ingress maps it to a non-2xx
+   * so SNS retries, and that retry finds the row either settled (→ duplicate)
+   * or abandoned and old enough to claim (→ delivered). Answering 200 here
+   * would stop SNS forever while settling nothing, orphaning the row. */
+  | { status: "in_flight"; eventId: string }
   /** Terminal and NOT a failure: there was nobody to deliver this to. */
   | { status: "dropped"; eventId: string; reason: string }
   | {
@@ -101,7 +131,10 @@ export interface EmailEventDeps {
  * Record one normalized SES event and hand it to its tenant's instance.
  *
  * Safe to call repeatedly with the same event: the second call short-circuits
- * on the unique index unless the first one left the row retryable.
+ * on the unique index unless the first one left the row retryable — a `failed`
+ * row under the ceiling, or a `pending` row a dead process abandoned, which a
+ * redelivery may reclaim after {@link EMAIL_EVENT_PENDING_CLAIM_MS} (see
+ * {@link claimSeenRow}).
  */
 export async function ingestSesEvent(
   input: { region: SubstrateRegion; normalized: NormalizedSesEvent },
@@ -127,6 +160,10 @@ export async function ingestSesEvent(
       messageId: event.messageId,
       payload: event as unknown as Record<string, unknown>,
       status: "pending",
+      // Stamped with OUR clock, not the column default, because the abandoned-
+      // row claim window ({@link claimSeenRow}) is measured against this same
+      // injected clock.
+      updatedAt: now,
       occurredAt: new Date(event.occurredAt),
     })
     .onConflictDoNothing({ target: emailEvents.dedupeKey })
@@ -134,20 +171,43 @@ export async function ingestSesEvent(
 
   const existing = inserted ? null : await findByDedupeKey(db, dedupeKey);
 
-  // Seen before AND already settled. Nothing to do — and deliberately no second
-  // delivery, because a duplicate bounce is a suppression we cannot take back.
-  if (existing && !isRetryable(existing)) {
+  // Seen before AND certainly settled (`delivered` and `dropped` are terminal,
+  // and a `failed` row at the ceiling stays failed). Nothing to do — and
+  // deliberately no second delivery, because a duplicate bounce is a
+  // suppression we cannot take back. Anything LESS certain — a retryable
+  // failure, a `pending` row that may be abandoned — is decided atomically by
+  // {@link claimSeenRow} below, never by this stale read.
+  if (existing && !mayBeClaimable(existing)) {
     return { status: "duplicate", eventId: existing.id };
   }
 
   const eventId = inserted?.id ?? existing?.id;
   if (!eventId) {
-    // A row that vanished between the conflict and the read. Nothing sane to
-    // do but treat it as handled; the next redelivery re-inserts it.
-    return { status: "duplicate", eventId: "unknown" };
+    // A row that vanished between the conflict and the read. Temporary, not
+    // final: the next redelivery re-inserts it — and the non-2xx the ingress
+    // maps this to is what guarantees there IS a next redelivery.
+    return { status: "in_flight", eventId: "unknown" };
   }
 
-  const attemptsSoFar = existing?.attempts ?? 0;
+  let attemptsSoFar = 0;
+  if (existing) {
+    const claim = await claimSeenRow(db, existing, now);
+    if (claim.outcome === "settled") {
+      // The abandoned-at-ceiling tidy-up just made the row terminal. Nothing
+      // will ever deliver it, so this is a FINAL answer.
+      return { status: "duplicate", eventId: existing.id };
+    }
+    if (claim.outcome === "in_flight") {
+      // The database said "not yours, not now": a concurrent request may hold
+      // the row. TEMPORARY — the ingress invites SNS back rather than 200ing
+      // away the only retry that could ever recover an abandoned row.
+      return { status: "in_flight", eventId: existing.id };
+    }
+    // The claim ticked `attempts` as its crash marker (see claimSeenRow); the
+    // real accounting below re-derives from the pre-claim value so a settled
+    // outcome counts only true delivery attempts.
+    attemptsSoFar = claim.attempts - 1;
+  }
 
   // ---- resolve --------------------------------------------------------------
   if (!target) {
@@ -373,14 +433,117 @@ async function findByDedupeKey(
 }
 
 /**
- * Whether a row we have seen before may be attempted again.
+ * Whether a previously-seen row MIGHT still need a delivery — the cheap read
+ * gate in front of {@link claimSeenRow}, so the common duplicate (a settled
+ * row) costs one SELECT and no UPDATE.
  *
- * Only a `failed` row under the ceiling. `delivered` and `dropped` are
- * terminal, and `pending` means another request is at the wire right now — a
- * second delivery would be exactly the duplicate the dedupe exists to prevent.
+ * `delivered` and `dropped` are terminal, and a `failed` row at the ceiling
+ * stays failed. A `failed` row under it is a real retry. `pending` is the one
+ * this cannot decide: it is EITHER a request at the wire right now OR a
+ * process that died before `settle` — so this only ever rules rows OUT; ruling
+ * one in is the claim's conditional UPDATE, where the database serialises the
+ * answer.
  */
-function isRetryable(row: EmailEventRow): boolean {
-  return row.status === "failed" && row.attempts < EMAIL_EVENT_MAX_ATTEMPTS;
+function mayBeClaimable(row: EmailEventRow): boolean {
+  if (row.status === "failed") return row.attempts < EMAIL_EVENT_MAX_ATTEMPTS;
+  return row.status === "pending";
+}
+
+/**
+ * Atomically claim a previously-seen row for THIS request — or for nobody.
+ *
+ * The tension this resolves: a `pending` row is EITHER in flight in a
+ * concurrent request (SNS can hand one notification to two of our instances
+ * at once, and recovering it would turn one bounce into two deliveries) OR
+ * abandoned by a process that died between the insert and `settle` (and never
+ * recovering it loses the bounce forever — a suppression that never happens).
+ * The row alone cannot say which, so the DATABASE decides, the same way the
+ * insert-is-the-dedupe does: one conditional UPDATE whose WHERE matches only
+ *
+ *  - a `failed` row under the attempt ceiling (the ordinary bounded retry), or
+ *  - a `pending` row untouched for {@link EMAIL_EVENT_PENDING_CLAIM_MS} —
+ *    longer than any LIVE request can possibly hold it.
+ *
+ * Two concurrent claimants serialise on the row lock; the loser re-evaluates
+ * the predicate against the winner's write (`pending`, fresh `updatedAt`) and
+ * matches nothing. Exactly one proceeds to the wire.
+ *
+ * The claim ticks `attempts` — that tick is the CRASH MARKER. A claimant that
+ * dies before settling leaves it behind, so a crash-looping row burns one
+ * attempt per claim and the ceiling still binds; a claimant that settles
+ * normally overwrites it with the true count (the caller re-derives
+ * `attemptsSoFar` from the pre-claim value). A row abandoned AT the ceiling
+ * can never be claimed again, so it is settled `failed` here — terminal, and
+ * visible on the status index an operator reads — rather than parked
+ * `pending` forever.
+ *
+ * A refused claim is one of two very different answers, and the caller MUST
+ * treat them differently at the HTTP layer: `settled` is final (the tidy-up
+ * just made the row terminal — 200, stop SNS), while `in_flight` is temporary
+ * (somebody may hold the row — non-2xx, so SNS retries and the LATER attempt
+ * finds it settled or claimable). Collapsing both to "duplicate" is exactly
+ * the bug this function exists to fix: the 200 would cancel the only retry
+ * that could ever recover an abandoned row.
+ */
+async function claimSeenRow(
+  db: CloudDb,
+  row: EmailEventRow,
+  now: Date,
+): Promise<
+  | { outcome: "claimed"; attempts: number }
+  | { outcome: "settled" }
+  | { outcome: "in_flight" }
+> {
+  const abandonedBefore = new Date(
+    now.getTime() - EMAIL_EVENT_PENDING_CLAIM_MS,
+  );
+  const [claimed] = await db
+    .update(emailEvents)
+    .set({
+      status: "pending",
+      attempts: sql`${emailEvents.attempts} + 1`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(emailEvents.id, row.id),
+        lt(emailEvents.attempts, EMAIL_EVENT_MAX_ATTEMPTS),
+        or(
+          eq(emailEvents.status, "failed"),
+          and(
+            eq(emailEvents.status, "pending"),
+            lte(emailEvents.updatedAt, abandonedBefore),
+          ),
+        ),
+      ),
+    )
+    .returning({ attempts: emailEvents.attempts });
+  if (claimed) return { outcome: "claimed", attempts: claimed.attempts };
+
+  if (row.status === "pending" && row.attempts >= EMAIL_EVENT_MAX_ATTEMPTS) {
+    // Abandoned AND out of attempts: unclaimable forever, so make it terminal.
+    // Conditional like the claim itself — a row that is merely young, or that
+    // somebody settled meanwhile, is left alone.
+    const [settled] = await db
+      .update(emailEvents)
+      .set({
+        status: "failed",
+        lastError:
+          "abandoned mid-delivery with the attempt ceiling already reached",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(emailEvents.id, row.id),
+          eq(emailEvents.status, "pending"),
+          lte(emailEvents.updatedAt, abandonedBefore),
+          gte(emailEvents.attempts, EMAIL_EVENT_MAX_ATTEMPTS),
+        ),
+      )
+      .returning({ id: emailEvents.id });
+    if (settled) return { outcome: "settled" };
+  }
+  return { outcome: "in_flight" };
 }
 
 async function settle(

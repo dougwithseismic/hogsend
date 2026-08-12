@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import {
@@ -76,6 +76,21 @@ export const EMAIL_INBOUND_ATTEMPTS_PER_REQUEST = 3;
  */
 export const EMAIL_INBOUND_MAX_ATTEMPTS = 9;
 
+/**
+ * How long a `pending` row may sit untouched before a redelivery may claim it
+ * as ABANDONED — sized, like the status wire's `EMAIL_EVENT_PENDING_CLAIM_MS`,
+ * against the WORST-CASE LIVE REQUEST, but doubled to two minutes: this wire's
+ * live hold spans the same three 5-second POSTs plus an S3 HEAD+GET of up to
+ * 10 MiB and the MIME parse, and the S3 transport carries no explicit timeout
+ * of our own, so its tail is the one leg we cannot compute a hard bound for.
+ *
+ * A redelivery arriving INSIDE the window is answered `in_flight` → HTTP 503,
+ * which keeps SNS's retry schedule alive — so the window only ever DELAYS
+ * recovery, it never forfeits it, and erring wide here costs seconds while
+ * erring narrow risks emitting the same human's reply twice.
+ */
+export const EMAIL_INBOUND_PENDING_CLAIM_MS = 2 * 60 * 1000;
+
 /** The wire's schema version. Bumped only on a BREAKING change to the shape. */
 export const HOGSEND_RELAY_INBOUND_EVENT_VERSION = 1;
 
@@ -134,8 +149,14 @@ export interface HogsendRelayInboundEvent {
 
 export type InboundOutcome =
   | { status: "delivered"; messageId: string; attempts: number }
-  /** Already seen. The at-least-once collapse; nothing was delivered again. */
+  /** Already seen AND settled. The at-least-once collapse; nothing was
+   * delivered again, and nothing ever will be. A FINAL answer (HTTP 200). */
   | { status: "duplicate"; messageId: string }
+  /** Seen and NOT settled, but not claimable right now — a concurrent request
+   * may be at the wire. A TEMPORARY answer: the ingress maps it to a non-2xx
+   * so SNS retries, and that retry finds the row either settled (→ duplicate)
+   * or abandoned and old enough to claim (→ delivered). */
+  | { status: "in_flight"; messageId: string }
   /** Stored, referenced, and deliberately not emitted. NOT a failure. */
   | { status: "suppressed"; messageId: string; reason: InboundSuppression }
   /** Terminal and not a failure: there was nobody this belonged to. */
@@ -173,7 +194,9 @@ export interface EmailInboundDeps {
  *
  * Safe to call repeatedly with the same notification: the second call
  * short-circuits on the unique index unless the first one left the row
- * retryable.
+ * retryable — a `failed` row under the ceiling, or a `pending` row a dead
+ * process abandoned, which a redelivery may reclaim after
+ * {@link EMAIL_INBOUND_PENDING_CLAIM_MS} (see {@link claimSeenRow}).
  */
 export async function ingestInboundMessage(
   input: { region: SubstrateRegion; notification: SesInboundNotification },
@@ -203,6 +226,10 @@ export async function ingestInboundMessage(
       bucket: notification.bucket,
       objectKey: notification.objectKey,
       status: "pending",
+      // Stamped with OUR clock, not the column default, because the abandoned-
+      // row claim window ({@link claimSeenRow}) is measured against this same
+      // injected clock.
+      updatedAt: now,
       receivedAt: new Date(notification.receivedAt),
     })
     .onConflictDoNothing({ target: emailInboundMessages.dedupeKey })
@@ -212,20 +239,42 @@ export async function ingestInboundMessage(
     ? null
     : await findByDedupeKey(db, notification.dedupeKey);
 
-  // Seen before AND already settled. Deliberately no second delivery: a
+  // Seen before AND certainly settled. Deliberately no second delivery: a
   // duplicate `email.replied` can exit a journey a second time, and an exit is
-  // not a thing we can take back.
-  if (existing && !isRetryable(existing)) {
+  // not a thing we can take back. Anything LESS certain — a retryable failure,
+  // a `pending` row that may be abandoned — is decided atomically by
+  // {@link claimSeenRow} below, never by this stale read.
+  if (existing && !mayBeClaimable(existing)) {
     return { status: "duplicate", messageId: existing.id };
   }
 
   const rowId = inserted?.id ?? existing?.id;
   if (!rowId) {
-    // A row that vanished between the conflict and the read. Nothing sane to do
-    // but treat it as handled; the next redelivery re-inserts it.
-    return { status: "duplicate", messageId: "unknown" };
+    // A row that vanished between the conflict and the read. Temporary, not
+    // final: the next redelivery re-inserts it — and the non-2xx the ingress
+    // maps this to is what guarantees there IS a next redelivery.
+    return { status: "in_flight", messageId: "unknown" };
   }
-  const attemptsSoFar = existing?.attempts ?? 0;
+
+  let attemptsSoFar = 0;
+  if (existing) {
+    const claim = await claimSeenRow(db, existing, now);
+    if (claim.outcome === "settled") {
+      // The abandoned-at-ceiling tidy-up just made the row terminal. Nothing
+      // will ever deliver it, so this is a FINAL answer.
+      return { status: "duplicate", messageId: existing.id };
+    }
+    if (claim.outcome === "in_flight") {
+      // The database said "not yours, not now": a concurrent request may hold
+      // the row. TEMPORARY — the ingress invites SNS back rather than 200ing
+      // away the only retry that could ever recover an abandoned row.
+      return { status: "in_flight", messageId: existing.id };
+    }
+    // The claim ticked `attempts` as its crash marker (see claimSeenRow); the
+    // real accounting below re-derives from the pre-claim value so a settled
+    // outcome counts only true delivery attempts.
+    attemptsSoFar = claim.attempts - 1;
+  }
 
   // (3) Nobody's. Recorded and terminal: an unknown recipient does not become
   // known by waiting, there is no forwarding address for it, and broadcasting
@@ -581,15 +630,111 @@ async function findByDedupeKey(
 }
 
 /**
- * Whether a row we have seen before may be attempted again.
+ * Whether a previously-seen row MIGHT still need a delivery — the cheap read
+ * gate in front of {@link claimSeenRow}, so the common duplicate (a settled
+ * row) costs one SELECT and no UPDATE.
  *
- * Only a `failed` row under the ceiling. `delivered`, `dropped` and
- * `suppressed` are TERMINAL - re-running a suppressed message would re-decide
- * a loop guard that already said no - and `pending` means another request is at
- * the wire right now.
+ * `delivered`, `dropped` and `suppressed` are TERMINAL — re-running a
+ * suppressed message would re-decide a loop guard that already said no — and
+ * a `failed` row at the ceiling stays failed. A `failed` row under it is a
+ * real retry. `pending` is the one this cannot decide: EITHER a request at
+ * the wire right now OR a process that died before `settle` — so this only
+ * ever rules rows OUT; ruling one in is the claim's conditional UPDATE, where
+ * the database serialises the answer.
  */
-function isRetryable(row: InboundRow): boolean {
-  return row.status === "failed" && row.attempts < EMAIL_INBOUND_MAX_ATTEMPTS;
+function mayBeClaimable(row: InboundRow): boolean {
+  if (row.status === "failed") {
+    return row.attempts < EMAIL_INBOUND_MAX_ATTEMPTS;
+  }
+  return row.status === "pending";
+}
+
+/**
+ * Atomically claim a previously-seen row for THIS request — or for nobody.
+ *
+ * The TWIN of the status wire's claim (`email-events.ts`), same shape for the
+ * same reason: a `pending` row is EITHER in flight in a concurrent request
+ * (recovering it would emit the same human's reply twice) OR abandoned by a
+ * process that died between the insert and `settle` (never recovering it
+ * loses the reply forever — PRD 16's named failure). The row alone cannot say
+ * which, so the DATABASE decides: one conditional UPDATE whose WHERE matches
+ * only a `failed` row under the ceiling, or a `pending` row untouched for
+ * {@link EMAIL_INBOUND_PENDING_CLAIM_MS} — longer than any LIVE request can
+ * possibly hold it. Concurrent claimants serialise on the row lock; exactly
+ * one proceeds.
+ *
+ * The claim ticks `attempts` — the CRASH MARKER. A claimant that dies before
+ * settling leaves it behind, so a crash-looping row burns one attempt per
+ * claim and the ceiling still binds; a claimant that settles normally
+ * overwrites it with the true count. A row abandoned AT the ceiling is
+ * settled `failed` here — terminal and visible on the status index — rather
+ * than parked `pending` forever; the raw MIME is still in S3 and still
+ * referenced, so an operator can re-drive it.
+ *
+ * A refused claim is one of two very different answers (see the status wire's
+ * twin for the full argument): `settled` is FINAL — the ingress 200s and SNS
+ * stops — while `in_flight` is TEMPORARY — the ingress answers non-2xx so the
+ * retry that can actually recover an abandoned row keeps coming.
+ */
+async function claimSeenRow(
+  db: CloudDb,
+  row: InboundRow,
+  now: Date,
+): Promise<
+  | { outcome: "claimed"; attempts: number }
+  | { outcome: "settled" }
+  | { outcome: "in_flight" }
+> {
+  const abandonedBefore = new Date(
+    now.getTime() - EMAIL_INBOUND_PENDING_CLAIM_MS,
+  );
+  const [claimed] = await db
+    .update(emailInboundMessages)
+    .set({
+      status: "pending",
+      attempts: sql`${emailInboundMessages.attempts} + 1`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(emailInboundMessages.id, row.id),
+        lt(emailInboundMessages.attempts, EMAIL_INBOUND_MAX_ATTEMPTS),
+        or(
+          eq(emailInboundMessages.status, "failed"),
+          and(
+            eq(emailInboundMessages.status, "pending"),
+            lte(emailInboundMessages.updatedAt, abandonedBefore),
+          ),
+        ),
+      ),
+    )
+    .returning({ attempts: emailInboundMessages.attempts });
+  if (claimed) return { outcome: "claimed", attempts: claimed.attempts };
+
+  if (row.status === "pending" && row.attempts >= EMAIL_INBOUND_MAX_ATTEMPTS) {
+    // Abandoned AND out of attempts: unclaimable forever, so make it terminal.
+    // Conditional like the claim itself — a row that is merely young, or that
+    // somebody settled meanwhile, is left alone.
+    const [settled] = await db
+      .update(emailInboundMessages)
+      .set({
+        status: "failed",
+        lastError:
+          "abandoned mid-delivery with the attempt ceiling already reached",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(emailInboundMessages.id, row.id),
+          eq(emailInboundMessages.status, "pending"),
+          lte(emailInboundMessages.updatedAt, abandonedBefore),
+          gte(emailInboundMessages.attempts, EMAIL_INBOUND_MAX_ATTEMPTS),
+        ),
+      )
+      .returning({ id: emailInboundMessages.id });
+    if (settled) return { outcome: "settled" };
+  }
+  return { outcome: "in_flight" };
 }
 
 async function failed(

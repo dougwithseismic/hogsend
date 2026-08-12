@@ -2,6 +2,7 @@ import type { CloudDb } from "../db";
 import { env } from "../env";
 import {
   EMAIL_INBOUND_MAX_ATTEMPTS,
+  EMAIL_INBOUND_PENDING_CLAIM_MS,
   type InboundOutcome,
   ingestInboundMessage,
 } from "../services/email-inbound";
@@ -54,9 +55,11 @@ import { parseSesInboundNotification } from "./ses-inbound-notifications";
  * The status codes are chosen for what they make SNS DO: a 200 stops the retry
  * and a non-2xx makes it re-drive on its own schedule. So a message we
  * deliberately did not emit for (an auto-responder, an oversized object, a
- * recipient nobody owns) answers 200 — retrying changes none of those — and an
+ * recipient nobody owns) answers 200 — retrying changes none of those — an
  * instance that was briefly unreachable answers 502 until the row's attempt
- * ceiling makes it terminal.
+ * ceiling makes it terminal, and a row another request may hold RIGHT NOW
+ * answers 503, never 200, because the retry a 200 would cancel is the only
+ * thing that can recover the row if that other request died before settling it.
  */
 
 export interface SesInboundIngressDeps {
@@ -226,6 +229,22 @@ export async function handleSesInboundNotification(
 }
 
 function outcomeResponse(outcome: InboundOutcome): Response {
+  if (outcome.status === "in_flight") {
+    // Seen, NOT settled, and not claimable yet — a concurrent request may be
+    // at the wire, or the claim window has not elapsed. Never a 200: SNS
+    // treats a 200 as delivered and stops retrying forever, and if the row was
+    // actually abandoned (the process died before `settle`), the retry a 200
+    // would cancel is the only thing that could ever recover the reply. Same
+    // 503 the status wire answers, for the same reason.
+    return fail(
+      503,
+      "inbound_in_flight",
+      "This message is being handled by another request; retry shortly.",
+      {
+        "retry-after": String(Math.ceil(EMAIL_INBOUND_PENDING_CLAIM_MS / 1000)),
+      },
+    );
+  }
   if (outcome.status !== "failed") {
     return ok({
       ok: true,

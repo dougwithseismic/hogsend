@@ -1,6 +1,7 @@
 import type { CloudDb } from "../db";
 import {
   EMAIL_EVENT_MAX_ATTEMPTS,
+  EMAIL_EVENT_PENDING_CLAIM_MS,
   type EmailEventOutcome,
   ingestSesEvent,
 } from "../services/email-events";
@@ -42,9 +43,11 @@ import { normalizeSesNotification } from "./ses-events";
  * The status codes are chosen for what they make SNS DO, which is a real
  * decision rather than cosmetics: a 200 stops SNS retrying and a non-2xx makes
  * it re-drive on its own schedule. So an event we deliberately dropped answers
- * 200 (retrying changes nothing), and an instance that was briefly unreachable
+ * 200 (retrying changes nothing), an instance that was briefly unreachable
  * answers 502 (SNS's redelivery is the durable retry) until the row's attempt
- * ceiling makes it terminal.
+ * ceiling makes it terminal — and a row another request may hold RIGHT NOW
+ * answers 503, never 200, because the retry a 200 would cancel is the only
+ * thing that can recover the row if that other request died before settling it.
  */
 
 export interface SesEventIngressDeps {
@@ -184,6 +187,26 @@ export async function handleSesEventNotification(
 }
 
 function outcomeResponse(outcome: EmailEventOutcome): Response {
+  if (outcome.status === "in_flight") {
+    // Seen, NOT settled, and not claimable yet — a concurrent request may be
+    // at the wire, or the claim window has not elapsed. This is the one
+    // outcome that must NOT be a 200: SNS treats a 200 as delivered and stops
+    // retrying forever, and if the row was actually abandoned (the process
+    // died before `settle`), the retry we just cancelled was the only thing
+    // that could ever recover it — the event would be lost while `pending`
+    // forever. 503 rather than 409 because to SNS any non-2xx simply means
+    // "come back on your own schedule", and 503 is how this file already
+    // answers a transient condition (the 502 below); the retry-after names
+    // the claim window for whoever reads the SNS delivery log.
+    return fail(
+      503,
+      "event_in_flight",
+      "This event is being handled by another request; retry shortly.",
+      {
+        "retry-after": String(Math.ceil(EMAIL_EVENT_PENDING_CLAIM_MS / 1000)),
+      },
+    );
+  }
   if (outcome.status !== "failed") {
     return ok({ ok: true, action: outcome.status, eventId: outcome.eventId });
   }

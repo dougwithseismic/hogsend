@@ -29,8 +29,14 @@ import {
   type SesEventIngressDeps,
 } from "../lib/email-event-ingress";
 import {
+  type NormalizedSesEvent,
+  normalizeSesNotification,
+} from "../lib/ses-events";
+import {
   EMAIL_EVENT_ATTEMPTS_PER_REQUEST,
   EMAIL_EVENT_MAX_ATTEMPTS,
+  EMAIL_EVENT_PENDING_CLAIM_MS,
+  ingestSesEvent,
   instanceWebhookUrl,
 } from "../services/email-events";
 import { sesTenantName } from "../ses/names";
@@ -835,5 +841,260 @@ describe("bounded retry", () => {
     const [row] = await eventRows(environmentId);
     expect(row?.status).toBe("failed");
     expect(row?.environmentId).toBe(environmentId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An abandoned `pending` row — the process died between the insert and settle
+// ---------------------------------------------------------------------------
+
+describe("pending recovery", () => {
+  /** The event exactly as the ingress hands it to the service. */
+  function normalizedBounce(environmentId: string): NormalizedSesEvent {
+    const normalized = normalizeSesNotification(
+      tagForEnvironment(
+        withFreshMessageId(sesBounceNotification()),
+        environmentId,
+      ),
+    );
+    if (!normalized) throw new Error("the bounce fixture did not normalize");
+    return normalized;
+  }
+
+  /**
+   * Kill the process mid-delivery: the row is inserted, the first POST fails,
+   * and the injected sleep — the seam BETWEEN attempts — throws, so control
+   * never reaches `settle` and the row is left `pending`. This is what a
+   * redeploy, an OOM or SNS timing the request out actually leaves behind.
+   */
+  async function crashMidDelivery(normalized: NormalizedSesEvent) {
+    const unreachable = (async () => {
+      throw new Error("connect ECONNRESET");
+    }) as unknown as typeof fetch;
+    await expect(
+      ingestSesEvent(
+        { region: "us", normalized },
+        {
+          db,
+          fetchImpl: unreachable,
+          sleep: async () => {
+            throw new Error("process died before settle");
+          },
+        },
+      ),
+    ).rejects.toThrow("process died before settle");
+  }
+
+  /** A clock past the claim window, with slack for DB-vs-JS clock slop. */
+  function afterClaimWindow(): Date {
+    return new Date(Date.now() + EMAIL_EVENT_PENDING_CLAIM_MS + 60_000);
+  }
+
+  it("recovers a pending row the process abandoned, and delivers the bounce", async () => {
+    const environmentId = await seedEnvironment();
+    const normalized = normalizedBounce(environmentId);
+
+    await crashMidDelivery(normalized);
+    const [abandoned] = await eventRows(environmentId);
+    expect(abandoned?.status).toBe("pending");
+
+    // SNS redelivers — it re-drives for hours, which is the whole reason the
+    // dedupe exists. A lost bounce is a suppression that never happens.
+    const { fetchImpl, deliveries } = recordingFetch();
+    const outcome = await ingestSesEvent(
+      { region: "us", normalized },
+      { db, fetchImpl, sleep: async () => {}, now: afterClaimWindow() },
+    );
+
+    expect(outcome.status).toBe("delivered");
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]?.url).toBe(instanceWebhookUrl(INSTANCE_URL));
+    const [row] = await eventRows(environmentId);
+    expect(row?.status).toBe("delivered");
+  });
+
+  it("does NOT recover a pending row that is at the wire right now", async () => {
+    // SNS can hand the same notification to two of our instances at once. A
+    // YOUNG pending row means a concurrent request is mid-flight, and
+    // recovering it would turn one bounce into two deliveries.
+    const environmentId = await seedEnvironment();
+    const normalized = normalizedBounce(environmentId);
+
+    let release!: (response: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let atTheWire!: () => void;
+    const wireReached = new Promise<void>((resolve) => {
+      atTheWire = resolve;
+    });
+    let holds = 0;
+    const gated = (async () => {
+      holds += 1;
+      atTheWire();
+      return gate;
+    }) as unknown as typeof fetch;
+
+    const first = ingestSesEvent(
+      { region: "us", normalized },
+      { db, fetchImpl: gated, sleep: async () => {} },
+    );
+    await wireReached;
+
+    const { fetchImpl, deliveries } = recordingFetch();
+    const second = await ingestSesEvent(
+      { region: "us", normalized },
+      { db, fetchImpl, sleep: async () => {} },
+    );
+    // `in_flight`, not `duplicate`: no second delivery, but the answer is
+    // TEMPORARY — the ingress maps it to a non-2xx so SNS comes back.
+    expect(second.status).toBe("in_flight");
+    expect(deliveries).toHaveLength(0);
+
+    release(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    expect((await first).status).toBe("delivered");
+    expect(holds).toBe(1);
+  });
+
+  it("lets exactly ONE of two concurrent re-drives claim an abandoned row", async () => {
+    // Both redeliveries find the same stale row; the conditional UPDATE is
+    // what serialises them. Exactly one may reach the wire.
+    const environmentId = await seedEnvironment();
+    const normalized = normalizedBounce(environmentId);
+    await crashMidDelivery(normalized);
+
+    const { fetchImpl, deliveries } = recordingFetch();
+    const now = afterClaimWindow();
+    const outcomes = await Promise.all([
+      ingestSesEvent(
+        { region: "us", normalized },
+        { db, fetchImpl, sleep: async () => {}, now },
+      ),
+      ingestSesEvent(
+        { region: "us", normalized },
+        { db, fetchImpl, sleep: async () => {}, now },
+      ),
+    ]);
+
+    // Exactly one winner. The loser's answer depends on when it looked:
+    // `in_flight` if it lost the claim race (temporary — the ingress non-2xx
+    // brings SNS back to find the settled row), or `duplicate` if it read the
+    // row after the winner had already settled it. Both are correct; what may
+    // never happen is a second delivery.
+    const statuses = outcomes.map((o) => o.status).sort();
+    expect(statuses[0]).toBe("delivered");
+    expect(["duplicate", "in_flight"]).toContain(statuses[1]);
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it("answers an early redelivery with a retry-inviting non-2xx, then recovers on the one it invited", async () => {
+    // THE REAL SNS TIMELINE. The crash leaves the row `pending`; SNS got no
+    // response, so it retries within seconds — well INSIDE the claim window.
+    // A 200 on that retry would mark the notification delivered and stop SNS
+    // forever: the window could then never elapse for anybody, the row would
+    // stay `pending` until the end of time, and the bounce would be lost.
+    // So "seen, unsettled, not claimable yet" must be a NON-2xx — a temporary
+    // answer that keeps SNS's own retry schedule (the durable one) alive.
+    const environmentId = await seedEnvironment();
+    const payload = tagForEnvironment(
+      withFreshMessageId(sesBounceNotification()),
+      environmentId,
+    );
+
+    // T0: the process dies mid-delivery — insert done, settle never reached.
+    const unreachable = (async () => {
+      throw new Error("connect ECONNRESET");
+    }) as unknown as typeof fetch;
+    await expect(
+      handleSesEventNotification(
+        request(notificationOf(payload)),
+        "us",
+        deps({
+          fetchImpl: unreachable,
+          sleep: async () => {
+            throw new Error("process died before settle");
+          },
+        }),
+      ),
+    ).rejects.toThrow("process died before settle");
+
+    // T0 + seconds: SNS's early retry. Must invite another, deliver nothing.
+    const early = recordingFetch();
+    const earlyResponse = await handleSesEventNotification(
+      request(notificationOf(payload)),
+      "us",
+      deps({ fetchImpl: early.fetchImpl }),
+    );
+    expect(earlyResponse.status).toBe(503);
+    expect(early.deliveries).toHaveLength(0);
+
+    // The retry the 503 invited, now past the window: claims and delivers.
+    const late = recordingFetch();
+    const lateResponse = await handleSesEventNotification(
+      request(notificationOf(payload)),
+      "us",
+      deps({ fetchImpl: late.fetchImpl, now: afterClaimWindow() }),
+    );
+    expect(lateResponse.status).toBe(200);
+    expect(late.deliveries).toHaveLength(1);
+    const [row] = await eventRows(environmentId);
+    expect(row?.status).toBe("delivered");
+  });
+
+  it("still answers a SETTLED duplicate 200, so SNS stops", async () => {
+    // The counterpart guard: once the row is terminal, a non-2xx would make
+    // SNS re-drive a duplicate for days. (The at-least-once collapse test
+    // above pins the same thing across three drives.)
+    const environmentId = await seedEnvironment();
+    const payload = tagForEnvironment(
+      withFreshMessageId(sesBounceNotification()),
+      environmentId,
+    );
+    const { fetchImpl } = recordingFetch();
+
+    const first = await handleSesEventNotification(
+      request(notificationOf(payload)),
+      "us",
+      deps({ fetchImpl }),
+    );
+    expect(first.status).toBe(200);
+
+    const redelivery = await handleSesEventNotification(
+      request(notificationOf(payload)),
+      "us",
+      deps({ fetchImpl }),
+    );
+    expect(redelivery.status).toBe(200);
+    expect(((await redelivery.json()) as Record<string, unknown>).action).toBe(
+      "duplicate",
+    );
+  });
+
+  it("never recovers past the attempt ceiling, and makes the abandonment terminal", async () => {
+    const environmentId = await seedEnvironment();
+    const normalized = normalizedBounce(environmentId);
+    await crashMidDelivery(normalized);
+
+    // A crash loop burned every attempt and the last claimant also died,
+    // leaving the row `pending` at the ceiling. Written directly: driving
+    // nine real crash-claims would only re-prove the path the tests above own.
+    await db
+      .update(emailEvents)
+      .set({ attempts: EMAIL_EVENT_MAX_ATTEMPTS })
+      .where(eq(emailEvents.dedupeKey, normalized.dedupeKey));
+
+    const { fetchImpl, deliveries } = recordingFetch();
+    const outcome = await ingestSesEvent(
+      { region: "us", normalized },
+      { db, fetchImpl, sleep: async () => {}, now: afterClaimWindow() },
+    );
+
+    expect(outcome.status).toBe("duplicate");
+    expect(deliveries).toHaveLength(0);
+    // And not parked `pending` forever: the exhausted abandonment is made
+    // terminal so the status index (the operator read) can find it.
+    const [row] = await eventRows(environmentId);
+    expect(row?.status).toBe("failed");
+    expect(row?.lastError).toContain("abandoned");
   });
 });
