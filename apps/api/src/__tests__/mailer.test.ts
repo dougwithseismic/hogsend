@@ -1,3 +1,4 @@
+import { emailSends } from "@hogsend/db";
 import type { EmailEvent } from "@hogsend/engine";
 import { createTrackedMailer } from "@hogsend/engine";
 import { createResendProvider } from "@hogsend/plugin-resend";
@@ -6,11 +7,77 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import { templates } from "../emails/index.js";
 
+const dialect = new PgDialect();
+
 // Compile a captured drizzle WHERE to its bound params so a batched
 // `... WHERE email IN ($1,$2,…)` suppression can be asserted to cover every
 // recipient (the params ARE the recipient list) without counting query calls.
 const whereParams = (cond: unknown): unknown[] =>
-  new PgDialect().sqlToQuery(cond as SQL).params;
+  dialect.sqlToQuery(cond as SQL).params;
+
+/** `bounced_at` → `bouncedAt`. */
+const camel = (column: string): string =>
+  column.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+
+/**
+ * Evaluate a rendered WHERE against a modelled row. Supports EXACTLY the three
+ * predicate shapes this path emits and THROWS on anything else — an unknown
+ * shape must fail loudly rather than silently evaluate to "matched".
+ */
+function matches(row: Record<string, unknown>, condition: unknown): boolean {
+  const { sql: text, params } = dialect.sqlToQuery(condition as SQL);
+  const terms = text.replace(/^\(/, "").replace(/\)$/, "").split(" and ");
+  return terms.every((raw) => {
+    const term = raw.trim();
+    let m = /^"[a-z_]+"\."([a-z_]+)" = \$(\d+)$/.exec(term);
+    if (m) return row[camel(m[1] as string)] === params[Number(m[2]) - 1];
+    m = /^"[a-z_]+"\."([a-z_]+)" is null$/.exec(term);
+    if (m) return row[camel(m[1] as string)] == null;
+    m = /^"[a-z_]+"\."([a-z_]+)" is distinct from \$(\d+)$/.exec(term);
+    if (m) return row[camel(m[1] as string)] !== params[Number(m[2]) - 1];
+    throw new Error(`fake db: unsupported predicate \`${term}\``);
+  });
+}
+
+interface FakeSend {
+  id: string;
+  messageId: string;
+  toEmail: string;
+  status: string;
+  openedAt: Date | null;
+  clickedAt: Date | null;
+  bouncedAt: Date | null;
+  bounceType: string | null;
+  bounceReason: string | null;
+}
+
+/** One recorded `email_sends` row — the send the webhooks below report on. */
+function fakeSend(over: Partial<FakeSend> = {}): FakeSend {
+  return {
+    id: "send-1",
+    messageId: "msg_1",
+    toEmail: "user@example.com",
+    status: "sent",
+    openedAt: null,
+    clickedAt: null,
+    bouncedAt: null,
+    bounceType: null,
+    bounceReason: null,
+    ...over,
+  };
+}
+
+/** A resolved promise that also answers `.returning()`, like drizzle's builder. */
+function settled<T>(
+  rows: T[],
+  onReturning: () => Promise<T[]> = () => Promise.resolve(rows),
+): Promise<T[]> & { returning: () => Promise<T[]> } {
+  const promise = Promise.resolve(rows) as Promise<T[]> & {
+    returning: () => Promise<T[]>;
+  };
+  promise.returning = onReturning;
+  return promise;
+}
 
 const baseConfig = {
   defaultFrom: "Hogsend <noreply@hogsend.com>",
@@ -27,43 +94,97 @@ function makeMailer(extra?: Record<string, unknown>) {
 }
 
 /**
- * A minimal chainable fake `db` capturing the `.update(table).set(values)`
- * calls the mailer makes against `emailSends` / `emailPreferences`. We can't
- * tell the tables apart by reference here, so we record every `set()` payload
- * and assert on the shapes (status / bounceType for the send row; suppressed /
- * bounceCount for the preference rows).
+ * A chainable fake `db` capturing the `.update(table).set(values)` calls the
+ * mailer makes against `emailSends` / `emailPreferences`. Every `set()` payload
+ * is recorded so tests can assert on shapes (status / bounceType for the send
+ * row; suppressed / bounceCount for the preference rows).
+ *
+ * `email_sends` rows are MODELLED, not faked away. The bounce leg claims its
+ * send with a guarded `UPDATE … RETURNING id` and decides from the returned row
+ * count whether to count the bounce and emit — so `.returning()` here evaluates
+ * the statement's real WHERE (rendered through drizzle's own pg dialect)
+ * against modelled row state and writes the matched rows through, exactly as
+ * the driver would. A `.returning()` that answered a constant would make these
+ * tests pass whether or not the engine guards at all, which is the
+ * vacuous-green trap: it would certify nothing.
  */
-function makeFakeDb() {
+function makeFakeDb(sends: FakeSend[] = [fakeSend()]) {
   const sets: Array<Record<string, unknown>> = [];
   const wheres: unknown[] = [];
-  // `select` chain used by the fire-and-forget outbound enrichment
-  // (`resolveEmailSendContextByMessageId`); returns no rows so it's a clean
-  // no-op and never touches outbound.
-  const selectChain = {
-    from: () => selectChain,
-    leftJoin: () => selectChain,
-    where: () => selectChain,
-    limit: () => Promise.resolve([]),
-  };
+  const row = (send: FakeSend) => send as unknown as Record<string, unknown>;
   const db = {
     select() {
-      return selectChain;
+      return {
+        from: () => ({
+          // `resolveEmailSendContextByMessageId` LEFT JOINs `journey_states`;
+          // `emitOutbound`'s endpoint read does not. The join tells the two
+          // reads apart, so one fake serves both.
+          leftJoin: () => ({
+            where: (cond: unknown) => ({
+              limit: () =>
+                Promise.resolve(
+                  sends
+                    .filter((send) => matches(row(send), cond))
+                    .map((send) => ({
+                      emailSendId: send.id,
+                      toEmail: send.toEmail,
+                      templateKey: "welcome",
+                      sendContactId: null,
+                      userId: null,
+                      userEmail: null,
+                      enrollmentContactId: null,
+                      sendUserId: null,
+                      sendUserEmail: null,
+                    })),
+                ),
+            }),
+          }),
+          // No subscribed outbound endpoints, so the fire-and-forget emit
+          // returns before it writes a delivery row.
+          where: () => Promise.resolve([]),
+        }),
+      };
     },
-    update() {
+    update(table: unknown) {
       return {
         set(values: Record<string, unknown>) {
           sets.push(values);
           return {
             where(cond: unknown) {
               wheres.push(cond);
-              return Promise.resolve();
+              // Preference rows are counted, not modelled: nothing on this
+              // path reads their `.returning()`, so answering one would be a
+              // guess. Refuse loudly if that ever changes.
+              if (table !== emailSends) {
+                return settled<{ id: string }>([], () => {
+                  throw new Error(
+                    "fake db: only `email_sends` rows are modelled",
+                  );
+                });
+              }
+              const hit = sends.filter((send) => matches(row(send), cond));
+              for (const send of hit) {
+                for (const [key, value] of Object.entries(values)) {
+                  // Drizzle `sql` expressions (the counter increments) carry no
+                  // literal value; leave the modelled column alone.
+                  if (
+                    value &&
+                    typeof value === "object" &&
+                    "queryChunks" in value
+                  ) {
+                    continue;
+                  }
+                  row(send)[key] = value;
+                }
+              }
+              return settled(hit.map((send) => ({ id: send.id })));
             },
           };
         },
       };
     },
   };
-  return { db: db as never, sets, wheres };
+  return { db: db as never, sets, wheres, sends };
 }
 
 function emailEvent(
@@ -206,6 +327,25 @@ describe("createTrackedMailer", () => {
       // The preference-row update is the one carrying a bounceCount bump.
       const prefUpdate = sets.find((s) => "bounceCount" in s);
       expect(prefUpdate).toBeDefined();
+    });
+
+    it("does NOT re-count a REDELIVERED bounce", async () => {
+      const { db, sets } = makeFakeDb();
+      const service = makeMailer({ db });
+      const event = emailEvent({
+        type: "email.bounced",
+        bounce: { class: "permanent", code: "HardBounce" },
+      });
+
+      // SNS is at-least-once and the control plane re-drives a `pending` row,
+      // so the SAME bounce arrives twice. `bounceThreshold` is 3: counting a
+      // redelivery would let three copies of ONE bounce permanently suppress a
+      // deliverable address. The second delivery's guarded UPDATE matches no
+      // row, so it claims nothing and counts nothing.
+      await service.handleWebhook(event, "resend");
+      await service.handleWebhook(event, "resend");
+
+      expect(sets.filter((s) => "bounceCount" in s)).toHaveLength(1);
     });
 
     it("does NOT suppress on a transient bounce", async () => {

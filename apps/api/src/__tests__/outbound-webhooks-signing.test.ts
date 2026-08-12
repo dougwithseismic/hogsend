@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 31-event catalog, in order", () => {
+  it("is exactly the 32-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -223,6 +223,10 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "email.action",
       "email.bounced",
       "email.complained",
+      // A human REPLIED to a message a journey sent (PRD 16) — the only email
+      // event reporting a message coming BACK rather than the fate of one
+      // going out, and the only one that can arrive uncorrelated.
+      "email.replied",
       // SMS lifecycle (sibling of the email.* funnel; sms.clicked is the
       // first-party /s/:code short-link click).
       "sms.sent",
