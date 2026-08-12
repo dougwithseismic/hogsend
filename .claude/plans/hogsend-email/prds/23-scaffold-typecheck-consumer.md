@@ -125,9 +125,32 @@ Turn it off and the whole thing collapses to one line:
 `@hono/zod-openapi@1.5.2/dist/index.d.mts(259,12): error TS2503: Cannot find namespace 'zodModule'.`
 
 We are pinned to 1.4.0 by our lockfile alone; the engine declares `^1.4.0` and a fresh scaffold ships
-no lockfile, so it floats to latest. `pnpm update` would break us identically. 1.4.0 is also the only
-clean version that still carries the `types` export condition — 1.5.0 dropped it and never restored
-it — which is why the pin is 1.4.0 rather than 1.5.1.
+no lockfile, so it floats to latest. `pnpm update` would break us identically.
+
+**Why 1.4.0 rather than the newer clean 1.5.1**, with the reasons weighted honestly, because an
+earlier version of this note had them the wrong way round:
+
+- **The strong reason: 1.4.0 is the only version this suite has ever run against.** On a launch day,
+  against an unexercised minor whose entire benefit was "closest to latest", that settles it alone.
+- **The weak one: 1.5.0 dropped the `types` export condition and never restored it.** Real, but it
+  is a robustness REGRESSION rather than a live break — resolution was traced against 1.5.2 and
+  TypeScript still finds the declarations, resolving `import` → `dist/index.mjs` and picking up the
+  sibling `index.d.mts` under both `Bundler` and `node16`/`nodenext`. Good reason to prefer 1.4.0 at
+  the margin; NOT evidence that 1.5.1 would have failed us.
+
+1.4.0 has the further merit of being a zero-delta choice: it is what the lockfile already held, so
+the pin moved a specifier and nothing else (verified — identical package key sets before and after).
+
+**`examples/my-first-hogsend` is pinned too, and the pin does NOT fix it.** Pinning a consumer's
+direct dependency binds only that consumer's copy; pnpm resolves the engine's `@hono/zod-openapi`
+from the ENGINE's own range, which is the same mechanism that made the template need a graph-wide
+`overrides` block. The example is authored rather than generated (no script emits it; it ships a
+`WALKTHROUGH.md` and is hand-maintained alongside features) and it is a REAL consumer —
+`@hogsend/engine@0.0.1` exists on npm, ships raw `.ts`, and carries the same caret — so it hits this
+bug exactly as a fresh scaffold does. The pin is kept for consistency and costs nothing, but the
+example's real defect is that it pins every `@hogsend/*` at `0.0.1` while the line is at `0.63.0`.
+An example sixty-three minors stale is broken in ways a version pin cannot reach, and fixing only the
+caret would make it LOOK current without being current. Tracked separately.
 
 Follow-up, not folded into the fix: the scaffold smoke failed correctly throughout, but its output
 read as "our source is wrong" rather than "a shipped dependency's types are wrong". Making it name
