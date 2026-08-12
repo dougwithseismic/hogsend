@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_IMAGE_SCAFFOLD_ARGS } from "../../scripts/build-default-image";
+import { defaultImageProviderIds } from "../../scripts/build-default-image";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import {
@@ -1328,18 +1328,31 @@ describe("emailProviderVars", () => {
     expect(emailProviderVars(false)).toEqual({});
   });
 
-  it("is satisfiable by the stock image: its scaffold argv carries --with hogsend", () => {
-    // `emailProviderVars(true)` selects EMAIL_PROVIDER=hogsend on every stack
-    // with a real SES tenancy — but the engine resolves that id through a
-    // guarded dynamic `import("@hogsend/plugin-hogsend")` against the APP's
-    // node_modules, and the plugin is an OPT-IN scaffold plugin, deliberately
-    // absent from the template's defaults. The id therefore resolves ONLY
-    // because the default image's scaffold passes `--with hogsend` and the
-    // generated app carries the plugin as a DIRECT dependency. Drop the flag
-    // and every fresh stack boots into `email provider "hogsend" is not
-    // registered` and crash-loops until health-wait gives up.
-    const flag = DEFAULT_IMAGE_SCAFFOLD_ARGS.indexOf("--with");
-    expect(flag).toBeGreaterThan(-1);
-    expect(DEFAULT_IMAGE_SCAFFOLD_ARGS[flag + 1]).toBe("hogsend");
+  it("selects no provider the stock image cannot resolve", async () => {
+    // THE launch invariant, and the general form of the bug that shipped:
+    // whatever this function may select, the app in the image a fresh stack
+    // boots on must be able to RESOLVE. The engine resolves an email provider
+    // id through a guarded dynamic `import("@hogsend/plugin-<id>")` against
+    // the APP's node_modules, and an id it cannot resolve is not a degraded
+    // send path — the container throws at boot, so api and worker crash-loop,
+    // health-wait times out, and the whole provision fails.
+    //
+    // Both sides are DERIVED, so this keeps holding as either moves: the left
+    // by exhausting this function's entire input domain, the right by reading
+    // the scaffold template's dependencies plus the plugins the image's
+    // scaffold selects. Add a provider here, or stop shipping one there, and
+    // this fails.
+    const selectable = new Set(
+      [true, false]
+        .map((available) => emailProviderVars(available).EMAIL_PROVIDER)
+        .filter((id): id is string => id !== undefined),
+    );
+    // Guards the assertion below against passing vacuously on an empty set.
+    expect(selectable.size).toBeGreaterThan(0);
+
+    const resolvable = await defaultImageProviderIds();
+    for (const id of selectable) {
+      expect([...resolvable]).toContain(id);
+    }
   });
 });

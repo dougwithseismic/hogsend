@@ -1257,9 +1257,12 @@ async function mintTenantCredentials(args: {
  * engine-only `optionalDependency` is never linked there, so the preset is
  * silently skipped and selecting an id the engine cannot resolve throws at
  * boot, crash-looping the whole stack (not just its sends). The id resolves
- * only because the default image's scaffold passes `--with hogsend`
- * (`scripts/build-default-image.ts`), making the plugin a DIRECT dependency
- * of the app in the image — the paired regression test asserts that argv.
+ * only because the stock image's scaffold pins the plugin as a DIRECT
+ * dependency of the app in the image (`scripts/build-default-image.ts`). So
+ * every id this function can select must appear in
+ * `defaultImageProviderIds()` — the paired test asserts exactly that, over
+ * this function's whole input domain, and is what stands between a new
+ * selection here and a fleet that cannot boot.
  *
  * Its own function, and exported, because "did we activate a provider that
  * cannot actually deliver?" deserves a test that does not have to drive a
