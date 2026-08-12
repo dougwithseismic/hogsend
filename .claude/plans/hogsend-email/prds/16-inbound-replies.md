@@ -296,3 +296,50 @@ A reply to a Hogsend-sent email lands as `email.replied`, a journey can wait on 
 is tested, and gates are green.
 
 ## Implementation Notes
+
+### Proven live against real SES, 2026-08-12 — and it caught a launch blocker
+
+The seam ("a real inbound test needs the MX published on a domain we control") is CLOSED. The whole
+chain now runs on real AWS: **MX → SES receipt rule → S3 spool → message retrieved and parsed.**
+
+What was built, on `hogsend.com` via the Cloudflare API:
+
+| Record | Value |
+| --- | --- |
+| 3 × CNAME | `<token>._domainkey.reply.hogsend.com` → `<token>.dkim.amazonses.com` |
+| MX | `reply.hogsend.com` → `inbound-smtp.us-east-1.amazonaws.com`, priority 10 |
+
+Verified in under a minute (`DkimAttributes.Status: SUCCESS`). SES side: receipt rule set
+`hogsend-inbound`, rule `hogsend-inbound-0`, recipient `reply.hogsend.com`, S3 action into
+`hogsend-ses-inbound/inbound/`. The subdomain and priority are not arbitrary — they are
+`INBOUND_SUBDOMAIN` and `INBOUND_MX_PRIORITY` from `lib/inbound-domains.ts`, so what is live is what
+the product builds.
+
+**THE APEX WAS READ FIRST AND NEVER TOUCHED.** `hogsend.com` MX is
+`route1/2/3.mx.cloudflare.net` — Cloudflare Email Routing, carrying real company mail including
+`abuse@hogsend.com`. This PRD's hard safety rule exists for a customer's mailbox; here it was ours,
+and it is the reason every record went on a subdomain. Read the existing MX before writing, always.
+
+**Sandbox is sufficient for this.** Production access is NOT required: sandbox restricts sending to
+identities we verified ourselves, and a verified DOMAIN identity covers every address at it. The
+proof sends to itself.
+
+### The blocker it found: binary attachments were being destroyed
+
+An 8212-byte adversarial payload (every byte value, plus embedded CRLF, NUL and a decoy
+`--boundary--`) was sent and byte-compared after the round trip. Same payload, same path, one field
+different:
+
+| `ContentTransferEncoding` | U+FFFD | bytes | sha256 |
+| --- | --- | --- | --- |
+| unset (as shipped) | **4096** | 16401 | MISMATCH |
+| `BASE64` | 0 | 8212 | IDENTICAL |
+
+4096 replacements is an exact match for the 4096 non-ASCII bytes in the payload. SES emits the part
+as `Content-Transfer-Encoding: 7bit` and sanitises every byte above 127, so every PDF, image and ZIP
+was corrupted while pure-ASCII text survived — which is precisely why 1805 green tests and an earlier
+live walkthrough both missed it. **Nothing had ever sent a non-ASCII byte.** Tracked and fixed
+separately; see PRD 17.
+
+The lesson worth carrying: a fixture that cannot fail is not a test. Any attachment fixture MUST
+contain bytes above 127.
