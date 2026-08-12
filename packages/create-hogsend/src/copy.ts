@@ -151,15 +151,33 @@ export async function applyOptionalPluginsToEnv(
 }
 
 /**
- * Append the same tarball override map to the emitted `pnpm-workspace.yaml` —
- * pnpm 11's settings root. Without it the harness silently resolves transitive
+ * Add the tarball override map to the emitted `pnpm-workspace.yaml` — pnpm 11's
+ * settings root. Without it the harness silently resolves transitive
  * `@hogsend/*` dependencies from the registry instead of the packed tarballs.
+ *
+ * MERGES into an existing `overrides:` block rather than appending a second
+ * one. The template ships a real override of its own (the `@hono/zod-openapi`
+ * pin — see `_pnpm-workspace.yaml` for why), and two `overrides:` keys in one
+ * YAML document is a duplicate mapping key: pnpm takes one and drops the other
+ * SILENTLY, so the failure would be either a harness that resolves from the
+ * registry or a scaffold that loses its pin — both invisible until something
+ * downstream breaks.
  */
 function rewriteWorkspaceOverrides(yaml: string, tarballDir: string): string {
   const lines = Object.entries(tarballOverrides(tarballDir))
     .map(([dep, spec]) => `  "${dep}": "${spec}"`)
     .join("\n");
-  return `${yaml.trimEnd()}\n\n# TEST-ONLY (--use-tarballs): pin @hogsend/* to local tarballs.\noverrides:\n${lines}\n`;
+  const marker =
+    "# TEST-ONLY (--use-tarballs): pin @hogsend/* to local tarballs.";
+
+  // Anchored to a whole line so a `overrides:` appearing inside a comment or a
+  // nested mapping cannot be mistaken for the top-level key.
+  const existing = /^overrides:[ \t]*$/m.exec(yaml);
+  if (existing) {
+    const insertAt = existing.index + existing[0].length;
+    return `${yaml.slice(0, insertAt)}\n  ${marker}\n${lines}${yaml.slice(insertAt)}`;
+  }
+  return `${yaml.trimEnd()}\n\n${marker}\noverrides:\n${lines}\n`;
 }
 
 /** Recursively copy `template/` into the target, renaming + token-replacing. */
