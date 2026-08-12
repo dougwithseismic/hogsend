@@ -4,6 +4,7 @@ import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import {
   emailEvents,
+  emailPauseHistory,
   environments,
   member,
   organization,
@@ -41,8 +42,14 @@ import {
   renderSuspensionNotice,
 } from "../lib/email-suspension-notice";
 import { checkTierSendCap } from "../lib/email-tier-cap";
-import { sweepEmailReputation } from "../pipeline/reputation-sweep";
-import { readEmailSendingStatus } from "../services/email-sending-status";
+import {
+  reconcileSendingStatus,
+  sweepEmailReputation,
+} from "../pipeline/reputation-sweep";
+import {
+  readEmailSendingStatus,
+  recordEmailSendingStatus,
+} from "../services/email-sending-status";
 import {
   applyTrustTier,
   manuallySetTrustTier,
@@ -55,6 +62,7 @@ import { RelayTokenService } from "../services/relay-tokens";
 import { provisionSesTenant } from "../services/ses-tenants";
 import { FakeSesClient } from "../ses/fake";
 import { sesTenantName } from "../ses/names";
+import { SesError, type SesReputationEntity } from "../ses/types";
 
 /**
  * PRD 08 — trust tiers, the caps they set, and the bulk-import block.
@@ -902,6 +910,364 @@ describe("reputation sweep", () => {
     });
     expect(status.status).toBe("active");
     expect(sent).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The reconciliation read
+//
+// `docs/ses-production-access-request.md` calls `ses:GetReputationEntity` "the
+// reconciliation path for a missed EventBridge event", and says that without it
+// "a missed pause leaves a tenant looking active in our mirrored status, and
+// since the relay reads that mirror, the failure mode is fail-OPEN". These
+// tests are that sentence, executed.
+// ---------------------------------------------------------------------------
+
+describe("reconcileSendingStatus", () => {
+  const entity = (
+    overrides: Partial<SesReputationEntity> = {},
+  ): SesReputationEntity => ({
+    reference: "arn:aws:ses:us-east-1:000000000000:tenant/env-x",
+    sendingStatus: "ENABLED",
+    ...overrides,
+  });
+
+  it("repairs the fail-OPEN direction: mirror active, AWS disabled", () => {
+    const decision = reconcileSendingStatus(
+      "active",
+      entity({
+        sendingStatus: "DISABLED",
+        awsSesManagedStatus: {
+          status: "DISABLED",
+          cause: "Your bounce rate is too high.",
+        },
+      }),
+    );
+    expect(decision?.status).toBe("paused");
+    expect(decision?.reason).toContain("bounce rate");
+  });
+
+  it("names OUR stop `enforced` when the customer record is the disabler", () => {
+    const decision = reconcileSendingStatus(
+      "active",
+      entity({
+        sendingStatus: "DISABLED",
+        customerManagedStatus: { status: "DISABLED" },
+      }),
+    );
+    expect(decision?.status).toBe("enforced");
+  });
+
+  it("leaves a mirror that already blocks alone, whoever stopped it", () => {
+    const stopped = entity({
+      sendingStatus: "DISABLED",
+      customerManagedStatus: { status: "DISABLED" },
+    });
+    expect(reconcileSendingStatus("enforced", stopped)).toBeNull();
+    expect(reconcileSendingStatus("paused", stopped)).toBeNull();
+  });
+
+  it("reinstates a paused mirror AWS has let back on", () => {
+    expect(reconcileSendingStatus("paused", entity())?.status).toBe(
+      "reinstated",
+    );
+    expect(
+      reconcileSendingStatus("paused", entity({ sendingStatus: "REINSTATED" }))
+        ?.status,
+    ).toBe("reinstated");
+  });
+
+  it("never unblocks OUR enforcement — that stop is not AWS's to reverse", () => {
+    expect(reconcileSendingStatus("enforced", entity())).toBeNull();
+    expect(
+      reconcileSendingStatus(
+        "enforced",
+        entity({ sendingStatus: "REINSTATED" }),
+      ),
+    ).toBeNull();
+  });
+
+  it("adds a pause we missed entirely, and never erases one we recorded", () => {
+    // Both agree the tenant may send; only AWS remembers the pause.
+    expect(
+      reconcileSendingStatus("active", entity({ sendingStatus: "REINSTATED" }))
+        ?.status,
+    ).toBe("reinstated");
+    // The mirror remembers a pause AWS's entity no longer names. Demoting it to
+    // `active` would erase history to reach a state that permits the same sends.
+    expect(reconcileSendingStatus("reinstated", entity())).toBeNull();
+  });
+
+  it("refuses to move the mirror when AWS reported no status at all", () => {
+    expect(
+      reconcileSendingStatus("active", entity({ sendingStatus: undefined })),
+    ).toBeNull();
+  });
+});
+
+describe("the reputation sweep's reconciliation", () => {
+  it("repairs a mirror still reporting a paused tenant as active", async () => {
+    const a = await seed();
+    ses.__pauseTenant(a.tenantName, "Your bounce rate is too high.");
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    expect(
+      ses.calls.filter((call) => call.method === "getReputationEntity"),
+    ).not.toHaveLength(0);
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("paused");
+    expect(status.reason).toContain("bounce rate");
+    expect(result.reconciled).toContainEqual({
+      environmentId: a.environmentId,
+      from: "active",
+      to: "paused",
+    });
+  });
+
+  it("records the repair in the pause history as `reconcile`", async () => {
+    const a = await seed();
+    ses.__pauseTenant(a.tenantName, "Your complaint rate is too high.");
+
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    const history = await db
+      .select()
+      .from(emailPauseHistory)
+      .where(eq(emailPauseHistory.environmentId, a.environmentId));
+    expect(history).toHaveLength(1);
+    expect(history[0]?.source).toBe("reconcile");
+    expect(history[0]?.status).toBe("paused");
+  });
+
+  it("writes nothing on a second pass, because the mirror now agrees", async () => {
+    const a = await seed();
+    ses.__pauseTenant(a.tenantName);
+
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    const history = await db
+      .select()
+      .from(emailPauseHistory)
+      .where(eq(emailPauseHistory.environmentId, a.environmentId));
+    expect(history).toHaveLength(1);
+  });
+
+  it("reconciles BEFORE it decides, so AWS's pause is not re-decided as ours", async () => {
+    const a = await seed();
+    // Over the published bounce rate: the sweep would suspend this tenant
+    // itself if it had not first learned that AWS already stopped it.
+    await park(a.environmentId, 1, 1_000);
+    await outcome(a.environmentId, "email.delivered", 60);
+    await outcome(a.environmentId, "email.bounced", 60);
+    ses.__pauseTenant(a.tenantName, "Your bounce rate is too high.");
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("paused");
+    expect(result.suspended).toHaveLength(0);
+  });
+
+  it("moves a paused mirror to reinstated once SES lets the tenant back on", async () => {
+    const a = await seed();
+    ses.__pauseTenant(a.tenantName);
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    ses.__resumeTenant(a.tenantName);
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("reinstated");
+  });
+
+  it("does not walk OUR enforcement back when AWS reports the tenant enabled", async () => {
+    const a = await seed();
+    await recordEmailSendingStatus({
+      environmentId: a.environmentId,
+      status: "enforced",
+      reason: "operator stop",
+      db,
+    });
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    // The read HAPPENED — this is not passing because nothing was reconciled.
+    expect(
+      ses.calls.filter(
+        (call) =>
+          call.method === "getReputationEntity" &&
+          (call.args[0] as { tenantName?: string })?.tenantName ===
+            a.tenantName,
+      ),
+    ).toHaveLength(1);
+    expect(result.reconciled).toHaveLength(0);
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("enforced");
+  });
+
+  it("passes the stored ARN, so it never pays a lookup to relearn one", async () => {
+    const a = await seed();
+
+    await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    const call = ses.calls.find(
+      (entry) =>
+        entry.method === "getReputationEntity" &&
+        (entry.args[0] as { tenantName?: string })?.tenantName === a.tenantName,
+    );
+    expect((call?.args[0] as { tenantArn?: string })?.tenantArn).toBe(
+      ses.__tenant(a.tenantName)?.arn,
+    );
+  });
+
+  it("skips a tenancy AWS has never heard of rather than failing the tenant", async () => {
+    await seed();
+    // The supported no-credentials default: a row the Fake minted, which no
+    // real reputation entity backs. It is not a sweep failure, and it must not
+    // be retried as one every hour for the life of the deploy.
+    ses.reset();
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    expect(
+      ses.calls.filter((call) => call.method === "getReputationEntity"),
+    ).not.toHaveLength(0);
+    expect(result.failed).toHaveLength(0);
+    expect(result.reconcileFailed).toHaveLength(0);
+    expect(result.reconciled).toHaveLength(0);
+  });
+
+  it("never clears a pause the relay recorded for an ACCOUNT-level stop", async () => {
+    const a = await seed();
+    // The relay met AccountSuspendedException at the wire and mirrored it. The
+    // TENANT's reputation entity has nothing against this tenant — an
+    // account-level stop never shows there — so AWS answers ENABLED, which is
+    // no authority to clear a stop that was never about the tenant.
+    await recordEmailSendingStatus({
+      environmentId: a.environmentId,
+      status: "paused",
+      reason: "The sending account is suspended: enforcement",
+      source: "relay",
+      at: NOW,
+      db,
+    });
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    expect(result.reconciled).toHaveLength(0);
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("paused");
+    // And no false "SES reports this tenant may send again" row in the
+    // history a human reads during an appeal.
+    const history = await db
+      .select()
+      .from(emailPauseHistory)
+      .where(eq(emailPauseHistory.environmentId, a.environmentId));
+    expect(history.map((row) => row.status)).toEqual(["paused"]);
+  });
+
+  it("still clears a relay-recorded TENANT pause once AWS lets it back on", async () => {
+    const a = await seed();
+    // Same writer, tenant scope: the relay met TenantSendingPaused at the
+    // wire. The tenant's own entity IS the authority over this one.
+    await recordEmailSendingStatus({
+      environmentId: a.environmentId,
+      status: "paused",
+      reason: "SES paused this tenant: Your bounce rate is too high.",
+      source: "relay",
+      at: NOW,
+      db,
+    });
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    expect(result.reconciled).toContainEqual({
+      environmentId: a.environmentId,
+      from: "paused",
+      to: "reinstated",
+    });
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("reinstated");
+  });
+
+  it("records a failed read-back and still runs the tenant's own evaluation", async () => {
+    const a = await seed();
+    // Over the published bounce rate — the LOCAL decision that must survive a
+    // dead reconcile, because this sweep is the only enforcement a `new`-tier
+    // tenant has.
+    await park(a.environmentId, 1, 1_000);
+    await outcome(a.environmentId, "email.delivered", 60);
+    await outcome(a.environmentId, "email.bounced", 60);
+    ses.failNext("getReputationEntity");
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    // Recorded as a reconcile failure, NOT as a failed evaluation…
+    expect(result.reconcileFailed).toContainEqual({
+      environmentId: a.environmentId,
+      error: expect.stringContaining("getReputationEntity"),
+    });
+    expect(result.failed).toHaveLength(0);
+    // …because the suspension backstop still ran on the mirror we hold.
+    expect(result.suspended.map((row) => row.environmentId)).toContain(
+      a.environmentId,
+    );
+    const status = await readEmailSendingStatus({
+      environmentId: a.environmentId,
+      db,
+    });
+    expect(status.status).toBe("enforced");
+  });
+
+  it("skips reconciliation on not_found and the evaluation still completes", async () => {
+    const a = await seed();
+    // Promotion-worthy, so the tier leg PROVABLY ran after the skip — this and
+    // the test above are the pair that distinguishes "swallow not_found" from
+    // "swallow everything".
+    for (let day = 1; day <= ESTABLISHED_MIN_DAYS; day += 1) {
+      await park(a.environmentId, day, 200);
+    }
+    await outcome(
+      a.environmentId,
+      "email.delivered",
+      ESTABLISHED_MIN_DELIVERED,
+    );
+    ses.failNext(
+      "getReputationEntity",
+      new SesError("fake SES: no reputation entity", {
+        kind: "not_found",
+        operation: "getReputationEntity",
+      }),
+    );
+
+    const result = await sweepEmailReputation({ db, ses, sender, now: NOW });
+
+    // A no-credentials deploy is not a failure: NEITHER list may name it.
+    expect(result.reconcileFailed).toHaveLength(0);
+    expect(result.failed).toHaveLength(0);
+    expect(result.promoted.map((row) => row.environmentId)).toContain(
+      a.environmentId,
+    );
   });
 });
 

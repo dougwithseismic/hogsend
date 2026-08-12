@@ -23,6 +23,12 @@
 #      those two topics, two read-only SES account verbs, and — separately and
 #      additively — the SES **v1** receipt-rule verbs plus the S3 read and SNS
 #      subscribe that inbound receiving needs (PRD 16).
+#   4. The REPUTATION half (PRD 08): in EACH region, an EventBridge rule on the
+#      DEFAULT bus matching `aws.ses` and the four detail-types the control
+#      plane consumes, a connection holding the shared secret, an API
+#      destination aimed at `<CLOUD_PUBLIC_URL>/api/email/reputation`, and the
+#      target that joins them — plus the one IAM role a rule needs to be allowed
+#      to invoke an API destination at all.
 #
 # It deliberately does NOT create the inbound bucket or the inbound topic. See
 # "The three INBOUND statements" below for why, and for the resource policies
@@ -35,10 +41,18 @@
 # An additive, separately-named grant is reversible with one delete and reads
 # honestly in the console.
 #
+# Step 4 adds NOTHING to the relay user. The reconciliation read the reputation
+# sweep makes is `ses:GetReputationEntity`, which the audited managed policy
+# already grants; and the rule, connection and destination are account
+# infrastructure the relay must never be able to touch — a credential that ships
+# to a control plane and can rewrite the endpoint SES's pauses are delivered to
+# is a credential that can silence its own suspensions.
+#
 # ## Usage
 #
 #   aws configure           # your ADMIN credentials, not the relay user's
-#   apps/cloud/scripts/aws-bootstrap-events.sh
+#   CLOUD_PUBLIC_URL=https://cloud.example.com \
+#     apps/cloud/scripts/aws-bootstrap-events.sh
 #
 #   DRY_RUN=1 apps/cloud/scripts/aws-bootstrap-events.sh   # print, change nothing
 #
@@ -51,6 +65,32 @@ RELAY_USER="${RELAY_USER:-hogsend-cloud-relay}"
 INLINE_POLICY_NAME="${INLINE_POLICY_NAME:-HogsendEmailRelayEvents}"
 REGIONS=("us-east-1" "eu-west-1")
 DRY_RUN="${DRY_RUN:-}"
+
+# ---------------------------------------------------------------------------
+# The reputation pipeline (PRD 08).
+#
+# The names are fixed rather than derived, because every one of them is an
+# idempotency key: re-running this script must converge on the SAME rule, not
+# accumulate a second one alongside it quietly double-delivering every pause.
+#
+# `EVENTBRIDGE_SECRET_HEADER` and the four detail-types are DUPLICATED from
+# `src/eventbridge/verify.ts` and `src/eventbridge/events.ts`. A shell script
+# cannot import them, and the duplication is checked rather than trusted:
+# `src/__tests__/aws-bootstrap-events.test.ts` reads this script's real argv
+# through a stubbed `aws` and asserts both against the TypeScript constants, so
+# a rename there fails a test here rather than silently narrowing what SES is
+# allowed to tell us.
+# ---------------------------------------------------------------------------
+RULE_NAME="${RULE_NAME:-hogsend-ses-reputation}"
+CONNECTION_NAME="${CONNECTION_NAME:-hogsend-control-plane}"
+DESTINATION_NAME="${DESTINATION_NAME:-hogsend-ses-reputation}"
+INVOKE_ROLE_NAME="${INVOKE_ROLE_NAME:-HogsendEventBridgeInvoke}"
+INVOKE_POLICY_NAME="${INVOKE_POLICY_NAME:-HogsendInvokeApiDestination}"
+TARGET_ID="${TARGET_ID:-control-plane}"
+EVENTBRIDGE_SECRET_HEADER="x-hogsend-eventbridge-secret"
+REPUTATION_PATH="/api/email/reputation"
+SES_EVENT_SOURCE="aws.ses"
+SES_DETAIL_TYPES='["Sending Status Disabled","Sending Status Enabled","Advisor Recommendation Status Open","Advisor Recommendation Status Closed"]'
 
 # Inbound (PRD 16). Names only — this script does NOT create the bucket or the
 # inbound topic, it only grants the relay user access to them. An IAM grant
@@ -74,6 +114,36 @@ run() {
     return 0
   fi
   "$@"
+}
+
+# Does this resource already exist? Returns 0 when it does, 1 when AWS
+# POSITIVELY answered "no such thing". Any other failure — AccessDenied, a
+# throttle, a network fault — STOPS the run: treating it as "absent" would
+# send the script on to create something that may well exist, and worse, to
+# decide the secret question below on a fact it never actually learned. The
+# CLI names a missing resource in the error body; the exit code alone cannot
+# tell "not there" from "not allowed to ask".
+#
+# Under DRY_RUN the probe is not made either, and the answer is always "no".
+# That is deliberate: a dry run is a transcript of a FIRST run, and probing a
+# live account to decide which half of the transcript to print would make the
+# output depend on which account the credentials happened to point at.
+exists() {
+  if [[ -n "$DRY_RUN" ]]; then
+    echo "  [dry-run] $*"
+    return 1
+  fi
+  local output
+  if output="$("$@" 2>&1)"; then
+    return 0
+  fi
+  case "$output" in
+    *ResourceNotFoundException* | *NotFoundException* | *NoSuchEntity*)
+      return 1 ;;
+  esac
+  echo "error: probe failed, and not with a not-found: $*" >&2
+  echo "$output" >&2
+  exit 1
 }
 
 # ---------------------------------------------------------------------------
@@ -104,7 +174,208 @@ EOF
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# The endpoint SES's reputation events are delivered to.
+#
+# Read from the environment rather than defaulted, and REFUSED unless it is a
+# public https origin. `src/env.ts` defaults `CLOUD_PUBLIC_URL` to
+# `http://localhost:3004` for local boots, and an API destination aimed there is
+# the worst possible outcome of running this script: every AWS resource exists,
+# the rule reports itself as ENABLED in the console, and every pause AWS ever
+# publishes is delivered into a black hole. A refusal here is a typo; a wrong
+# endpoint is a fail-OPEN nobody notices until a suspension does not arrive.
+# ---------------------------------------------------------------------------
+CONTROL_PLANE_URL="${CLOUD_PUBLIC_URL:-}"
+CONTROL_PLANE_URL="${CONTROL_PLANE_URL%/}"
+
+if [[ "$CONTROL_PLANE_URL" != https://* ]]; then
+  cat >&2 <<EOF
+error: CLOUD_PUBLIC_URL must be the control plane's PUBLIC https origin.
+
+EventBridge POSTs each SES reputation event to <CLOUD_PUBLIC_URL>${REPUTATION_PATH}
+from AWS's own network, so localhost and plain http cannot work. Re-run with
+the deployed origin:
+
+  CLOUD_PUBLIC_URL=https://cloud.example.com $0
+
+  (got: ${CLOUD_PUBLIC_URL:-<unset>})
+EOF
+  exit 1
+fi
+
+REPUTATION_ENDPOINT="${CONTROL_PLANE_URL}${REPUTATION_PATH}"
+
+# ---------------------------------------------------------------------------
+# The shared secret, decided ONCE for both regions.
+#
+# ONE secret, mirroring `CLOUD_SES_EVENTBRIDGE_SECRET` in `src/env.ts`: a
+# reputation event names its own tenant and the tenant resolves to the region,
+# so there is nothing regional for the credential to separate.
+#
+# AWS never reads a connection's API key back — it is write-only, by design. So
+# the three states are decided here rather than per region, and the fourth is
+# refused:
+#
+#   - the operator passed one → it is applied to both regions (a rotation);
+#   - both connections exist and no value was passed → they are LEFT ALONE.
+#     Generating a fresh one would silently rotate the secret away from the
+#     value the deployed control plane is holding, and every event after that
+#     would 403;
+#   - neither exists → one is generated and printed once, to paste;
+#   - one exists and one does not, with nothing passed → REFUSED. Whatever we
+#     did next would leave the two regions signing with different values and
+#     the control plane holding at most one of them.
+# ---------------------------------------------------------------------------
+SUPPLIED_SECRET="${CLOUD_SES_EVENTBRIDGE_SECRET:-}"
+EVENTBRIDGE_SECRET="$SUPPLIED_SECRET"
+CONNECTION_EXISTS=()
+CONNECTION_PRESENT_REGIONS=()
+connections_present=0
+connections_missing=0
+
+for region in "${REGIONS[@]}"; do
+  if exists aws events describe-connection \
+    --name "$CONNECTION_NAME" \
+    --region "$region"; then
+    CONNECTION_EXISTS+=("yes")
+    CONNECTION_PRESENT_REGIONS+=("$region")
+    connections_present=$((connections_present + 1))
+  else
+    CONNECTION_EXISTS+=("no")
+    connections_missing=$((connections_missing + 1))
+  fi
+done
+
+if [[ -n "$SUPPLIED_SECRET" ]]; then
+  SECRET_NOTE="applied to every region from CLOUD_SES_EVENTBRIDGE_SECRET"
+elif (( connections_missing == 0 )); then
+  SECRET_NOTE="unchanged"
+elif (( connections_present > 0 )); then
+  cat >&2 <<EOF
+error: ${connections_present} of ${#REGIONS[@]} regions already have a
+'${CONNECTION_NAME}' connection, and AWS will not show us the secret it holds.
+
+Generating a new one here would leave the two regions authenticating with
+different values. Re-run with the secret the control plane is already using —
+it is CLOUD_SES_EVENTBRIDGE_SECRET in apps/cloud/.env.local:
+
+  CLOUD_SES_EVENTBRIDGE_SECRET=<that value> $0
+
+If that value is LOST — a first run that failed after creating the connection —
+no re-run can recover it: AWS keeps a connection's key write-only. Delete the
+stranded connection(s) and re-run, and a fresh secret will be minted for both
+regions:
+
+$(for present in "${CONNECTION_PRESENT_REGIONS[@]}"; do
+  echo "  aws events delete-connection --name ${CONNECTION_NAME} --region ${present}"
+done)
+EOF
+  exit 1
+else
+  EVENTBRIDGE_SECRET="$(openssl rand -hex 32)"
+  SECRET_NOTE="generated"
+  # Printed the moment it exists, BEFORE the first AWS write — not only in the
+  # closing summary. AWS stores a connection's key write-only, so if anything
+  # below fails partway, this line is the ONLY copy in existence; without it a
+  # live connection is stranded holding a secret nobody can read, and the
+  # refusal above has nothing it can be re-run with. stderr, so a redirected
+  # transcript still puts it in front of the operator.
+  if [[ -z "$DRY_RUN" ]]; then
+    cat >&2 <<EOF
+generated the EventBridge shared secret — SAVE THIS NOW, before the AWS writes
+below run. AWS will never show it again:
+
+  CLOUD_SES_EVENTBRIDGE_SECRET=${EVENTBRIDGE_SECRET}
+
+EOF
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# The role a rule needs in order to invoke an API destination.
+#
+# EventBridge does not call an API destination on its own authority: the target
+# carries a RoleArn, and that role is what holds `events:InvokeApiDestination`.
+# One role for the account rather than one per region — IAM is global, and two
+# identical roles would be two things to remember to revoke.
+#
+# The grant names both regions' destinations by wildcard on the NAME, not by
+# full ARN, because AWS appends a generated suffix to an API destination's ARN
+# that does not exist until the destination does. Scoped to this account, these
+# two regions and this one destination name; nothing wider.
+#
+# The TRUST policy carries no condition, unlike the SNS topic policy above, and
+# the asymmetry is deliberate. AWS documents that topic policy's
+# `AWS:SourceAccount` form for SES publishing; it documents no equivalent
+# condition on an EventBridge target role, and every generated form we could
+# find (the CDK's own API-destination target among them) is the bare service
+# principal. A condition key EventBridge does not populate would not fail
+# loudly — the assume is denied, the rule keeps reporting itself ENABLED, and
+# every pause AWS publishes is dropped in silence, which is exactly the
+# fail-OPEN this pipeline exists to close. The narrowing therefore lives in the
+# PERMISSION policy below, which is the half we can scope with confidence.
+# ---------------------------------------------------------------------------
+echo "=== eventbridge invoke role ==="
+
+INVOKE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${INVOKE_ROLE_NAME}"
+
+trust_policy="$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowEventBridgeAssume",
+      "Effect": "Allow",
+      "Principal": { "Service": "events.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+)"
+
+invoke_policy="$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeReputationDestination",
+      "Effect": "Allow",
+      "Action": "events:InvokeApiDestination",
+      "Resource": [
+        "arn:aws:events:us-east-1:${ACCOUNT_ID}:api-destination/${DESTINATION_NAME}/*",
+        "arn:aws:events:eu-west-1:${ACCOUNT_ID}:api-destination/${DESTINATION_NAME}/*"
+      ]
+    }
+  ]
+}
+EOF
+)"
+
+# `create-role` is NOT idempotent — it answers EntityAlreadyExists — so unlike
+# `sns create-topic` this one has to be asked first.
+if exists aws iam get-role --role-name "$INVOKE_ROLE_NAME"; then
+  echo "  role: ${INVOKE_ROLE_ARN} (exists)"
+  run aws iam update-assume-role-policy \
+    --role-name "$INVOKE_ROLE_NAME" \
+    --policy-document "$trust_policy"
+else
+  run aws iam create-role \
+    --role-name "$INVOKE_ROLE_NAME" \
+    --description "Lets EventBridge invoke the Hogsend reputation API destination" \
+    --assume-role-policy-document "$trust_policy"
+  echo "  role: ${INVOKE_ROLE_ARN}"
+fi
+
+run aws iam put-role-policy \
+  --role-name "$INVOKE_ROLE_NAME" \
+  --policy-name "$INVOKE_POLICY_NAME" \
+  --policy-document "$invoke_policy"
+echo "  grant: events:InvokeApiDestination on ${DESTINATION_NAME}, both regions"
+echo
+
 TOPIC_ARNS=()
+region_index=0
 
 for region in "${REGIONS[@]}"; do
   echo "=== ${region} ==="
@@ -152,7 +423,143 @@ EOF
     --attribute-value "$topic_policy" \
     --region "$region"
   echo "  policy: SES publish allowed, scoped to account ${ACCOUNT_ID}"
+
+  # -- The reputation pipeline (PRD 08) --------------------------------------
+  #
+  # The connection holds the secret and NOTHING else. Its calls bypass the
+  # `run` helper for two reasons — neither of which is "run always echoes":
+  # their stdout (the connection ARN) must be CAPTURED, which `run` cannot do,
+  # and under DRY_RUN `run` WOULD echo its argv verbatim, and this argv
+  # carries the credential — so the dry-run transcript prints the redacted
+  # form below instead.
+  connection_arn="arn:aws:events:${region}:${ACCOUNT_ID}:connection/${CONNECTION_NAME}"
+  auth_parameters="ApiKeyAuthParameters={ApiKeyName=${EVENTBRIDGE_SECRET_HEADER},ApiKeyValue=${EVENTBRIDGE_SECRET}}"
+  redacted="ApiKeyAuthParameters={ApiKeyName=${EVENTBRIDGE_SECRET_HEADER},ApiKeyValue=<redacted>}"
+
+  if [[ "${CONNECTION_EXISTS[$region_index]}" == "no" ]]; then
+    if [[ -n "$DRY_RUN" ]]; then
+      echo "  [dry-run] aws events create-connection --name ${CONNECTION_NAME} --authorization-type API_KEY --auth-parameters ${redacted} --region ${region}"
+    else
+      connection_arn="$(aws events create-connection \
+        --name "$CONNECTION_NAME" \
+        --description "Authenticates Hogsend reputation deliveries to the control plane" \
+        --authorization-type API_KEY \
+        --auth-parameters "$auth_parameters" \
+        --region "$region" \
+        --query ConnectionArn --output text)"
+    fi
+    echo "  connection: ${CONNECTION_NAME} (created, secret ${SECRET_NOTE})"
+  elif [[ -n "$SUPPLIED_SECRET" ]]; then
+    if [[ -n "$DRY_RUN" ]]; then
+      echo "  [dry-run] aws events update-connection --name ${CONNECTION_NAME} --authorization-type API_KEY --auth-parameters ${redacted} --region ${region}"
+    else
+      connection_arn="$(aws events update-connection \
+        --name "$CONNECTION_NAME" \
+        --authorization-type API_KEY \
+        --auth-parameters "$auth_parameters" \
+        --region "$region" \
+        --query ConnectionArn --output text)"
+    fi
+    echo "  connection: ${CONNECTION_NAME} (secret rotated)"
+  else
+    echo "  connection: ${CONNECTION_NAME} (exists, secret unchanged)"
+  fi
+
+  # The destination is the endpoint half. `update` rather than skip when it
+  # exists, so a control plane that moved to a new origin converges here instead
+  # of leaving every pause pointed at the old one.
+  if exists aws events describe-api-destination \
+    --name "$DESTINATION_NAME" \
+    --region "$region"; then
+    if [[ -n "$DRY_RUN" ]]; then
+      destination_arn="arn:aws:events:${region}:${ACCOUNT_ID}:api-destination/${DESTINATION_NAME}"
+    else
+      destination_arn="$(aws events update-api-destination \
+        --name "$DESTINATION_NAME" \
+        --invocation-endpoint "$REPUTATION_ENDPOINT" \
+        --http-method POST \
+        --region "$region" \
+        --query ApiDestinationArn --output text)"
+    fi
+  else
+    # Only now is the connection's ARN actually needed — a destination that
+    # already exists is already bound to it.
+    if [[ -z "$DRY_RUN" && "${CONNECTION_EXISTS[$region_index]}" == "yes" && -z "$SUPPLIED_SECRET" ]]; then
+      connection_arn="$(aws events describe-connection \
+        --name "$CONNECTION_NAME" \
+        --region "$region" \
+        --query ConnectionArn --output text)"
+    fi
+    if [[ -n "$DRY_RUN" ]]; then
+      destination_arn="arn:aws:events:${region}:${ACCOUNT_ID}:api-destination/${DESTINATION_NAME}"
+      echo "  [dry-run] aws events create-api-destination --name ${DESTINATION_NAME} --connection-arn ${connection_arn} --invocation-endpoint ${REPUTATION_ENDPOINT} --http-method POST --region ${region}"
+    else
+      destination_arn="$(aws events create-api-destination \
+        --name "$DESTINATION_NAME" \
+        --description "Hogsend control plane, SES reputation ingress" \
+        --connection-arn "$connection_arn" \
+        --invocation-endpoint "$REPUTATION_ENDPOINT" \
+        --http-method POST \
+        --region "$region" \
+        --query ApiDestinationArn --output text)"
+    fi
+  fi
+  echo "  destination: ${REPUTATION_ENDPOINT}"
+
+  # `put-rule` is a PUT: it creates or converges, so re-running never leaves two
+  # rules double-delivering every pause.
+  #
+  # The pattern is the narrowing that makes the ingress's promise true. The
+  # DEFAULT bus carries every AWS event in the account, and a rule matching
+  # `aws.ses` alone would forward SES's send events too — thousands of
+  # deliveries the ingress answers 200-and-ignores, at EventBridge's per-invoke
+  # price, for no signal. Exactly the four detail-types the control plane acts
+  # on, and nothing else.
+  run aws events put-rule \
+    --name "$RULE_NAME" \
+    --event-bus-name default \
+    --description "SES reputation events for the Hogsend control plane" \
+    --event-pattern "{\"source\":[\"${SES_EVENT_SOURCE}\"],\"detail-type\":${SES_DETAIL_TYPES}}" \
+    --state ENABLED \
+    --region "$region"
+  echo "  rule: ${RULE_NAME} on the default bus"
+
+  # `put-targets` is a PUT keyed by target Id, so re-running replaces this one
+  # target rather than adding a second copy of it.
+  #
+  # It is also the one verb in this script whose failure arrives in the BODY:
+  # the CLI exits 0 and reports a FailedEntryCount instead. A freshly created
+  # invoke role that has not propagated yet fails exactly this way, and
+  # swallowing it would leave an ENABLED rule with NO target — the whole
+  # pipeline dead while every console screen reads as subscribed. So the count
+  # is read back and non-zero is fatal.
+  if [[ -n "$DRY_RUN" ]]; then
+    echo "  [dry-run] aws events put-targets --rule ${RULE_NAME} --event-bus-name default --targets Id=${TARGET_ID},Arn=${destination_arn},RoleArn=${INVOKE_ROLE_ARN} --region ${region}"
+  else
+    failed_targets="$(aws events put-targets \
+      --rule "$RULE_NAME" \
+      --event-bus-name default \
+      --targets "Id=${TARGET_ID},Arn=${destination_arn},RoleArn=${INVOKE_ROLE_ARN}" \
+      --region "$region" \
+      --query FailedEntryCount --output text)"
+    if [[ "$failed_targets" != "0" ]]; then
+      cat >&2 <<EOF
+error: put-targets reported ${failed_targets} failed entry(ies) in ${region}.
+
+The rule exists and is ENABLED, but nothing is attached to it — every SES
+event would be dropped. The usual cause is the invoke role
+(${INVOKE_ROLE_NAME}) not having propagated yet; wait a minute and re-run
+(every step converges). Inspect with:
+
+  aws events list-targets-by-rule --rule ${RULE_NAME} --event-bus-name default --region ${region}
+EOF
+      exit 1
+    fi
+  fi
+  echo "  target: ${RULE_NAME} -> ${DESTINATION_NAME}"
   echo
+
+  region_index=$((region_index + 1))
 done
 
 # ---------------------------------------------------------------------------
@@ -325,8 +732,38 @@ echo "=== done ==="
 echo
 echo "Add these to apps/cloud/.env.local:"
 echo
+
+# The secret is printed exactly once, and only on the run that MINTED it. A dry
+# run installed nothing, so printing a value there would hand the operator a
+# secret no connection holds; a re-run against live connections cannot read the
+# stored value back and must not overwrite it.
+if [[ -n "$DRY_RUN" ]]; then
+  secret_line="<not shown in a dry run>"
+elif [[ "$SECRET_NOTE" == "generated" ]]; then
+  secret_line="$EVENTBRIDGE_SECRET"
+elif [[ "$SECRET_NOTE" == "unchanged" ]]; then
+  secret_line="<unchanged — keep the value already in apps/cloud/.env.local>"
+else
+  secret_line="<the value you passed in CLOUD_SES_EVENTBRIDGE_SECRET>"
+fi
+
 echo "CLOUD_SES_SNS_TOPIC_ARN_US=${TOPIC_ARNS[0]}"
 echo "CLOUD_SES_SNS_TOPIC_ARN_EU=${TOPIC_ARNS[1]}"
+echo "CLOUD_SES_EVENTBRIDGE_SECRET=${secret_line}"
+echo
+if [[ -z "$DRY_RUN" && "$SECRET_NOTE" == "unchanged" ]]; then
+  echo "If that secret is LOST, the live connections cannot answer for it — AWS"
+  echo "keeps a connection's key write-only. Delete them and re-run to mint a"
+  echo "fresh one:"
+  echo
+  for region in "${REGIONS[@]}"; do
+    echo "  aws events delete-connection --name ${CONNECTION_NAME} --region ${region}"
+  done
+  echo
+fi
+echo "The reputation ingress refuses EVERY event until that last one is set on"
+echo "the deployed control plane — fail-closed, by design. Until then the rule"
+echo "delivers and the endpoint answers 403."
 echo
 echo "Inbound (PRD 16): the relay user is now GRANTED against these names, but"
 echo "neither resource is created yet — that is PRD 16 task 3's job, together"

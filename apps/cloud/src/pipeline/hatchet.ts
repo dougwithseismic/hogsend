@@ -495,6 +495,13 @@ export interface ReputationSweepTaskOutput extends JsonObject {
   promoted: string[];
   demoted: string[];
   suspended: string[];
+  /** Mirrors the reconciliation read found disagreeing with AWS and repaired.
+   * A non-empty list here means an EventBridge event went missing. */
+  reconciled: string[];
+  /** Tenants whose read-back failed but whose local evaluation still ran. A
+   * list that never empties means the deployed relay policy is missing
+   * `ses:GetReputationEntity` — the sweep is running mirror-only. */
+  reconcileFailed: string[];
   failed: number;
 }
 
@@ -527,7 +534,8 @@ function buildReputationSweepTask(client: HatchetClient) {
       // tenants it had not reached unexamined on every single tick.
       limitStrategy: ConcurrencyLimitStrategy.CANCEL_NEWEST,
     },
-    // Reads counters and makes at most one AWS call per transitioning tenant.
+    // Reads counters, one reputation read per tenant, and one further AWS call
+    // per transitioning tenant.
     executionTimeout: "30m",
     fn: async (): Promise<ReputationSweepTaskOutput> => {
       const result = await sweepEmailReputation();
@@ -536,6 +544,10 @@ function buildReputationSweepTask(client: HatchetClient) {
         promoted: result.promoted.map((entry) => entry.environmentId),
         demoted: result.demoted.map((entry) => entry.environmentId),
         suspended: result.suspended.map((entry) => entry.environmentId),
+        reconciled: result.reconciled.map((entry) => entry.environmentId),
+        reconcileFailed: result.reconcileFailed.map(
+          (entry) => entry.environmentId,
+        ),
         failed: result.failed.length,
       };
     },
