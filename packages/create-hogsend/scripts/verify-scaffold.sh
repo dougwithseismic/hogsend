@@ -35,6 +35,73 @@ fail() {
   exit 1
 }
 
+# When `check-types` fails, say WHOSE fault it is.
+#
+# A scaffolded app type-checks @hogsend/engine's raw .ts against whatever
+# versions npm resolved, so ONE dependency shipping broken type declarations
+# fails the scaffold with a wall of errors inside node_modules — none of them in
+# code the user wrote. That happened for real: `@hono/zod-openapi@1.5.2` stopped
+# importing `z` from zod (`import z = zodModule.z`, where `zodModule` is never
+# declared), `z` degraded to `any`, and a fresh scaffold failed with 33
+# TS7006/TS7053 implicit-any errors inside the engine. The message was
+# "check-types failed", which sends you reading your own code for a defect that
+# is not there.
+#
+# Worse, `skipLibCheck: true` — which the scaffold sets, correctly — SUPPRESSES
+# the one error that names the culprit (TS2503 "Cannot find namespace"). So the
+# diagnosis re-runs tsc with library checking ON purely to surface that name.
+# It never gates: this runs only after a failure and only to explain it.
+diagnose_dependency_types() {
+  log="$1"
+  appdir="$2"
+
+  total=$(grep -cE 'error TS[0-9]+' "$log" 2>/dev/null || true)
+  in_deps=$(grep -E 'error TS[0-9]+' "$log" 2>/dev/null | grep -cE '(^|[ (])[^ ]*node_modules/' || true)
+  [ "${in_deps:-0}" -eq 0 ] && return 0
+
+  # `node_modules/.pnpm/@hono+zod-openapi@1.5.2_.../node_modules/@hono/…` and the
+  # plain `node_modules/@scope/name/…` layout both reduce to <name>@<version>.
+  # `|| true` on BOTH: a no-match grep exits 1, and under `set -euo pipefail` a
+  # failing command substitution kills the script — which would make this
+  # diagnostic silently abort the run it exists to explain. Measured: without
+  # it, a flat (non-pnpm) node_modules layout produced no output at all.
+  packages=$(grep -E 'error TS[0-9]+' "$log" \
+    | grep -oE 'node_modules/\.pnpm/[^/]+' \
+    | sed 's|node_modules/\.pnpm/||' \
+    | sed 's/_.*$//' \
+    | sed 's/+/\//' \
+    | sort -u || true)
+  if [ -z "$packages" ]; then
+    packages=$(grep -E 'error TS[0-9]+' "$log" \
+      | grep -oE 'node_modules/(@[^/]+/)?[^/]+' \
+      | sed 's|node_modules/||' | sort -u || true)
+  fi
+  [ -z "$packages" ] && packages="(could not identify the package from the paths)"
+
+  {
+    echo
+    echo "── diagnosis ────────────────────────────────────────────────────"
+    echo "${in_deps} of ${total} type errors are inside node_modules, not in the"
+    echo "scaffolded app's own code. A dependency is shipping broken type"
+    echo "declarations. Suspect package(s):"
+    echo "$packages" | sed 's/^/    /'
+    echo
+    echo "Re-running tsc WITHOUT skipLibCheck to surface the declaration error"
+    echo "that names the cause (skipLibCheck hides exactly that error):"
+  } >&2
+
+  (cd "$appdir" && pnpm exec tsc -p tsconfig.json --noEmit --skipLibCheck false 2>&1) \
+    | grep -E 'error TS(2503|2304|2307|2688)' | head -8 | sed 's/^/    /' >&2 || true
+
+  {
+    echo
+    echo "If the named package is at fault, pin it in package.json AND in"
+    echo "pnpm-workspace.yaml overrides (the pin alone stops protecting you the"
+    echo "day the direct dependency is removed), then re-run."
+    echo "─────────────────────────────────────────────────────────────────"
+  } >&2
+}
+
 # macOS ships no `timeout(1)`. Without this, the boot smokes put "timeout:
 # command not found" in the log, `|| true` swallows it, and every negative
 # grep passes VACUOUSLY — the boot never ran. Fall back to gtimeout
@@ -420,7 +487,12 @@ fi
 
 # --- 5. check-types -------------------------------------------------------
 echo "==> [5/10] pnpm check-types (scaffolded app)"
-(cd "$APPDIR" && pnpm check-types) || fail "check-types failed"
+TYPES_LOG="/tmp/hogsend-verify-check-types.log"
+if ! (cd "$APPDIR" && pnpm check-types) >"$TYPES_LOG" 2>&1; then
+  cat "$TYPES_LOG" >&2
+  diagnose_dependency_types "$TYPES_LOG" "$APPDIR"
+  fail "check-types failed"
+fi
 
 # --- 6. test --------------------------------------------------------------
 echo "==> [6/10] pnpm test (scaffolded journey example)"
