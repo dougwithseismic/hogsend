@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { POST as inboundRoute } from "@/app/api/email/domains/inbound/route";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import { cloudAuditLog, environments, organizations } from "../db/schema";
 import { env } from "../env";
+import { handleDomainInbound } from "../lib/email-domains";
 import {
   foreignMxExchanges,
   INBOUND_MX_PRIORITY,
@@ -102,6 +104,9 @@ interface Fixture {
   environmentId: string;
   organizationId: string;
   inbound: FakeSesInboundClient;
+  /** The relay token this environment's instance holds — the ONLY credential
+   * the control-plane endpoints accept. */
+  token: string;
   /** Every name this fixture's resolver answers MX records for. */
   mx: Map<string, { exchange: string; priority: number }[]>;
   /** Set to make the resolver THROW, which must fail closed. */
@@ -124,7 +129,7 @@ async function seed(
     .returning();
   if (!row) throw new Error("failed to seed environment");
 
-  await provisionSesTenant(
+  const provisioned = await provisionSesTenant(
     { environmentId: row.id },
     { ses: new FakeSesClient({ region: "us" }), snsTopicArn: null },
   );
@@ -149,24 +154,34 @@ async function seed(
     environmentId: row.id,
     organizationId,
     inbound: new FakeSesInboundClient({ region: "us" }),
+    token: provisioned.relayToken,
     mx: new Map(),
+  };
+}
+
+/**
+ * The seams every caller of this service is given in this suite: the inbound
+ * Fake, a configured store, and a resolver that answers from the fixture.
+ *
+ * NEVER the real resolver: a suite that reached DNS would be asserting the
+ * state of somebody's zone file rather than of this code.
+ */
+function deps(fixture: Fixture) {
+  return {
+    db,
+    inbound: fixture.inbound,
+    store: { bucketName: BUCKET, topicArn: TOPIC },
+    lookupMx: async (name: string) => {
+      if (fixture.mxError) throw fixture.mxError;
+      return fixture.mx.get(name) ?? [];
+    },
   };
 }
 
 function service(fixture: Fixture) {
   return createHogsendInbound(
     { environmentId: fixture.environmentId },
-    {
-      db,
-      inbound: fixture.inbound,
-      store: { bucketName: BUCKET, topicArn: TOPIC },
-      // NEVER the real resolver: a suite that reached DNS would be asserting
-      // the state of somebody's zone file rather than of this code.
-      lookupMx: async (name: string) => {
-        if (fixture.mxError) throw fixture.mxError;
-        return fixture.mx.get(name) ?? [];
-      },
-    },
+    deps(fixture),
   );
 }
 
@@ -1148,5 +1163,383 @@ describe("findInboundRecipientOwner", () => {
     // Two: nobody. The message is recorded unattributed, which an operator can
     // see and fix; the alternative is a silent interception.
     expect(await findInboundRecipientOwner(RECIPIENT, { db })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The route
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /api/email/domains/inbound` — the only way a customer can turn replies
+ * on, and off again.
+ *
+ * Every guard above was unreachable from the product until this endpoint
+ * existed, so these tests assert the two things a route can lose that a service
+ * test cannot see: that a refusal survives the translation to HTTP with enough
+ * in it to act on, and that nothing the caller sends can widen it.
+ */
+
+const INBOUND_URL = "http://localhost:3004/api/email/domains/inbound";
+
+function inboundRequest(
+  options: { token?: string; body?: unknown } = {},
+): Request {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (options.token) headers.authorization = `Bearer ${options.token}`;
+  return new Request(INBOUND_URL, {
+    method: "POST",
+    headers,
+    ...(options.body === undefined
+      ? {}
+      : { body: JSON.stringify(options.body) }),
+  });
+}
+
+/** The enable body an ordinary customer sends. */
+function enableBody(overrides: Record<string, unknown> = {}) {
+  return { domain: DOMAIN, enabled: true, forwardTo: FORWARD, ...overrides };
+}
+
+describe("the inbound endpoint", () => {
+  it("refuses an anonymous caller, and writes nothing", async () => {
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({ body: enableBody() }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: "missing_token" });
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+  });
+
+  it("returns the MX record the customer has to publish", async () => {
+    // An enable the customer cannot act on is useless: the record IS the
+    // deliverable, and it names `reply.<domain>` — never the apex, which is
+    // where their real company mailbox lives.
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({ token: fixture.token, body: enableBody() }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      enabled: boolean;
+      status: {
+        state: string;
+        records: { type: string; name: string; value: string }[];
+      };
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.status.state).toBe("pending");
+    expect(body.status.records).toHaveLength(1);
+    expect(body.status.records[0]).toMatchObject({
+      type: "MX",
+      name: `${INBOUND_SUBDOMAIN}.${DOMAIN}`,
+      value: US_INBOUND_HOST,
+      priority: INBOUND_MX_PRIORITY,
+    });
+    expect(body.status.records.map((record) => record.name)).not.toContain(
+      DOMAIN,
+    );
+    // …and the address the caller sent really crossed the wire, rather than
+    // being dropped by a handler that happened to answer 200.
+    expect(
+      await readInboundConfig(
+        { environmentId: fixture.environmentId, domain: DOMAIN },
+        { db },
+      ),
+    ).toMatchObject({ forwardTo: FORWARD });
+  });
+
+  it("REFUSES an enable with no forwarding address, and names what is missing", async () => {
+    // Receiving a customer's mail into a database nobody reads is worse than
+    // not receiving it. A 500 or a generic "bad request" here would leave the
+    // caller with no way to know which field would fix it.
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: { domain: DOMAIN, enabled: true },
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; message: string };
+    expect(body.error).toBe("inbound_forward_address_required");
+    expect(body.message).toContain("forwardTo");
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+  });
+
+  it("refuses an address that is not one, with the SAME refusal", async () => {
+    // One rule decides what a forwarding address is, and it is the service's.
+    // A route that pre-validated the format would answer a different code for
+    // the same broken configuration.
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ forwardTo: "support@acme, evil@attacker.test" }),
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "inbound_forward_address_required",
+    });
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+  });
+
+  it("answers 409 carrying the EXACT override phrase when a foreign MX holds the name", async () => {
+    // Publishing ours would take somebody else's mail away from them. The
+    // refusal has to be distinct from a malformed request AND has to hand back
+    // the phrase, or the operator cannot act on it without reading our source.
+    const fixture = await seed();
+    const inboundDomain = `${INBOUND_SUBDOMAIN}.${DOMAIN}`;
+    fixture.mx.set(inboundDomain, [
+      { exchange: "aspmx.l.google.com", priority: 1 },
+    ]);
+
+    const refused = await handleDomainInbound(
+      inboundRequest({ token: fixture.token, body: enableBody() }),
+      deps(fixture),
+    );
+
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as {
+      error: string;
+      message: string;
+      confirmMxReplacement: string;
+      displacedMx: string[];
+    };
+    expect(body.error).toBe("inbound_mx_conflict");
+    expect(body.confirmMxReplacement).toBe(
+      inboundMxOverridePhrase(inboundDomain),
+    );
+    expect(body.displacedMx).toEqual(["aspmx.l.google.com"]);
+    expect(body.message).toContain("aspmx.l.google.com");
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+
+    // A near miss is still a miss over the wire: the endpoint may not soften
+    // the phrase the service demands.
+    const nearMiss = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ confirmMxReplacement: "yes" }),
+      }),
+      deps(fixture),
+    );
+    expect(nearMiss.status).toBe(409);
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+
+    // …and the phrase the refusal handed back genuinely works, or the API is
+    // demanding a confirmation it then ignores.
+    const forced = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ confirmMxReplacement: body.confirmMxReplacement }),
+      }),
+      deps(fixture),
+    );
+    expect(forced.status).toBe(200);
+    expect(await recipientsOf(fixture)).toEqual([inboundDomain]);
+  });
+
+  it("turns receiving off again over the same endpoint", async () => {
+    const fixture = await seed();
+    await handleDomainInbound(
+      inboundRequest({ token: fixture.token, body: enableBody() }),
+      deps(fixture),
+    );
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: { domain: DOMAIN, enabled: false },
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      enabled: false,
+      status: { state: "not_found", records: [] },
+    });
+    expect(await ruleNames(fixture)).toEqual([]);
+  });
+
+  it("refuses another organization's DISABLE, and leaves their mail arriving", async () => {
+    // `disable` rewrites the ACCOUNT-WIDE rule set for whatever domain it is
+    // handed, so an endpoint that skipped the ownership deed would let any
+    // relay token switch off another customer's replies — silently.
+    //
+    // ONE inbound account, because that is the fleet's real shape: the
+    // attacker's client must genuinely be able to see and rewrite the victim's
+    // rules, or the refusal below would prove nothing.
+    const account = new FakeSesInboundClient({ region: "us" });
+    const victim = await seed({
+      organizationId: STRANGER_ORG,
+      claims: [STRANGER_DOMAIN],
+    });
+    const attacker = await seed();
+    victim.inbound = account;
+    attacker.inbound = account;
+    await handleDomainInbound(
+      inboundRequest({
+        token: victim.token,
+        body: enableBody({ domain: STRANGER_DOMAIN }),
+      }),
+      deps(victim),
+    );
+    const before = await account.getRuleSet({
+      ruleSetName: INBOUND_RULE_SET_NAME,
+    });
+    expect(before.rules.flatMap((rule) => rule.recipients)).toContain(
+      inboundDomainFor(STRANGER_DOMAIN),
+    );
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: attacker.token,
+        body: { domain: STRANGER_DOMAIN, enabled: false },
+      }),
+      deps(attacker),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "domain_not_owned" });
+    // NOTHING moved, and the rule set was never even rewritten.
+    expect(
+      (await account.getRuleSet({ ruleSetName: INBOUND_RULE_SET_NAME })).rules,
+    ).toEqual(before.rules);
+    expect(
+      account.calls.filter((call) => call.method === "deleteRule"),
+    ).toHaveLength(0);
+  });
+
+  it("fails CLOSED when SES refuses mid-write", async () => {
+    // A 200 here would tell a customer their replies are live while SES holds
+    // no rule at all. 503 because the refusal is transient and nothing was
+    // written, so a retry is safe.
+    const fixture = await seed();
+    fixture.inbound.failNext("putRule");
+
+    const response = await handleDomainInbound(
+      inboundRequest({ token: fixture.token, body: enableBody() }),
+      deps(fixture),
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(503);
+    expect(await ruleNames(fixture)).toEqual([]);
+  });
+
+  it("fails CLOSED on a failure NOTHING maps", async () => {
+    // The failure translation is a list of kinds it recognises, and the list
+    // will always be shorter than reality — a bug in this repo, a driver, a
+    // future SDK. Whatever falls off the end must still be a refusal: a
+    // catch-all that answered 200 would report every unknown failure as
+    // "receiving is on".
+    const fixture = await seed();
+    const inbound = new Proxy(fixture.inbound, {
+      get(target, property, receiver) {
+        if (property === "putRule") {
+          return async () => {
+            throw new Error("nothing maps this");
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const response = await handleDomainInbound(
+      inboundRequest({ token: fixture.token, body: enableBody() }),
+      { ...deps(fixture), inbound },
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: "domains_failed" });
+    expect(await ruleNames(fixture)).toEqual([]);
+  });
+
+  it("refuses a body that names anything of its own", async () => {
+    // The environment is the TOKEN's, never the body's. A caller that could
+    // name its own environment would make tenant isolation advisory.
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ environmentId: "somebody-else" }),
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_request" });
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+  });
+
+  it("refuses a disable that smuggles an enable's fields", async () => {
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: { domain: DOMAIN, enabled: false, forwardTo: FORWARD },
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_request" });
+  });
+
+  it("refuses a label DNS cannot represent, before anything reaches SES", async () => {
+    // `inboundDomainFor` throws a plain Error for a bad label, which the
+    // failure translation can only answer 502 to. The schema is what makes it
+    // a 400 the caller can read.
+    const fixture = await seed();
+
+    const response = await handleDomainInbound(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ label: "reply.acme" }),
+      }),
+      deps(fixture),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_request" });
+    expect(fixture.inbound.__ruleSetNames()).toEqual([]);
+  });
+
+  it("is wired to the route handler", async () => {
+    // Through the real route file, with NO injected seams: the process-wide
+    // inbound client (the Fake, since the suite runs with no AWS credentials)
+    // and the process-wide database. The ownership deed is checked before the
+    // store or DNS is consulted, so this reaches neither.
+    const fixture = await seed();
+
+    const response = await inboundRoute(
+      inboundRequest({
+        token: fixture.token,
+        body: enableBody({ domain: UNCLAIMED_DOMAIN }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "domain_not_owned" });
   });
 });

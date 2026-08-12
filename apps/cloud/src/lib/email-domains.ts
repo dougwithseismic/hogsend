@@ -6,9 +6,17 @@ import {
   createHogsendDomains,
   DomainNotOwnedError,
 } from "../services/ses-domains";
+import type { HogsendInbound } from "../services/ses-inbound-domains";
+import {
+  createHogsendInbound,
+  ForeignInboundMxError,
+} from "../services/ses-inbound-domains";
 import type { SesClient } from "../ses/contract";
+import type { SesInboundClient } from "../ses/inbound/contract";
 import { SesError } from "../ses/types";
 import { type RelayCaller, resolveRelayCaller } from "./email-relay";
+import type { InboundStore, MxLookup } from "./inbound-domains";
+import { inboundMxOverridePhrase } from "./inbound-domains";
 import { consumeRateLimit } from "./rate-limit";
 import { fail } from "./route-response";
 import { MAIL_FROM_LABEL_PATTERN } from "./sending-domains";
@@ -77,10 +85,61 @@ const returnPathBodySchema = z.strictObject({
     .optional(),
 });
 
+/** One DNS label, validated HERE so a bad one is a 400 before it reaches SES. */
+const labelSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    MAIL_FROM_LABEL_PATTERN,
+    'must be one DNS label, e.g. "reply" (lowercase letters, digits and ' +
+      "hyphens, starting and ending alphanumeric, 63 characters or fewer)",
+  );
+
+/**
+ * The inbound toggle, both directions, as a DISCRIMINATED union.
+ *
+ * `enabled: false` accepts the domain and nothing else: a disable that carried
+ * a forwarding address would read as though it configured one, and the two
+ * requests do genuinely different things to an account-wide rule set.
+ *
+ * `forwardTo` is deliberately NOT format-checked here. One rule decides what a
+ * forwarding address is and it is the service's (`FORWARD_ADDRESS_RE`), because
+ * an address refused by two different rules would answer two different codes
+ * for one broken configuration — and this one has to name the field that fixes
+ * it. The bounds below are a payload cap, not a definition.
+ */
+const inboundBodySchema = z.discriminatedUnion("enabled", [
+  z.strictObject({
+    domain: domainSchema,
+    enabled: z.literal(true),
+    forwardTo: z.string().trim().min(1).max(320).optional(),
+    label: labelSchema.optional(),
+    /** The typed confirmation from `inboundMxOverridePhrase`. Compared
+     * verbatim by the service; never interpreted here. */
+    confirmMxReplacement: z.string().trim().min(1).max(256).optional(),
+  }),
+  z.strictObject({ domain: domainSchema, enabled: z.literal(false) }),
+]);
+
 export interface EmailDomainsDeps {
   db?: CloudDb;
   /** Defaults to the process-wide client for the environment's region. */
   ses?: SesClient;
+  now?: Date;
+}
+
+export interface EmailInboundDeps {
+  db?: CloudDb;
+  /** Defaults to the process-wide inbound client for the tenancy's region. */
+  inbound?: SesInboundClient;
+  /**
+   * The region's bucket + topic. `null` means inbound is not configured here,
+   * which is a MODE; `undefined` reads the environment.
+   */
+  store?: InboundStore | null;
+  /** The DNS seam. Tests inject; nothing in CI resolves a real name. */
+  lookupMx?: MxLookup;
   now?: Date;
 }
 
@@ -138,6 +197,55 @@ export async function handleDomainReturnPath(
   });
 }
 
+/**
+ * `POST /api/email/domains/inbound` — turn replies on for a domain, or off.
+ *
+ * The receiving twin of the return-path toggle, and one endpoint rather than
+ * two because the state it sets is one bit. What it answers with on the way in
+ * is the whole point: the MX record the customer has to publish, because an
+ * enable they cannot act on has changed nothing they can see.
+ *
+ * Every refusal below belongs to the service. This handler adds no policy of
+ * its own — it may not soften the typed MX confirmation, and it may not decide
+ * a forwarding address is optional.
+ */
+export async function handleDomainInbound(
+  request: Request,
+  deps: EmailInboundDeps = {},
+): Promise<Response> {
+  return withInbound(request, deps, async (inbound) => {
+    const body = await readBody(
+      request,
+      inboundBodySchema,
+      "Name the `domain` and whether inbound is `enabled`. Enabling also takes " +
+        "`forwardTo`, and optionally `label` and `confirmMxReplacement`.",
+    );
+    if (!body.ok) return body.response;
+    const wanted = body.value;
+
+    if (!wanted.enabled) {
+      // Ownership is the service's first act here too, so a stranger cannot
+      // even learn whether a domain is receiving.
+      return json(200, {
+        enabled: false,
+        status: await inbound.disable(wanted.domain),
+      });
+    }
+
+    const status = await inbound.enable({
+      domain: wanted.domain,
+      ...(wanted.forwardTo === undefined
+        ? {}
+        : { forwardTo: wanted.forwardTo }),
+      ...(wanted.label === undefined ? {} : { label: wanted.label }),
+      ...(wanted.confirmMxReplacement === undefined
+        ? {}
+        : { confirmMxReplacement: wanted.confirmMxReplacement }),
+    });
+    return json(200, { enabled: true, status });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Shared steps
 // ---------------------------------------------------------------------------
@@ -150,10 +258,10 @@ export async function handleDomainReturnPath(
  * anonymously, and the limiter is charged before ANY caller-controlled input is
  * inspected, so a flood of malformed requests is bounded too.
  */
-async function withCaller(
+async function withRelayCaller(
   request: Request,
-  deps: EmailDomainsDeps,
-  run: (domains: HogsendDomains, caller: RelayCaller) => Promise<Response>,
+  deps: { db?: CloudDb; now?: Date },
+  run: (caller: RelayCaller) => Promise<Response>,
 ): Promise<Response> {
   const auth = await resolveRelayCaller(request, {
     ...(deps.db ? { db: deps.db } : {}),
@@ -177,19 +285,68 @@ async function withCaller(
     );
   }
 
-  const domains = createHogsendDomains(
-    { environmentId: caller.environmentId, actor: `relay:${caller.tokenId}` },
-    {
-      ...(deps.db ? { db: deps.db } : {}),
-      ...(deps.ses ? { ses: deps.ses } : {}),
-    },
-  );
-
   try {
-    return await run(domains, caller);
+    return await run(caller);
   } catch (error) {
     return failureResponse(error, caller);
   }
+}
+
+async function withCaller(
+  request: Request,
+  deps: EmailDomainsDeps,
+  run: (domains: HogsendDomains, caller: RelayCaller) => Promise<Response>,
+): Promise<Response> {
+  return withRelayCaller(request, deps, (caller) =>
+    run(
+      createHogsendDomains(
+        {
+          environmentId: caller.environmentId,
+          actor: `relay:${caller.tokenId}`,
+        },
+        {
+          ...(deps.db ? { db: deps.db } : {}),
+          ...(deps.ses ? { ses: deps.ses } : {}),
+        },
+      ),
+      caller,
+    ),
+  );
+}
+
+/**
+ * The same steps, in the same order, for the RECEIVING service.
+ *
+ * It shares `withRelayCaller` rather than repeating it, because the ordering —
+ * auth, then limit, then anything the caller controls — is a security posture,
+ * and a second copy of it is how one endpoint quietly loses a step. The
+ * environment comes from the token here too; a body may not name its own.
+ */
+async function withInbound(
+  request: Request,
+  deps: EmailInboundDeps,
+  run: (inbound: HogsendInbound, caller: RelayCaller) => Promise<Response>,
+): Promise<Response> {
+  return withRelayCaller(request, deps, (caller) =>
+    run(
+      createHogsendInbound(
+        {
+          environmentId: caller.environmentId,
+          actor: `relay:${caller.tokenId}`,
+        },
+        {
+          ...(deps.db ? { db: deps.db } : {}),
+          ...(deps.inbound ? { inbound: deps.inbound } : {}),
+          // `null` is a MODE (this region does not receive), so it may not be
+          // collapsed into "not supplied" — that would read the environment
+          // and silently enable a store the caller said was absent.
+          ...(deps.store === undefined ? {} : { store: deps.store }),
+          ...(deps.lookupMx ? { lookupMx: deps.lookupMx } : {}),
+        },
+      ),
+      caller,
+    ),
+  );
 }
 
 function failureResponse(error: unknown, caller: RelayCaller): Response {
@@ -207,6 +364,24 @@ function failureResponse(error: unknown, caller: RelayCaller): Response {
   if (error instanceof DomainNotOwnedError) {
     return fail(409, error.code, error.message);
   }
+  // 409 for the same reason, and ahead of the generic 400: the request is
+  // well-formed, and what conflicts is somebody else's MX already receiving at
+  // the name we would publish. The override phrase travels as its OWN field so
+  // a UI can render the exact string that has to be typed rather than parsing
+  // it back out of prose — and it is never applied for the caller, because the
+  // cost of guessing wrong is a deleted company mailbox.
+  if (error instanceof ForeignInboundMxError) {
+    return json(409, {
+      error: error.code,
+      message: error.message,
+      inboundDomain: error.inboundDomain,
+      displacedMx: error.exchanges,
+      confirmMxReplacement: inboundMxOverridePhrase(error.inboundDomain),
+    });
+  }
+  // Every other service refusal, verbatim: the `code` and the sentence both
+  // travel, because a caller told "bad request" cannot tell a missing
+  // forwarding address from a domain already receiving on another label.
   if (error instanceof CloudServiceError) {
     return fail(400, error.code, error.message);
   }
@@ -260,6 +435,9 @@ type BodyRead<T> = { ok: true; value: T } | { ok: false; response: Response };
 async function readBody<T>(
   request: Request,
   schema: z.ZodType<T>,
+  /** What a valid body looks like. Named per endpoint, because "name the
+   * domain, and nothing else" is a lie on the toggles that take more. */
+  hint = "Name the `domain`, and nothing else.",
 ): Promise<BodyRead<T>> {
   const declared = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
@@ -305,8 +483,7 @@ async function readBody<T>(
         400,
         {
           error: "invalid_request",
-          message:
-            "The request body is not a valid domains request. Name the `domain`, and nothing else.",
+          message: `The request body is not a valid domains request. ${hint}`,
           issues: parsed.error.issues.slice(0, 10).map((issue) => ({
             path: issue.path.join("."),
             message: issue.message,
