@@ -1,5 +1,18 @@
 node_modules
 dist
+
+# Deliberately NOT committed *for this example*. `pnpm release-doctor --sync`
+# rewrites the @hogsend/* pins in package.json on every release but cannot
+# regenerate a lockfile (it never runs an install), and nothing in CI installs
+# this directory — so a committed lockfile would contradict package.json from
+# the first release onward and no gate would notice. That is the same silent
+# staleness this example was just rescued from. The exact pin plus the
+# `overrides` block in pnpm-workspace.yaml already make resolution
+# deterministic; see that file for the measurements.
+#
+# Copying this folder out to start a REAL app? Delete this line and commit your
+# lockfile — an application should.
+pnpm-lock.yaml
 .env
 .env.local
 logs

@@ -28,8 +28,12 @@ what keeps it an honest consumer of published packages. It also means a bare
 **copy the folder somewhere outside the repo first**, then plain `pnpm install`.
 
 Do not reach for `--ignore-workspace`: it stops pnpm walking up by discarding
-*this* folder's `pnpm-workspace.yaml` as well, `allowBuilds` included, and the
-install then hard-fails with `ERR_PNPM_IGNORED_BUILDS`.
+*this* folder's `pnpm-workspace.yaml` as well — every setting in it. Losing
+`allowBuilds` fails loudly (`ERR_PNPM_IGNORED_BUILDS`, exit 1). Losing
+`overrides` is currently harmless only because `@hono/zod-openapi` is *also*
+pinned exactly in `package.json` and pnpm dedupes the engine's caret onto it
+(measured: still `1.4.0`); it turns into a silent wrong resolution the day that
+direct dependency is removed. Copy the folder out instead.
 
 The mental model the scaffold is built around: **the engine is a versioned npm
 dependency (`@hogsend/engine` + its sibling `@hogsend/*` packages); your repo is

@@ -27,11 +27,25 @@ pnpm worker:dev    # Hatchet worker (run in a second terminal)
 > here walks up, finds the repo's root `pnpm-workspace.yaml` and installs the
 > *monorepo* instead, leaving this folder with no `node_modules`.
 >
-> `--ignore-workspace` is NOT the answer, though it looks like it: it stops pnpm
-> walking up by discarding **this** folder's `pnpm-workspace.yaml` too, including
-> the `allowBuilds` block that exists to prevent exactly this, so the install
-> hard-fails with `ERR_PNPM_IGNORED_BUILDS` (measured: exit 1). The flag that
-> stops it looking up also throws away its own settings.
+> `--ignore-workspace` is NOT the answer, though it looks like it: the flag that
+> stops pnpm walking up also throws away **this** folder's own
+> `pnpm-workspace.yaml` — every setting in it.
+>
+> - `allowBuilds` goes, so the install hard-fails with
+>   `ERR_PNPM_IGNORED_BUILDS` (measured: exit 1).
+> - `overrides` goes too. That one is currently harmless *only* because
+>   `@hono/zod-openapi` is also pinned exactly in `package.json`, and pnpm
+>   dedupes the engine's caret onto that pin — measured: still `1.4.0`, still
+>   0 errors. The override is the belt to that pin's braces, and it matters the
+>   day the direct dependency is removed (this app never imports the package;
+>   it is declared only so tsup treats it as external, so a dead-dependency
+>   sweep will offer to drop it). With the dep gone and no override, resolution
+>   floats to the broken `1.5.2` and you get 33 errors inside `node_modules`.
+>
+> `--allow-build` does not exist in pnpm 11. `--ignore-scripts` silences the
+> build failure and exits 0, but it is silencing a symptom rather than fixing
+> the setup, and it leaves you one dead-dependency sweep away from the silent
+> case above.
 >
 > So: `cp -R my-first-hogsend ~/somewhere && cd ~/somewhere && pnpm install`.
 > Verified from a clean state — install, `check-types` and `build` all exit 0.
