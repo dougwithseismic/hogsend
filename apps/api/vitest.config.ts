@@ -68,21 +68,30 @@ export default defineConfig({
       LOG_LEVEL: "error",
       // LAW: these default to the repo's OWN docker-compose services (Postgres
       // 5434, Redis 6380) so a clean checkout works with nothing exported.
+      // Both were on the DEFAULT ports (5432 / 6379), which this repo never
+      // starts — so on a developer machine they resolve to whatever unrelated
+      // container happens to hold that port.
       //
-      // They used to read `localhost:5432` and `localhost:6379` — neither of
-      // which this repo ever starts. Those are the DEFAULT ports, so on a
-      // developer machine they resolve to whatever else happens to be
-      // listening — measured 2026-08-12, port 5432 on this machine was an
-      // unrelated project's Postgres container, and the suite was quietly
-      // connecting to it. That is how a clean `origin/main` failed 27 tests
-      // locally while CI was green.
+      // REDIS_URL is the one that bit. NO test file sets it (all 192 DB-backed
+      // files assign DATABASE_URL themselves at module top-level, none assign
+      // this), so the value here is the value the suite uses. It pointed at
+      // 6379, which on this machine was another project's Redis container, and
+      // the suite used it. Measured 2026-08-12: with Redis unreachable, 12
+      // tests across 5 files fail; against 6380 the suite is green. Those 12
+      // are why a config nobody had looked at could quietly matter.
+      //
+      // DATABASE_URL here is mostly belt-and-braces: the 192 files that touch
+      // Postgres already default to 5434 and already honour
+      // HOGSEND_TEST_DATABASE_URL, so this line only governs the files that do
+      // not set it. It is corrected to agree with them rather than contradict
+      // them — a config that names a different database than every test file
+      // is a trap even when it is inert.
       //
       // `test.env` OVERRIDES the ambient process.env (measured, not assumed —
-      // an exported DATABASE_URL does NOT win), so an exported var cannot be
-      // the escape hatch and a dedicated one is required. Hence
-      // HOGSEND_TEST_DATABASE_URL / HOGSEND_TEST_REDIS_URL, mirroring the cloud
-      // suite's HOGSEND_CLOUD_TEST_DATABASE_URL: point the suite at a throwaway
-      // Postgres when several sessions contend for 5434.
+      // an exported REDIS_URL does NOT win), so an exported var cannot be the
+      // escape hatch and a dedicated one is required. Hence the two
+      // HOGSEND_TEST_* vars, mirroring the cloud suite's
+      // HOGSEND_CLOUD_TEST_DATABASE_URL.
       DATABASE_URL:
         process.env.HOGSEND_TEST_DATABASE_URL ??
         "postgresql://growthhog:growthhog@localhost:5434/growthhog",
