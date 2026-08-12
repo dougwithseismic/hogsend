@@ -20,6 +20,12 @@ import { FakeSesClient } from "../ses/fake";
 import { resetSesClients } from "../ses/index";
 import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import type { SesSendBatchInput, SesSendEmailInput } from "../ses/types";
+import {
+  BINARY_FIXTURE,
+  BINARY_FIXTURE_BASE64,
+  BINARY_FIXTURE_NON_ASCII,
+  countNonAscii,
+} from "./helpers/binary-attachment";
 
 /**
  * Attachments through the relay, and the size gate in front of them (PRD 17
@@ -281,6 +287,45 @@ describe("POST /api/email/send — attachments reach the seam", () => {
     }
     expect(Buffer.from(recorded.base64, "base64").equals(invoiceBytes)).toBe(
       true,
+    );
+  });
+
+  it("delivers a BINARY file byte-for-byte, end to end", async () => {
+    // The customer-facing claim, asserted where a customer's file actually
+    // enters: JSON over HTTP → validation → the seam → what SES composes.
+    // Every fixture above this one is ASCII, and ASCII survives a 7-bit
+    // pipeline untouched — which is exactly why this suite stayed green while
+    // real SES replaced every byte above 127 with U+FFFD (2026-08-12). This
+    // payload carries all 256 byte values, so it cannot pass by accident.
+    const fixture = await seed();
+
+    const response = await handleRelaySend(
+      sendRequest({
+        token: fixture.token,
+        idempotencyKey: "binary-file",
+        body: {
+          message: message({
+            attachments: [
+              {
+                filename: "scan.pdf",
+                content: BINARY_FIXTURE_BASE64,
+                contentType: "application/pdf",
+              },
+            ],
+          }),
+        },
+      }),
+      { ses: fixture.ses },
+    );
+
+    expect(response.status).toBe(200);
+    const delivered = fixture.ses.__sent()[0]?.delivered?.[0];
+    expect(delivered?.transferEncoding).toBe("BASE64");
+    expect(Array.from(delivered?.content ?? [])).toEqual(
+      Array.from(BINARY_FIXTURE),
+    );
+    expect(countNonAscii(delivered?.content ?? new Uint8Array())).toBe(
+      BINARY_FIXTURE_NON_ASCII,
     );
   });
 });

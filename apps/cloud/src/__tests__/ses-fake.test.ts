@@ -4,6 +4,12 @@ import { resolveSesRegion, SES_VERBS } from "../ses/contract";
 import { FAKE_SES_CLOCK, FAKE_SES_ID, FakeSesClient } from "../ses/fake";
 import type { SesMessage } from "../ses/types";
 import { SesError } from "../ses/types";
+import {
+  BINARY_FIXTURE,
+  BINARY_FIXTURE_BASE64,
+  BINARY_FIXTURE_NON_ASCII,
+  countNonAscii,
+} from "./helpers/binary-attachment";
 
 /**
  * The Fake is the whole point of PRD 02: PRDs 03 and 05–09 test against it, so
@@ -482,6 +488,71 @@ describe("FakeSesClient sending", () => {
     expect(Array.from(wire?.RawContent as Uint8Array)).toEqual(
       Array.from(recorded?.content as Uint8Array),
     );
+  });
+
+  it("delivers a BINARY attachment byte-for-byte, every value 0-255", async () => {
+    // The fact the whole feature rests on and the one nothing above this seam
+    // could previously read: what the RECIPIENT ends up with. SES composes the
+    // MIME, and the transfer encoding it is TOLD decides whether it treats the
+    // body as bytes or as text — measured against real SES on 2026-08-12, an
+    // undeclared encoding means `7bit` and replaces every byte above 127 with
+    // U+FFFD, destroying every PDF, image, ZIP and office document while the
+    // send still reports success.
+    //
+    // So the Fake models delivery rather than assuming it, off the SAME
+    // translation the AWS client sends (`toAwsAttachment`) — one decision, two
+    // clients, no room to diverge the way PRD 14 catalogued. If that
+    // translation stops declaring BASE64, these bytes come back mangled HERE,
+    // with no AWS account involved.
+    const client = await sendReadyFake();
+    await client.sendEmail({
+      tenantName: TENANT,
+      message: message({
+        attachments: [
+          { filename: "raw.bin", content: BINARY_FIXTURE },
+          {
+            filename: "encoded.bin",
+            content: { base64: BINARY_FIXTURE_BASE64 },
+          },
+        ],
+      }),
+    });
+
+    const delivered = client.__sent()[0]?.delivered ?? [];
+    expect(delivered).toHaveLength(2);
+    for (const attachment of delivered) {
+      expect(attachment.transferEncoding).toBe("BASE64");
+      expect(Array.from(attachment.content)).toEqual(
+        Array.from(BINARY_FIXTURE),
+      );
+      // Stated twice on purpose: the byte-compare above is only meaningful
+      // because the payload is NOT ASCII. An ASCII fixture survives 7-bit
+      // handling untouched and would make this whole test vacuous.
+      expect(countNonAscii(attachment.content)).toBe(BINARY_FIXTURE_NON_ASCII);
+    }
+  });
+
+  it("carries binary attachments through sendBatch too", async () => {
+    // sendBatch is a loop over the same delivery path, so this asserts the
+    // fact rather than any batch-specific code — and pins that a file-less
+    // entry in the same batch delivers nothing.
+    const client = await sendReadyFake();
+    await client.sendBatch({
+      tenantName: TENANT,
+      messages: [
+        message({
+          to: ["one@example.test"],
+          attachments: [{ filename: "raw.bin", content: BINARY_FIXTURE }],
+        }),
+        message({ to: ["two@example.test"] }),
+      ],
+    });
+
+    const sent = client.__sent();
+    expect(Array.from(sent[0]?.delivered?.[0]?.content ?? [])).toEqual(
+      Array.from(BINARY_FIXTURE),
+    );
+    expect(sent[1]?.delivered).toBeUndefined();
   });
 
   it("refuses to send on behalf of a tenant that does not exist", async () => {

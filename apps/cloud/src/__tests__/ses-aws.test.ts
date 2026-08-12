@@ -1,4 +1,5 @@
 import {
+  AttachmentContentTransferEncoding,
   CreateConfigurationSetEventDestinationCommand,
   CreateEmailIdentityCommand,
   CreateTenantCommand,
@@ -26,6 +27,10 @@ import {
 import type { SesAttachment, SesErrorKind } from "../ses/types";
 import { SesError } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
+import {
+  BINARY_FIXTURE,
+  BINARY_FIXTURE_BASE64,
+} from "./helpers/binary-attachment";
 
 /**
  * No AWS anywhere: the SDK's `send` is an injected function, so every command
@@ -773,18 +778,44 @@ describe("AwsSesClient attachments", () => {
     expect(attachmentsOf(commands[0])[0]).not.toHaveProperty("ContentType");
   });
 
-  it("NEVER sets ContentTransferEncoding, on either content form", async () => {
-    // The SDK owns the transfer encoding of `RawContent`. Declaring one it
-    // did not apply is a way to be wrong about our own bytes.
+  it("declares ContentTransferEncoding BASE64, on either content form", async () => {
+    // Two different things wear the word "encoding" here, and conflating them
+    // is what shipped the corruption this test now pins. The SDK
+    // base64-encodes `RawContent` for the WIRE — that is API transport, and it
+    // is why `RawContent` is always raw bytes. `ContentTransferEncoding` is
+    // something else entirely: the MIME header SES writes into the message it
+    // composes for the RECIPIENT. Left unset, SES declares `7bit` and
+    // sanitises the body as text.
+    //
+    // Measured end to end against real SES on 2026-08-12 — sent, pulled the
+    // raw MIME back out of S3, byte-compared. Same 8212-byte payload, same
+    // path, ONE field different:
+    //   unset  → 4096 U+FFFD replacements, 16401 bytes, sha256 MISMATCH
+    //   BASE64 → 0 replacements,            8212 bytes, sha256 IDENTICAL
+    // 4096 is an exact match for that payload's count of bytes above 127.
+    //
+    // The fixture is binary ON PURPOSE: with an ASCII payload this assertion
+    // and the byte-compare below both pass with the field removed.
     const commands = await sendWith([
-      { filename: "invoice.pdf", content: PDF_BYTES },
+      { filename: "invoice.pdf", content: BINARY_FIXTURE },
       {
         filename: "receipt.pdf",
-        content: { base64: Buffer.from(PDF_BYTES).toString("base64") },
+        content: { base64: BINARY_FIXTURE_BASE64 },
       },
     ]);
     for (const attachment of attachmentsOf(commands[0])) {
-      expect(attachment).not.toHaveProperty("ContentTransferEncoding");
+      // "BASE64", from the SDK's own `AttachmentContentTransferEncoding`
+      // (`BASE64` | `QUOTED_PRINTABLE` | `SEVEN_BIT`) — the casing is the
+      // enum's, not a guess.
+      expect(attachment.ContentTransferEncoding).toBe(
+        AttachmentContentTransferEncoding.BASE64,
+      );
+      // …and the bytes it describes are the fixture's, unchanged, from both
+      // content forms. A declared encoding over mangled bytes would be a
+      // different bug wearing the same green tick.
+      expect(Array.from(attachment.RawContent as Uint8Array)).toEqual(
+        Array.from(BINARY_FIXTURE),
+      );
     }
   });
 

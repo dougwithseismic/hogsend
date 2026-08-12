@@ -1,8 +1,9 @@
 import type { SubstrateRegion } from "../substrate/types";
-import { reputationPolicyArn } from "./aws";
+import { reputationPolicyArn, toAwsAttachment } from "./aws";
 import { resolveSesRegion, type SesClient } from "./contract";
 import {
   type SesAccount,
+  type SesAttachment,
   type SesBatchEntryResult,
   type SesConfigurationSetRef,
   type SesCreateConfigurationSetInput,
@@ -70,7 +71,10 @@ import {
  * check by associating a resource it never created. Attachments ride the
  * recorded message VERBATIM —
  * `__sent()` is where a test reads back exactly what crossed the seam, files
- * included. Deliberately NOT modelled on the send path, so nobody assumes
+ * included — and beside them `delivered` models what SES composes on the FAR
+ * side (`toDeliveredAttachment`), which is the only place a corrupted
+ * attachment is visible at all.
+ * Deliberately NOT modelled on the send path, so nobody assumes
  * coverage: configuration-set existence, association, and SES's attachment
  * file-extension policy — AWS documents that it "restricts certain file
  * extensions" but not whether a blocked one is refused synchronously at
@@ -195,11 +199,33 @@ export interface FakeSesConfigurationSetState {
   eventDestinations: FakeSesEventDestination[];
 }
 
+/**
+ * One attachment as the RECIPIENT would receive it — the fact that matters and
+ * the one `message.attachments` cannot answer, because it records what the
+ * caller HANDED IN, not what SES composes out the other side.
+ */
+export interface FakeSesDeliveredAttachment {
+  filename: string;
+  /**
+   * The MIME header SES is told, from {@link toAwsAttachment}. Typed loosely
+   * ON PURPOSE: `undefined` is the state that corrupts, so the model has to be
+   * able to represent a translation that stopped declaring one.
+   */
+  transferEncoding: string | undefined;
+  /** The bytes that land in the recipient's file. */
+  content: Uint8Array;
+}
+
 export interface FakeSesSentMessage {
   tenantName: string;
   configurationSetName?: string;
   messageId: string;
   message: SesMessage;
+  /**
+   * What the attachments become in the composed message. Absent when the
+   * message carried none — absent in, absent out, like every other field here.
+   */
+  delivered?: FakeSesDeliveredAttachment[];
 }
 
 export interface FakeSesClientOptions {
@@ -802,6 +828,7 @@ export class FakeSesClient implements SesClient {
 
     this.messageCounter += 1;
     const messageId = `fake-ses-message-${this.messageCounter}`;
+    const attachments = input.message.attachments;
     this.sent.push({
       tenantName,
       ...(input.configurationSetName
@@ -809,6 +836,11 @@ export class FakeSesClient implements SesClient {
         : {}),
       messageId,
       message: input.message,
+      // What the caller handed in is recorded above; this is what SES composes
+      // out the other side, which is the only place a corrupted file shows up.
+      ...(attachments?.length
+        ? { delivered: attachments.map(toDeliveredAttachment) }
+        : {}),
     });
     return messageId;
   }
@@ -874,6 +906,55 @@ export class FakeSesClient implements SesClient {
     if (!set) throw notFound("Configuration set", configurationSetName);
     return set;
   }
+}
+
+/** U+FFFD, the replacement character, UTF-8 encoded. */
+const UTF8_REPLACEMENT = [0xef, 0xbf, 0xbd];
+
+/**
+ * What the RECIPIENT receives, modelled rather than assumed.
+ *
+ * The declared encoding comes off {@link toAwsAttachment} — the SAME
+ * translation the AWS client sends — so the Fake cannot hold an opinion the
+ * real wire does not. What it adds is SES's own behaviour on the other side of
+ * that field, measured against a real account on 2026-08-12 by sending through
+ * a receipt rule and byte-comparing the MIME pulled back out of S3:
+ *
+ *   `BASE64`     → the bytes arrive verbatim (8212 in, 8212 out, sha256 equal)
+ *   anything else → SES treats the body as 7-bit text and replaces EVERY byte
+ *                   above 127 with U+FFFD (4096 replacements on that payload,
+ *                   an exact match for its non-ASCII byte count, sha256
+ *                   mismatch)
+ *
+ * The lossy branch is what makes this model falsifiable: a Fake that delivered
+ * every byte unconditionally would have certified the wire that destroys every
+ * PDF, image, ZIP and office document, which is PRD 14's lesson in the one
+ * place it costs a customer their file. Pure-ASCII content survives either
+ * way — the reason nothing noticed for as long as it did — so a fixture that
+ * exercises this must carry bytes above 127.
+ */
+function toDeliveredAttachment(
+  attachment: SesAttachment,
+): FakeSesDeliveredAttachment {
+  const wire = toAwsAttachment(attachment);
+  return {
+    filename: wire.FileName,
+    transferEncoding: wire.ContentTransferEncoding,
+    content:
+      wire.ContentTransferEncoding === "BASE64"
+        ? wire.RawContent
+        : sevenBitSanitised(wire.RawContent),
+  };
+}
+
+/** SES's text handling of a body it was not told is binary. */
+function sevenBitSanitised(bytes: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  for (const byte of bytes) {
+    if (byte > 0x7f) out.push(...UTF8_REPLACEMENT);
+    else out.push(byte);
+  }
+  return Uint8Array.from(out);
 }
 
 function toTenant(state: FakeSesTenantState): SesTenant {

@@ -9,6 +9,7 @@ import type {
   SendEmailResponse,
 } from "@aws-sdk/client-sesv2";
 import {
+  AttachmentContentTransferEncoding,
   CreateConfigurationSetCommand,
   CreateConfigurationSetEventDestinationCommand,
   CreateEmailIdentityCommand,
@@ -1053,24 +1054,44 @@ function toSendEmailFields(message: SesMessage): {
  * One neutral attachment onto SES's `Attachment` shape (SESv2 `Simple`
  * content carries these as structured fields — no MIME is assembled anywhere).
  *
- * Two deliberate rules:
+ * Two deliberate rules, and they are about two DIFFERENT encodings that wear
+ * the same word — the conflation that shipped a corruption:
  *  - `RawContent` is always RAW bytes. `{ base64 }` content is DECODED here
  *    (`Buffer.from(_, "base64")` IS a `Uint8Array`), never passed through as
- *    the string: the SDK base64-encodes `RawContent` itself, so a base64
+ *    the string: the SDK base64-encodes `RawContent` for the WIRE, so a base64
  *    string handed over as-is would be encoded AGAIN and deliver a corrupt
  *    file that still sends successfully — no error at any layer;
- *  - `ContentTransferEncoding` is NEVER set. The SDK owns the encoding, and
- *    declaring one it did not apply is a way to be wrong.
+ *  - `ContentTransferEncoding` is ALWAYS `BASE64`. This is NOT the wire
+ *    encoding above — the SDK owns that, and it is API transport. This is the
+ *    MIME header SES writes into the message it composes for the RECIPIENT,
+ *    and SES has to be TOLD. Left unset, SES declares `7bit` and sanitises the
+ *    body as text: measured end to end against real SES on 2026-08-12, that
+ *    replaced EVERY byte above 127 with U+FFFD — same 8212-byte payload, same
+ *    path, one field different: unset → 4096 replacements and a sha256
+ *    mismatch, `BASE64` → 0 replacements and a byte-identical file. Every PDF,
+ *    image, ZIP and office document was destroyed by a send that reported
+ *    success; pure-ASCII text was untouched, which is why nothing caught it.
+ *    Unconditional because `RawContent` is always an arbitrary byte sequence
+ *    and the caller has no meaningful say: of the SDK's three values
+ *    (`AttachmentContentTransferEncoding`), `SEVEN_BIT` IS the corruption and
+ *    `QUOTED_PRINTABLE` encodes the same bytes at roughly triple the size, so
+ *    the field is a constant of this seam rather than an input on
+ *    `SesAttachment`.
  * And an absent `contentType` stays absent — SES defaults; nothing here
  * guesses from the filename.
+ *
+ * EXPORTED for the Fake, which composes what it delivers from this exact
+ * translation: one decision, two clients, no room for the Fake to certify a
+ * wire the real one does not send (PRD 14).
  */
 // NOT to be confused with `lib/email-attachments.ts`'s `toSesAttachment`,
 // which is the PREVIOUS hop: relay wire → `SesAttachment`. This one is
 // `SesAttachment` → the AWS SDK's own shape. Two hops, two names, so grepping
 // either finds one thing.
-function toAwsAttachment(attachment: SesAttachment): {
+export function toAwsAttachment(attachment: SesAttachment): {
   FileName: string;
   RawContent: Uint8Array;
+  ContentTransferEncoding: AttachmentContentTransferEncoding;
   ContentType?: string;
   ContentDisposition?: "ATTACHMENT" | "INLINE";
   ContentId?: string;
@@ -1081,6 +1102,7 @@ function toAwsAttachment(attachment: SesAttachment): {
       attachment.content instanceof Uint8Array
         ? attachment.content
         : Buffer.from(attachment.content.base64, "base64"),
+    ContentTransferEncoding: AttachmentContentTransferEncoding.BASE64,
     ...(attachment.contentType ? { ContentType: attachment.contentType } : {}),
     ...(attachment.disposition
       ? {
