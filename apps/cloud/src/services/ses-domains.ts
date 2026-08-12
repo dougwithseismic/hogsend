@@ -29,7 +29,12 @@ import { SesError } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
 import { writeAudit } from "./audit";
 import { CloudServiceError, NotFoundError } from "./errors";
-import { readDkimKey, writeDkimKey } from "./ses-dkim-keys";
+import type { SendingDomainClaim } from "./sending-domain-claims";
+import {
+  insertSendingDomainClaim,
+  readSendingDomainClaim,
+} from "./sending-domain-claims";
+import { readDkimKeyForOrganization, writeDkimKey } from "./ses-dkim-keys";
 import { getSesTenant } from "./ses-tenants";
 
 /**
@@ -52,14 +57,15 @@ import { getSesTenant } from "./ses-tenants";
  *    identity. A second keypair would invalidate the record the customer has
  *    already published, and they would have no way of knowing why their mail
  *    stopped signing.
- *  - **Every per-domain operation is gated on OWNERSHIP, and the stored DKIM
- *    key is the deed.** SES identities are ACCOUNT-scoped and the whole fleet
- *    shares one AWS account, so the identity register cannot say whose domain
- *    this is; the key can, because {@link writeDkimKey} happens BEFORE
- *    `CreateEmailIdentity` and so the environment that created an identity
- *    always holds one by the time that identity exists. See
- *    {@link DomainNotOwnedError} for what that buys and what it deliberately
- *    refuses to heal.
+ *  - **Every per-domain operation is gated on OWNERSHIP, and the deed is an
+ *    explicit ORG-SCOPED claim** (`sending_domains`). SES identities are
+ *    ACCOUNT-scoped and the whole fleet shares one AWS account, so the identity
+ *    register cannot say whose domain this is; a claim row taken under a global
+ *    partial-unique index BEFORE `CreateEmailIdentity` can. It is scoped to the
+ *    ORGANIZATION, so a customer's second environment can use the domain their
+ *    first one verified, and it OUTLIVES the environment that took it, so
+ *    deleting an environment cannot orphan a domain. See
+ *    {@link DomainNotOwnedError} for what that buys and what it refuses to heal.
  *  - **The branded return path is OFF by default and reversible.** On, it adds
  *    exactly two records (MX + SPF at `send.<domain>`); off, they are gone
  *    again and the identity is back on SES's default return path.
@@ -140,8 +146,8 @@ export class NoSesTenancyError extends CloudServiceError {
 }
 
 /**
- * The domain exists as an email identity in the shared AWS account, and THIS
- * environment is not the one that put it there.
+ * The domain is claimed in the shared AWS account, and NOT by this caller's
+ * organization.
  *
  * SES email identities are ACCOUNT-scoped, and Hogsend Cloud deliberately runs
  * one AWS account for the whole fleet, so `GetEmailIdentity` answers for every
@@ -150,30 +156,26 @@ export class NoSesTenancyError extends CloudServiceError {
  * has one — the ability to associate itself with a competitor's verified domain
  * and send DKIM-signed mail from it.
  *
- * The deed is the stored DKIM key. `create` writes it BEFORE
- * `CreateEmailIdentity` (see the comment at that call, which is about a lost
- * response rather than about ownership, and gives us this for free), so the
- * environment that created an identity ALWAYS holds a key by the time that
- * identity exists. Gating on the key therefore leaves PRD 22's self-heal — a
- * provision that died between `createIdentity` and `associateResource` — intact
- * to the environment it belongs to, while refusing a stranger.
+ * The deed is the `sending_domains` claim, and it is scoped to the
+ * ORGANIZATION. That is the fix for two regressions an environment-scoped deed
+ * shipped: a customer's second environment could never use the domain their
+ * first one verified, and deleting an environment destroyed the deed while the
+ * identity survived — leaving a domain PERMANENTLY unclaimable by anybody.
  *
- * FAIL-CLOSED, and that is the whole design: an identity nobody holds a key
- * for — created in the AWS console, made by a script, or one whose key row was
- * lost — cannot be claimed by ANY environment, including the customer whose
- * domain it is. There is no override, because an override is exactly the
- * first-come-take-it hatch this closes. The remedy is manual and the message
- * says so, so an operator reads a rule rather than a bug.
+ * `create` takes the claim BEFORE `CreateEmailIdentity`, under a global partial
+ * unique index, so the org that created an identity ALWAYS holds a claim by the
+ * time that identity exists — and two concurrent creates for the same
+ * never-before-seen domain cannot both win. Gating on the claim therefore
+ * leaves PRD 22's self-heal — a provision that died between `createIdentity`
+ * and `associateResource` — intact to the org it belongs to, while refusing a
+ * stranger.
  *
- * The ONE residual a stored key cannot close: two environments calling `create`
- * for a domain SES does not hold YET. Both read no identity, both store a key,
- * one wins `CreateEmailIdentity` and the loser is left holding a key for a
- * domain it does not own — enough to pass this guard on a later retry. Closing
- * that needs a claim taken under a unique index BEFORE the SES call (the
- * `sending_domains` table, queued as its own change); the window here is the
- * milliseconds between two concurrent creates for the same never-before-seen
- * domain, and nothing about it lets a stranger reach a domain that already
- * exists.
+ * FAIL-CLOSED, and that is the whole design: an identity nobody holds a claim
+ * for — created in the AWS console, made by a script — cannot be taken by ANY
+ * organization, including the customer whose domain it is. There is no
+ * override, because an override is exactly the first-come-take-it hatch this
+ * closes. The remedy is manual and the message says so, so an operator reads a
+ * rule rather than a bug.
  */
 export class DomainNotOwnedError extends CloudServiceError {
   readonly code = "domain_not_owned";
@@ -181,45 +183,95 @@ export class DomainNotOwnedError extends CloudServiceError {
   constructor(readonly domain: string) {
     super(
       `"${domain}" already exists as an email identity in Hogsend Email's ` +
-        "shared AWS account, and this environment does not hold its DKIM key " +
-        "— the key that records which environment added the domain. Only that " +
-        "environment can associate, read or change it. If no environment holds " +
-        "a key for it (an identity created out of band, or a key that was " +
-        "lost), no automatic recovery is possible and the fix is MANUAL: an " +
-        "operator must delete the identity in SES, or restore the key, before " +
-        "this domain can be added again.",
+        "shared AWS account, and it is not claimed by this account. Only the " +
+        "organization that added the domain can associate, read or change it " +
+        "— from any of its environments. If nobody holds a claim on it (an " +
+        "identity created out of band, or one left behind by an earlier " +
+        "account), no automatic recovery is possible and the fix is MANUAL: " +
+        "an operator must delete the identity in SES before this domain can " +
+        "be added again.",
     );
   }
 }
 
-/** Does this environment hold the domain's DKIM key — i.e. did it add it? */
-async function ownsDomain(input: {
+/**
+ * Take the claim on `domain`, or confirm this organization already holds it.
+ * Throws {@link DomainNotOwnedError} when anybody else does.
+ *
+ * NOT an upsert. An existing live claim is returned untouched — including its
+ * `environment_id`, which records the environment that FIRST registered the
+ * domain and must not be rewritten by the second environment to use it.
+ *
+ * The insert can lose a race to a concurrent create, which is not a failure: the
+ * row is re-READ and the organization compared, because the winner is very
+ * often us (two environments of one org adding a domain at the same moment).
+ */
+export async function claimSendingDomain(input: {
   db: CloudDb;
+  organizationId: string;
   environmentId: string;
   domain: string;
+  awsRegion: string;
+}): Promise<SendingDomainClaim> {
+  const held = await readSendingDomainClaim(input.db, input.domain);
+  if (held) return sameOrgOrRefuse(held, input.organizationId);
+
+  const inserted = await insertSendingDomainClaim({
+    writer: input.db,
+    organizationId: input.organizationId,
+    environmentId: input.environmentId,
+    domain: input.domain,
+    awsRegion: input.awsRegion,
+  });
+  if (inserted) return inserted;
+
+  const raced = await readSendingDomainClaim(input.db, input.domain);
+  // Released between the conflict and this read — vanishingly unlikely, and a
+  // refusal is the safe answer: the caller retries and takes it cleanly.
+  if (!raced) throw new DomainNotOwnedError(input.domain);
+  return sameOrgOrRefuse(raced, input.organizationId);
+}
+
+function sameOrgOrRefuse(
+  claim: SendingDomainClaim,
+  organizationId: string,
+): SendingDomainClaim {
+  if (claim.organizationId !== organizationId) {
+    throw new DomainNotOwnedError(claim.domain);
+  }
+  return claim;
+}
+
+/** Does this ORGANIZATION hold the domain — from any of its environments? */
+async function ownsDomain(input: {
+  db: CloudDb;
+  organizationId: string;
+  domain: string;
 }): Promise<boolean> {
-  const key = await readDkimKey(
-    { environmentId: input.environmentId, domain: input.domain },
-    { db: input.db },
-  );
-  return key !== null;
+  const claim = await readSendingDomainClaim(input.db, input.domain);
+  return claim?.organizationId === input.organizationId;
 }
 
 /**
- * Refuse unless this environment added the domain.
+ * Refuse unless this organization holds the domain.
  *
  * Exported because inbound receiving (`ses-inbound-domains.ts`) has the same
  * boundary to enforce and must enforce it the same way — two modules deriving
  * "is this domain ours" independently is how one of them ends up with a subtly
  * weaker rule.
  *
- * The domain is expected NORMALIZED (`requireDomain`), because the key is
- * stored under the normalized name and a caller that skipped it would ask
- * about a domain nobody has a key for and be refused for the wrong reason.
+ * It takes an ORGANIZATION, not an environment, and the parameter name is the
+ * guard rail: a caller cannot accidentally pass the environment id and get an
+ * answer that looks right and refuses the customer's second environment. Every
+ * caller already has one — {@link Tenancy} carries it.
+ *
+ * The domain is expected NORMALIZED (`requireDomain`), because the claim is
+ * stored under the normalized name and a caller that skipped it would ask about
+ * a domain nobody has claimed and be refused for the wrong reason.
  */
 export async function requireDomainOwnership(input: {
   db: CloudDb;
-  environmentId: string;
+  organizationId: string;
   domain: string;
 }): Promise<void> {
   if (!(await ownsDomain(input))) throw new DomainNotOwnedError(input.domain);
@@ -275,29 +327,42 @@ export function createHogsendDomains(
     domain: string,
     identity: SesIdentity,
   ): Promise<DomainStatus> => {
-    const [{ awsRegion }, key] = await Promise.all([
-      tenancy(),
-      readDkimKey({ environmentId, domain }, { db }),
-    ]);
+    const { awsRegion, organizationId } = await tenancy();
+    // ORG-scoped: the key was stored by whichever environment first added the
+    // domain, and a sibling environment reading its own row would find nothing
+    // and render a status with NO DNS record — passing the ownership check and
+    // then showing the customer an empty setup screen.
+    const key = await readDkimKeyForOrganization(
+      { organizationId, domain },
+      { db },
+    );
     return toDomainStatus({
       domain,
       identity,
-      // The PUBLIC half only. `readDkimKey` is the one path that can reach the
-      // private one, and it stops here.
+      // The PUBLIC half only. `ses-dkim-keys` is the one module that can reach
+      // the private one, and it stops here.
       publicKey: key?.publicKey,
       awsRegion,
       checkedAt: now().toISOString(),
     });
   };
 
-  /** This environment's claim on the domain, or a refusal. */
-  const owns = (domain: string): Promise<boolean> =>
-    ownsDomain({ db, environmentId, domain });
-  const requireOwnership = (domain: string): Promise<void> =>
-    requireDomainOwnership({ db, environmentId, domain });
+  /** This ORGANIZATION's claim on the domain, or a refusal. */
+  const owns = async (domain: string): Promise<boolean> =>
+    ownsDomain({
+      db,
+      organizationId: (await tenancy()).organizationId,
+      domain,
+    });
+  const requireOwnership = async (domain: string): Promise<void> =>
+    requireDomainOwnership({
+      db,
+      organizationId: (await tenancy()).organizationId,
+      domain,
+    });
 
   /**
-   * A domain this environment did not add answers `null` — the SAME answer as
+   * A domain this organization did not add answers `null` — the SAME answer as
    * a domain SES has never heard of, not a redacted one.
    *
    * `DomainStatus` carries the identity VERBATIM in `raw`, so answering for an
@@ -337,23 +402,59 @@ export function createHogsendDomains(
       // tolerated below rather than trusted not to fire, but it does not fire
       // for this — a Fake taught to throw here would have invented a
       // divergence rather than closed one.
+      //
+      // THE ORDER is load-bearing too: READ the identity, and only take a claim
+      // when there is none.
+      //
+      // The alternative — claim first, unconditionally — would turn an identity
+      // nobody claims (a console click, an out-of-band script) into a
+      // first-come-take-it prize, because the first caller to ask would take
+      // the claim and then find the identity waiting for it. Reading first is
+      // what keeps {@link DomainNotOwnedError} FAIL-CLOSED.
       const existing = await readIdentity(name);
       if (existing) {
-        // …but ONLY for the environment that created it. The self-heal above
+        // …but ONLY for the organization that created it. The self-heal above
         // and a cross-tenant grant are the same call with a different caller:
         // identities are account-scoped, association is the only gate on the
         // send path, and every provisioned environment holds a relay token. So
-        // the association is re-asserted for the environment whose DKIM key
-        // signs this domain, and refused for everybody else — including a
-        // stranger whose retry would otherwise repair its own theft.
+        // the association is re-asserted for every environment of the org that
+        // holds the claim — which is what lets a customer's staging environment
+        // send from the domain their production one verified — and refused for
+        // everybody else, including a stranger whose retry would otherwise
+        // repair its own theft.
         await requireOwnership(name);
         await associateIdentity(ses, tenant, name);
         return snapshot(name, existing);
       }
 
-      // A stored key ALWAYS wins. SES having lost the identity does not make
-      // the record the customer published wrong; minting a new key would.
-      const stored = await readDkimKey({ environmentId, domain: name }, { db });
+      // SES does not hold the domain, so TAKE THE CLAIM — before the identity
+      // exists, never after.
+      //
+      // A crash between this line and `CreateEmailIdentity` leaves a claim with
+      // no identity: fully recoverable, because the retry reads no identity,
+      // finds the claim already ours, and proceeds. The opposite order is the
+      // unrecoverable one — an identity with no claim can never be claimed by
+      // anybody, which is precisely the permanent refusal this table replaced.
+      //
+      // It also closes the last race an environment-local deed could not: two
+      // organizations calling `create` for the same never-before-seen domain
+      // both read no identity, and exactly one of them wins this index.
+      await claimSendingDomain({
+        db,
+        organizationId: tenant.organizationId,
+        environmentId,
+        domain: name,
+        awsRegion: tenant.awsRegion,
+      });
+
+      // A stored key ALWAYS wins, and "stored" means stored anywhere in this
+      // ORGANIZATION. SES having lost the identity does not make the record the
+      // customer published wrong; minting a new key would — and a sibling
+      // environment reading only its own row would mint one every time.
+      const stored = await readDkimKeyForOrganization(
+        { organizationId: tenant.organizationId, domain: name },
+        { db },
+      );
       const keypair: DkimKeypair = stored ?? generateDkimKeypair();
       if (!stored) {
         // BEFORE the SES call, not after: if `CreateEmailIdentity` succeeds and
@@ -443,14 +544,30 @@ export function createHogsendDomains(
       const tenant = await tenancy();
       const ses = await client();
 
-      if (!(await readIdentity(name))) {
+      // OWNERSHIP FIRST, and the refusal is the SAME `not_found` a domain SES
+      // has never heard of gets — the posture `get` already holds ("not a
+      // redacted answer"), applied to the one operation that mutates.
+      //
+      // The order is the whole point. Existence-then-ownership answered 404 for
+      // a domain nobody has ever created and 409 for one another tenant holds,
+      // which is a free one-bit existence oracle over the shared AWS account:
+      // any relay token could ask "is acme.com already verified in the Hogsend
+      // fleet?" one guess at a time, with no keypair generated, no identity
+      // created, no claim taken and no trace beyond a rate-limit tick. `create`
+      // answers the same bit deliberately (its 409 carries the remedy the
+      // operator needs) but charges a 2048-bit keypair and a `CreateEmailIdentity`
+      // for it, and leaves an audit row. This one was free.
+      //
+      // Short-circuit, so a caller who does not own the domain never reaches
+      // SES at all: the refusal costs one indexed row read.
+      //
+      // Guarded rather than merely reordered because a MAIL FROM write is not a
+      // read — it moves where a domain's BOUNCES are delivered, and
+      // `USE_DEFAULT_VALUE` means the victim's mail would keep flowing while
+      // their bounce feedback quietly went somewhere else.
+      if (!(await owns(name)) || !(await readIdentity(name))) {
         throw new NotFoundError("Email identity", name);
       }
-      // Not a read: a MAIL FROM write moves where a domain's BOUNCES are
-      // delivered. Unguarded, any relay token could redirect another tenant's
-      // return path — and `USE_DEFAULT_VALUE` means their mail would keep
-      // flowing while their bounce feedback quietly went somewhere else.
-      await requireOwnership(name);
 
       await ses.setMailFrom({
         identity: name,

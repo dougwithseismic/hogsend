@@ -402,14 +402,18 @@ export function createHogsendInbound(
       // (0) OWNERSHIP, before every other check, because it is the cheapest and
       // the most consequential. Receiving is enabled on a domain by writing
       // into the account-wide active rule set and storing a forwarding address
-      // for it; done for a domain this environment never added, that is one
+      // for it; done for a domain this organization never added, that is one
       // tenant reading — and forwarding to a mailbox of its choosing — another
-      // tenant's replies. The deed is the sending domain's stored DKIM key,
-      // exactly as on the sending side (see `DomainNotOwnedError`).
+      // tenant's replies. The deed is the sending domain's `sending_domains`
+      // claim, exactly as on the sending side (see `DomainNotOwnedError`).
       //
       // `enable` has no production caller today. The guard is here so that
       // giving it one cannot open this door by accident.
-      await requireDomainOwnership({ db, environmentId, domain });
+      await requireDomainOwnership({
+        db,
+        organizationId: tenant.organizationId,
+        domain,
+      });
       // Before ANY write, and before the DNS round trip: a region with no
       // bucket and no topic cannot receive at all, so there is nothing to ask
       // DNS about.
@@ -533,6 +537,20 @@ export function createHogsendInbound(
     async disable(domain: string): Promise<DomainStatus> {
       const name = requireDomain(domain);
       const tenant = await tenancy();
+      // OWNERSHIP, the SAME predicate `enable` uses and for a reason that is
+      // no smaller: the receipt rule set is ACCOUNT-WIDE, so this call rewrites
+      // — or deletes — rules that carry other tenants' recipients, keyed only
+      // by the domain the caller named. Unguarded, any relay token could stop
+      // another customer's replies arriving, silently: nothing bounces, nothing
+      // errors, the mail simply stops being received.
+      //
+      // Guarded BEFORE the rules are read, so a stranger cannot even learn
+      // whether a domain is receiving.
+      await requireDomainOwnership({
+        db,
+        organizationId: tenant.organizationId,
+        domain: name,
+      });
       const ses = await client();
       const rules = await readRules(ses);
 

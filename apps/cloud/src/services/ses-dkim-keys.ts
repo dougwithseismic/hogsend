@@ -89,6 +89,62 @@ export async function readDkimKey(
 }
 
 /**
+ * The keypair ANY environment in this organization holds for one domain, or
+ * `null`.
+ *
+ * The ORG rather than the environment, because the deed is the org's
+ * (`sending_domains`) and the key must follow it. Two things break otherwise,
+ * both silently:
+ *
+ *  - a customer's SECOND environment renders NO DNS record for a domain their
+ *    first environment verified — it passes the ownership check and then finds
+ *    no public key to publish;
+ *  - worse, `create` from that second environment on a domain SES has lost
+ *    would mint a FRESH keypair, invalidating the TXT record the customer
+ *    already published. A stored key always wins, and "stored" has to mean
+ *    stored anywhere in the tenant.
+ *
+ * Oldest row first, so the answer is the key the domain was ORIGINALLY created
+ * with rather than whichever row the database happened to return.
+ *
+ * The scan decrypts one payload per environment that holds any DKIM key at all
+ * — at most a handful, since `PLAN_ENVIRONMENT_LIMITS` tops out at four.
+ */
+export async function readDkimKeyForOrganization(
+  input: { organizationId: string; domain: string },
+  deps: DkimKeyDeps = {},
+): Promise<DkimKeypair | null> {
+  const db = deps.db ?? defaultDb;
+  const rows = await db
+    .select({ encryptedPayload: providerKeys.encryptedPayload })
+    .from(providerKeys)
+    .where(
+      and(
+        eq(providerKeys.organizationId, input.organizationId),
+        eq(providerKeys.provider, HOGSEND_DKIM_PROVIDER),
+      ),
+    )
+    .orderBy(providerKeys.createdAt);
+
+  for (const row of rows) {
+    const payload = decryptSecretPayload<Record<string, string>>(
+      row.encryptedPayload,
+    );
+    const privateKey = payload[payloadField(input.domain, "private")];
+    const publicKey = payload[payloadField(input.domain, "public")];
+    if (!privateKey || !publicKey) continue;
+    return {
+      selector:
+        payload[payloadField(input.domain, "selector")] ??
+        HOGSEND_DKIM_SELECTOR,
+      privateKey,
+      publicKey,
+    };
+  }
+  return null;
+}
+
+/**
  * Record a domain's keypair, merging into whatever this environment already
  * holds.
  *

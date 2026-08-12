@@ -19,9 +19,10 @@ import {
   planInboundRule,
   resolveInboundStore,
 } from "../lib/inbound-domains";
-import { generateDkimKeypair } from "../lib/sending-domains";
-import { writeDkimKey } from "../services/ses-dkim-keys";
-import { DomainNotOwnedError } from "../services/ses-domains";
+import {
+  claimSendingDomain,
+  DomainNotOwnedError,
+} from "../services/ses-domains";
 import type { InboundConfig } from "../services/ses-inbound-config";
 import {
   findInboundRecipientOwner,
@@ -71,10 +72,19 @@ import { SesError } from "../ses/types";
  */
 
 const ORG = "ses-inbound-test-org";
+/**
+ * A SECOND tenant. A sending-domain claim belongs to an ORGANIZATION, so the
+ * only true stranger is another org — a second environment of the same org is
+ * the customer's own staging and is deliberately allowed.
+ */
+const STRANGER_ORG = "ses-inbound-stranger-org";
+const ORGS = [ORG, STRANGER_ORG];
 const DOMAIN = "acme-inbound.test";
 const OTHER_DOMAIN = "beta-inbound.test";
 /** Deliberately never claimed by a fixture — see `describe("cross-tenant claims")`. */
 const UNCLAIMED_DOMAIN = "stranger-inbound.test";
+/** Claimed by {@link STRANGER_ORG} only. Nobody in {@link ORG} may touch it. */
+const STRANGER_DOMAIN = "victim-inbound.test";
 const BUCKET = "hogsend-ses-inbound";
 const TOPIC = "arn:aws:sns:us-east-1:000000000000:hogsend-ses-inbound";
 const FORWARD = "support@acme-inbound.test";
@@ -88,16 +98,9 @@ const STORE: SesInboundStoreAction = {
 
 let seq = 0;
 
-/**
- * One keypair for the whole suite. Inbound asserts nothing about key material —
- * the key is here only as the CLAIM on a sending domain, which is what `enable`
- * checks — and generating a 2048-bit pair per fixture would cost more than
- * every other line in this file put together.
- */
-const CLAIM = generateDkimKeypair();
-
 interface Fixture {
   environmentId: string;
+  organizationId: string;
   inbound: FakeSesInboundClient;
   /** Every name this fixture's resolver answers MX records for. */
   mx: Map<string, { exchange: string; priority: number }[]>;
@@ -110,11 +113,14 @@ interface Fixture {
  * minted the way the pipeline mints it rather than inserted by hand, so a
  * change to provisioning that broke this flow shows up here.
  */
-async function seed(): Promise<Fixture> {
+async function seed(
+  opts: { organizationId?: string; claims?: string[] } = {},
+): Promise<Fixture> {
   seq += 1;
+  const organizationId = opts.organizationId ?? ORG;
   const [row] = await db
     .insert(environments)
-    .values({ organizationId: ORG, name: `ses-inbound-${seq}`, kind: "test" })
+    .values({ organizationId, name: `ses-inbound-${seq}`, kind: "test" })
     .returning();
   if (!row) throw new Error("failed to seed environment");
 
@@ -123,18 +129,25 @@ async function seed(): Promise<Fixture> {
     { ses: new FakeSesClient({ region: "us" }), snsTopicArn: null },
   );
   // The SENDING claim on each domain this fixture receives for. Replies are
-  // only ever turned on for a domain the environment already added, and adding
-  // one stores its DKIM key — which is the only record of who claimed it in a
-  // shared AWS account. `enable` refuses a domain with no claim, so a fixture
-  // that skipped this would be exercising that refusal in every test.
-  for (const domain of [DOMAIN, OTHER_DOMAIN]) {
-    await writeDkimKey(
-      { environmentId: row.id, domain, keypair: CLAIM },
-      { db },
-    );
+  // only ever turned on for a domain the ORGANIZATION already added, and the
+  // `sending_domains` row is the only record of who claimed it in a shared AWS
+  // account. `enable` and `disable` both refuse a domain with no claim, so a
+  // fixture that skipped this would be exercising that refusal in every test.
+  //
+  // Idempotent within an org, which is what lets every fixture here claim the
+  // same two names: the claim belongs to the tenant, not to the environment.
+  for (const domain of opts.claims ?? [DOMAIN, OTHER_DOMAIN]) {
+    await claimSendingDomain({
+      db,
+      organizationId,
+      environmentId: row.id,
+      domain,
+      awsRegion: "us-east-1",
+    });
   }
   return {
     environmentId: row.id,
+    organizationId,
     inbound: new FakeSesInboundClient({ region: "us" }),
     mx: new Map(),
   };
@@ -184,15 +197,16 @@ async function auditRows(action?: string) {
 }
 
 async function cleanup(): Promise<void> {
-  await db.delete(organizations).where(inArray(organizations.id, [ORG]));
+  await db.delete(organizations).where(inArray(organizations.id, ORGS));
 }
 
 beforeAll(async () => {
   await runCloudMigrations(env.CLOUD_DATABASE_URL);
   await cleanup();
-  await db
-    .insert(organizations)
-    .values({ id: ORG, name: "SES Inbound Test Org", region: "us" });
+  await db.insert(organizations).values([
+    { id: ORG, name: "SES Inbound Test Org", region: "us" },
+    { id: STRANGER_ORG, name: "SES Inbound Stranger Org", region: "us" },
+  ]);
 });
 
 afterAll(async () => {
@@ -988,11 +1002,17 @@ describe("disable", () => {
  * did not ask who owns the domain would let any environment start receiving —
  * and forwarding — another tenant's replies.
  *
+ * `disable` is worse, not better: it reads the ACCOUNT-WIDE rule set and
+ * rewrites — or DELETES — whichever rules carry the recipients of the domain
+ * the caller named. Unguarded, one tenant could stop another tenant's replies
+ * arriving, and the failure is silent: nothing bounces, nothing errors, the
+ * mail simply stops being received. It shipped without a guard at all.
+ *
  * `enable` has NO production caller today (no route, no provisioning step) and
- * the guard is here so that it cannot acquire one unsafely.
+ * the guards are here so that giving either one cannot open this door.
  */
 describe("cross-tenant claims", () => {
-  it("refuses a domain this environment never added, and writes NOTHING", async () => {
+  it("refuses a domain this organization never added, and writes NOTHING", async () => {
     const fixture = await seed();
 
     await expect(
@@ -1019,11 +1039,70 @@ describe("cross-tenant claims", () => {
       ),
     ).toBeNull();
 
-    // The SAME call for a domain this environment did add still works, so the
+    // The SAME call for a domain this organization did add still works, so the
     // refusal above is about ownership rather than about a broken fixture.
     await expect(
       service(fixture).enable({ domain: DOMAIN, forwardTo: FORWARD }),
     ).resolves.toMatchObject({ domain: DOMAIN });
+  });
+
+  it("refuses another organization's DISABLE, and leaves their mail arriving", async () => {
+    // The harm this closes: `disable` rewrites the account-wide rule set for
+    // whatever domain it is handed. One tenant could switch off another
+    // tenant's inbound mail, and nothing anywhere would report an error.
+    //
+    // ONE inbound account, because that is the fleet's real shape — the
+    // attacker's client must genuinely be able to see and rewrite the victim's
+    // rules, or the refusal below would be proving nothing.
+    const account = new FakeSesInboundClient({ region: "us" });
+    const victim = await seed({
+      organizationId: STRANGER_ORG,
+      claims: [STRANGER_DOMAIN],
+    });
+    const attacker = await seed();
+    victim.inbound = account;
+    attacker.inbound = account;
+
+    await service(victim).enable({
+      domain: STRANGER_DOMAIN,
+      forwardTo: FORWARD,
+    });
+    // Precondition: the victim really IS receiving. Without this the
+    // assertions below would pass against a rule set that was always empty.
+    const before = await account.getRuleSet({
+      ruleSetName: INBOUND_RULE_SET_NAME,
+    });
+    expect(before.rules.flatMap((rule) => rule.recipients)).toContain(
+      inboundDomainFor(STRANGER_DOMAIN),
+    );
+
+    await expect(service(attacker).disable(STRANGER_DOMAIN)).rejects.toThrow(
+      DomainNotOwnedError,
+    );
+
+    // NOTHING moved: the same rules, the same recipients, and the victim's
+    // forwarding address still on file.
+    const after = await account.getRuleSet({
+      ruleSetName: INBOUND_RULE_SET_NAME,
+    });
+    expect(after.rules).toEqual(before.rules);
+    expect(
+      await readInboundConfig(
+        { environmentId: victim.environmentId, domain: STRANGER_DOMAIN },
+        { db },
+      ),
+    ).toMatchObject({ forwardTo: FORWARD });
+    // Refused BEFORE the rule set was even read, so a stranger cannot use the
+    // call to learn whether a domain is receiving.
+    expect(account.calls.filter((c) => c.method === "deleteRule")).toHaveLength(
+      0,
+    );
+
+    // …and the victim can still turn their own off, so the refusal is about
+    // ownership rather than about a rule set nothing could ever change.
+    await expect(
+      service(victim).disable(STRANGER_DOMAIN),
+    ).resolves.toMatchObject({ state: "not_found" });
   });
 });
 

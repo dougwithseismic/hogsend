@@ -89,6 +89,62 @@ const providerErrorResponse = {
   description: "The provider rejected or failed the domains request",
 } as const;
 
+/**
+ * A provider refusal that is the OPERATOR'S to act on, forwarded verbatim
+ * instead of being buried under the blanket 502.
+ *
+ * The case this exists for: Hogsend Email answers `409 domain_not_owned` when a
+ * domain is claimed by another account, and its message carries the remedy.
+ * Flattened to "domains request to provider failed: …" with a 502, Studio
+ * rendered an opaque gateway error for a request that was well-formed,
+ * authenticated, and had a real answer waiting in it.
+ *
+ * 409 ONLY, and the narrowness is the point. A provider's 401 or 403 is OUR
+ * misconfiguration — a bad API key, a revoked token — and forwarding those
+ * would tell the customer their request was at fault for an outage they cannot
+ * fix. 502 stays the answer for everything genuinely opaque.
+ *
+ * The shape is matched STRUCTURALLY (a numeric `status`, a non-empty string
+ * `error` slug) rather than by class: the engine must not import a provider
+ * package to type-check a provider's error, and every plugin already models a
+ * refusal this way.
+ */
+const conflictResponse = {
+  content: {
+    "application/json": {
+      schema: z.object({
+        /** The provider's own slug, verbatim — e.g. `domain_not_owned`. */
+        error: z.string(),
+        /** The provider's sentence. It carries the remedy; render it. */
+        message: z.string(),
+      }),
+    },
+  },
+  description:
+    "The provider refused because the request conflicts with the world " +
+    "(e.g. the domain is already claimed by another account). The message " +
+    "carries the remedy.",
+} as const;
+
+/** The forwarded refusal, or `null` when this is an opaque provider failure. */
+const providerConflictBody = (
+  err: unknown,
+): { error: string; message: string } | null => {
+  if (typeof err !== "object" || err === null) return null;
+  const { status, error, message } = err as {
+    status?: unknown;
+    error?: unknown;
+    message?: unknown;
+  };
+  if (status !== 409) return null;
+  if (typeof error !== "string" || error.length === 0) return null;
+  return {
+    error,
+    message:
+      typeof message === "string" && message.length > 0 ? message : error,
+  };
+};
+
 const getDomainRoute = createRoute({
   method: "get",
   path: "/",
@@ -134,6 +190,7 @@ const addDomainRoute = createRoute({
       },
       description: "Domain registered (idempotent) — fresh status",
     },
+    409: conflictResponse,
     501: {
       content: { "application/json": { schema: errorSchema } },
       description: "The active provider has no domains capability",
@@ -158,6 +215,7 @@ const verifyDomainRoute = createRoute({
       content: { "application/json": { schema: errorSchema } },
       description: "No sending domain configured (EMAIL_DOMAIN / EMAIL_FROM)",
     },
+    409: conflictResponse,
     501: {
       content: { "application/json": { schema: errorSchema } },
       description: "The active provider has no domains capability",
@@ -223,6 +281,7 @@ const setReturnPathRoute = createRoute({
       content: { "application/json": { schema: errorSchema } },
       description: "Invalid return-path label, or no sending domain configured",
     },
+    409: conflictResponse,
     501: {
       content: { "application/json": { schema: errorSchema } },
       description:
@@ -263,6 +322,8 @@ export const domainRouter = new OpenAPIHono<AppEnv>()
       const status = await domainStatus.getStatus({ refresh: true });
       return c.json(status, 200);
     } catch (err) {
+      const conflict = providerConflictBody(err);
+      if (conflict) return c.json(conflict, 409);
       return c.json(
         providerErrorBody(emailProvider.meta?.id ?? "email", err),
         502,
@@ -294,6 +355,8 @@ export const domainRouter = new OpenAPIHono<AppEnv>()
       const status = await domainStatus.getStatus({ refresh: true });
       return c.json(status, 200);
     } catch (err) {
+      const conflict = providerConflictBody(err);
+      if (conflict) return c.json(conflict, 409);
       return c.json(
         providerErrorBody(emailProvider.meta?.id ?? "email", err),
         502,
@@ -362,6 +425,8 @@ export const domainRouter = new OpenAPIHono<AppEnv>()
         200,
       );
     } catch (err) {
+      const conflict = providerConflictBody(err);
+      if (conflict) return c.json(conflict, 409);
       return c.json(
         providerErrorBody(emailProvider.meta?.id ?? "email", err),
         502,

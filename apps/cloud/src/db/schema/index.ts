@@ -21,6 +21,7 @@ export * from "./organizations";
 export * from "./provider-keys";
 export * from "./publish-tokens";
 export * from "./relay-tokens";
+export * from "./sending-domains";
 export * from "./ses-tenants";
 export * from "./stack-alerts";
 export * from "./stack-health";

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
@@ -28,6 +28,11 @@ import type { SubstrateRegion } from "../substrate/types";
 import { type CloudWriter, writeAudit } from "./audit";
 import { NotFoundError } from "./errors";
 import { insertRelayToken } from "./relay-tokens";
+import type { SendingDomainClaim } from "./sending-domain-claims";
+import {
+  listSendingDomainClaims,
+  releaseSendingDomains,
+} from "./sending-domain-claims";
 import {
   resolveSesAvailability,
   type SesAvailability,
@@ -177,6 +182,10 @@ export const SES_DEPROVISION_STEPS = [
   "disassociate-configuration-set",
   "delete-tenant",
   "delete-configuration-set",
+  // CONDITIONAL — runs only when this was the organization's LAST SES tenancy.
+  // See `releaseSendingDomainsIfLastTenancy` for why that is the rule, and why
+  // the identity is deleted BEFORE the claim is released.
+  "release-sending-domains",
   "delete-relay-token",
   "forget",
 ] as const;
@@ -518,6 +527,15 @@ export async function deprovisionSesTenant(
   );
   steps.push("delete-configuration-set");
 
+  // ---- release-sending-domains --------------------------------------------
+  const released = await releaseSendingDomainsIfLastTenancy({
+    db,
+    ses,
+    environmentId,
+    awsRegion: row.awsRegion,
+  });
+  if (released !== null) steps.push("release-sending-domains");
+
   // ---- delete-relay-token + forget ----------------------------------------
   // One transaction: a row that outlived its credential would describe a
   // tenancy nothing can reach, and a credential that outlived its row would be
@@ -538,12 +556,92 @@ export async function deprovisionSesTenant(
         tenantName: row.tenantName,
         configurationSetName: row.configurationSetName,
         awsRegion: row.awsRegion,
+        // What the organization gave back, and null when it kept everything
+        // because another environment still holds a tenancy. Names only.
+        releasedDomains: released?.map((claim) => claim.domain) ?? null,
       },
     });
   });
   steps.push("delete-relay-token", "forget");
 
   return { found: true, steps };
+}
+
+/**
+ * Give the organization's sending domains back to the pool — SES identity
+ * first, claim second — but ONLY when this teardown removes its LAST tenancy.
+ *
+ * **The rule, and why it is the organization rather than the environment.** The
+ * claim is org-scoped, so releasing it on ENVIRONMENT deletion would hand a
+ * domain back while another environment of the same customer is still sending
+ * from it: the identity would be deleted underneath a live production
+ * environment, and the next org to type that domain would take it. So a claim
+ * survives while ANY environment of the org still has an SES tenancy, and is
+ * released when the last one goes. (The org itself going takes the rows with
+ * it: `sending_domains.organization_id` cascades.)
+ *
+ * **The ORDER inside is load-bearing.** The identity is deleted BEFORE the
+ * claim is released, never after. A crash in between leaves a claim whose
+ * identity is already gone — recoverable, because the same org re-creates it
+ * and a re-driven teardown releases it. The opposite order leaves an identity
+ * with no claim, which nobody can ever take again: exactly the permanent
+ * refusal this whole change exists to remove.
+ *
+ * Returns the released claims, or `null` when the org keeps them.
+ */
+async function releaseSendingDomainsIfLastTenancy(input: {
+  db: CloudDb;
+  ses: SesClient;
+  environmentId: string;
+  awsRegion: string;
+}): Promise<SendingDomainClaim[] | null> {
+  const { db, ses, environmentId } = input;
+
+  const [target] = await db
+    .select({ organizationId: environments.organizationId })
+    .from(environments)
+    .where(eq(environments.id, environmentId))
+    .limit(1);
+  if (!target) throw new NotFoundError("Environment", environmentId);
+
+  // Every OTHER environment of this org that still holds a tenancy. This row is
+  // still present (it is deleted in the transaction below), so it is excluded
+  // explicitly rather than by counting after the fact.
+  const [siblings] = await db
+    .select({ total: count() })
+    .from(sesTenants)
+    .innerJoin(environments, eq(environments.id, sesTenants.environmentId))
+    .where(
+      and(
+        eq(environments.organizationId, target.organizationId),
+        ne(sesTenants.environmentId, environmentId),
+      ),
+    );
+  if ((siblings?.total ?? 0) > 0) return null;
+
+  const claims = await listSendingDomainClaims(db, target.organizationId);
+  for (const claim of claims) {
+    // Cannot happen: every environment of an org inherits the org's fixed
+    // region, and `aws_region` is derived from it. If it ever does, PARK the
+    // teardown rather than delete in the wrong region — a `not_found` there
+    // looks like success and would release a claim whose identity is still
+    // live, locking the domain away from everyone forever.
+    if (claim.awsRegion !== input.awsRegion) {
+      throw new Error(
+        `refusing to release sending domain "${claim.domain}": its identity is in ${claim.awsRegion} but this teardown addresses ${input.awsRegion}. Deleting in the wrong region would answer not_found and leak the identity.`,
+      );
+    }
+    // Absent is the goal, so an identity somebody already removed is success.
+    await tolerate(["not_found"], () =>
+      ses.deleteIdentity({ identity: claim.domain }),
+    );
+  }
+
+  // Only now — after every identity is provably gone.
+  return releaseSendingDomains({
+    writer: db,
+    organizationId: target.organizationId,
+  });
 }
 
 /**

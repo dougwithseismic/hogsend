@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CloudDb } from "../db";
 import { db, sqlClient } from "../db";
@@ -8,12 +8,14 @@ import {
   environments,
   organizations,
   relayTokens,
+  sendingDomains,
   sesTenants,
 } from "../db/schema";
 import { env } from "../env";
 import { decryptSecretPayload } from "../lib/crypto";
 import { RelayTokenService } from "../services/relay-tokens";
 import { resetSesAvailabilityCache } from "../services/ses-availability";
+import { claimSendingDomain } from "../services/ses-domains";
 import {
   deprovisionSesTenant,
   getSesTenant,
@@ -49,6 +51,16 @@ import { WALKTHROUGH_PUBLISHED_EVENT_TYPES } from "../ses-walkthrough/walkthroug
 
 const US_ORG = "ses-tenant-test-org-us";
 const EU_ORG = "ses-tenant-test-org-eu";
+/**
+ * A third tenant, used ONLY by the sending-domain teardown tests.
+ *
+ * Its own org because the release rule counts the organization's REMAINING SES
+ * tenancies, and `US_ORG` accumulates a provisioned environment from nearly
+ * every test above — which would make "is this the last tenancy?" answer no
+ * forever and quietly certify nothing.
+ */
+const DOMAIN_ORG = "ses-tenant-test-org-domains";
+const ORGS = [US_ORG, EU_ORG, DOMAIN_ORG];
 
 /**
  * The region's SNS topic (PRD 05). Passed EXPLICITLY rather than read from the
@@ -157,9 +169,7 @@ const FAILURE_INJECTORS: Record<SesProvisionStep, () => { db?: CloudDb }> = {
 };
 
 async function cleanup(): Promise<void> {
-  await db
-    .delete(organizations)
-    .where(inArray(organizations.id, [US_ORG, EU_ORG]));
+  await db.delete(organizations).where(inArray(organizations.id, ORGS));
 }
 
 beforeAll(async () => {
@@ -168,6 +178,7 @@ beforeAll(async () => {
   await db.insert(organizations).values([
     { id: US_ORG, name: "SES Tenant Test US", region: "us" },
     { id: EU_ORG, name: "SES Tenant Test EU", region: "eu" },
+    { id: DOMAIN_ORG, name: "SES Tenant Test Domains", region: "us" },
   ]);
   resetSesClients();
 });
@@ -739,5 +750,118 @@ describe("deprovisionSesTenant", () => {
     expect(
       await new RelayTokenService(db).verify({ token: relayToken }),
     ).toEqual({ found: false });
+  });
+
+  /**
+   * THE LEAK this teardown used to have, and the reason it went uncaught: every
+   * assertion above is about the tenant, the configuration set and the relay
+   * token, and NOT ONE of them is about the email identity.
+   *
+   * `deleteIdentity` was never called. So a destroyed environment left its
+   * domain verified in the shared AWS account while the deed vanished with the
+   * row — and the domain became permanently unclaimable by anybody, including
+   * the customer whose domain it is.
+   */
+  describe("sending domains", () => {
+    const DOMAIN = "teardown-tenants.test";
+
+    async function liveClaim(domain: string) {
+      const [row] = await db
+        .select()
+        .from(sendingDomains)
+        .where(
+          and(
+            eq(sendingDomains.domain, domain),
+            isNull(sendingDomains.releasedAt),
+          ),
+        );
+      return row;
+    }
+
+    /** A claimed, verified domain on the process-wide fake — the real shape. */
+    async function claimed(environmentId: string, domain: string) {
+      await claimSendingDomain({
+        db,
+        organizationId: DOMAIN_ORG,
+        environmentId,
+        domain,
+        awsRegion: "us-east-1",
+      });
+      await fake().createIdentity({ domain });
+    }
+
+    it("deletes the SES identity and releases the claim on the last tenancy", async () => {
+      const environmentId = await seedEnvironment(DOMAIN_ORG);
+      await provisionSesTenant({ environmentId });
+      await claimed(environmentId, DOMAIN);
+      // Preconditions, or the two assertions below pass against a world where
+      // neither ever existed.
+      expect(await fake().getIdentity({ identity: DOMAIN })).toBeDefined();
+      expect(await liveClaim(DOMAIN)).toBeDefined();
+
+      const result = await deprovisionSesTenant({ environmentId });
+      expect(result.steps).toContain("release-sending-domains");
+
+      // GONE from AWS. Without this the identity survives its environment and
+      // nothing on earth can ever claim the domain again.
+      await expect(
+        fake().getIdentity({ identity: DOMAIN }),
+      ).rejects.toMatchObject({ kind: "not_found" });
+      // …and only THEN released, so a crash between the two leaves a claim
+      // with no identity (recoverable) rather than the reverse (not).
+      expect(await liveClaim(DOMAIN)).toBeUndefined();
+      // Soft, so who held it stays answerable.
+      const [row] = await db
+        .select()
+        .from(sendingDomains)
+        .where(eq(sendingDomains.domain, DOMAIN));
+      expect(row?.releasedAt).toBeInstanceOf(Date);
+    });
+
+    it("keeps both while ANOTHER environment of the org still has a tenancy", async () => {
+      // The rule: the claim is the ORGANIZATION's, so releasing it when one
+      // environment goes would delete a domain another environment is still
+      // sending from — and hand the name to the next org that types it.
+      const sibling = "teardown-tenants-sibling.test";
+      const production = await seedEnvironment(DOMAIN_ORG);
+      const staging = await seedEnvironment(DOMAIN_ORG);
+      await provisionSesTenant({ environmentId: production });
+      await provisionSesTenant({ environmentId: staging });
+      await claimed(production, sibling);
+
+      const result = await deprovisionSesTenant({ environmentId: production });
+      expect(result.steps).not.toContain("release-sending-domains");
+
+      expect(await fake().getIdentity({ identity: sibling })).toBeDefined();
+      expect((await liveClaim(sibling))?.organizationId).toBe(DOMAIN_ORG);
+
+      // …and it IS released once the last one goes, so the test above is about
+      // the sibling rather than about a release that never happens at all.
+      await deprovisionSesTenant({ environmentId: staging });
+      await expect(
+        fake().getIdentity({ identity: sibling }),
+      ).rejects.toMatchObject({ kind: "not_found" });
+      expect(await liveClaim(sibling)).toBeUndefined();
+    });
+
+    it("tolerates an identity somebody already deleted", async () => {
+      const environmentId = await seedEnvironment(DOMAIN_ORG);
+      await provisionSesTenant({ environmentId });
+      const orphan = "teardown-tenants-orphan.test";
+      await claimSendingDomain({
+        db,
+        organizationId: DOMAIN_ORG,
+        environmentId,
+        domain: orphan,
+        awsRegion: "us-east-1",
+      });
+
+      // No identity was ever created for it — an interrupted provision, or a
+      // console delete. Absence is the goal, so this is success.
+      await expect(
+        deprovisionSesTenant({ environmentId }),
+      ).resolves.toMatchObject({ found: true });
+      expect(await liveClaim(orphan)).toBeUndefined();
+    });
   });
 });
