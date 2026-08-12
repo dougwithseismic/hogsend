@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { CloudDb } from "../db";
 import { CloudServiceError, NotFoundError } from "../services/errors";
 import type { HogsendDomains } from "../services/ses-domains";
-import { createHogsendDomains } from "../services/ses-domains";
+import {
+  createHogsendDomains,
+  DomainNotOwnedError,
+} from "../services/ses-domains";
 import type { SesClient } from "../ses/contract";
 import { SesError } from "../ses/types";
 import { type RelayCaller, resolveRelayCaller } from "./email-relay";
@@ -195,6 +198,14 @@ function failureResponse(error: unknown, caller: RelayCaller): Response {
   // verbatim so the plugin and Studio can branch on it.
   if (error instanceof NotFoundError) {
     return fail(404, error.code, error.message);
+  }
+  // 409, ahead of the generic 400: the request is well-formed and the caller is
+  // authenticated — what conflicts is the world. Another environment holds this
+  // domain, or nobody does and it needs an operator. The message carries the
+  // remedy; it names no tenant, because a refusal that said WHO holds the
+  // domain would answer the question an enumerating caller asked.
+  if (error instanceof DomainNotOwnedError) {
+    return fail(409, error.code, error.message);
   }
   if (error instanceof CloudServiceError) {
     return fail(400, error.code, error.message);

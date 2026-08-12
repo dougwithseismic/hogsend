@@ -81,8 +81,12 @@ interface Fixture {
  * A fully provisioned environment: an SES tenancy, a configuration set and a
  * relay token, minted the way the pipeline mints them rather than inserted by
  * hand — so a change to provisioning that broke the domains flow shows up here.
+ *
+ * Pass a client to put two environments in ONE AWS account, which is the shape
+ * the fleet actually has: SES identities are account-scoped and Hogsend Cloud
+ * runs one shared account, so a second tenant SEES the first tenant's domain.
  */
-async function seed(): Promise<Fixture> {
+async function seed(client?: FakeSesClient): Promise<Fixture> {
   seq += 1;
   const [row] = await db
     .insert(environments)
@@ -90,7 +94,7 @@ async function seed(): Promise<Fixture> {
     .returning();
   if (!row) throw new Error("failed to seed environment");
 
-  const ses = new FakeSesClient({ region: "us" });
+  const ses = client ?? new FakeSesClient({ region: "us" });
   await provisionSesTenant(
     { environmentId: row.id },
     { ses, snsTopicArn: null },
@@ -315,9 +319,20 @@ describe("create", () => {
     // so the domain could never send and retrying never repaired it. Real AWS
     // answers `AccessDeniedException` 403 on that send, observed 2026-08-11.
     const fixture = await seed();
+    // The interruption reproduced FAITHFULLY: `create` writes the keypair
+    // BEFORE `CreateEmailIdentity` (see the comment at that call), so a
+    // provision that died on the way to `associateResource` left the key
+    // stored and the identity made. That stored key is also what proves this
+    // environment owns the domain, so a heal that skipped it would be healing
+    // a domain nobody here ever added.
+    const keypair = generateDkimKeypair();
+    await writeDkimKey(
+      { environmentId: fixture.environmentId, domain: DOMAIN, keypair },
+      { db },
+    );
     await fixture.ses.createIdentity({
       domain: DOMAIN,
-      dkim: { selector: "hogsend", privateKey: "irrelevant-to-this-test" },
+      dkim: { selector: keypair.selector, privateKey: keypair.privateKey },
     });
     fixture.ses.__verifyIdentity(DOMAIN);
 
@@ -444,14 +459,29 @@ describe("get / records / verify", () => {
 
   it("does NOT report verified when DKIM is not our own EXTERNAL key", async () => {
     const fixture = await seed();
-    // Easy DKIM, created out of band — verified for SENDING, but not by the key
-    // this stack published, and `records` has nothing to show for it.
+    // This environment DID add the domain — its key is stored, which is what
+    // makes the domain its own — but the identity in SES was rebuilt on Easy
+    // DKIM out of band. It is verified for SENDING, just not by the key this
+    // stack published, and every other field reads healthy.
+    const keypair = generateDkimKeypair();
+    await writeDkimKey(
+      { environmentId: fixture.environmentId, domain: DOMAIN, keypair },
+      { db },
+    );
     await fixture.ses.createIdentity({ domain: DOMAIN });
     fixture.ses.__verifyIdentity(DOMAIN);
 
     const status = await domains(fixture).verify(DOMAIN);
     expect(status.state).toBe("pending");
-    expect(status.records).toEqual([]);
+    // SES itself says SUCCESS, so `pending` is a judgement about the ORIGIN
+    // rather than a status read straight off the wire.
+    expect(
+      (await fixture.ses.getIdentity({ identity: DOMAIN })).dkim,
+    ).toMatchObject({ status: "SUCCESS", origin: "AWS_SES" });
+    // And the record we show is still ours: the one the customer has to
+    // publish for the signature to be ours again.
+    expect(status.records).toHaveLength(1);
+    expect(status.records[0]?.purpose).toBe("dkim");
   });
 
   it("reports failed when SES gave up on the domain", async () => {
@@ -462,6 +492,139 @@ describe("get / records / verify", () => {
     const status = await domains(fixture).verify(DOMAIN);
     expect(status.state).toBe("failed");
     expect(status.records[0]?.status).toBe("failed");
+  });
+});
+
+/**
+ * THE TENANT BOUNDARY of the sending path.
+ *
+ * SES email identities are ACCOUNT-scoped and Hogsend Cloud runs ONE shared AWS
+ * account for the whole fleet, so "who owns acme.com" is not a question SES can
+ * answer: every environment sees every identity. The one fact that tells the
+ * environment that ADDED a domain apart from every other environment is the
+ * stored DKIM key — `create` writes it BEFORE `CreateEmailIdentity`, so the
+ * true owner always holds one by the time the identity exists.
+ *
+ * What the guard prevents is not a wrong status code. Association is the ONLY
+ * gate on the send path, so an unguarded `create` handed any relay token —
+ * every provisioned environment has one — a competitor's verified domain to
+ * send DKIM-signed mail from, on the account whose reputation is shared by the
+ * whole fleet.
+ */
+describe("cross-tenant claims", () => {
+  /** Two environments in ONE AWS account, the first holding a live domain. */
+  async function neighbours(): Promise<{
+    account: FakeSesClient;
+    owner: Fixture;
+    stranger: Fixture;
+  }> {
+    const account = new FakeSesClient({ region: "us" });
+    const owner = await seed(account);
+    const stranger = await seed(account);
+    await domains(owner).create(DOMAIN);
+    account.__verifyIdentity(DOMAIN);
+    return { account, owner, stranger };
+  }
+
+  function message() {
+    return {
+      from: `hello@${DOMAIN}`,
+      to: ["person@example.test"],
+      subject: "hi",
+      html: "<p>hi</p>",
+    };
+  }
+
+  it("refuses a stranger's create — and grants NO association", async () => {
+    const { account, owner, stranger } = await neighbours();
+
+    await expect(domains(stranger).create(DOMAIN)).rejects.toMatchObject({
+      code: "domain_not_owned",
+    });
+
+    // The THROW is not the harm; the ASSOCIATION is. A tenant that holds one
+    // can send from the domain, so this is the assertion that matters.
+    expect(
+      account
+        .__tenant(stranger.tenantName)
+        ?.resources.some((arn) => arn.endsWith(`identity/${DOMAIN}`)),
+    ).toBe(false);
+    await expect(
+      account.sendEmail({
+        tenantName: stranger.tenantName,
+        message: message(),
+      }),
+    ).rejects.toThrow(/not associated/i);
+
+    // No key was minted for the stranger either, so a retry cannot promote it
+    // into an owner by its own previous attempt.
+    expect(await storedKey(stranger)).toBeNull();
+
+    // And the owner is untouched: their domain still sends.
+    await expect(
+      account.sendEmail({ tenantName: owner.tenantName, message: message() }),
+    ).resolves.toMatchObject({ messageId: expect.any(String) });
+  });
+
+  it("hides the domain from a stranger's get, records and verify", async () => {
+    const { owner, stranger } = await neighbours();
+
+    // Not a redacted answer — the same answer a domain nobody added gets. A
+    // status carries the identity VERBATIM in `raw`, so answering one here
+    // would hand a stranger another tenant's identity state.
+    expect(await domains(stranger).get(DOMAIN)).toBeNull();
+    expect(await domains(stranger).records(DOMAIN)).toEqual([]);
+    const status = await domains(stranger).verify(DOMAIN);
+    expect(status.state).toBe("not_found");
+    expect(status.records).toEqual([]);
+
+    // The owner still sees it, so the three assertions above are about
+    // ownership rather than about a fixture that never worked.
+    expect((await domains(owner).get(DOMAIN))?.state).toBe("verified");
+  });
+
+  it("refuses a stranger's return-path toggle, and never calls setMailFrom", async () => {
+    const { account, owner, stranger } = await neighbours();
+
+    await expect(
+      domains(stranger).setReturnPath({ domain: DOMAIN, enabled: true }),
+    ).rejects.toMatchObject({ code: "domain_not_owned" });
+
+    // A MAIL FROM write is where the victim's BOUNCES go. Nothing reached SES.
+    expect(account.calls.filter((c) => c.method === "setMailFrom")).toEqual([]);
+    expect(
+      (await account.getIdentity({ identity: DOMAIN })).mailFrom,
+    ).toBeUndefined();
+
+    // The owner can still toggle their own.
+    const on = await domains(owner).setReturnPath({
+      domain: DOMAIN,
+      enabled: true,
+    });
+    expect(on.mailFromDomain).toBe(`send.${DOMAIN}`);
+  });
+
+  it("fails CLOSED on an identity nobody holds a key for, and says the remedy is manual", async () => {
+    // An identity created out of band — a console click, a script, a key row
+    // that was lost. NO environment can heal this one, and that is the correct
+    // posture: the alternative is a first-come-take-it hatch. So the message
+    // has to send an operator to SES rather than leave them retrying a call
+    // that will never start working.
+    const account = new FakeSesClient({ region: "us" });
+    const fixture = await seed(account);
+    await account.createIdentity({ domain: DOMAIN });
+
+    const error = await domains(fixture)
+      .create(DOMAIN)
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toMatchObject({ code: "domain_not_owned" });
+    expect((error as Error).message).toMatch(/manual/i);
+    expect(
+      account
+        .__tenant(fixture.tenantName)
+        ?.resources.some((arn) => arn.endsWith(`identity/${DOMAIN}`)),
+    ).toBe(false);
   });
 });
 
@@ -809,6 +972,34 @@ describe("the control-plane endpoints", () => {
     );
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ error: "not_found" });
+  });
+
+  it("answer 409 when the domain belongs to another environment", async () => {
+    // Every provisioned environment holds a relay token, so this request is
+    // authenticated and well-formed. 409 rather than 404 or 400, because the
+    // caller's request is fine and the CONFLICT is with the world.
+    const account = new FakeSesClient({ region: "us" });
+    const owner = await seedWithToken(account);
+    const stranger = await seedWithToken(account);
+    await handleDomainCreate(
+      request("", { token: owner.token, body: { domain: DOMAIN } }),
+      { db, ses: account },
+    );
+
+    const response = await handleDomainCreate(
+      request("", { token: stranger.token, body: { domain: DOMAIN } }),
+      { db, ses: account },
+    );
+
+    expect(response.status).toBe(409);
+    const body = await response.text();
+    expect(JSON.parse(body)).toMatchObject({ error: "domain_not_owned" });
+    // An operator can act on it…
+    expect(body).toMatch(/manual/i);
+    // …and it names NOBODY. A refusal that leaked which tenant holds the
+    // domain would answer the question the attacker asked.
+    expect(body).not.toContain(owner.environmentId);
+    expect(body).not.toContain(owner.tenantName);
   });
 
   it("bound the burst, so a leaked token cannot mint keypairs in a loop", async () => {

@@ -34,7 +34,11 @@ import type { SubstrateRegion } from "../substrate/types";
 import { writeAudit } from "./audit";
 import { CloudServiceError } from "./errors";
 import type { Tenancy } from "./ses-domains";
-import { InvalidDomainError, loadTenancy } from "./ses-domains";
+import {
+  InvalidDomainError,
+  loadTenancy,
+  requireDomainOwnership,
+} from "./ses-domains";
 import {
   deleteInboundConfig,
   readInboundConfig,
@@ -395,6 +399,17 @@ export function createHogsendInbound(
       const domain = requireDomain(request.domain);
       const tenant = await tenancy();
       const ses = await client();
+      // (0) OWNERSHIP, before every other check, because it is the cheapest and
+      // the most consequential. Receiving is enabled on a domain by writing
+      // into the account-wide active rule set and storing a forwarding address
+      // for it; done for a domain this environment never added, that is one
+      // tenant reading — and forwarding to a mailbox of its choosing — another
+      // tenant's replies. The deed is the sending domain's stored DKIM key,
+      // exactly as on the sending side (see `DomainNotOwnedError`).
+      //
+      // `enable` has no production caller today. The guard is here so that
+      // giving it one cannot open this door by accident.
+      await requireDomainOwnership({ db, environmentId, domain });
       // Before ANY write, and before the DNS round trip: a region with no
       // bucket and no topic cannot receive at all, so there is nothing to ask
       // DNS about.

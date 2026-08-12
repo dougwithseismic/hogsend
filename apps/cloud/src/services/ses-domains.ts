@@ -52,6 +52,14 @@ import { getSesTenant } from "./ses-tenants";
  *    identity. A second keypair would invalidate the record the customer has
  *    already published, and they would have no way of knowing why their mail
  *    stopped signing.
+ *  - **Every per-domain operation is gated on OWNERSHIP, and the stored DKIM
+ *    key is the deed.** SES identities are ACCOUNT-scoped and the whole fleet
+ *    shares one AWS account, so the identity register cannot say whose domain
+ *    this is; the key can, because {@link writeDkimKey} happens BEFORE
+ *    `CreateEmailIdentity` and so the environment that created an identity
+ *    always holds one by the time that identity exists. See
+ *    {@link DomainNotOwnedError} for what that buys and what it deliberately
+ *    refuses to heal.
  *  - **The branded return path is OFF by default and reversible.** On, it adds
  *    exactly two records (MX + SPF at `send.<domain>`); off, they are gone
  *    again and the identity is back on SES's default return path.
@@ -132,6 +140,92 @@ export class NoSesTenancyError extends CloudServiceError {
 }
 
 /**
+ * The domain exists as an email identity in the shared AWS account, and THIS
+ * environment is not the one that put it there.
+ *
+ * SES email identities are ACCOUNT-scoped, and Hogsend Cloud deliberately runs
+ * one AWS account for the whole fleet, so `GetEmailIdentity` answers for every
+ * tenant's domains at once. Association is the only gate on the send path, so
+ * an unguarded `create` handed any relay token — every provisioned environment
+ * has one — the ability to associate itself with a competitor's verified domain
+ * and send DKIM-signed mail from it.
+ *
+ * The deed is the stored DKIM key. `create` writes it BEFORE
+ * `CreateEmailIdentity` (see the comment at that call, which is about a lost
+ * response rather than about ownership, and gives us this for free), so the
+ * environment that created an identity ALWAYS holds a key by the time that
+ * identity exists. Gating on the key therefore leaves PRD 22's self-heal — a
+ * provision that died between `createIdentity` and `associateResource` — intact
+ * to the environment it belongs to, while refusing a stranger.
+ *
+ * FAIL-CLOSED, and that is the whole design: an identity nobody holds a key
+ * for — created in the AWS console, made by a script, or one whose key row was
+ * lost — cannot be claimed by ANY environment, including the customer whose
+ * domain it is. There is no override, because an override is exactly the
+ * first-come-take-it hatch this closes. The remedy is manual and the message
+ * says so, so an operator reads a rule rather than a bug.
+ *
+ * The ONE residual a stored key cannot close: two environments calling `create`
+ * for a domain SES does not hold YET. Both read no identity, both store a key,
+ * one wins `CreateEmailIdentity` and the loser is left holding a key for a
+ * domain it does not own — enough to pass this guard on a later retry. Closing
+ * that needs a claim taken under a unique index BEFORE the SES call (the
+ * `sending_domains` table, queued as its own change); the window here is the
+ * milliseconds between two concurrent creates for the same never-before-seen
+ * domain, and nothing about it lets a stranger reach a domain that already
+ * exists.
+ */
+export class DomainNotOwnedError extends CloudServiceError {
+  readonly code = "domain_not_owned";
+
+  constructor(readonly domain: string) {
+    super(
+      `"${domain}" already exists as an email identity in Hogsend Email's ` +
+        "shared AWS account, and this environment does not hold its DKIM key " +
+        "— the key that records which environment added the domain. Only that " +
+        "environment can associate, read or change it. If no environment holds " +
+        "a key for it (an identity created out of band, or a key that was " +
+        "lost), no automatic recovery is possible and the fix is MANUAL: an " +
+        "operator must delete the identity in SES, or restore the key, before " +
+        "this domain can be added again.",
+    );
+  }
+}
+
+/** Does this environment hold the domain's DKIM key — i.e. did it add it? */
+async function ownsDomain(input: {
+  db: CloudDb;
+  environmentId: string;
+  domain: string;
+}): Promise<boolean> {
+  const key = await readDkimKey(
+    { environmentId: input.environmentId, domain: input.domain },
+    { db: input.db },
+  );
+  return key !== null;
+}
+
+/**
+ * Refuse unless this environment added the domain.
+ *
+ * Exported because inbound receiving (`ses-inbound-domains.ts`) has the same
+ * boundary to enforce and must enforce it the same way — two modules deriving
+ * "is this domain ours" independently is how one of them ends up with a subtly
+ * weaker rule.
+ *
+ * The domain is expected NORMALIZED (`requireDomain`), because the key is
+ * stored under the normalized name and a caller that skipped it would ask
+ * about a domain nobody has a key for and be refused for the wrong reason.
+ */
+export async function requireDomainOwnership(input: {
+  db: CloudDb;
+  environmentId: string;
+  domain: string;
+}): Promise<void> {
+  if (!(await ownsDomain(input))) throw new DomainNotOwnedError(input.domain);
+}
+
+/**
  * The three facts every per-domain operation needs. Exported because inbound
  * receiving (`ses-inbound-domains.ts`) needs exactly the same ones, and two
  * modules deriving "which region is this environment's SES in" independently is
@@ -196,8 +290,25 @@ export function createHogsendDomains(
     });
   };
 
+  /** This environment's claim on the domain, or a refusal. */
+  const owns = (domain: string): Promise<boolean> =>
+    ownsDomain({ db, environmentId, domain });
+  const requireOwnership = (domain: string): Promise<void> =>
+    requireDomainOwnership({ db, environmentId, domain });
+
+  /**
+   * A domain this environment did not add answers `null` — the SAME answer as
+   * a domain SES has never heard of, not a redacted one.
+   *
+   * `DomainStatus` carries the identity VERBATIM in `raw`, so answering for an
+   * account-wide identity made this an enumeration oracle: any relay token
+   * could read back another tenant's verification state, MAIL FROM and DKIM
+   * origin one domain guess at a time. `records` and `verify` both delegate
+   * here, so they inherit the same boundary.
+   */
   const get = async (domain: string): Promise<DomainStatus | null> => {
     const name = requireDomain(domain);
+    if (!(await owns(name))) return null;
     const identity = await readIdentity(name);
     return identity ? snapshot(name, identity) : null;
   };
@@ -228,6 +339,14 @@ export function createHogsendDomains(
       // divergence rather than closed one.
       const existing = await readIdentity(name);
       if (existing) {
+        // …but ONLY for the environment that created it. The self-heal above
+        // and a cross-tenant grant are the same call with a different caller:
+        // identities are account-scoped, association is the only gate on the
+        // send path, and every provisioned environment holds a relay token. So
+        // the association is re-asserted for the environment whose DKIM key
+        // signs this domain, and refused for everybody else — including a
+        // stranger whose retry would otherwise repair its own theft.
+        await requireOwnership(name);
         await associateIdentity(ses, tenant, name);
         return snapshot(name, existing);
       }
@@ -327,6 +446,11 @@ export function createHogsendDomains(
       if (!(await readIdentity(name))) {
         throw new NotFoundError("Email identity", name);
       }
+      // Not a read: a MAIL FROM write moves where a domain's BOUNCES are
+      // delivered. Unguarded, any relay token could redirect another tenant's
+      // return path — and `USE_DEFAULT_VALUE` means their mail would keep
+      // flowing while their bounce feedback quietly went somewhere else.
+      await requireOwnership(name);
 
       await ses.setMailFrom({
         identity: name,

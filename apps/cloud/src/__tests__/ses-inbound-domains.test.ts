@@ -19,8 +19,15 @@ import {
   planInboundRule,
   resolveInboundStore,
 } from "../lib/inbound-domains";
+import { generateDkimKeypair } from "../lib/sending-domains";
+import { writeDkimKey } from "../services/ses-dkim-keys";
+import { DomainNotOwnedError } from "../services/ses-domains";
 import type { InboundConfig } from "../services/ses-inbound-config";
-import { readInboundConfig } from "../services/ses-inbound-config";
+import {
+  findInboundRecipientOwner,
+  readInboundConfig,
+  writeInboundConfig,
+} from "../services/ses-inbound-config";
 import {
   createHogsendInbound,
   ForeignInboundMxError,
@@ -66,6 +73,8 @@ import { SesError } from "../ses/types";
 const ORG = "ses-inbound-test-org";
 const DOMAIN = "acme-inbound.test";
 const OTHER_DOMAIN = "beta-inbound.test";
+/** Deliberately never claimed by a fixture — see `describe("cross-tenant claims")`. */
+const UNCLAIMED_DOMAIN = "stranger-inbound.test";
 const BUCKET = "hogsend-ses-inbound";
 const TOPIC = "arn:aws:sns:us-east-1:000000000000:hogsend-ses-inbound";
 const FORWARD = "support@acme-inbound.test";
@@ -78,6 +87,14 @@ const STORE: SesInboundStoreAction = {
 };
 
 let seq = 0;
+
+/**
+ * One keypair for the whole suite. Inbound asserts nothing about key material —
+ * the key is here only as the CLAIM on a sending domain, which is what `enable`
+ * checks — and generating a 2048-bit pair per fixture would cost more than
+ * every other line in this file put together.
+ */
+const CLAIM = generateDkimKeypair();
 
 interface Fixture {
   environmentId: string;
@@ -105,6 +122,17 @@ async function seed(): Promise<Fixture> {
     { environmentId: row.id },
     { ses: new FakeSesClient({ region: "us" }), snsTopicArn: null },
   );
+  // The SENDING claim on each domain this fixture receives for. Replies are
+  // only ever turned on for a domain the environment already added, and adding
+  // one stores its DKIM key — which is the only record of who claimed it in a
+  // shared AWS account. `enable` refuses a domain with no claim, so a fixture
+  // that skipped this would be exercising that refusal in every test.
+  for (const domain of [DOMAIN, OTHER_DOMAIN]) {
+    await writeDkimKey(
+      { environmentId: row.id, domain, keypair: CLAIM },
+      { db },
+    );
+  }
   return {
     environmentId: row.id,
     inbound: new FakeSesInboundClient({ region: "us" }),
@@ -946,5 +974,100 @@ describe("disable", () => {
     await expect(service(fixture).disable(DOMAIN)).resolves.toMatchObject({
       state: "not_found",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The tenant boundary
+// ---------------------------------------------------------------------------
+
+/**
+ * Receiving has the same shared-account problem the sending side has, one door
+ * further along: SES verifies a domain per ACCOUNT, and a receipt rule is
+ * written into one shared, account-wide active rule set. So an `enable` that
+ * did not ask who owns the domain would let any environment start receiving —
+ * and forwarding — another tenant's replies.
+ *
+ * `enable` has NO production caller today (no route, no provisioning step) and
+ * the guard is here so that it cannot acquire one unsafely.
+ */
+describe("cross-tenant claims", () => {
+  it("refuses a domain this environment never added, and writes NOTHING", async () => {
+    const fixture = await seed();
+
+    await expect(
+      service(fixture).enable({
+        domain: UNCLAIMED_DOMAIN,
+        forwardTo: FORWARD,
+      }),
+    ).rejects.toThrow(DomainNotOwnedError);
+
+    // Refused BEFORE the first write, which for inbound means before the
+    // account-wide rule set is created or made active — a set activated for a
+    // claim we then refused would still displace whatever was receiving.
+    await expect(
+      fixture.inbound.getRuleSet({ ruleSetName: INBOUND_RULE_SET_NAME }),
+    ).rejects.toThrow(SesError);
+    expect(await fixture.inbound.getActiveRuleSet()).toEqual({ rules: [] });
+    // And no forwarding address is left behind for a domain that never
+    // received: a stored address with no rule is inert, but it is also a claim
+    // this environment does not have.
+    expect(
+      await readInboundConfig(
+        { environmentId: fixture.environmentId, domain: UNCLAIMED_DOMAIN },
+        { db },
+      ),
+    ).toBeNull();
+
+    // The SAME call for a domain this environment did add still works, so the
+    // refusal above is about ownership rather than about a broken fixture.
+    await expect(
+      service(fixture).enable({ domain: DOMAIN, forwardTo: FORWARD }),
+    ).resolves.toMatchObject({ domain: DOMAIN });
+  });
+});
+
+/**
+ * `findInboundRecipientOwner` is the tenant boundary of the RECEIVE path: it
+ * decides whose reply a message is. It scans, so two environments can both
+ * hold a config for one domain — and answering with whichever row the database
+ * returned first would hand a second claimant another tenant's replies, and the
+ * forwarding address they get delivered to.
+ */
+describe("findInboundRecipientOwner", () => {
+  const CONTESTED = "contested-inbound.test";
+  const RECIPIENT = `hello@${INBOUND_SUBDOMAIN}.${CONTESTED}`;
+
+  it("refuses an ambiguous claim rather than picking one", async () => {
+    const first = await seed();
+    const second = await seed();
+    await writeInboundConfig(
+      {
+        environmentId: first.environmentId,
+        domain: CONTESTED,
+        config: { forwardTo: FORWARD, label: INBOUND_SUBDOMAIN },
+      },
+      { db },
+    );
+
+    // One claimant: resolved. Without this the assertion below would pass
+    // against a resolver that never answers at all.
+    expect(await findInboundRecipientOwner(RECIPIENT, { db })).toMatchObject({
+      environmentId: first.environmentId,
+      domain: CONTESTED,
+    });
+
+    await writeInboundConfig(
+      {
+        environmentId: second.environmentId,
+        domain: CONTESTED,
+        config: { forwardTo: `someone@${CONTESTED}`, label: INBOUND_SUBDOMAIN },
+      },
+      { db },
+    );
+
+    // Two: nobody. The message is recorded unattributed, which an operator can
+    // see and fix; the alternative is a silent interception.
+    expect(await findInboundRecipientOwner(RECIPIENT, { db })).toBeNull();
   });
 });

@@ -140,6 +140,14 @@ export async function deleteInboundConfig(
  * of the world: SES matches a rule on a DOMAIN, so a message can legitimately
  * arrive for a name whose config was deleted a moment earlier, and the caller
  * records it rather than throwing.
+ *
+ * It also returns `null` when TWO environments claim the same name, and that
+ * one is a refusal rather than an ordinary state. A scan has no unique index
+ * behind it, so a second claimant is representable — and answering with
+ * whichever row Postgres happened to return first would hand that claimant
+ * another tenant's replies, delivered on to a forwarding address they chose.
+ * Nobody gets the message; it is recorded unattributed, which an operator can
+ * see and repair, and the ambiguity is logged loudly enough to be noticed.
  */
 export interface InboundRecipientOwner {
   environmentId: string;
@@ -177,6 +185,7 @@ export async function findInboundRecipientOwner(
     .from(providerKeys)
     .where(eq(providerKeys.provider, HOGSEND_INBOUND_PROVIDER));
 
+  const claimants: InboundRecipientOwner[] = [];
   for (const row of rows) {
     let payload: Record<string, string>;
     try {
@@ -193,10 +202,32 @@ export async function findInboundRecipientOwner(
     if (!forwardTo) continue;
     if ((payload[payloadField(domain, "label")] ?? INBOUND_SUBDOMAIN) !== label)
       continue;
-    return { environmentId: row.environmentId, domain, label, forwardTo };
+    claimants.push({
+      environmentId: row.environmentId,
+      domain,
+      label,
+      forwardTo,
+    });
   }
 
-  return null;
+  // The scan runs to the END rather than returning at the first hit, because
+  // "is there exactly one claimant" is not a question the first hit answers.
+  const [owner, second] = claimants;
+  if (!owner) return null;
+  if (second) {
+    console.error(
+      `[cloud:ses-inbound] ${claimants.length} environments claim inbound for ` +
+        `"${host}" (${claimants
+          .map((claimant) => claimant.environmentId)
+          .sort()
+          .join(", ")}). Refusing to attribute the message to any of them: ` +
+        "one of these environments would otherwise receive another tenant's " +
+        "replies. Disable inbound on the environments that do not own the " +
+        "domain.",
+    );
+    return null;
+  }
+  return owner;
 }
 
 async function mutatePayload(
