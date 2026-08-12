@@ -1,5 +1,14 @@
 # @hogsend/docs
 
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies [fc3d943]
+  - @hogsend/js@0.64.0
+  - @hogsend/react@0.64.0
+  - @hogsend/video@0.64.0
+
 ## 0.0.24
 
 ### Patch Changes

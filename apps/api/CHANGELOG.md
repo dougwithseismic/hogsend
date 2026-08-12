@@ -1,5 +1,24 @@
 # @hogsend/api
 
+## 0.0.63
+
+### Patch Changes
+
+- Updated dependencies [fc3d943]
+  - @hogsend/plugin-resend@0.64.0
+  - @hogsend/engine@0.64.0
+  - @hogsend/core@0.64.0
+  - @hogsend/attribution@0.64.0
+  - @hogsend/db@0.64.0
+  - @hogsend/email@0.64.0
+  - @hogsend/mcp@0.64.0
+  - @hogsend/plugin-apollo@0.64.0
+  - @hogsend/plugin-discord@0.64.0
+  - @hogsend/plugin-posthog@0.64.0
+  - @hogsend/plugin-telegram@0.64.0
+  - @hogsend/plugin-twilio@0.64.0
+  - @hogsend/sms@0.64.0
+
 ## 0.0.62
 
 ### Patch Changes

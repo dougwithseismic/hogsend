@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/plugin-hogsend",
-  "version": "0.63.0",
+  "version": "0.64.0",
   "type": "module",
   "license": "MIT",
   "description": "Hogsend Email EmailProvider: a dumb HTML-only wire over the Hogsend Cloud send relay, with signed status webhooks normalized into the neutral EmailEvent.",
