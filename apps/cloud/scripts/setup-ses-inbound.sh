@@ -72,10 +72,14 @@ else
 fi
 
 # Customers' inbound mail. There is no version of this that is public.
+# All four, including BlockPublicPolicy. The bucket policy below grants a
+# SERVICE principal, which AWS does not classify as public, so blocking public
+# policies does not reject it — it only stops a future `Principal: "*"` from
+# ever being attached here.
 aws s3api put-public-access-block --bucket "$BUCKET" \
   --public-access-block-configuration \
-  "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=true" >/dev/null
-ok "public access blocked"
+  "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" >/dev/null
+ok "public access blocked (all four)"
 
 # SSE-S3 (AES256) rather than SSE-KMS: SES can write to an SSE-S3 bucket with
 # no extra grant, whereas SSE-KMS additionally requires kms:GenerateDataKey for
@@ -139,8 +143,13 @@ JSON
   TOPIC_ARNS+=("$TOPIC_ARN")
 done
 
-say "Relay IAM policy — attach this to user hogsend-cloud-relay"
-cat <<JSON
+say "Relay IAM policy on user hogsend-cloud-relay"
+# Attached rather than printed, so the setup is one command and cannot be left
+# half-done. `put-user-policy` REPLACES the named inline policy, so re-running
+# converges instead of accumulating. Note the relay is granted read and delete
+# on the spool but NOT s3:CreateBucket or sns:CreateTopic — its blast radius is
+# unchanged by this script.
+RELAY_POLICY=$(cat <<JSON
 {"Version":"2012-10-17","Statement":[
   {
     "Sid":"ReadAndDrainTheInboundSpool",
@@ -161,6 +170,13 @@ cat <<JSON
   }
 ]}
 JSON
+)
+printf '%s' "$RELAY_POLICY" > /tmp/hogsend-relay-inbound.json
+aws iam put-user-policy --user-name hogsend-cloud-relay \
+  --policy-name hogsend-ses-inbound \
+  --policy-document file:///tmp/hogsend-relay-inbound.json >/dev/null
+rm -f /tmp/hogsend-relay-inbound.json
+ok "attached inline policy hogsend-ses-inbound"
 echo
 echo "  s3:DeleteObject is there because the spool is DRAINED on success — the"
 echo "  lifecycle rule is the backstop for failures, not the normal path."
