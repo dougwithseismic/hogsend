@@ -38,6 +38,47 @@ import { pathExists, runPreflight } from "../src/pipeline/build";
 const APP_NAME = "hogsend-default";
 
 /**
+ * The repository this image is built from, stated as an OCI label.
+ *
+ * Not decoration. GHCR grants a repository's `GITHUB_TOKEN` write access to a
+ * package only when the package is LINKED to that repository, and pushing an
+ * image carrying `org.opencontainers.image.source` is what establishes the
+ * link. Without it the release workflow dies on `denied: permission_denied:
+ * write_package` after a clean build and a passing preflight — measured on run
+ * 31619850840 (2026-08-12), which published all 25 packages to npm and then
+ * failed to publish the image they are supposed to boot in.
+ *
+ * It lives here rather than in `template/Dockerfile` because it is true of THIS
+ * build and false of every app scaffolded from that template: a tenant's image
+ * does not come from our repository, and labelling it so would misattribute
+ * their code and link their package to a repository they cannot see.
+ */
+const IMAGE_SOURCE_LABEL = "org.opencontainers.image.source";
+const IMAGE_SOURCE_URL = "https://github.com/dougwithseismic/hogsend";
+
+/**
+ * The env a PROVISIONED stack runs this image with — the configuration the
+ * gate has to judge it under.
+ *
+ * `emailProviderVars` sets `EMAIL_PROVIDER=hogsend` on every stack with a real
+ * SES tenancy, and `assembleStackEnv` injects the relay URL + token that make
+ * the engine's opt-in `@hogsend/plugin-hogsend` preset register at all. Boot
+ * the image without them and it selects Resend, proves nothing about the Cloud
+ * path, and passes — which is precisely what 0.61.0, 0.62.0 and 0.63.0 did on
+ * their way to crash-looping every stack they were provisioned onto.
+ *
+ * The token and secret are DELIBERATELY fake. Nothing here reaches the relay:
+ * the gate only boots the process and watches it get past init, so a real
+ * credential would buy nothing and leak something. Keep them obviously fake.
+ */
+const PROVISIONED_STACK_ENV: Readonly<Record<string, string>> = {
+  EMAIL_PROVIDER: "hogsend",
+  HOGSEND_EMAIL_RELAY_URL: "https://preflight.invalid",
+  HOGSEND_EMAIL_TOKEN: "hst_preflight_not_a_real_credential",
+  HOGSEND_EMAIL_WEBHOOK_SECRET: "whsec_preflight_not_a_real_secret",
+};
+
+/**
  * The argv `scaffold()` hands create-hogsend after the app name.
  *
  * `--with hogsend` is LOAD-BEARING. Provisioning sets `EMAIL_PROVIDER=hogsend`
@@ -266,6 +307,7 @@ async function main(): Promise<void> {
       contextDir: appDir,
       dockerfile: join(appDir, "Dockerfile"),
       tag,
+      labels: { [IMAGE_SOURCE_LABEL]: IMAGE_SOURCE_URL },
       onOutput: stream,
     });
 
@@ -279,6 +321,7 @@ async function main(): Promise<void> {
         cwd: appDir,
         reference,
         logDir: join(workRoot, "preflight-logs"),
+        imageEnv: PROVISIONED_STACK_ENV,
         onOutput: stream,
       });
       if (!preflight.ok) {

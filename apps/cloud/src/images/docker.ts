@@ -103,6 +103,10 @@ export class DockerImageStore implements ImageStore {
         "--build-arg",
         `${key}=${value}`,
       ]),
+      ...Object.entries(input.labels ?? {}).flatMap(([key, value]) => [
+        "--label",
+        `${key}=${value}`,
+      ]),
       "-f",
       input.dockerfile,
       "-t",

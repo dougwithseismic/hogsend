@@ -20,6 +20,20 @@ export interface BuildImageInput {
   /** A bare `name:tag`. Registry qualification is the store's job. */
   tag: string;
   buildArgs?: Record<string, string>;
+  /**
+   * OCI image labels, applied at build time rather than written into the
+   * Dockerfile.
+   *
+   * This exists because a label can be a fact about the BUILD rather than about
+   * the app: `hogsend-default` is built from the hogsend repo and wants
+   * `org.opencontainers.image.source` saying so (that label is what makes GHCR
+   * link the package to the repository, and an unlinked package rejects the
+   * repo's own `GITHUB_TOKEN` with `permission_denied: write_package`). The
+   * same label baked into the scaffold template would then travel into every
+   * tenant's app image and claim their code came from our repo, which is a lie.
+   * So: the caller that knows the provenance states it, and nobody else does.
+   */
+  labels?: Record<string, string>;
   /** Build output, as it arrives. The build log tail is assembled from this. */
   onOutput?: (chunk: string) => void;
 }
