@@ -90,6 +90,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "License", href: "/pricing#license" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
+      { label: "Acceptable use", href: "/acceptable-use" },
     ],
   },
 ];

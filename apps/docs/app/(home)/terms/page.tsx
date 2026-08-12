@@ -7,12 +7,14 @@ import { Section } from "@/components/ds/section";
 export const metadata: Metadata = {
   title: "Terms",
   description:
-    "The terms for using Hogsend and this site. Short, because the software is provided as is and the responsibilities are yours.",
+    "The terms for using Hogsend, Hogsend Email, and this site. The software is provided as is; the sending service is governed by the acceptable use policy.",
   alternates: { canonical: "/terms" },
   keywords: [
     "hogsend terms of service",
     "terms of service",
     "terms and conditions",
+    "hogsend email",
+    "acceptable use policy",
     "lifecycle email",
     "email automation",
     "self-hosted",
@@ -58,6 +60,37 @@ const SECTIONS: TermsSection[] = [
     ],
   },
   {
+    // Clause numbers 5.x: this is the fifth section on this page. The
+    // internal cross-references (5.11 and 5.13 cite 5.8) must stay
+    // consistent if it moves.
+    heading: "Hogsend Email",
+    paragraphs: [
+      "5.1 What it is. Hogsend Email is a sending service included with your Hogsend Cloud subscription. We operate the sending infrastructure, hold the provider relationship, and send your mail on your behalf from a domain you verify.",
+      "5.2 It is not a standalone email service. Hogsend Email is available only as part of an active Hogsend Cloud subscription, is not sold separately, and has no separate service level commitment. You may not resell it, relay third-party mail through it, or use it as a sending backend for anyone other than yourself. If your subscription ends, sending ends with it.",
+      "5.3 You do not get credentials to the underlying infrastructure. Your Cloud environment holds a token that authorises it to send through us, and nothing else.",
+      "5.4 Alternatives. You are not required to use Hogsend Email. Hogsend supports customer-supplied email providers, and you may configure your own provider account at any time. Mail sent that way is governed by that provider's terms, not by this clause or the Acceptable Use Policy.",
+      "5.5 Allowance. Your plan includes a monthly email allowance. Sending above it is billed as overage at the published rate, or refused where your plan or trust tier sets a hard cap. Allowances and caps are stated on the pricing page and in your Cloud dashboard.",
+      "5.6 Your warranty on consent. You warrant that every recipient you send to has given you permission to email them, that you can evidence that permission, and that your sending complies with the law that applies to you and to your recipients, including the UK GDPR, the EU GDPR, PECR, CAN-SPAM and CASL where applicable. You are the data controller for your recipients. We are your processor for the sending.",
+      <>
+        5.7 Acceptable use. The{" "}
+        <a
+          href="/acceptable-use"
+          className="text-white underline decoration-white/30 underline-offset-4 transition-colors hover:text-white/80"
+        >
+          Hogsend Email Acceptable Use Policy
+        </a>{" "}
+        applies to all sending through the service and forms part of these
+        terms. Breaching it is a breach of these terms.
+      </>,
+      "5.8 We may suspend sending. We may suspend sending for one of your environments immediately and without prior notice where its bounce or complaint rate crosses the thresholds in the Acceptable Use Policy, where the sending infrastructure pauses it automatically, or where we reasonably believe the Acceptable Use Policy has been breached. Because every customer sends through infrastructure we operate, one sender's reputation problem degrades delivery for everyone else, and protecting aggregate deliverability is a condition of offering the service at all.",
+      "5.9 What a suspension affects. A suspension stops sending for the affected environment only. Your data, your journeys, your ingestion and the rest of your Cloud subscription continue to run. Send attempts fail with the recorded cause rather than queueing. We will tell you which clause was breached and what the measured numbers were, and there is an appeals route in the Acceptable Use Policy.",
+      "5.10 No deliverability warranty. We do not warrant that any message will be delivered, will reach an inbox rather than a spam folder, or will be accepted by any mailbox provider. Inbox placement is decided by mailbox providers on signals that include your content, your list and your recipients' behaviour, none of which we control.",
+      "5.11 Suspension is not a refund event. A suspension under 5.8 does not entitle you to a refund or a credit for the affected period. The rest of your subscription is unaffected and continues.",
+      "5.12 On termination. When your subscription ends, sending stops, your sending identity is removed from our infrastructure, and your suppression list is retained for the period stated in the Acceptable Use Policy. You can export your suppression list before you leave, and during that period afterwards. Your domain remains yours; removing the DNS records you added is your step to take.",
+      "5.13 Liability. Our total liability arising from Hogsend Email is capped at the fees you paid for the Hogsend Cloud subscription in the twelve months before the claim. We are not liable for lost revenue, lost deliverability, or the consequences of a suspension applied in accordance with 5.8.",
+    ],
+  },
+  {
     heading: "Liability",
     paragraphs: [
       "To the maximum extent the law allows: we're not liable for any indirect, incidental, special, or consequential damage arising from the software or this site — lost profits, lost data, lost deliverability, lost weekends included. Where liability can't be excluded, it's capped at the amount you paid us, which for the software is nothing.",
@@ -67,7 +100,7 @@ const SECTIONS: TermsSection[] = [
     heading: "Changes",
     paragraphs: [
       <>
-        These terms are dated 10 June 2026. If they change, the changes appear
+        These terms are dated 10 August 2026. If they change, the changes appear
         on this page. Questions go to{" "}
         <a
           href={`mailto:${CONTACT_EMAIL}`}
@@ -97,7 +130,8 @@ export default function TermsPage(): JSX.Element {
             Terms of use
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-            As is, as available, your responsibility. Last updated 10 June 2026.
+            As is, as available, your responsibility. Last updated 10 August
+            2026.
           </p>
         </Reveal>
       </Section>
