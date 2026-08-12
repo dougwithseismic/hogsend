@@ -52,10 +52,13 @@ if printf '%s' "$ARN" | grep -q 'user/hogsend-cloud-relay'; then
   exit 1
 fi
 
-# Globally unique without being guessable-by-brand-alone. Bucket names are a
-# public namespace, so the account id both guarantees uniqueness and stops a
-# stranger squatting the obvious name.
-BUCKET="hogsend-ses-inbound-${ACCOUNT}"
+# These two names are NOT free choices. `aws-bootstrap-events.sh` already grants
+# the relay `s3:GetObject` on `hogsend-ses-inbound/inbound/*`, the code writes
+# under `INBOUND_OBJECT_KEY_PREFIX` (`lib/inbound-domains.ts`), and
+# `docs/ses-production-access-request.md` quotes that exact ARN to AWS. Anything
+# else here is a silent 403 at runtime and a false statement in the request.
+BUCKET="hogsend-ses-inbound"
+PREFIX="inbound/"
 
 say "S3 bucket: ${BUCKET} (${BUCKET_REGION})"
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -112,7 +115,7 @@ aws s3api put-bucket-policy --bucket "$BUCKET" --policy "$(cat <<JSON
   "Effect":"Allow",
   "Principal":{"Service":"ses.amazonaws.com"},
   "Action":"s3:PutObject",
-  "Resource":"arn:aws:s3:::${BUCKET}/*",
+  "Resource":"arn:aws:s3:::${BUCKET}/${PREFIX}*",
   "Condition":{"StringEquals":{"AWS:SourceAccount":"${ACCOUNT}"}}
 }]}
 JSON
@@ -143,44 +146,17 @@ JSON
   TOPIC_ARNS+=("$TOPIC_ARN")
 done
 
-say "Relay IAM policy on user hogsend-cloud-relay"
-# Attached rather than printed, so the setup is one command and cannot be left
-# half-done. `put-user-policy` REPLACES the named inline policy, so re-running
-# converges instead of accumulating. Note the relay is granted read and delete
-# on the spool but NOT s3:CreateBucket or sns:CreateTopic — its blast radius is
-# unchanged by this script.
-RELAY_POLICY=$(cat <<JSON
-{"Version":"2012-10-17","Statement":[
-  {
-    "Sid":"ReadAndDrainTheInboundSpool",
-    "Effect":"Allow",
-    "Action":["s3:GetObject","s3:DeleteObject"],
-    "Resource":"arn:aws:s3:::${BUCKET}/*"
-  },
-  {
-    "Sid":"ManageInboundReceiptRules",
-    "Effect":"Allow",
-    "Action":[
-      "ses:CreateReceiptRuleSet","ses:DescribeReceiptRuleSet",
-      "ses:DescribeActiveReceiptRuleSet","ses:SetActiveReceiptRuleSet",
-      "ses:CreateReceiptRule","ses:UpdateReceiptRule",
-      "ses:DeleteReceiptRule","ses:DescribeReceiptRule"
-    ],
-    "Resource":"*"
-  }
-]}
-JSON
-)
-printf '%s' "$RELAY_POLICY" > /tmp/hogsend-relay-inbound.json
-aws iam put-user-policy --user-name hogsend-cloud-relay \
-  --policy-name hogsend-ses-inbound \
-  --policy-document file:///tmp/hogsend-relay-inbound.json >/dev/null
-rm -f /tmp/hogsend-relay-inbound.json
-ok "attached inline policy hogsend-ses-inbound"
+say "Relay IAM policy"
+# NOT granted here, on purpose. `aws-bootstrap-events.sh` already attaches the
+# inline policy `HogsendEmailRelayEvents`, which covers the inbound S3 read and
+# the SNS subscribe against these exact names, and that policy is the artefact
+# quoted in docs/ses-production-access-request.md. A second overlapping grant
+# from this script is how the two silently drift apart, and the wider of the
+# two always wins — so this script creates RESOURCES and that one grants ACCESS.
+ok "left to aws-bootstrap-events.sh (HogsendEmailRelayEvents)"
 echo
-echo "  s3:DeleteObject is there because the spool is DRAINED on success — the"
-echo "  lifecycle rule is the backstop for failures, not the normal path."
-echo "  The ses:*ReceiptRule* verbs are SES v1; there is no v2 equivalent."
+echo "  If the relay gets 403 reading the spool, run that script — it grants"
+echo "  s3:GetObject on ${BUCKET}/${PREFIX}* and nothing wider."
 
 say "Set these on the control plane, then redeploy"
 echo "CLOUD_SES_INBOUND_BUCKET=${BUCKET}"

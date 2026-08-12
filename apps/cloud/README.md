@@ -20,20 +20,39 @@ rather than failing part-way through on a permission error.
 
 ## One-time setup
 
+Two scripts, in this order. They are split along one line: the first grants ACCESS, the second
+creates RESOURCES. Keeping the grants in one place is deliberate — two overlapping IAM policies
+drift, and the wider of the two always wins.
+
 ```bash
+# 1. Event pipeline, reputation circuit breakers, and every relay grant.
+CLOUD_PUBLIC_URL=https://cloud.hogsend.com \
+  AWS_PROFILE=<admin-profile> ./apps/cloud/scripts/aws-bootstrap-events.sh
+
+# 2. The inbound spool bucket and its topics.
 AWS_PROFILE=<admin-profile> ./apps/cloud/scripts/setup-ses-inbound.sh
 ```
 
-Idempotent: every step creates if absent and re-asserts its configuration, so re-running after a
-partial failure converges. It never deletes anything. It creates:
+Both are idempotent — every step creates if absent and re-asserts its configuration, so re-running
+after a partial failure converges. Neither deletes anything.
 
-- **One S3 bucket**, `hogsend-ses-inbound-<account-id>`. All four public-access blocks on, SSE-S3
-  encryption, seven-day object expiry, and a policy letting `ses.amazonaws.com` write — scoped by
-  `AWS:SourceAccount`, because that service principal is shared across all of AWS and without the
-  condition another account's SES could write here.
-- **Two SNS topics**, one per region, each allowing SES to publish under the same condition.
-- **An inline IAM policy** on `hogsend-cloud-relay` granting `s3:GetObject` + `s3:DeleteObject` on
-  the bucket and the SES v1 receipt-rule verbs.
+`aws-bootstrap-events.sh` creates the `hogsend-ses-events` topics, the EventBridge connection, API
+destination and rule that deliver SES reputation events to `/api/email/reputation`, and the inline
+policy `HogsendEmailRelayEvents` — which is the artefact quoted verbatim in
+`docs/ses-production-access-request.md`. **Re-running it needs the same
+`CLOUD_SES_EVENTBRIDGE_SECRET` the control plane is using**, because AWS will not show you the secret
+a connection already holds. It is in `apps/cloud/.env.local`.
+
+`setup-ses-inbound.sh` creates the bucket `hogsend-ses-inbound` — all four public-access blocks on,
+SSE-S3, seven-day object expiry — and one `hogsend-ses-inbound` SNS topic per region. Both the bucket
+and topic policies let `ses.amazonaws.com` write, scoped by `AWS:SourceAccount`, because that service
+principal is shared across all of AWS and without the condition another account's SES could write
+here.
+
+The bucket name and the `inbound/` key prefix are **not** free choices: the relay is granted
+`s3:GetObject` on `hogsend-ses-inbound/inbound/*` and nothing wider, the code writes under
+`INBOUND_OBJECT_KEY_PREFIX` (`lib/inbound-domains.ts`), and the production-access request quotes that
+exact ARN to AWS. Any other name is a silent 403 at runtime and a false statement in the request.
 
 One bucket but two topics, because S3 is the documented exception to SES's rule that inbound
 resources live in the SES endpoint's region.
@@ -77,11 +96,11 @@ still be denied at runtime:
 
 ```bash
 # As an administrator: write a probe object.
-aws s3api put-object --bucket hogsend-ses-inbound-<account-id> --key __probe.txt --body /tmp/probe.txt
+aws s3api put-object --bucket hogsend-ses-inbound --key inbound/__probe.txt --body /tmp/probe.txt
 
 # As the relay: read it, then delete it. This is the sequence the receive path performs.
-aws s3api get-object --bucket hogsend-ses-inbound-<account-id> --key __probe.txt /tmp/got.txt
-aws s3api delete-object --bucket hogsend-ses-inbound-<account-id> --key __probe.txt
+aws s3api get-object --bucket hogsend-ses-inbound --key inbound/__probe.txt /tmp/got.txt
+aws s3api delete-object --bucket hogsend-ses-inbound --key inbound/__probe.txt
 ```
 
 Note that `head-object` on a key that does not exist returns 403, not 404, when the caller has
