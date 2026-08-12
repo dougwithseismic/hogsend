@@ -33,7 +33,7 @@
  *
  * Pure node:fs, zero deps. Run from anywhere — paths resolve from the repo root.
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,6 +45,7 @@ const readJson = (p) => JSON.parse(readText(p));
 const MANIFEST = "packages/create-hogsend/src/template-manifest.ts";
 const VERIFY_SH = "packages/create-hogsend/scripts/verify-scaffold.sh";
 const TEMPLATE_PKG = "packages/create-hogsend/template/_package.json";
+const EXAMPLES_DIR = "examples";
 
 const engineVersion = () => readJson("packages/engine/package.json").version;
 
@@ -93,6 +94,42 @@ function templateHogsendDeps() {
   return Object.entries(deps)
     .filter(([k]) => k.startsWith("@hogsend/"))
     .map(([k, v]) => [k.slice("@hogsend/".length), v]);
+}
+
+/**
+ * The in-repo example apps (`examples/*`) — real consumers that install
+ * PUBLISHED `@hogsend/*` from npm, so unlike the scaffold template they cannot
+ * use a `{{ENGINE_VERSION}}` token and must carry literal pins.
+ *
+ * They are deliberately NOT pnpm workspace members (that is what keeps them
+ * honest consumers rather than workspace-linked siblings), so nothing else in
+ * the repo touches their manifests. That is exactly how `my-first-hogsend` sat
+ * pinned at 0.0.1 while the line reached 0.63.0 — sixty-three minors of drift
+ * that no gate could see. These two hooks close that hole: `--check` fails on a
+ * stale pin, and `--sync` (which already runs in `version-packages`) carries
+ * them onto each new line automatically.
+ *
+ * Each example is free to depend on its OWN subset of the line — an example
+ * earns its keep by being small — so this only constrains the VERSION of the
+ * `@hogsend/*` deps it does declare, never which ones.
+ */
+function exampleManifests() {
+  let entries;
+  try {
+    entries = readdirSync(r(EXAMPLES_DIR), { withFileTypes: true });
+  } catch {
+    return []; // no examples/ in this checkout — nothing to enforce
+  }
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => `${EXAMPLES_DIR}/${e.name}/package.json`)
+    .filter((p) => existsSync(r(p)));
+}
+
+function exampleHogsendDeps(path) {
+  const pkg = readJson(path);
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  return Object.entries(deps).filter(([k]) => k.startsWith("@hogsend/"));
 }
 
 const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
@@ -395,6 +432,21 @@ const checks = [
     },
   },
   {
+    name: "examples/* @hogsend deps pin the current engine version",
+    fn: () => {
+      const want = `^${engineVersion()}`;
+      const bad = [];
+      for (const path of exampleManifests()) {
+        for (const [name, range] of exampleHogsendDeps(path)) {
+          if (range !== want) bad.push(`${path}: ${name}@${range}`);
+        }
+      }
+      return bad.length === 0
+        ? null
+        : `${bad.length} stale pin(s), want ${want} — run: pnpm release-doctor --sync\n    ${bad.join("\n    ")}`;
+    },
+  },
+  {
     name: "no @hogsend/* in any publishable package's peerDependencies (force-major trap)",
     fn: () => {
       const offenders = scanPackages(ENGINE_LINE, (pkg) => {
@@ -592,10 +644,32 @@ function sync() {
   );
   if (next === text) {
     console.log(`release-doctor --sync: ENGINE_VERSION already ${e}`);
-    return;
+  } else {
+    writeFileSync(r(MANIFEST), next);
+    console.log(`release-doctor --sync: ENGINE_VERSION -> ${e}`);
   }
-  writeFileSync(r(MANIFEST), next);
-  console.log(`release-doctor --sync: ENGINE_VERSION -> ${e}`);
+  syncExamples(e);
+}
+
+/**
+ * Carry `examples/*` onto the current engine line. The scaffold template gets
+ * this for free via its `^{{ENGINE_VERSION}}` token; the examples install from
+ * npm and hold literal pins, so a machine has to rewrite them. Editing the text
+ * (rather than re-serializing the JSON) keeps each manifest's own formatting and
+ * key order intact, so the "Version Packages" PR diff shows only the versions.
+ */
+function syncExamples(engine) {
+  const want = `^${engine}`;
+  for (const path of exampleManifests()) {
+    const text = readText(path);
+    const next = text.replace(
+      /("@hogsend\/[^"]+"\s*:\s*")[^"]+(")/g,
+      `$1${want}$2`,
+    );
+    if (next === text) continue;
+    writeFileSync(r(path), next);
+    console.log(`release-doctor --sync: ${path} @hogsend/* -> ${want}`);
+  }
 }
 
 function runChecks() {

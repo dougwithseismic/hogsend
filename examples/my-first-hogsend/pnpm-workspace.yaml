@@ -1,0 +1,61 @@
+# pnpm settings — pnpm 11+ reads these from pnpm-workspace.yaml ONLY
+# (`package.json#pnpm` is not honored for them; pnpm 11 prints
+# "The 'pnpm' field in package.json is no longer read by pnpm" and IGNORES it).
+# Not a workspace; the empty `packages` list just marks this dir as the
+# settings root.
+#
+# This file is ALSO what keeps the example installable on its own. It sits
+# inside the Hogsend monorepo but is NOT a member of the root workspace, so a
+# bare `pnpm install` here walks up, finds the root pnpm-workspace.yaml and
+# installs the MONOREPO instead — leaving this directory with no node_modules.
+# Copy the folder OUTSIDE the repo and run plain `pnpm install` (see
+# README/WALKTHROUGH). NOT `--ignore-workspace`: that flag stops pnpm walking up
+# by discarding THIS file too — `allowBuilds` included — so the install then
+# hard-fails with ERR_PNPM_IGNORED_BUILDS. Measured: exit 1 in-repo with the
+# flag, exit 0 outside the repo without it.
+packages: []
+
+# PIN, not a preference. `@hono/zod-openapi@1.5.2` ships a broken type
+# declaration: its `index.d.mts` stopped importing `z` from zod and instead says
+# `import z = zodModule.z`, where `zodModule` is never declared. That makes `z`
+# resolve to `any`, and because @hogsend/engine ships raw TypeScript, every
+# consumer type-checks the engine's source against it — 33 implicit-any errors
+# (TS7006/TS7053) inside node_modules, none of them your fault.
+# `skipLibCheck: true` HIDES the declaration error that would name the cause.
+#
+# Why BOTH this override and the exact pin in package.json — measured on a
+# clean install (no lockfile) against @hogsend/engine@0.63.0, which declares
+# `^1.4.0` and would otherwise take `latest`:
+#
+#   exact "1.4.0" in package.json, no override  -> one copy, 1.4.0, 0 errors
+#     (pnpm DEDUPES the engine's ^1.4.0 onto the app's exact pin)
+#   pin floated to "^1.4.0", no override        -> 1.5.2, 33 errors
+#   direct dep REMOVED, no override             -> 1.5.2, 33 errors
+#   direct dep REMOVED, override present        -> 1.4.0, 0 errors
+#
+# So the exact pin alone is doing the work today, and the override is what
+# holds when it stops. That is not hypothetical: this app never IMPORTS
+# `@hono/zod-openapi` — it is declared solely so tsup treats it as external —
+# so any dead-dependency sweep will offer to remove it. The override survives
+# that; the pin does not.
+#
+# 1.4.0 rather than 1.5.1 (also bug-free): 1.5.0 dropped the `types` condition
+# from the package's `exports` map and never restored it, and 1.4.0 is the last
+# release that still has it. Remove this once upstream ships a fixed release.
+overrides:
+  "@hono/zod-openapi": "1.4.0"
+
+# pnpm 11 hard-fails installs/scripts (ERR_PNPM_IGNORED_BUILDS) unless the
+# dependencies that run postinstall build scripts are pre-approved here.
+allowBuilds:
+  "@hatchet-dev/typescript-sdk": true
+  esbuild: true
+  protobufjs: true
+
+# pnpm 11 quarantines packages published <24h ago (minimumReleaseAge).
+# Hogsend apps are expected to install same-day @hogsend/* releases, so exempt
+# the first-party packages.
+minimumReleaseAgeExclude:
+  - "@hogsend/*"
+  - "create-hogsend"
+  - "hogsend"

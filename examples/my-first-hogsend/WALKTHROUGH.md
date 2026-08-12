@@ -1,17 +1,35 @@
 # Walkthrough: `my-first-hogsend`
 
-This folder is a **reference example** of exactly what `create-hogsend` emits when
-you run:
+This folder is a **small, complete, hand-maintained Hogsend app** — the least
+code that really runs: two journeys, two email templates, one webhook source,
+one custom Hatchet task, one client table. It is here to be *read*, in one
+sitting, and it is annotated for that purpose.
+
+It runs against the published engine (`@hogsend/engine@0.63.0`). It is a real
+consumer: it installs `@hogsend/*` from npm exactly as your app would, rather
+than linking to the packages in this repo.
+
+**It is NOT a snapshot of `create-hogsend` output.** It used to claim that, and
+the claim rotted: the scaffold has since grown buckets, lists, campaigns,
+destinations, flags, agents, custom routes, a `.claude/` skills tree and seven
+more email templates — roughly eighty files this example does not have. For what
+the scaffolder actually emits today, read `packages/create-hogsend/template/` or
+generate one:
 
 ```bash
-pnpm dlx create-hogsend@latest my-first-hogsend
+pnpm dlx create-hogsend@latest my-app
 ```
 
-It mirrors the real local scaffolder (`packages/create-hogsend`) output — the
-same files a published `--no-install --no-git` run produces (engine pinned at
-`0.0.1`), including the one-command `pnpm bootstrap` local setup. **This
-directory is not a pnpm workspace member** — it exists purely so you can read
-it. Do not run `pnpm install` in the monorepo expecting this to build.
+Use the scaffold to *start* an app. Use this example to *understand* one.
+
+**This directory is not a pnpm workspace member.** That is deliberate — it is
+what keeps it an honest consumer of published packages. It also means a bare
+`pnpm install` here walks up to the monorepo root and installs that instead, so
+**copy the folder somewhere outside the repo first**, then plain `pnpm install`.
+
+Do not reach for `--ignore-workspace`: it stops pnpm walking up by discarding
+*this* folder's `pnpm-workspace.yaml` as well, `allowBuilds` included, and the
+install then hard-fails with `ERR_PNPM_IGNORED_BUILDS`.
 
 The mental model the scaffold is built around: **the engine is a versioned npm
 dependency (`@hogsend/engine` + its sibling `@hogsend/*` packages); your repo is
@@ -38,7 +56,8 @@ my-first-hogsend/
 │   └── meta/
 │       ├── 0000_snapshot.json
 │       └── _journal.json
-├── package.json               # pins @hogsend/* at 0.0.1; defines all scripts
+├── package.json               # pins @hogsend/* at 0.63.0; defines all scripts
+├── pnpm-workspace.yaml        # pnpm settings root: the @hono/zod-openapi pin, allowBuilds
 ├── railway.toml               # deploy config for the HTTP API service
 ├── railway.worker.toml        # deploy config for the worker service
 ├── scripts/
@@ -85,10 +104,11 @@ config you tune occasionally.
 ### Entry points
 
 - **`src/index.ts`** — **WIRING.** The HTTP API process. Builds the Hogsend
-  client (`createHogsendClient({ journeys, email: { templates } })`), runs a schema-version
-  boot guard, then starts a Hono server via `@hono/node-server`. You almost never
-  edit this; the parts you *might* touch are the timeouts and the shutdown list.
-  See §4 for what it actually does.
+  client (`createHogsendClient({ journeys, email: { templates } })`), runs a
+  schema-version boot guard, mints the first-boot ingest API key
+  (`bootstrapApiKeyFromEnv`), then starts a Hono server via
+  `@hono/node-server`. You almost never edit this; the parts you *might* touch
+  are the timeouts and the shutdown list. See §4 for what it actually does.
 - **`src/worker.ts`** — **WIRING.** The Hatchet worker process. Builds the client
   again (separate process), creates a worker from your journeys, and starts it.
   It also passes `extraWorkflows` (from `src/workflows/index.ts`) so your custom
@@ -177,12 +197,32 @@ config you tune occasionally.
   `docker-compose.yml` stack, mints a Hatchet token, and runs both migration
   tracks. Idempotent — safe to re-run any time.
 - **`package.json`** — **CONFIG.** Pins all six `@hogsend/*` packages at the
-  engine version (`0.0.1`) and defines every script (`bootstrap`, `dev`,
+  engine version (`^0.63.0`) and defines every script (`bootstrap`, `dev`,
   `worker:dev`, `build`, `db:migrate`, etc.). Upgrading Hogsend = bump these
-  pins.
-- **`tsup.config.ts`** — **CONFIG.** Bundles (`noExternal`) all `@hogsend/*`
-  packages into `dist/` for production, because they ship raw `.ts` with
-  `.js`-extension imports that Node can't run directly. npm deps stay external.
+  pins. It also declares npm packages this app never imports (`ai`, `svix`,
+  `qrcode`, `picocolors`, `acorn`, `launch-editor`,
+  `@openrouter/ai-sdk-provider`) purely so `tsup` leaves them external — see
+  `tsup.config.ts` below. A CI check (`pnpm release-doctor`) fails if these pins
+  fall behind the engine, and `pnpm release-doctor --sync` moves them forward.
+- **`pnpm-workspace.yaml`** — **CONFIG.** pnpm 11 reads settings only from here,
+  never `package.json#pnpm`. It carries an `overrides` pin of
+  `@hono/zod-openapi` to `1.4.0`: `1.5.2` ships a broken declaration (`z`
+  resolves to `any`), and because the engine ships raw `.ts` you would
+  type-check *its* source against it and collect 33 implicit-any errors inside
+  `node_modules` that are not your fault. On a clean install the exact pin in
+  `package.json` is already enough — pnpm dedupes the engine's `^1.4.0` onto
+  it — but float that pin to a caret, or drop the dependency (this app never
+  imports it; it is declared only so tsup keeps it external), and the engine
+  resolves `1.5.2` again. The override is the belt to the pin's braces. Both
+  measured; the numbers are in the file's comments.
+- **`tsup.config.ts`** — **CONFIG.** Bundles (`noExternal: [/^@hogsend\//]`) every
+  `@hogsend/*` package into `dist/`, because they ship raw `.ts` with
+  `.js`-extension imports that Node can't run directly. A regex rather than a
+  list, so adding a plugin later needs no edit here. npm deps stay external —
+  **provided they are named in `package.json`**. Anything not declared there
+  gets inlined instead, and a CommonJS package inlined into ESM fails only at
+  runtime (`Dynamic require of "path" is not supported`), long after
+  `check-types` and `build` have both gone green.
 - **`vitest.config.ts`** — **CONFIG.** Injects test env vars (so tests need no
   `.env`) and inlines `@hogsend/engine` so Vite can resolve its raw `.ts`.
 - **`tsconfig.json` / `biome.json`** — **CONFIG.** Standard strict TS + Biome.
@@ -239,15 +279,24 @@ returns:
   client (the raw client is what graceful shutdown closes).
 - **`auth`** — a configured Better Auth instance (session/user auth), mounted by
   the API at `/api/auth/*`.
-- **`email`** — a raw Resend client, plus **`emailService`** — the engine-owned
-  **tracked mailer**. It renders your template (from the `templates` registry you
-  passed), checks preferences/suppression, rewrites links + injects the open
-  pixel, inserts the `email_sends` row, then calls the **provider** to actually
-  deliver. The `sendEmail()` you call inside a journey talks to this. Crucially,
-  rendering, tracking, DB, and preferences are all engine-owned — only the final
-  delivery step is swappable (see `email.provider` below).
-- **`analytics`** — a PostHog capture client, or a no-op if you didn't set
-  `POSTHOG_API_KEY`. Supply your own to swap analytics backends.
+- **`emailService`** — the engine-owned **tracked mailer**. It renders your
+  template (from the `templates` registry you passed), checks
+  preferences/suppression, rewrites links + injects the open pixel, inserts the
+  `email_sends` row, then calls the **provider** to actually deliver. The
+  `sendEmail()` you call inside a journey talks to this. Crucially, rendering,
+  tracking, DB, and preferences are all engine-owned — only the final delivery
+  step is swappable (see `email.provider` below).
+- **`emailProviders`** + **`emailProvider`** — the registry of configured
+  providers (keyed by `meta.id`) and the resolved active one that the mailer
+  injects. Built from env presets (Resend when `RESEND_API_KEY` is set, Postmark
+  when `POSTMARK_SERVER_TOKEN` is) plus anything you pass; `EMAIL_PROVIDER` /
+  `email.defaultProvider` picks the active id. No key configured is not fatal —
+  the API boots and warns, and only sends fail.
+- **`analyticsProviders`** + **`analytics`** — the same shape for analytics. The
+  contract is provider-neutral (`AnalyticsProvider`); PostHog is the env preset
+  when `POSTHOG_API_KEY` is set, and a no-op otherwise. Note that PostHog person
+  *reads* additionally need `POSTHOG_PERSONAL_API_KEY` — the `phc_` project key
+  is write-only by PostHog's design.
 - **`registry`** — a `JourneyRegistry` built from the `journeys[]` you passed,
   filtered by `ENABLED_JOURNEYS`. This is the index that maps an incoming event
   to the journeys that should fire.
@@ -266,9 +315,14 @@ Besides `journeys`, the factory accepts two more **first-class** content args:
   "@hogsend/engine"`) and pass it as `email: { provider }`; tracking, rendering,
   preferences, and the `email_sends` pipeline all come along for free, because
   they never lived in the provider.
-- **`analytics`** — your PostHog (or compatible) `PostHogService`; PostHog is the
-  default. This one is top-level (not under `email`) because the engine itself
-  uses it.
+- **`analytics`** — your `AnalyticsProvider` (or a `{ provider, providers,
+  defaultProvider }` group mirroring `email`); PostHog is the env preset. This
+  one is top-level (not under `email`) because the engine itself uses it.
+
+The factory takes more than this example passes — `buckets`, `lists`,
+`campaigns`, `destinations`, `flags`, `sms`, `journeyConstants`. All are
+optional, and leaving them out is what makes this example small. The scaffold
+wires them; see `packages/create-hogsend/template/src/index.ts`.
 
 There's also a small **`overrides`** escape hatch (`{ mailer, auth, hatchet,
 db }`) for genuinely advanced / test-only swaps — e.g. injecting a mock mailer or
@@ -282,11 +336,18 @@ Takes the container and returns the configured Hono app. It wires up the full
 middleware stack (secure headers, CORS, compression, request IDs, request
 logging, a unified error handler), mounts Better Auth at `/api/auth/*`, exposes
 OpenAPI docs at `/docs` + `/openapi.json` (non-production only), and registers
-**all the built-in v1 routes** — health, ingest, email
-unsubscribe/preferences, admin, tracking (click/open pixels), and the Resend
-webhook. Your `webhookSources` are the only content you inject; they become
+**all the built-in v1 routes** — 149 of them as of 0.63.0: health, event ingest
+(`POST /v1/events`), contacts, groups, lists, campaigns, email
+unsubscribe/preferences, admin, tracking (click/open pixels), and the
+id-dispatched provider webhook `POST /v1/webhooks/email/:providerId`. Your
+`webhookSources` are the only content you inject; they become
 `POST /v1/webhooks/:sourceId`. In `index.ts` the returned app is handed to
 `@hono/node-server`'s `serve()`.
+
+Note that the data-plane routes require an API key — `POST /v1/events` answers
+`401` without one. `bootstrapApiKeyFromEnv({ client })`, called just above
+`createApp` in `index.ts`, mints one on the first boot against an empty database
+and logs it once. Without that call a fresh install has no way in.
 
 The boot guard above `createApp` is worth understanding: before serving, the API
 asks the database what engine schema version it's at. If the DB is *behind* what
@@ -310,7 +371,7 @@ shutdown, then calls `start()`.
 
 | Lives in `@hogsend/*` (versioned dependency, you don't edit) | Lives in this repo (you own + edit) |
 |---|---|
-| HTTP server + all v1 routes (health, ingest, admin, email prefs, tracking, Resend webhook) | The `journeys[]` array and every journey file |
+| HTTP server + all v1 routes (health, events, admin, email prefs, tracking, provider webhooks) | The `journeys[]` array and every journey file |
 | The client factory + all services (db, auth, tracked mailer, PostHog, Hatchet client, logger, registry) | Your email templates (`src/emails/` — `.tsx`, registry, augmentation) |
 | The worker runtime + built-in tasks (`sendEmailTask`, `importContactsTask`, `checkAlertsTask`) | The `webhookSources[]` array and each source's `transform` |
 | The journey engine: `defineJourney`, enrollment guards, `JourneyContext` (`ctx.sleep`, `ctx.trigger`, `ctx.history`, …) | `Events` / `Templates` constants |
@@ -359,13 +420,33 @@ A candid read for a newcomer, not a sales pitch:
    `email.provider`, `analytics`) is first-class. If you stumble onto `overrides`
    via autocomplete, you almost certainly don't want it.
 
+6. **`pnpm test` passes with nothing to run.** The vitest config and its env are
+   wired, but this example ships no `.test.ts` files, so the script is a
+   `--passWithNoTests` no-op. Green here means "nothing ran", not "nothing
+   broke". For real deterministic journey tests, see `@hogsend/testing`.
+
 ### Does it actually run?
 
-The scaffold is internally consistent and would build/run **once the
-`@hogsend/*` packages are published** (the example here was generated with
-`--no-install` precisely because those versions aren't on npm yet). With the
-packages available, `pnpm install && pnpm bootstrap && pnpm dev` +
-`pnpm worker:dev` is a working setup. Custom Hatchet tasks listed in
-`src/workflows/index.ts` are wired through `extraWorkflows` and register on
-worker start out of the box, and your email templates in `src/emails/` are yours
-to edit from day one — no eject required.
+Yes — observed, not inferred. Against a throwaway Postgres, published
+`@hogsend/engine@0.63.0`, and a local Hatchet-Lite:
+
+- `pnpm install` → clean.
+- `pnpm check-types` → exit 0.
+- `pnpm build` → `dist/index.js` + `dist/worker.js`, 3.32 MB each.
+- `pnpm db:migrate` → 72 engine migrations, then 1 client migration.
+- `node dist/index.js` → schema guard passes, server listens, `GET /v1/health`
+  returns `200 healthy` with database and redis `up`, `/openapi.json` lists 149
+  routes.
+- `node dist/worker.js` → `worker ready`, `engineVersion 0.63.0`, 2 journey
+  tasks + 18 built-in tasks registered, Hatchet action listener established.
+- `POST /v1/events {"name":"test.signup",…}` → `202 {"stored":true}`, and
+  `journey_states` then shows `test-onboarding | smoke-1 | completed`.
+
+Custom Hatchet tasks listed in `src/workflows/index.ts` are wired through
+`extraWorkflows` and register on worker start out of the box, and your email
+templates in `src/emails/` are yours to edit from day one — no eject required.
+
+One caveat worth keeping: `check-types` and `build` passing does **not** mean
+the app boots. The dependency-inlining trap described under `tsup.config.ts`
+above passes both and then dies on `node dist/index.js`. Run the built output
+after any engine upgrade.
