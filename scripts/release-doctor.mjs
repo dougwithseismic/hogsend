@@ -46,8 +46,22 @@ const MANIFEST = "packages/create-hogsend/src/template-manifest.ts";
 const VERIFY_SH = "packages/create-hogsend/scripts/verify-scaffold.sh";
 const TEMPLATE_PKG = "packages/create-hogsend/template/_package.json";
 const EXAMPLES_DIR = "examples";
+const CLOUD_ENV = "apps/cloud/src/env.ts";
 
 const engineVersion = () => readJson("packages/engine/package.json").version;
+
+/**
+ * `CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.64.0")` -> the
+ * literal, or null if the shape moved. Read out of the source text because the
+ * value is a zod default inside a module that pulls in the whole cloud env at
+ * import time; a regex over one line is cheaper and has no side effects. Null
+ * is reported as a failure, never treated as "fine" — a check that silently
+ * stops checking is worse than no check.
+ */
+const cloudDefaultEngineVersion = () =>
+  readText(CLOUD_ENV).match(
+    /CLOUD_DEFAULT_ENGINE_VERSION[\s\S]{0,120}?\.default\(\s*["']([^"']+)["']\s*\)/,
+  )?.[1] ?? null;
 
 /** Parse "1.2.3" -> [1, 2, 3]; ignores any -prerelease/+build suffix. */
 const parseSemver = (v) =>
@@ -350,6 +364,31 @@ const checks = [
     },
   },
   {
+    // The tag a freshly provisioned stack boots on. It is a hand-written
+    // default in a zod schema, which means nothing was holding it to the engine
+    // line — and it sat at 0.57.0 while the line reached 0.64.0. Every stack
+    // provisioned in that window pulled an image built before
+    // `@hogsend/plugin-hogsend` was scaffolded into the default app, so it
+    // crash-looped the moment provisioning set `EMAIL_PROVIDER=hogsend`.
+    //
+    // Exact equality, not the minor line: this names ONE image tag that has to
+    // exist in the registry, and `^0.64.0` is not a tag. The release workflow
+    // builds and pushes `hogsend-default:<engine-version>` in the same run that
+    // publishes the packages, so the tag this points at is created by the very
+    // release that moves it.
+    name: "CLOUD_DEFAULT_ENGINE_VERSION matches @hogsend/engine version",
+    fn: () => {
+      const e = engineVersion();
+      const found = cloudDefaultEngineVersion();
+      if (found === null) {
+        return `could not find CLOUD_DEFAULT_ENGINE_VERSION's default in ${CLOUD_ENV} — this check cannot see the value it is meant to guard, so fix the check rather than deleting it`;
+      }
+      return found === e
+        ? null
+        : `CLOUD_DEFAULT_ENGINE_VERSION defaults to ${found} but @hogsend/engine is ${e} — new stacks would boot hogsend-default:${found}. Run: pnpm release-doctor --sync`;
+    },
+  },
+  {
     name: "all engine-line packages share one version",
     fn: () => {
       const versions = ENGINE_LINE.map((n) => [
@@ -649,6 +688,26 @@ function sync() {
     console.log(`release-doctor --sync: ENGINE_VERSION -> ${e}`);
   }
   syncExamples(e);
+  syncCloudDefaultEngineVersion(e);
+}
+
+/**
+ * Carry the stock-image tag onto the current engine version. Runs inside the
+ * changeset `version` step, so the Version PR that bumps the engine also moves
+ * the tag new stacks boot on — which is the only way this stays true without
+ * somebody remembering it every release.
+ */
+function syncCloudDefaultEngineVersion(engine) {
+  const text = readText(CLOUD_ENV);
+  const next = text.replace(
+    /(CLOUD_DEFAULT_ENGINE_VERSION[\s\S]{0,120}?\.default\(\s*["'])[^"']+(["']\s*\))/,
+    `$1${engine}$2`,
+  );
+  if (next === text) return;
+  writeFileSync(r(CLOUD_ENV), next);
+  console.log(
+    `release-doctor --sync: CLOUD_DEFAULT_ENGINE_VERSION -> ${engine}`,
+  );
 }
 
 /**

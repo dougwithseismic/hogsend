@@ -260,7 +260,14 @@ export const env = createEnv({
     // (`hogsend-default:<engine-version>`, PRD 04 "Initial deploy source").
     // Recorded on the stack row at provision time, so a later bump does not
     // rewrite what an existing stack is actually running.
-    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.57.0"),
+    //
+    // KEEP THIS AT THE CURRENT ENGINE VERSION — `release-doctor` enforces it,
+    // and `pnpm release:check --sync` moves it. It sat at 0.57.0 through seven
+    // engine releases, which meant every new stack booted an image built before
+    // `@hogsend/plugin-hogsend` was scaffolded in and crash-looped on
+    // `EMAIL_PROVIDER=hogsend`. A default that has to be remembered is a
+    // default that goes stale.
+    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.64.0"),
     // The local SCRATCH directory: the root of the `LocalDiskArtifactStore`
     // (the dev/CI store) AND the build pipeline's `workRoot`, where a tarball
     // is unpacked before the image build. Once a bucket is configured (below)

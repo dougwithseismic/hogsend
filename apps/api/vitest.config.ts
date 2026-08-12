@@ -28,6 +28,13 @@ const WEBHOOK_FANOUT = [
   // comparison RUN-namespacing cannot scope. It needs the same serial
   // barrier (no other file mutating contacts mid-comparison).
   "src/__tests__/admin-impact-global-control.test.ts",
+  // Also not a webhook file, same reason one layer down: the backfill's
+  // "physically untouched" assertions compare Postgres `xmin` (tuple version)
+  // before and after a re-drive, and ANY concurrent write to those rows bumps
+  // xmin. RUN-namespacing scopes the rows this file creates, not the tuple
+  // versions another file's writes advance. Measured 2026-08-12: 3 failures
+  // file-parallel, 20/20 green run alone.
+  "src/__tests__/contact-id-backfill.test.ts",
 ];
 
 export default defineConfig({
@@ -59,8 +66,34 @@ export default defineConfig({
       NODE_ENV: "test",
       PORT: "3002",
       LOG_LEVEL: "error",
+      // DO NOT "fix" this DATABASE_URL to point at a real database. It names a
+      // deliberately DEAD endpoint, and that is load-bearing.
+      //
+      // The 192 test files that actually use Postgres assign DATABASE_URL
+      // themselves at module top-level, defaulting to 5434 and honouring
+      // HOGSEND_TEST_DATABASE_URL — so this value only ever reaches the ~45
+      // files that do NOT, and those are exactly the files that should never
+      // open a connection. Pointing it at the live 5434 lets all 45 connect,
+      // and the whole suite then contends for one Postgres.
+      //
+      // MEASURED 2026-08-12, full parallel `pnpm test` (what CI runs, both
+      // workspaces at once): clean main fails 2 files; with this line pointed
+      // at 5434 it fails 25 — the same 2 plus 23 new, 21 of them TIMEOUTS, not
+      // assertion failures. The value looking wrong is the reason it works.
       DATABASE_URL: "postgresql://test:test@localhost:5432/test",
-      REDIS_URL: "redis://localhost:6379",
+      // REDIS_URL is the opposite case, and it did need fixing. NO test file
+      // sets it, so this value IS what the suite uses, and it pointed at 6379 —
+      // a port this repo never starts, which on a dev machine resolves to
+      // whatever unrelated container holds it (here, another project's Redis).
+      // Measured: with Redis unreachable, 12 tests across 5 files fail; against
+      // the repo's own 6380 they pass. Unlike Postgres above, the suite genuinely
+      // needs a reachable Redis, and it should be OURS.
+      //
+      // The hatch is a separately-named var because vitest's `test.env`
+      // OVERRIDES the ambient process.env (measured, not assumed — an exported
+      // REDIS_URL does NOT win), mirroring the cloud suite's
+      // HOGSEND_CLOUD_TEST_DATABASE_URL.
+      REDIS_URL: process.env.HOGSEND_TEST_REDIS_URL ?? "redis://localhost:6380",
       BETTER_AUTH_SECRET: "test-secret-for-vitest-minimum-32-characters-long",
       BETTER_AUTH_URL: "http://localhost:3002",
       RESEND_API_KEY: "re_test_000000000000000000000000",

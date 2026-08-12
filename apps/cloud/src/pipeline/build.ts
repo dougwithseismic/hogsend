@@ -703,6 +703,20 @@ export async function runPreflight(args: {
   cwd: string;
   reference: string;
   logDir: string;
+  /**
+   * Extra `KEY=VALUE` pairs handed to the CONTAINER (the script's `--env`), on
+   * top of its synthetic defaults.
+   *
+   * The gate boots the image the way the scaffold ships it, which is not the
+   * way a provisioned stack runs it. That gap shipped three broken images:
+   * `hogsend-default` 0.61.0–0.63.0 all passed preflight and all crash-looped
+   * on `EMAIL_PROVIDER=hogsend` with `email provider "hogsend" is not
+   * registered`, because the gate never set the variable provisioning sets.
+   * Measured 2026-08-12 against the published 0.63.0 artifact: it fails under
+   * this env and 0.64.0 passes. A gate that tests a configuration nobody
+   * deploys is a gate that says yes to the one they do.
+   */
+  imageEnv?: Record<string, string>;
   timeoutMs?: number;
   onOutput?: (chunk: string) => void;
 }): Promise<{ ok: boolean; code: number; timedOut: boolean }> {
@@ -716,6 +730,10 @@ export async function runPreflight(args: {
       "--no-build",
       "--log-dir",
       args.logDir,
+      ...Object.entries(args.imageEnv ?? {}).flatMap(([key, value]) => [
+        "--env",
+        `${key}=${value}`,
+      ]),
     ],
     {
       cwd: args.cwd,
