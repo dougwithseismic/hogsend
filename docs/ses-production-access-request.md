@@ -1,6 +1,15 @@
 # SES production access request
 
-Draft for review. Nothing here has been submitted.
+**Ready to submit.** Every open decision below was settled on 2026-08-12:
+mail type `MARKETING`, abuse contact `abuse@hogsend.com` (Doug is creating the
+mailbox), opening quota 50,000 per 24 hours at 14 per second, and the ramp
+triggers as written. Nothing here has been submitted yet.
+
+**One precondition:** `abuse@hogsend.com` has to accept mail BEFORE either
+submission goes in. It is named in the AWS case as the operational abuse
+contact and in the published Acceptable Use Policy as the appeals route, so
+submitting first would put an address in front of AWS that bounces — which is
+the specific thing an ISV request cannot afford to get wrong.
 
 Two submissions are needed, one per region: `us-east-1` and `eu-west-1`. Sandbox status is per
 region, so a single approval covers one region only. Submit both on the same day; a second wait,
@@ -51,14 +60,11 @@ by a recipient's own actions, which is transactional in shape, and it also carri
 are marketing. `MARKETING` is the honest declaration of the two, and it is the one that does not
 have to be corrected later.
 
-> **Needs Doug:** `MARKETING` or `TRANSACTIONAL`. `MARKETING` is recommended. Declaring
-> `TRANSACTIONAL` and then running broadcasts is the version of this that ends in a Trust and Safety
-> case.
+> **Settled 2026-08-12:** `MARKETING`. Declaring `TRANSACTIONAL` and then running broadcasts is the
+> version of this that ends in a Trust and Safety case.
 
-> **Needs Doug:** `abuse@hogsend.com` does not exist yet. It is referenced by the Acceptable Use
-> Policy as the appeals and reports route and by this request as an AWS contact, so it needs to be a
-> real, monitored mailbox before either is submitted. If it will not exist, replace both references
-> with `hello@hogsend.com`.
+> **Settled 2026-08-12:** `abuse@hogsend.com` stays, and Doug is creating the mailbox. It must
+> accept mail before either submission goes in — see the precondition at the top.
 
 ---
 
@@ -222,13 +228,13 @@ day.
 Replace `<REGION>` with `us-east-1` or `eu-west-1` before sending. The rest of the text is identical
 across both cases.
 
-> **Needs Doug:** the requested opening quota. 50,000 per 24 hours and 14 per second is the standard
-> production default and is deliberately unambitious. A larger opening ask invites scrutiny we do
-> not need, and the ramp story is stronger with a real record behind it. Confirm, or name a number.
+> **Settled 2026-08-12:** 50,000 per 24 hours and 14 per second — the standard production default,
+> deliberately unambitious. A larger opening ask invites scrutiny we do not need, and the ramp story
+> is stronger with a real record behind it.
 
-> **Needs Doug:** the ramp trigger numbers (60% of quota for 7 days, bounce below 2%, complaint
-> below 0.05%) are a proposal, not a settled decision. They are stricter than AWS's own thresholds
-> on purpose, because they are what we volunteer to be judged against.
+> **Settled 2026-08-12:** the ramp triggers stand as written (60% of quota for 7 days, bounce below
+> 2%, complaint below 0.05%). They are stricter than AWS's own thresholds on purpose, because they
+> are what we volunteer to be judged against.
 
 ### After the reply
 
