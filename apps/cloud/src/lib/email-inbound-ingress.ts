@@ -3,6 +3,7 @@ import { env } from "../env";
 import {
   EMAIL_INBOUND_MAX_ATTEMPTS,
   EMAIL_INBOUND_PENDING_CLAIM_MS,
+  type InboundForwarder,
   type InboundOutcome,
   ingestInboundMessage,
 } from "../services/email-inbound";
@@ -79,6 +80,8 @@ export interface SesInboundIngressDeps {
   now?: Date;
   /** Overridable so a test can prove the size cap without a huge fixture. */
   maxObjectBytes?: number;
+  /** The mandatory forward (task 6). Injected so no test reaches SES. */
+  forward?: InboundForwarder;
 }
 
 /**
@@ -222,6 +225,7 @@ export async function handleSesInboundNotification(
       sleep: deps.sleep,
       now: deps.now,
       maxObjectBytes: deps.maxObjectBytes,
+      forward: deps.forward,
     },
   );
 

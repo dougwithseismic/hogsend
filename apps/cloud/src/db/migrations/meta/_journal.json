@@ -183,6 +183,13 @@
       "when": 1786531654445,
       "tag": "0025_optimal_grey_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786535345278,
+      "tag": "0026_illegal_invisible_woman",
+      "breakpoints": true
     }
   ]
 }

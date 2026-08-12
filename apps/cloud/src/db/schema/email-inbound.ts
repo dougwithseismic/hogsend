@@ -114,6 +114,20 @@ export const emailInboundMessages = cloud.table(
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     /** Whether the mandatory forward has happened yet (PRD 16 task 6). */
     forwardedAt: timestamp("forwarded_at", { withTimezone: true }),
+    /**
+     * Why the mandatory forward did NOT happen, or NULL.
+     *
+     * Its own column rather than a second use of {@link lastError}, because the
+     * two answer different questions and a shared column would let one erase
+     * the other: `last_error` is "why the tenant instance did not take the
+     * event", this is "why the human did not get the message". A reply can
+     * easily do one and not the other, and PRD 16 calls the second an incident
+     * — so it has to be visible on the row rather than only in a log line.
+     *
+     * A row with `forwarded_at IS NULL` AND a `forward_error` is the operator's
+     * re-drive list; the raw MIME is still in S3, so nothing is lost.
+     */
+    forwardError: text("forward_error"),
     /** When SES received it — not when we heard about it. */
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
     ...timestamps,

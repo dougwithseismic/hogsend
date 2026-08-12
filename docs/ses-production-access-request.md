@@ -246,7 +246,9 @@ credential is a static access key on an IAM user, `hogsend-cloud-relay`, holding
 customer-managed policy. See `DECISIONS.md §7.1`.
 
 The policy grants the verbs of the PRD 02 contract and nothing else. There is no `ses:*`. Every
-action name below was confirmed against a primary AWS source; see Appendix B.
+action name below was confirmed against a primary AWS source; see Appendix B. Email RECEIVING needs
+four further grants, which are a separate statement set and are documented under "The receiving
+grant" below.
 
 `ses:GetTenant`, `ses:GetReputationEntity` and `ses:GetAccount` were added to PRD 02's contract
 after this appendix was first drafted; see "Resolved after this appendix was drafted" below.
@@ -317,6 +319,94 @@ using these formats:
 It is not in the policy above because a condition key that does not match the value the relay
 actually sends kills every send in the account at once, and that is worth proving against a live
 tenant first. Add it after PRD 06 sends its first real message.
+
+### The receiving grant (PRD 16)
+
+Inbound replies need permissions the sending policy above does not carry, and they are held in a
+SEPARATE statement set — `apps/cloud/scripts/aws-bootstrap-events.sh` applies them as an inline
+policy on the same `hogsend-cloud-relay` user, and that script is the source of truth this appendix
+mirrors. They are separate rather than merged because the block above is the audited artefact behind
+the sending pipeline, and widening it would make one grant answer for two features with very
+different blast radii.
+
+Receiving does NOT need a new send action: the mandatory forward to the customer's human address
+(PRD 16 task 6) goes out through `ses:SendEmail`, already granted above, under the customer's own
+tenant and their own verified domain.
+
+```json
+{
+  "Sid": "SesInboundReceiptRules",
+  "Effect": "Allow",
+  "Action": [
+    "ses:CreateReceiptRuleSet",
+    "ses:DescribeReceiptRuleSet",
+    "ses:DeleteReceiptRuleSet",
+    "ses:DescribeActiveReceiptRuleSet",
+    "ses:SetActiveReceiptRuleSet",
+    "ses:CreateReceiptRule",
+    "ses:UpdateReceiptRule",
+    "ses:DescribeReceiptRule",
+    "ses:DeleteReceiptRule"
+  ],
+  "Resource": "*",
+  "Condition": {
+    "StringEquals": { "aws:RequestedRegion": ["us-east-1", "eu-west-1"] }
+  }
+},
+{
+  "Sid": "SesInboundMessageRead",
+  "Effect": "Allow",
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::hogsend-ses-inbound/inbound/*"
+},
+{
+  "Sid": "SesInboundTopicSubscriptions",
+  "Effect": "Allow",
+  "Action": [
+    "sns:Subscribe",
+    "sns:Unsubscribe",
+    "sns:GetTopicAttributes",
+    "sns:ListSubscriptionsByTopic"
+  ],
+  "Resource": [
+    "arn:aws:sns:us-east-1:<account>:hogsend-ses-inbound",
+    "arn:aws:sns:eu-west-1:<account>:hogsend-ses-inbound",
+    "arn:aws:sns:us-east-1:<account>:hogsend-ses-inbound:*",
+    "arn:aws:sns:eu-west-1:<account>:hogsend-ses-inbound:*"
+  ]
+}
+```
+
+**Nine actions for eight seam verbs.** The `SesInboundClient` seam (`apps/cloud/src/ses/inbound`) has
+eight verbs; `putRule` is a create-or-update, so it needs both `ses:CreateReceiptRule` and
+`ses:UpdateReceiptRule` — the same shape `putEventDestination` has above. Every receipt-rule verb is
+SES **v1** (`@aws-sdk/client-ses`); the v2 API has no email receiving at all, which is why this is a
+second client and a second seam rather than more verbs on the nineteen.
+
+**`s3:GetObject` and nothing more.** SES writes the raw MIME; the relay only READS it. No
+`s3:PutObject`, because the write is SES's own under a bucket policy, and no `s3:DeleteObject`,
+because retention is a lifecycle rule on the bucket rather than a credential the control plane
+carries. The object-key prefix in the resource ARN is pinned to `INBOUND_OBJECT_KEY_PREFIX` in code,
+and the two are asserted equal by a test — a drift there stores every reply perfectly and makes the
+read `AccessDenied`.
+
+**Subscribe/Unsubscribe, never Publish.** The relay never publishes to the inbound topic (SES does);
+it attaches and detaches a receiving endpoint. Each topic is named TWICE — the topic ARN and
+`<topic>:*` — because `Subscribe` is authorized against the topic while `Unsubscribe` takes a
+SubscriptionArn, which AWS documents as the topic ARN with a uuid appended; which of the two IAM
+matches against is not stated anywhere we could find, and the cost of guessing wrong is a stranded
+live subscription.
+
+**`Resource: "*"` on the receipt-rule statement**, for the same reason as the sending policy plus one
+more: we could not confirm whether these actions accept a resource-level ARN, because AWS's Service
+Authorization Reference page for SES is client-rendered and would not load, and the only receipt-rule
+ARN in AWS's own docs (`arn:aws:ses:<region>:<account>:receipt-rule-set/<set>:receipt-rule/<rule>`)
+appears there as an `AWS:SourceArn` CONDITION value on resource policies, which is a different thing.
+The region condition is the tight scoping that can be stated honestly today.
+
+**What is NOT here, and belongs with the resources instead.** SES itself needs permission to WRITE to
+the bucket and PUBLISH to the topic. Those are RESOURCE policies on the bucket and the topic, not
+grants on this user, and they are created with those resources.
 
 ### Resolved after this appendix was drafted
 

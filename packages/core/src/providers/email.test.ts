@@ -5,6 +5,7 @@ import type {
   EmailEvent,
   EmailEventType,
   EmailProviderCapabilities,
+  EmailReply,
   SendEmailOptions,
   WebhookHandlerMap,
 } from "./email.js";
@@ -35,6 +36,11 @@ describe("EmailEventType", () => {
     // the recipient's — which is exactly why it may not be folded onto
     // `email.bounced`, whose `permanent` class auto-suppresses. One bad
     // attachment would otherwise permanently block a deliverable address.
+    //
+    // `email.replied` (PRD 16) is the one member that is not a status of our
+    // own send: it reports a message coming BACK. It is in this union rather
+    // than a channel of its own because the provider is what received it and
+    // the correlation handle is a provider message id.
     expectTypeOf<EmailEventType>().toEqualTypeOf<
       | "email.sent"
       | "email.delivered"
@@ -44,7 +50,19 @@ describe("EmailEventType", () => {
       | "email.opened"
       | "email.clicked"
       | "email.rejected"
+      | "email.replied"
     >();
+  });
+
+  it("carries the reply's facts in their OWN field, never as send metadata", () => {
+    // The same structural separation `reject` gets, for the same reason: every
+    // field on `reply` came out of a message a STRANGER composed, so no status
+    // handler may reach it by reading a field it already knows.
+    expectTypeOf<EmailEvent["reply"]>().toEqualTypeOf<EmailReply | undefined>();
+    // `inReplyTo` is OPTIONAL because an uncorrelated reply is still delivered.
+    // A required field here would force a producer to invent an id it could not
+    // prove, which is exactly the forged-header attach this design refuses.
+    expectTypeOf<EmailReply["inReplyTo"]>().toEqualTypeOf<string | undefined>();
   });
 
   it("gives every type a handler slot on the handler map", () => {

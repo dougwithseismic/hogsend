@@ -6,6 +6,7 @@ import {
   createHogsendEmailProvider,
   HOGSEND_RELAY_EMAIL_EVENT_TYPES,
   HOGSEND_RELAY_EVENT_VERSION,
+  HOGSEND_RELAY_INBOUND_EVENT_VERSION,
   HOGSEND_RELAY_MAX_AGE_MS,
   HOGSEND_RELAY_MAX_FUTURE_MS,
   HOGSEND_RELAY_SIGNATURE_HEADER,
@@ -586,5 +587,106 @@ describe("assertHogsendRelayFresh", () => {
         now: NOW,
       }),
     ).toThrow(/50h/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The INBOUND wire (PRD 16 task 5) — the same endpoint, a different shape.
+// ---------------------------------------------------------------------------
+
+/**
+ * A reply arrives on the SAME signed route as a status, because it comes from
+ * the same relay under the same secret and adding a second endpoint would mean
+ * a second signature scheme to keep right. So `parseHogsendRelayWebhook` has to
+ * discriminate on `type` and refuse to read one shape as the other.
+ *
+ * The assertion that matters most here is the LAST one: an uncorrelated reply
+ * must reach the engine with NO `inReplyTo` at all. The relay only sets that
+ * field when it has proved the id belongs to a send this same environment made,
+ * so a plugin that filled it in from anywhere else would hand a forged
+ * `In-Reply-To` straight to the engine's correlation.
+ */
+function inboundEvent(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    version: HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+    type: "email.replied",
+    messageId: "0100019-inbound-received-id",
+    recipient: "hello@reply.acme.test",
+    recipients: ["hello@reply.acme.test"],
+    from: "human@sender.test",
+    subject: "Re: your onboarding email",
+    text: "Please stop emailing me.",
+    textTruncated: false,
+    occurredAt: OCCURRED_AT,
+    correlated: true,
+    inReplyTo: "0100018f-the-original-send",
+    attachments: [],
+    attachmentsTruncated: false,
+    spamVerdict: "PASS",
+    virusVerdict: "PASS",
+    storage: { bucket: "hogsend-ses-inbound", key: "inbound/x", size: 812 },
+    ...overrides,
+  };
+}
+
+describe("parseHogsendRelayWebhook — email.replied (PRD 16)", () => {
+  it("normalizes the inbound wire into a core EmailEvent", () => {
+    const event = parseHogsendRelayWebhook(JSON.stringify(inboundEvent()));
+
+    expect(event.type).toBe("email.replied");
+    // The RECEIVED message's own id, not the one it answers. The correlation
+    // handle lives on `reply.inReplyTo` so no status path can mistake a reply
+    // for a delivery report about the original send.
+    expect(event.messageId).toBe("0100019-inbound-received-id");
+    expect(event.recipients).toEqual(["hello@reply.acme.test"]);
+    expect(event.reply).toEqual({
+      recipient: "hello@reply.acme.test",
+      from: "human@sender.test",
+      subject: "Re: your onboarding email",
+      text: "Please stop emailing me.",
+      textTruncated: false,
+      correlated: true,
+      inReplyTo: "0100018f-the-original-send",
+    });
+  });
+
+  it("carries NO inReplyTo when the relay could not correlate it", () => {
+    const event = parseHogsendRelayWebhook(
+      JSON.stringify(inboundEvent({ correlated: false, inReplyTo: undefined })),
+    );
+
+    expect(event.reply?.correlated).toBe(false);
+    expect(event.reply && "inReplyTo" in event.reply).toBe(false);
+  });
+
+  it("refuses an inbound payload claiming correlation with no id", () => {
+    // The two fields are ONE fact stated twice, and the id is the half a
+    // consumer keys on. A payload that says `correlated: true` and names
+    // nothing is a producer bug, and reading it as correlated would attach a
+    // reply to nothing at all.
+    expect(() =>
+      parseHogsendRelayWebhook(
+        JSON.stringify(inboundEvent({ inReplyTo: undefined })),
+      ),
+    ).toThrow(/not a Hogsend relay email event/i);
+  });
+
+  it("still refuses a payload that is neither shape", () => {
+    expect(() =>
+      parseHogsendRelayWebhook(JSON.stringify({ type: "email.whatever" })),
+    ).toThrow(/not a Hogsend relay email event/i);
+  });
+
+  it("is verified and bounded by the SAME signature and freshness rules", async () => {
+    const p = provider(SECRET);
+    const event = await verify(p, signed(inboundEvent()));
+    expect(event.type).toBe("email.replied");
+
+    // Wrong secret → refused, exactly as a status payload is.
+    await expect(
+      verify(p, signed(inboundEvent(), "whsec_not_the_secret")),
+    ).rejects.toThrow(/signature verification failed/i);
   });
 });

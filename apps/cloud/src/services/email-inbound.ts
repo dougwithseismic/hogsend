@@ -1,3 +1,8 @@
+import {
+  HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+  HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+  type HogsendRelayInboundEvent,
+} from "@hogsend/plugin-hogsend";
 import { and, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
@@ -15,6 +20,11 @@ import type { SesInboundNotification } from "../lib/ses-inbound-notifications";
 import { readStackRefs } from "../lib/stack-refs";
 import type { SubstrateRegion } from "../substrate/types";
 import { instanceWebhookUrl, postToInstance } from "./email-events";
+import type {
+  ForwardInboundInput,
+  ForwardInboundOutcome,
+} from "./email-inbound-forward";
+import { forwardInboundMessage } from "./email-inbound-forward";
 import type {
   InboundObject,
   InboundObjectFetcher,
@@ -91,61 +101,21 @@ export const EMAIL_INBOUND_MAX_ATTEMPTS = 9;
  */
 export const EMAIL_INBOUND_PENDING_CLAIM_MS = 2 * 60 * 1000;
 
-/** The wire's schema version. Bumped only on a BREAKING change to the shape. */
-export const HOGSEND_RELAY_INBOUND_EVENT_VERSION = 1;
-
-/** The one event this wire carries. */
-export const HOGSEND_RELAY_INBOUND_EVENT_TYPE = "email.replied";
-
 /**
  * What the tenant instance receives.
  *
- * Declared HERE rather than in `@hogsend/plugin-hogsend` for now because the
- * engine half of this wire is PRD 16 task 5, and this task's boundary is
- * `apps/cloud`. When task 5 lands, this shape moves next to
- * `HogsendRelayEmailEvent` and both ends import one declaration - the same rule
- * the status wire already follows, for the same reason (a literal duplicated
- * across a wire drifts, and the drift shows up as silently dropped replies).
- *
- * Three things it deliberately does NOT carry:
- *
- *  - **no attachment bytes**, only a manifest. The PRD's line is "store,
- *    reference, and let the customer opt in to retrieval", and `storage` is
- *    that reference;
- *  - **no HTML.** A tenant instance stores what it is sent and a Studio renders
- *    it later; handing it an attacker's markup is a stored-XSS surface we can
- *    simply decline to create;
- *  - **no unverified `inReplyTo`.** The field is present ONLY when the control
- *    plane proved the id belongs to a send this same environment made, so the
- *    engine can key on it without re-deciding the tenant question.
+ * The shape, its version and its type literal all live in
+ * `@hogsend/plugin-hogsend` next to `HogsendRelayEmailEvent` (PRD 16 task 5
+ * moved them there): the producer is this file and the consumer is the engine,
+ * and a wire declared twice drifts — with the drift showing up as silently
+ * dropped replies. Re-exported here so the receive path's own callers do not
+ * need to know which package owns the wire.
  */
-export interface HogsendRelayInboundEvent {
-  version: number;
-  type: typeof HOGSEND_RELAY_INBOUND_EVENT_TYPE;
-  /** SES's id for the RECEIVED message. Not the message being replied to. */
-  messageId: string;
-  /** The envelope recipient that resolved to this environment. */
-  recipient: string;
-  /** Every envelope recipient SES matched, in SES's order. */
-  recipients: string[];
-  from: string | null;
-  subject: string | null;
-  /** Bounded plain text. See `MAX_INBOUND_TEXT_CHARS`. */
-  text: string | null;
-  textTruncated: boolean;
-  occurredAt: string;
-  /** True only when {@link inReplyTo} is set and proven. */
-  correlated: boolean;
-  /** PROVEN to be a send this environment made, or absent. */
-  inReplyTo?: string;
-  attachments: { filename: string | null; contentType: string; size: number }[];
-  attachmentsTruncated: boolean;
-  /** SES's scan verdicts, verbatim. Nothing here classifies them. */
-  spamVerdict: string | null;
-  virusVerdict: string | null;
-  /** Where the raw MIME lives, so a customer can opt in to retrieving it. */
-  storage: { bucket: string; key: string; size: number | null };
-}
+export {
+  HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+  HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+  type HogsendRelayInboundEvent,
+};
 
 export type InboundOutcome =
   | { status: "delivered"; messageId: string; attempts: number }
@@ -187,7 +157,14 @@ export interface EmailInboundDeps {
   now?: Date;
   /** Overridable so a test can prove the cap without a 10 MiB fixture. */
   maxObjectBytes?: number;
+  /** The MANDATORY forward (task 6). Injected so no test reaches SES. */
+  forward?: InboundForwarder;
 }
+
+/** The mandatory forward, as a seam. See `services/email-inbound-forward.ts`. */
+export type InboundForwarder = (
+  input: ForwardInboundInput,
+) => Promise<ForwardInboundOutcome>;
 
 /**
  * Record one received message and hand it to its tenant's instance.
@@ -296,139 +273,221 @@ export async function ingestInboundMessage(
     };
   }
 
-  // (4) READ, bounded. See `email-inbound-objects.ts` for both bounds.
-  const fetchObject = deps.fetchObject ?? fetchInboundObject;
-  let object: InboundObject;
-  try {
-    object = await fetchObject({
-      bucket: notification.bucket,
-      key: notification.objectKey,
-      region,
-      maxBytes: deps.maxObjectBytes ?? MAX_INBOUND_OBJECT_BYTES,
-    });
-  } catch (error) {
-    if (error instanceof InboundObjectTooLargeError) {
-      // STORED, REFERENCED, NOT EMITTED. The record keeps the size so an
-      // operator can see why, and the forward (task 6) streams from S3 and is
-      // unaffected by a limit that exists only to bound THIS process.
-      await settle(db, rowId, {
-        status: "suppressed",
-        reason: "too_large",
-        attempts: attemptsSoFar,
-        sizeBytes: error.size,
+  // Everything from here on has an owner, so everything from here on ALSO has
+  // a human address to forward to. The parse and the suppression reason are
+  // hoisted because the forward — which happens once, after the outcome is
+  // settled — needs both, and a message that could not be read still forwards
+  // a notice naming the stored original (`parsed` stays null).
+  let parsed: ParsedInboundMessage | null = null;
+  let suppressedReason: InboundSuppression | null = null;
+
+  /**
+   * Steps 4-9: read, parse, correlate, and hand the event to the instance.
+   *
+   * Its own function ONLY so the mandatory forward below can be written once
+   * rather than at each of this block's six exits. Six copies of a side effect
+   * is how one of them ends up missing — and the one that would go missing is
+   * an exit like `too_large` or "the instance is down", which is precisely
+   * where a human's reply would otherwise vanish without ever being forwarded.
+   */
+  const deliver = async (): Promise<InboundOutcome> => {
+    // (4) READ, bounded. See `email-inbound-objects.ts` for both bounds.
+    const fetchObject = deps.fetchObject ?? fetchInboundObject;
+    let object: InboundObject;
+    try {
+      object = await fetchObject({
+        bucket: notification.bucket,
+        key: notification.objectKey,
+        region,
+        maxBytes: deps.maxObjectBytes ?? MAX_INBOUND_OBJECT_BYTES,
+      });
+    } catch (error) {
+      if (error instanceof InboundObjectTooLargeError) {
+        // STORED, REFERENCED, NOT EMITTED. The record keeps the size so an
+        // operator can see why, and the forward still goes out carrying the
+        // S3 reference — the customer learns somebody replied.
+        suppressedReason = "too_large";
+        await settle(db, rowId, {
+          status: "suppressed",
+          reason: "too_large",
+          attempts: attemptsSoFar,
+          sizeBytes: error.size,
+          now,
+        });
+        return { status: "suppressed", messageId: rowId, reason: "too_large" };
+      }
+      // Anything else is "we could not read it", which is transient until
+      // proven otherwise: the object is in S3 and SNS will come back.
+      return failed(db, rowId, {
+        attempts: attemptsSoFar + 1,
+        error: error instanceof Error ? error.message : String(error),
         now,
       });
-      return { status: "suppressed", messageId: rowId, reason: "too_large" };
     }
-    // Anything else is "we could not read it", which is transient until proven
-    // otherwise: the object is in S3 and SNS will come back.
-    return failed(db, rowId, {
-      attempts: attemptsSoFar + 1,
-      error: error instanceof Error ? error.message : String(error),
-      now,
+
+    // (5) PARSE. Hostile bytes; everything that comes back is bounded.
+    try {
+      parsed = await parseInboundMime(object.body);
+    } catch (error) {
+      // A parse that threw once throws again on identical bytes, so retrying is
+      // the "never retry a 4xx" mistake pointed at our own parser. Stored,
+      // referenced, forwarded, no event.
+      suppressedReason = "unparseable";
+      await settle(db, rowId, {
+        status: "suppressed",
+        reason: "unparseable",
+        attempts: attemptsSoFar,
+        sizeBytes: object.size,
+        lastError: error instanceof Error ? error.message : String(error),
+        now,
+      });
+      return { status: "suppressed", messageId: rowId, reason: "unparseable" };
+    }
+    const message = parsed;
+
+    // (6) CORRELATE, scoped to the environment the recipient resolved to.
+    const correlatedMessageId = await correlateToEnvironment(db, {
+      environmentId: owner.environmentId,
+      candidates: message.correlationCandidates,
     });
-  }
 
-  // (5) PARSE. Hostile bytes; everything that comes back is bounded.
-  let parsed: ParsedInboundMessage;
-  try {
-    parsed = await parseInboundMime(object.body);
-  } catch (error) {
-    // A parse that threw once throws again on identical bytes, so retrying is
-    // the "never retry a 4xx" mistake pointed at our own parser. Stored,
-    // referenced, forwardable, no event.
-    await settle(db, rowId, {
-      status: "suppressed",
-      reason: "unparseable",
-      attempts: attemptsSoFar,
-      sizeBytes: object.size,
-      lastError: error instanceof Error ? error.message : String(error),
-      now,
-    });
-    return { status: "suppressed", messageId: rowId, reason: "unparseable" };
-  }
+    // (7) The parsed facts are durable BEFORE the event that reports them.
+    await db
+      .update(emailInboundMessages)
+      .set({
+        sizeBytes: object.size,
+        fromAddress: message.from,
+        subject: message.subject,
+        inReplyTo: message.inReplyTo,
+        correlatedMessageId,
+        correlated: correlatedMessageId !== null,
+        attachments: message.attachments,
+        updatedAt: now,
+      })
+      .where(eq(emailInboundMessages.id, rowId));
 
-  // (6) CORRELATE, scoped to the environment the recipient resolved to.
-  const correlatedMessageId = await correlateToEnvironment(db, {
-    environmentId: owner.environmentId,
-    candidates: parsed.correlationCandidates,
-  });
+    // (8) The loop guard. Stored above, FORWARDED below, emitted never — the
+    // human still gets their correspondent's vacation notice.
+    const suppression = autoResponderReason(message);
+    if (suppression) {
+      suppressedReason = suppression;
+      await settle(db, rowId, {
+        status: "suppressed",
+        reason: suppression,
+        attempts: attemptsSoFar,
+        now,
+      });
+      return { status: "suppressed", messageId: rowId, reason: suppression };
+    }
 
-  // (7) The parsed facts are durable BEFORE the event that reports them.
-  await db
-    .update(emailInboundMessages)
-    .set({
-      sizeBytes: object.size,
-      fromAddress: parsed.from,
-      subject: parsed.subject,
-      inReplyTo: parsed.inReplyTo,
+    // (9) A stack mid-provision has no public URL yet. TRANSIENT, and a lost
+    // reply is permanent, so it is a retryable failure rather than a drop. The
+    // counter still ticks even though no request was made, or a stack that
+    // never finishes provisioning would re-drive forever.
+    const target = await resolveInstance(db, owner.environmentId);
+    if (!target?.apiPublicUrl) {
+      return failed(db, rowId, {
+        attempts: attemptsSoFar + 1,
+        error: target
+          ? "the environment's instance has no public URL yet"
+          : "the environment has no SES tenancy, so no webhook secret exists",
+        now,
+      });
+    }
+
+    const event = buildInboundEvent({
+      notification,
+      owner,
+      parsed: message,
+      object,
       correlatedMessageId,
-      correlated: correlatedMessageId !== null,
-      attachments: parsed.attachments,
-      updatedAt: now,
-    })
-    .where(eq(emailInboundMessages.id, rowId));
-
-  // (8) The loop guard. Stored above, emitted never.
-  const suppression = autoResponderReason(parsed);
-  if (suppression) {
-    await settle(db, rowId, {
-      status: "suppressed",
-      reason: suppression,
-      attempts: attemptsSoFar,
-      now,
     });
-    return { status: "suppressed", messageId: rowId, reason: suppression };
-  }
 
-  // (9) A stack mid-provision has no public URL yet. TRANSIENT, and a lost
-  // reply is permanent, so it is a retryable failure rather than a drop. The
-  // counter still ticks even though no request was made, or a stack that never
-  // finishes provisioning would re-drive forever.
-  const target = await resolveInstance(db, owner.environmentId);
-  if (!target?.apiPublicUrl) {
-    return failed(db, rowId, {
-      attempts: attemptsSoFar + 1,
-      error: target
-        ? "the environment's instance has no public URL yet"
-        : "the environment has no SES tenancy, so no webhook secret exists",
-      now,
+    const budget = Math.max(
+      0,
+      Math.min(
+        EMAIL_INBOUND_ATTEMPTS_PER_REQUEST,
+        EMAIL_INBOUND_MAX_ATTEMPTS - attemptsSoFar,
+      ),
+    );
+    const result = await postToInstance({
+      url: instanceWebhookUrl(target.apiPublicUrl),
+      // The bytes we sign are the bytes we send: the instance verifies over the
+      // EXACT received body, so re-serializing anywhere between here and the
+      // wire would break every signature.
+      payload: JSON.stringify(event),
+      secret: target.webhookSecret,
+      attempts: budget,
+      fetchImpl: deps.fetchImpl,
+      sleep: deps.sleep,
+    });
+
+    const attempts = attemptsSoFar + result.attempts;
+    if (result.ok) {
+      await settle(db, rowId, { status: "delivered", attempts, now });
+      return { status: "delivered", messageId: rowId, attempts };
+    }
+    return failed(db, rowId, { attempts, error: result.error, now });
+  };
+
+  const outcome = await deliver();
+
+  // (10) THE MANDATORY FORWARD (PRD 16 task 6).
+  //
+  // LAST, because forwarding is a side effect and must never be a gate on
+  // durability: by here the message is recorded, the parsed facts are stored
+  // and the event has been offered to the instance, so nothing this does — or
+  // fails to do — can un-store the message or un-emit the event.
+  //
+  // `forwardInboundMessage` never throws (see its header), so this is awaited
+  // rather than fired and forgotten: awaiting it means the row carries either
+  // `forwarded_at` or `forward_error` by the time the request answers, and an
+  // operator can tell "not forwarded yet" from "we are not going to".
+  if (shouldForward(outcome, parsed, suppressedReason)) {
+    const forward = deps.forward ?? forwardInboundMessage;
+    await forward({
+      rowId,
+      region,
+      environmentId: owner.environmentId,
+      domain: owner.domain,
+      forwardTo: owner.forwardTo,
+      recipient: owner.recipient,
+      parsed,
+      storage: { bucket: notification.bucket, key: notification.objectKey },
+      suppressedReason,
     });
   }
 
-  const event = buildInboundEvent({
-    notification,
-    owner,
-    parsed,
-    object,
-    correlatedMessageId,
-  });
+  return outcome;
+}
 
-  const budget = Math.max(
-    0,
-    Math.min(
-      EMAIL_INBOUND_ATTEMPTS_PER_REQUEST,
-      EMAIL_INBOUND_MAX_ATTEMPTS - attemptsSoFar,
-    ),
-  );
-  const result = await postToInstance({
-    url: instanceWebhookUrl(target.apiPublicUrl),
-    // The bytes we sign are the bytes we send: the instance verifies over the
-    // EXACT received body, so re-serializing anywhere between here and the wire
-    // would break every signature.
-    payload: JSON.stringify(event),
-    secret: target.webhookSecret,
-    attempts: budget,
-    fetchImpl: deps.fetchImpl,
-    sleep: deps.sleep,
-  });
-
-  const attempts = attemptsSoFar + result.attempts;
-  if (result.ok) {
-    await settle(db, rowId, { status: "delivered", attempts, now });
-    return { status: "delivered", messageId: rowId, attempts };
-  }
-  return failed(db, rowId, { attempts, error: result.error, now });
+/**
+ * Whether THIS pass is the one that forwards.
+ *
+ * Nearly always yes — PRD 16 makes forwarding mandatory whenever inbound is on,
+ * so an auto-responder, an oversized message and a message whose tenant
+ * instance is down all still reach the human on the pass that produced them.
+ *
+ * The ONE case that waits is a message we have not managed to READ yet: a
+ * transient S3 failure leaves `parsed` null with no terminal reason, and the
+ * forward is deferred to the redelivery that will have the actual message.
+ * Sending the "could not read this" notice there would be actively harmful
+ * rather than merely early — it stamps `forwarded_at`, and the retry that then
+ * succeeds finds the message already forwarded and stays silent. The human
+ * would receive the apology INSTEAD OF the reply.
+ *
+ * Once the attempts are exhausted there is no later pass to defer to, so the
+ * notice goes out: at that point "somebody replied and we could not read it" is
+ * the only true thing left to say, and saying nothing is the silent swallow
+ * this whole feature refuses.
+ */
+function shouldForward(
+  outcome: InboundOutcome,
+  parsed: ParsedInboundMessage | null,
+  suppressedReason: InboundSuppression | null,
+): boolean {
+  if (parsed !== null || suppressedReason !== null) return true;
+  return outcome.status === "failed" && outcome.exhausted;
 }
 
 /**
@@ -560,6 +619,17 @@ interface ResolvedOwner {
   environmentId: string;
   domain: string;
   recipient: string;
+  /**
+   * The human mailbox this domain's replies are forwarded to.
+   *
+   * Carried on the owner rather than looked up again at forward time because
+   * the recipient resolve ALREADY read it — a domain has an owner here only
+   * because it has a stored forwarding address (`findInboundRecipientOwner`
+   * skips a config without one). That is the same invariant `enable` fails
+   * closed on, arriving from the other end: there is no state in which a
+   * message resolves to an environment and has nowhere to be forwarded.
+   */
+  forwardTo: string;
 }
 
 /**
@@ -581,6 +651,7 @@ async function firstOwner(
         environmentId: owner.environmentId,
         domain: owner.domain,
         recipient,
+        forwardTo: owner.forwardTo,
       };
     }
   }

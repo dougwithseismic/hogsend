@@ -338,7 +338,22 @@ export type EmailEventType =
    * Provider-neutral by construction even though only the Hogsend provider
    * emits it today — every ESP has an accepted-then-discarded outcome.
    */
-  | "email.rejected";
+  | "email.rejected"
+  /**
+   * A HUMAN REPLIED to a message we sent (PRD 16).
+   *
+   * The one member of this union that is not a status of our own send: every
+   * other type reports what happened to the message on its way out, while this
+   * reports a message coming BACK. It is here rather than in a channel of its
+   * own because the provider is the thing that received it and the correlation
+   * handle is a provider message id, which is exactly what this union is for.
+   *
+   * The facts ride on {@link EmailEvent.reply}. Deliberately NOT a status:
+   * nothing about a reply changes the delivery state of the original send, so
+   * this type has no `email_sends` status mapping and no timestamp column —
+   * a delivered message that gets a reply is still delivered.
+   */
+  | "email.replied";
 
 /**
  * Provider-neutral bounce classification. Drives suppression: `permanent`
@@ -348,6 +363,44 @@ export type EmailEventType =
  * classifier returns this from its own wire-specific bounce shape.
  */
 export type BounceClass = "permanent" | "transient" | "complaint" | "unknown";
+
+/**
+ * The facts of an inbound reply, carried on `email.replied` (PRD 16).
+ *
+ * Everything here except {@link EmailReply.inReplyTo} came out of a message a
+ * STRANGER composed, so it is treated as display data: bounded by the producer,
+ * never executed, and never used to decide whose reply this is.
+ *
+ * `inReplyTo` is the exception, and the asymmetry is the whole security model.
+ * `In-Reply-To` is a header the sender writes, so anyone could name another
+ * customer's message id. The producer therefore never passes the CLAIM through
+ * — it asks its own records "did this same tenant send that id?" and only sets
+ * this field when the answer is yes. A consumer may key on it without
+ * re-deciding the question; an uncorrelated reply simply omits it and says so
+ * via {@link EmailReply.correlated} rather than being dropped.
+ *
+ * Deliberately no HTML: handing a consumer an attacker's markup to store and
+ * later render is a stored-XSS surface, and "did a human reply, and what did
+ * they say" is answered by the text part.
+ */
+export interface EmailReply {
+  /** The address the reply arrived AT — asserted by the provider, not a header. */
+  recipient: string;
+  /** The sender's address, without any display name. Null when it carried none. */
+  from: string | null;
+  subject: string | null;
+  /** Bounded plain text. Never HTML. */
+  text: string | null;
+  /** True when {@link EmailReply.text} was clipped by the producer's cap. */
+  textTruncated: boolean;
+  /** True only when {@link EmailReply.inReplyTo} is set and was PROVEN. */
+  correlated: boolean;
+  /**
+   * The message id of OUR send this reply answers — proven by the producer
+   * against its own records, or absent. Never the sender's raw claim.
+   */
+  inReplyTo?: string;
+}
 
 /**
  * The provider-neutral email event every provider's `verifyWebhook`/
@@ -384,6 +437,12 @@ export interface EmailEvent {
   reject?: { reason: string };
   /** Present on `email.clicked` (native-tracking echo only; first-party owns clicks). */
   click?: { url: string; at?: string; ip?: string; ua?: string };
+  /**
+   * Present on `email.replied` — the inbound message's bounded facts. See
+   * {@link EmailReply}. Absent everywhere else, so no status handler can read
+   * a stranger's text as if it were our own send's metadata.
+   */
+  reply?: EmailReply;
   /** The untouched provider payload, for handler escape-hatch + debugging. */
   raw: unknown;
 }

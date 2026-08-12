@@ -14,6 +14,7 @@ import type {
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, inArray, sql } from "drizzle-orm";
+import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { assertAttachmentsSendable } from "./attachments.js";
 import type { DomainStatusService } from "./domain-status.js";
 import {
@@ -43,7 +44,12 @@ import {
   sendTrackedEmail,
   withIdempotencyHeader,
 } from "./tracked.js";
-import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
+import { EMAIL_REPLIED } from "./tracking-event-names.js";
+import {
+  type PushTrackingEventOpts,
+  pushTrackingEvent,
+  resolveEmailSendContextByMessageId,
+} from "./tracking-events.js";
 
 // Fallback logger for the provider-webhook outbound emit — `config.logger` is
 // optional, but `emitOutbound` requires one. Mirrors the engine-lib singleton
@@ -87,6 +93,44 @@ const WEBHOOK_TO_STATUS: Partial<Record<EmailEventType, string>> = {
 const MAX_SUPPRESSION_RECIPIENTS = 100;
 
 /**
+ * See `createTrackedMailer`'s `pushReplyEvent` dep.
+ *
+ * `registry` is deliberately NOT part of this signature. The real push needs
+ * the journey registry, which lives in a process singleton that THROWS when it
+ * has not been set — so reading it at the call site would make every injected
+ * override depend on a global the override does not use. The default wrapper
+ * reads it, and only it.
+ */
+export type PushReplyEventFn = (
+  opts: Omit<PushTrackingEventOpts, "registry">,
+) => Promise<unknown>;
+
+/**
+ * The bus event's properties — the EARS list ("the in-reply-to id, the sender,
+ * and a text body") plus the context a journey needs to branch.
+ *
+ * Every value is a SCALAR or null, deliberately: `trigger.where` and
+ * `ctx.waitForEvent(...).properties` only carry scalars, so a nested object
+ * here would simply not survive to the journey that needs it.
+ */
+function replyProperties(
+  event: EmailEvent,
+  reply: NonNullable<EmailEvent["reply"]>,
+): Record<string, unknown> {
+  return {
+    /** The RECEIVED message's own id. */
+    messageId: event.messageId,
+    inReplyTo: reply.inReplyTo ?? null,
+    correlated: reply.correlated,
+    from: reply.from,
+    subject: reply.subject,
+    text: reply.text,
+    textTruncated: reply.textTruncated,
+    recipient: reply.recipient,
+  };
+}
+
+/**
  * The engine-owned high-level mailer. It owns the full send pipeline —
  * render → preference/suppression check → tracked-html rewrite → `email_sends`
  * insert → `provider.send(...)` → status record — and delegates only the raw
@@ -104,9 +148,23 @@ export function createTrackedMailer(
      * without it (tests) keeps today's behavior; the container always passes it.
      */
     domainStatus?: DomainStatusService;
+    /**
+     * The INTERNAL bus push used by the `email.replied` path. Defaults to the
+     * real {@link pushTrackingEvent}, which resolves identity and pushes the
+     * event through `ingestEvent` so a journey can `ctx.waitForEvent` on it.
+     *
+     * Injectable for the same reason `prepareTrackedHtml` is: the default
+     * reaches the identity resolver and Hatchet, and a test asserting WHAT the
+     * mailer hands the bus should not have to stand up either.
+     */
+    pushReplyEvent?: PushReplyEventFn;
   },
 ): EmailService {
   const { provider, domainStatus } = deps;
+  const pushReplyEvent: PushReplyEventFn =
+    deps.pushReplyEvent ??
+    ((opts) =>
+      pushTrackingEvent({ ...opts, registry: getJourneyRegistrySingleton() }));
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
   const registry = config.templates;
@@ -467,6 +525,17 @@ export function createTrackedMailer(
         //    free is the in-boundary seam for a consumer that wants to react.
         await updateEmailStatus(event.type, event.messageId);
         break;
+      case "email.replied":
+        // A HUMAN REPLIED (PRD 16). Note what is deliberately ABSENT, because
+        // each omission is the decision rather than an oversight:
+        //  - NO `updateEmailStatus`. A reply is not a delivery outcome of our
+        //    send. The message it answers was delivered and stays delivered;
+        //    writing a status here would overwrite a real outcome with one no
+        //    send ever had, and every delivery/bounce-rate read would count it.
+        //  - NO suppression of any kind. Somebody replying is the strongest
+        //    evidence an address works.
+        await handleReply(event);
+        break;
       case "email.delivery_delayed":
         // No-op: providers now map transient bounces to `email.bounced` with
         // `class:'transient'`, so soft bounces are recorded there instead.
@@ -602,6 +671,88 @@ export function createTrackedMailer(
           error: err instanceof Error ? err.message : String(err),
         });
       });
+  }
+
+  /**
+   * A reply, onto the internal bus and then onto the outbound spine (PRD 16).
+   *
+   * The ORDER is the design. The bus push is awaited and its failure
+   * PROPAGATES, while the spine emit never throws by construction — because the
+   * two failures are not the same failure. A journey that never learns a human
+   * asked to stop keeps sending, which is the exact harm this feature exists to
+   * prevent; so a failed bus push must reach the caller, where the route's
+   * non-2xx tells the relay to re-drive (SNS's retry is the durable one, and
+   * the idempotency key below is what makes a re-drive safe). A subscriber
+   * missing one webhook is an ordinary outbound failure the delivery table
+   * already retries.
+   *
+   * `inReplyTo` is the ONLY thing correlation is allowed to key on, and it is
+   * present only when the relay proved the id belongs to a send this instance
+   * made. Everything else on `reply` came out of a stranger's message.
+   */
+  async function handleReply(event: EmailEvent): Promise<void> {
+    if (!db) return;
+    const reply = event.reply;
+    // A provider that named the type and carried no detail. Nothing to
+    // correlate and nothing to say — better silent than inventing a payload of
+    // nulls that reads like a real reply on every subscriber's dashboard.
+    if (!reply) {
+      (config.logger ?? emitLogger).warn(
+        "email.replied arrived with no reply detail",
+        { messageId: event.messageId },
+      );
+      return;
+    }
+
+    const ctx = reply.inReplyTo
+      ? await resolveEmailSendContextByMessageId(db, reply.inReplyTo)
+      : null;
+
+    // The received message's id is stable across every SNS redelivery and
+    // every relay re-drive, so it is the dedupe on BOTH legs. A duplicate
+    // `email.replied` can exit a journey a second time, and an exit is not a
+    // thing that can be taken back.
+    const dedupeKey = `reply:${event.messageId}`;
+
+    // UNCORRELATED replies skip this leg and only this leg: there is no contact
+    // key to ingest against, and resolving one from the sender's own `From:`
+    // would mint a contact out of a stranger's message (#621). The spine emit
+    // below still fires, so the reply is delivered and marked uncorrelated
+    // rather than dropped.
+    if (ctx) {
+      await pushReplyEvent({
+        db,
+        hatchet,
+        logger: config.logger ?? emitLogger,
+        event: EMAIL_REPLIED,
+        emailSendId: ctx.emailSendId,
+        idempotencyKey: dedupeKey,
+        properties: replyProperties(event, reply),
+      });
+    }
+
+    await emitOutbound({
+      db,
+      hatchet,
+      logger: config.logger ?? emitLogger,
+      event: "email.replied",
+      dedupeKey,
+      payload: {
+        messageId: event.messageId,
+        inReplyTo: reply.inReplyTo ?? null,
+        correlated: reply.correlated,
+        emailSendId: ctx?.emailSendId ?? null,
+        templateKey: ctx?.templateKey ?? null,
+        userId: ctx?.userId ?? null,
+        to: ctx?.to ?? null,
+        from: reply.from,
+        subject: reply.subject,
+        text: reply.text,
+        textTruncated: reply.textTruncated,
+        recipient: reply.recipient,
+        at: event.occurredAt,
+      },
+    });
   }
 
   async function updateEmailStatus(

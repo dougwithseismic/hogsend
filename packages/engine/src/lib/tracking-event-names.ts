@@ -4,6 +4,15 @@
 export const EMAIL_OPENED = "email.opened" as const;
 export const EMAIL_LINK_CLICKED = "email.link_clicked" as const;
 
+// A human REPLIED to a message we sent (PRD 16). The BUS name deliberately
+// EQUALS the outbound catalog name — unlike the click pair, where the bus event
+// is `email.link_clicked` and the webhook is `email.clicked` — because the whole
+// point of the feature is that a journey author writes exactly what the PRD
+// promises: `ctx.waitForEvent({ event: "email.replied" })`. A second spelling
+// would be one more thing to look up in order to stop a sequence when somebody
+// says "please stop emailing me".
+export const EMAIL_REPLIED = "email.replied" as const;
+
 // First-party BUS event for a NON-email managed-link click (re-ingested through
 // `ingestEvent` so journeys can trigger / `ctx.waitForEvent` on a click of a
 // SPECIFIC managed link). It deliberately SHARES the name string with the

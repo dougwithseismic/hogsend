@@ -614,6 +614,36 @@ describe("a reply", () => {
     expect(payload.text).toContain("Who is this?");
   });
 
+  it("is uncorrelated when it NAMES a send this environment never made", async () => {
+    // The realistic uncorrelated case, and the one the test above cannot
+    // reach: the reply DOES carry an `In-Reply-To`, and the id is simply not
+    // ours. The header is a claim, never an identifier — so the answer is
+    // `false`, the message is delivered anyway, and the engine is handed no id
+    // it could key on. A correlation that trusted the claim would pass every
+    // other test in this file and attach strangers' replies to real sends.
+    const result = await receive({
+      raw: rawMessage({
+        headers: {
+          "In-Reply-To": "<0100-a-send-nobody-here-made@example.test>",
+        },
+        text: "Who is this?",
+      }),
+    });
+
+    expect(result.body.action).toBe("delivered");
+
+    const [row] = await result.rows();
+    expect(row?.correlated).toBe(false);
+    expect(row?.correlatedMessageId).toBeNull();
+    // The unverified claim is KEPT on the row, for support, and kept apart
+    // from the proven column it must never become.
+    expect(row?.inReplyTo).toBe("0100-a-send-nobody-here-made@example.test");
+
+    const payload = payloadOf(result.deliveries);
+    expect(payload.correlated).toBe(false);
+    expect("inReplyTo" in payload).toBe(false);
+  });
+
   it("lists attachments by name and size, and carries no bytes", async () => {
     const result = await receive({ raw: rawMessageWithAttachment() });
 

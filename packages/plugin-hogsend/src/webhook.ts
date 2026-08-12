@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { BounceClass, EmailEvent } from "@hogsend/core";
+import type { BounceClass, EmailEvent, EmailReply } from "@hogsend/core";
 import { z } from "zod";
 
 /**
@@ -101,6 +101,96 @@ export const hogsendRelayEmailEventSchema = z.object({
 
 export type HogsendRelayEmailEvent = z.infer<
   typeof hogsendRelayEmailEventSchema
+>;
+
+// ---------------------------------------------------------------------------
+// The INBOUND wire — a reply coming back (PRD 16)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE RELAY INBOUND WIRE.
+ *
+ * It rides the SAME signed endpoint as the status wire above, under the same
+ * secret, and is discriminated by `type`. One endpoint rather than two because
+ * a second route would mean a second signature scheme, a second freshness
+ * window and a second chance to get either wrong.
+ *
+ * Declared HERE, next to {@link HogsendRelayEmailEvent}, because the wire's
+ * owner is the package both ends import: the control plane produces exactly
+ * this and the engine consumes exactly this. A literal duplicated across a wire
+ * drifts, and the drift shows up as silently dropped replies.
+ *
+ * Three things it deliberately does NOT carry:
+ *
+ *  - **no attachment bytes**, only a manifest. PRD 16: "store, reference, and
+ *    let the customer opt in to retrieval" — `storage` is that reference;
+ *  - **no HTML.** An instance stores what it is sent and a Studio renders it
+ *    later; handing it a stranger's markup is a stored-XSS surface we can
+ *    simply decline to create;
+ *  - **no unverified `inReplyTo`.** Present ONLY when the control plane proved
+ *    the id belongs to a send that same environment made.
+ */
+export const HOGSEND_RELAY_INBOUND_EVENT_VERSION = 1;
+
+/** The one event the inbound wire carries. */
+export const HOGSEND_RELAY_INBOUND_EVENT_TYPE = "email.replied";
+
+const hogsendRelayAttachmentSchema = z.object({
+  filename: z.string().nullable(),
+  contentType: z.string(),
+  size: z.number(),
+});
+
+/**
+ * Not `strictObject`, for the same reason the status schema is not: a newer
+ * control plane adding a field must not break an older instance.
+ *
+ * The one cross-field rule is the `correlated` / `inReplyTo` pair. They are ONE
+ * fact stated twice, and the id is the half a consumer keys on — so a payload
+ * claiming correlation while naming nothing is refused rather than read as
+ * correlated-to-nothing. The other direction is deliberately legal: a producer
+ * may state an id it proved and still say `correlated: true`, and only that.
+ */
+export const hogsendRelayInboundEventSchema = z
+  .object({
+    version: z.literal(HOGSEND_RELAY_INBOUND_EVENT_VERSION),
+    type: z.literal(HOGSEND_RELAY_INBOUND_EVENT_TYPE),
+    /** SES's id for the RECEIVED message. Not the message being replied to. */
+    messageId: z.string().min(1),
+    /** The envelope recipient that resolved to this environment. */
+    recipient: z.string().min(1),
+    /** Every envelope recipient the provider matched, in its order. */
+    recipients: z.array(z.string()),
+    from: z.string().nullable(),
+    subject: z.string().nullable(),
+    /** Bounded plain text — the producer owns the cap. */
+    text: z.string().nullable(),
+    textTruncated: z.boolean(),
+    occurredAt: z.string().datetime(),
+    /** True only when {@link inReplyTo} is set and proven. */
+    correlated: z.boolean(),
+    /** PROVEN to be a send this environment made, or absent. */
+    inReplyTo: z.string().min(1).optional(),
+    attachments: z.array(hogsendRelayAttachmentSchema),
+    attachmentsTruncated: z.boolean(),
+    /** The provider's scan verdicts, verbatim. Nothing here classifies them. */
+    spamVerdict: z.string().nullable(),
+    virusVerdict: z.string().nullable(),
+    /** Where the raw MIME lives, so a customer can opt in to retrieving it. */
+    storage: z.object({
+      bucket: z.string(),
+      key: z.string(),
+      size: z.number().nullable(),
+    }),
+  })
+  .refine((event) => !event.correlated || event.inReplyTo !== undefined, {
+    path: ["inReplyTo"],
+    message:
+      "a correlated reply must name the message id it was proven to answer",
+  });
+
+export type HogsendRelayInboundEvent = z.infer<
+  typeof hogsendRelayInboundEventSchema
 >;
 
 // ---------------------------------------------------------------------------
@@ -303,9 +393,26 @@ function toBounce(
   };
 }
 
+/** The one error message both shapes fail with, so neither leaks the other. */
+function unrecognized(issue: z.core.$ZodIssue | undefined): Error {
+  return new Error(
+    `Hogsend relay webhook: the payload is not a Hogsend relay email event (${
+      issue
+        ? `${issue.path.join(".") || "payload"}: ${issue.message}`
+        : "unrecognized shape"
+    })`,
+  );
+}
+
 /**
  * Adapt a relay payload into the provider-neutral {@link EmailEvent} the
  * engine's `dispatchWebhook` reads.
+ *
+ * TWO shapes ride this one endpoint — a delivery STATUS and an inbound REPLY —
+ * and `type` is the discriminant. It is read before either schema runs so a
+ * reply is never validated against the status schema and reported as a
+ * malformed status (or, worse, the other way round): a caller debugging a
+ * dropped reply must not be told its `bounce` block is missing.
  *
  * `raw` is the whole parsed relay event: from the engine's point of view THIS
  * wire is the provider, and the verbatim SES notification is preserved one level
@@ -321,16 +428,17 @@ export function parseHogsendRelayWebhook(payload: string): EmailEvent {
     );
   }
 
+  if (
+    typeof json === "object" &&
+    json !== null &&
+    (json as { type?: unknown }).type === HOGSEND_RELAY_INBOUND_EVENT_TYPE
+  ) {
+    return parseInboundRelayEvent(json);
+  }
+
   const parsed = hogsendRelayEmailEventSchema.safeParse(json);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    throw new Error(
-      `Hogsend relay webhook: the payload is not a Hogsend relay email event (${
-        issue
-          ? `${issue.path.join(".") || "payload"}: ${issue.message}`
-          : "unrecognized shape"
-      })`,
-    );
+    throw unrecognized(parsed.error.issues[0]);
   }
 
   const event = parsed.data;
@@ -348,6 +456,47 @@ export function parseHogsendRelayWebhook(payload: string): EmailEvent {
     occurredAt: event.occurredAt,
     ...(bounce ? { bounce } : {}),
     ...(reject ? { reject } : {}),
+    raw: event,
+  };
+}
+
+/**
+ * The inbound half of {@link parseHogsendRelayWebhook}.
+ *
+ * `messageId` is the RECEIVED message's own id, never the id it answers. That
+ * choice is load-bearing: every other branch of the engine's `dispatchWebhook`
+ * treats `messageId` as "the send this event is about" and writes a status
+ * against it. A reply is not a status of the original send — the send is still
+ * exactly as delivered as it was — so the correlation handle is kept on
+ * `reply.inReplyTo` where only the reply path can read it, and the top-level id
+ * identifies the inbound message itself.
+ *
+ * `inReplyTo` is copied ONLY when the relay set it, which it does only after
+ * proving the id belongs to a send the same environment made. Nothing here
+ * infers, defaults or falls back to the sender's raw claim.
+ */
+function parseInboundRelayEvent(json: unknown): EmailEvent {
+  const parsed = hogsendRelayInboundEventSchema.safeParse(json);
+  if (!parsed.success) {
+    throw unrecognized(parsed.error.issues[0]);
+  }
+
+  const event = parsed.data;
+  const reply: EmailReply = {
+    recipient: event.recipient,
+    from: event.from,
+    subject: event.subject,
+    text: event.text,
+    textTruncated: event.textTruncated,
+    correlated: event.correlated,
+    ...(event.inReplyTo ? { inReplyTo: event.inReplyTo } : {}),
+  };
+  return {
+    type: HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+    messageId: event.messageId,
+    recipients: event.recipients,
+    occurredAt: event.occurredAt,
+    reply,
     raw: event,
   };
 }

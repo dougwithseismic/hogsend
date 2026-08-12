@@ -24,6 +24,7 @@ const WEBHOOK_EVENT_TYPES = [
   "email.action",
   "email.bounced",
   "email.complained",
+  "email.replied",
   "sms.sent",
   "sms.delivered",
   "sms.failed",
