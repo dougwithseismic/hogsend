@@ -39,6 +39,13 @@ const SECTIONS: TermsSection[] = [
     ],
   },
   {
+    heading: "Who you're contracting with",
+    paragraphs: [
+      'Hogsend is operated by Douglas Anthony Silkstone, a sole trader registered in the Czech Republic, business ID (IČO) 10911243. Where these terms say "we" or "us", that is who they mean.',
+      `General enquiries go to ${CONTACT_EMAIL}. Abuse reports go to abuse@hogsend.com, which reaches a person rather than a queue.`,
+    ],
+  },
+  {
     heading: "The software",
     paragraphs: [
       "Hogsend is licensed under the Elastic License 2.0. The licence sets out what you may do with the code; these terms don't change it.",
