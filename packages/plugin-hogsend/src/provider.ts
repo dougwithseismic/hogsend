@@ -27,6 +27,22 @@ import {
 /** The HTTP header the relay reads the replay-stable send key from. */
 export const HOGSEND_IDEMPOTENCY_HEADER = "idempotency-key";
 
+/**
+ * The relay's hard cap on items in ONE batch request. `sendBatch` slices a
+ * larger call into requests of this size, the same shape Resend's wire holds
+ * at its own cap — a public `emailService.sendBatch(...)` must not succeed on
+ * one provider and die on another over the same 51 messages.
+ *
+ * HAND-SYNCED counterpart: `apps/cloud/src/lib/email-relay.ts`
+ * (`MAX_BATCH_ITEMS`). Same situation as {@link RelayAttachment}: the relay is
+ * a separate package with no compile-time link to this one, so no compiler
+ * proves the two numbers agree — only the pin in `provider.test.ts`. Drift is
+ * loud in one direction (a raise here meets the relay's zod 400 on the first
+ * full chunk) and merely conservative in the other. A change to either side
+ * must be made in both.
+ */
+export const HOGSEND_RELAY_MAX_BATCH_ITEMS = 50;
+
 const SEND_PATH = "/api/email/send";
 const BATCH_PATH = "/api/email/send-batch";
 
@@ -478,10 +494,17 @@ export function createHogsendEmailProvider(
       if (emails.length === 0) return { results: [] };
 
       // The relay refuses a batch with duplicate keys (400), and two identical
-      // messages hash identically — so a DERIVED key that collides inside ONE
-      // request is disambiguated by position. A caller-supplied duplicate is
-      // never touched: that is a real caller bug, and the relay's 400 is the
-      // right place for it to surface.
+      // messages hash identically — so a DERIVED key that collides is
+      // disambiguated by position. A caller-supplied duplicate is never
+      // touched: that is a real caller bug, and the relay's 400 is the right
+      // place for it to surface.
+      //
+      // Built over the WHOLE call, deliberately BEFORE chunking: both the
+      // `seen` set and the disambiguating index must span every chunk. The
+      // relay dedupes per tenant ACROSS requests, so a per-chunk `seen` (or a
+      // chunk-local index) would hand two identical messages in different
+      // chunks the SAME key — and the second would be silently absorbed as a
+      // replay instead of sent.
       const seen = new Set<string>();
       const items = emails.map((email, index) => {
         const { message, idempotencyKey, derived } = toRelayMessage(email);
@@ -493,19 +516,56 @@ export function createHogsendEmailProvider(
         return { idempotencyKey: key, message };
       });
 
-      const body = await post(BATCH_PATH, { items });
-      const results = asRecord(body).results;
-      if (!Array.isArray(results) || results.length !== items.length) {
-        throw new HogsendRelayError({
-          status: 200,
-          message: `Hogsend relay returned ${
-            Array.isArray(results) ? results.length : 0
-          } results for ${items.length} batch messages.`,
-          body,
-        });
+      // The relay caps one request at HOGSEND_RELAY_MAX_BATCH_ITEMS and
+      // answers an opaque zod 400 over it, so the already-disambiguated list
+      // is sliced into request-sized chunks (mirroring Resend's chunking at
+      // its own cap). A single call under the cap stays exactly ONE request.
+      const chunks: (typeof items)[] = [];
+      for (let i = 0; i < items.length; i += HOGSEND_RELAY_MAX_BATCH_ITEMS) {
+        chunks.push(items.slice(i, i + HOGSEND_RELAY_MAX_BATCH_ITEMS));
       }
 
-      const entries = results as HogsendRelayBatchResult[];
+      // MID-BATCH FAILURE POLICY. Chunks post SEQUENTIALLY, and the two
+      // failure shapes deliberately part ways:
+      //
+      // - A REQUEST-level refusal (`post` throws: 403 tenant_paused, 429,
+      //   5xx…) ABORTS the run — later chunks are never posted — and the
+      //   typed error propagates verbatim. This mirrors Resend, whose chunk
+      //   loop propagates the first failed chunk's throw and abandons the
+      //   rest; pressing on would hammer a relay that just said it is paused
+      //   or throttled, only to meet the same refusal. The throw does NOT
+      //   mean nothing was sent: every chunk already posted IS delivered,
+      //   and nothing is lost — the relay's per-item idempotency makes
+      //   retrying the WHOLE batch safe and loss-free (already-sent items
+      //   come back as replays with their original ids, `idempotent: true`,
+      //   never re-sent), so the caller recovers every id by retrying.
+      //
+      // - An ITEM-level failure (a 200 whose results carry `failed` entries)
+      //   does NOT abort: the relay itself sends the other items of a request
+      //   around a failed one, so a failed item in chunk 1 must not strand
+      //   the later chunks — a 51-item batch would otherwise behave
+      //   differently from a 50-item one, the exact defect chunking removes.
+      //   Every chunk posts, and ONE batch error aggregates every positional
+      //   outcome below.
+      const entries: HogsendRelayBatchResult[] = [];
+      for (const chunk of chunks) {
+        const body = await post(BATCH_PATH, { items: chunk });
+        const results = asRecord(body).results;
+        if (!Array.isArray(results) || results.length !== chunk.length) {
+          throw new HogsendRelayError({
+            status: 200,
+            message: `Hogsend relay returned ${
+              Array.isArray(results) ? results.length : 0
+            } results for ${chunk.length} batch messages.`,
+            body,
+          });
+        }
+        entries.push(...(results as HogsendRelayBatchResult[]));
+      }
+
+      // `entries` accumulates contiguous chunks in input order, so
+      // `entries[i]` IS input item `i` — the failure indices below are
+      // ORIGINAL batch positions, never chunk-local ones.
       const failures: HogsendRelayBatchFailure[] = [];
       const sent: SendResult[] = [];
       for (const [index, entry] of entries.entries()) {

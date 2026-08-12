@@ -18,6 +18,7 @@ export {
 export {
   createHogsendEmailProvider,
   HOGSEND_IDEMPOTENCY_HEADER,
+  HOGSEND_RELAY_MAX_BATCH_ITEMS,
   type HogsendEmailConfig,
 } from "./provider.js";
 // The relay webhook wire — owned HERE, produced by the control plane.

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
   createHogsendEmailProvider,
   HOGSEND_IDEMPOTENCY_HEADER,
+  HOGSEND_RELAY_MAX_BATCH_ITEMS,
   HogsendRelayBatchError,
   HogsendRelayError,
   HogsendRelayPausedError,
@@ -1204,5 +1205,221 @@ describe("sendBatch → POST /api/email/send-batch", () => {
         },
       ]),
     ).rejects.toThrow(HogsendRelayError);
+  });
+
+  // -------------------------------------------------------------------------
+  // Chunking at the relay's 50-item cap. The relay refuses a batch over
+  // `MAX_BATCH_ITEMS = 50` (apps/cloud/src/lib/email-relay.ts) with an opaque
+  // zod 400, and Resend chunks at its own cap — so a 51-item batch through
+  // THIS provider must split into relay-sized requests rather than behave
+  // differently from the same call on Resend.
+  // -------------------------------------------------------------------------
+  describe("chunking at the relay's 50-item cap", () => {
+    /** One unique batch item — unique bytes ⇒ a unique derived key. */
+    function item(i: number) {
+      return {
+        from: "f@h.com",
+        to: `u${i}@example.com`,
+        subject: "s",
+        html: `<p>${i}</p>`,
+      };
+    }
+
+    /** A relay 200 whose `results` are `n` sent ids starting at `offset`. */
+    function sentBody(n: number, offset = 0): StubResponse {
+      return {
+        body: {
+          results: Array.from({ length: n }, (_, i) => ({
+            status: "sent",
+            id: `ses_${offset + i}`,
+          })),
+        },
+      };
+    }
+
+    it("pins the cap to the relay's MAX_BATCH_ITEMS — HAND-SYNCED", () => {
+      // No compile-time link exists between this package and the relay
+      // (`apps/cloud/src/lib/email-relay.ts`), so this pin is the only thing
+      // that proves the two numbers agree. A change to either side must be
+      // made in both.
+      expect(HOGSEND_RELAY_MAX_BATCH_ITEMS).toBe(50);
+    });
+
+    it("splits 51 items into two requests and returns 51 results in order", async () => {
+      const relay = stubRelay(sentBody(50), sentBody(1, 50));
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const { results } = await provider.sendBatch(
+        Array.from({ length: 51 }, (_, i) => item(i)),
+      );
+
+      expect(relay.calls).toHaveLength(2);
+      expect(relay.calls[0]?.body.items).toHaveLength(50);
+      expect(relay.calls[1]?.body.items).toHaveLength(1);
+      // The second request carries item 50, not a re-send of an earlier one.
+      expect(relay.calls[1]?.body.items?.[0]?.message.to).toEqual([
+        "u50@example.com",
+      ]);
+      // 51 results, positional with the ORIGINAL input.
+      expect(results).toHaveLength(51);
+      expect(results[0]).toEqual({ id: "ses_0" });
+      expect(results[49]).toEqual({ id: "ses_49" });
+      expect(results[50]).toEqual({ id: "ses_50" });
+    });
+
+    it("keeps a batch at exactly the cap as ONE request", async () => {
+      const relay = stubRelay(sentBody(50));
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const { results } = await provider.sendBatch(
+        Array.from({ length: 50 }, (_, i) => item(i)),
+      );
+
+      expect(relay.calls).toHaveLength(1);
+      expect(relay.calls[0]?.body.items).toHaveLength(50);
+      expect(results).toHaveLength(50);
+    });
+
+    it("disambiguates identical derived keys across the WHOLE call, not per chunk", async () => {
+      // Items 0, 1 and 51 are byte-identical. The `seen` set and the
+      // disambiguating index must span the whole call: a per-chunk `seen`
+      // would hand item 51 the same key as item 0, and a per-chunk INDEX
+      // would hand item 51 (local index 1 of chunk 2) the same key as item 1
+      // — either way the relay dedupes per tenant, so the collision is a
+      // message silently absorbed as a replay instead of sent.
+      const relay = stubRelay(sentBody(50), sentBody(2, 50));
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const identical = {
+        from: "f@h.com",
+        to: "dup@example.com",
+        subject: "s",
+        html: "<p>dup</p>",
+      };
+      const emails = Array.from({ length: 52 }, (_, i) => item(i));
+      emails[0] = identical;
+      emails[1] = { ...identical };
+      emails[51] = { ...identical };
+
+      await provider.sendBatch(emails);
+
+      const keys = relay.calls.flatMap((call) =>
+        (call.body.items ?? []).map((i) => i.idempotencyKey),
+      );
+      expect(keys).toHaveLength(52);
+      // Globally unique — across requests, not merely within one.
+      expect(new Set(keys).size).toBe(52);
+      // The disambiguator is the ORIGINAL index, so it can never collide with
+      // another chunk's disambiguated key.
+      expect(keys[1]).toBe(`${keys[0]}#1`);
+      expect(keys[51]).toBe(`${keys[0]}#51`);
+    });
+
+    it("reports a later-chunk failure at its ORIGINAL batch index", async () => {
+      const relay = stubRelay(sentBody(50), {
+        body: {
+          results: [
+            {
+              status: "failed",
+              error: "send_rejected",
+              message: "Email address is not verified",
+            },
+          ],
+        },
+      });
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const error = (await provider
+        .sendBatch(Array.from({ length: 51 }, (_, i) => item(i)))
+        .catch((e: unknown) => e)) as HogsendRelayBatchError;
+
+      expect(error).toBeInstanceOf(HogsendRelayBatchError);
+      // Item 0 of chunk 2 is item 50 of the batch — never "index 0".
+      expect(error.failures).toEqual([
+        {
+          index: 50,
+          error: "send_rejected",
+          message: "Email address is not verified",
+        },
+      ]);
+      // Every positional outcome survives, aligned with the ORIGINAL input.
+      expect(error.results).toHaveLength(51);
+      expect(error.results[0]).toEqual({ status: "sent", id: "ses_0" });
+    });
+
+    it("does not strand later chunks behind an item-level failure", async () => {
+      // The relay itself sends the other items of a request around a failed
+      // one, so a failed item in chunk 1 must not stop chunk 2 — a 51-item
+      // batch would otherwise behave differently from a 50-item one, which is
+      // the exact defect chunking removes. One aggregated error at the end.
+      const chunk1 = sentBody(50).body as { results: unknown[] };
+      chunk1.results[3] = {
+        status: "failed",
+        error: "send_rejected",
+        message: "Email address is not verified",
+      };
+      const relay = stubRelay({ body: chunk1 }, sentBody(1, 50));
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const error = (await provider
+        .sendBatch(Array.from({ length: 51 }, (_, i) => item(i)))
+        .catch((e: unknown) => e)) as HogsendRelayBatchError;
+
+      // Chunk 2 was still posted.
+      expect(relay.calls).toHaveLength(2);
+      expect(error).toBeInstanceOf(HogsendRelayBatchError);
+      expect(error.failures).toEqual([
+        {
+          index: 3,
+          error: "send_rejected",
+          message: "Email address is not verified",
+        },
+      ]);
+      expect(error.results).toHaveLength(51);
+      expect(error.results[50]).toEqual({ status: "sent", id: "ses_50" });
+    });
+
+    it("aborts on a request-level refusal — later chunks are never posted", async () => {
+      // Chunk 2 of 3 meets a 403. Mirroring Resend's chunk loop, the run
+      // stops: chunk 3 would meet the same tenant-level refusal, and the
+      // typed error (here the PAUSED error, reason intact) must propagate
+      // verbatim. Chunk 1's 50 messages ARE already delivered — recoverable
+      // loss-free by retrying the whole batch (per-item idempotency).
+      const relay = stubRelay(sentBody(50), {
+        status: 403,
+        body: {
+          error: "tenant_paused",
+          message: "paused",
+          reason: "SES paused this tenant",
+        },
+      });
+      const provider = createHogsendEmailProvider({
+        ...CONFIG,
+        fetch: relay.fetch,
+      });
+
+      const error = await provider
+        .sendBatch(Array.from({ length: 101 }, (_, i) => item(i)))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(HogsendRelayPausedError);
+      // Two requests, not three: the third chunk was never attempted.
+      expect(relay.calls).toHaveLength(2);
+    });
   });
 });
