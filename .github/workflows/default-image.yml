@@ -62,3 +62,30 @@ jobs:
             sleep 300
             pnpm --filter @hogsend/cloud build:default-image
           }
+
+      # Prove the tag provisioning will ASK FOR is actually pullable, the way
+      # the substrate pulls it: anonymously, no credentials.
+      #
+      # This is the check whose absence caused the whole mess. A release bumps
+      # `CLOUD_DEFAULT_ENGINE_VERSION` to the engine version and provisioning
+      # then asks the substrate for `hogsend-default:<that version>` — but
+      # nothing ever confirmed such a tag existed. The pin sat at 0.57.0 for
+      # seven releases and no build was red about it. A successful `docker push`
+      # above is not sufficient evidence either: it proves we wrote to the
+      # registry, not that an unauthenticated puller can read it back.
+      - name: Verify the tag is anonymously pullable
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./packages/engine/package.json').version")
+          REPO="${{ github.repository_owner }}/hogsend-default"
+          echo "expecting ghcr.io/$REPO:$VERSION"
+          TOKEN=$(curl -fsS "https://ghcr.io/token?scope=repository:$REPO:pull&service=ghcr.io" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).token")
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+            "https://ghcr.io/v2/$REPO/manifests/$VERSION")
+          echo "manifest HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::hogsend-default:$VERSION is NOT anonymously pullable (HTTP $CODE). Provisioning sets this tag as the stock image, so every new stack would fail to pull it."
+            exit 1
+          fi
