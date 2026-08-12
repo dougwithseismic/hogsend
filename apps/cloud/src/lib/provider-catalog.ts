@@ -1,6 +1,9 @@
 import { inertFeatures } from "../services/key-sync";
 import { VALIDATABLE_PROVIDERS } from "../services/key-validation";
-import { SENDER_IDENTITY_PROVIDER } from "../services/provider-env";
+import {
+  EMAIL_PROVIDER_IDS,
+  SENDER_IDENTITY_PROVIDER,
+} from "../services/provider-env";
 
 /**
  * What a tenant is asked for, and what they are told back.
@@ -167,7 +170,11 @@ export function providerLabel(id: string): string {
 /**
  * Every provider this form offers must have a validator: `storeAndSync`
  * refuses an unprovable credential, so a form for one would be a control that
- * can only ever fail. Asserted at module load rather than in a test alone.
+ * can only ever fail. And every form's `email` flag must agree with
+ * `EMAIL_PROVIDER_IDS` — the services-layer list the sending-status gate
+ * fires on — because a form flagged `email` that the gate does not know is
+ * exactly the BYO escape hatch DECISIONS §6 closes. Both asserted at module
+ * load rather than in a test alone.
  */
 for (const form of PROVIDER_FORMS) {
   if (!VALIDATABLE_PROVIDERS.includes(form.id)) {
@@ -175,12 +182,15 @@ for (const form of PROVIDER_FORMS) {
       `Provider form "${form.id}" has no validator; it could never be stored`,
     );
   }
+  if (form.email !== EMAIL_PROVIDER_IDS.includes(form.id)) {
+    throw new Error(
+      `Provider form "${form.id}" disagrees with EMAIL_PROVIDER_IDS about being an email provider`,
+    );
+  }
 }
 
 /** The email providers, in preference order — the sender identity's owners. */
-export const EMAIL_PROVIDER_IDS: readonly string[] = PROVIDER_FORMS.filter(
-  (form) => form.email,
-).map((form) => form.id);
+export { EMAIL_PROVIDER_IDS };
 
 /**
  * How well a stored credential is actually proven.
@@ -252,16 +262,31 @@ export function proofSentence(
  * Turn a validator slug into a sentence.
  *
  * `reason` is the refusal's kind (`invalid_key`, `from_address_malformed`,
- * `from_domain_unverified`) and `detail` is the slug. Every branch ends by
- * saying that nothing was stored, because that is the part a tenant acts on:
- * the environment is exactly as it was.
+ * `from_domain_unverified`, `sending_paused`) and `detail` is the slug. Every
+ * branch ends by saying that nothing was stored, because that is the part a
+ * tenant acts on: the environment is exactly as it was.
  */
 export function describeRejection(input: {
-  reason: "invalid_key" | "from_address_malformed" | "from_domain_unverified";
+  reason:
+    | "invalid_key"
+    | "from_address_malformed"
+    | "from_domain_unverified"
+    | "sending_paused";
   detail: string;
   provider: string;
 }): string {
   const name = providerLabel(input.provider);
+
+  if (input.reason === "sending_paused") {
+    // Not a validation failure: the credential may be perfectly live. The
+    // cause is the PAUSE, and the way back is reinstatement, so both are
+    // named. `detail` is the blocking status the gate read.
+    const cause =
+      input.detail === "enforced"
+        ? "stopped by a Hogsend operator"
+        : "paused under SES reputation policy";
+    return `Email sending for this environment is ${cause}. Your own email provider would reroute around that stop, so adding one is refused until sending is reinstated. Nothing was stored.`;
+  }
 
   if (input.reason === "from_domain_unverified") {
     return `${input.detail} is not a verified sending domain on this ${name} account. Verify it with ${name} first. Nothing was stored.`;

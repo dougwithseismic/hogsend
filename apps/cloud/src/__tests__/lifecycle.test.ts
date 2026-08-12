@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, isNull, like } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, sqlClient } from "../db";
@@ -9,6 +9,8 @@ import {
   cloudAuditLog,
   environments,
   organizations,
+  relayTokens,
+  sendingDomains,
   stacks,
 } from "../db/schema";
 import { member, organization, user } from "../db/schema/auth";
@@ -33,7 +35,11 @@ import {
 import { runProvisionPipeline } from "../pipeline/provision";
 import { IllegalTransitionError } from "../services/errors";
 import type { HatchetTenantService } from "../services/hatchet-tenant";
+import { claimSendingDomain } from "../services/ses-domains";
+import { deprovisionSesTenant, getSesTenant } from "../services/ses-tenants";
 import { TenantDbService } from "../services/tenant-db";
+import { getFakeSesClient } from "../ses/index";
+import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { FakeSubstrate, fakeApiPublicUrl } from "../substrate";
 import { SubstrateError } from "../substrate/types";
 
@@ -55,6 +61,15 @@ const CLUSTER_DSN =
 const CELL_HATCHET_URL = "http://hatchet.lifecycle.test:8888";
 
 const ORG_ID = "lifecycle-test-org";
+/**
+ * A tenant with exactly ONE environment, for the sending-domain teardown.
+ *
+ * Its own org because a sending-domain claim is released only when the
+ * organization's LAST SES tenancy goes — and `ORG_ID` accumulates a
+ * still-provisioned environment from nearly every test in this file, which
+ * would make that condition answer no forever.
+ */
+const SOLO_ORG_ID = "lifecycle-test-solo-org";
 const PASSWORD = "correct-horse-11";
 const OWNER_EMAIL = "lifecycle-owner@hogsend.test";
 const MEMBER_EMAIL = "lifecycle-member@hogsend.test";
@@ -144,6 +159,19 @@ async function stackRow(stackId: string) {
   return row;
 }
 
+/** The sending domains an organization still holds — released ones excluded. */
+async function liveClaims(organizationId: string) {
+  return db
+    .select()
+    .from(sendingDomains)
+    .where(
+      and(
+        eq(sendingDomains.organizationId, organizationId),
+        isNull(sendingDomains.releasedAt),
+      ),
+    );
+}
+
 async function auditActions(stackId: string): Promise<string[]> {
   const rows = await db
     .select({ action: cloudAuditLog.action })
@@ -190,7 +218,9 @@ async function cleanup(): Promise<void> {
     await db.delete(organization).where(inArray(organization.id, ids));
   }
   await db.delete(user).where(inArray(user.email, [OWNER_EMAIL, MEMBER_EMAIL]));
-  await db.delete(organizations).where(eq(organizations.id, ORG_ID));
+  await db
+    .delete(organizations)
+    .where(inArray(organizations.id, [ORG_ID, SOLO_ORG_ID]));
   await db.delete(cells).where(eq(cells.name, CELL_NAME));
 }
 
@@ -275,6 +305,26 @@ beforeAll(async () => {
     name: `${AUTH_ORG_PREFIX} Ops`,
     region: "us",
     plan: "dedicated",
+    cellId,
+  });
+
+  // The single-environment tenant, wired exactly like the bare one above —
+  // provisioning reads the owner's email to seed the tenant's Studio admin and
+  // refuses an organization with no membership.
+  await db
+    .insert(organization)
+    .values({ id: SOLO_ORG_ID, name: `${AUTH_ORG_PREFIX} Solo` });
+  await db.insert(member).values({
+    id: randomUUID(),
+    organizationId: SOLO_ORG_ID,
+    userId: ownerUser.id,
+    role: "owner",
+  });
+  await db.insert(organizations).values({
+    id: SOLO_ORG_ID,
+    name: "Lifecycle Test Solo",
+    region: "us",
+    plan: "self_serve",
     cellId,
   });
 });
@@ -423,6 +473,124 @@ describe("destroyStack", () => {
     for (const step of DESTROY_STEPS) {
       expect(actions).toContain(destroyAuditAction(step));
     }
+  });
+
+  it("takes the SES tenant, its configuration set and the relay token with it", async () => {
+    const fixture = await seedRunningStack();
+    const deps = { substrate: fixture.substrate };
+    const ses = getFakeSesClient("us");
+    const tenantName = sesTenantName(fixture.environmentId);
+    const configurationSetName = sesConfigurationSetName(fixture.environmentId);
+
+    // Provisioning really minted them, so the absences below mean something.
+    expect(ses.__tenant(tenantName)).toBeDefined();
+    expect(ses.__configurationSet(configurationSetName)).toBeDefined();
+    expect(
+      await getSesTenant({ environmentId: fixture.environmentId }),
+    ).not.toBeNull();
+
+    await suspendStack({ stackId: fixture.stackId }, deps);
+    const result = await destroyStack({ stackId: fixture.stackId }, deps);
+    expect(result.status).toBe("destroyed");
+
+    // A leaked configuration set keeps publishing events for an environment
+    // that no longer exists, and a leaked tenant is billed monthly.
+    expect(ses.__tenant(tenantName)).toBeUndefined();
+    expect(ses.__configurationSet(configurationSetName)).toBeUndefined();
+    expect(
+      await getSesTenant({ environmentId: fixture.environmentId }),
+    ).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(relayTokens)
+        .where(eq(relayTokens.environmentId, fixture.environmentId)),
+    ).toHaveLength(0);
+  });
+
+  it("takes the SES IDENTITY and the sending-domain claim with it", async () => {
+    // The assertion the test above is missing, and the leak that missing
+    // assertion let through: a destroy deleted the tenant and the
+    // configuration set but NEVER called `DeleteIdentity`, so the domain
+    // stayed verified in the shared AWS account while the row that recorded
+    // who owned it went away with the environment. The name then belonged to
+    // nobody and could never be added again, by any customer, ever.
+    const fixture = await seedRunningStack(SOLO_ORG_ID);
+    const deps = { substrate: fixture.substrate };
+    const ses = getFakeSesClient("us");
+    const domain = `lifecycle-${randomBytes(3).toString("hex")}.test`;
+
+    await claimSendingDomain({
+      db,
+      organizationId: SOLO_ORG_ID,
+      environmentId: fixture.environmentId,
+      domain,
+      awsRegion: "us-east-1",
+    });
+    await ses.createIdentity({ domain });
+    // Preconditions, or every absence below is an absence that was always
+    // there.
+    expect(await ses.getIdentity({ identity: domain })).toBeDefined();
+    expect(await liveClaims(SOLO_ORG_ID)).toHaveLength(1);
+
+    await suspendStack({ stackId: fixture.stackId }, deps);
+    expect(
+      (await destroyStack({ stackId: fixture.stackId }, deps)).status,
+    ).toBe("destroyed");
+
+    await expect(ses.getIdentity({ identity: domain })).rejects.toMatchObject({
+      kind: "not_found",
+    });
+    expect(await liveClaims(SOLO_ORG_ID)).toHaveLength(0);
+  });
+
+  it("keeps a sending domain another environment of the org still uses", async () => {
+    // The other half of the rule, and the more expensive one to get wrong: the
+    // claim belongs to the ORGANIZATION, so releasing it when ONE environment
+    // is destroyed would delete a domain the customer's production
+    // environment is still sending from — and hand the name to whoever asks
+    // for it next.
+    const doomed = await seedRunningStack();
+    const survivor = await seedRunningStack();
+    const deps = { substrate: doomed.substrate };
+    const ses = getFakeSesClient("us");
+    const domain = `lifecycle-shared-${randomBytes(3).toString("hex")}.test`;
+
+    await claimSendingDomain({
+      db,
+      organizationId: ORG_ID,
+      environmentId: doomed.environmentId,
+      domain,
+      awsRegion: "us-east-1",
+    });
+    await ses.createIdentity({ domain });
+
+    await suspendStack({ stackId: doomed.stackId }, deps);
+    await destroyStack({ stackId: doomed.stackId }, deps);
+
+    // Untouched — and the survivor still has its tenancy, which is the fact
+    // the rule keys on.
+    expect(await ses.getIdentity({ identity: domain })).toBeDefined();
+    expect((await liveClaims(ORG_ID)).map((claim) => claim.domain)).toContain(
+      domain,
+    );
+    expect(
+      await getSesTenant({ environmentId: survivor.environmentId }),
+    ).not.toBeNull();
+  });
+
+  it("destroys a stack whose environment never had an SES tenant", async () => {
+    const fixture = await seedRunningStack();
+    const deps = { substrate: fixture.substrate };
+    // The state every stack provisioned before this step existed is in.
+    await deprovisionSesTenant({ environmentId: fixture.environmentId });
+
+    await suspendStack({ stackId: fixture.stackId }, deps);
+    const result = await destroyStack({ stackId: fixture.stackId }, deps);
+    expect(result.status).toBe("destroyed");
+    expect(
+      result.steps.find((step) => step.step === "deprovision-ses")?.skipped,
+    ).toBe(true);
   });
 
   it("parks in error and RESUMES the destroy without repeating finished steps", async () => {

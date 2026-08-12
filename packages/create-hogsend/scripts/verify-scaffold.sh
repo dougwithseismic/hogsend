@@ -17,8 +17,8 @@ REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
 # Opt-in provider plugins (`--with <id>`). NOT scaffold defaults — a separate
 # list because release-doctor asserts PACKAGES above equals HOGSEND_PACKAGES +
-# the template's @hogsend deps, and these three belong to neither.
-OPT_IN_PLUGINS=(plugin-apollo plugin-postmark plugin-twilio)
+# the template's @hogsend deps, and these belong to neither.
+OPT_IN_PLUGINS=(plugin-apollo plugin-hogsend plugin-postmark plugin-twilio)
 
 TARBALLS=""
 APP_PARENT=""
@@ -363,10 +363,12 @@ fi
 echo "    headless admin env OK"
 
 # --- 3d2. --with is repeatable + comma-separated, and surfaces env blocks ---
-echo "==> [3d2] scaffold (--with postmark,twilio) deps + env blocks"
+echo "==> [3d2] scaffold (--with hogsend,postmark,twilio) deps + env blocks"
 WITH_DIR="$APP_PARENT/with-plugins"
 (cd "$APP_PARENT" && node "$CLI" with-plugins --pm pnpm --no-install --no-git \
-  --no-skills --with postmark,twilio --use-tarballs "$TARBALLS")
+  --no-skills --with hogsend,postmark,twilio --use-tarballs "$TARBALLS")
+grep -q '"@hogsend/plugin-hogsend": "file:' "$WITH_DIR/package.json" \
+  || fail "--with hogsend did not add @hogsend/plugin-hogsend"
 grep -q '"@hogsend/plugin-postmark": "file:' "$WITH_DIR/package.json" \
   || fail "--with postmark,twilio did not add @hogsend/plugin-postmark"
 grep -q '"@hogsend/plugin-twilio": "file:' "$WITH_DIR/package.json" \
@@ -374,6 +376,8 @@ grep -q '"@hogsend/plugin-twilio": "file:' "$WITH_DIR/package.json" \
 # Unlike apollo, these credentials are not in the template — the scaffold must
 # surface their commented blocks (keys only, never a placeholder value).
 WITH_ENV="$(cat "$WITH_DIR/.env.example")"
+grep -q '^# HOGSEND_EMAIL_TOKEN=$' <<<"$WITH_ENV" \
+  || fail "--with hogsend did not surface HOGSEND_EMAIL_TOKEN in .env.example"
 grep -q '^# POSTMARK_SERVER_TOKEN=$' <<<"$WITH_ENV" \
   || fail "--with postmark did not surface POSTMARK_SERVER_TOKEN in .env.example"
 grep -q '^# TWILIO_ACCOUNT_SID=$' <<<"$WITH_ENV" \
@@ -428,22 +432,59 @@ echo "==> [7/10] pnpm build (scaffolded app)"
 [ -f "$APPDIR/dist/index.js" ] || fail "dist/index.js not produced"
 [ -f "$APPDIR/dist/worker.js" ] || fail "dist/worker.js not produced"
 
-# --- 7b. opt-in plugin loads under plain node -----------------------------
+# --- 7b. opt-in plugins load under plain node -----------------------------
 # Reproduce EXACTLY what the engine does at runtime: a dynamic import whose
 # specifier is assembled at runtime (invisible to tsc AND the bundler), so it
 # resolves from the scaffolded app's own node_modules. MUST be plain `node`,
 # not tsx — tsx transpiles node_modules and would have masked the raw-.ts
 # runtime entry that shipped #611.
-echo "==> [7b] plugin-apollo dynamic import under plain node"
-(cd "$APPDIR" && node --input-type=module -e '
-  const specifier = ["@hogsend", "plugin-apollo"].join("/");
-  const mod = await import(specifier);
-  if (typeof mod.createApolloProvider !== "function") {
-    console.error("createApolloProvider is not a function export");
-    process.exit(1);
-  }
-') || fail "plugin-apollo did not load under plain node from the scaffolded app"
-echo "    engine-style dynamic import resolves + exports the factory"
+#
+# Resolving is NOT enough, and this does not generalize across packages: the
+# engine's loader reaches for one EXACT named export per plugin, so a rename
+# leaves the import working and the env preset silently dead, and the raw-.ts
+# entry that shipped #611 is a per-package packaging mistake. Every opt-in
+# plugin the engine loads this way therefore gets its own assertion here.
+assert_plugin_loads() {
+  local dir="$1" pkg="$2" export_name="$3"
+  # An app with no node_modules would fail this for the WRONG reason — or worse,
+  # tempt a conditional skip that never runs. Fail loudly instead.
+  [ -d "$dir/node_modules" ] \
+    || fail "$pkg load assertion needs installed dependencies, but $dir has no node_modules"
+  (cd "$dir" && PLUGIN_PKG="$pkg" PLUGIN_EXPORT="$export_name" \
+    node --input-type=module -e '
+    const [scope, name] = process.env.PLUGIN_PKG.split("/");
+    const specifier = [scope, name].join("/");
+    const exportName = process.env.PLUGIN_EXPORT;
+    const mod = await import(specifier);
+    if (typeof mod[exportName] !== "function") {
+      console.error(`${specifier} has no ${exportName} function export`);
+      process.exit(1);
+    }
+  ') || fail "$pkg did not load under plain node from $dir"
+  echo "    $pkg resolves + exports $export_name (plain node, runtime specifier)"
+}
+
+echo "==> [7b] opt-in plugin dynamic imports under plain node"
+assert_plugin_loads "$APPDIR" "@hogsend/plugin-apollo" createApolloProvider
+
+# plugin-hogsend is only ever a dependency of the `--with hogsend` scaffold, and
+# 3d2 builds that app with --no-install, so install it HERE — after step 4, so
+# pnpm's store is already warm from the main app. The free-on-wall-clock
+# alternative (adding `hogsend` to the main app's --with set) was rejected: the
+# hogsend env block is genuinely APPENDED to .env.example where apollo's dedupes
+# against the template, so it would break step 3c's byte-identity check, and
+# weakening an existing assertion to make a new one cheap is a bad trade. --prod
+# skips the scaffold's dev toolchain (biome/vitest/tsup/drizzle-kit); the opt-in
+# plugins are runtime dependencies, which is all this import needs.
+echo "    installing the --with hogsend scaffold (runtime deps only)"
+WITH_INSTALL_LOG="/tmp/hogsend-verify-with-install.log"
+if ! (cd "$WITH_DIR" && pnpm install --prod --ignore-scripts \
+  >"$WITH_INSTALL_LOG" 2>&1); then
+  echo "----- with-plugins pnpm install output -----" >&2
+  tail -40 "$WITH_INSTALL_LOG" >&2
+  fail "pnpm install failed for the --with hogsend scaffold"
+fi
+assert_plugin_loads "$WITH_DIR" "@hogsend/plugin-hogsend" createHogsendEmailProvider
 
 # --- 8. boot smoke --------------------------------------------------------
 # The AI-SDK bundling bug ("Dynamic require of X is not supported") throws at

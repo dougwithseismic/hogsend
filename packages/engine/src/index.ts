@@ -28,7 +28,9 @@ export type {
   /** @deprecated Use {@link EmailEvent}. Frozen `event.raw` cast target. */
   LegacyResendWebhookEvent,
   PostHogService,
+  ReturnPathState,
   SendResult,
+  SetReturnPathInput,
   /** @deprecated Use {@link EmailEvent}. Kept for one minor. */
   WebhookEvent,
   WebhookHandlerMap,
@@ -306,6 +308,13 @@ export {
 } from "./lib/analytics-identity.js";
 export { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 export { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
+// --- Attachments (engine-side gate + email_sends metadata shape, PRD 17) ---
+export {
+  type AttachmentSendMetadata,
+  AttachmentsUnsupportedError,
+  assertAttachmentsSendable,
+  attachmentSendMetadata,
+} from "./lib/attachments.js";
 // --- Auth ---
 export {
   type Auth,
@@ -708,6 +717,13 @@ export {
   SEMANTIC_BURST_DISTINCT_LINKS,
   SEMANTIC_BURST_WINDOW_MS,
 } from "./lib/semantic-click.js";
+// --- Sending-subdomain setup guidance (static; one source for all surfaces) ---
+export {
+  exampleSendingSubdomain,
+  looksLikeRootDomain,
+  SENDING_DOMAIN_GUIDANCE,
+  type SendingDomainGuidance,
+} from "./lib/sending-domain-guidance.js";
 // --- SMS ---
 export {
   getSmsService,
@@ -770,6 +786,7 @@ export {
 export {
   EMAIL_LINK_CLICKED,
   EMAIL_OPENED,
+  EMAIL_REPLIED,
   LINK_ARRIVED,
   LINK_CLICKED,
   SMS_LINK_CLICKED,

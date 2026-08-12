@@ -1,6 +1,7 @@
 import type {
   BatchEmailItem,
   DurationObject,
+  EmailAttachment,
   EmailEvent,
   EmailEventType,
   SendEmailOptions,
@@ -66,6 +67,14 @@ export interface SendTrackedEmailOptions<
    * duplicate provider send.
    */
   idempotencyKey?: string;
+  /**
+   * Neutral attachments (PRD 17), validated + capability-gated before ANY send
+   * work (see `assertAttachmentsSendable`) and handed to the provider alongside
+   * the TRACKED html — tracking is applied first, attachments ride alongside;
+   * an attachment never causes tracking to be skipped. `email_sends.metadata`
+   * records filenames/sizes/types only, never the bytes.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface TrackedSendResult {
@@ -184,6 +193,8 @@ export interface EmailServiceSendOptions<
   skipPreferenceCheck?: boolean;
   /** Caller-supplied idempotency key (POST /v1/emails) — dedups duplicate sends. */
   idempotencyKey?: string;
+  /** Neutral attachments — see `SendTrackedEmailOptions.attachments`. */
+  attachments?: EmailAttachment[];
 }
 
 /**

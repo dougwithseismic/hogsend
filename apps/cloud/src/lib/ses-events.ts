@@ -1,0 +1,360 @@
+import { createHash } from "node:crypto";
+import {
+  HOGSEND_RELAY_EVENT_VERSION,
+  type HogsendRelayEmailEvent,
+  type HogsendRelayEmailEventType,
+} from "@hogsend/plugin-hogsend";
+
+/**
+ * SES notification JSON → the relay wire.
+ *
+ * The target shape is `HogsendRelayEmailEvent`, IMPORTED from
+ * `@hogsend/plugin-hogsend` (PRD 04 owns it). It is deliberately not
+ * re-declared here: a duplicated literal on the two sides of a wire drifts, and
+ * the drift shows up as silently dropped bounces rather than as a type error.
+ *
+ * Two rules the rest of this file exists to keep:
+ *
+ *  - **Only five event types are consumed.** Opens and clicks are FIRST-PARTY
+ *    and sovereign (the engine's `/v1/t/o` and `/v1/t/c`), and SES native
+ *    tracking stays off. Consuming SES's would hand the engine two disagreeing
+ *    sources of truth for one fact. `Send` is dropped because the relay already
+ *    knows what it sent.
+ *  - **Nothing is classified here.** SES's `bounceType` / `bounceSubType` ride
+ *    the wire VERBATIM and the plugin maps them to the engine's neutral
+ *    `BounceClass`. Classification decides suppression, so a control plane that
+ *    guessed would be guessing about killing a deliverable address. A
+ *    `Reject`'s reason rides verbatim too, and reaches no classifier at all.
+ *
+ * The fixtures these were written against are AWS's own documented examples;
+ * see `src/__tests__/helpers/ses-notifications.ts`.
+ */
+
+/** The five, and only the five. Order is the one the tests pin. */
+export const SES_CONSUMED_EVENT_TYPES = [
+  "Delivery",
+  "Bounce",
+  "Complaint",
+  "DeliveryDelay",
+  /**
+   * PRD 18. SES accepted the message, returned a message id, then discarded
+   * it — the one outcome the relay cannot infer from its own send call. Unlike
+   * a bounce it is MESSAGE-scoped and blames our content, never the address.
+   */
+  "Reject",
+] as const;
+
+export type SesConsumedEventType = (typeof SES_CONSUMED_EVENT_TYPES)[number];
+
+const RELAY_TYPE_BY_SES_TYPE: Record<
+  SesConsumedEventType,
+  HogsendRelayEmailEventType
+> = {
+  Delivery: "email.delivered",
+  Bounce: "email.bounced",
+  Complaint: "email.complained",
+  DeliveryDelay: "email.delivery_delayed",
+  // NOT `email.bounced`. `permanent` auto-suppresses, so folding a reject onto
+  // a bounce would let one bad attachment permanently block a good address.
+  Reject: "email.rejected",
+};
+
+/**
+ * Where each consumed type keeps its own detail block. A `Record` over the
+ * union rather than a ternary chain, so adding a sixth type is a compile error
+ * here instead of a silent `undefined` detail at the end of the chain.
+ */
+const DETAIL_BY_SES_TYPE: Record<
+  SesConsumedEventType,
+  (notification: Record<string, unknown>) => unknown
+> = {
+  Delivery: (n) => n.delivery,
+  Bounce: (n) => n.bounce,
+  Complaint: (n) => n.complaint,
+  DeliveryDelay: (n) => n.deliveryDelay,
+  Reject: (n) => n.reject,
+};
+
+/** SES's own auto-tag for a tenanted send. */
+const TENANT_TAG = "ses:tenant-name";
+/** The auto-tag every configuration-set event carries. */
+const CONFIGURATION_SET_TAG = "ses:configuration-set";
+
+export interface NormalizedSesEvent {
+  /** The wire payload, ready to sign and post to the instance. */
+  event: HogsendRelayEmailEvent;
+  /** The SES tenant this event belongs to, or null when SES named none. */
+  tenantName: string | null;
+  /** The configuration set it was sent under, or null. */
+  configurationSetName: string | null;
+  /** Stable across redeliveries of the same event. See {@link sesEventDedupeKey}. */
+  dedupeKey: string;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The first tag value SES recorded under `name`. */
+function tag(mail: Record<string, unknown>, name: string): string | null {
+  const tags = record(mail.tags);
+  const values = tags?.[name];
+  if (!Array.isArray(values)) return null;
+  return str(values[0]) ?? null;
+}
+
+/** The first entry of a SES list, as an object, or null. */
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  return Array.isArray(value) ? record(value[0]) : null;
+}
+
+/** Every `emailAddress` in a recipient list, in SES's own order. */
+function addresses(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) =>
+      typeof entry === "string" ? entry : str(record(entry)?.emailAddress),
+    )
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+/**
+ * An ISO-8601 instant with a `Z` offset, which is what the wire's schema
+ * (`z.string().datetime()`) accepts. SES already emits one; normalizing through
+ * `Date` means a malformed value fails HERE, where it can fall back, rather
+ * than at the instance where it would be a silently rejected webhook.
+ */
+function instant(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    const value = str(candidate);
+    if (!value) continue;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return null;
+}
+
+/**
+ * The stable identity of ONE SES event.
+ *
+ * SNS delivery is at-least-once, so the same notification arrives more than
+ * once, and the engine's `handleWebhook` has NO dedupe of its own — it
+ * re-emits outbound events and increments the bounce counter toward the
+ * suppression threshold on every call. Duplicate suppression of a deliverable
+ * address is a real, silent harm, so the collapse has to happen HERE, and this
+ * key is the arbiter (the unique index on `email_events.dedupe_key`).
+ *
+ * Content-derived rather than taken from the SNS envelope's `MessageId`: the
+ * envelope id is unique per PUBLISH, so SES publishing one logical event twice
+ * would arrive as two distinct ids and defeat the whole point.
+ */
+export function sesEventDedupeKey(input: {
+  type: string;
+  messageId: string;
+  occurredAt: string;
+  feedbackId?: string;
+  recipients: string[];
+}): string {
+  const canonical = [
+    input.type,
+    input.messageId,
+    input.occurredAt,
+    input.feedbackId ?? "",
+    // Sorted: SES's recipient ORDER is not a documented guarantee, and a
+    // reordered list is the same event.
+    [...input.recipients].sort().join(","),
+    // NUL as the field separator, written as an ESCAPE and not as a literal
+    // NUL byte. The separator itself is deliberate — it cannot occur inside any
+    // field, so ["a","b"] and ["ab"] cannot canonicalize to the same string and
+    // hash alike. Writing it literally is what is wrong: a raw NUL makes git
+    // classify this file as BINARY, and it did, from 9bd125fd until 2026-08-11.
+    // Every review of the SNS event normalizer in that window saw
+    // "Bin 10451 -> 13270 bytes" instead of a diff. Same value at runtime.
+  ].join("\u0000");
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+/**
+ * Normalize one SES notification, or return `null` when it is not one of the
+ * four types this wire consumes.
+ *
+ * `null` is an ordinary answer, not an error: a configuration set publishing
+ * `Send` or `Open` is a misconfiguration to fix in provisioning, not a reason
+ * to fail an SNS delivery and have AWS retry it forever.
+ */
+export function normalizeSesNotification(
+  payload: unknown,
+): NormalizedSesEvent | null {
+  const notification = record(payload);
+  if (!notification) return null;
+
+  // `eventType` is configuration-set event publishing; `notificationType` is an
+  // identity-level feedback notification. Both are SES, and both arrive here.
+  const sesType =
+    str(notification.eventType) ?? str(notification.notificationType);
+  if (
+    !sesType ||
+    !(SES_CONSUMED_EVENT_TYPES as readonly string[]).includes(sesType)
+  ) {
+    return null;
+  }
+  const consumed = sesType as SesConsumedEventType;
+
+  const mail = record(notification.mail);
+  const messageId = str(mail?.messageId);
+  if (!mail || !messageId) return null;
+
+  const detail = record(DETAIL_BY_SES_TYPE[consumed](notification));
+
+  // The EVENT's own timestamp, falling back to the message's. `mail.timestamp`
+  // is when the message was sent, so it is the wrong answer whenever the
+  // event's own is available — but it beats dropping the event. A `Reject` has
+  // no timestamp of its own AT ALL (its only documented field is `reason`), so
+  // for that type the fallback is the answer rather than a degradation.
+  const occurredAt = instant(detail?.timestamp, mail.timestamp);
+  if (!occurredAt) return null;
+
+  const recipients = eventRecipients(consumed, detail, mail);
+  const event: HogsendRelayEmailEvent = {
+    version: HOGSEND_RELAY_EVENT_VERSION,
+    type: RELAY_TYPE_BY_SES_TYPE[consumed],
+    messageId,
+    recipients,
+    occurredAt,
+    ...(bounceFacts(consumed, detail) ?? {}),
+    ...(rejectFacts(consumed, detail) ?? {}),
+    // Verbatim, so nothing SES said is lost between here and the instance.
+    raw: notification,
+  };
+
+  return {
+    event,
+    // The tenant tag first; the configuration-set tag is the fallback, and
+    // under `src/ses/names.ts` both are the same `env-<environmentId>` string.
+    tenantName: tag(mail, TENANT_TAG) ?? tag(mail, CONFIGURATION_SET_TAG),
+    configurationSetName: tag(mail, CONFIGURATION_SET_TAG),
+    dedupeKey: sesEventDedupeKey({
+      type: event.type,
+      messageId,
+      occurredAt,
+      feedbackId: str(detail?.feedbackId),
+      recipients,
+    }),
+  };
+}
+
+/**
+ * The recipients THIS event is about.
+ *
+ * For the four PER-RECIPIENT types, deliberately never falling back to
+ * `mail.destination`. A bounce for one address on a five-address send would
+ * then arrive naming all five, and the engine suppresses every named recipient
+ * of a permanent bounce — four deliverable addresses killed by a convenience
+ * fallback. An empty list is the honest answer, and the wire allows one (the
+ * engine keys on `messageId`).
+ *
+ * **`Reject` is the exception, and it is not a fallback.** A reject is
+ * MESSAGE-scoped: "Amazon SES stops processing it, and doesn't attempt to
+ * deliver it to the recipient's mail server". Every destination is affected
+ * identically and SES states no per-recipient list, so `mail.destination` IS
+ * the recipient list rather than a guess at one. Naming them is safe precisely
+ * because `email.rejected` suppresses nothing — and it is what makes the
+ * engine's no-suppression test a real test rather than a vacuous one against
+ * an empty array.
+ */
+function eventRecipients(
+  type: SesConsumedEventType,
+  detail: Record<string, unknown> | null,
+  mail: Record<string, unknown>,
+): string[] {
+  if (type === "Reject") return addresses(mail.destination);
+  if (!detail) return [];
+  switch (type) {
+    case "Bounce":
+      return addresses(detail.bouncedRecipients);
+    case "Complaint":
+      return addresses(detail.complainedRecipients);
+    case "Delivery":
+      return addresses(detail.recipients);
+    case "DeliveryDelay":
+      return addresses(detail.delayedRecipients);
+  }
+}
+
+/**
+ * The reject block, for the one event type that has one.
+ *
+ * SES's `reason` VERBATIM — `Bad content` is the only value AWS documents
+ * today, and nothing here parses, maps or switches on it, so the next value
+ * they add rides through untouched rather than being dropped.
+ *
+ * Absent when SES states no reason: the wire requires a non-empty string, and
+ * losing a terminal event over one missing optional field would put the send
+ * straight back in the limbo this exists to end.
+ */
+function rejectFacts(
+  type: SesConsumedEventType,
+  detail: Record<string, unknown> | null,
+): { reject: NonNullable<HogsendRelayEmailEvent["reject"]> } | null {
+  if (type !== "Reject") return null;
+  const reason = str(detail?.reason);
+  return reason ? { reject: { reason } } : null;
+}
+
+/**
+ * The bounce block, for the two event types that have one.
+ *
+ * A delay is NOT a bounce and a delivery is not a bounce; attaching one would
+ * drive the engine's suppression path off a message that may yet arrive. Nor
+ * is a REJECT: there the recipient's address is fine and it was our content
+ * SES objected to, so a bounce block would put a good address one
+ * classification away from permanent suppression.
+ */
+function bounceFacts(
+  type: SesConsumedEventType,
+  detail: Record<string, unknown> | null,
+): { bounce: NonNullable<HogsendRelayEmailEvent["bounce"]> } | null {
+  if (!detail) return null;
+
+  if (type === "Bounce") {
+    // `Undetermined` rather than "Permanent" when SES named no type. The
+    // plugin maps it to `unknown`, which is RECORDED and never suppressing —
+    // the one safe default for a value that decides whether an address dies.
+    const bounceType = str(detail.bounceType) ?? "Undetermined";
+    // The receiving MTA's own words, from the first recipient carrying a DSN.
+    // The most useful thing available, and never load-bearing.
+    const reason = str(firstRecord(detail.bouncedRecipients)?.diagnosticCode);
+    const subType = str(detail.bounceSubType);
+    return {
+      bounce: {
+        type: bounceType,
+        ...(subType ? { subType } : {}),
+        ...(reason ? { reason } : {}),
+      },
+    };
+  }
+
+  if (type === "Complaint") {
+    return {
+      bounce: {
+        // The plugin maps `email.complained` to class `complaint` regardless,
+        // but stating it keeps the wire self-describing.
+        type: "Complaint",
+        ...(str(detail.complaintSubType)
+          ? { subType: str(detail.complaintSubType) }
+          : {}),
+        ...(str(detail.complaintFeedbackType)
+          ? { reason: str(detail.complaintFeedbackType) }
+          : {}),
+      },
+    };
+  }
+
+  return null;
+}

@@ -32,6 +32,21 @@
  */
 export const SENDER_IDENTITY_PROVIDER = "sender-identity";
 
+/**
+ * The provider ids that are an EMAIL SEND PATH, in preference order.
+ *
+ * This is the channel question two different rules hang on: the sender
+ * identity belongs to the first of these that is configured
+ * (`provider-catalog.ts` re-exports this list for that), and `key-sync.ts`
+ * refuses to store one for a tenant whose sending is paused (DECISIONS §6 —
+ * a customer-supplied email provider is a reroute around the pause; a PostHog
+ * or Twilio key is not). It lives HERE, beside the env mapping that makes each
+ * of these ids a working send wire, so the gate and the mapping cannot drift.
+ * `provider-catalog.ts` asserts at module load that its forms' `email` flags
+ * agree with this list.
+ */
+export const EMAIL_PROVIDER_IDS: readonly string[] = ["resend", "postmark"];
+
 /** One decrypted credential, as `ProviderKeyService.getDecrypted` returns it. */
 export interface StoredProviderKey {
   provider: string;

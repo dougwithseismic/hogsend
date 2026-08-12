@@ -2,7 +2,7 @@
 
 A [Hogsend](https://hogsend.com) lifecycle orchestration app — code-first email
 journeys on PostHog + Resend, powered by `@hogsend/engine` (pinned at
-`0.0.1`). The engine is a versioned dependency; **your content**
+`0.63.0`). The engine is a versioned dependency; **your content**
 (journeys, email templates, webhook sources, workflows, schema) lives in `src/`
 and is yours to edit.
 
@@ -15,10 +15,42 @@ and is yours to edit.
 ## Quickstart
 
 ```bash
+pnpm install
 pnpm bootstrap     # one command: Docker + .env + Hatchet token + migrate
 pnpm dev           # HTTP API on http://localhost:3002
 pnpm worker:dev    # Hatchet worker (run in a second terminal)
 ```
+
+> **Reading this inside the Hogsend monorepo? Copy the folder out first.**
+> This directory is deliberately not a pnpm workspace member — that is what
+> keeps it an honest consumer of published packages — so a bare `pnpm install`
+> here walks up, finds the repo's root `pnpm-workspace.yaml` and installs the
+> *monorepo* instead, leaving this folder with no `node_modules`.
+>
+> `--ignore-workspace` is NOT the answer, though it looks like it: the flag that
+> stops pnpm walking up also throws away **this** folder's own
+> `pnpm-workspace.yaml` — every setting in it.
+>
+> - `allowBuilds` goes, so the install hard-fails with
+>   `ERR_PNPM_IGNORED_BUILDS` (measured: exit 1).
+> - `overrides` goes too. That one is currently harmless *only* because
+>   `@hono/zod-openapi` is also pinned exactly in `package.json`, and pnpm
+>   dedupes the engine's caret onto that pin — measured: still `1.4.0`, still
+>   0 errors. The override is the belt to that pin's braces, and it matters the
+>   day the direct dependency is removed (this app never imports the package;
+>   it is declared only so tsup treats it as external, so a dead-dependency
+>   sweep will offer to drop it). With the dep gone and no override, resolution
+>   floats to the broken `1.5.2` and you get 33 errors inside `node_modules`.
+>
+> `--allow-build` does not exist in pnpm 11. `--ignore-scripts` silences the
+> build failure and exits 0, but it is silencing a symptom rather than fixing
+> the setup, and it leaves you one dead-dependency sweep away from the silent
+> case above.
+>
+> So: `cp -R my-first-hogsend ~/somewhere && cd ~/somewhere && pnpm install`.
+> Verified from a clean state — install, `check-types` and `build` all exit 0.
+> That is also what you would do anyway; nobody develops their app inside
+> somebody else's monorepo.
 
 `pnpm bootstrap` is idempotent — re-run it any time. It creates `.env` (with a
 fresh `BETTER_AUTH_SECRET`), brings up Timescale + Redis + Hatchet-Lite
@@ -30,24 +62,50 @@ API docs: `http://localhost:3002/docs`. Health: `GET /v1/health`.
 
 ## Verify the pipeline (end-to-end smoke)
 
-With `pnpm dev` + `pnpm worker:dev` running:
+The data plane requires an API key. On its **first** boot against an empty
+database the API mints an ingest-scoped key and prints it once — grep the
+`pnpm dev` output for `[api-keys]`:
 
-```bash
-curl -XPOST http://localhost:3002/v1/ingest \
-  -H 'content-type: application/json' \
-  -d '{"event":"test.signup","userId":"smoke-1","userEmail":"smoke@example.com"}'
+```
+[api-keys] First-boot ingest API key (shown once — save it now): hsk_…
 ```
 
-The bundled `test-onboarding` journey runs to completion (no email / external
-deps). Watch it in the Hatchet dashboard, or query `journey_states`.
+Save it, then with `pnpm dev` + `pnpm worker:dev` running:
+
+```bash
+curl -XPOST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer $HOGSEND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"name":"test.signup","userId":"smoke-1","email":"smoke@example.com"}'
+```
+
+```json
+{ "stored": true, "exits": [], "contactKey": "smoke-1" }
+```
+
+`202` means the event was stored and pushed to Hatchet. The bundled
+`test-onboarding` journey then runs to completion (no email / external deps).
+Watch it in the Hatchet dashboard, or query `journey_states`:
+
+```sql
+SELECT journey_id, user_id, status FROM journey_states ORDER BY created_at DESC;
+-- test-onboarding | smoke-1 | completed
+```
+
 `GET /v1/health` should report `schema.engine.inSync:true` and
 `schema.client.inSync:true`.
+
+Lost the key, or booted before this example wired the bootstrap? Mint another
+with `POST /v1/admin/api-keys`, or clear the table (`DELETE FROM api_keys`) and
+restart the API.
 
 ## Dev loop
 
 - `pnpm dev` — API with hot reload (tsx watch)
 - `pnpm worker:dev` — worker with hot reload
-- `pnpm test` — vitest
+- `pnpm test` — vitest (this example ships no tests yet; the config and env are
+  wired, so a `src/**/*.test.ts` file runs immediately. For deterministic
+  journey tests see `@hogsend/testing`.)
 - `pnpm check-types` — tsc
 - `pnpm build` — tsup bundle to `dist/` (`pnpm start` / `pnpm worker` run it)
 
@@ -133,8 +191,20 @@ pnpm db:migrate     # apply engine track, then client track (scripts/migrate.ts)
 ```bash
 pnpm up "@hogsend/*"      # bump engine + plugins to the next pinned line
 pnpm db:migrate           # apply any new engine migrations
+pnpm build && node dist/index.js   # prove the BUNDLE boots, not just tsc
 # then confirm: GET /v1/health shows engine + client both inSync:true
 ```
+
+> **Mirror the engine's new npm dependencies.** `tsup` treats anything absent
+> from this `package.json` as bundleable, so a dependency the engine picked up
+> since your last upgrade gets inlined into `dist/`. For a CommonJS package that
+> fails at runtime, not at build time:
+> `Error: Dynamic require of "path" is not supported`. `pnpm check-types` and
+> `pnpm build` both pass; only `node dist/index.js` catches it. After an
+> upgrade, diff `@hogsend/engine`'s `dependencies` against this file and add
+> anything missing (that is what keeps `ai`, `svix`, `qrcode`, `picocolors`,
+> `acorn`, `launch-editor` and `@openrouter/ai-sdk-provider` listed below —
+> this app imports none of them directly).
 
 The boot guard in `src/index.ts` refuses to start if the **engine** schema is
 behind the build (a behind-engine DB is a fatal misconfiguration). The

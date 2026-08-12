@@ -110,17 +110,37 @@ describe("planLimits", () => {
       environments: 1,
       eventsPerMonth: 10_000,
       emailsPerMonth: 1_000,
+      // No card on file, so the allowance IS the cap (PRD 09).
+      emailOverage: false,
+      emailHardCap: 1_000,
     });
     expect(planLimits("self_serve")).toEqual({
       environments: 2,
       eventsPerMonth: 100_000,
       emailsPerMonth: 10_000,
+      emailOverage: true,
+      emailHardCap: 100_000,
     });
     expect(planLimits("dedicated")).toEqual({
       environments: 4,
       eventsPerMonth: 1_000_000,
       emailsPerMonth: 100_000,
+      emailOverage: true,
+      emailHardCap: 1_000_000,
     });
+  });
+
+  it("caps every plan at or above its included allowance", () => {
+    // A cap BELOW the allowance would sell a number the gate refuses to honour.
+    for (const plan of ["trial", "self_serve", "dedicated"] as const) {
+      const limits = planLimits(plan);
+      expect(limits.emailHardCap).toBeGreaterThanOrEqual(limits.emailsPerMonth);
+      // And a plan that does not bill overage must not leave headroom above the
+      // allowance that nobody would ever be invoiced for.
+      if (!limits.emailOverage) {
+        expect(limits.emailHardCap).toBe(limits.emailsPerMonth);
+      }
+    }
   });
 
   it("covers every plan the database can hold", () => {

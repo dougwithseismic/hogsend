@@ -38,6 +38,11 @@ export function createResendProvider(
       nativeTracking: true,
       scheduledSend: true,
       signedWebhooks: true,
+      // The send wire translates neutral attachments onto Resend's native
+      // shape (see toResendAttachments). Batch falls back to per-item single
+      // sends when attachments are present — Resend's batch API can't carry
+      // them — so the capability holds on BOTH wires.
+      attachments: true,
     },
 
     // Sending-domain management (Resend Domains REST API). Presence of this

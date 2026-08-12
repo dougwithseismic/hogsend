@@ -1,4 +1,4 @@
-import { WebhookHandshakeSignal } from "@hogsend/core";
+import { type SendEmailOptions, WebhookHandshakeSignal } from "@hogsend/core";
 import { Models } from "postmark";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -123,6 +123,138 @@ describe("send → Postmark message mapping", () => {
       expect(m.TrackOpens).toBe(false);
       expect(m.TrackLinks).toBe(Models.LinkTrackingOptions.None);
     }
+  });
+});
+
+describe("attachments → Postmark Attachments mapping", () => {
+  const base = {
+    from: "f@h.com",
+    to: "t@h.com",
+    subject: "s",
+    html: "<p>x</p>",
+  };
+  const sendWith = async (attachments?: SendEmailOptions["attachments"]) => {
+    sendEmail.mockResolvedValue(SEND_OK);
+    const provider = createPostmarkProvider({ serverToken: "pm_token" });
+    await provider.send({ ...base, attachments });
+    // biome-ignore lint/style/noNonNullAssertion: the mock was just invoked.
+    return sendEmail.mock.calls[0]![0];
+  };
+
+  it("declares capabilities.attachments", () => {
+    const provider = createPostmarkProvider({ serverToken: "pm_token" });
+    expect(provider.capabilities?.attachments).toBe(true);
+  });
+
+  it("puts NO Attachments field on the JSON wire when none are given", async () => {
+    const msg = await sendWith(undefined);
+    expect(msg.Attachments).toBeUndefined();
+    // The property is undefined-valued per this file's idiom; the JSON layer
+    // the SDK serializes through drops it, so the WIRE has no field at all.
+    expect(JSON.parse(JSON.stringify(msg))).not.toHaveProperty("Attachments");
+  });
+
+  it("puts NO Attachments field on the JSON wire for an empty array", async () => {
+    const msg = await sendWith([]);
+    expect(JSON.parse(JSON.stringify(msg))).not.toHaveProperty("Attachments");
+  });
+
+  it("encodes Uint8Array content to base64 (Postmark takes a STRING only)", async () => {
+    const msg = await sendWith([
+      { filename: "hello.txt", content: new TextEncoder().encode("hello") },
+    ]);
+    expect(msg.Attachments).toEqual([
+      {
+        Name: "hello.txt",
+        Content: "aGVsbG8=",
+        ContentType: "application/octet-stream",
+        ContentID: null,
+      },
+    ]);
+  });
+
+  it("passes { base64 } content through untouched (no decode/re-encode)", async () => {
+    // UNPADDED on purpose: a decode/re-encode round trip would re-pad it to
+    // "aGVsbG8=", so string equality proves the content was never touched.
+    const msg = await sendWith([
+      { filename: "hello.txt", content: { base64: "aGVsbG8" } },
+    ]);
+    expect(msg.Attachments?.[0]?.Content).toBe("aGVsbG8");
+  });
+
+  it("maps contentType; absent falls back to application/octet-stream", async () => {
+    const msg = await sendWith([
+      {
+        filename: "invoice.pdf",
+        content: { base64: "aGVsbG8=" },
+        contentType: "application/pdf",
+      },
+      { filename: "raw.bin", content: { base64: "aGVsbG8=" } },
+    ]);
+    expect(msg.Attachments?.[0]?.ContentType).toBe("application/pdf");
+    // Postmark's model REQUIRES ContentType — the neutral "omit and let the
+    // provider default" maps to MIME's universal binary default instead.
+    expect(msg.Attachments?.[1]?.ContentType).toBe("application/octet-stream");
+  });
+
+  it("prefixes inline ContentID with cid: (Postmark's inline convention)", async () => {
+    const msg = await sendWith([
+      {
+        filename: "logo.png",
+        content: { base64: "aGVsbG8=" },
+        contentType: "image/png",
+        disposition: "inline",
+        contentId: "logo",
+      },
+    ]);
+    // The SDK's own docstring pins the convention: ContentID carries the cid:
+    // prefix ("for example: cid:123book.pdf"); the HTML references cid:logo.
+    expect(msg.Attachments?.[0]?.ContentID).toBe("cid:logo");
+    // postmark@4.0.3+ also models an explicit Disposition — map it verbatim.
+    expect(msg.Attachments?.[0]?.Disposition).toBe("inline");
+  });
+
+  it("does not double-prefix a contentId already carrying cid:", async () => {
+    const msg = await sendWith([
+      {
+        filename: "logo.png",
+        content: { base64: "aGVsbG8=" },
+        disposition: "inline",
+        contentId: "cid:logo",
+      },
+    ]);
+    expect(msg.Attachments?.[0]?.ContentID).toBe("cid:logo");
+  });
+
+  it("sendBatch carries each item's own attachments", async () => {
+    sendEmailBatch.mockResolvedValue([
+      { ErrorCode: 0, Message: "OK", MessageID: "pm_a" },
+      { ErrorCode: 0, Message: "OK", MessageID: "pm_b" },
+    ]);
+    const provider = createPostmarkProvider({ serverToken: "pm_token" });
+    await provider.sendBatch([
+      { ...base, to: "a@h.com" },
+      {
+        ...base,
+        to: "b@h.com",
+        attachments: [
+          { filename: "receipt.pdf", content: { base64: "aGVsbG8" } },
+        ],
+      },
+    ]);
+    // biome-ignore lint/style/noNonNullAssertion: the mock was just invoked.
+    const messages = sendEmailBatch.mock.calls[0]![0];
+    expect(JSON.parse(JSON.stringify(messages[0]))).not.toHaveProperty(
+      "Attachments",
+    );
+    expect(messages[1].Attachments).toEqual([
+      {
+        Name: "receipt.pdf",
+        Content: "aGVsbG8",
+        ContentType: "application/octet-stream",
+        ContentID: null,
+      },
+    ]);
   });
 });
 

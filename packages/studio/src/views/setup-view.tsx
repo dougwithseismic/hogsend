@@ -37,11 +37,14 @@ import {
   getReadiness,
   qk,
   type ReadinessCheck,
+  type SendingDomainGuidance,
+  setReturnPath,
   type TestModeState,
   verifyDomain,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { RETURN_PATH_COPY, ReturnPathCard } from "@/views/setup-return-path";
 
 /** Pinned domain validation regex — mirrors the engine's admin route. */
 const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
@@ -116,9 +119,12 @@ function CopyButton({ value }: { value: string }) {
 }
 
 function AddDomainForm({
+  guidance,
   onSubmit,
   loading,
 }: {
+  /** Absent on an older engine (wire skew) — the form must work without it. */
+  guidance?: SendingDomainGuidance;
   onSubmit: (domain: string) => void;
   loading: boolean;
 }) {
@@ -126,24 +132,36 @@ function AddDomainForm({
   const valid = DOMAIN_RE.test(domain);
   return (
     <form
-      className="flex max-w-md items-end gap-2"
+      className="max-w-md space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (valid) onSubmit(domain.toLowerCase());
       }}
     >
-      <div className="flex flex-1 flex-col gap-1.5">
-        <Label htmlFor="setup-domain">Sending domain</Label>
-        <Input
-          id="setup-domain"
-          placeholder="mysite.com"
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-        />
+      <div className="flex items-end gap-2">
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Label htmlFor="setup-domain">Sending domain</Label>
+          <Input
+            id="setup-domain"
+            placeholder="notifications.mysite.com"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+          />
+        </div>
+        <Button type="submit" disabled={!valid || loading}>
+          {loading ? "Adding…" : "Add domain"}
+        </Button>
       </div>
-      <Button type="submit" disabled={!valid || loading}>
-        {loading ? "Adding…" : "Add domain"}
-      </Button>
+      {/* Engine-owned copy (`data.guidance`) — the same words the CLI prints.
+          Advice only: it never gates the input or the submit button. Absent
+          against an older engine, in which case the form renders without it. */}
+      {guidance ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-white/70">{guidance.title}</p>
+          <p className="text-xs text-white/50">{guidance.body}</p>
+          <p className="text-xs text-white/40">{guidance.note}</p>
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -275,6 +293,40 @@ export function SetupView() {
     onError: onMutationError("Add domain failed"),
   });
 
+  const returnPath = useMutation({
+    mutationFn: (body: { enabled: boolean; label?: string }) =>
+      setReturnPath(body),
+    onSuccess: (result) => {
+      applyStatus(result.status);
+      toast(
+        result.returnPath.enabled
+          ? {
+              title: RETURN_PATH_COPY.enabledToastTitle,
+              description: RETURN_PATH_COPY.enabledToastBody,
+            }
+          : {
+              title: RETURN_PATH_COPY.disabledToastTitle,
+              description: RETURN_PATH_COPY.disabledToastBody,
+            },
+      );
+    },
+    // Not `onMutationError`: its 501 text ("does not support domain
+    // management") would be wrong here — the domain routes CAN be supported
+    // while the return path alone is not.
+    onError: (error: unknown) => {
+      toast({
+        variant: "error",
+        title: RETURN_PATH_COPY.failedToastTitle,
+        description:
+          error instanceof ApiError
+            ? error.status === 501
+              ? RETURN_PATH_COPY.unsupportedToast
+              : error.message
+            : "Unexpected error.",
+      });
+    },
+  });
+
   const data = query.data;
   const records = data?.status?.records ?? [];
   const needsDomain =
@@ -361,6 +413,7 @@ export function SetupView() {
                   : "No sending domain configured. Add one to get the DNS records to verify."}
               </p>
               <AddDomainForm
+                guidance={data.guidance}
                 onSubmit={(domain) => add.mutate(domain)}
                 loading={add.isPending}
               />
@@ -421,6 +474,18 @@ export function SetupView() {
               icon={Globe}
               title="No DNS records yet"
               description="The provider hasn't reported any DNS records for this domain. Re-check, or verify it in the provider dashboard."
+            />
+          ) : null}
+
+          {/* The branded return-path upgrade (PRD 20). Only once a domain is
+              registered — there is nothing to upgrade before that. The card
+              itself gates on `returnPathSupported` and reports the upgrade as
+              unavailable (no control) when the capability is absent. */}
+          {!needsDomain ? (
+            <ReturnPathCard
+              data={data}
+              pending={returnPath.isPending}
+              onSet={(body) => returnPath.mutate(body)}
             />
           ) : null}
         </>

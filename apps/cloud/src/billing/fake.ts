@@ -11,6 +11,8 @@ import {
   headerValue,
   type PortalInput,
   type PortalResult,
+  type ReportUsageInput,
+  type ReportUsageResult,
   type WebhookInput,
 } from "./types";
 
@@ -48,7 +50,8 @@ const FAKE_EPOCH_MS = Date.UTC(2026, 0, 1);
 export type FakeBillingMethod =
   | "createCheckout"
   | "parseWebhook"
-  | "getPortalUrl";
+  | "getPortalUrl"
+  | "reportUsage";
 
 export interface FakeBillingCall {
   method: FakeBillingMethod;
@@ -69,11 +72,18 @@ export class FakeBilling implements BillingProvider {
   readonly calls: FakeBillingCall[] = [];
   /** Every checkout the app asked for, in order. */
   readonly checkouts: CreateCheckoutInput[] = [];
+  /**
+   * Every usage report that was actually BILLED, in order. A repeat of an
+   * idempotency key is absent from this list, which is what makes
+   * "reporting twice bills once" an assertion rather than a hope.
+   */
+  readonly usageReports: ReportUsageInput[] = [];
 
   private readonly scriptedFailures = new Map<
     FakeBillingMethod,
     BillingError[]
   >();
+  private readonly billedKeys = new Set<string>();
   private eventCounter = 0;
 
   failNext(method: FakeBillingMethod, error?: BillingError): this {
@@ -91,7 +101,9 @@ export class FakeBilling implements BillingProvider {
   reset(): this {
     this.calls.length = 0;
     this.checkouts.length = 0;
+    this.usageReports.length = 0;
     this.scriptedFailures.clear();
+    this.billedKeys.clear();
     this.eventCounter = 0;
     return this;
   }
@@ -113,6 +125,24 @@ export class FakeBilling implements BillingProvider {
         input.organizationId,
       )}`,
     };
+  }
+
+  /**
+   * Meter some usage, and DEDUPLICATE a repeated idempotency key.
+   *
+   * The dedupe is modelled rather than assumed because it is a load-bearing
+   * half of PRD 09's no-double-bill guarantee: the caller reports before it can
+   * commit the fact that it reported, so an honest fake has to behave the way a
+   * real usage meter does when the same key arrives twice.
+   */
+  async reportUsage(input: ReportUsageInput): Promise<ReportUsageResult> {
+    this.record("reportUsage", [input]);
+    if (this.billedKeys.has(input.idempotencyKey)) {
+      return { deduplicated: true };
+    }
+    this.billedKeys.add(input.idempotencyKey);
+    this.usageReports.push(input);
+    return { deduplicated: false };
   }
 
   async parseWebhook(input: WebhookInput): Promise<BillingEvent | null> {

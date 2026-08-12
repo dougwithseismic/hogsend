@@ -507,6 +507,7 @@ export type OutboundEventType =
   | "email.action"
   | "email.bounced"
   | "email.complained"
+  | "email.replied"
   | "sms.sent"
   | "sms.delivered"
   | "sms.failed"

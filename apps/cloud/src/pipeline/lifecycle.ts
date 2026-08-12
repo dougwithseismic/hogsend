@@ -7,6 +7,7 @@ import { decryptSecretPayload } from "../lib/crypto";
 import { writeAudit } from "../services/audit";
 import { NotFoundError } from "../services/errors";
 import type { StackRow } from "../services/orgs";
+import { deprovisionSesTenant } from "../services/ses-tenants";
 import { StackService } from "../services/stacks";
 import { TenantDbService } from "../services/tenant-db";
 import {
@@ -54,6 +55,9 @@ export const DESTROY_STEPS = [
   "release-hostname",
   "substrate-destroy",
   "drop-tenant-db",
+  // After the substrate is gone, so nothing can still be sending, and before
+  // the secrets are cleared, because this is where the relay credential dies.
+  "deprovision-ses",
   "clear-secrets",
   "finish",
 ] as const;
@@ -464,6 +468,22 @@ export async function destroyStack(
       steps.push({ step: "drop-tenant-db", skipped: false });
       await audit("drop-tenant-db", { dbName, ...dropped });
     }
+
+    // ---- deprovision-ses ---------------------------------------------------
+    // The SES tenancy, in dependency order (associations, tenant, then the
+    // configuration set) and the relay token with it. Every piece tolerates
+    // already being absent, so a re-driven destroy passes straight through.
+    //
+    // A leaked configuration set is not a tidiness problem: it keeps
+    // publishing events for an environment that no longer exists, and a leaked
+    // tenant is billed every month for a customer who left.
+    current = "deprovision-ses";
+    const ses = await deprovisionSesTenant(
+      { environmentId: stack.environmentId, actor: LIFECYCLE_ACTOR },
+      { db: deps.db },
+    );
+    steps.push({ step: "deprovision-ses", skipped: !ses.found });
+    await audit("deprovision-ses", { found: ses.found, steps: ses.steps });
 
     // ---- clear-secrets -----------------------------------------------------
     // The stack is gone; its credentials are now pure liability. Nulled rather

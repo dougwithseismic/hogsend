@@ -23,6 +23,7 @@
  * Requires docker on the host. With no `CLOUD_IMAGE_REGISTRY` the image stays
  * local and the push is a logged no-op (dev).
  */
+import { realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,112 @@ import { pathExists, runPreflight } from "../src/pipeline/build";
 
 /** The directory name the scaffold is generated into. Never user-visible. */
 const APP_NAME = "hogsend-default";
+
+/**
+ * The argv `scaffold()` hands create-hogsend after the app name.
+ *
+ * `--with hogsend` is LOAD-BEARING. Provisioning sets `EMAIL_PROVIDER=hogsend`
+ * on every stack with a real SES tenancy (`emailProviderVars`), and the
+ * engine resolves that id through a guarded dynamic
+ * `import("@hogsend/plugin-hogsend")` against the APP's node_modules —
+ * `@hogsend/plugin-hogsend` is an opt-in scaffold plugin, deliberately absent
+ * from the template's defaults, and an engine-only `optionalDependency` is
+ * never linked at the app's top level (#611). Only this flag makes the
+ * generated app carry the plugin as a DIRECT dependency; drop it and every
+ * fresh stack throws `email provider "hogsend" is not registered` at boot and
+ * crash-loops. (The create-hogsend smoke deliberately does NOT scaffold with
+ * it — hogsend's env block appends to `.env.example`, which would break that
+ * smoke's byte-identity diff. This scaffold has no such check.)
+ *
+ * Nothing asserts on this argv directly: the coverage test goes through
+ * `defaultImageProviderIds()`, which answers the question that actually
+ * matters — which providers the image can resolve — rather than how this
+ * script spells the request.
+ */
+export const DEFAULT_IMAGE_SCAFFOLD_ARGS: readonly string[] = [
+  "--yes",
+  "--pm",
+  "pnpm",
+  "--no-install",
+  "--no-setup",
+  "--no-git",
+  "--no-skills",
+  "--no-posthog",
+  "--with",
+  "hogsend",
+];
+
+/**
+ * Every Hogsend provider plugin is `@hogsend/plugin-<provider id>`, and the
+ * engine's presets import exactly that specifier for the id they register
+ * (`packages/engine/src/lib/email-providers-from-env.ts`). So the package name
+ * is derivable from the id, and vice versa.
+ */
+const PLUGIN_SCOPE = "@hogsend/plugin-";
+
+/**
+ * The optional-plugin ids the argv above selects, parsed the way create-hogsend
+ * parses them (`--with` is repeatable AND each value may be a comma-separated
+ * list). Read back OUT of the argv rather than declared beside it, so the argv
+ * stays the single source of truth for what this script asks the scaffolder for
+ * and the two can never disagree.
+ */
+function selectedPluginIds(argv: readonly string[]): string[] {
+  const ids: string[] = [];
+  for (const [index, arg] of argv.entries()) {
+    if (arg !== "--with") continue;
+    for (const raw of (argv[index + 1] ?? "").split(",")) {
+      const id = raw.trim();
+      if (id !== "" && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * The provider ids the app inside the stock image can RESOLVE at boot.
+ *
+ * A provider resolves only when its plugin package is a DIRECT dependency of
+ * the generated app: the app bundles the engine, so the engine's guarded
+ * dynamic `import("@hogsend/plugin-<id>")` resolves against the APP's
+ * node_modules, where an engine-only `optionalDependency` is never linked
+ * (#611). So this reads the two — and only the two — inputs that decide that
+ * set: the scaffold template's own dependency manifest (the defaults every app
+ * gets, e.g. Resend) and the opt-in plugins this script selects with `--with`.
+ * Both are read from the real artifacts, so the answer follows a template or
+ * argv change without anyone remembering to update it here.
+ *
+ * A superset that spans channels — `plugin-posthog` contributes the analytics
+ * id `posthog` — because the naming convention cannot tell channels apart.
+ * That is fine for its one job: proving that everything the provisioner may
+ * SELECT is in here (`provision-pipeline.test.ts`). Membership is the claim,
+ * never equality.
+ *
+ * Exported so that claim can be checked without docker or a real scaffold.
+ */
+export async function defaultImageProviderIds(): Promise<Set<string>> {
+  const manifest = join(createHogsendDir(), "template", "_package.json");
+  const template = JSON.parse(await readFile(manifest, "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  const direct = new Set(Object.keys(template.dependencies ?? {}));
+  if (!direct.has("@hogsend/engine")) {
+    throw new Error(
+      `${manifest} has no @hogsend/engine dependency — this is not the scaffold template manifest, so the providers it yields cannot be trusted`,
+    );
+  }
+  for (const id of selectedPluginIds(DEFAULT_IMAGE_SCAFFOLD_ARGS)) {
+    direct.add(`${PLUGIN_SCOPE}${id}`);
+  }
+
+  const ids = new Set<string>();
+  for (const dependency of direct) {
+    if (dependency.startsWith(PLUGIN_SCOPE)) {
+      ids.add(dependency.slice(PLUGIN_SCOPE.length));
+    }
+  }
+  return ids;
+}
 
 interface Options {
   /** Override the version read from the scaffold. */
@@ -88,7 +195,8 @@ function createHogsendDir(): string {
  * clean checkout works without a build step. Everything optional is turned off:
  * no install (the Dockerfile resolves dependencies itself), no local setup (it
  * wants Docker services), no git, no skills — this image is a runtime, not a
- * workspace.
+ * workspace. The ONE opt-in is `--with hogsend`, which the image cannot boot
+ * without (see `DEFAULT_IMAGE_SCAFFOLD_ARGS`).
  */
 async function scaffold(workRoot: string): Promise<string> {
   const packageDir = createHogsendDir();
@@ -104,18 +212,7 @@ async function scaffold(workRoot: string): Promise<string> {
   );
   const result = await spawnExec(
     command,
-    [
-      ...prefix,
-      APP_NAME,
-      "--yes",
-      "--pm",
-      "pnpm",
-      "--no-install",
-      "--no-setup",
-      "--no-git",
-      "--no-skills",
-      "--no-posthog",
-    ],
+    [...prefix, APP_NAME, ...DEFAULT_IMAGE_SCAFFOLD_ARGS],
     { cwd: workRoot, onOutput: stream },
   );
   if (result.code !== 0) {
@@ -213,9 +310,28 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(
-    `✗ ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exit(1);
-});
+/**
+ * Whether this file is the process entry point (`pnpm build:default-image` →
+ * tsx). The module is ALSO imported by the test suite to ask
+ * `defaultImageProviderIds()`, and an import must never kick off a docker
+ * build. Realpath BOTH sides: macOS hands out symlinked paths (`/tmp` →
+ * `/private/tmp`), and a naive string compare would silently no-op the script.
+ */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  main().catch((error: unknown) => {
+    process.stderr.write(
+      `✗ ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  });
+}

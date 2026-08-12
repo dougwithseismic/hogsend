@@ -21,6 +21,10 @@ import {
 } from "../journeys/journey-boundary.js";
 import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import {
+  assertAttachmentsSendable,
+  attachmentSendMetadata,
+} from "./attachments.js";
 import { lookupContactIdByKey } from "./contacts.js";
 import type { TestModeState } from "./domain-status.js";
 import {
@@ -55,6 +59,74 @@ export type PrepareTrackedHtmlFn = (opts: {
   baseUrl: string;
   db: Database;
 }) => Promise<string>;
+
+/** The neutral transport header a send's idempotency key travels on. */
+const IDEMPOTENCY_HEADER = "Idempotency-Key";
+
+/**
+ * Does the ACTIVE provider's TRANSPORT consume the `Idempotency-Key` header —
+ * lifting it off the message before anything reaches a recipient?
+ *
+ * THE RULE: a provider gets the engine's replay-stable key if and only if it
+ * DECLARES `capabilities.consumesIdempotencyKey: true`. Nothing else qualifies
+ * it — not its id, not its package. A third party opts in the same way the
+ * first-party relay does, by writing the declaration.
+ *
+ * Absence is NOT consent, and the default is the whole safety story. Resend and
+ * Postmark forward `SendEmailOptions.headers` VERBATIM onto the delivered
+ * message (Resend `headers`, Postmark `Headers`), so volunteering the key to a
+ * provider that never asked would stamp internal keys — which embed Hatchet run
+ * ids and wait labels (`journeySend:<runId>:<site>:<template>`) and, for
+ * campaign sends, the recipient's own address (`campaign:<id>:<email>`) — onto
+ * real customer mail, silently, on nothing more than an engine upgrade. So an
+ * absent or `false` flag means the delivered headers are byte-for-byte what
+ * they were before any of this existed.
+ *
+ * An `Idempotency-Key` the CALLER placed in `options.headers` themselves is
+ * untouched by this gate: explicit headers pass through regardless of what the
+ * provider declares, exactly as they did before the key threading existed.
+ */
+export function providerConsumesIdempotencyKey(
+  provider: EmailProvider,
+): boolean {
+  return provider.capabilities?.consumesIdempotencyKey === true;
+}
+
+/**
+ * Thread the send's replay-stable idempotency key onto the provider wire.
+ *
+ * `SendEmailOptions` has no `idempotencyKey` field — the contract is
+ * deliberately provider-NEUTRAL, so the key rides as a header, and ONLY to a
+ * provider that consumes it ({@link providerConsumesIdempotencyKey}): a
+ * header-forwarding provider (Resend, Postmark) would deliver it to the
+ * recipient as an SMTP header, so the caller passes `undefined` for those.
+ *
+ * This is load-bearing rather than a nicety. A transport that has to invent its
+ * own key can only hash the message bytes, and that CANNOT protect a crash
+ * replay: `prepareTrackedHtml` mints fresh `tracked_links` ids and an open pixel
+ * carrying the send id on every attempt, so a re-drive of the SAME logical send
+ * produces different HTML, a different hash, and no replay protection at all. A
+ * journey replayed after a worker crash would send twice. The engine already
+ * holds the only key that survives a replay (`journeySend:<runId>:<site>:<template>`,
+ * the same one the `email_sends` unique index dedups on), so it hands it over —
+ * one key, both dedup layers.
+ *
+ * An `Idempotency-Key` the CALLER already set is never clobbered: an explicit
+ * header is a deliberate override, and silently replacing it would make two
+ * distinct sends look like one to the transport.
+ */
+export function withIdempotencyHeader(
+  headers: Record<string, string> | undefined,
+  key: string | undefined,
+): Record<string, string> | undefined {
+  if (!key) return headers;
+  const lower = IDEMPOTENCY_HEADER.toLowerCase();
+  const already = Object.keys(headers ?? {}).some(
+    (name) => name.toLowerCase() === lower,
+  );
+  if (already) return headers;
+  return { ...(headers ?? {}), [IDEMPOTENCY_HEADER]: key };
+}
 
 interface TrackedEmailDeps {
   db: Database;
@@ -128,6 +200,18 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     testMode,
     options,
   } = opts;
+
+  // Attachment gate (PRD 17) — BEFORE any other work: no row is written, no
+  // template rendered, no provider reached for a send whose files are invalid
+  // or whose provider cannot carry them. Validation here is deliberate defence
+  // in depth with the relay (a Resend/Postmark send never passes through the
+  // relay, so this is the only pre-wire gate on those paths); the capability
+  // check fails LOUDLY rather than quietly sending the message without its
+  // files — see assertAttachmentsSendable for why absence of the flag is not
+  // consent.
+  if (options.attachments?.length) {
+    assertAttachmentsSendable(provider, options.attachments);
+  }
 
   // Test-mode redirect (resolved by the mailer; null ⇒ live). When active, the
   // wire `to`/`from`/`subject` + the email_sends row are redirected, but EVERY
@@ -384,7 +468,17 @@ async function sendTrackedEmailInner<K extends TemplateName>(
     });
   }
 
-  const sendHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+  // The wire header travels ONLY to a transport that consumes it (the DB-layer
+  // dedup on `email_sends.idempotencyKey` below is unconditional either way) —
+  // a header-forwarding provider would deliver the key to the recipient.
+  const sendHeaders: Record<string, string> = {
+    ...(withIdempotencyHeader(
+      options.headers,
+      providerConsumesIdempotencyKey(provider)
+        ? options.idempotencyKey
+        : undefined,
+    ) ?? {}),
+  };
   if (unsubscribeUrl && !("List-Unsubscribe" in sendHeaders)) {
     sendHeaders["List-Unsubscribe"] = `<${unsubscribeUrl}>`;
     sendHeaders["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
@@ -473,6 +567,17 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   const wireSubject = redirect ? redirect.subject : subject;
   const wireFrom = redirect ? redirect.from : options.from;
 
+  // `email_sends` records that the message HAD attachments — filenames, raw
+  // sizes, content types — NEVER the content bytes (attachmentSendMetadata).
+  // Rides the existing jsonb `metadata` column alongside the test-mode marker;
+  // no schema change.
+  const rowMetadata: Record<string, unknown> = {
+    ...(redirect ? { testMode: true, originalTo: options.to } : {}),
+    ...(options.attachments?.length
+      ? { attachments: attachmentSendMetadata(options.attachments) }
+      : {}),
+  };
+
   // Re-driving an orphaned "queued" row (crash before the provider returned):
   // reuse that row instead of inserting a second one, so the provider call is
   // re-attempted while the unique idempotency key stays honored.
@@ -493,9 +598,7 @@ async function sendTrackedEmailInner<K extends TemplateName>(
       contactId: sendContactId,
       status: "queued",
       idempotencyKey: options.idempotencyKey,
-      ...(redirect
-        ? { metadata: { testMode: true, originalTo: options.to } }
-        : {}),
+      ...(Object.keys(rowMetadata).length > 0 ? { metadata: rowMetadata } : {}),
     });
 
     // With an idempotency key, swallow a concurrent-insert collision on the
@@ -548,6 +651,12 @@ async function sendTrackedEmailInner<K extends TemplateName>(
           })
         : rawHtml;
 
+    // Tracking FIRST, attachments alongside (PRD 17 locked order): the html
+    // above is the TRACKED html — links rewritten, open pixel injected — and
+    // the attachments ride next to it on the same wire call. An attachment
+    // never causes tracking to be skipped. Conditionally spread so a send with
+    // no attachments hands the provider options with NO `attachments` key at
+    // all — byte-identical to today's wire.
     const result = await provider.send({
       from: wireFrom,
       to: wireTo,
@@ -556,6 +665,9 @@ async function sendTrackedEmailInner<K extends TemplateName>(
       tags: options.tags,
       headers: sendHeaders,
       replyTo: options.replyTo,
+      ...(options.attachments?.length
+        ? { attachments: options.attachments }
+        : {}),
     });
 
     const sentAt = new Date();

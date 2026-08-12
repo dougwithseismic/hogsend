@@ -18,12 +18,13 @@ export const templates: TemplateRegistry = {
     component: WelcomeEmail,
     defaultSubject: "Welcome to my-first-hogsend",
     category: "transactional",
-    preview: (props) => `Welcome to my-first-hogsend, ${props.name}!`,
+    preview: (props) =>
+      `Welcome to my-first-hogsend, ${props.name ?? "there"}!`,
   },
   "activation/nudge": {
     component: ActivationNudgeEmail,
     defaultSubject: "You haven't tried the key feature yet",
     category: "journey",
-    preview: (props) => `${props.name}, you're missing out`,
+    preview: (props) => `${props.name ?? "there"}, you're missing out`,
   },
 };

@@ -13,6 +13,9 @@ import {
   isBillingPlan,
   type PortalInput,
   type PortalResult,
+  type ReportUsageInput,
+  type ReportUsageResult,
+  type UsageMeter,
   type WebhookInput,
 } from "./types";
 
@@ -76,6 +79,13 @@ export interface StripeBillingOptions {
   webhookSecret?: string | undefined;
   /** Price id per plan. A plan with no price cannot be checked out. */
   prices?: Partial<Record<BillingPlan, string | undefined>> | undefined;
+  /**
+   * Stripe meter EVENT NAME per neutral meter id (PRD 09). A meter with no
+   * configured name cannot be reported, and fails closed rather than inventing
+   * one: a guessed `event_name` is accepted by Stripe and aggregated into
+   * nothing, so the usage would vanish silently instead of erroring.
+   */
+  meters?: Partial<Record<UsageMeter, string | undefined>> | undefined;
   /** Where the hosted portal returns the tenant to. */
   portalReturnUrl?: string | undefined;
   /**
@@ -158,6 +168,23 @@ export function verifyStripeSignature(input: {
   }
 
   return { timestamp };
+}
+
+/**
+ * Did Stripe refuse this meter event because it has already seen the
+ * identifier?
+ *
+ * Matched on the message because Stripe returns a plain `invalid_request_error`
+ * for it. Deliberately NARROW: anything else is a real failure and must stay
+ * one, because treating an unknown 400 as "already billed" would silently drop
+ * revenue. The control-plane ledger is the primary guard either way; this is
+ * the belt to its braces.
+ */
+function isDuplicateIdentifier(error: unknown): boolean {
+  if (!(error instanceof BillingError)) return false;
+  return (
+    /identifier/i.test(error.message) && /alread|duplicat/i.test(error.message)
+  );
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
@@ -245,6 +272,48 @@ export class StripeBilling implements BillingProvider {
       });
     }
     return { url };
+  }
+
+  /**
+   * One meter event, over Stripe's usage-based billing API.
+   *
+   * `identifier` is the whole no-double-bill story on this side of the seam:
+   * Stripe deduplicates meter events by it, so the caller can retry an attempt
+   * whose outcome it never learned. A duplicate comes back as an API error
+   * rather than a success, and it is translated into `deduplicated: true` —
+   * refusing to bill twice is exactly what we asked for, and reporting it as a
+   * failure would make the caller retry a thing that already worked.
+   */
+  async reportUsage(input: ReportUsageInput): Promise<ReportUsageResult> {
+    const eventName = this.options.meters?.[input.meter];
+    if (!eventName) {
+      throw new BillingConfigError(
+        `No Stripe meter event name configured for "${input.meter}" (CLOUD_STRIPE_METER_${input.meter.toUpperCase()})`,
+      );
+    }
+
+    const customer = await this.options.resolveCustomerId?.(
+      input.organizationId,
+    );
+    if (!customer) {
+      throw new BillingConfigError(
+        `Organization "${input.organizationId}" has no Stripe customer on file; metered usage cannot be attributed`,
+      );
+    }
+
+    try {
+      await this.post("/v1/billing/meter_events", {
+        event_name: eventName,
+        identifier: input.idempotencyKey,
+        timestamp: String(Math.floor(input.occurredAt.getTime() / 1000)),
+        "payload[stripe_customer_id]": customer,
+        "payload[value]": String(input.quantity),
+      });
+    } catch (error) {
+      if (isDuplicateIdentifier(error)) return { deduplicated: true };
+      throw error;
+    }
+    return { deduplicated: false };
   }
 
   async parseWebhook(input: WebhookInput): Promise<BillingEvent | null> {

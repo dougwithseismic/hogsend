@@ -1,0 +1,1 @@
+ALTER TABLE "cloud"."email_inbound_messages" ADD COLUMN "forward_error" text;

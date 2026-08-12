@@ -1,0 +1,863 @@
+import {
+  HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+  HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+  type HogsendRelayInboundEvent,
+} from "@hogsend/plugin-hogsend";
+import { and, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
+import type { CloudDb } from "../db";
+import { db as defaultDb } from "../db";
+import {
+  emailEvents,
+  emailIdempotency,
+  emailInboundMessages,
+  sesTenants,
+  stacks,
+} from "../db/schema";
+import { decryptSecretPayload } from "../lib/crypto";
+import type { ParsedInboundMessage } from "../lib/inbound-mime";
+import { autoResponderReason, parseInboundMime } from "../lib/inbound-mime";
+import type { SesInboundNotification } from "../lib/ses-inbound-notifications";
+import { readStackRefs } from "../lib/stack-refs";
+import type { SubstrateRegion } from "../substrate/types";
+import { instanceWebhookUrl, postToInstance } from "./email-events";
+import type {
+  ForwardInboundInput,
+  ForwardInboundOutcome,
+} from "./email-inbound-forward";
+import { forwardInboundMessage } from "./email-inbound-forward";
+import type {
+  InboundObject,
+  InboundObjectFetcher,
+} from "./email-inbound-objects";
+import {
+  fetchInboundObject,
+  InboundObjectTooLargeError,
+  MAX_INBOUND_OBJECT_BYTES,
+} from "./email-inbound-objects";
+import { findInboundRecipientOwner } from "./ses-inbound-config";
+
+/**
+ * A RECEIVED MESSAGE -> a durable record, then an event (PRD 16 task 4).
+ *
+ * Everything here happens AFTER the SNS signature has been verified. The order
+ * is the whole design, and each step is where it is because the step after it
+ * is expensive, irreversible, or hostile:
+ *
+ *   resolve recipient -> RECORD -> fetch (bounded) -> parse -> correlate
+ *     -> update -> suppress? -> deliver -> settle
+ *
+ *  - **the recipient decides the tenant, and nothing else may.** SES matched a
+ *    receipt rule on the SMTP envelope recipient and stated it inside a signed
+ *    notification. Every header in the message itself was written by whoever
+ *    sent it, so `To:`, `From:` and `In-Reply-To` are evidence of nothing;
+ *  - **RECORD BEFORE ANYTHING ELSE.** PRD 16: "the failure that matters is a
+ *    reply we accepted and then lost". SES has already written the raw MIME to
+ *    S3, so the durable copy exists; what does not exist until this insert is
+ *    any record that it is OURS to act on. The insert is also the dedupe, by
+ *    unique violation rather than check-then-insert, because SNS is
+ *    at-least-once and a duplicate `email.replied` can exit a journey twice;
+ *  - **the fetch is bounded before it is made** (see
+ *    `email-inbound-objects.ts`), and an oversized message is a SUPPRESSION,
+ *    not a loss: the record and the S3 reference stand, the forward still has
+ *    everything it needs, and only the event is skipped;
+ *  - **correlation is scoped to the environment the RECIPIENT resolved to.**
+ *    See {@link correlateToEnvironment} - this is the tenant boundary, and it
+ *    is the only reason a forged `In-Reply-To` is harmless;
+ *  - **an auto-responder is stored and never emitted.** Emitting would let two
+ *    machines answer each other indefinitely. See `autoResponderReason`.
+ *
+ * The status codes the caller derives from the outcome are chosen for what they
+ * make SNS DO, exactly as the status-event ingress does: a 200 stops the
+ * retry, a non-2xx asks for a redelivery, and the row's attempt ceiling is what
+ * stops "ask again" being forever.
+ */
+
+/** Attempts inside ONE request. Small: SNS times an HTTP endpoint out. */
+export const EMAIL_INBOUND_ATTEMPTS_PER_REQUEST = 3;
+
+/**
+ * The hard ceiling across every SNS redelivery of one received message.
+ *
+ * The same nine the status wire uses, and for the same reason: three real
+ * chances at an instance that is briefly down (a deploy, a restart) before we
+ * stop. Exhausting it leaves a `failed` row carrying the last error - the
+ * message itself is still in S3 and still referenced, so nothing is lost that
+ * an operator cannot re-drive.
+ */
+export const EMAIL_INBOUND_MAX_ATTEMPTS = 9;
+
+/**
+ * How long a `pending` row may sit untouched before a redelivery may claim it
+ * as ABANDONED — sized, like the status wire's `EMAIL_EVENT_PENDING_CLAIM_MS`,
+ * against the WORST-CASE LIVE REQUEST, but doubled to two minutes: this wire's
+ * live hold spans the same three 5-second POSTs plus an S3 HEAD+GET of up to
+ * 10 MiB and the MIME parse, and the S3 transport carries no explicit timeout
+ * of our own, so its tail is the one leg we cannot compute a hard bound for.
+ *
+ * A redelivery arriving INSIDE the window is answered `in_flight` → HTTP 503,
+ * which keeps SNS's retry schedule alive — so the window only ever DELAYS
+ * recovery, it never forfeits it, and erring wide here costs seconds while
+ * erring narrow risks emitting the same human's reply twice.
+ */
+export const EMAIL_INBOUND_PENDING_CLAIM_MS = 2 * 60 * 1000;
+
+/**
+ * What the tenant instance receives.
+ *
+ * The shape, its version and its type literal all live in
+ * `@hogsend/plugin-hogsend` next to `HogsendRelayEmailEvent` (PRD 16 task 5
+ * moved them there): the producer is this file and the consumer is the engine,
+ * and a wire declared twice drifts — with the drift showing up as silently
+ * dropped replies. Re-exported here so the receive path's own callers do not
+ * need to know which package owns the wire.
+ */
+export {
+  HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+  HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+  type HogsendRelayInboundEvent,
+};
+
+export type InboundOutcome =
+  | { status: "delivered"; messageId: string; attempts: number }
+  /** Already seen AND settled. The at-least-once collapse; nothing was
+   * delivered again, and nothing ever will be. A FINAL answer (HTTP 200). */
+  | { status: "duplicate"; messageId: string }
+  /** Seen and NOT settled, but not claimable right now — a concurrent request
+   * may be at the wire. A TEMPORARY answer: the ingress maps it to a non-2xx
+   * so SNS retries, and that retry finds the row either settled (→ duplicate)
+   * or abandoned and old enough to claim (→ delivered). */
+  | { status: "in_flight"; messageId: string }
+  /** Stored, referenced, and deliberately not emitted. NOT a failure. */
+  | { status: "suppressed"; messageId: string; reason: InboundSuppression }
+  /** Terminal and not a failure: there was nobody this belonged to. */
+  | { status: "dropped"; messageId: string; reason: "unresolved_recipient" }
+  | {
+      status: "failed";
+      messageId: string;
+      attempts: number;
+      exhausted: boolean;
+      error: string;
+    };
+
+/** Why a stored message produced no event. */
+export type InboundSuppression =
+  | "auto_submitted"
+  | "precedence_bulk"
+  | "too_large"
+  | "unparseable";
+
+export interface EmailInboundDeps {
+  db?: CloudDb;
+  /** The S3 read seam. Injected so no test reaches AWS. */
+  fetchObject?: InboundObjectFetcher;
+  /** The outbound instance hop. Injected so no test reaches a tenant. */
+  fetchImpl?: typeof fetch;
+  /** Injected so a retry test does not actually wait. */
+  sleep?: (ms: number) => Promise<void>;
+  now?: Date;
+  /** Overridable so a test can prove the cap without a 10 MiB fixture. */
+  maxObjectBytes?: number;
+  /** The MANDATORY forward (task 6). Injected so no test reaches SES. */
+  forward?: InboundForwarder;
+}
+
+/** The mandatory forward, as a seam. See `services/email-inbound-forward.ts`. */
+export type InboundForwarder = (
+  input: ForwardInboundInput,
+) => Promise<ForwardInboundOutcome>;
+
+/**
+ * Record one received message and hand it to its tenant's instance.
+ *
+ * Safe to call repeatedly with the same notification: the second call
+ * short-circuits on the unique index unless the first one left the row
+ * retryable — a `failed` row under the ceiling, or a `pending` row a dead
+ * process abandoned, which a redelivery may reclaim after
+ * {@link EMAIL_INBOUND_PENDING_CLAIM_MS} (see {@link claimSeenRow}).
+ */
+export async function ingestInboundMessage(
+  input: { region: SubstrateRegion; notification: SesInboundNotification },
+  deps: EmailInboundDeps = {},
+): Promise<InboundOutcome> {
+  const db = deps.db ?? defaultDb;
+  const now = deps.now ?? new Date();
+  const { notification, region } = input;
+
+  // (1) WHOSE is this? The envelope recipient, and nothing the sender wrote.
+  const owner = await firstOwner(notification.recipients, db);
+
+  // (2) RECORD. Before the S3 read, before the parse, before any hop. The
+  // insert is also the dedupe: `onConflictDoNothing` returns no row for a
+  // redelivery, which is the database serialising the decision rather than the
+  // application reading and then writing.
+  const [inserted] = await db
+    .insert(emailInboundMessages)
+    .values({
+      environmentId: owner?.environmentId ?? null,
+      region,
+      dedupeKey: notification.dedupeKey,
+      sesMessageId: notification.sesMessageId,
+      recipient: owner?.recipient ?? notification.recipients[0] ?? "",
+      recipients: notification.recipients,
+      domain: owner?.domain ?? null,
+      bucket: notification.bucket,
+      objectKey: notification.objectKey,
+      status: "pending",
+      // Stamped with OUR clock, not the column default, because the abandoned-
+      // row claim window ({@link claimSeenRow}) is measured against this same
+      // injected clock.
+      updatedAt: now,
+      receivedAt: new Date(notification.receivedAt),
+    })
+    .onConflictDoNothing({ target: emailInboundMessages.dedupeKey })
+    .returning({ id: emailInboundMessages.id });
+
+  const existing = inserted
+    ? null
+    : await findByDedupeKey(db, notification.dedupeKey);
+
+  // Seen before AND certainly settled. Deliberately no second delivery: a
+  // duplicate `email.replied` can exit a journey a second time, and an exit is
+  // not a thing we can take back. Anything LESS certain — a retryable failure,
+  // a `pending` row that may be abandoned — is decided atomically by
+  // {@link claimSeenRow} below, never by this stale read.
+  if (existing && !mayBeClaimable(existing)) {
+    return { status: "duplicate", messageId: existing.id };
+  }
+
+  const rowId = inserted?.id ?? existing?.id;
+  if (!rowId) {
+    // A row that vanished between the conflict and the read. Temporary, not
+    // final: the next redelivery re-inserts it — and the non-2xx the ingress
+    // maps this to is what guarantees there IS a next redelivery.
+    return { status: "in_flight", messageId: "unknown" };
+  }
+
+  let attemptsSoFar = 0;
+  if (existing) {
+    const claim = await claimSeenRow(db, existing, now);
+    if (claim.outcome === "settled") {
+      // The abandoned-at-ceiling tidy-up just made the row terminal. Nothing
+      // will ever deliver it, so this is a FINAL answer.
+      return { status: "duplicate", messageId: existing.id };
+    }
+    if (claim.outcome === "in_flight") {
+      // The database said "not yours, not now": a concurrent request may hold
+      // the row. TEMPORARY — the ingress invites SNS back rather than 200ing
+      // away the only retry that could ever recover an abandoned row.
+      return { status: "in_flight", messageId: existing.id };
+    }
+    // The claim ticked `attempts` as its crash marker (see claimSeenRow); the
+    // real accounting below re-derives from the pre-claim value so a settled
+    // outcome counts only true delivery attempts.
+    attemptsSoFar = claim.attempts - 1;
+  }
+
+  // (3) Nobody's. Recorded and terminal: an unknown recipient does not become
+  // known by waiting, there is no forwarding address for it, and broadcasting
+  // is never the answer. No S3 read is spent on it either.
+  if (!owner) {
+    await settle(db, rowId, {
+      status: "dropped",
+      reason: "unresolved_recipient",
+      attempts: attemptsSoFar,
+      lastError: `no environment receives for ${JSON.stringify(
+        notification.recipients.join(", "),
+      )}`,
+      now,
+    });
+    return {
+      status: "dropped",
+      messageId: rowId,
+      reason: "unresolved_recipient",
+    };
+  }
+
+  // Everything from here on has an owner, so everything from here on ALSO has
+  // a human address to forward to. The parse and the suppression reason are
+  // hoisted because the forward — which happens once, after the outcome is
+  // settled — needs both, and a message that could not be read still forwards
+  // a notice naming the stored original (`parsed` stays null).
+  let parsed: ParsedInboundMessage | null = null;
+  let suppressedReason: InboundSuppression | null = null;
+
+  /**
+   * Steps 4-9: read, parse, correlate, and hand the event to the instance.
+   *
+   * Its own function ONLY so the mandatory forward below can be written once
+   * rather than at each of this block's six exits. Six copies of a side effect
+   * is how one of them ends up missing — and the one that would go missing is
+   * an exit like `too_large` or "the instance is down", which is precisely
+   * where a human's reply would otherwise vanish without ever being forwarded.
+   */
+  const deliver = async (): Promise<InboundOutcome> => {
+    // (4) READ, bounded. See `email-inbound-objects.ts` for both bounds.
+    const fetchObject = deps.fetchObject ?? fetchInboundObject;
+    let object: InboundObject;
+    try {
+      object = await fetchObject({
+        bucket: notification.bucket,
+        key: notification.objectKey,
+        region,
+        maxBytes: deps.maxObjectBytes ?? MAX_INBOUND_OBJECT_BYTES,
+      });
+    } catch (error) {
+      if (error instanceof InboundObjectTooLargeError) {
+        // STORED, REFERENCED, NOT EMITTED. The record keeps the size so an
+        // operator can see why, and the forward still goes out carrying the
+        // S3 reference — the customer learns somebody replied.
+        suppressedReason = "too_large";
+        await settle(db, rowId, {
+          status: "suppressed",
+          reason: "too_large",
+          attempts: attemptsSoFar,
+          sizeBytes: error.size,
+          now,
+        });
+        return { status: "suppressed", messageId: rowId, reason: "too_large" };
+      }
+      // Anything else is "we could not read it", which is transient until
+      // proven otherwise: the object is in S3 and SNS will come back.
+      return failed(db, rowId, {
+        attempts: attemptsSoFar + 1,
+        error: error instanceof Error ? error.message : String(error),
+        now,
+      });
+    }
+
+    // (5) PARSE. Hostile bytes; everything that comes back is bounded.
+    try {
+      parsed = await parseInboundMime(object.body);
+    } catch (error) {
+      // A parse that threw once throws again on identical bytes, so retrying is
+      // the "never retry a 4xx" mistake pointed at our own parser. Stored,
+      // referenced, forwarded, no event.
+      suppressedReason = "unparseable";
+      await settle(db, rowId, {
+        status: "suppressed",
+        reason: "unparseable",
+        attempts: attemptsSoFar,
+        sizeBytes: object.size,
+        lastError: error instanceof Error ? error.message : String(error),
+        now,
+      });
+      return { status: "suppressed", messageId: rowId, reason: "unparseable" };
+    }
+    const message = parsed;
+
+    // (6) CORRELATE, scoped to the environment the recipient resolved to.
+    const correlatedMessageId = await correlateToEnvironment(db, {
+      environmentId: owner.environmentId,
+      candidates: message.correlationCandidates,
+    });
+
+    // (7) The parsed facts are durable BEFORE the event that reports them.
+    await db
+      .update(emailInboundMessages)
+      .set({
+        sizeBytes: object.size,
+        fromAddress: message.from,
+        subject: message.subject,
+        inReplyTo: message.inReplyTo,
+        correlatedMessageId,
+        correlated: correlatedMessageId !== null,
+        attachments: message.attachments,
+        updatedAt: now,
+      })
+      .where(eq(emailInboundMessages.id, rowId));
+
+    // (8) The loop guard. Stored above, FORWARDED below, emitted never — the
+    // human still gets their correspondent's vacation notice.
+    const suppression = autoResponderReason(message);
+    if (suppression) {
+      suppressedReason = suppression;
+      await settle(db, rowId, {
+        status: "suppressed",
+        reason: suppression,
+        attempts: attemptsSoFar,
+        now,
+      });
+      return { status: "suppressed", messageId: rowId, reason: suppression };
+    }
+
+    // (9) A stack mid-provision has no public URL yet. TRANSIENT, and a lost
+    // reply is permanent, so it is a retryable failure rather than a drop. The
+    // counter still ticks even though no request was made, or a stack that
+    // never finishes provisioning would re-drive forever.
+    const target = await resolveInstance(db, owner.environmentId);
+    if (!target?.apiPublicUrl) {
+      return failed(db, rowId, {
+        attempts: attemptsSoFar + 1,
+        error: target
+          ? "the environment's instance has no public URL yet"
+          : "the environment has no SES tenancy, so no webhook secret exists",
+        now,
+      });
+    }
+
+    const event = buildInboundEvent({
+      notification,
+      owner,
+      parsed: message,
+      object,
+      correlatedMessageId,
+    });
+
+    const budget = Math.max(
+      0,
+      Math.min(
+        EMAIL_INBOUND_ATTEMPTS_PER_REQUEST,
+        EMAIL_INBOUND_MAX_ATTEMPTS - attemptsSoFar,
+      ),
+    );
+    const result = await postToInstance({
+      url: instanceWebhookUrl(target.apiPublicUrl),
+      // The bytes we sign are the bytes we send: the instance verifies over the
+      // EXACT received body, so re-serializing anywhere between here and the
+      // wire would break every signature.
+      payload: JSON.stringify(event),
+      secret: target.webhookSecret,
+      attempts: budget,
+      fetchImpl: deps.fetchImpl,
+      sleep: deps.sleep,
+    });
+
+    const attempts = attemptsSoFar + result.attempts;
+    if (result.ok) {
+      await settle(db, rowId, { status: "delivered", attempts, now });
+      return { status: "delivered", messageId: rowId, attempts };
+    }
+    return failed(db, rowId, { attempts, error: result.error, now });
+  };
+
+  const outcome = await deliver();
+
+  // (10) THE MANDATORY FORWARD (PRD 16 task 6).
+  //
+  // LAST, because forwarding is a side effect and must never be a gate on
+  // durability: by here the message is recorded, the parsed facts are stored
+  // and the event has been offered to the instance, so nothing this does — or
+  // fails to do — can un-store the message or un-emit the event.
+  //
+  // `forwardInboundMessage` never throws (see its header), so this is awaited
+  // rather than fired and forgotten: awaiting it means the row carries either
+  // `forwarded_at` or `forward_error` by the time the request answers, and an
+  // operator can tell "not forwarded yet" from "we are not going to".
+  if (shouldForward(outcome, parsed, suppressedReason)) {
+    const forward = deps.forward ?? forwardInboundMessage;
+    await forward({
+      rowId,
+      region,
+      environmentId: owner.environmentId,
+      domain: owner.domain,
+      forwardTo: owner.forwardTo,
+      recipient: owner.recipient,
+      parsed,
+      storage: { bucket: notification.bucket, key: notification.objectKey },
+      suppressedReason,
+    });
+  }
+
+  return outcome;
+}
+
+/**
+ * Whether THIS pass is the one that forwards.
+ *
+ * Nearly always yes — PRD 16 makes forwarding mandatory whenever inbound is on,
+ * so an auto-responder, an oversized message and a message whose tenant
+ * instance is down all still reach the human on the pass that produced them.
+ *
+ * The ONE case that waits is a message we have not managed to READ yet: a
+ * transient S3 failure leaves `parsed` null with no terminal reason, and the
+ * forward is deferred to the redelivery that will have the actual message.
+ * Sending the "could not read this" notice there would be actively harmful
+ * rather than merely early — it stamps `forwarded_at`, and the retry that then
+ * succeeds finds the message already forwarded and stays silent. The human
+ * would receive the apology INSTEAD OF the reply.
+ *
+ * Once the attempts are exhausted there is no later pass to defer to, so the
+ * notice goes out: at that point "somebody replied and we could not read it" is
+ * the only true thing left to say, and saying nothing is the silent swallow
+ * this whole feature refuses.
+ */
+function shouldForward(
+  outcome: InboundOutcome,
+  parsed: ParsedInboundMessage | null,
+  suppressedReason: InboundSuppression | null,
+): boolean {
+  if (parsed !== null || suppressedReason !== null) return true;
+  return outcome.status === "failed" && outcome.exhausted;
+}
+
+/**
+ * The event, built only from values that have been bounded or proven.
+ *
+ * `inReplyTo` is present ONLY when correlation succeeded. That is the single
+ * most important line in this file: the sender's claimed `In-Reply-To` is
+ * recorded on the ROW (unverified, for support) and never reaches the instance
+ * unless this control plane matched it against a send THIS environment made.
+ */
+export function buildInboundEvent(input: {
+  notification: SesInboundNotification;
+  owner: { recipient: string };
+  parsed: ParsedInboundMessage;
+  object: { size: number };
+  correlatedMessageId: string | null;
+}): HogsendRelayInboundEvent {
+  const { notification, parsed, correlatedMessageId } = input;
+  return {
+    version: HOGSEND_RELAY_INBOUND_EVENT_VERSION,
+    type: HOGSEND_RELAY_INBOUND_EVENT_TYPE,
+    messageId: notification.sesMessageId,
+    recipient: input.owner.recipient,
+    recipients: notification.recipients,
+    from: parsed.from,
+    subject: parsed.subject,
+    text: parsed.text,
+    textTruncated: parsed.textTruncated,
+    occurredAt: notification.receivedAt,
+    correlated: correlatedMessageId !== null,
+    ...(correlatedMessageId ? { inReplyTo: correlatedMessageId } : {}),
+    attachments: parsed.attachments,
+    attachmentsTruncated: parsed.attachmentsTruncated,
+    spamVerdict: notification.spamVerdict,
+    virusVerdict: notification.virusVerdict,
+    storage: {
+      bucket: notification.bucket,
+      key: notification.objectKey,
+      size: input.object.size,
+    },
+  };
+}
+
+/**
+ * THE FORGED-HEADER DEFENCE.
+ *
+ * `In-Reply-To` and `References` are written by whoever sent the message.
+ * Anybody can put `<0100-a-tenants-real-send@eu-west-1.amazonses.com>` in a
+ * reply to `reply.attacker-owned.com` and, in a system that trusted the header,
+ * attach their message to a stranger's journey and a stranger's contact.
+ *
+ * So the claim is never used as an identifier - it is used as a QUESTION, asked
+ * of one environment: *did YOU send this message id?* The environment is the one
+ * the envelope recipient resolved to, which SES asserted inside a
+ * signature-verified notification, so the answer cannot be influenced by
+ * anything in the message. A stranger's id is simply not in this environment's
+ * rows, the answer is `null`, and the reply is delivered UNCORRELATED rather
+ * than being attached to somebody else's send or dropped.
+ *
+ * Two tables, because one alone would be a silent hole:
+ *  - `email_idempotency` holds every message the relay accepted, but is pruned
+ *    at `EMAIL_IDEMPOTENCY_RETENTION_MS` (7 days);
+ *  - `email_events` holds every message a status arrived for, and is not.
+ * A reply to a three-week-old email correlates through the second. A reply to a
+ * send that has had no status event yet correlates through the first.
+ *
+ * Both queries are scoped by `environment_id` FIRST, which is also how the
+ * indexes are ordered, so the tenant scope is part of the access path and not a
+ * filter somebody could drop while "optimising" the query.
+ */
+export async function correlateToEnvironment(
+  db: CloudDb,
+  input: { environmentId: string; candidates: string[] },
+): Promise<string | null> {
+  const keys = lookupKeys(input.candidates);
+  if (keys.length === 0) return null;
+
+  const [claimed] = await db
+    .select({ messageId: emailIdempotency.messageId })
+    .from(emailIdempotency)
+    .where(
+      and(
+        eq(emailIdempotency.environmentId, input.environmentId),
+        inArray(emailIdempotency.messageId, keys),
+      ),
+    )
+    .limit(1);
+  if (claimed?.messageId) return claimed.messageId;
+
+  const [evented] = await db
+    .select({ messageId: emailEvents.messageId })
+    .from(emailEvents)
+    .where(
+      and(
+        eq(emailEvents.environmentId, input.environmentId),
+        inArray(emailEvents.messageId, keys),
+      ),
+    )
+    .limit(1);
+  return evented?.messageId ?? null;
+}
+
+/**
+ * The strings to test, from the message ids the sender claimed.
+ *
+ * SES stamps its own `Message-ID` on a message it sends as
+ * `<{MessageId}@{region}.amazonses.com>`, so the id we RECORDED at send time is
+ * the local part of what comes back in `In-Reply-To`. Both forms are tested,
+ * because a customer supplying their own `Message-ID` produces neither and a
+ * relaying agent occasionally strips the domain.
+ */
+function lookupKeys(candidates: string[]): string[] {
+  const keys = new Set<string>();
+  for (const candidate of candidates) {
+    keys.add(candidate);
+    const at = candidate.indexOf("@");
+    if (at > 0) keys.add(candidate.slice(0, at));
+  }
+  return [...keys];
+}
+
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
+
+type InboundRow = typeof emailInboundMessages.$inferSelect;
+
+interface ResolvedOwner {
+  environmentId: string;
+  domain: string;
+  recipient: string;
+  /**
+   * The human mailbox this domain's replies are forwarded to.
+   *
+   * Carried on the owner rather than looked up again at forward time because
+   * the recipient resolve ALREADY read it — a domain has an owner here only
+   * because it has a stored forwarding address (`findInboundRecipientOwner`
+   * skips a config without one). That is the same invariant `enable` fails
+   * closed on, arriving from the other end: there is no state in which a
+   * message resolves to an environment and has nowhere to be forwarded.
+   */
+  forwardTo: string;
+}
+
+/**
+ * The first envelope recipient that belongs to somebody.
+ *
+ * SES can match one message against several recipients (a `To:` and a `Cc:`
+ * both under our rules). One message becomes one record, so the FIRST resolved
+ * recipient owns it - splitting one physical message into two tenants' events
+ * would emit the same human's words twice.
+ */
+async function firstOwner(
+  recipients: string[],
+  db: CloudDb,
+): Promise<ResolvedOwner | null> {
+  for (const recipient of recipients) {
+    const owner = await findInboundRecipientOwner(recipient, { db });
+    if (owner) {
+      return {
+        environmentId: owner.environmentId,
+        domain: owner.domain,
+        recipient,
+        forwardTo: owner.forwardTo,
+      };
+    }
+  }
+  return null;
+}
+
+interface InstanceTarget {
+  webhookSecret: string;
+  apiPublicUrl: string | null;
+}
+
+/** The environment's instance URL and the secret its webhooks are signed with. */
+async function resolveInstance(
+  db: CloudDb,
+  environmentId: string,
+): Promise<InstanceTarget | null> {
+  const [row] = await db
+    .select({
+      webhookSecretEncrypted: sesTenants.webhookSecretEncrypted,
+      substrateRefs: stacks.substrateRefs,
+    })
+    .from(sesTenants)
+    .leftJoin(stacks, eq(stacks.environmentId, sesTenants.environmentId))
+    .where(eq(sesTenants.environmentId, environmentId))
+    .limit(1);
+  if (!row) return null;
+
+  return {
+    webhookSecret: decryptSecretPayload<string>(row.webhookSecretEncrypted),
+    apiPublicUrl: row.substrateRefs
+      ? (readStackRefs({ substrateRefs: row.substrateRefs })?.apiPublicUrl ??
+        null)
+      : null,
+  };
+}
+
+async function findByDedupeKey(
+  db: CloudDb,
+  dedupeKey: string,
+): Promise<InboundRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(emailInboundMessages)
+    .where(eq(emailInboundMessages.dedupeKey, dedupeKey))
+    .limit(1);
+  return row;
+}
+
+/**
+ * Whether a previously-seen row MIGHT still need a delivery — the cheap read
+ * gate in front of {@link claimSeenRow}, so the common duplicate (a settled
+ * row) costs one SELECT and no UPDATE.
+ *
+ * `delivered`, `dropped` and `suppressed` are TERMINAL — re-running a
+ * suppressed message would re-decide a loop guard that already said no — and
+ * a `failed` row at the ceiling stays failed. A `failed` row under it is a
+ * real retry. `pending` is the one this cannot decide: EITHER a request at
+ * the wire right now OR a process that died before `settle` — so this only
+ * ever rules rows OUT; ruling one in is the claim's conditional UPDATE, where
+ * the database serialises the answer.
+ */
+function mayBeClaimable(row: InboundRow): boolean {
+  if (row.status === "failed") {
+    return row.attempts < EMAIL_INBOUND_MAX_ATTEMPTS;
+  }
+  return row.status === "pending";
+}
+
+/**
+ * Atomically claim a previously-seen row for THIS request — or for nobody.
+ *
+ * The TWIN of the status wire's claim (`email-events.ts`), same shape for the
+ * same reason: a `pending` row is EITHER in flight in a concurrent request
+ * (recovering it would emit the same human's reply twice) OR abandoned by a
+ * process that died between the insert and `settle` (never recovering it
+ * loses the reply forever — PRD 16's named failure). The row alone cannot say
+ * which, so the DATABASE decides: one conditional UPDATE whose WHERE matches
+ * only a `failed` row under the ceiling, or a `pending` row untouched for
+ * {@link EMAIL_INBOUND_PENDING_CLAIM_MS} — longer than any LIVE request can
+ * possibly hold it. Concurrent claimants serialise on the row lock; exactly
+ * one proceeds.
+ *
+ * The claim ticks `attempts` — the CRASH MARKER. A claimant that dies before
+ * settling leaves it behind, so a crash-looping row burns one attempt per
+ * claim and the ceiling still binds; a claimant that settles normally
+ * overwrites it with the true count. A row abandoned AT the ceiling is
+ * settled `failed` here — terminal and visible on the status index — rather
+ * than parked `pending` forever; the raw MIME is still in S3 and still
+ * referenced, so an operator can re-drive it.
+ *
+ * A refused claim is one of two very different answers (see the status wire's
+ * twin for the full argument): `settled` is FINAL — the ingress 200s and SNS
+ * stops — while `in_flight` is TEMPORARY — the ingress answers non-2xx so the
+ * retry that can actually recover an abandoned row keeps coming.
+ */
+async function claimSeenRow(
+  db: CloudDb,
+  row: InboundRow,
+  now: Date,
+): Promise<
+  | { outcome: "claimed"; attempts: number }
+  | { outcome: "settled" }
+  | { outcome: "in_flight" }
+> {
+  const abandonedBefore = new Date(
+    now.getTime() - EMAIL_INBOUND_PENDING_CLAIM_MS,
+  );
+  const [claimed] = await db
+    .update(emailInboundMessages)
+    .set({
+      status: "pending",
+      attempts: sql`${emailInboundMessages.attempts} + 1`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(emailInboundMessages.id, row.id),
+        lt(emailInboundMessages.attempts, EMAIL_INBOUND_MAX_ATTEMPTS),
+        or(
+          eq(emailInboundMessages.status, "failed"),
+          and(
+            eq(emailInboundMessages.status, "pending"),
+            lte(emailInboundMessages.updatedAt, abandonedBefore),
+          ),
+        ),
+      ),
+    )
+    .returning({ attempts: emailInboundMessages.attempts });
+  if (claimed) return { outcome: "claimed", attempts: claimed.attempts };
+
+  if (row.status === "pending" && row.attempts >= EMAIL_INBOUND_MAX_ATTEMPTS) {
+    // Abandoned AND out of attempts: unclaimable forever, so make it terminal.
+    // Conditional like the claim itself — a row that is merely young, or that
+    // somebody settled meanwhile, is left alone.
+    const [settled] = await db
+      .update(emailInboundMessages)
+      .set({
+        status: "failed",
+        lastError:
+          "abandoned mid-delivery with the attempt ceiling already reached",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(emailInboundMessages.id, row.id),
+          eq(emailInboundMessages.status, "pending"),
+          lte(emailInboundMessages.updatedAt, abandonedBefore),
+          gte(emailInboundMessages.attempts, EMAIL_INBOUND_MAX_ATTEMPTS),
+        ),
+      )
+      .returning({ id: emailInboundMessages.id });
+    if (settled) return { outcome: "settled" };
+  }
+  return { outcome: "in_flight" };
+}
+
+async function failed(
+  db: CloudDb,
+  rowId: string,
+  input: { attempts: number; error: string; now: Date },
+): Promise<InboundOutcome> {
+  const exhausted = input.attempts >= EMAIL_INBOUND_MAX_ATTEMPTS;
+  await settle(db, rowId, {
+    status: "failed",
+    attempts: input.attempts,
+    lastError: input.error,
+    now: input.now,
+  });
+  return {
+    status: "failed",
+    messageId: rowId,
+    attempts: input.attempts,
+    exhausted,
+    error: input.error,
+  };
+}
+
+async function settle(
+  db: CloudDb,
+  rowId: string,
+  input: {
+    status: InboundRow["status"];
+    reason?: InboundRow["reason"];
+    attempts: number;
+    lastError?: string;
+    sizeBytes?: number;
+    now: Date;
+  },
+): Promise<void> {
+  await db
+    .update(emailInboundMessages)
+    .set({
+      status: input.status,
+      reason: input.reason ?? null,
+      attempts: input.attempts,
+      lastError: input.lastError ?? null,
+      deliveredAt: input.status === "delivered" ? input.now : null,
+      ...(input.sizeBytes === undefined ? {} : { sizeBytes: input.sizeBytes }),
+      updatedAt: input.now,
+    })
+    .where(
+      and(
+        eq(emailInboundMessages.id, rowId),
+        // Never walk a terminal row backwards: a slow request finishing after a
+        // redelivery already settled the row must not un-deliver it.
+        sql`${emailInboundMessages.status} <> 'delivered'`,
+      ),
+    );
+}

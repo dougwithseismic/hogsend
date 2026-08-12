@@ -13,7 +13,9 @@ import type {
   TemplateName,
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
+import { assertAttachmentsSendable } from "./attachments.js";
 import type { DomainStatusService } from "./domain-status.js";
 import {
   type EmailService,
@@ -37,8 +39,17 @@ import {
   TestModeNoRedirectError,
 } from "./test-mode.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
-import { sendTrackedEmail } from "./tracked.js";
-import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
+import {
+  providerConsumesIdempotencyKey,
+  sendTrackedEmail,
+  withIdempotencyHeader,
+} from "./tracked.js";
+import { EMAIL_REPLIED } from "./tracking-event-names.js";
+import {
+  type PushTrackingEventOpts,
+  pushTrackingEvent,
+  resolveEmailSendContextByMessageId,
+} from "./tracking-events.js";
 
 // Fallback logger for the provider-webhook outbound emit — `config.logger` is
 // optional, but `emitOutbound` requires one. Mirrors the engine-lib singleton
@@ -63,11 +74,61 @@ const WEBHOOK_TO_STATUS: Partial<Record<EmailEventType, string>> = {
   "email.clicked": "clicked",
   "email.bounced": "bounced",
   "email.complained": "complained",
+  /**
+   * TERMINAL (PRD 18). The provider accepted the message, returned an id, and
+   * then discarded it — no delivery, no bounce, no later event of any kind is
+   * coming, so a row left at `sent` would stay non-terminal forever.
+   *
+   * `failed` rather than `bounced`, deliberately: `bounced` carries a
+   * classification the engine SUPPRESSES on, and a reject is our content
+   * failing rather than the recipient's address. It has no timestamp column of
+   * its own and none is invented here — `updatedAt` is when we learned, and the
+   * verbatim reason reaches the consumer on the event (`EmailEvent.reject`).
+   */
+  "email.rejected": "failed",
 };
 
 /** Max recipients we will iterate on a bounce/complaint, to avoid a fan-out
  * webhook mass-suppressing addresses. Above this we log + skip suppression. */
 const MAX_SUPPRESSION_RECIPIENTS = 100;
+
+/**
+ * See `createTrackedMailer`'s `pushReplyEvent` dep.
+ *
+ * `registry` is deliberately NOT part of this signature. The real push needs
+ * the journey registry, which lives in a process singleton that THROWS when it
+ * has not been set — so reading it at the call site would make every injected
+ * override depend on a global the override does not use. The default wrapper
+ * reads it, and only it.
+ */
+export type PushReplyEventFn = (
+  opts: Omit<PushTrackingEventOpts, "registry">,
+) => Promise<unknown>;
+
+/**
+ * The bus event's properties — the EARS list ("the in-reply-to id, the sender,
+ * and a text body") plus the context a journey needs to branch.
+ *
+ * Every value is a SCALAR or null, deliberately: `trigger.where` and
+ * `ctx.waitForEvent(...).properties` only carry scalars, so a nested object
+ * here would simply not survive to the journey that needs it.
+ */
+function replyProperties(
+  event: EmailEvent,
+  reply: NonNullable<EmailEvent["reply"]>,
+): Record<string, unknown> {
+  return {
+    /** The RECEIVED message's own id. */
+    messageId: event.messageId,
+    inReplyTo: reply.inReplyTo ?? null,
+    correlated: reply.correlated,
+    from: reply.from,
+    subject: reply.subject,
+    text: reply.text,
+    textTruncated: reply.textTruncated,
+    recipient: reply.recipient,
+  };
+}
 
 /**
  * The engine-owned high-level mailer. It owns the full send pipeline —
@@ -87,9 +148,23 @@ export function createTrackedMailer(
      * without it (tests) keeps today's behavior; the container always passes it.
      */
     domainStatus?: DomainStatusService;
+    /**
+     * The INTERNAL bus push used by the `email.replied` path. Defaults to the
+     * real {@link pushTrackingEvent}, which resolves identity and pushes the
+     * event through `ingestEvent` so a journey can `ctx.waitForEvent` on it.
+     *
+     * Injectable for the same reason `prepareTrackedHtml` is: the default
+     * reaches the identity resolver and Hatchet, and a test asserting WHAT the
+     * mailer hands the bus should not have to stand up either.
+     */
+    pushReplyEvent?: PushReplyEventFn;
   },
 ): EmailService {
   const { provider, domainStatus } = deps;
+  const pushReplyEvent: PushReplyEventFn =
+    deps.pushReplyEvent ??
+    ((opts) =>
+      pushTrackingEvent({ ...opts, registry: getJourneyRegistrySingleton() }));
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
   const registry = config.templates;
@@ -158,8 +233,16 @@ export function createTrackedMailer(
             skipPreferenceCheck: options.skipPreferenceCheck,
             idempotencyKey: options.idempotencyKey,
             baseUrl: config.baseUrl,
+            attachments: options.attachments,
           },
         });
+      }
+
+      // No-db attachment gate (the db path guards inside sendTrackedEmailInner,
+      // before any row is written): validate + capability-check BEFORE render or
+      // provider dispatch — never send the message without its files.
+      if (options.attachments?.length) {
+        assertAttachmentsSendable(provider, options.attachments);
       }
 
       const { element, subject: defaultSubject } = getTemplate({
@@ -210,8 +293,23 @@ export function createTrackedMailer(
         subject: wireSubject,
         html,
         tags: options.tags,
-        headers: options.headers,
+        // Same wire contract as the tracked path (see withIdempotencyHeader):
+        // the key rides as a header, and ONLY to a transport that consumes it —
+        // a header-forwarding provider (Resend, Postmark) would deliver it to
+        // the recipient. This no-db branch never auto-derives a journey key, so
+        // only a caller-supplied one can travel here.
+        headers: withIdempotencyHeader(
+          options.headers,
+          providerConsumesIdempotencyKey(provider)
+            ? options.idempotencyKey
+            : undefined,
+        ),
         replyTo: options.replyTo,
+        // Conditionally spread: a send with no attachments hands the provider
+        // options with NO `attachments` key — byte-identical to today's wire.
+        ...(options.attachments?.length
+          ? { attachments: options.attachments }
+          : {}),
       });
 
       return trackedSendResult({
@@ -222,6 +320,12 @@ export function createTrackedMailer(
     },
 
     async sendRaw(options: SendRawOptions): Promise<SendResult> {
+      // SendRawOptions IS the core wire contract (minus `from`), so attachments
+      // already ride the `...gated` spreads below — the only thing missing
+      // would be the gate. Validate + capability-check before anything else.
+      if (options.attachments?.length) {
+        assertAttachmentsSendable(provider, options.attachments);
+      }
       const gated = applyScheduledAtGate(options);
       const from = resolveFrom(options.from);
 
@@ -262,6 +366,16 @@ export function createTrackedMailer(
     async sendBatch(options: {
       emails: BatchEmailItem[];
     }): Promise<{ results: SendResult[] }> {
+      // BatchEmailItem inherits `attachments` from the core wire contract, so
+      // they already flow through the item spreads below. Gate EVERY item
+      // before ANY item reaches the provider — a partial batch where later
+      // items silently drop their files is exactly the failure the loud gate
+      // exists to prevent.
+      for (const item of options.emails) {
+        if (item.attachments?.length) {
+          assertAttachmentsSendable(provider, item.attachments);
+        }
+      }
       const testMode = resolveTestMode(domainStatus);
 
       if (testMode) {
@@ -365,32 +479,74 @@ export function createTrackedMailer(
         // provider with native tracking left ON.
         await updateEmailStatus(event.type, event.messageId);
         break;
-      case "email.bounced":
+      case "email.bounced": {
         // `bounce.class` is stored in `bounceType`, the human reason in
         // `bounceReason`. Soft/transient bounces are recorded here too (status
         // `bounced`, `class:'transient'`) — the old transient →
         // `email.delivery_delayed` no-op is gone.
-        await updateEmailStatus(event.type, event.messageId, {
-          bounceType: event.bounce?.class,
-          bounceReason: event.bounce?.reason,
-        });
-        // OUTBOUND `email.bounced` with the bounce detail (class + reason).
-        await emitProviderEmailEvent("email.bounced", event.messageId, {
-          bounceType: event.bounce?.class,
-          bounceReason: event.bounce?.reason,
-        });
-        // Suppress (increment bounceCount toward threshold) ONLY on a permanent
-        // bounce. Transient/unknown are recorded but never auto-suppress.
-        if (event.bounce?.class === "permanent") {
-          await handleBounce(event.recipients);
+        //
+        // The status write is a FIRST-TRANSITION CLAIM, not a plain SET, and
+        // everything with a SIDE EFFECT hangs off whether it claimed. SNS is
+        // at-least-once and the control plane re-drives a `pending` event row
+        // after 60s so a bounce is never lost, so the same bounce reaches here
+        // more than once — and with `bounceThreshold` at 3, three redeliveries
+        // of ONE bounce would permanently suppress a perfectly deliverable
+        // address, silently, with nothing the customer could undo. The emit is
+        // gated for the same reason: a redelivery must not double-fire a
+        // customer's destination or a journey waiting on `email.bounced`.
+        const claim = await claimBounce(event);
+        // `unrecorded` counts — see claimBounce. Only a proven duplicate stops.
+        if (claim !== "duplicate") {
+          // OUTBOUND `email.bounced` with the bounce detail (class + reason).
+          await emitProviderEmailEvent("email.bounced", event.messageId, {
+            bounceType: event.bounce?.class,
+            bounceReason: event.bounce?.reason,
+          });
+          // Suppress (increment bounceCount toward threshold) ONLY on a
+          // permanent bounce. Transient/unknown are recorded but never
+          // auto-suppress.
+          if (event.bounce?.class === "permanent") {
+            await handleBounce(event.recipients);
+          }
         }
         break;
+      }
       case "email.complained":
         await updateEmailStatus(event.type, event.messageId);
         // OUTBOUND `email.complained` — the provider webhook is the SINGLE
         // source for complaints (no first-party signal exists).
         await emitProviderEmailEvent("email.complained", event.messageId);
         await handleComplaint(event.recipients);
+        break;
+      case "email.rejected":
+        // TERMINAL, and SUPPRESSING NOTHING (PRD 18). The provider accepted
+        // the message, returned an id, then threw it away — SES's `Reject`,
+        // whose only documented reason is `Bad content` (a virus we sent).
+        //
+        // Note what is deliberately ABSENT below, because each omission is the
+        // decision rather than an oversight:
+        //  - NO `handleBounce`. The recipient's address is fine. Incrementing
+        //    `bounceCount` toward the suppression threshold would let one bad
+        //    attachment permanently block a deliverable address, silently, with
+        //    nothing the customer could undo.
+        //  - NO bounce facts on the row. A reject is not a bounce, and writing
+        //    `bouncedAt` would fold it into every bounce-rate read.
+        //  - NO outbound emit. The outbound catalog is mirrored by hand into
+        //    `@hogsend/cli` and `@hogsend/client`, both outside this change's
+        //    boundary; the `WebhookHandlerMap` slot the neutral type gets for
+        //    free is the in-boundary seam for a consumer that wants to react.
+        await updateEmailStatus(event.type, event.messageId);
+        break;
+      case "email.replied":
+        // A HUMAN REPLIED (PRD 16). Note what is deliberately ABSENT, because
+        // each omission is the decision rather than an oversight:
+        //  - NO `updateEmailStatus`. A reply is not a delivery outcome of our
+        //    send. The message it answers was delivered and stays delivered;
+        //    writing a status here would overwrite a real outcome with one no
+        //    send ever had, and every delivery/bounce-rate read would count it.
+        //  - NO suppression of any kind. Somebody replying is the strongest
+        //    evidence an address works.
+        await handleReply(event);
         break;
       case "email.delivery_delayed":
         // No-op: providers now map transient bounces to `email.bounced` with
@@ -421,6 +577,81 @@ export function createTrackedMailer(
       return [];
     }
     return unique;
+  }
+
+  /**
+   * The outcome of trying to CLAIM a bounce for its send row.
+   *
+   *  - `first` — this delivery is the one that moved the send into this bounce
+   *    state. Count it, emit it.
+   *  - `duplicate` — the send is already in this bounce state, so a previous
+   *    delivery already counted and emitted. Do neither again.
+   *  - `unrecorded` — no `email_sends` row carries this `messageId` at all, so
+   *    there is no send-scoped state to dedupe against. See {@link claimBounce}.
+   */
+  type BounceClaim = "first" | "duplicate" | "unrecorded";
+
+  /**
+   * Claim a bounce for its send, exactly once per (send, bounce).
+   *
+   * The mechanism is the codebase's existing first-transition idiom — the
+   * `WHERE clickedAt IS NULL` of `routes/tracking/click-pipeline.ts` — applied
+   * to the bounce leg: the status write carries a guard, and only the delivery
+   * whose UPDATE actually matched a row gets to count and emit. A redelivery
+   * matches nothing, writes nothing, and returns `duplicate`. It is one
+   * statement, so two redeliveries racing each other still produce one winner.
+   *
+   * The guard admits ONE escalation, deliberately. A PERMANENT bounce is
+   * refused only by a send already marked permanent (`bounce_type IS DISTINCT
+   * FROM 'permanent'`, NULL-safe), so a soft bounce recorded first cannot
+   * shield the hard bounce that follows it on the same message — that would
+   * silently disable suppression for exactly the addresses that need it. Every
+   * other class claims only the first bounce of any kind (`bounced_at IS
+   * NULL`): they never count, and the guard is there to stop the emit
+   * double-firing.
+   *
+   * WHEN NO ROW MATCHES (`unrecorded`) THE BOUNCE STILL COUNTS. That is the
+   * deliberate choice, not an oversight: `sendRaw` writes no `email_sends` row
+   * at all, and a provider webhook can outrun the send row's commit, so "no
+   * matching row" is a REAL bounce we simply hold no state for. Dropping it
+   * would turn a fix for double-counting into a silent hole in suppression for
+   * those addresses, which is the worse failure. The residual is that a
+   * REDELIVERED bounce for an unrecorded send is still counted twice — there is
+   * nothing to key on — so it is logged rather than hidden. (The emit does not
+   * double-fire there: it resolves its context from the same missing row and
+   * no-ops.)
+   */
+  async function claimBounce(event: EmailEvent): Promise<BounceClaim> {
+    // No db configured: there is no send row to claim, and both `handleBounce`
+    // and `emitProviderEmailEvent` no-op without one anyway.
+    if (!db) return "unrecorded";
+
+    const guard =
+      event.bounce?.class === "permanent"
+        ? sql`${emailSends.bounceType} is distinct from ${"permanent"}`
+        : isNull(emailSends.bouncedAt);
+
+    const claimed = await updateEmailStatus(
+      "email.bounced",
+      event.messageId,
+      { bounceType: event.bounce?.class, bounceReason: event.bounce?.reason },
+      guard,
+    );
+    if (claimed > 0) return "first";
+
+    // Nothing matched: either the send is already in this bounce state, or we
+    // never recorded the send. Only the second may count, so tell them apart.
+    const recorded = await resolveEmailSendContextByMessageId(
+      db,
+      event.messageId,
+    );
+    if (recorded) return "duplicate";
+
+    (config.logger ?? emitLogger).warn(
+      "bounce for an unrecorded send: counted without send-scoped dedupe",
+      { messageId: event.messageId },
+    );
+    return "unrecorded";
   }
 
   async function handleBounce(recipients: string[]): Promise<void> {
@@ -529,27 +760,131 @@ export function createTrackedMailer(
       });
   }
 
+  /**
+   * A reply, onto the internal bus and then onto the outbound spine (PRD 16).
+   *
+   * The ORDER is the design. The bus push is awaited and its failure
+   * PROPAGATES, while the spine emit never throws by construction — because the
+   * two failures are not the same failure. A journey that never learns a human
+   * asked to stop keeps sending, which is the exact harm this feature exists to
+   * prevent; so a failed bus push must reach the caller, where the route's
+   * non-2xx tells the relay to re-drive (SNS's retry is the durable one, and
+   * the idempotency key below is what makes a re-drive safe). A subscriber
+   * missing one webhook is an ordinary outbound failure the delivery table
+   * already retries.
+   *
+   * `inReplyTo` is the ONLY thing correlation is allowed to key on, and it is
+   * present only when the relay proved the id belongs to a send this instance
+   * made. Everything else on `reply` came out of a stranger's message.
+   */
+  async function handleReply(event: EmailEvent): Promise<void> {
+    if (!db) return;
+    const reply = event.reply;
+    // A provider that named the type and carried no detail. Nothing to
+    // correlate and nothing to say — better silent than inventing a payload of
+    // nulls that reads like a real reply on every subscriber's dashboard.
+    if (!reply) {
+      (config.logger ?? emitLogger).warn(
+        "email.replied arrived with no reply detail",
+        { messageId: event.messageId },
+      );
+      return;
+    }
+
+    const ctx = reply.inReplyTo
+      ? await resolveEmailSendContextByMessageId(db, reply.inReplyTo)
+      : null;
+
+    // The received message's id is stable across every SNS redelivery and
+    // every relay re-drive, so it is the dedupe on BOTH legs. A duplicate
+    // `email.replied` can exit a journey a second time, and an exit is not a
+    // thing that can be taken back.
+    const dedupeKey = `reply:${event.messageId}`;
+
+    // UNCORRELATED replies skip this leg and only this leg: there is no contact
+    // key to ingest against, and resolving one from the sender's own `From:`
+    // would mint a contact out of a stranger's message (#621). The spine emit
+    // below still fires, so the reply is delivered and marked uncorrelated
+    // rather than dropped.
+    if (ctx) {
+      await pushReplyEvent({
+        db,
+        hatchet,
+        logger: config.logger ?? emitLogger,
+        event: EMAIL_REPLIED,
+        emailSendId: ctx.emailSendId,
+        idempotencyKey: dedupeKey,
+        properties: replyProperties(event, reply),
+      });
+    }
+
+    await emitOutbound({
+      db,
+      hatchet,
+      logger: config.logger ?? emitLogger,
+      event: "email.replied",
+      dedupeKey,
+      payload: {
+        messageId: event.messageId,
+        inReplyTo: reply.inReplyTo ?? null,
+        correlated: reply.correlated,
+        emailSendId: ctx?.emailSendId ?? null,
+        templateKey: ctx?.templateKey ?? null,
+        userId: ctx?.userId ?? null,
+        to: ctx?.to ?? null,
+        from: reply.from,
+        subject: reply.subject,
+        text: reply.text,
+        textTruncated: reply.textTruncated,
+        recipient: reply.recipient,
+        at: event.occurredAt,
+      },
+    });
+  }
+
+  /**
+   * Write the send's status for a provider webhook. Returns how many rows the
+   * statement wrote, which only the guarded caller reads.
+   *
+   * `guard` is an EXTRA predicate ANDed onto the message-id match, which turns
+   * the plain SET into a first-transition claim (see {@link claimBounce}).
+   * Ungarded — every caller but the bounce leg — the write stays a plain SET
+   * and so stays replay-safe by writing the same values again. Open/click in
+   * particular pass no guard on purpose: their per-hit write is deliberate.
+   */
   async function updateEmailStatus(
     eventType: EmailEventType,
     messageId: string,
     extra?: { bounceType?: string; bounceReason?: string },
-  ): Promise<void> {
-    if (!db) return;
+    guard?: SQL,
+  ): Promise<number> {
+    if (!db) return 0;
 
     const timestampField = WEBHOOK_TO_STATUS_FIELD[eventType];
     const status = WEBHOOK_TO_STATUS[eventType];
-    if (!timestampField || !status) return;
+    // The STATUS is what makes a row terminal; the timestamp column is
+    // optional. `email.rejected` has a status and no column of its own, and
+    // borrowing `bouncedAt` for it would quietly fold every reject into the
+    // bounce-rate reads. Every other type still writes both.
+    if (!status) return 0;
 
-    await db
+    const written = await db
       .update(emailSends)
       .set({
         status: status as typeof emailSends.$inferSelect.status,
-        [timestampField]: new Date(),
+        ...(timestampField ? { [timestampField]: new Date() } : {}),
         ...(extra?.bounceType ? { bounceType: extra.bounceType } : {}),
         ...(extra?.bounceReason ? { bounceReason: extra.bounceReason } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(emailSends.messageId, messageId));
+      .where(
+        guard
+          ? and(eq(emailSends.messageId, messageId), guard)
+          : eq(emailSends.messageId, messageId),
+      )
+      .returning({ id: emailSends.id });
+
+    return written.length;
   }
 
   return service;

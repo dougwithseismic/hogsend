@@ -211,6 +211,41 @@ export interface OutboundPayloads {
     complaintType?: string;
     reason?: string;
   };
+  /**
+   * A HUMAN REPLIED (PRD 16). The one email event that reports a message
+   * coming BACK, so its shape is deliberately NOT `EmailEventPayload`: every
+   * send-context field is NULLABLE because a reply that could not be
+   * correlated to an `email_sends` row is still delivered here rather than
+   * dropped, exactly as the uncorrelated-reply EARS requires.
+   *
+   * `messageId` is the RECEIVED message's id; `inReplyTo` is the id of OUR
+   * send it answers, and it is present only when the relay PROVED that send
+   * belongs to this instance. A subscriber may key on `inReplyTo`; it must
+   * never key on anything else here, because every other field came out of a
+   * message a stranger composed.
+   */
+  "email.replied": {
+    /** The inbound message's own id — never the id of the send it answers. */
+    messageId: string;
+    /** OUR send's message id, proven. Null on an uncorrelated reply. */
+    inReplyTo: string | null;
+    correlated: boolean;
+    /** Send context, all null when uncorrelated. */
+    emailSendId: string | null;
+    templateKey: string | null;
+    userId: string | null;
+    /** The address WE sent to — not the reply's sender. Null uncorrelated. */
+    to: string | null;
+    /** The reply's sender, as parsed. Attacker-supplied; display only. */
+    from: string | null;
+    subject: string | null;
+    /** Bounded plain text. Never HTML. */
+    text: string | null;
+    textTruncated: boolean;
+    /** The address the reply arrived at (`hello@reply.acme.com`). */
+    recipient: string;
+    at: string;
+  };
   "sms.sent": {
     smsSendId: string;
     messageId: string;

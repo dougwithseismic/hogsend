@@ -11,6 +11,8 @@ import {
   stacks,
 } from "../db/schema";
 import { env } from "../env";
+import { describeRejection } from "../lib/provider-catalog";
+import { recordEmailSendingStatus } from "../services/email-sending-status";
 import { KeySyncService } from "../services/key-sync";
 import {
   buildProviderEnv,
@@ -352,6 +354,158 @@ describe("KeySyncService.storeAndSync", () => {
     expect(substrate.snapshot(fixture.refs).env.worker.TWILIO_AUTH_TOKEN).toBe(
       TWILIO_TOKEN,
     );
+  });
+});
+
+describe("the sending-status gate (DECISIONS §6: no BYO escape hatch)", () => {
+  /**
+   * The gate must answer BEFORE any vendor probe: a paused tenant's key is
+   * refused without it ever leaving the control plane. A fetch that throws
+   * turns any probe attempt into a loud failure rather than a silent pass.
+   */
+  const probeForbidden = (async () => {
+    throw new Error("the sending-status gate must refuse before any probe");
+  }) as typeof fetch;
+
+  async function pause(
+    environmentId: string,
+    status: "paused" | "enforced" | "reinstated" | "active",
+  ) {
+    await recordEmailSendingStatus({
+      environmentId,
+      status,
+      reason: status === "enforced" ? "aup_6_1" : "ses_reputation",
+      db,
+    });
+  }
+
+  it("refuses an email provider key while SES has the tenant paused", async () => {
+    const substrate = new FakeSubstrate();
+    const fixture = await seed(substrate, "production", "running");
+    await pause(fixture.environmentId, "paused");
+
+    const result = await service(substrate, probeForbidden).storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "resend",
+      payload: { apiKey: RESEND_KEY },
+    });
+
+    expect(result).toEqual({
+      stored: false,
+      reason: "sending_paused",
+      detail: "paused",
+    });
+    if (result.stored) throw new Error("unreachable");
+    // Nothing staged: no row that a later provisioning set-env could sync.
+    expect(await keyRows(fixture.environmentId)).toHaveLength(0);
+    expect(setEnvCalls(substrate)).toHaveLength(0);
+
+    // The sentence a tenant reads names the CAUSE, not a validation failure.
+    const sentence = describeRejection({
+      reason: result.reason,
+      detail: result.detail,
+      provider: "resend",
+    });
+    expect(sentence).toContain("paused under SES reputation policy");
+    expect(sentence).toContain("Nothing was stored.");
+  });
+
+  it("refuses under an operator stop (enforced) for the same reason", async () => {
+    const substrate = new FakeSubstrate();
+    const fixture = await seed(substrate, "production", "running");
+    await pause(fixture.environmentId, "enforced");
+
+    const result = await service(substrate, probeForbidden).storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "postmark",
+      payload: { serverToken: "fake_postmark_token_cccc" },
+    });
+
+    expect(result).toEqual({
+      stored: false,
+      reason: "sending_paused",
+      detail: "enforced",
+    });
+    if (result.stored) throw new Error("unreachable");
+    expect(await keyRows(fixture.environmentId)).toHaveLength(0);
+
+    const sentence = describeRejection({
+      reason: result.reason,
+      detail: result.detail,
+      provider: "postmark",
+    });
+    expect(sentence).toContain("stopped by a Hogsend operator");
+    expect(sentence).toContain("Nothing was stored.");
+  });
+
+  it("never gates a provider that is not an alternative send path", async () => {
+    const substrate = new FakeSubstrate();
+    const fixture = await seed(substrate, "production", "running");
+    await pause(fixture.environmentId, "paused");
+
+    // PostHog's phc_ key is shape-checked, so `probeForbidden` also proves no
+    // probe fires — the save must go through UNTOUCHED by the pause.
+    const result = await service(substrate, probeForbidden).storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "posthog",
+      payload: { apiKey: `phc_${"a".repeat(24)}` },
+    });
+
+    if (!result.stored) throw new Error(`expected a store: ${result.detail}`);
+    expect(result.synced).toBe(true);
+    expect(await keyRows(fixture.environmentId)).toHaveLength(1);
+  });
+
+  it("lets a REINSTATED tenant save again — the pause is not a one-way flag", async () => {
+    const substrate = new FakeSubstrate();
+    const fixture = await seed(substrate, "production", "running");
+    await pause(fixture.environmentId, "paused");
+
+    const sync = service(substrate, okFetch(["acme.test"]));
+    const refused = await sync.storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "resend",
+      payload: { apiKey: RESEND_KEY },
+    });
+    expect(refused.stored).toBe(false);
+
+    await pause(fixture.environmentId, "reinstated");
+    const allowed = await sync.storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "resend",
+      payload: { apiKey: RESEND_KEY },
+    });
+
+    if (!allowed.stored) {
+      throw new Error(`expected a store: ${allowed.detail}`);
+    }
+    expect(allowed.synced).toBe(true);
+    expect(
+      (await keyRows(fixture.environmentId)).map((row) => row.provider),
+    ).toEqual(["resend"]);
+  });
+
+  it("does not gate an explicit `active` status row", async () => {
+    const substrate = new FakeSubstrate();
+    const fixture = await seed(substrate, "production", "running");
+    await pause(fixture.environmentId, "active");
+
+    const result = await service(
+      substrate,
+      okFetch(["acme.test"]),
+    ).storeAndSync({
+      organizationId: ORG_ID,
+      environmentId: fixture.environmentId,
+      provider: "resend",
+      payload: { apiKey: RESEND_KEY },
+    });
+
+    if (!result.stored) throw new Error(`expected a store: ${result.detail}`);
   });
 });
 

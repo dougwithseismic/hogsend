@@ -44,6 +44,53 @@ export interface PostmarkConfig {
 const join = (v?: string | string[]): string | undefined =>
   joinRecipients(v) || undefined;
 
+/** Postmark's send-side attachment shape, derived from the SDK's own model. */
+type PostmarkAttachment = NonNullable<Message["Attachments"]>[number];
+
+/**
+ * Translate the neutral attachments onto Postmark's `Attachment` model
+ * (postmark@4: `{ Name, Content, ContentType, ContentID, Disposition? }`).
+ * Returns `undefined` for absent/empty input — matching this file's
+ * `undefined`-valued-field idiom, which JSON-serializes to no field at all on
+ * the wire, so existing no-attachment sends stay byte-identical.
+ *
+ * - `Content` is a base64 STRING only (no Buffer/bytes on this wire): raw
+ *   `Uint8Array` bytes are encoded here; already-base64 `{ base64 }` content
+ *   passes through UNTOUCHED — a decode/re-encode round trip would be pure
+ *   loss.
+ * - `ContentType` is REQUIRED by the SDK model (`ContentType: string`, not
+ *   optional), so an absent neutral contentType becomes
+ *   `application/octet-stream` — MIME's universal default for unknown binary,
+ *   a declared fallback rather than a guess from the filename.
+ * - Inline convention: the `ContentID` VALUE carries the `cid:` prefix — the
+ *   SDK's own docstring shows it ("id of the attachment, in case we are
+ *   referencing it, for example: cid:123book.pdf") and the HTML references the
+ *   same `cid:<id>` URL. The neutral `contentId` is the bare id, so the prefix
+ *   is added here (idempotently, in case a caller already included it).
+ *   `disposition` also maps onto the SDK's explicit `Disposition` field
+ *   (send-side since postmark 4.0.3: "updated models to support adding content
+ *   disposition to attachments").
+ */
+function toPostmarkAttachments(
+  attachments: SendEmailOptions["attachments"],
+): PostmarkAttachment[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+  return attachments.map((a) => ({
+    Name: a.filename,
+    Content:
+      a.content instanceof Uint8Array
+        ? Buffer.from(a.content).toString("base64")
+        : a.content.base64,
+    ContentType: a.contentType ?? "application/octet-stream",
+    ContentID: a.contentId
+      ? a.contentId.startsWith("cid:")
+        ? a.contentId
+        : `cid:${a.contentId}`
+      : null,
+    ...(a.disposition ? { Disposition: a.disposition } : {}),
+  }));
+}
+
 /**
  * The Postmark implementation of the engine's {@link EmailProvider} contract: a
  * dumb delivery + webhook parse/verify layer. All tracking, DB, preference, and
@@ -87,6 +134,8 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
       Headers: o.headers
         ? Object.entries(o.headers).map(([Name, Value]) => ({ Name, Value }))
         : undefined,
+      // `undefined` when absent/empty → no Attachments field on the JSON wire.
+      Attachments: toPostmarkAttachments(o.attachments),
       // NATIVE TRACKING OFF — first-party open/click tracking is sovereign.
       TrackOpens: false,
       TrackLinks: Models.LinkTrackingOptions.None,
@@ -111,6 +160,10 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
       scheduledSend: false,
       // No HMAC scheme — webhooks fail-closed on HTTP Basic creds instead.
       signedWebhooks: false,
+      // The send wire translates neutral attachments onto Postmark's native
+      // Attachments field (see toPostmarkAttachments); sendEmailBatch takes
+      // full Message objects, so batch items carry them too.
+      attachments: true,
     },
 
     async send(o: SendEmailOptions): Promise<SendResult> {

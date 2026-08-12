@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { AdvancedDisclosure } from "@/components/cloud/advanced-disclosure";
 import { BuildsSection } from "@/components/cloud/builds-section";
+import { EmailSendingSection } from "@/components/cloud/email-sending-section";
 import { EnvironmentOperations } from "@/components/cloud/environment-operations";
 import { HealthStrip } from "@/components/cloud/health-strip";
 import { NetworkingPanel } from "@/components/cloud/networking-panel";
@@ -93,6 +94,27 @@ function buildsSummary(view: { builds: { status: string }[] }): string {
 function keysSummary(liveCount: number, error: string | null): string {
   if (error) return "could not reach your instance";
   return `${liveCount} live ${liveCount === 1 ? "key" : "keys"}`;
+}
+
+/**
+ * What the closed Email sending row says.
+ *
+ * A STOPPED environment says so in the summary rather than behind a click. It
+ * is the single most consequential fact on this page — every journey the
+ * customer runs is failing right now — and a drawer that read "watched tier"
+ * while sending was suspended would bury it.
+ */
+function emailSummary(view: {
+  status: string;
+  tier: string;
+  cap: { limit: number; window: string } | null;
+}): string {
+  if (view.status === "paused" || view.status === "enforced") {
+    return `sending is stopped (${view.status})`;
+  }
+  if (!view.cap) return `${view.tier} tier, plan allowance`;
+  const period = view.cap.window === "day" ? "a day" : "a period";
+  return `${view.tier} tier, ${view.cap.limit.toLocaleString("en-GB")} ${period}`;
 }
 
 /** What the closed Operations row says: the controls actually available now. */
@@ -267,6 +289,16 @@ export default async function EnvironmentDetailPage({
                   stack?.status === "running"
                 }
               />
+            </Drawer>
+          ) : null}
+
+          {detail.email ? (
+            <Drawer
+              title="Email sending"
+              description="Whether this environment may send, the trust tier it sits in, and every reputation event against it. Read-only: reinstatement is a human review."
+              summary={emailSummary(detail.email)}
+            >
+              <EmailSendingSection view={detail.email} now={now} />
             </Drawer>
           ) : null}
 

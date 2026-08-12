@@ -4,14 +4,17 @@
 // `./templates.d.ts`, which is what makes
 // `emailService.send({ template, props })` type-check.
 
+// `name` is optional because both components default it (`name = "there"`).
+// Declare props exactly as the component accepts them: a required prop here
+// would force every caller to pass a value the template already handles.
 export interface WelcomeEmailProps {
-  name: string;
+  name?: string;
   dashboardUrl?: string;
   unsubscribeUrl?: string;
 }
 
 export interface ActivationNudgeEmailProps {
-  name: string;
+  name?: string;
   featureName?: string;
   nudgeMessage?: string;
   ctaUrl?: string;

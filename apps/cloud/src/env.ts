@@ -251,6 +251,11 @@ export const env = createEnv({
     // the other.
     CLOUD_STRIPE_PRICE_SELF_SERVE: z.string().min(1).optional(),
     CLOUD_STRIPE_PRICE_DEDICATED: z.string().min(1).optional(),
+    // The Stripe METER event name Hogsend Email overage is reported under
+    // (PRD 09). OPTIONAL here and enforced at the point of use: a deploy that
+    // does not sell metered email never sets it, and `reportUsage` fails closed
+    // rather than sending events into a meter that does not exist.
+    CLOUD_STRIPE_METER_EMAIL_OVERAGE: z.string().min(1).optional(),
     // The stock scaffold image tag a freshly provisioned stack boots on
     // (`hogsend-default:<engine-version>`, PRD 04 "Initial deploy source").
     // Recorded on the stack row at provision time, so a later bump does not
@@ -331,6 +336,68 @@ export const env = createEnv({
     // the repo; a containerised cloud-worker that carries the template
     // elsewhere sets this.
     CLOUD_SCAFFOLD_TEMPLATE_DIR: z.string().min(1).optional(),
+    // The control-plane IAM user (`hogsend-cloud-relay`, DECISIONS §7.1) every
+    // SES call in `src/ses/` authenticates as. Railway is not AWS compute, so
+    // there is no instance role to assume and no OIDC federation — a static,
+    // narrowly-scoped key is the honest answer.
+    //
+    // OPTIONAL, and their absence is a MODE rather than a misconfiguration:
+    // with NEITHER set the control plane boots exactly as it does today and
+    // the SES factory yields the deterministic Fake. That is the supported
+    // default — Hogsend Email is optional — and it mirrors what the engine
+    // already does for a missing `RESEND_API_KEY`.
+    //
+    // Optional as a PAIR, though: exactly one set is a misconfiguration, never
+    // a mode. The refusal lives at the point of use in `src/ses/index.ts`
+    // (`readCredentials` — both present ⇒ AWS, neither ⇒ Fake, one ⇒ throw),
+    // the same posture `CLOUD_RAILWAY_TOKEN` and the registry credential pair
+    // already take in this file. NEVER logged: the factory logs which client
+    // is live, never the key it holds.
+    CLOUD_AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+    CLOUD_AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // The SNS topic each region's SES configuration sets publish delivery,
+    // bounce, complaint and delay events to (PRD 05). One per region, because
+    // SES tenants are region-scoped and do not replicate; the tenant is
+    // identified by the event's own tag, not by the topic.
+    //
+    // OPTIONAL, and absence is a MODE: with no topic the provisioner skips the
+    // event destination and the control plane behaves exactly as it does
+    // today. It is NOT a permissive default — the ingress endpoint refuses
+    // EVERY message when its region has no configured topic, because AWS's own
+    // guidance is to reject an unexpected `TopicArn` and with none configured
+    // there is no expected one.
+    CLOUD_SES_SNS_TOPIC_ARN_US: z.string().min(1).optional(),
+    CLOUD_SES_SNS_TOPIC_ARN_EU: z.string().min(1).optional(),
+    // Where SES puts an INBOUND message, and who it tells (PRD 16). The action
+    // on every receipt rule is S3 + SNS and never SNS alone: SES caps an
+    // SNS-published message at 150 KB and an S3 object at 40 MB, both
+    // "Adjustable: No", so an SNS-only design fails on any real reply carrying
+    // a phone photo while passing every hand-written test fixture.
+    //
+    // ONE bucket for every region, and a topic PER region. That split is AWS's,
+    // verbatim: "With the exception of Amazon S3 buckets, all of the AWS
+    // resources that you use for receiving email with SES have to be in the
+    // same AWS Region as the SES endpoint."
+    //
+    // OPTIONAL, and absence is a MODE: a control plane with no bucket simply
+    // cannot turn inbound on, which is the supported default — inbound is
+    // opt-in per domain and `Reply-To` needs none of it. HALF configured is
+    // treated as absent (`resolveInboundStore`), because a bucket with no topic
+    // stores a customer's reply where nothing is listening.
+    CLOUD_SES_INBOUND_BUCKET: z.string().min(1).optional(),
+    CLOUD_SES_INBOUND_TOPIC_ARN_US: z.string().min(1).optional(),
+    CLOUD_SES_INBOUND_TOPIC_ARN_EU: z.string().min(1).optional(),
+    // The shared secret the EventBridge API destination's connection sends on
+    // every SES reputation event (PRD 08). ONE secret, not one per region: a
+    // reputation event names its own tenant and the tenant resolves to the
+    // region, so there is nothing regional for the credential to separate.
+    //
+    // OPTIONAL, and absence is NOT a permissive default: the ingress refuses
+    // EVERY event when it has no secret to authenticate them against. An
+    // endpoint that accepted anything until somebody remembered to configure it
+    // would be a stop-any-tenant button on the public internet for exactly as
+    // long as that took. NEVER logged.
+    CLOUD_SES_EVENTBRIDGE_SECRET: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import {
+  bootstrapApiKeyFromEnv,
   createApp,
   createHogsendClient,
   getEngineSchemaVersion,
@@ -41,6 +42,14 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
   }
   client.logger.info(`Database schema in sync at ${schema.applied}`);
 }
+
+// First-boot data-plane key: on a TRULY empty api_keys table (a deploy that
+// never ran `pnpm bootstrap`) the engine mints one ingest-scoped key and prints
+// it ONCE to the log — grep "API key created". Every data-plane route
+// (`POST /v1/events`, `/v1/contacts`, …) requires one, so without this a fresh
+// install has no way in. No-op once any key exists; opt out with
+// HOGSEND_BOOTSTRAP_API_KEY=false. API process only — never the worker.
+await bootstrapApiKeyFromEnv({ client });
 
 const app = createApp(client, { webhookSources });
 const { logger, env } = client;

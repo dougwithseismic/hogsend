@@ -70,6 +70,65 @@ export interface DomainStatus {
 }
 
 /**
+ * A single DNS label for the branded return path's subdomain (`send`,
+ * `notifications`, `mail`). RFC 1035 §2.3.1 shape: starts and ends
+ * alphanumeric, hyphens allowed inside, 63 characters max. ONE label, no dots
+ * — the return path must sit directly under the verified domain.
+ *
+ * BYTE-IDENTICAL to the control plane's `MAIL_FROM_LABEL_PATTERN`
+ * (apps/cloud `lib/sending-domains.ts`), which stays authoritative on its side
+ * of the wire: a label accepted here must be one the control plane can
+ * publish, or the engine would 200 a request the relay then 400s.
+ */
+export const RETURN_PATH_LABEL_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * Trim + lowercase (DNS is case-insensitive, so a customer typing
+ * `Notifications` is not wrong), then validate against
+ * {@link RETURN_PATH_LABEL_PATTERN}. Answers `null` rather than throwing so a
+ * caller can name the offending input in its own rejection instead of parsing
+ * a thrown message.
+ */
+export function normalizeReturnPathLabel(label: string): string | null {
+  const normalized = label.trim().toLowerCase();
+  return RETURN_PATH_LABEL_PATTERN.test(normalized) ? normalized : null;
+}
+
+/** Input to {@link DomainsCapability.setReturnPath} — both directions. */
+export interface SetReturnPathInput {
+  domain: string;
+  /** `false` reverts to the provider's own default return path. */
+  enabled: boolean;
+  /**
+   * Single DNS label in front of the domain (`notifications` →
+   * `notifications.<domain>`). Optional; the provider's default (`send`)
+   * applies when omitted. Meaningful only when enabling.
+   */
+  label?: string;
+}
+
+/**
+ * What a return-path switch answers, in both directions. `enabled` and
+ * `mailFromDomain` are what the provider holds AFTER the write — read back,
+ * never an echo of the request.
+ */
+export interface ReturnPathState {
+  enabled: boolean;
+  /**
+   * `<label>.<domain>` when enabled; `null` when the provider's default
+   * return path is in effect.
+   */
+  mailFromDomain: string | null;
+  /**
+   * Fresh status. When enabled it carries the two extra records (MX + SPF) as
+   * `pending` until published; when disabled they stop being reported and the
+   * domain stays fully verified on its base records — off is not a warning
+   * state.
+   */
+  status: DomainStatus;
+}
+
+/**
  * Optional provider capability for managing sending domains. PRESENCE IS THE
  * GATE: a provider that cannot manage domains simply omits the member, and the
  * engine/CLI/Studio degrade gracefully (admin POSTs return 501
@@ -97,4 +156,18 @@ export interface DomainsCapability {
    * omit this; callers fall back to `get`.
    */
   verify?(domain: string): Promise<DomainStatus>;
+  /**
+   * Switch the branded return path (custom MAIL FROM domain) on or off. A
+   * standard ESP concept, so it is first-class here — and OPTIONAL like
+   * `verify`: a provider that cannot do it omits the member and the engine
+   * answers 501 exactly as when `domains` itself is absent.
+   *
+   * What it buys: bounce traffic routes via `<label>.<domain>` instead of the
+   * provider's own domain, so mailbox UIs stop showing "via <provider>" under
+   * the sender name and SPF aligns with the customer's domain. It changes
+   * NOTHING about where incoming mail lands — that routes on the `From`
+   * headers and works with no return path configured. Off is the default, and
+   * a domain without the upgrade is fully verified on its base records.
+   */
+  setReturnPath?(input: SetReturnPathInput): Promise<ReturnPathState>;
 }

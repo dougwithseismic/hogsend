@@ -74,6 +74,13 @@ export const WEBHOOK_EVENT_TYPES = [
   "email.action",
   "email.bounced",
   "email.complained",
+  // A human REPLIED to a message a journey sent (PRD 16). The only email event
+  // here that reports a message coming BACK rather than the fate of one going
+  // out, and the only one whose payload can be uncorrelated: a reply whose
+  // `In-Reply-To` names no send this instance made is still delivered, with
+  // `correlated: false` and null send context, because dropping a human's words
+  // to keep a payload tidy is the worse failure.
+  "email.replied",
   "sms.sent",
   "sms.delivered",
   "sms.failed",

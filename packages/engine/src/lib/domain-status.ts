@@ -2,6 +2,10 @@ import type { DomainStatus, EmailProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
 import { hostOfFromAddress } from "./from-address.js";
 import type { Logger } from "./logger.js";
+import {
+  SENDING_DOMAIN_GUIDANCE,
+  type SendingDomainGuidance,
+} from "./sending-domain-guidance.js";
 
 /**
  * Per-send test-mode snapshot (PROJECT_SPEC pinned shape).
@@ -36,9 +40,19 @@ export interface EngineDomainStatus {
   providerId: string;
   /** `!!provider.domains` — presence of the capability is the gate. */
   supported: boolean;
+  /**
+   * Whether `provider.domains.setReturnPath` exists — the branded-return-path
+   * upgrade's own gate (PRD 20). Studio/CLI key the toggle off this so a
+   * provider without the method gets NO dead control; the POST would 501.
+   * Optional in the TYPE only for wire skew (an older engine never sends it,
+   * and clients ship separately from engines); this engine always sets it.
+   */
+  returnPathSupported?: boolean;
   /** `null` when `!supported || !domain` (the provider is never called then). */
   status: DomainStatus | null;
   testMode: TestModeState;
+  /** Static setup advice. Same words in Studio and the CLI, one source. */
+  guidance: SendingDomainGuidance;
 }
 
 /**
@@ -180,6 +194,8 @@ export function createDomainStatusService(deps: {
 
   const providerId = provider.meta?.id ?? "resend";
   const supported = Boolean(provider.domains);
+  const returnPathSupported =
+    typeof provider.domains?.setReturnPath === "function";
   const domain =
     env.EMAIL_DOMAIN ??
     hostPartOf(env.EMAIL_FROM) ??
@@ -278,6 +294,7 @@ export function createDomainStatusService(deps: {
       domain,
       providerId,
       supported,
+      returnPathSupported,
       status,
       testMode: {
         active: false,
@@ -285,6 +302,8 @@ export function createDomainStatusService(deps: {
         redirectTo: null,
         fromOverride: null,
       },
+      // Constant advice — no computation, no cache interaction.
+      guidance: SENDING_DOMAIN_GUIDANCE,
     };
     cache = { snapshot, fetchedAt: Date.now() };
     const testMode = computeTestMode();

@@ -1,0 +1,1 @@
+ALTER TABLE "cloud"."usage_counters" ADD COLUMN "relay_emails_count" bigint DEFAULT 0 NOT NULL;

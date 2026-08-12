@@ -143,10 +143,10 @@ Options:
                              Omit it: one is generated + printed once at first
                              boot. NOTE: flag values can land in shell history —
                              prefer omitting outside CI/agent runs
-  --with <id[,id]>           Add an opt-in provider plugin (apollo, postmark,
-                             twilio) — repeatable or comma-separated. Pins
-                             @hogsend/plugin-<id> as a direct dependency and
-                             surfaces its credential block in .env.example
+  --with <id[,id]>           Add an opt-in provider plugin (apollo, hogsend,
+                             postmark, twilio) — repeatable or comma-separated.
+                             Pins @hogsend/plugin-<id> as a direct dependency
+                             and surfaces its credential block in .env.example
   --cloud                    Deploy to Hogsend Cloud when the scaffold finishes.
                              Headless runs MUST also pass --email (the code is
                              mailed there and read from stdin)

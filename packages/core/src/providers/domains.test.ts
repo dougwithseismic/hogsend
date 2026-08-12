@@ -1,4 +1,4 @@
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   DnsRecord,
   DnsRecordPurpose,
@@ -6,6 +6,12 @@ import type {
   DomainStatus,
   DomainsCapability,
   DomainVerificationState,
+  ReturnPathState,
+  SetReturnPathInput,
+} from "./domains.js";
+import {
+  normalizeReturnPathLabel,
+  RETURN_PATH_LABEL_PATTERN,
 } from "./domains.js";
 import { defineEmailProvider, type EmailProvider } from "./email.js";
 
@@ -63,6 +69,11 @@ describe("DomainsCapability contract", () => {
     expectTypeOf<DomainsCapability["verify"]>().toEqualTypeOf<
       ((domain: string) => Promise<DomainStatus>) | undefined
     >();
+    // OPTIONAL like `verify`: a provider with no branded-return-path concept
+    // omits the member and the engine answers 501 (PRD 20).
+    expectTypeOf<DomainsCapability["setReturnPath"]>().toEqualTypeOf<
+      ((input: SetReturnPathInput) => Promise<ReturnPathState>) | undefined
+    >();
   });
 
   it("is an OPTIONAL EmailProvider member — presence is the capability gate", () => {
@@ -100,5 +111,55 @@ describe("DomainsCapability contract", () => {
     expectTypeOf(provider.domains).toEqualTypeOf<
       DomainsCapability | undefined
     >();
+  });
+});
+
+describe("setReturnPath contract (PRD 20)", () => {
+  it("pins the neutral input + result shapes", () => {
+    expectTypeOf<SetReturnPathInput>().toEqualTypeOf<{
+      domain: string;
+      enabled: boolean;
+      label?: string;
+    }>();
+    expectTypeOf<ReturnPathState["enabled"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<ReturnPathState["mailFromDomain"]>().toEqualTypeOf<
+      string | null
+    >();
+    expectTypeOf<ReturnPathState["status"]>().toEqualTypeOf<DomainStatus>();
+  });
+});
+
+describe("return-path label rule (the one PRD 15 shipped, one home)", () => {
+  it("accepts single DNS labels, normalized (trim + lowercase)", () => {
+    expect(normalizeReturnPathLabel("notifications")).toBe("notifications");
+    // DNS is case-insensitive; a customer typing `Notifications` is not wrong.
+    expect(normalizeReturnPathLabel(" Notifications ")).toBe("notifications");
+    expect(normalizeReturnPathLabel("a")).toBe("a");
+    expect(normalizeReturnPathLabel("x-1")).toBe("x-1");
+    expect(normalizeReturnPathLabel("a".repeat(63))).toBe("a".repeat(63));
+  });
+
+  it("answers null for anything DNS cannot publish as ONE label", () => {
+    for (const bad of [
+      "",
+      "   ",
+      "-x",
+      "x-",
+      "has.dot",
+      "under_score",
+      "a".repeat(64),
+    ]) {
+      expect(normalizeReturnPathLabel(bad)).toBeNull();
+    }
+  });
+
+  it("rejects an accidental edit to the pattern (literal pin, this copy only)", () => {
+    // This guards ONLY the core copy — it cannot see the control plane's
+    // authoritative `MAIL_FROM_LABEL_PATTERN` (core cannot import from an
+    // app). The real cross-copy parity pin lives where both are reachable:
+    // apps/cloud/src/__tests__/return-path-label-parity.test.ts.
+    expect(RETURN_PATH_LABEL_PATTERN.source).toBe(
+      "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+    );
   });
 });

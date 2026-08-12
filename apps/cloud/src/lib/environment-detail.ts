@@ -19,6 +19,10 @@ import {
 } from "../pipeline/provision";
 import type { EnvironmentRow, StackRow } from "../services/orgs";
 import {
+  type EmailSendingView,
+  readEmailSendingView,
+} from "./email-abuse-view";
+import {
   allowedOperations,
   type EnvironmentOperation,
 } from "./environment-ops";
@@ -130,6 +134,7 @@ export const PROVISION_STEP_LABELS: Record<ProvisionStep, string> = {
   "mint-hatchet": "Setting up background jobs",
   "substrate-provision": "Creating your services",
   "ensure-hostname": "Giving it a web address",
+  "provision-ses": "Setting up email sending",
   "set-env": "Applying your settings",
   "start-services": "Starting your services",
   "health-wait": "Waiting for the first healthy check",
@@ -150,6 +155,13 @@ export interface EnvironmentDetail {
   /** Set when this stack has failed the alert streak of consecutive sweeps. */
   alert: StackAlert | null;
   operations: OperationsView;
+  /**
+   * Hogsend Email standing — status, tier, cap, findings, pause history (PRD
+   * 08). Null for an environment with no SES tenancy, which is every
+   * environment on a customer-supplied provider: showing it a trust tier would
+   * describe an enforcement that does not apply to it.
+   */
+  email: EmailSendingView | null;
 }
 
 export interface HealthObservationRow {
@@ -199,7 +211,7 @@ export async function readEnvironmentDetail(
   if (!row) return null;
 
   const stack = row.stack;
-  const [audit, health, alerts] = await Promise.all([
+  const [audit, health, alerts, email] = await Promise.all([
     stack ? readProvisionAudit(db, stack.id) : Promise.resolve([]),
     stack ? readHealth(db, stack.id) : Promise.resolve([]),
     stack?.status === "running"
@@ -208,6 +220,14 @@ export async function readEnvironmentDetail(
           { db },
         )
       : Promise.resolve([] as StackAlert[]),
+    // Not gated on the stack's status: a suspended or errored stack whose
+    // sending was stopped for abuse is exactly the case an operator needs to
+    // see, and it is the one a `running`-only read would hide.
+    readEmailSendingView({
+      environmentId: input.environmentId,
+      organizationId: context.organizationId,
+      db,
+    }),
   ]);
 
   return {
@@ -226,6 +246,7 @@ export async function readEnvironmentDetail(
         })),
     health,
     alert: alerts.find((entry) => entry.stackId === stack?.id) ?? null,
+    email,
     operations: {
       role: context.role,
       allowed: allowedOperations({

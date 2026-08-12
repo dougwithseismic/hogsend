@@ -10,6 +10,7 @@ import {
   type SubstrateProvider,
 } from "../substrate";
 import { writeAudit } from "./audit";
+import { blocksSending, readEmailSendingStatus } from "./email-sending-status";
 import { NotFoundError } from "./errors";
 import {
   type FetchImpl,
@@ -19,6 +20,7 @@ import {
 import type { StackRow } from "./orgs";
 import {
   buildProviderEnv,
+  EMAIL_PROVIDER_IDS,
   emailDomainOf,
   PROVIDER_ENV_OWNED_NAMES,
   SENDER_IDENTITY_PROVIDER,
@@ -40,6 +42,11 @@ import { StackService } from "./stacks";
  *    written; an invalid key stores NOTHING — not a row, not an unverified
  *    placeholder, not the sender identity submitted beside it. One submission is
  *    one unit: if any part of it is refused, the environment is untouched.
+ *  - **A paused tenant gets no BYO reroute (DECISIONS §6).** While the
+ *    environment's sending status blocks sending, an EMAIL provider key is
+ *    refused before it is probed or stored. The relay's pause would mean
+ *    nothing if the tenant it stops could add their own Resend or Postmark
+ *    key and keep sending; non-email providers pass untouched.
  *  - **A from-address must be one the provider will actually send from.** When
  *    the probe returns the provider's verified domains, the address's domain
  *    must be among them. The failure this prevents is a tenant sending through
@@ -137,7 +144,8 @@ export type RemoveAndSyncInput = z.input<typeof removeInputSchema>;
 export type StoreRejectionReason =
   | "invalid_key"
   | "from_address_malformed"
-  | "from_domain_unverified";
+  | "from_domain_unverified"
+  | "sending_paused";
 
 export interface SyncOutcome {
   /** True when the substrate was actually written to (a `running` stack). */
@@ -213,6 +221,28 @@ export class KeySyncService {
       fromAddress,
       actor,
     } = storeInputSchema.parse(input);
+
+    // DECISIONS §6: a tenant whose sending is paused gets no escape hatch
+    // through their own email provider. Answered BEFORE the vendor probe (the
+    // key never leaves the control plane) and BEFORE the store (nothing is
+    // staged for a later provisioning `set-env` to sync). Only the EMAIL
+    // providers are a reroute — a PostHog or Twilio key passes untouched —
+    // and the status is read live on every save, so a reinstatement restores
+    // this path with no further write. `saveSenderIdentity` replays the
+    // stored email key through here, so it is gated by the same read.
+    if (EMAIL_PROVIDER_IDS.includes(provider)) {
+      const sending = await readEmailSendingStatus({
+        environmentId,
+        db: this.deps.db,
+      });
+      if (blocksSending(sending.status)) {
+        return {
+          stored: false,
+          reason: "sending_paused",
+          detail: sending.status,
+        };
+      }
+    }
 
     const validation = await validateProviderKey({
       provider,

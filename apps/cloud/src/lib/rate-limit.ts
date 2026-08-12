@@ -31,6 +31,15 @@ export interface RateLimitDecision {
   limit: number;
   /** Seconds until the window rolls — what a `retry-after` header carries. */
   retryAfterSeconds: number;
+  /**
+   * True when THIS call opened the window for this bucket.
+   *
+   * A once-per-bucket-per-window signal, offered because it is already computed
+   * here for the prune below. The relay borrows it to retire expired
+   * idempotency rows on the same schedule, which keeps that table bounded with
+   * no cron and no sampling.
+   */
+  openedWindow: boolean;
 }
 
 export interface RateLimitInput {
@@ -38,6 +47,15 @@ export interface RateLimitInput {
   bucket: string;
   limit: number;
   windowMs: number;
+  /**
+   * How many units this request consumes. Default 1, so every pre-existing
+   * caller is byte-for-byte unchanged.
+   *
+   * It exists because the email relay limits MESSAGES, not requests: a batch of
+   * fifty that counted as one would let a caller buy fifty times the burst
+   * budget by batching, which is the one thing the burst limit is there to stop.
+   */
+  cost?: number;
   /** Injected by tests so a window boundary is reachable without waiting. */
   now?: Date;
   db?: CloudDb;
@@ -57,25 +75,30 @@ export async function consumeRateLimit(
 ): Promise<RateLimitDecision> {
   const db = input.db ?? defaultDb;
   const now = input.now ?? new Date();
+  const cost = Math.max(1, Math.trunc(input.cost ?? 1));
   const windowStart = new Date(
     Math.floor(now.getTime() / input.windowMs) * input.windowMs,
   );
 
   const [row] = await db
     .insert(cliRateLimits)
-    .values({ bucket: input.bucket, windowStart, count: 1 })
+    .values({ bucket: input.bucket, windowStart, count: cost })
     .onConflictDoUpdate({
       target: [cliRateLimits.bucket, cliRateLimits.windowStart],
-      set: { count: sql`${cliRateLimits.count} + 1` },
+      set: { count: sql`${cliRateLimits.count} + ${cost}` },
     })
     .returning({ count: cliRateLimits.count });
 
-  const count = row?.count ?? 1;
+  const count = row?.count ?? cost;
+  // A pre-existing row is at least 1 before the increment, so its post-update
+  // count is strictly greater than `cost`. Equality therefore means the INSERT
+  // landed and this call opened the window.
+  const openedWindow = count === cost;
 
   // Exactly once per bucket per window — the request that OPENED it — retire
   // the windows nobody will read again. Cheap, indexed, and deterministic:
   // no sampling, no cron, no unbounded table.
-  if (count === 1) {
+  if (openedWindow) {
     await db
       .delete(cliRateLimits)
       .where(
@@ -96,6 +119,7 @@ export async function consumeRateLimit(
     count,
     limit: input.limit,
     retryAfterSeconds,
+    openedWindow,
   };
 }
 
@@ -182,6 +206,10 @@ export async function consumeDualRateLimit(input: {
   const allowed = perEmail.allowed && perIp.allowed;
   return {
     allowed,
+    // Two buckets, so "opened a window" is only meaningful if both did. No
+    // caller of the dual limiter uses it today; reporting the conjunction keeps
+    // it from being quietly wrong if one ever does.
+    openedWindow: perEmail.openedWindow && perIp.openedWindow,
     // The bucket that refused is the one a caller needs reported; when both
     // allowed, the counts are per-bucket and the email one is the meaningful
     // half (an IP may legitimately carry several people).

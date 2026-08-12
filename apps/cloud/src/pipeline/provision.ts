@@ -35,6 +35,7 @@ import {
   type StoredProviderKey,
 } from "../services/provider-env";
 import { ProviderKeyService } from "../services/provider-keys";
+import { provisionSesTenant } from "../services/ses-tenants";
 import { StackService } from "../services/stacks";
 import {
   resolveTenantCredentialClient,
@@ -86,6 +87,11 @@ export const PROVISION_STEPS = [
   // cookie. An instance that learns its own name after that point would need a
   // migration to change it; one that learns it here never knew another.
   "ensure-hostname",
+  // Before `set-env`, and it has to be: `set-env` is what hands the instance
+  // its environment, and the relay token this step mints exists in plaintext
+  // exactly once — here. An instance provisioned after it would hold no
+  // credential for the send relay and would have no way to ask for one.
+  "provision-ses",
   "set-env",
   // AFTER `set-env`, and it has to be: an app service is created idle and only
   // starts here, so that its first boot is its first SUCCESSFUL boot. Starting
@@ -771,6 +777,40 @@ export async function runProvisionPipeline(
       });
     }
 
+    // ---- provision-ses ----------------------------------------------------
+    // The environment's SES tenancy, and the two credentials the instance
+    // needs to reach the send relay and to trust what the relay sends back.
+    //
+    // FATAL on failure, deliberately: the stack parks at `error` with this
+    // step's name and the sweep re-drives it, which is the house pattern and
+    // costs nothing here — no service has been started yet, so nothing is
+    // orphaned. A control plane with NO AWS credentials never reaches that
+    // branch: the factory yields the Fake, the converge succeeds, and the
+    // tenancy is simply recorded unavailable.
+    current = "provision-ses";
+    const sesTenant = await provisionSesTenant(
+      { environmentId: stack.environmentId, actor: PROVISIONER_ACTOR },
+      { db: deps.db },
+    );
+    steps.push({ step: "provision-ses", skipped: false });
+    // Names and regions. Never the relay token, never the webhook secret.
+    await audit("provision-ses", organizationId, {
+      tenantName: sesTenant.summary.tenantName,
+      configurationSetName: sesTenant.summary.configurationSetName,
+      awsRegion: sesTenant.summary.awsRegion,
+      reputationPolicy: sesTenant.summary.reputationPolicy,
+      available: sesTenant.summary.available,
+      // The step never fails over an unavailable tenancy — the instance simply
+      // keeps another provider — so the REASON is the only thing that tells an
+      // operator whether to chase credentials, chase AWS support for
+      // production access, or do nothing at all.
+      unavailableReason: sesTenant.availability.reason,
+      unavailableDetail: sesTenant.summary.available
+        ? null
+        : sesTenant.availability.detail,
+      relayTokenRotated: sesTenant.relayTokenRotated,
+    });
+
     // ---- set-env ----------------------------------------------------------
     current = "set-env";
     const secrets = await ensureStackSecrets(deps, stackId, stack);
@@ -787,6 +827,9 @@ export async function runProvisionPipeline(
       namespace,
       betterAuthSecret: secrets.secrets.betterAuthSecret,
       studioAdminPassword: secrets.secrets.studioAdminPassword,
+      relayToken: sesTenant.relayToken,
+      emailWebhookSecret: sesTenant.webhookSecret,
+      emailAvailable: sesTenant.summary.available,
     });
     await deps.substrate.setEnv(refs, vars);
     steps.push({ step: "set-env", skipped: false });
@@ -1202,6 +1245,47 @@ async function mintTenantCredentials(args: {
  * contract). Assembled in one place so "what does a Hogsend instance need to
  * boot" has a single, readable answer.
  */
+/**
+ * Whether a freshly provisioned instance SENDS through Hogsend Email.
+ *
+ * DECISIONS §6 says new provisions default to it. `available` is the whole
+ * condition, and it means "the SES account behind this tenancy can actually
+ * SEND" — decided by `services/ses-availability.ts`, which reads AWS's own
+ * `GetAccount`, not by whether we hold credentials.
+ *
+ * Two ways to get that wrong, and both are silent:
+ *  - Activating over the FAKE: every send "succeeds" against an in-memory
+ *    client and no mail ever leaves. Silent non-delivery beats a loud failure
+ *    only in the sense that nobody notices, which is what makes it worse.
+ *  - Activating on a SANDBOX account: real credentials, real API, and every
+ *    customer send refused with `MessageRejected` because the account may only
+ *    mail identities we verified ourselves.
+ *
+ * So an environment whose account cannot send keeps whatever provider it
+ * already had, and its three `HOGSEND_EMAIL_*` variables stay inert until a
+ * real, production-access tenancy exists.
+ *
+ * Setting this is NOT unconditionally safe. The engine preset activates on
+ * `HOGSEND_EMAIL_TOKEN`, but it loads `@hogsend/plugin-hogsend` through a
+ * guarded dynamic import that resolves against the APP's node_modules — an
+ * engine-only `optionalDependency` is never linked there, so the preset is
+ * silently skipped and selecting an id the engine cannot resolve throws at
+ * boot, crash-looping the whole stack (not just its sends). The id resolves
+ * only because the stock image's scaffold pins the plugin as a DIRECT
+ * dependency of the app in the image (`scripts/build-default-image.ts`). So
+ * every id this function can select must appear in
+ * `defaultImageProviderIds()` — the paired test asserts exactly that, over
+ * this function's whole input domain, and is what stands between a new
+ * selection here and a fleet that cannot boot.
+ *
+ * Its own function, and exported, because "did we activate a provider that
+ * cannot actually deliver?" deserves a test that does not have to drive a
+ * whole provision to ask.
+ */
+export function emailProviderVars(available: boolean): Record<string, string> {
+  return available ? { EMAIL_PROVIDER: "hogsend" } : {};
+}
+
 async function assembleStackEnv(args: {
   deps: ProvisionDeps;
   context: ProvisionContext;
@@ -1213,6 +1297,15 @@ async function assembleStackEnv(args: {
   namespace: string;
   betterAuthSecret: string;
   studioAdminPassword: string;
+  /** Minted by `provision-ses`, one step earlier. Plaintext, exactly once. */
+  relayToken: string;
+  /** The secret the control plane signs this environment's webhooks with. */
+  emailWebhookSecret: string;
+  /**
+   * Whether the SES tenancy is REAL (minted against AWS) rather than the Fake.
+   * The only thing that may activate Hogsend Email as the sender.
+   */
+  emailAvailable: boolean;
 }): Promise<Record<string, string>> {
   const { deps, context, refs } = args;
 
@@ -1236,6 +1329,19 @@ async function assembleStackEnv(args: {
     // itself — an instance that self-issued an API key would hand anyone who
     // reached it a working credential.
     HOGSEND_BOOTSTRAP_API_KEY: "false",
+    // Hogsend Email (PRD 06). The instance holds a relay token and nothing
+    // else — the AWS credential never leaves the control plane, which is the
+    // entire reason the relay exists rather than scoped IAM keys per stack.
+    //
+    // The ORIGIN, not a path: `plugin-hogsend` appends `/api/email/send` and
+    // `/api/email/send-batch` itself.
+    HOGSEND_EMAIL_RELAY_URL: env.CLOUD_PUBLIC_URL.replace(/\/+$/, ""),
+    HOGSEND_EMAIL_TOKEN: args.relayToken,
+    // What `plugin-hogsend.verifyWebhook` checks, so the instance can tell a
+    // delivery from us apart from anything else that reaches its webhook.
+    HOGSEND_EMAIL_WEBHOOK_SECRET: args.emailWebhookSecret,
+    // ACTIVATION, and only when the tenancy is REAL. See `emailProviderVars`.
+    ...emailProviderVars(args.emailAvailable),
   };
 
   // The engine's first-admin bootstrap: on boot, with the user table EMPTY, it

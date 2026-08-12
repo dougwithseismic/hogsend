@@ -25,6 +25,14 @@ import {
   type StackFailure,
 } from "./enforcement";
 import {
+  type ReconcileOverageResult,
+  type ReportOverageResult,
+  reconcileEmailOverage,
+  reportEmailOverage,
+  type WarnAllowanceResult,
+  warnEmailAllowance,
+} from "./overage";
+import {
   readTenantUsage as defaultReadTenantUsage,
   type TenantUsageReader,
 } from "./tenant-usage";
@@ -386,6 +394,12 @@ export interface BillingSweepResult {
   usage: UsageSweepResult;
   enforcement: EnforcementResult;
   dunning: EnforceDunningResult;
+  /** PRD 09. Absent only if the whole leg failed — see `runBillingSweep`. */
+  email?: {
+    warnings: WarnAllowanceResult;
+    overage: ReportOverageResult;
+    reconciliation: ReconcileOverageResult;
+  };
 }
 
 /**
@@ -400,8 +414,39 @@ export async function runBillingSweep(
   const deps = resolve(overrides);
   const usage = await sweepUsage(deps);
   const enforcement = await enforcePlanLimits(deps);
+  const email = await runEmailUsageBilling(deps);
   const dunning = await new PlanService(deps.db, {
     substrate: deps.substrate,
   }).enforceDunningGrace({ now: deps.now() });
-  return { usage, enforcement, dunning };
+  return { usage, enforcement, dunning, ...(email ? { email } : {}) };
+}
+
+/**
+ * The Hogsend Email leg: warn, bill, reconcile (PRD 09).
+ *
+ * WARN before BILL so a tenant crossing their allowance tonight hears about it
+ * in the same run that charges for it, and RECONCILE last so it judges the
+ * ledger this run just wrote.
+ *
+ * Wrapped whole. A billing provider outage must not cost the fleet its metering
+ * or its dunning enforcement, and every step inside is itself re-runnable — so
+ * the next night repairs what tonight dropped.
+ */
+async function runEmailUsageBilling(
+  deps: MeteringDeps,
+): Promise<BillingSweepResult["email"]> {
+  const overrides = { db: deps.db, now: deps.now };
+  try {
+    return {
+      warnings: await warnEmailAllowance(overrides),
+      overage: await reportEmailOverage(overrides),
+      reconciliation: await reconcileEmailOverage(overrides),
+    };
+  } catch (error) {
+    console.error(
+      "[cloud:metering] email usage billing failed:",
+      reasonOf(error),
+    );
+    return undefined;
+  }
 }

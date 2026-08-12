@@ -18,7 +18,7 @@ PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-rese
 # Opt-in provider plugins (`create-hogsend --with <id>`). NOT scaffold defaults,
 # so deliberately a separate list — release-doctor asserts PACKAGES above stays
 # equal to HOGSEND_PACKAGES + template/_package.json.
-OPT_IN_PLUGINS=(plugin-apollo plugin-postmark plugin-twilio)
+OPT_IN_PLUGINS=(plugin-apollo plugin-hogsend plugin-postmark plugin-twilio)
 
 mkdir -p "$DEST"
 
@@ -28,7 +28,8 @@ mkdir -p "$DEST"
 # workspace resolution is paid once and pnpm parallelizes independent builds.
 pnpm --dir "$REPO_ROOT" --filter @hogsend/studio --filter @hogsend/cli \
   --filter @hogsend/client --filter @hogsend/plugin-apollo \
-  --filter @hogsend/plugin-postmark --filter @hogsend/plugin-twilio \
+  --filter @hogsend/plugin-hogsend --filter @hogsend/plugin-postmark \
+  --filter @hogsend/plugin-twilio \
   build >/dev/null
 
 for pkg in "${PACKAGES[@]}" "${OPT_IN_PLUGINS[@]}"; do

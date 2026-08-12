@@ -5,9 +5,19 @@ be inherited by every derived re-ingest*, because a pin-less re-resolve mints `e
 a row that is strictly WORSE than the ghost it replaces (it collides with identified contacts and
 403s the visitor out of their own feed).
 
-A post-merge verification pass found paths that still mint. Ranked by severity. **None of these are
-fixed yet.** They are engine bugs in the same class as #621 and belong in the same release as the
-identity-model work, not after it.
+A post-merge verification pass found paths that still mint. Ranked by severity. They are engine bugs
+in the same class as #621 and belong in the same release as the identity-model work, not after it.
+
+**Status re-checked 2026-08-12.** R1 is FIXED on `main` — `lib/tracking-events.ts:305` now passes
+`allowCreate: false` on the link-click re-ingest, with the doc comment above it stating the
+inheritance rule. **R2 through R5 and the consumer-side item are still open**, and the cheap half of
+R2 (a comment at `routes/contacts/index.ts:47-49` asserting a guarantee the code does not provide) is
+still worth taking on its own.
+
+This file was deleted wholesale by `feat/hogsend-email` along with the rest of the identity-model
+plan directory. The closed planning docs going is fine; this one is not, because it is the only
+record of R2-R5. Restored deliberately. **Do not delete it again until the items below are closed or
+re-homed as issues.**
 
 ---
 
