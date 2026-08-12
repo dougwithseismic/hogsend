@@ -28,6 +28,13 @@ const WEBHOOK_FANOUT = [
   // comparison RUN-namespacing cannot scope. It needs the same serial
   // barrier (no other file mutating contacts mid-comparison).
   "src/__tests__/admin-impact-global-control.test.ts",
+  // Also not a webhook file, same reason one layer down: the backfill's
+  // "physically untouched" assertions compare Postgres `xmin` (tuple version)
+  // before and after a re-drive, and ANY concurrent write to those rows bumps
+  // xmin. RUN-namespacing scopes the rows this file creates, not the tuple
+  // versions another file's writes advance. Measured 2026-08-12: 3 failures
+  // file-parallel, 20/20 green run alone.
+  "src/__tests__/contact-id-backfill.test.ts",
 ];
 
 export default defineConfig({
@@ -59,8 +66,27 @@ export default defineConfig({
       NODE_ENV: "test",
       PORT: "3002",
       LOG_LEVEL: "error",
-      DATABASE_URL: "postgresql://test:test@localhost:5432/test",
-      REDIS_URL: "redis://localhost:6379",
+      // LAW: these default to the repo's OWN docker-compose services (Postgres
+      // 5434, Redis 6380) so a clean checkout works with nothing exported.
+      //
+      // They used to read `localhost:5432` and `localhost:6379` — neither of
+      // which this repo ever starts. Those are the DEFAULT ports, so on a
+      // developer machine they resolve to whatever else happens to be
+      // listening — measured 2026-08-12, port 5432 on this machine was an
+      // unrelated project's Postgres container, and the suite was quietly
+      // connecting to it. That is how a clean `origin/main` failed 27 tests
+      // locally while CI was green.
+      //
+      // `test.env` OVERRIDES the ambient process.env (measured, not assumed —
+      // an exported DATABASE_URL does NOT win), so an exported var cannot be
+      // the escape hatch and a dedicated one is required. Hence
+      // HOGSEND_TEST_DATABASE_URL / HOGSEND_TEST_REDIS_URL, mirroring the cloud
+      // suite's HOGSEND_CLOUD_TEST_DATABASE_URL: point the suite at a throwaway
+      // Postgres when several sessions contend for 5434.
+      DATABASE_URL:
+        process.env.HOGSEND_TEST_DATABASE_URL ??
+        "postgresql://growthhog:growthhog@localhost:5434/growthhog",
+      REDIS_URL: process.env.HOGSEND_TEST_REDIS_URL ?? "redis://localhost:6380",
       BETTER_AUTH_SECRET: "test-secret-for-vitest-minimum-32-characters-long",
       BETTER_AUTH_URL: "http://localhost:3002",
       RESEND_API_KEY: "re_test_000000000000000000000000",

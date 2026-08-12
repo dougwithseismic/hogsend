@@ -68,7 +68,12 @@ jobs:
       # tests (e.g. the password-reset e2e) have a reachable Redis.
       redis:
         image: redis:8-alpine
-        ports: ["6379:6379"]
+        # 6380 like the local docker-compose, NOT the default 6379. The Postgres
+        # service above already mirrors compose's port; Redis did not, so the
+        # two environments disagreed and a test config could only be right in
+        # one of them. Same port both places means a default that works here
+        # works on a laptop, with nothing exported.
+        ports: ["6380:6379"]
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
@@ -76,7 +81,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://growthhog:growthhog@localhost:5434/growthhog
-      REDIS_URL: redis://localhost:6379
+      REDIS_URL: redis://localhost:6380
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
