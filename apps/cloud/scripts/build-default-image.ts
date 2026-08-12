@@ -23,6 +23,7 @@
  * Requires docker on the host. With no `CLOUD_IMAGE_REGISTRY` the image stays
  * local and the push is a logged no-op (dev).
  */
+import { realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,38 @@ import { pathExists, runPreflight } from "../src/pipeline/build";
 
 /** The directory name the scaffold is generated into. Never user-visible. */
 const APP_NAME = "hogsend-default";
+
+/**
+ * The argv `scaffold()` hands create-hogsend after the app name. Exported so
+ * the suite can assert on it without docker or a real scaffold (see
+ * `provision-pipeline.test.ts`, beside the `emailProviderVars` test it pairs
+ * with).
+ *
+ * `--with hogsend` is LOAD-BEARING. Provisioning sets `EMAIL_PROVIDER=hogsend`
+ * on every stack with a real SES tenancy (`emailProviderVars`), and the
+ * engine resolves that id through a guarded dynamic
+ * `import("@hogsend/plugin-hogsend")` against the APP's node_modules —
+ * `@hogsend/plugin-hogsend` is an opt-in scaffold plugin, deliberately absent
+ * from the template's defaults, and an engine-only `optionalDependency` is
+ * never linked at the app's top level (#611). Only this flag makes the
+ * generated app carry the plugin as a DIRECT dependency; drop it and every
+ * fresh stack throws `email provider "hogsend" is not registered` at boot and
+ * crash-loops. (The create-hogsend smoke deliberately does NOT scaffold with
+ * it — hogsend's env block appends to `.env.example`, which would break that
+ * smoke's byte-identity diff. This scaffold has no such check.)
+ */
+export const DEFAULT_IMAGE_SCAFFOLD_ARGS: readonly string[] = [
+  "--yes",
+  "--pm",
+  "pnpm",
+  "--no-install",
+  "--no-setup",
+  "--no-git",
+  "--no-skills",
+  "--no-posthog",
+  "--with",
+  "hogsend",
+];
 
 interface Options {
   /** Override the version read from the scaffold. */
@@ -88,7 +121,8 @@ function createHogsendDir(): string {
  * clean checkout works without a build step. Everything optional is turned off:
  * no install (the Dockerfile resolves dependencies itself), no local setup (it
  * wants Docker services), no git, no skills — this image is a runtime, not a
- * workspace.
+ * workspace. The ONE opt-in is `--with hogsend`, which the image cannot boot
+ * without (see `DEFAULT_IMAGE_SCAFFOLD_ARGS`).
  */
 async function scaffold(workRoot: string): Promise<string> {
   const packageDir = createHogsendDir();
@@ -104,18 +138,7 @@ async function scaffold(workRoot: string): Promise<string> {
   );
   const result = await spawnExec(
     command,
-    [
-      ...prefix,
-      APP_NAME,
-      "--yes",
-      "--pm",
-      "pnpm",
-      "--no-install",
-      "--no-setup",
-      "--no-git",
-      "--no-skills",
-      "--no-posthog",
-    ],
+    [...prefix, APP_NAME, ...DEFAULT_IMAGE_SCAFFOLD_ARGS],
     { cwd: workRoot, onOutput: stream },
   );
   if (result.code !== 0) {
@@ -213,9 +236,28 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(
-    `✗ ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exit(1);
-});
+/**
+ * Whether this file is the process entry point (`pnpm build:default-image` →
+ * tsx). The module is ALSO imported by the test suite to assert on
+ * `DEFAULT_IMAGE_SCAFFOLD_ARGS`, and an import must never kick off a docker
+ * build. Realpath BOTH sides: macOS hands out symlinked paths (`/tmp` →
+ * `/private/tmp`), and a naive string compare would silently no-op the script.
+ */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  main().catch((error: unknown) => {
+    process.stderr.write(
+      `✗ ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  });
+}

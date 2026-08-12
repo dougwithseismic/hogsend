@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_IMAGE_SCAFFOLD_ARGS } from "../../scripts/build-default-image";
 import { db, sqlClient } from "../db";
 import { runCloudMigrations } from "../db/migrator";
 import {
@@ -1325,5 +1326,20 @@ describe("emailProviderVars", () => {
     // because nobody notices it.
     expect(emailProviderVars(true)).toEqual({ EMAIL_PROVIDER: "hogsend" });
     expect(emailProviderVars(false)).toEqual({});
+  });
+
+  it("is satisfiable by the stock image: its scaffold argv carries --with hogsend", () => {
+    // `emailProviderVars(true)` selects EMAIL_PROVIDER=hogsend on every stack
+    // with a real SES tenancy — but the engine resolves that id through a
+    // guarded dynamic `import("@hogsend/plugin-hogsend")` against the APP's
+    // node_modules, and the plugin is an OPT-IN scaffold plugin, deliberately
+    // absent from the template's defaults. The id therefore resolves ONLY
+    // because the default image's scaffold passes `--with hogsend` and the
+    // generated app carries the plugin as a DIRECT dependency. Drop the flag
+    // and every fresh stack boots into `email provider "hogsend" is not
+    // registered` and crash-loops until health-wait gives up.
+    const flag = DEFAULT_IMAGE_SCAFFOLD_ARGS.indexOf("--with");
+    expect(flag).toBeGreaterThan(-1);
+    expect(DEFAULT_IMAGE_SCAFFOLD_ARGS[flag + 1]).toBe("hogsend");
   });
 });

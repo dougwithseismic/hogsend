@@ -1251,10 +1251,15 @@ async function mintTenantCredentials(args: {
  * and its three `HOGSEND_EMAIL_*` variables stay inert until a real tenancy
  * exists.
  *
- * Setting this at all is safe only because the engine preset now exists: it
- * registers the provider whenever `HOGSEND_EMAIL_TOKEN` is present, so the id
- * always resolves. Selecting one the engine cannot resolve throws at boot,
- * which is why this waited rather than shipping with the provisioning step.
+ * Setting this is NOT unconditionally safe. The engine preset activates on
+ * `HOGSEND_EMAIL_TOKEN`, but it loads `@hogsend/plugin-hogsend` through a
+ * guarded dynamic import that resolves against the APP's node_modules — an
+ * engine-only `optionalDependency` is never linked there, so the preset is
+ * silently skipped and selecting an id the engine cannot resolve throws at
+ * boot, crash-looping the whole stack (not just its sends). The id resolves
+ * only because the default image's scaffold passes `--with hogsend`
+ * (`scripts/build-default-image.ts`), making the plugin a DIRECT dependency
+ * of the app in the image — the paired regression test asserts that argv.
  *
  * Its own function, and exported, because "did we activate a provider that
  * cannot actually deliver?" deserves a test that does not have to drive a
