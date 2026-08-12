@@ -13,7 +13,7 @@ import type {
   TemplateName,
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { assertAttachmentsSendable } from "./attachments.js";
 import type { DomainStatusService } from "./domain-status.js";
@@ -479,26 +479,38 @@ export function createTrackedMailer(
         // provider with native tracking left ON.
         await updateEmailStatus(event.type, event.messageId);
         break;
-      case "email.bounced":
+      case "email.bounced": {
         // `bounce.class` is stored in `bounceType`, the human reason in
         // `bounceReason`. Soft/transient bounces are recorded here too (status
         // `bounced`, `class:'transient'`) — the old transient →
         // `email.delivery_delayed` no-op is gone.
-        await updateEmailStatus(event.type, event.messageId, {
-          bounceType: event.bounce?.class,
-          bounceReason: event.bounce?.reason,
-        });
-        // OUTBOUND `email.bounced` with the bounce detail (class + reason).
-        await emitProviderEmailEvent("email.bounced", event.messageId, {
-          bounceType: event.bounce?.class,
-          bounceReason: event.bounce?.reason,
-        });
-        // Suppress (increment bounceCount toward threshold) ONLY on a permanent
-        // bounce. Transient/unknown are recorded but never auto-suppress.
-        if (event.bounce?.class === "permanent") {
-          await handleBounce(event.recipients);
+        //
+        // The status write is a FIRST-TRANSITION CLAIM, not a plain SET, and
+        // everything with a SIDE EFFECT hangs off whether it claimed. SNS is
+        // at-least-once and the control plane re-drives a `pending` event row
+        // after 60s so a bounce is never lost, so the same bounce reaches here
+        // more than once — and with `bounceThreshold` at 3, three redeliveries
+        // of ONE bounce would permanently suppress a perfectly deliverable
+        // address, silently, with nothing the customer could undo. The emit is
+        // gated for the same reason: a redelivery must not double-fire a
+        // customer's destination or a journey waiting on `email.bounced`.
+        const claim = await claimBounce(event);
+        // `unrecorded` counts — see claimBounce. Only a proven duplicate stops.
+        if (claim !== "duplicate") {
+          // OUTBOUND `email.bounced` with the bounce detail (class + reason).
+          await emitProviderEmailEvent("email.bounced", event.messageId, {
+            bounceType: event.bounce?.class,
+            bounceReason: event.bounce?.reason,
+          });
+          // Suppress (increment bounceCount toward threshold) ONLY on a
+          // permanent bounce. Transient/unknown are recorded but never
+          // auto-suppress.
+          if (event.bounce?.class === "permanent") {
+            await handleBounce(event.recipients);
+          }
         }
         break;
+      }
       case "email.complained":
         await updateEmailStatus(event.type, event.messageId);
         // OUTBOUND `email.complained` — the provider webhook is the SINGLE
@@ -565,6 +577,81 @@ export function createTrackedMailer(
       return [];
     }
     return unique;
+  }
+
+  /**
+   * The outcome of trying to CLAIM a bounce for its send row.
+   *
+   *  - `first` — this delivery is the one that moved the send into this bounce
+   *    state. Count it, emit it.
+   *  - `duplicate` — the send is already in this bounce state, so a previous
+   *    delivery already counted and emitted. Do neither again.
+   *  - `unrecorded` — no `email_sends` row carries this `messageId` at all, so
+   *    there is no send-scoped state to dedupe against. See {@link claimBounce}.
+   */
+  type BounceClaim = "first" | "duplicate" | "unrecorded";
+
+  /**
+   * Claim a bounce for its send, exactly once per (send, bounce).
+   *
+   * The mechanism is the codebase's existing first-transition idiom — the
+   * `WHERE clickedAt IS NULL` of `routes/tracking/click-pipeline.ts` — applied
+   * to the bounce leg: the status write carries a guard, and only the delivery
+   * whose UPDATE actually matched a row gets to count and emit. A redelivery
+   * matches nothing, writes nothing, and returns `duplicate`. It is one
+   * statement, so two redeliveries racing each other still produce one winner.
+   *
+   * The guard admits ONE escalation, deliberately. A PERMANENT bounce is
+   * refused only by a send already marked permanent (`bounce_type IS DISTINCT
+   * FROM 'permanent'`, NULL-safe), so a soft bounce recorded first cannot
+   * shield the hard bounce that follows it on the same message — that would
+   * silently disable suppression for exactly the addresses that need it. Every
+   * other class claims only the first bounce of any kind (`bounced_at IS
+   * NULL`): they never count, and the guard is there to stop the emit
+   * double-firing.
+   *
+   * WHEN NO ROW MATCHES (`unrecorded`) THE BOUNCE STILL COUNTS. That is the
+   * deliberate choice, not an oversight: `sendRaw` writes no `email_sends` row
+   * at all, and a provider webhook can outrun the send row's commit, so "no
+   * matching row" is a REAL bounce we simply hold no state for. Dropping it
+   * would turn a fix for double-counting into a silent hole in suppression for
+   * those addresses, which is the worse failure. The residual is that a
+   * REDELIVERED bounce for an unrecorded send is still counted twice — there is
+   * nothing to key on — so it is logged rather than hidden. (The emit does not
+   * double-fire there: it resolves its context from the same missing row and
+   * no-ops.)
+   */
+  async function claimBounce(event: EmailEvent): Promise<BounceClaim> {
+    // No db configured: there is no send row to claim, and both `handleBounce`
+    // and `emitProviderEmailEvent` no-op without one anyway.
+    if (!db) return "unrecorded";
+
+    const guard =
+      event.bounce?.class === "permanent"
+        ? sql`${emailSends.bounceType} is distinct from ${"permanent"}`
+        : isNull(emailSends.bouncedAt);
+
+    const claimed = await updateEmailStatus(
+      "email.bounced",
+      event.messageId,
+      { bounceType: event.bounce?.class, bounceReason: event.bounce?.reason },
+      guard,
+    );
+    if (claimed > 0) return "first";
+
+    // Nothing matched: either the send is already in this bounce state, or we
+    // never recorded the send. Only the second may count, so tell them apart.
+    const recorded = await resolveEmailSendContextByMessageId(
+      db,
+      event.messageId,
+    );
+    if (recorded) return "duplicate";
+
+    (config.logger ?? emitLogger).warn(
+      "bounce for an unrecorded send: counted without send-scoped dedupe",
+      { messageId: event.messageId },
+    );
+    return "unrecorded";
   }
 
   async function handleBounce(recipients: string[]): Promise<void> {
@@ -755,12 +842,23 @@ export function createTrackedMailer(
     });
   }
 
+  /**
+   * Write the send's status for a provider webhook. Returns how many rows the
+   * statement wrote, which only the guarded caller reads.
+   *
+   * `guard` is an EXTRA predicate ANDed onto the message-id match, which turns
+   * the plain SET into a first-transition claim (see {@link claimBounce}).
+   * Ungarded — every caller but the bounce leg — the write stays a plain SET
+   * and so stays replay-safe by writing the same values again. Open/click in
+   * particular pass no guard on purpose: their per-hit write is deliberate.
+   */
   async function updateEmailStatus(
     eventType: EmailEventType,
     messageId: string,
     extra?: { bounceType?: string; bounceReason?: string },
-  ): Promise<void> {
-    if (!db) return;
+    guard?: SQL,
+  ): Promise<number> {
+    if (!db) return 0;
 
     const timestampField = WEBHOOK_TO_STATUS_FIELD[eventType];
     const status = WEBHOOK_TO_STATUS[eventType];
@@ -768,9 +866,9 @@ export function createTrackedMailer(
     // optional. `email.rejected` has a status and no column of its own, and
     // borrowing `bouncedAt` for it would quietly fold every reject into the
     // bounce-rate reads. Every other type still writes both.
-    if (!status) return;
+    if (!status) return 0;
 
-    await db
+    const written = await db
       .update(emailSends)
       .set({
         status: status as typeof emailSends.$inferSelect.status,
@@ -779,7 +877,14 @@ export function createTrackedMailer(
         ...(extra?.bounceReason ? { bounceReason: extra.bounceReason } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(emailSends.messageId, messageId));
+      .where(
+        guard
+          ? and(eq(emailSends.messageId, messageId), guard)
+          : eq(emailSends.messageId, messageId),
+      )
+      .returning({ id: emailSends.id });
+
+    return written.length;
   }
 
   return service;

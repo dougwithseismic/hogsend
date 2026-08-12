@@ -70,6 +70,24 @@ interface SendRow {
  * `selectRows` is what the message-id lookup returns: `[]` models a reply that
  * correlates to nothing, which is the uncorrelated case the EARS names.
  */
+/**
+ * A resolved statement that also answers `.returning()`, like drizzle's
+ * builder. The bounce leg claims its send with a guarded `UPDATE ... RETURNING`
+ * (see `claimBounce`), so the recorder has to model the row it matched: one
+ * row = "a real send that had not bounced yet", which is what the bounce
+ * control below assumes.
+ */
+function settled(): Promise<{ id: string }[]> & {
+  returning: () => Promise<{ id: string }[]>;
+} {
+  const rows = [{ id: "send-row-uuid" }];
+  const promise = Promise.resolve(rows) as Promise<{ id: string }[]> & {
+    returning: () => Promise<{ id: string }[]>;
+  };
+  promise.returning = () => Promise.resolve(rows);
+  return promise;
+}
+
 function recordingDb(selectRows: SendRow[] = []): {
   db: Database;
   updates: RecordedUpdate[];
@@ -82,7 +100,7 @@ function recordingDb(selectRows: SendRow[] = []): {
       return {
         set(values: Record<string, unknown>) {
           updates.push({ table, values });
-          return { where: () => Promise.resolve([]) };
+          return { where: () => settled() };
         },
       };
     },

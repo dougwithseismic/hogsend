@@ -41,6 +41,24 @@ interface RecordedUpdate {
   values: Record<string, unknown>;
 }
 
+/**
+ * A resolved statement that also answers `.returning()`, like drizzle's
+ * builder. The bounce leg claims its send with a guarded `UPDATE ... RETURNING`
+ * (see `claimBounce`), so the recorder has to model the row it matched: one
+ * row = "a real send that had not bounced yet", which is what every bounce
+ * control below assumes.
+ */
+function settled(): Promise<{ id: string }[]> & {
+  returning: () => Promise<{ id: string }[]>;
+} {
+  const rows = [{ id: "send-row-uuid" }];
+  const promise = Promise.resolve(rows) as Promise<{ id: string }[]> & {
+    returning: () => Promise<{ id: string }[]>;
+  };
+  promise.returning = () => Promise.resolve(rows);
+  return promise;
+}
+
 function recordingDb(): { db: Database; updates: RecordedUpdate[] } {
   const updates: RecordedUpdate[] = [];
   const db = {
@@ -48,7 +66,7 @@ function recordingDb(): { db: Database; updates: RecordedUpdate[] } {
       return {
         set(values: Record<string, unknown>) {
           updates.push({ table, values });
-          return { where: () => Promise.resolve([]) };
+          return { where: () => settled() };
         },
       };
     },
