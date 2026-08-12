@@ -40,13 +40,19 @@ const APP_NAME = "hogsend-default";
 /**
  * The repository this image is built from, stated as an OCI label.
  *
- * Not decoration. GHCR grants a repository's `GITHUB_TOKEN` write access to a
- * package only when the package is LINKED to that repository, and pushing an
- * image carrying `org.opencontainers.image.source` is what establishes the
- * link. Without it the release workflow dies on `denied: permission_denied:
- * write_package` after a clean build and a passing preflight — measured on run
- * 31619850840 (2026-08-12), which published all 25 packages to npm and then
- * failed to publish the image they are supposed to boot in.
+ * GHCR grants a repository's `GITHUB_TOKEN` write access to a package only when
+ * the package is LINKED to that repository. Unlinked, the release workflow dies
+ * on `denied: permission_denied: write_package` after a clean build and a
+ * passing preflight — run 31619850840 (2026-08-12) published all 25 packages to
+ * npm and then failed to publish the image they are supposed to boot in.
+ *
+ * `org.opencontainers.image.source` is the label GHCR reads to establish that
+ * link. MEASURED LIMIT: pushing it does NOT retro-link a package that already
+ * exists unlinked — `hogsend-default` still reported no repository after a
+ * labelled push on 2026-08-12. An existing package has to be linked once by
+ * hand (package settings → Manage Actions access → add the repo with Write).
+ * The label is what keeps the NEXT package from needing that at all, and what
+ * records provenance on the image either way.
  *
  * It lives here rather than in `template/Dockerfile` because it is true of THIS
  * build and false of every app scaffolded from that template: a tenant's image
