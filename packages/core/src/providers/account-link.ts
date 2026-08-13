@@ -315,3 +315,174 @@ export function defineAccountLink(
 
   return provider;
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — the IN-PROCESS plane
+//
+// Three planes reach a consumer and each does a job the other two cannot: the
+// PULL plane (`/v1/accounts/*`) is authoritative, the PUSH plane (outbound
+// webhooks) is the at-least-once mirror feed, and these hooks are the only
+// place a VETO can live and the only place an in-band write to the consumer's
+// own database can happen. They are NOT a delivery mechanism.
+// ---------------------------------------------------------------------------
+
+/**
+ * What `beforeLink` sees. Built by the engine AFTER the provider has proven
+ * control of the platform account and BEFORE anything is written.
+ *
+ * `userId` and `email` are NOT looked up by the hook runner: the store reads
+ * them via a join to `contacts` inside the same advisory-locked transaction and
+ * hands them over, so nothing re-reads the database at hook time.
+ */
+export interface BeforeLinkContext {
+  provider: string;
+  /** The identity the provider PROVED. A reported email is never a key. */
+  identity: LinkedIdentity;
+  /**
+   * NULL on the COLD path, where no contact exists yet.
+   *
+   * This is `string | null`, not `string`, because `beforeLink` runs strictly
+   * BEFORE any write and is FAIL-CLOSED. On the cold path (`/start` with an
+   * `anonymous_id`) the contact has not been resolved yet, so a required
+   * `string` could only be satisfied by minting the contact before the veto —
+   * which leaves a ghost contact behind every rejected link and puts a write in
+   * front of a security hook — or by passing a placeholder, which lies to that
+   * hook. Both are worse than a nullable field. A hook that wants to refuse
+   * anonymous links refuses on `contactId === null`.
+   */
+  contactId: string | null;
+  /**
+   * The browser anonymous key the cold path is binding to. Set iff
+   * `contactId === null`. Exactly one of the two is present.
+   */
+  anonymousId?: string;
+  /**
+   * The canonical contact key `contactKey()`
+   * (`external_id ?? anonymous_id ?? id`). Null on the cold path. This is the
+   * SAME definition the outbound payloads and the SDK use for `userId` — never
+   * a raw `externalId` — so a consumer can join the PULL, PUSH and IN-PROCESS
+   * planes on one value.
+   */
+  userId: string | null;
+  /** The contact's OWN email, null when it has none. Never the provider's. */
+  email: string | null;
+  /**
+   * Set when a DIFFERENT contact currently owns this platform account, so a
+   * hook can refuse a takeover its own product rules forbid.
+   */
+  currentOwnerContactId?: string;
+}
+
+/**
+ * An EXPLICIT verdict from `beforeLink`. `allow: false` rejects the link and
+ * `reason` is recorded with the failure; it is operator-facing, so it must not
+ * carry a token or anything else secret.
+ */
+export interface BeforeLinkVerdict {
+  allow: boolean;
+  reason?: string;
+}
+
+/**
+ * What `beforeLink` may return.
+ *
+ * **A `void` / `undefined` return means ALLOW.** The hook ran to completion and
+ * raised no objection, which is the only reading that lets a side-effect-only
+ * hook (log a row, warm a cache) exist without accidentally vetoing every link.
+ * Denial is therefore never implicit: it is either an EXPLICIT
+ * `{ allow: false }` or a FAILURE (a throw, or exceeding
+ * {@link ACCOUNT_LINK_HOOK_TIMEOUT_MS}). Fail-closed lives on the failure
+ * channel, not on the success channel, so neither `undefined` nor a forgotten
+ * `return` can silently flip a decision in either direction.
+ *
+ * The `void` arm is load-bearing and `undefined` cannot replace it: TypeScript
+ * does not accept a `() => void` where `() => undefined` is required, so a hook
+ * written as `beforeLink: () => { log(ctx); }` would stop compiling and every
+ * side-effect-only veto hook would have to write an explicit `return undefined`.
+ */
+export type BeforeLinkResult =
+  | BeforeLinkVerdict
+  // biome-ignore lint/suspicious/noConfusingVoidType: see the note above — a `() => void` hook must be assignable here.
+  | void;
+
+/** What `afterLink` sees. Post-commit, so the link row exists and is durable. */
+export interface AfterLinkContext extends BeforeLinkContext {
+  /** Post-commit, so the contact is always resolved by now. */
+  contactId: string;
+  method: "oauth" | "import";
+  /** True when this link MOVED the platform account off another contact. */
+  relink: boolean;
+  /**
+   * The `linked_accounts.version` bigint, as a STRING. It exceeds
+   * `Number.MAX_SAFE_INTEGER`, so it is NEVER a JS `number` and never arrives
+   * via `parseInt` — a silently-rounded version breaks the consumer's
+   * `incoming > stored` guard in exactly the case that guard exists for. A hook
+   * comparing versions compares them as `BigInt(a) > BigInt(b)`.
+   */
+  version: string;
+  /** ISO 8601 with offset. */
+  at: string;
+}
+
+/**
+ * What `afterUnlink` sees. Deliberately NOT an extension of
+ * {@link BeforeLinkContext}: an unlink proves nothing about a platform account,
+ * so there is no {@link LinkedIdentity} to carry — only the pair that was
+ * unlinked.
+ */
+export interface AfterUnlinkContext {
+  provider: string;
+  providerUserId: string;
+  contactId: string;
+  /** `contactKey()`, same definition as {@link BeforeLinkContext.userId}. */
+  userId: string | null;
+  /** The contact's own email, null when it has none. */
+  email: string | null;
+  /**
+   * Why the link went away. `"relinked"` is the second half of a move: the
+   * platform account was taken by another contact, and this fires with the
+   * `"linked"` for the new owner.
+   */
+  reason: "player" | "api" | "relinked";
+  /** Bigint version as a STRING, exactly as on {@link AfterLinkContext}. */
+  version: string;
+  /** ISO 8601 with offset. */
+  at: string;
+}
+
+/**
+ * POSTURES — these are contract, not implementation detail:
+ *
+ * - `beforeLink` is BLOCKING, bounded by {@link ACCOUNT_LINK_HOOK_TIMEOUT_MS},
+ *   and FAIL-CLOSED. A throw, a timeout, or an explicit `{ allow: false }` all
+ *   reject the link. A veto hook that fails open is not a veto hook. Returning
+ *   nothing ALLOWS — see {@link BeforeLinkResult}.
+ * - `afterLink` / `afterUnlink` run POST-COMMIT, are AT-LEAST-ONCE (so they
+ *   must be idempotent), are FAIL-OPEN, and are bounded by the same 5s. A throw
+ *   is LOGGED and NEVER unwinds the link — the row is already committed — and a
+ *   timeout does not stop the success page rendering. `afterLink` runs BEFORE
+ *   that page renders (bounded) so "you now have your reward" is true when the
+ *   player reads it.
+ *
+ * These are IN-PROCESS hooks, NOT a delivery mechanism: a throw does not retry,
+ * and a process that dies mid-hook simply loses the call. Anything that must
+ * not be missed belongs on the outbound webhooks (retried, deduped) or on a
+ * pull reconcile against `/v1/accounts/*`, which is authoritative.
+ *
+ * There is exactly ONE invoker — the link store, post-commit — so no route,
+ * page or SDK path may also call them, or every hook would fire twice.
+ * `beforeLink` is the callback's, pre-write.
+ */
+export interface AccountLinkHooks {
+  beforeLink?(
+    ctx: BeforeLinkContext,
+  ): Promise<BeforeLinkResult> | BeforeLinkResult;
+  afterLink?(ctx: AfterLinkContext): Promise<void> | void;
+  afterUnlink?(ctx: AfterUnlinkContext): Promise<void> | void;
+}
+
+/**
+ * The single bound every hook runs under, in the zero-dependency package so the
+ * engine and the docs quote ONE number rather than drifting apart.
+ */
+export const ACCOUNT_LINK_HOOK_TIMEOUT_MS = 5_000;
