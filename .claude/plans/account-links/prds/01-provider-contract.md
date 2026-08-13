@@ -562,3 +562,29 @@ real Steam or Twitch credential. The credentials seam lands in PRD 06/07.
 - [ ] One conventional commit, e.g. `feat(core): add defineAccountLink contract and presets`.
 
 ## Implementation Notes
+
+Shipped in four commits: `5bdf91d2` (T1 contract), `e1e2a570` (T2 hooks), `e82a9dc7` (T3/T4
+presets), `2ab4693a` (T5/T6 exports, schemas, changeset). 229 tests pass across `packages/core`;
+`tsc --noEmit` clean in both `packages/core` and `packages/engine`.
+
+Deviations and decisions taken during the build:
+
+- **Presets live in their own module** (`providers/account-link-presets.ts`, 572 lines) rather than
+  appended to `account-link.ts`. The contract module stays readable and the presets carry their own
+  fixture-driven test file.
+- **`userInfo.headers` merge order**: config headers are spread FIRST so the bearer token wins any
+  key collision. A misconfigured `Authorization` in `userInfo.headers` cannot override the real one.
+- **Schema/type drift is prevented by bidirectional type-equality assertions** rather than deriving
+  one from the other, so a divergence fails to compile.
+- **Type-level tests use `@ts-expect-error` (5 sites)**, which is self-guarding: widening a type
+  (e.g. `version` to `string | number`) makes the expected error disappear and `tsc` then fails on
+  the unused directive. This is why T2 needed no runtime guards.
+
+**Gate trap discovered here, applies to every later PRD.** `pnpm check-types` at the repo root
+returned FULL TURBO with 53/53 cached on a change that added new files: turbo hashes git-tracked
+files, and an uncommitted new file never moves the cache key, so nothing was type-checked. Run
+`tsc --noEmit` directly in the affected package instead. Every delivery brief from T2 onward says so.
+
+**Mutation checks performed by the orchestrator, not just claimed by the builder.** Neutering the
+`onConflict` guard failed exactly 1 test; neutering the Steam `openid.op_endpoint` check failed
+exactly 1 test. Both restored green afterwards.
