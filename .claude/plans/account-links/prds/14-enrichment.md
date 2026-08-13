@@ -468,7 +468,9 @@ provider so the entire path is green with no secrets, mark the PRD `[~]`, and ke
 
 The exact human ask for THIS PRD:
 - **`STEAM_WEB_API_KEY`**, a Steam Web API key from `https://steamcommunity.com/dev/apikey`. This is
-  the only credential T8 needs; the Steam sync read is a public read and needs no player token.
+  the only credential T8 needs; the Steam sync read is a public read and needs no player token. It is
+  a genuine requirement HERE (no key ⇒ no `sync` capability ⇒ nothing for the cron to do) even though
+  it is optional for linking itself — see PRD 06's provider matrix.
 - **Twitch** sync reads need the OAuth app client id + secret already enumerated by PRD 06/07/16;
   this PRD adds no new ask beyond what those already request. Discord is out of v1 (DECISIONS §12)
   and needs nothing here.

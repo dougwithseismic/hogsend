@@ -88,7 +88,7 @@ Declared in `packages/engine/src/env.ts` inside the `createEnv({ server: { … }
 | --- | --- |
 | `ACCOUNT_LINK_TWITCH_CLIENT_ID` | Twitch app client id (also sent as the `Client-Id` header on Helix, via `userInfo.headers` from PRD 01 T3) |
 | `ACCOUNT_LINK_TWITCH_CLIENT_SECRET` | Twitch app client secret |
-| `STEAM_WEB_API_KEY` | Steam Web API key. Enables the Steam provider AND its profile pull |
+| `STEAM_WEB_API_KEY` | OPTIONAL. Steam Web API key. Adds the profile pull (persona, avatar) and the PRD 14 playtime sync. It does NOT enable the provider — Steam login is OpenID 2.0 and presents no credential, so the provider registers without it |
 | `ACCOUNT_LINK_ALLOWED_ORIGINS` | csv of absolute origins (`https://play.example.com,https://www.example.com`). The ONE allowlist governing both `returnTo` (PRD 07) and `postMessage` `targetOrigin` (PRD 10). Unset ⇒ empty list ⇒ no `returnTo` accepted and `postMessage` is not attempted. A malformed entry THROWS at boot; see T3 |
 | `ACCOUNT_LINK_STATE_TTL_SECONDS` | Optional. State/PKCE TTL. `z.coerce.number().int().positive().default(900)`, matching the 900s window the connector nonce burn already assumes (`routes/connectors/index.ts:139`) |
 
@@ -111,6 +111,10 @@ providers.
 - WHEN `createHogsendClient()` is called with no `accountLinks` option and no `ACCOUNT_LINK_*` /
   `STEAM_WEB_API_KEY` env, the system SHALL expose `client.accountLinkProviders.count() === 0` and
   `client.accountLinkHooks` deep-equal to `{}`, and SHALL NOT log a warning.
+  **Scope note:** this criterion describes PRD 05 IN ISOLATION, where no env presets exist yet. Once
+  PRD 06 lands, the steady state of an empty env is `count() === 1` (steam, which needs no
+  credential — see PRD 06's provider matrix). PRD 06 owns updating this assertion; do not write a
+  test here that PRD 06 must then delete.
 - WHEN a consumer passes a provider through `accountLinks.providers` whose `meta.id` collides with an
   env preset (added by PRD 06), the system SHALL keep the CONSUMER provider (last-writer-wins),
   mirroring `EmailProviderRegistry.register` (`lib/email-provider-registry.ts:30-32`).

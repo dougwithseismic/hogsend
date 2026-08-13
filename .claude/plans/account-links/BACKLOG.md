@@ -36,10 +36,15 @@ Branch `feat/account-links`, worktree `.claude/worktrees/account-links`, branche
 the store, the merge fix, the wiring and the providers, with no public route surface yet. 07 to 09
 open the flow and the data plane. 10 onward are surfaces on top.
 
-**The known seam (PRD 07, 16).** Real OAuth credentials for Steam and Twitch. Every provider gets a
-deterministic Fake so the whole flow is testable end to end without them; the human ask is a Steam
-Web API key and a Twitch app client id + secret, plus the redirect URIs registered against this
-deployment's `API_PUBLIC_URL`. Build to the seam, mark `[~]`, keep going.
+**The known seam (PRD 07, 16).** Real credentials for **Twitch only**. Every provider gets a
+deterministic Fake so the whole flow is testable end to end without them; the human ask is a Twitch
+app client id + secret with the redirect URI registered against this deployment's `API_PUBLIC_URL`.
+Build to the seam, mark `[~]`, keep going.
+
+**Steam is NOT a seam.** "Sign in through Steam" is OpenID 2.0 — the relying party presents no
+credential, so there is no app to register and no secret to obtain. The provider registers on a bare
+deploy and links for real. `STEAM_WEB_API_KEY` is optional and widens the provider (persona name,
+avatar, and the PRD 14 playtime sync); it is a hard requirement only inside PRD 14.
 
 **Owed as a SEPARATE ticket, not this stack** (DECISIONS §16): delete the dead OTP machinery
 (`lib/connector-link-codes.ts` and the `connector_link_codes` table, retired but still exported), and

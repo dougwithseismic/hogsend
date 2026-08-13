@@ -78,7 +78,8 @@ Heading outline, in order:
   their defaults on an aligned trailing `#`:
   ```
   API_PUBLIC_URL=https://api.yourgame.com      # must NOT be loopback; redirect URIs derive from it
-  STEAM_WEB_API_KEY=xxxxxxxx                   # Steam: OpenID realm + public Web API reads
+  # STEAM_WEB_API_KEY=xxxxxxxx                 # optional: adds persona, avatar, playtime. Steam
+                                               #   login itself needs NO credential (OpenID 2.0)
   # ACCOUNT_LINK_TWITCH_CLIENT_ID=…           # only if you enable the Twitch provider
   # ACCOUNT_LINK_TWITCH_CLIENT_SECRET=…
   # ACCOUNT_LINK_ALLOWED_ORIGINS=https://play.yourgame.com   # required for the embed SDK
@@ -238,9 +239,10 @@ together (`8e57f4dc`). There is no sync script, and the mdx is a friendlier rewr
 _Boundary:_ `apps/api`
 _Depends:_ PRD 05, PRD 06, T1
 
-**Steam is the provider to wire, and the choice is deliberate.** It needs exactly one operator
-secret (`STEAM_WEB_API_KEY`), no OAuth app, no client secret and no redirect URI registration, so
-the dogfood proof is reachable with the smallest human ask in the whole stack. It also exercises the
+**Steam is the provider to wire, and the choice is deliberate.** It needs NO operator secret at all
+to link: "Sign in through Steam" is OpenID 2.0, so there is no OAuth app, no client secret and no
+redirect URI registration. `STEAM_WEB_API_KEY` is optional and only adds display properties plus the
+PRD 14 sync. The dogfood proof is therefore reachable with a zero human ask. It also exercises the
 hardest path: the bespoke OpenID 2.0 `check_authentication` round-trip and the token-free property
 sync leg. Twitch is the only other v1 provider and needs an OAuth app, a client secret and a
 registered redirect URI, so it is documented in T1 but not wired here. Discord is not an
@@ -275,8 +277,8 @@ account-link provider at all (DECISIONS §12): it links through `plugin-discord`
   the inert-when-unconfigured posture; match it:
   ```ts
   // Account links — a player proves control of a platform account and it
-  // becomes an identity fact + a lifecycle event. Steam needs only
-  // STEAM_WEB_API_KEY; with no key the provider is absent and nothing breaks.
+  // becomes an identity fact + a lifecycle event. Steam needs no credential
+  // at all; STEAM_WEB_API_KEY only adds persona name, avatar and playtime.
   accountLinks: { providers: accountLinkProviders },
   ```
 - `apps/api/src/worker.ts`, the same import and the same option after
@@ -293,7 +295,8 @@ from `apps/api/src/__tests__/webhook-sources.test.ts:10-11` (`createHogsendClien
 then `createApp(container)`, then `app.request()`; `it`, never `test`):
 - `"registers the Steam provider in the container registry"`
 - `"the hosted start route is mounted for a registered provider"`
-- `"boots with no STEAM_WEB_API_KEY and simply has no Steam provider"` (the inert-not-broken proof)
+- `"boots with no STEAM_WEB_API_KEY and the Steam provider still links"` (the zero-config proof —
+  assert the provider is PRESENT and its start route mounts; the key is a widener, not a switch)
 - `"index.ts and worker.ts register the same provider ids"`. Assert the registry-mirror rule
   directly rather than trusting a comment. Import both content arrays and compare.
 
@@ -305,9 +308,11 @@ going.
 
 The exact human ask, enumerated so it can be handed over as one message:
 
-1. **Steam Web API key**, from `https://steamcommunity.com/dev/apikey`, signed in with a Steam
-   account that owns at least one game. Requires a domain name at registration; use the production
-   API host. Set as `STEAM_WEB_API_KEY`. **This is the only credential T3 needs.**
+1. **Steam Web API key — OPTIONAL, not a blocker.** From `https://steamcommunity.com/dev/apikey`,
+   signed in with a Steam account that owns at least one game. Requires a domain name at
+   registration; use the production API host. Set as `STEAM_WEB_API_KEY`. **T3 needs no credential
+   at all** — Steam linking works on a bare deploy; this key only adds persona name, avatar and the
+   PRD 14 playtime sync.
 2. **Twitch application**, at `https://dev.twitch.tv/console/apps`: create an app, copy **Client
    ID** and **Client Secret**. Register the OAuth Redirect URL exactly:
    `<API_PUBLIC_URL>/v1/accounts/twitch/callback`
@@ -344,7 +349,8 @@ item.
 - [ ] `CLAUDE.md` carries the "Full docs: `docs/account-links.md`." back-reference.
 - [ ] `apps/api/src/index.ts` and `apps/api/src/worker.ts` both register `accountLinkProviders`, and
       a test asserts the two registrations match rather than relying on the comment.
-- [ ] `apps/api` boots with no `STEAM_WEB_API_KEY` and a test proves it.
+- [ ] `apps/api` boots with no `STEAM_WEB_API_KEY`, the Steam provider is still registered, and a
+      test proves both.
 - [ ] The PRD is marked `[~]` in `BACKLOG.md` with the four-item human ask above copied into the
       handover, unless the credentials arrive first.
 - [ ] Gates green from the worktree root:

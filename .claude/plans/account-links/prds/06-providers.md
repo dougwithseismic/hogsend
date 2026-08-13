@@ -71,7 +71,7 @@ assertion, it is in the wrong package.
 | `capabilities.tokens` | absent | `true` |
 | Email available | never | yes, no verified flag |
 | Sets `verifiedEmail` | never | **never** |
-| Config | `STEAM_WEB_API_KEY`, `realm` | `ACCOUNT_LINK_TWITCH_CLIENT_ID` / `_CLIENT_SECRET` |
+| Config | `realm` (required), `STEAM_WEB_API_KEY` (OPTIONAL) | `ACCOUNT_LINK_TWITCH_CLIENT_ID` / `_CLIENT_SECRET` |
 | `refresh` / `revoke` | neither | both (`revokeEndpoint` set) |
 | `sync` | `{ every: hours(24), read }` yielding `steam_playtime_2wk` (PRD 01 T4, needs the web api key) | deferred to PRD 14 |
 
@@ -282,8 +282,20 @@ the docstring:
 Rules:
 - twitch registered iff BOTH `ACCOUNT_LINK_TWITCH_CLIENT_ID` and `_CLIENT_SECRET` are set. Exactly
   one set ⇒ no registration + a warning naming the MISSING var.
-- steam registered iff `STEAM_WEB_API_KEY` is set. No partial state is possible (one var), so steam
-  contributes no warning. `steamOpenIdLink()` also requires a `realm` (PRD 01 T4), which is
+- **steam is registered UNCONDITIONALLY.** "Sign in through Steam" is OpenID 2.0: the RP presents no
+  credential of any kind. There is no app to register, no client id, no secret; the whole security
+  model is the server-side `check_authentication` round-trip, which is unauthenticated by design.
+  Gating registration on `STEAM_WEB_API_KEY` would make a zero-config deploy silently lack the single
+  most valuable provider for the target ICP, and would gate LOGIN behind a key login does not use.
+  The only genuine requirement is the `realm`, and that is derived from `API_PUBLIC_URL`, which the
+  engine env already requires. Steam therefore contributes no warning and cannot be half-configured.
+- `STEAM_WEB_API_KEY` is OPTIONAL and widens the provider rather than enabling it. Absent: linking
+  works, `providerUserId` is the 17-digit steamid, and the identity carries no persona name or avatar
+  (`account-link-presets.ts:405` already returns `{}` from the profile pull without a key, and the
+  `sync` capability is conditionally attached at `:535`). Present: `GetPlayerSummaries` fills the
+  display properties and the PRD 14 playtime sync attaches. Do not re-derive this in the env builder
+  — pass `webApiKey: env.STEAM_WEB_API_KEY` straight through and let the preset branch.
+- `steamOpenIdLink()` requires a `realm` (PRD 01 T4), which is
   `env.API_PUBLIC_URL` with any trailing slash stripped, the same normalization the SMS webhook route
   applies at `routes/webhooks/sms-provider.ts:39`. A wrong realm makes Steam reject the assertion, so
   it gets its own assertion in the tests rather than being assumed.
@@ -305,11 +317,14 @@ Env presets first, consumer last, identical to the email merge at `container.ts:
 the reason spelled out at `:1005-1011`.
 
 Tests `packages/engine/src/lib/account-links-from-env.test.ts`:
-- `builds no providers from an empty env`
+- `builds steam and ONLY steam from an otherwise empty env` (the zero-config proof: `ids()` is
+  exactly `["steam"]` when no `ACCOUNT_LINK_*` and no `STEAM_WEB_API_KEY` are set)
 - `builds twitch when both vars are set`
 - `omits twitch and warns naming ACCOUNT_LINK_TWITCH_CLIENT_SECRET when only the id is set`
 - `omits twitch and warns naming ACCOUNT_LINK_TWITCH_CLIENT_ID when only the secret is set`
-- `builds steam from STEAM_WEB_API_KEY alone`
+- `registers steam with no web api key and omits the sync capability` (assert the provider EXISTS and
+  that `sync` is undefined — the widen-not-enable proof)
+- `attaches the steam sync capability when STEAM_WEB_API_KEY is set`
 - `passes API_PUBLIC_URL, trailing slash stripped, as the Steam realm`
 - `builds no discord provider under any env` (assert `ids()` never contains `"discord"`)
 - MUTATION GUARD (DECISIONS §4): `omits twitch … when only the id is set` must fail if the `&&` in
@@ -327,8 +342,9 @@ Changeset: `@hogsend/engine` minor.
 
 Real credentials, exactly as the BACKLOG note states. The human ask, verbatim:
 
-1. **Steam**: a Steam Web API key from `https://steamcommunity.com/dev/apikey`, registered against
-   the deploy's domain. Set `STEAM_WEB_API_KEY`.
+1. **Steam**: NOT a seam. Login needs no credential and works on a bare deploy. A Steam Web API key
+   from `https://steamcommunity.com/dev/apikey` is OPTIONAL and only adds persona name + avatar and
+   the PRD 14 playtime sync. Set `STEAM_WEB_API_KEY` when you want those.
 2. **Twitch**: an application at `https://dev.twitch.tv/console/apps` with OAuth redirect URL
    `<API_PUBLIC_URL>/v1/accounts/twitch/callback`. Set `ACCOUNT_LINK_TWITCH_CLIENT_ID` and
    `ACCOUNT_LINK_TWITCH_CLIENT_SECRET`.
