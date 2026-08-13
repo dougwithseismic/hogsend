@@ -128,6 +128,16 @@ Locked mechanism:
    payloads and the SDK types. Comparing it in a consumer's `incoming.version > stored.version`
    guard is the whole point of the design, and a silently-rounded version breaks that guard in
    exactly the case it exists for.
+
+   **How to TEST this, because the obvious test does not work.** A precision assertion must land on
+   an ODD value above 2^53. Every EVEN integer below 2^54 is exactly representable in float64, so
+   `Number("9007199254740994")` returns `9007199254740994` unchanged and an assertion on it passes
+   whether or not the code rounds. PRD 03 originally prescribed exactly that vacuous test and both
+   delivery agents caught it independently; the corrected form drives the version to the odd
+   `9007199254740995`, which float64 rounds to `...996`. Any PRD asserting on `version` (04, 08, 09,
+   12, 15) inherits this rule — assert on an odd value, and cover the READ/projection path as well as
+   the increment path, since a `String(Number(x))` in a serializer is a separate bug from a `Number()`
+   in the arithmetic.
 2. **Every outbound payload carries FULL CURRENT STATE, never a delta**, including
    `{ state: "linked" | "unlinked", version, ... }`.
 3. The documented customer rule, stated verbatim in docs: *upsert keyed on

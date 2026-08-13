@@ -421,10 +421,18 @@ Tests in `account-link-store.test.ts`: `first link gets version 1`,
 `import cannot displace a live owner`, `oauth callback can displace a live owner`,
 `stores a sealed blob that is not the plaintext token`,
 `drops tokens when storeTokens is false`,
-`a version above Number.MAX_SAFE_INTEGER round-trips as a string` — seed the pair at
-`9007199254740993`, mutate, and assert the returned `version` is `typeof "string"` and strictly
-equals `"9007199254740994"`, and that the stored column matches when read back as text. Any
-`Number()`/`parseInt` on the path rounds and the assertion fails. Plus
+`a version above Number.MAX_SAFE_INTEGER round-trips as a string`. **The obvious form of this test
+is VACUOUS and this PRD originally prescribed it — do not copy the naive version into PRDs 04, 08,
+09, 12 or 15.** Seeding `9007199254740993` and asserting the result is `"9007199254740994"` proves
+nothing about precision: `...994` is EVEN and therefore exactly representable in float64, so
+`Number("9007199254740994") === 9007199254740994` and a `Number()` on the increment path survives
+the assertion untouched. The test must land on an ODD value above the safe-integer boundary, which
+float64 cannot represent: `Number("9007199254740995")` is `9007199254740996`. So drive a second
+mutation (the unlink leg) so the version reaches `"9007199254740995"` and assert that exactly, and
+separately assert the seeded odd `"9007199254740993"` survives a read through `listLinkHistory`
+verbatim — that covers the projection path as well as the increment path. Mutation-verified: with
+the odd leg present, `Number()` in `nextVersion` fails with `...996`, and
+`String(Number(row.version))` in the projection fails too. Plus
 `returns owner.userId as the contact key and owner.email as the contact's own email` — seed a
 contact with a null `externalId` and a set `anonymousId`, and assert `owner.userId` is the anonymous
 id (not null, not the external id) and `owner.email` is the contact's address, not
@@ -583,9 +591,15 @@ This is the test the whole PRD exists for, so it must be a real race, not a simu
   interleave. A single connection serializes for free and would certify nothing.
 - Fire N concurrent `linkAccount` calls (N >= 8) for the SAME `(provider, providerUserId)` with
   DIFFERENT target contacts, all with `allowDisplaceLiveOwner: true`, via `Promise.all`.
-- Assert: exactly ONE live row for the pair; the multiset of versions across all rows for the pair
-  is exactly `1..k` with NO duplicates and NO gaps; every row's `version` is unique; the surviving
-  live row holds the highest version.
+- Assert: exactly ONE live row for the pair; every row's `version` is unique; the surviving live row
+  holds the strict maximum.
+  **Correction: "the versions are exactly `1..k` with no gaps" is UNSATISFIABLE and was wrong in the
+  original spec.** A relink OVERWRITES the displaced row's version (the T3 two-version design updates
+  `version = :next` on the soft-unlink rather than inserting a history row), so after k displacing
+  links the surviving rows hold something like `{2, 4, …}` — monotonic and duplicate-free, but
+  necessarily gapped. The observable law is therefore: all versions DISTINCT, at most one live row,
+  and the live row holds the maximum. Each case additionally pins its own exact expected multiset,
+  which is deterministic per case and is where a duplicate or a lost update actually shows up.
 - A second case fires concurrent `linkAccount` + `unlinkAccount` for the same pair and asserts the
   same version invariants.
 - A third case fires concurrent mutations for DIFFERENT pairs and asserts they do not serialize
@@ -716,6 +730,32 @@ afterwards and the suite re-run green each time.
     the locked PRD 01 contract, and the hook is the consumer's own in-process function in the same
     process whose provider minted those tokens. No trust boundary is crossed. The
     "blob never leaves this module" invariant is scoped to the SEALED DB column, which is separate.
+
+### Two deliberate deviations from T1's type sketch — PRD 04 and PRD 08 consume these
+
+Both are additive and both were the right call; the sketch in T1 was incomplete.
+
+1. **`unlinkAccountInTx` returns a union**, not the bare `{ version, owner }` the sketch showed:
+   `unlinked | not_found | rejected/not_owner`. The acceptance criteria require the
+   `expectContactId` guard to RETURN a rejection on BOTH entry points, and throwing inside the
+   merge's transaction would unwind the whole merge over a routine ownership mismatch. A stale
+   `rowId` whose row is no longer live returns `not_found`. **PRD 04 must branch on the union rather
+   than assume success.**
+2. **`replacedSingleton?: DisplacedLink` was added to the `linked`/`relinked` result arms**, and the
+   store invokes `afterUnlink` for that row. The specified result union carried NO facts about the
+   soft-unlink performed by the `multiple: false` + `onConflict: "replace"` path, which contradicts
+   this PRD's own rule that the store returns the full facts each mutation produced — without it,
+   **PRD 08 could not emit that `account.unlinked` without re-reading the database**, which
+   DECISIONS §8 forbids.
+
+### A spec defect this PRD shipped, worth generalizing
+
+The originally-prescribed bigint test was vacuous (see the corrected T3 test list above): it asserted
+an EVEN result above `MAX_SAFE_INTEGER`, which float64 represents exactly, so it could not catch the
+`Number()` it existed to catch. Both delivery agents caught this independently. The general lesson
+for the remaining PRDs: **a precision test must land on an odd value above 2^53**, because every even
+one below 2^54 round-trips through a float unharmed. The same trap applies to any future assertion
+about `version`, and DECISIONS §5.1 now carries the rule.
 
 ### Pre-existing test failures (not caused by this PRD)
 
