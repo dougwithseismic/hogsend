@@ -8,7 +8,7 @@ Branch `feat/account-links`, worktree `.claude/worktrees/account-links`, branche
 | # | PRD | Status | Depends on | Scope |
 | --- | --- | --- | --- | --- |
 | 01 | [Provider contract + presets](prds/01-provider-contract.md) | `[x]` | — | `@hogsend/core`: `defineAccountLink`, `LinkedIdentity`, `AccountLinkHooks`, `oauth2Link()`, `steamOpenIdLink()`. Types + pure functions, zero DB |
-| 02 | [`linked_accounts` schema + migration](prds/02-schema.md) | `[ ]` | — | `@hogsend/db`: the table, three partial-unique indexes, the version constraint. Additive |
+| 02 | [`linked_accounts` schema + migration](prds/02-schema.md) | `[x]` | — | `@hogsend/db`: the table, three partial-unique indexes, the version constraint. Additive |
 | 03 | [Link store: versioning, locking, policy](prds/03-link-store.md) | `[ ]` | 01, 02 | **The heart.** `linkAccount`/`unlinkAccount`/relink under an advisory lock, monotonic version, `multiple`/`onConflict` enforcement, hook invocation |
 | 04 | [Merge + delete repointing](prds/04-merge-repoint.md) | `[ ]` | 02, 03 | Add `linked_accounts` to the merge repoint list; handle the singleton-collision case explicitly; **unlink every live link inside `softDeleteContact`'s transaction** (DECISIONS §15.3) or an erased contact's links outlive it and lock the pair forever. `adoptOrphanHistory` is a PROVEN NO-OP (`contact_id` is NOT NULL), pinned by test, not a repoint site |
 | 05 | [Container wiring + provider registry](prds/05-container-wiring.md) | `[ ]` | 01 | `accountLinks: { providers, hooks }`, `client.accountLinkProviders`, env-driven config, boot validation |

@@ -26,6 +26,7 @@ import { journeyConfigs } from "./journey-configs.js";
 import { journeyLogs } from "./journey-logs.js";
 import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
+import { linkedAccounts } from "./linked-accounts.js";
 import { smsSends } from "./sms-sends.js";
 import { trackedLinks } from "./tracked-links.js";
 import { userEvents } from "./user-events.js";
@@ -72,6 +73,16 @@ export const contactsRelations = relations(contacts, ({ many }) => ({
   groupMemberships: many(groupMemberships),
   // enrichment_lookups joins on the contacts.id UUID (real FK, set-null).
   enrichmentLookups: many(enrichmentLookups),
+  // linked_accounts joins on the contacts.id UUID (real FK, cascade). Includes
+  // historical (soft-unlinked) rows — filter on `unlinkedAt IS NULL` for live.
+  linkedAccounts: many(linkedAccounts),
+}));
+
+export const linkedAccountsRelations = relations(linkedAccounts, ({ one }) => ({
+  contact: one(contacts, {
+    fields: [linkedAccounts.contactId],
+    references: [contacts.id],
+  }),
 }));
 
 export const enrichmentLookupsRelations = relations(
