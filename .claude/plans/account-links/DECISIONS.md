@@ -95,11 +95,28 @@ Every task runs these from the worktree root before it is accepted. Verbatim:
 
 ```
 pnpm lint
-pnpm check-types
+pnpm -C packages/<pkg> exec tsc --noEmit     # NOT root check-types — see below
 cd apps/api && pnpm test
+pnpm turbo run test --filter='!@hogsend/api' # the OTHER packages — see below
 ```
 
 Plus, for tasks touching the engine's public surface: `pnpm build`.
+
+**Why `pnpm check-types` is not the typecheck gate.** Turbo hashes git-tracked files only, so
+uncommitted NEW files never move the cache key and the root task returns a vacuous `FULL TURBO` pass
+on work it never looked at. Run `tsc --noEmit` directly in each package you touched.
+
+**Why `apps/api` alone is not the test gate.** PRD 03 shipped RED for `@hogsend/testing` and nobody
+noticed: narrowing the engine's public exports moved `lockPairs`/`pairLockKey` into
+`packages/engine/src/testing.ts`, which created an import edge
+`@hogsend/testing → engine/testing.ts → lib/account-links.ts → env.ts`, and `env.ts` validates at
+IMPORT time. All 6 suites (74 tests) in `packages/testing` crashed with "Invalid environment
+variables". `pnpm lint`, engine `tsc --noEmit`, the full `apps/api` suite and `pnpm build` were ALL
+green throughout — building never triggers import-time validation, and nothing in `apps/api` imports
+that path. Only running the other workspaces' tests catches it. PRD 04 found and fixed it (env stubs
+in `packages/testing/vitest.config.ts` and the `bucket-emit.test.ts` idiom in
+`connector-actions.test.ts`), but the lesson is the gate, not the fix: **adding ANY export to
+`engine/testing.ts` can drag `env.ts` into a package that has no env.**
 
 Additional standing rules:
 
