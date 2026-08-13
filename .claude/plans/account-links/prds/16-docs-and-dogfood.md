@@ -85,6 +85,13 @@ Heading outline, in order:
   # ACCOUNT_LINK_ALLOWED_ORIGINS=https://play.yourgame.com   # required for the embed SDK
   ```
   Take the variable names from PRD 05's table verbatim rather than inventing them here.
+- **State what a Steam login actually returns.** The docs MUST say plainly that it yields the
+  17-digit steamid64 and NOTHING else — no display name, no avatar, and no email ever. Several
+  widely-copied third-party tutorials claim the callback also carries name and avatar; it does not,
+  those come from the keyed `GetPlayerSummaries` Web API. Say so explicitly so nobody later "fixes"
+  the preset by expecting fields that never arrive. Valve's own page draws the same line: OpenID
+  authenticates a SteamID, and separately "all use of the Steam Web API requires the use of an API
+  Key" (`steamcommunity.com/dev`).
 
   **The doc must state that Discord is NOT an account-link provider** (DECISIONS §12). First-party
   providers are Steam and Twitch. Discord account linking already exists and works through

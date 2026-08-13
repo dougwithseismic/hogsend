@@ -330,6 +330,12 @@ _Depends:_ T2, T3
   the customer, not a look. This is the one place the component deviates from the bell's five-layer
   surface (`notification-bell.tsx:3-18`), and the deviation is deliberate: the customer's brand is
   their own. Write that reason into the doc block.
+- **Steam's official button art is OPTIONAL, and unstyled remains the contract.** Valve publishes
+  `sits_large_border.png`, `sits_large_noborder.png` and `sits_small.png` and says only that they
+  "may be used by 3rd party sites" (`partner.steamgames.com/doc/features/auth`) — there is NO
+  mandate, so do not bundle, proxy or hardcode them. Because `children` is passed through, a customer
+  wanting the recognisable art writes `<LinkAccountButton provider="steam"><img src="…" /></LinkAccountButton>`
+  with their own copy of the asset. Mention that one line in the PRD 16 docs; add no component code.
 - The click handler calls `client.linkAccount(provider)` as its FIRST statement, with no preceding
   `await` or state read that could be async, preserving the gesture window T2 depends on. Guard
   re-entry with a ref so a double click cannot open two popups. Fire `onLinked` / `onError` exactly
