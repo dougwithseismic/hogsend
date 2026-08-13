@@ -435,3 +435,32 @@ None.
 - [ ] One conventional commit, e.g. `fix(engine): repoint linked accounts on contact merge`.
 
 ## Implementation Notes
+
+### Mutation-guard observations
+
+Both performed by hand against `growthhog_test`, file restored and re-verified green each time.
+
+1. **The singleton fold (T2, test 6).** Replacing `foldLinkedAccounts` with the blind
+   `UPDATE linked_accounts SET contact_id = :survivor WHERE contact_id = :loser` fails **6 tests**
+   with exactly the predicted error: `PostgresError 23505`, `constraint_name:
+   "linked_accounts_contact_provider_singleton_idx"`, `Key (contact_id, provider)=(…) already
+   exists`. This is the regression the PRD exists for — two contacts each holding a live Steam link
+   would abort an ordinary identify call.
+2. **The delete leg (T5).** Removing the `unlinkAccountsForContactInTx` call from
+   `softDeleteContact` fails **5 tests**, the decisive one being `a pair whose owner was deleted can
+   be relinked under onConflict reject` → *expected 'rejected' to be 'linked'*. That is the
+   user-facing consequence stated plainly: without this leg an erased player can never relink their
+   own platform account. `deleting a contact nulls the token blob` also fails, leaving a sealed
+   grant with no owner to revoke it.
+
+### Notes
+
+- `unlinkAccountsForContactInTx` was added to `lib/account-links.ts`, NOT to `contacts.ts`. The
+  module boundary from PRD 03 holds: `contacts.ts` never writes `linked_accounts` directly. It takes
+  all pair locks sorted+deduped before its first mutation, since one deletion can touch many pairs.
+- The corrected (non-vacuous) bigint form is used: the merge unlink is seeded at `…994` so the
+  result lands on the ODD `…995`. See DECISIONS §5.1.
+- `IdentityKind` / `ALL_IDENTITY_KINDS` are untouched, confirmed by diff.
+- Full `apps/api` suite: 2527 passed, 1 failed — `health-activity.test.ts`, which fails identically
+  at HEAD and is not from this work. `gtm-score-batch.test.ts` passed this run, confirming its
+  earlier timeout was DB contention rather than a defect.

@@ -21,6 +21,12 @@ export {
   MAX_VERSION_RACE_RETRIES,
   pairLockKey,
 } from "./lib/account-links.js";
+// PRD 04's guard + delete-leg tests. `ALL_IDENTITY_KINDS` is the resolver's
+// internal full-trust grant (deliberately not public API — the test pinning
+// that IdentityKind is never widened reads it here); `softDeleteContact` is
+// route-internal on the main barrel, and the delete-leg tests assert on its
+// returned `linkUnlinks` facts directly.
+export { ALL_IDENTITY_KINDS, softDeleteContact } from "./lib/contacts.js";
 export {
   type EnrollmentPolicyFacts,
   type EnrollmentPolicyResult,

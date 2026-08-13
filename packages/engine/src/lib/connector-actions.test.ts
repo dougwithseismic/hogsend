@@ -23,10 +23,19 @@ import {
   ContactSourceRegistry,
   setContactSourceRegistry,
 } from "../sources/registry.js";
-import {
-  checkActionAudience,
-  sendConnectorAction,
-} from "./connector-actions.js";
+
+// connector-actions' import chain reaches env.ts (validates required env vars
+// at import time — via contacts.ts → the account-link store, PRD 04) — stub
+// the required vars BEFORE the dynamic import, exactly as bucket-emit.test.ts
+// does. Nothing is ever contacted: the boundary/registry seams intercept
+// everything, and the DATABASE_URL points at a port nothing listens on.
+process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test";
+process.env.BETTER_AUTH_SECRET ??= "test-secret";
+process.env.HATCHET_CLIENT_TOKEN ??=
+  "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QifQ.eyJhdWQiOiJsb2NhbGhvc3QiLCJleHAiOjQ5MzMyNDA5ODMsImdycGNfYnJvYWRjYXN0X2FkZHJlc3MiOiJsb2NhbGhvc3Q6NzA3NyIsImlhdCI6MTc3OTY0MDk4MywiaXNzIjoibG9jYWxob3N0Iiwic2VydmVyX3VybCI6ImxvY2FsaG9zdCIsInN1YiI6InRlc3QtdGVuYW50LWlkIiwidG9rZW5faWQiOiJ0ZXN0LXRva2VuLWlkIn0.test";
+const { checkActionAudience, sendConnectorAction } = await import(
+  "./connector-actions.js"
+);
 
 test("a scoped connector override requires registration validation before capture", async () => {
   let captures = 0;

@@ -304,6 +304,7 @@ export {
 // directly) so a change to the locking strategy is not a breaking change.
 export {
   AccountLinkVersionRaceError,
+  type ContactUnlinkFact,
   type DisplacedLink,
   getLiveLink,
   type LinkAccountInput,
@@ -319,6 +320,7 @@ export {
   type UnlinkAccountResult,
   unlinkAccount,
   unlinkAccountInTx,
+  unlinkAccountsForContactInTx,
 } from "./lib/account-links.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {
@@ -446,10 +448,13 @@ export {
 // `ResolvePolicy`/`IdentityKind` (PRD 06): the explicit caller-declared trust
 // shape both resolver entry points accept via `policy` — the additive
 // replacement for the deprecated `restrictToAnonymous`/`allowCreate` booleans.
+// `MergedLinkUnlink` (PRD 04): the link soft-unlink facts a collide-MERGE
+// reports on the resolve result (`linkUnlinks`), for post-commit emission.
 export {
   deleteIdentityAliasesForContact,
   type IdentityKind,
   identifiedContactFilter,
+  type MergedLinkUnlink,
   type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,

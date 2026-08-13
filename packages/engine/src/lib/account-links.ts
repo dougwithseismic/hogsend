@@ -7,7 +7,7 @@ import type {
 } from "@hogsend/core";
 import { ACCOUNT_LINK_HOOK_TIMEOUT_MS } from "@hogsend/core";
 import { contacts, type Database, linkedAccounts } from "@hogsend/db";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { env } from "../env.js";
 import type { Logger } from "./logger.js";
 import { sealJson, unsealJson } from "./provider-credentials.js";
@@ -1078,6 +1078,117 @@ export async function unlinkAccountInTx(
     version: String(outcome.row.version),
     owner: outcome.owner,
   };
+}
+
+/**
+ * One unlink the contact-deletion leg performed (PRD 04 T5). The facts PRD 08
+ * needs to emit `account.unlinked` post-commit without re-reading the
+ * database. `version` is a STRING end to end (DECISIONS §5.1).
+ */
+export interface ContactUnlinkFact {
+  provider: string;
+  providerUserId: string;
+  version: string;
+  contactId: string;
+  owner: LinkOwner;
+  reason: "api";
+}
+
+/**
+ * Soft-unlink EVERY live link a contact holds, inside the caller's transaction.
+ * The caller is contact deletion: `softDeleteContact` and the admin delete
+ * route. Nothing in this repo hard-deletes a contact, so without this a live
+ * link outlives its owner forever — the pair stays owned by a dead contact, and
+ * under `onConflict: "reject"` an erased player can NEVER relink their own
+ * platform account (DECISIONS §15.3). Each row gets its own pair's next version
+ * under that pair's advisory lock, exactly like the merge leg, so a consumer's
+ * monotonic guard accepts the unlink.
+ *
+ * The token blob is HARD-deleted on the unlinked rows unconditionally: a
+ * sealed grant belonging to a deleted person is retained secret material with
+ * no owner to revoke it. When `erase` is set (the admin delete route, which
+ * also deletes identity aliases), the personal display fields
+ * (`verified_email`, `username`, `avatar_url`) are nulled on EVERY row for the
+ * contact, live and historical — the version sequence survives erasure so the
+ * pair stays monotonic; the personal data does not.
+ *
+ * ALL pair locks are taken sorted+deduped BEFORE the first mutation (the same
+ * deadlock rule as `linkAccount`'s two-pair replace: a delete can touch many
+ * pairs at once). Idempotent by construction: a second call finds no live rows
+ * and returns an empty array. Opens no transaction, invokes no hook, emits
+ * nothing — its lifecycle is the caller's.
+ */
+export async function unlinkAccountsForContactInTx(
+  tx: Tx,
+  contactId: string,
+  opts: { reason: "api"; erase?: boolean },
+): Promise<ContactUnlinkFact[]> {
+  const liveRows = await tx
+    .select({
+      id: linkedAccounts.id,
+      provider: linkedAccounts.provider,
+      providerUserId: linkedAccounts.providerUserId,
+    })
+    .from(linkedAccounts)
+    .where(
+      and(
+        eq(linkedAccounts.contactId, contactId),
+        isNull(linkedAccounts.unlinkedAt),
+      ),
+    );
+
+  await lockPairs(
+    tx,
+    liveRows.map((r) => pairLockKey(r.provider, r.providerUserId)),
+  );
+
+  const facts: ContactUnlinkFact[] = [];
+  const unlinkedIds: string[] = [];
+  for (const row of liveRows) {
+    const outcome = await unlinkCore(tx, {
+      provider: row.provider,
+      providerUserId: row.providerUserId,
+      reason: opts.reason,
+      // A pair that mutated between the read above and the lock (unlinked,
+      // or relinked to a NEW row) is legitimately not ours anymore — skip it
+      // rather than unlink someone else's just-proven link.
+      expectRowId: row.id,
+      expectContactId: contactId,
+    });
+    if (outcome.status !== "unlinked") continue;
+    unlinkedIds.push(outcome.row.id);
+    facts.push({
+      provider: row.provider,
+      providerUserId: row.providerUserId,
+      // BigInt → String is lossless; never Number()/parseInt (DECISIONS §5.1).
+      version: String(outcome.row.version),
+      contactId,
+      owner: outcome.owner,
+      reason: opts.reason,
+    });
+  }
+
+  if (unlinkedIds.length > 0) {
+    await tx
+      .update(linkedAccounts)
+      .set({ tokens: null, updatedAt: new Date() })
+      .where(inArray(linkedAccounts.id, unlinkedIds));
+  }
+
+  if (opts.erase) {
+    await tx
+      .update(linkedAccounts)
+      .set({
+        tokens: null,
+        verifiedEmail: null,
+        username: null,
+        avatarUrl: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(linkedAccounts.contactId, contactId));
+  }
+
+  return facts;
 }
 
 // ---------------------------------------------------------------------------
