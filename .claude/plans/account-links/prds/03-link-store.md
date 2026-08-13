@@ -667,3 +667,59 @@ no Steam or Twitch credential is required. Real credentials are the PRD 07 seam.
 - [ ] One conventional commit, e.g. `feat(engine): add the account link store`.
 
 ## Implementation Notes
+
+### Mutation-guard observations (the PRD requires these to be recorded)
+
+All three were performed by hand against `growthhog_test`, with the module restored byte-identical
+afterwards and the suite re-run green each time.
+
+1. **The advisory lock (T2/T7).** Commenting out `await lockPairs(tx, lockedKeys)` inside
+   `linkAccount`'s transaction fails **3 of the 5** concurrency cases — including the N=10 same-pair
+   race (duplicate/gapped versions) and the `expectContactId` revoke race, which starts returning
+   `relinked` where it must return `linked`. The suite is therefore measuring the lock, not the
+   happy path.
+2. **Up-front sorted locking vs the staged form (T3/T7 case 4).** Reducing the first statement to
+   `lockPairs(tx, [targetKey])` and acquiring the singleton pair's lock LATE, inside the T4 branch
+   once the probe revealed it, makes `mirror-image multiple:false replaces never deadlock` fail —
+   and it fails by BLOCKING: the case runs 25.4s (against ~0.9s for the whole suite normally) as the
+   two transactions wait on each other before Postgres breaks the cycle. This is the concrete
+   evidence for the design decision in T3 step 0: the pre-read exists so the full lock set is known
+   before the first lock is taken.
+3. **`40001` in the retryable set (T5).** Narrowing `pg.code === "40P01" || pg.code === "40001"` to
+   just `40P01` fails exactly one test, `retries a 40001`. That test was ADDED during review — the
+   delivered suite covered `40P01` only, so deleting the `40001` half of the OR was a silent no-op,
+   which is the vacuous green DECISIONS §4 forbids. The two codes now have one case each.
+
+### Review decisions
+
+- **The engine's public surface was narrowed.** `lockPairs`, `pairLockKey`,
+  `MAX_VERSION_RACE_RETRIES` and `AccountLinkLockSetChangedError` were initially exported from
+  `packages/engine/src/index.ts`, which is the committed semver boundary. They are internal
+  mechanics — how the store happens to take advisory locks, and an internal retry signal — so they
+  moved to the existing `@hogsend/engine/testing` subpath, which is the house pattern for exactly
+  this (`journey-variant.test.ts` uses it). The lock-ORDER tests import them from there.
+- **`provider-credentials.ts` exposes one name per operation.** The first cut exported
+  `encryptJson`/`decryptJson` AND added `sealJson`/`unsealJson` aliases — four public names for two
+  functions. The raw names went back to module-private; the two aliases are the whole external
+  surface, since they are what the store actually imports.
+- **A 16-finding adversarial review panel confirmed nothing.** That ratio was itself investigated
+  rather than accepted: the refutations were read individually. They hold up — most findings were
+  either scope boundaries the PRD draws explicitly (the `revoke()` leg and its tests belong to
+  PRD 14 T6 by name), stale by timing (the T7 file was being written while the panel read), or
+  correct-but-not-defects. Two were worth recording:
+  - The claim that the singleton `replace` branch ignores `allowDisplaceLiveOwner` and so breaks
+    insert-only import is **refuted**: that branch displaces a row belonging to the REQUESTING
+    contact on a different pair, whereas the flag governs taking the target pair from a DIFFERENT
+    contact. The import boundary is enforced in PRD 09's route, which already has the named test.
+  - The claim that plaintext `identity.tokens` leaks into the customer `afterLink` hook is
+    **refuted**: `AfterLinkContext extends BeforeLinkContext`, whose `identity: LinkedIdentity` is
+    the locked PRD 01 contract, and the hook is the consumer's own in-process function in the same
+    process whose provider minted those tokens. No trust boundary is crossed. The
+    "blob never leaves this module" invariant is scoped to the SEALED DB column, which is separate.
+
+### Pre-existing test failures (not caused by this PRD)
+
+The full `apps/api` suite has two failures that reproduce on a clean tree with this work stashed:
+`health-activity.test.ts` (fails identically at HEAD) and `gtm-score-batch.test.ts` (passes alone in
+4.6s, times out at 30s under full-suite load — contention). The two new suites total 7.8s and are
+not the cause. Both are left alone deliberately; fixing them is not this PRD's scope.

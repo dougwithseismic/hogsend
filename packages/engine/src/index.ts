@@ -292,6 +292,34 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+// --- Account links (the link store — the ONE writer of `linked_accounts`) ---
+//
+// Deliberately NARROW. This barrel is the committed semver boundary for
+// `@hogsend/engine`, so anything exported here is a promise we keep or
+// major-bump. `lockPairs`, `pairLockKey`, `MAX_VERSION_RACE_RETRIES` and
+// `AccountLinkLockSetChangedError` are the store's internal mechanics — how we
+// happen to take advisory locks and signal a stale pre-read today — and the PRD
+// documents the last of those as an INTERNAL retry signal. They stay module-
+// private (still importable within the engine, and the tests import the module
+// directly) so a change to the locking strategy is not a breaking change.
+export {
+  AccountLinkVersionRaceError,
+  type DisplacedLink,
+  getLiveLink,
+  type LinkAccountInput,
+  type LinkAccountResult,
+  type LinkedAccountRecord,
+  type LinkMutationStatus,
+  type LinkOwner,
+  linkAccount,
+  listLinkHistory,
+  listLiveLinksForContact,
+  type UnlinkAccountInput,
+  type UnlinkAccountInTxResult,
+  type UnlinkAccountResult,
+  unlinkAccount,
+  unlinkAccountInTx,
+} from "./lib/account-links.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {
   InvalidProposalError,

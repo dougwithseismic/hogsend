@@ -10,6 +10,17 @@ export {
   registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
+// The account-link store's internal mechanics. These live HERE and not on the
+// main barrel on purpose: `packages/engine/src/index.ts` is the committed
+// semver boundary, and how the store happens to take advisory locks (or signal
+// a stale pre-read) is not a promise to consumers. Tests need them to assert
+// lock ORDER, which is the property the whole module exists to guarantee.
+export {
+  AccountLinkLockSetChangedError,
+  lockPairs,
+  MAX_VERSION_RACE_RETRIES,
+  pairLockKey,
+} from "./lib/account-links.js";
 export {
   type EnrollmentPolicyFacts,
   type EnrollmentPolicyResult,

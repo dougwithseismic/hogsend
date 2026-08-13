@@ -173,6 +173,20 @@ function decryptJson(
   return value;
 }
 
+/**
+ * Seal/unseal for callers OUTSIDE the credential store (today: the
+ * account-link store, sealing per-contact token grants into
+ * `linked_accounts.tokens`). ONE AES-256-GCM construction in the engine, one
+ * place a secret rotation is handled. Same failure posture: an undecryptable
+ * blob throws `ProviderCredentialDecryptError` loudly rather than silently
+ * degrading.
+ *
+ * These two aliases are the whole external surface — `encryptJson` /
+ * `decryptJson` stay private so there is exactly one name per operation rather
+ * than two ways to do the same thing.
+ */
+export { decryptJson as unsealJson, encryptJson as sealJson };
+
 function encryptPayload(
   payload: OAuthCredentialPayload,
   secret: string,
