@@ -12,22 +12,86 @@ type EngineEnv = Parameters<typeof accountLinksFromEnv>[0];
 function makeEnv(overrides: Partial<EngineEnv> = {}): EngineEnv {
   return {
     API_PUBLIC_URL: "https://api.example.com",
+    // The schema defaults this to 900, so the parsed env ALWAYS carries it —
+    // included here so every case proves the gate ignores it.
+    ACCOUNT_LINK_STATE_TTL_SECONDS: 900,
     ...overrides,
   } as EngineEnv;
 }
 
-function ids(env: EngineEnv): string[] {
-  return accountLinksFromEnv(env).providers.map((p) => p.meta.id);
+const OPTED_IN = { consumerOptedIn: true };
+
+function ids(
+  env: EngineEnv,
+  options?: { consumerOptedIn?: boolean },
+): string[] {
+  return accountLinksFromEnv(env, options).providers.map((p) => p.meta.id);
 }
 
-test("builds steam and ONLY steam from an otherwise empty env", () => {
+// ---------------------------------------------------------------------------
+// The intent gate
+// ---------------------------------------------------------------------------
+
+test("builds NO providers from a truly empty env", () => {
+  // The inert-when-unconfigured posture: no ACCOUNT_LINK_* var, no
+  // STEAM_WEB_API_KEY, no consumer option ⇒ nothing registers, so a bare
+  // deploy exposes no /v1/accounts/* provider and warns about nothing.
   const result = accountLinksFromEnv(makeEnv());
+  assert.deepEqual(result.providers, []);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("ACCOUNT_LINK_STATE_TTL_SECONDS alone is NOT intent", () => {
+  // The var carries `.default(900)`, so it is ALWAYS truthy on the parsed
+  // env. If it ever joined the intent check the gate would be vacuously true
+  // on every deploy — the exact bug the gate exists to remove. An explicit
+  // non-default value must not count either: setting a TTL tunes a flow, it
+  // does not ask for one.
+  const result = accountLinksFromEnv(
+    makeEnv({ ACCOUNT_LINK_STATE_TTL_SECONDS: 1234 }),
+  );
+  assert.deepEqual(result.providers, []);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("builds steam from ACCOUNT_LINK_ALLOWED_ORIGINS alone", () => {
+  // Env intent with no credential at all — an allowlist only exists for the
+  // account-link flow, so setting it is asking for the feature.
+  const result = accountLinksFromEnv(
+    makeEnv({ ACCOUNT_LINK_ALLOWED_ORIGINS: "https://play.example.com" }),
+  );
   assert.deepEqual(
     result.providers.map((p) => p.meta.id),
     ["steam"],
   );
   assert.deepEqual(result.warnings, []);
 });
+
+test("builds steam when the consumer passes an accountLinks option", () => {
+  // Code intent: the container passes `consumerOptedIn` when ANY
+  // `accountLinks` option was given to createHogsendClient — even `{}`.
+  const result = accountLinksFromEnv(makeEnv(), OPTED_IN);
+  assert.deepEqual(
+    result.providers.map((p) => p.meta.id),
+    ["steam"],
+  );
+  assert.deepEqual(result.warnings, []);
+});
+
+test("builds steam and ONLY steam from an otherwise empty env, once opted in", () => {
+  // The zero-CREDENTIAL proof (steam needs no app registration, no client
+  // id, no secret) — intent shown, nothing else configured.
+  const result = accountLinksFromEnv(makeEnv(), OPTED_IN);
+  assert.deepEqual(
+    result.providers.map((p) => p.meta.id),
+    ["steam"],
+  );
+  assert.deepEqual(result.warnings, []);
+});
+
+// ---------------------------------------------------------------------------
+// Twitch
+// ---------------------------------------------------------------------------
 
 test("builds twitch when both vars are set", () => {
   const result = accountLinksFromEnv(
@@ -73,8 +137,12 @@ test("omits twitch and warns naming ACCOUNT_LINK_TWITCH_CLIENT_ID when only the 
   );
 });
 
+// ---------------------------------------------------------------------------
+// Steam widen-not-enable
+// ---------------------------------------------------------------------------
+
 test("registers steam with no web api key and omits the sync capability", () => {
-  const result = accountLinksFromEnv(makeEnv());
+  const result = accountLinksFromEnv(makeEnv(), OPTED_IN);
   const steam = result.providers.find((p) => p.meta.id === "steam");
   // The widen-not-enable proof: the provider EXISTS without the key…
   assert.ok(steam, "steam must register with no STEAM_WEB_API_KEY");
@@ -83,6 +151,7 @@ test("registers steam with no web api key and omits the sync capability", () => 
 });
 
 test("attaches the steam sync capability when STEAM_WEB_API_KEY is set", () => {
+  // The key is itself env intent, so no opt-in is needed alongside it.
   const result = accountLinksFromEnv(makeEnv({ STEAM_WEB_API_KEY: "wak" }));
   const steam = result.providers.find((p) => p.meta.id === "steam");
   assert.ok(steam);
@@ -93,6 +162,7 @@ test("attaches the steam sync capability when STEAM_WEB_API_KEY is set", () => {
 test("passes API_PUBLIC_URL, trailing slash stripped, as the Steam realm", async () => {
   const result = accountLinksFromEnv(
     makeEnv({ API_PUBLIC_URL: "https://api.example.com/" }),
+    OPTED_IN,
   );
   const steam = result.providers.find((p) => p.meta.id === "steam");
   assert.ok(steam);
@@ -112,6 +182,6 @@ test("builds no discord provider under any env", () => {
     STEAM_WEB_API_KEY: "wak",
   });
   for (const env of [makeEnv(), fullyConfigured]) {
-    assert.equal(ids(env).includes("discord"), false);
+    assert.equal(ids(env, OPTED_IN).includes("discord"), false);
   }
 });

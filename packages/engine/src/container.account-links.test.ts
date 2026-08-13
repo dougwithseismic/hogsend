@@ -63,17 +63,26 @@ function countOf(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
-test("registers steam unconditionally and {} hooks with no config", () => {
-  // PRD 06: steam is an UNCONDITIONAL env preset — OpenID 2.0 needs no
-  // credential, so a zero-config deploy still links Steam accounts.
+test("exposes an empty registry and {} hooks with no config", () => {
+  // The inert-when-unconfigured posture: no ACCOUNT_LINK_* env var (deleted
+  // above) and no `accountLinks` option ⇒ no operator intent, so NOTHING
+  // registers — not even the credential-free steam preset — and no
+  // account-link warning fires on a deploy that never asked for the feature.
   const { value: client, out } = captureBoot(() => createHogsendClient());
-  assert.deepEqual(client.accountLinkProviders.ids(), ["steam"]);
+  assert.equal(client.accountLinkProviders.count(), 0);
   assert.deepEqual(client.accountLinkHooks, {});
   assert.deepEqual(client.accountLinkAllowedOrigins, []);
-  // No half-configured provider ⇒ no env-builder warning; the duplicate-id
-  // warn stays silent too. (The allowlist warn DOES fire — steam is
-  // registered with no allowed origin — see the dedicated test below.)
+  assert.equal(out.includes(ALLOWLIST_WARN), false);
   assert.equal(out.includes(DUP_WARN), false);
+});
+
+test("builds steam when the consumer passes an accountLinks option", () => {
+  // Code intent: ANY `accountLinks` option — even `{}` — opts the deploy in,
+  // and the credential-free steam preset registers.
+  const { value: client } = captureBoot(() =>
+    createHogsendClient({ accountLinks: {} }),
+  );
+  assert.deepEqual(client.accountLinkProviders.ids(), ["steam"]);
 });
 
 test("registers a consumer-supplied provider", () => {
@@ -165,11 +174,12 @@ test("warns when providers are registered but the allowlist is empty", () => {
   assert.equal(countOf(out, ALLOWLIST_WARN), 1);
 });
 
-test("the empty-allowlist warn fires on a zero-config boot, because steam always registers", () => {
-  // Consequence of the unconditional steam preset: `count() > 0` is now true
-  // on EVERY boot, so a deploy with no allowed origin warns once. Pinned so a
-  // future change to either side (the preset or the warn condition) is a
-  // deliberate decision, not drift.
+test("the empty-allowlist warn fires for an opted-in deploy with no allowlist", () => {
+  // A deploy that ASKED for account links (`accountLinks: {}` opts in and
+  // registers steam) but configured no allowed origin is a genuine
+  // misconfiguration: no returnTo is accepted and postMessage never fires,
+  // so it warns once. The bare-boot case above stays silent — nothing
+  // registers without intent.
   const { out } = captureBoot(() => createHogsendClient({ accountLinks: {} }));
   assert.equal(countOf(out, ALLOWLIST_WARN), 1);
 });

@@ -976,7 +976,12 @@ export function createHogsendClient(
   // Env presets FIRST, consumer last (last-writer-wins on meta.id) — the same
   // merge order and reason as the email registry. The env builder returns its
   // warnings rather than console.warn-ing, so they go through the real logger.
-  const accountLinkEnv = accountLinksFromEnv(env);
+  // Presets register only on operator INTENT (any ACCOUNT_LINK_* / steam env
+  // var, or ANY `accountLinks` option — even `{}`), keeping a deploy that
+  // never asked for account linking fully inert.
+  const accountLinkEnv = accountLinksFromEnv(env, {
+    consumerOptedIn: opts.accountLinks !== undefined,
+  });
   for (const warning of accountLinkEnv.warnings) logger.warn(warning);
   const accountLinkProviders = new AccountLinkProviderRegistry([
     ...accountLinkEnv.providers,
