@@ -230,6 +230,43 @@ export const env = createEnv({
       .int()
       .nonnegative()
       .default(0),
+    // --- Account links (Steam / Twitch, opt-in) ---
+    // Declared here (PRD 05); READ by the env presets (PRD 06). Convention:
+    // ACCOUNT_LINK_<PROVIDER_ID>_CLIENT_ID / _CLIENT_SECRET for OAuth pairs.
+    // Only the two built-ins get declared vars — this schema is STATIC, so a
+    // consumer-authored provider configures in CODE via the closure it passes
+    // to `accountLinks.providers`, never via a dynamically-named env key.
+    //
+    // Twitch: the preset is built only when BOTH id + secret are present —
+    // unconfigured means ABSENT from the registry, not present-but-disabled
+    // (the emailProvidersFromEnv rule). The client id is also sent as the
+    // `Client-Id` header on Helix calls.
+    ACCOUNT_LINK_TWITCH_CLIENT_ID: z.string().min(1).optional(),
+    ACCOUNT_LINK_TWITCH_CLIENT_SECRET: z.string().min(1).optional(),
+    // Steam Web API key — OPTIONAL, and deliberately NOT gating the provider:
+    // "Sign in through Steam" is OpenID 2.0, so the relying party presents no
+    // credential and the steam provider registers WITHOUT this key. Setting it
+    // only adds the profile pull (persona, avatar) and the PRD 14 playtime
+    // sync. Named after the key every Steam integration in the world already
+    // uses; an ACCOUNT_LINK_STEAM_CLIENT_SECRET name would be a lie (Steam has
+    // no OAuth client pair at all).
+    STEAM_WEB_API_KEY: z.string().min(1).optional(),
+    // CSV of absolute origins ("https://play.example.com,https://example.com")
+    // — the ONE allowlist governing both `returnTo` (PRD 07) and the
+    // `postMessage` targetOrigin (PRD 10). Unset ⇒ empty list ⇒ no `returnTo`
+    // accepted and postMessage never attempted (warned once at boot when
+    // providers are registered). A plain string here on purpose: the parse +
+    // per-entry validation lives in lib/account-link-origins.ts, OUTSIDE the
+    // schema, so a malformed entry THROWS at boot naming the offending entry
+    // rather than a generic Zod failure (the FX_RATES stance above). Never "*".
+    ACCOUNT_LINK_ALLOWED_ORIGINS: z.string().optional(),
+    // State/PKCE token TTL for the hosted link flow. 900s matches the window
+    // the connector nonce burn already assumes (routes/connectors/index.ts).
+    ACCOUNT_LINK_STATE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(900),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

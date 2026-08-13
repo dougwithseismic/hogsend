@@ -46,10 +46,24 @@ export * from "@hogsend/core";
 // `SendEmailOptions` is the high-level journey-facing send options from
 // `./lib/email.js`; the provider-contract `SendEmailOptions` remains available
 // via `@hogsend/core`.)
+// --- Account links: provider contract (canonical origin: @hogsend/core) ---
+// Already covered by the `export * from "@hogsend/core"` above — re-named here
+// for discoverability, mirroring the email/analytics contract re-exports.
 export {
+  ACCOUNT_LINK_HOOK_TIMEOUT_MS,
+  ACCOUNT_LINK_ID_RE,
+  AccountLinkCallbackError,
+  type AccountLinkCapabilities,
+  type AccountLinkHooks,
+  type AccountLinkMeta,
+  type AccountLinkProvider,
   bySubject,
+  defineAccountLink,
   defineAnalyticsProvider,
   defineEmailProvider,
+  type LinkedIdentity,
+  type LinkTokens,
+  RESERVED_ACCOUNT_LINK_IDS,
   type Subject,
   WebhookHandshakeSignal,
 } from "@hogsend/core";
@@ -292,6 +306,11 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+// The one origin allowlist parser (PRD 07 `returnTo`, PRD 10 `postMessage`) —
+// fail-loud at boot; the container calls it, exported for consumers/tests.
+export { parseAllowedOrigins } from "./lib/account-link-origins.js";
+// The container-held provider registry (`client.accountLinkProviders`).
+export { AccountLinkProviderRegistry } from "./lib/account-link-provider-registry.js";
 // --- Account links (the link store — the ONE writer of `linked_accounts`) ---
 //
 // Deliberately NARROW. This barrel is the committed semver boundary for

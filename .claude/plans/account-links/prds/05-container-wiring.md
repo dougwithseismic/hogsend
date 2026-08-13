@@ -342,3 +342,37 @@ one.
 - [ ] `pnpm --filter @hogsend/engine test` (the engine's own `tsx --test` suite)
 
 ## Implementation Notes
+
+### Verification
+
+Five gates green, both the build and the cross-package test run FORCED uncached (a cached
+`FULL TURBO` proves nothing about uncommitted work):
+`lint`, `packages/engine tsc --noEmit`, full `apps/api` suite,
+`turbo run test --filter='!@hogsend/api' --force` (46/46), `build --force` (29/29).
+
+Mutation guard: disabling the explicit wildcard pre-check in `parseAllowedOrigins` fails exactly
+`throws on a wildcard host` (7 pass -> 6 pass / 1 fail). That guard earns its place —
+`new URL("https://*.example.com")` PARSES and its origin round-trips, so the round-trip check alone
+would wave a wildcard host straight into a `postMessage` targetOrigin. Restored, 7/7.
+
+Reviewed by hand against the PRD's six risk points: the 05/06 boundary holds (none of PRD 06's files
+exist), no Discord anywhere, `STEAM_WEB_API_KEY` declared OPTIONAL and non-gating, hooks held but
+invoked by nobody (the store remains the sole invoker), and the allowlist fails loud.
+
+### A methodology failure worth recording
+
+The full `apps/api` suite showed `contact-id-backfill` failing, and an A/B (fail with PRD 05, pass at
+HEAD) looked like conclusive attribution. It was not: the delivery agent was STILL WRITING FILES
+after sending an idle notification, so vitest was loading a moving target mid-run. With file content
+pinned by checksum before and after, the suite passes with PRD 05 present.
+
+Two rules follow, both of which had already bitten this stack once before being applied:
+1. **An idle notification does not mean an agent has stopped.** Checksum the files before and after
+   any gate run whose result you intend to act on.
+2. **Never run gates while a writer is active**, and never `git stash` in that window — the pop
+   failed here because the agent had rewritten the stashed files underneath; contents happened to be
+   byte-identical so nothing was lost, but that was luck.
+
+The two remaining full-suite failures are pre-existing and NOT from this PRD: `health-activity`
+(fails identically at HEAD) and `gtm-score-batch` (passes alone in ~5s, times out only under
+full-suite DB contention).
