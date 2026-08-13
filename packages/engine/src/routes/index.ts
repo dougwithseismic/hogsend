@@ -4,6 +4,7 @@ import type { HogsendClient } from "../container.js";
 import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { requirePublishableOrIngest } from "../middleware/publishable-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
+import { createAccountsRouter } from "./accounts/index.js";
 import { adminRouter } from "./admin/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
 import { registerConnectorRoutes } from "./connectors/index.js";
@@ -147,6 +148,19 @@ export function registerRoutes(
   // SAME stateful instance double-counts every send (two sliding-window entries
   // per request), halving the effective per-key budget (decision #16 / risk 15).
   v1.use("/emails/*", emailRateLimit);
+
+  // Account links. The two hosted-flow routes (`:provider/start` +
+  // `:provider/callback`) are UNAUTHENTICATED by construction — public browser
+  // redirect targets that self-authenticate through the signed state, the
+  // single-use nonce and the provider's own proof-of-control.
+  //
+  // NO blanket guard may be registered on `/accounts/:provider/:providerUserId`
+  // (PRD 09's data plane): Hono runs EVERY matching `use`, so that two-segment
+  // pattern also matches `/accounts/steam/start` and `/accounts/steam/callback`
+  // and would kill the whole hosted flow (401 with no key, 403 with a pk_ one).
+  // PRD 09 registers ONE guard on that pattern that branches internally,
+  // mirroring the method-branching `/contacts` guard above (DECISIONS §15.1).
+  v1.route("/accounts", createAccountsRouter());
 
   v1.route("/contacts", contactsRouter);
   v1.route("/events", eventsRouter);

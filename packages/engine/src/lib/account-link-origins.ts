@@ -59,3 +59,29 @@ export function parseAllowedOrigins(
   }
   return origins;
 }
+
+/**
+ * Is this `returnTo` allowed to be a redirect target?
+ *
+ * The ONE rule, applied at BOTH ends of the flow: `/start` checks it before it
+ * mints a state, and `/callback` re-checks it before it redirects, because the
+ * allowlist can be edited while a signed state is in flight and the signature
+ * proves only that WE minted the value, never that it is still permitted.
+ *
+ * Fail-closed by construction: an empty allowlist allows nothing (the container
+ * warns once at boot when providers are registered with no origins), an
+ * unparseable `returnTo` is refused, and the comparison is on the parsed
+ * `origin` — never a `startsWith`, which `https://play.example.com.evil.test`
+ * walks straight through.
+ */
+export function isAllowedReturnTo(
+  returnTo: string,
+  allowedOrigins: readonly string[],
+): boolean {
+  if (allowedOrigins.length === 0) return false;
+  try {
+    return allowedOrigins.includes(new URL(returnTo).origin);
+  } catch {
+    return false;
+  }
+}

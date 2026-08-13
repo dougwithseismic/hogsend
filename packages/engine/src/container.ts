@@ -1005,6 +1005,22 @@ export function createHogsendClient(
       "account link providers are registered but no allowed origin is configured — no returnTo will be accepted and no postMessage will be sent. Set ACCOUNT_LINK_ALLOWED_ORIGINS (or accountLinks.allowedOrigins)",
     );
   }
+  // Gate on the RAW `process.env.REDIS_URL`, for the same reason the
+  // better-auth secondary-storage wiring below does: `env.REDIS_URL` carries a
+  // localhost default and is never empty, and the engine's Redis singleton is
+  // only ever CONSTRUCTED when the raw var is set — so this is exactly the
+  // condition under which `getRedisIfConnected()` is null at request time.
+  if (accountLinkProviders.count() > 0 && !process.env.REDIS_URL) {
+    // The hosted flow is FAIL-CLOSED on Redis (DECISIONS §6.8): PKCE custody
+    // and the callback's single-use nonce burn both live there, so
+    // `/v1/accounts/:provider/start` and `/callback` answer 503 without it.
+    // That is a deliberate divergence from the connector callback, which
+    // degrades to TTL-only validity — so say it ONCE at boot rather than
+    // letting an operator discover it as a 503 on a player's link.
+    logger.warn(
+      "account link providers are registered but redis is not connected — the hosted flow fails closed and /v1/accounts/:provider/start and /callback will answer 503. Set REDIS_URL",
+    );
+  }
 
   // CRM sync providers (§Phase 4). No env presets yet — CRM credentials are
   // per-deployment enough that construction stays consumer-side; the single

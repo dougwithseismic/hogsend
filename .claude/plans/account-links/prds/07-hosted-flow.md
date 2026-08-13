@@ -634,3 +634,75 @@ credentials have not landed.
 - [ ] `pnpm --filter @hogsend/engine test`
 
 ## Implementation Notes
+
+### The critical finding: a cold link could mint a DOPPELGANGER of an identified player
+
+An adversarial audit confirmed a real account takeover that the PRD's own §6.10 test structurally
+could not reach.
+
+The `allowMerge: "anonymous-only"` + `trustedKinds: ["anonymous"]` clamp stops a cold link ATTACHING
+to an identified victim. It does NOT stop one MINTING a lookalike:
+
+    victim:   external_id = "user_42", anonymous_id NULL
+    attacker: GET /v1/accounts/steam/start?anonymous_id=user_42, then proves THEIR OWN steam account
+
+No candidate matches (the victim's key lives in `external_id`), so the clamp is never consulted and a
+NEW contact is inserted with `anonymous_id = "user_42"`. The canonical key is
+`external_id ?? anonymous_id ?? id`, so that row's `userId` IS the victim's player id — and
+`afterLink` hands the publisher `{ userId: "user_42", providerUserId: <attacker's steamid> }`. The
+documented "grant the reward" integration then entitles the ATTACKER'S Steam account as the victim.
+The same works with the victim's email when they carry no external_id.
+
+The existing §6.10 test could never catch it: it seeds the victim WITH `anonymous_id` set to the
+attacked value, which is the one shape that reaches the fill-in-link arm the clamp guards.
+
+**Fix:** `collidesWithIdentified(db, anonymousId)` before the cold resolve — the guard the engine
+already ships for its other token-less anon-id-accepting surfaces (`routes/feed/recipient.ts:121`,
+`routes/tracking/arrive.ts`). It sees what the clamp cannot: the value being a live contact's
+external_id or email, or a merged loser's stale non-anonymous alias. The existing catch already
+yields the spec'd hard refusal, so no new failure shape was introduced.
+
+**Mutation-proven:** with the guard disabled the new test
+`a cold callback whose anonymous_id is an identified victim's EXTERNAL id mints no doppelganger`
+fails with `expected 200 to be 400` — i.e. the takeover SUCCEEDS and the link is written. Restored,
+22/22.
+
+Residual, recorded rather than hidden: the check runs outside the resolver's transaction, so it
+carries the same TOCTOU the two pre-existing callers already have (a victim identifying in that exact
+instant). Closing the create arm inside `lib/contacts.ts` would also close the pre-existing
+`POST /v1/events` shape, but that is a wider change than this PRD.
+
+### Also fixed: beforeLink vetoing a player's own re-link
+
+On the cold path `intent.contactId` is undefined, so `liveOwner.contactId !== intent.contactId` was
+true for EVERY live owner — including the visitor's own contact. A consumer shipping the documented
+takeover guard (`ctx.currentOwnerContactId ? refuse`) would have vetoed a player re-linking an
+account they already hold, and emitted `account.link_failed{vetoed}` for it. Now gated on `warm`,
+where the comparison is meaningful. Cold does not need it: it passes
+`allowDisplaceLiveOwner: false`, so the store refuses a real cold takeover itself.
+
+### Audit coverage — and a gap that was closed rather than accepted
+
+The first audit run lost THREE of its four lenses to API 529s: cold-path, routing and tokens — the
+three that matter most. Only hooks-and-store completed. Those three were re-run rather than allowed
+to pass as coverage; the cold-path finding above came from that re-run. A transient outage that
+silently reduces audit coverage is the same failure shape as a vacuous test: green for reasons
+unrelated to correctness.
+
+Across both runs: 7 findings raised, 2 confirmed (both fixed above), 5 refuted.
+
+### Scope seam: the outbound emits belong to PRD 08
+
+`callback.ts` carries `noteLinkFailed` / `noteLinked` as private functions that log today and are
+marked `TODO(PRD 08 T4)`. PRD 08 owns those emit sites (DECISIONS §15.7: one owner per emit site), so
+two of this PRD's test names go with them. The invariants they protect are pinned elsewhere — no
+contact minted on failure, exactly one link row — but **PRD 08 T4 must add them**, and `unchanged` is
+deliberately NOT an emit site (a same-owner re-proof consumes no version, so emitting would announce
+a transition that did not happen).
+
+### Verification
+
+Five gates: lint clean, engine `tsc --noEmit` clean, `turbo run test --filter='!@hogsend/api'
+--force` 46/46 uncached, `turbo run build --force` 29/29 uncached, full `apps/api` 2580 passed.
+Remaining failures are the known state-dependent ones (`health-activity`, `contact-id-backfill`) —
+see the release note about running the final verification against a clean database.

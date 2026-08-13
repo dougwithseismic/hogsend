@@ -317,9 +317,21 @@ export {
 } from "./journeys/registry-singleton.js";
 // The one origin allowlist parser (PRD 07 `returnTo`, PRD 10 `postMessage`) —
 // fail-loud at boot; the container calls it, exported for consumers/tests.
-export { parseAllowedOrigins } from "./lib/account-link-origins.js";
+export {
+  isAllowedReturnTo,
+  parseAllowedOrigins,
+} from "./lib/account-link-origins.js";
 // The container-held provider registry (`client.accountLinkProviders`).
 export { AccountLinkProviderRegistry } from "./lib/account-link-provider-registry.js";
+// The server-side WARM minter. Returns an ENGINE-origin `/start` URL — never a
+// provider authorize URL (DECISIONS §15.2). PRD 09's `POST
+// /v1/accounts/link-url` returns exactly this value and PRD 13's embed derives
+// its `postMessage` expectedOrigin from it.
+export {
+  AccountLinkReturnToError,
+  type MintAccountLinkUrlArgs,
+  mintAccountLinkUrl,
+} from "./lib/account-link-url.js";
 // --- Account links (the link store — the ONE writer of `linked_accounts`) ---
 //
 // Deliberately NARROW. This barrel is the committed semver boundary for
