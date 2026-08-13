@@ -292,10 +292,13 @@ Tests: `apps/api/src/__tests__/account-link-merge.test.ts` (new, real DB, run-na
    must FAIL with `foldLinkedAccounts` removed and the blind UPDATE in its place)
 7. `no linked_accounts row references a soft-deleted contact after a merge`
 8. `the merge result reports the unlink facts`
-8b. `a version above Number.MAX_SAFE_INTEGER survives the merge unlink` — seed the pair's version at
-    `9007199254740993`, merge, and assert the returned version is exactly the string
-    `"9007199254740994"` (`typeof` string, strict equality). Any `Number()`/`parseInt` on the path
-    rounds the value and the assertion fails.
+8b. `a version above Number.MAX_SAFE_INTEGER survives the merge unlink`. **Seed so the RESULT lands
+    on an ODD value — seed `9007199254740994`, so the merge unlink returns `"9007199254740995"` —
+    and assert that string exactly.** Do NOT seed `...993` expecting `...994`: that was this stack's
+    original prescription and it is VACUOUS, because `...994` is even and exactly representable in
+    float64, so `Number()` round-trips it unchanged and the assertion passes on broken code. Only an
+    odd value above 2^53 catches the rounding (`Number("9007199254740995")` is `...996`). See
+    DECISIONS §5.1, which now carries this rule for every PRD that asserts on `version`.
 
 ### T3 — `adoptOrphanHistory`: the documented no-op
 _Boundary:_ `packages/engine`
