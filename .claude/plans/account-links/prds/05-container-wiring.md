@@ -182,7 +182,7 @@ Tests, `packages/engine/src/lib/account-link-provider-registry.test.ts` (`tsx --
 _Boundary:_ `packages/engine`
 _Depends:_ —
 
-Add the six vars from the table above to `packages/engine/src/env.ts`, each with the comment style
+Add the five vars from the table above to `packages/engine/src/env.ts`, each with the comment style
 already used in that file (why it exists, what its absence means). Place the block after the
 `ENRICHMENT_*` block (`env.ts:212-232`) and before the Hatchet block.
 
@@ -326,7 +326,7 @@ one.
 
 ## Done when
 - [ ] `packages/engine/src/lib/account-link-provider-registry.ts` + its test exist and pass.
-- [ ] The six env vars are declared in `packages/engine/src/env.ts` with explanatory comments.
+- [ ] The five env vars are declared in `packages/engine/src/env.ts` with explanatory comments.
 - [ ] `parseAllowedOrigins` lives in `lib/account-link-origins.ts`, THROWS on a malformed entry, and
       its throw is mutation-guarded by a test.
 - [ ] `client.accountLinkProviders`, `client.accountLinkHooks`, `client.accountLinkAllowedOrigins`
