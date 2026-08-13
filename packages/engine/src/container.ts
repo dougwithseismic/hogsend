@@ -68,6 +68,7 @@ import { getJourneySources } from "./journeys/journey-sources-singleton.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
 import { parseAllowedOrigins } from "./lib/account-link-origins.js";
 import { AccountLinkProviderRegistry } from "./lib/account-link-provider-registry.js";
+import { accountLinksFromEnv } from "./lib/account-links-from-env.js";
 import {
   isAnalyticsProvider,
   wrapLegacyAnalyticsService,
@@ -972,8 +973,13 @@ export function createHogsendClient(
       seenAccountLinkIds.add(id);
     }
   }
-  // PRD 06 prepends `...accountLinksFromEnv(env).providers` to this array.
+  // Env presets FIRST, consumer last (last-writer-wins on meta.id) — the same
+  // merge order and reason as the email registry. The env builder returns its
+  // warnings rather than console.warn-ing, so they go through the real logger.
+  const accountLinkEnv = accountLinksFromEnv(env);
+  for (const warning of accountLinkEnv.warnings) logger.warn(warning);
   const accountLinkProviders = new AccountLinkProviderRegistry([
+    ...accountLinkEnv.providers,
     ...consumerAccountLinkProviders,
   ]);
   const accountLinkAllowedOrigins = parseAllowedOrigins([

@@ -16,6 +16,8 @@ process.env.HATCHET_CLIENT_TOKEN ??=
   "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QifQ.eyJhdWQiOiJsb2NhbGhvc3QiLCJleHAiOjQ5MzMyNDA5ODMsImdycGNfYnJvYWRjYXN0X2FkZHJlc3MiOiJsb2NhbGhvc3Q6NzA3NyIsImlhdCI6MTc3OTY0MDk4MywiaXNzIjoibG9jYWxob3N0Iiwic2VydmVyX3VybCI6ImxvY2FsaG9zdCIsInN1YiI6InRlc3QtdGVuYW50LWlkIiwidG9rZW5faWQiOiJ0ZXN0LXRva2VuLWlkIn0.test";
 process.env.ACCOUNT_LINK_ALLOWED_ORIGINS =
   "https://env-a.example.com, https://env-b.example.com";
+process.env.ACCOUNT_LINK_TWITCH_CLIENT_ID = "env-twitch-client-id";
+process.env.ACCOUNT_LINK_TWITCH_CLIENT_SECRET = "env-twitch-client-secret";
 
 const { createHogsendClient } = await import("./container.js");
 
@@ -34,4 +36,30 @@ test("parses ACCOUNT_LINK_ALLOWED_ORIGINS and the option into one list, env firs
     "https://env-b.example.com",
     "https://option.example.com",
   ]);
+});
+
+test("registers twitch + steam from env", () => {
+  const client = createHogsendClient();
+  // Steam unconditionally, twitch because BOTH ACCOUNT_LINK_TWITCH_* vars are
+  // set above. Env-preset order: steam first, then twitch.
+  assert.deepEqual(client.accountLinkProviders.ids(), ["steam", "twitch"]);
+  assert.equal(client.accountLinkProviders.get("twitch")?.meta.name, "Twitch");
+  assert.equal(
+    client.accountLinkProviders.get("twitch")?.capabilities?.tokens,
+    true,
+  );
+});
+
+test("a consumer provider of the same id overrides the env preset", () => {
+  const consumerTwitch = {
+    meta: { id: "twitch", name: "consumer-twitch" },
+    authorizeUrl: () => "https://example.com/authorize",
+    handleCallback: async () => ({ providerUserId: "u1" }),
+  };
+  const client = createHogsendClient({
+    accountLinks: { providers: [consumerTwitch] },
+  });
+  // Env presets first, consumer last: same count, consumer object wins.
+  assert.deepEqual(client.accountLinkProviders.ids(), ["steam", "twitch"]);
+  assert.equal(client.accountLinkProviders.get("twitch"), consumerTwitch);
 });

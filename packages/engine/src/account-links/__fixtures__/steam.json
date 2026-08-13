@@ -1,0 +1,21 @@
+{
+  "checkAuthenticationValid": "ns:http://specs.openid.net/auth/2.0\nis_valid:true\n",
+  "checkAuthenticationInvalid": "ns:http://specs.openid.net/auth/2.0\nis_valid:false\n",
+  "playerSummaries": {
+    "response": {
+      "players": [
+        {
+          "steamid": "76561197960435530",
+          "communityvisibilitystate": 3,
+          "profilestate": 1,
+          "personaname": "Robin",
+          "profileurl": "https://steamcommunity.com/id/robinwalker/",
+          "avatar": "https://avatars.steamstatic.com/small.jpg",
+          "avatarmedium": "https://avatars.steamstatic.com/medium.jpg",
+          "avatarfull": "https://avatars.steamstatic.com/full.jpg",
+          "personastate": 0
+        }
+      ]
+    }
+  }
+}

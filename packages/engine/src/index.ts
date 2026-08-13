@@ -81,6 +81,15 @@ export {
   type JournalShape,
   type SchemaVersion,
 } from "@hogsend/db";
+// The two built-in account-link providers — config over the @hogsend/core
+// presets (DECISIONS §3.1), exported so a consumer can construct one directly
+// with code-supplied config and pass it via `accountLinks.providers`.
+export {
+  type SteamAccountLinkConfig,
+  steamAccountLink,
+  type TwitchAccountLinkConfig,
+  twitchAccountLink,
+} from "./account-links/index.js";
 // --- App / container / worker factories ---
 export {
   type AppEnv,

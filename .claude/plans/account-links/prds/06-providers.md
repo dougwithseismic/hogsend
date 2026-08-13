@@ -374,3 +374,42 @@ credentials have not landed, and let PRD 07 proceed.
 - [ ] `pnpm --filter @hogsend/engine test`
 
 ## Implementation Notes
+
+### Verification
+
+All five gates green: lint, engine `tsc --noEmit`, full `apps/api` (2527 passed; only the known
+pre-existing `health-activity` failure), `turbo run test --filter='!@hogsend/api' --force
+--concurrency=2` (46/46, 0 cached), `turbo run build --force` (29/29).
+
+Mutation guards, each restored and re-verified:
+- **Steam unconditional** — gating the steam push on `STEAM_WEB_API_KEY` fails
+  `builds steam and ONLY steam from an otherwise empty env`.
+- **The hardcoded `check_authentication` endpoint** — the single most important guard in the
+  feature. Removing the `op_endpoint` equality check AND pointing the verification POST at
+  `opEndpoint ?? STEAM_OPENID_ENDPOINT` (the forgeable shape) fails
+  `the security assertions hold end to end`, verified independently through the CONFIGURED provider,
+  not just the preset. `packages/core` confirmed byte-clean afterwards.
+- **`verifiedEmail`** — adding `verifiedEmail: user.email` to `mapTwitchUser` fails
+  `mapTwitchUser never sets verifiedEmail and stores twitch_email instead`.
+- **The twitch `&&`** — relaxing it to `||` fails the half-configured cases both ways.
+- **No Discord** — pushing a fake discord provider fails `builds no discord provider under any env`;
+  `plugin-discord` diff is empty.
+
+No test performs network I/O: the fake fetch throws on any unmatched route, and every refusal path
+asserts `calls.length === 0` before the network.
+
+### Two consequences of unconditional Steam — RAISED, not silently accepted
+
+Registering Steam without a credential is correct (OpenID 2.0 presents none), but it collides with
+this repo's standing inert-when-unconfigured posture, in two places:
+
+1. PRD 05's boot warning "providers are registered but no allowed origin is configured" now fires on
+   EVERY deploy, because `count() > 0` is always true. Pinned by a test so it is a visible decision
+   rather than drift.
+2. Once PRD 07 lands, EVERY Hogsend deploy exposes a live, publicly-callable
+   `/v1/accounts/steam/*` regardless of operator intent.
+
+(2) is the substantive one: it widens the public surface of every existing deployment, including
+those that will never use account links, and the cold-start path mints contacts. That trades the
+zero-config win against the house posture, and the resolution is a product call — see the decision
+recorded at the top of PRD 07.

@@ -63,15 +63,16 @@ function countOf(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
-test("exposes an empty registry and {} hooks with no config", () => {
+test("registers steam unconditionally and {} hooks with no config", () => {
+  // PRD 06: steam is an UNCONDITIONAL env preset — OpenID 2.0 needs no
+  // credential, so a zero-config deploy still links Steam accounts.
   const { value: client, out } = captureBoot(() => createHogsendClient());
-  assert.equal(client.accountLinkProviders.count(), 0);
+  assert.deepEqual(client.accountLinkProviders.ids(), ["steam"]);
   assert.deepEqual(client.accountLinkHooks, {});
   assert.deepEqual(client.accountLinkAllowedOrigins, []);
-  // No account-link warning fires on a deploy with no account linking at all
-  // (other subsystems may warn — e.g. "no email provider configured" — so the
-  // assertion is scoped to the account-link warnings).
-  assert.equal(out.includes(ALLOWLIST_WARN), false);
+  // No half-configured provider ⇒ no env-builder warning; the duplicate-id
+  // warn stays silent too. (The allowlist warn DOES fire — steam is
+  // registered with no allowed origin — see the dedicated test below.)
   assert.equal(out.includes(DUP_WARN), false);
 });
 
@@ -100,11 +101,28 @@ test("keeps the last of two consumer providers sharing an id, and warns once", (
       },
     }),
   );
-  assert.equal(client.accountLinkProviders.count(), 1);
+  // 2 = the unconditional steam env preset + the (deduped) consumer twitch.
+  assert.equal(client.accountLinkProviders.count(), 2);
   assert.equal(client.accountLinkProviders.get("twitch"), second);
   assert.equal(countOf(out, DUP_WARN), 1);
   // The warn names the duplicated id.
   assert.match(out, /"twitch"/);
+});
+
+test("a consumer provider of the same id overrides the env preset", () => {
+  const steam = stubProvider("steam", "consumer-steam");
+  const { value: client } = captureBoot(() =>
+    createHogsendClient({
+      accountLinks: {
+        providers: [steam],
+        allowedOrigins: ["https://play.example.com"],
+      },
+    }),
+  );
+  // Env presets merge FIRST, consumer last — last-writer-wins on meta.id, so
+  // the registry holds the consumer's steam, not the env preset's.
+  assert.equal(client.accountLinkProviders.count(), 1);
+  assert.equal(client.accountLinkProviders.get("steam"), steam);
 });
 
 test("exposes accountLinkHooks verbatim", () => {
@@ -147,7 +165,11 @@ test("warns when providers are registered but the allowlist is empty", () => {
   assert.equal(countOf(out, ALLOWLIST_WARN), 1);
 });
 
-test("stays silent when no providers are registered and the allowlist is empty", () => {
+test("the empty-allowlist warn fires on a zero-config boot, because steam always registers", () => {
+  // Consequence of the unconditional steam preset: `count() > 0` is now true
+  // on EVERY boot, so a deploy with no allowed origin warns once. Pinned so a
+  // future change to either side (the preset or the warn condition) is a
+  // deliberate decision, not drift.
   const { out } = captureBoot(() => createHogsendClient({ accountLinks: {} }));
-  assert.equal(out.includes(ALLOWLIST_WARN), false);
+  assert.equal(countOf(out, ALLOWLIST_WARN), 1);
 });
