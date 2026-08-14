@@ -2458,6 +2458,10 @@ const SOURCE_LOGOS: {
   { name: "Twilio", file: "twilio.svg", ratio: 1 },
   { name: "Discord", file: "discord.svg", ratio: 1 },
   { name: "Telegram", file: "telegram.svg", ratio: 1 },
+  // Account linking, not a message channel: these bind a player's platform
+  // identity to a contact (`defineAccountLink`). Steam needs no credentials.
+  { name: "Steam", file: "steam.svg", ratio: 1 },
+  { name: "Twitch", file: "twitch.svg", ratio: 1 },
   { name: "PostHog", file: "posthog.svg", ratio: 1 },
   { name: "Resend", file: "resend.svg", ratio: 1 },
   {
