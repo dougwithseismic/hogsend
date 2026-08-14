@@ -19,6 +19,12 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       NODE_ENV: "test",
+      // Never start a build in-process as a publish side effect: a test's
+      // `await publish(...)` resolves at the 202, and the background build's
+      // `builds` UPDATEs then deadlock against the next case's cleanup DELETE
+      // (intermittent CI 40P01 in publish-cli-auth / deferred-provision).
+      // Suites that test the pipeline call it directly with their own fakes.
+      CLOUD_INLINE_BUILDS: "off",
       // LAW: the default MUST be port 5434 — the repo's docker-compose
       // TimescaleDB — so CI works with no local env exported. An exported
       // CLOUD_DATABASE_URL on a dev machine would otherwise mask a wrong
