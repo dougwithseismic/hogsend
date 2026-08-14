@@ -1,5 +1,12 @@
 # @hogsend/plugin-ghl
 
+## 0.43.19
+
+### Patch Changes
+
+- Updated dependencies [2ab4693]
+  - @hogsend/core@0.65.0
+
 ## 0.43.18
 
 ### Patch Changes

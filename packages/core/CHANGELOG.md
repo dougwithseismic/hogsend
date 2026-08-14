@@ -1,5 +1,24 @@
 # @hogsend/core
 
+## 0.65.0
+
+### Minor Changes
+
+- 2ab4693: Account link provider contract. New public surface in `@hogsend/core` for linking a player's third-party platform account (Steam, Twitch, or a platform you author yourself) to a contact. Types and pure functions only — no DB and no engine import — so a provider can be written against `@hogsend/core` alone. Additive: nothing existing changes.
+
+  `defineAccountLink(provider)` is the identity factory, matching `defineEmailProvider` / `defineSmsProvider`. It returns its argument unchanged and runs cheap authoring guards at definition time: the provider id must match `ACCOUNT_LINK_ID_RE` and must not be one of `RESERVED_ACCOUNT_LINK_IDS`; `onConflict` is rejected unless `multiple: false`; `refresh()` / `revoke()` are rejected without `capabilities.tokens: true`; and `sync` is rejected without a positive `every` or without a `read()`. A provider owns exactly two wires — build the authorize URL, and turn a callback into a proven `LinkedIdentity` — and throws `AccountLinkCallbackError` with `reason: "denied" | "exchange_failed" | "state_invalid"` when it cannot.
+
+  Two preset factories cover the platforms. `oauth2Link()` builds a standard authorization-code provider with optional PKCE, per-request userinfo headers (Twitch's Helix API rejects anything without `Client-Id`), optional token storage, and a `refresh()` that flags `invalidGrant` so a caller can keep the link and stop the property sync rather than string-match a body. `steamOpenIdLink()` builds the Steam OpenID 2.0 provider: it posts `check_authentication` to a hardcoded `steamcommunity.com` constant and never to a callback-supplied endpoint, requires a byte-exact `openid.return_to`, and parses the claimed id with a fully anchored `steamid64` pattern. No error message interpolates a response body, which can carry a token.
+
+  Hooks (`AccountLinkHooks`) come with their postures in the type documentation: `beforeLink` is blocking, fail-closed and bounded by `ACCOUNT_LINK_HOOK_TIMEOUT_MS`; `afterLink` / `afterUnlink` are post-commit, at-least-once, fail-open and bounded by the same 5s. `BeforeLinkContext.contactId` is `string | null` so an anonymous link can be vetoed with no contact created. Link versions are typed `string` throughout, never `number`: they are Postgres bigints and exceed `Number.MAX_SAFE_INTEGER`.
+
+  Zod validators ship alongside the types — `accountLinkProviderIdSchema`, `providerUserIdSchema`, `accountLinkVersionSchema`, `linkTokensSchema`, `linkedIdentitySchema`, `linkMethodSchema`, `unlinkReasonSchema` — with identity properties clamped to scalars and bidirectional type-equality assertions that fail to compile if a schema and its type ever drift.
+
+### Patch Changes
+
+- Updated dependencies [dbea404]
+  - @hogsend/db@0.65.0
+
 ## 0.64.0
 
 ### Minor Changes
