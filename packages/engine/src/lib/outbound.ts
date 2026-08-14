@@ -384,6 +384,97 @@ export interface OutboundPayloads {
     groupId: string;
     contactId: string;
   };
+  /**
+   * A third-party platform account (`defineAccountLink`: Steam, Twitch, …) was
+   * bound to a contact. Emitted from the intent layer only — the callback
+   * handler and the data-plane import — never from the ingest path.
+   *
+   * FULL CURRENT STATE, never a delta (DECISIONS §5.2). A relink is TWO
+   * deliveries — `account.unlinked` for the displaced owner at the LOWER
+   * version, then `account.linked` at the higher one — and those retry
+   * independently, so they can arrive out of order, duplicated, or a day late.
+   * The customer rule that makes all three cases a no-op, verbatim from
+   * DECISIONS §5.3: *upsert keyed on `(provider, providerUserId)`; apply only
+   * when `incoming.version > stored.version`; otherwise discard.*
+   */
+  "account.linked": {
+    state: "linked";
+    /** The `AccountLinkProvider` meta.id (`"steam"`, `"twitch"`, …). */
+    provider: string;
+    providerUserId: string;
+    contactId: string;
+    /** The canonical contact key: `external_id ?? anonymous_id ?? id`. */
+    userId: string | null;
+    /**
+     * The CONTACT's email, never the provider-reported one. A
+     * provider-reported address is at most a display property (DECISIONS §6.3
+     * / §6.4) and must never become a resolution key downstream.
+     */
+    email: string | null;
+    /** The provider's display name for the account. */
+    username: string | null;
+    method: "oauth" | "import";
+    /** True when this link displaced a different live owner. */
+    relink: boolean;
+    /**
+     * A decimal STRING, never a JSON number. `linked_accounts.version` is a
+     * Postgres `bigint` (DECISIONS §5.1), which exceeds
+     * `Number.MAX_SAFE_INTEGER`, so a JSON number silently loses integer
+     * fidelity and breaks the `>` guard above in exactly the case that guard
+     * exists for. Serialize with `String(row.version)`; compare with
+     * `BigInt()` or a numeric column, never `parseInt`.
+     */
+    version: string;
+    /** ISO 8601. */
+    at: string;
+  };
+  /**
+   * A platform account was released from a contact — by the player, by the
+   * API/erasure path, or because a relink moved it elsewhere. Emitted from the
+   * intent layer only, never from the ingest path.
+   *
+   * FULL CURRENT STATE, never a delta (DECISIONS §5.2), and it shares the
+   * `(provider, providerUserId)` version sequence with `account.linked`, so
+   * the same rule applies verbatim from DECISIONS §5.3: *upsert keyed on
+   * `(provider, providerUserId)`; apply only when `incoming.version >
+   * stored.version`; otherwise discard.*
+   */
+  "account.unlinked": {
+    state: "unlinked";
+    provider: string;
+    providerUserId: string;
+    contactId: string;
+    /** The canonical contact key: `external_id ?? anonymous_id ?? id`. */
+    userId: string | null;
+    /** The CONTACT's email, never the provider-reported one. */
+    email: string | null;
+    reason: "player" | "api" | "relinked";
+    /**
+     * A decimal STRING, never a JSON number — `linked_accounts.version` is a
+     * Postgres `bigint` (DECISIONS §5.1) and a JSON number loses fidelity past
+     * `Number.MAX_SAFE_INTEGER`. Serialize with `String(row.version)`.
+     */
+    version: string;
+    /** ISO 8601. */
+    at: string;
+  };
+  /**
+   * A link flow ended without binding anything. Deliberately carries NO
+   * `version` and NO `state`: nothing mutated, so there is no current state to
+   * report and nothing for the `incoming.version > stored.version` guard to
+   * compare — a subscriber records this as an attempt, never as ownership.
+   *
+   * `contactId` is null whenever the flow failed before a trustworthy contact
+   * was in hand (a state token that did not verify carries nothing). This
+   * event NEVER mints a contact (DECISIONS §8).
+   */
+  "account.link_failed": {
+    provider: string;
+    reason: "denied" | "vetoed" | "exchange_failed" | "state_invalid";
+    contactId: string | null;
+    /** ISO 8601. */
+    at: string;
+  };
 }
 
 /** Shared payload for the `crm.*` outbound family. */
