@@ -31,8 +31,10 @@ import {
 // (the merge fold, the delete leg) plus one version-free contact_id repoint
 // inside `foldLinkedAccounts`. No import cycle: account-links.ts never imports
 // this module.
+import { emitAccountUnlinked } from "./account-link-emit.js";
 import {
   type ContactUnlinkFact,
+  type LinkOwner,
   unlinkAccountInTx,
   unlinkAccountsForContactInTx,
 } from "./account-links.js";
@@ -1075,6 +1077,17 @@ export interface MergedLinkUnlink {
   /** The loser contact that held the soft-unlinked row. */
   contactId: string;
   reason: "relinked";
+  /**
+   * The owner facts the store read INSIDE the fold's transaction (DECISIONS
+   * §15.5). PRD 08's payload carries `userId` (`contactKey()`) and `email`,
+   * and neither lives on `linked_accounts` — without carrying them here the
+   * post-commit emit would either ship two nulls or bolt a second contacts
+   * read on after the lock released, which is no longer the state that
+   * committed. `unlinkAccountInTx`'s `unlinked` arm returns it
+   * (`account-links.ts:260`) and the fold only narrows to that arm, so the
+   * fold copies it straight across — no extra query.
+   */
+  owner: LinkOwner;
 }
 
 /**
@@ -1230,7 +1243,7 @@ async function resolveContactShared(
   const patch = contactProperties ?? {};
   const hasPatch = Object.keys(patch).length > 0;
 
-  return db.transaction(async (tx) => {
+  const committed = await db.transaction(async (tx) => {
     // (−1) ENGINE-INTERNAL PROVENANCE PIN. A uuid-shaped `contactId` from a
     // trusted internal re-emit pins resolution to that exact row (no value-key
     // probe, no mint), so a contact's own canonical key round-tripping back as a
@@ -1432,6 +1445,33 @@ async function resolveContactShared(
       linkUnlinks,
     };
   });
+
+  // One widening step: the callback's inferred return is a UNION of per-arm
+  // object literals and only the merge arm declares `linkUnlinks`, so the
+  // field is unreadable off the raw union. This is the declared result type
+  // the old `return db.transaction(...)` was checked against — no cast, no
+  // behaviour change.
+  const resolved: ResolveContactSharedResult = committed;
+
+  // THE MERGE'S `account.unlinked` EMIT (PRD 08 T3), and the reason this
+  // function `await`s its own transaction instead of returning it.
+  //
+  // `foldLinkedAccounts` produced these facts INSIDE the transaction above, so
+  // it cannot emit them itself: a merge that rolled back after the fold must
+  // never have announced an unlink that never happened. Here we are strictly
+  // past the COMMIT — the transaction promise has resolved, so a rollback took
+  // the `throw` path and never reached this line. This is the commit/intent
+  // layer DECISIONS §8 names, and it is ONE owner for every call site of
+  // `resolveOrCreateContact` / `resolveContactNoCreate`.
+  //
+  // Only the singleton-COLLISION soft-unlinks are here. The repoint that moves
+  // the loser's surviving links to the survivor is deliberately silent — see
+  // the note on step 4 of `foldLinkedAccounts`.
+  if (resolved.linkUnlinks && resolved.linkUnlinks.length > 0) {
+    emitAccountUnlinked(db, resolved.linkUnlinks);
+  }
+
+  return resolved;
 }
 
 /**
@@ -2535,6 +2575,11 @@ async function foldLinkedAccounts(
         version: outcome.version,
         contactId: loserId,
         reason: "relinked",
+        // The `unlinked` arm the narrowing above just proved (the join to
+        // `contacts` the store did under the pair lock). Copied, never
+        // re-read: PRD 08's payload needs `userId`/`email`, and a second
+        // lookup at emit time is no longer the state that committed.
+        owner: outcome.owner,
       });
     }
   }
@@ -2544,6 +2589,15 @@ async function foldLinkedAccounts(
   // moves without conflict; leaving it behind would strand history on the
   // soft-deleted loser). A version-free ownership repoint, not a state
   // transition: version/linked_at/method/tokens are preserved.
+  //
+  // DELIBERATELY NOT AN EMIT POINT (PRD 08). A reader looking for the
+  // `account.unlinked` that step 3 produces will look here too: moving a link
+  // to the merge's survivor is not a new identity fact, it allocates no
+  // version, and emitting from here would double-report every merge. Step 3's
+  // soft-unlink is the different thing that IS emitted — it really did end a
+  // link, at its own new version — and even that emit does not happen here:
+  // this whole function runs INSIDE the merge transaction, so the emit lives
+  // post-commit in `resolveContactShared` (DECISIONS §8, commit/intent layer).
   await tx
     .update(linkedAccounts)
     .set({ contactId: survivorId, updatedAt: new Date() })
@@ -3133,6 +3187,20 @@ export async function softDeleteContact(opts: {
   });
 
   if (!row) return { deleted: false };
+
+  // THE CONTACT-DELETION `account.unlinked` EMIT (PRD 08 T3, DECISIONS §15.3),
+  // one per live link, `reason: "api"`. Post-commit: the transaction above has
+  // resolved, so a rollback never reaches this line.
+  //
+  // It lives HERE rather than at the callers because `softDeleteContact` has
+  // THREE of them — `routes/contacts/index.ts`'s DELETE, the agent tool's
+  // `delete_contact` arm, and any consumer-built deletion flow — and each one
+  // that forgot would leave a customer's mirror recording a deleted player as
+  // still linked, forever. The facts stay on the return value as well; that is
+  // the reporting channel (and what the delete-leg tests assert), not a second
+  // emit point. The admin erasure route runs its OWN transaction and therefore
+  // owns its own post-commit emit (`routes/admin/contacts.ts`).
+  emitAccountUnlinked(db, row.linkUnlinks);
 
   return {
     deleted: true,

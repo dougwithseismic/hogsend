@@ -1,25 +1,87 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Same real test DB the engine singletons + the route container read.
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { contactAliases, contacts, createDatabase, linkedAccounts } =
-  await import("@hogsend/db");
+// PRD 08 T3: the merge and delete legs now emit `account.unlinked` post-commit
+// through the fire-and-forget spine, which enqueues the MODULE-LEVEL
+// `deliverWebhookTask` built from the engine's `lib/hatchet.ts` singleton at
+// import time — NOT a container hatchet. Mock the singleton itself (the
+// groups-outbound idiom) so the delivery row lands without a live gRPC dial.
+const { hatchetMock } = vi.hoisted(() => {
+  const runNoWait = vi.fn(async (_input: { deliveryId: string }) => ({}));
+  const factory = () => ({
+    hatchet: {
+      durableTask: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait: vi.fn(),
+        runAndWait: vi.fn(),
+      })),
+      task: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait,
+      })),
+      events: { push: vi.fn() },
+      runs: { cancel: vi.fn(), get: vi.fn() },
+      worker: vi.fn(),
+    },
+  });
+  return { hatchetMock: factory };
+});
+
+vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
+vi.mock("../lib/hatchet.js", () => hatchetMock());
+
+const {
+  contactAliases,
+  contacts,
+  createDatabase,
+  linkedAccounts,
+  webhookDeliveries,
+  webhookEndpoints,
+} = await import("@hogsend/db");
 const { and, eq, inArray, like, or, sql } = await import("drizzle-orm");
 const engine = await import("@hogsend/engine");
-const { getLiveLink, linkAccount, listLinkHistory, resolveOrCreateContact } =
-  engine;
+const {
+  createApp,
+  createHogsendClient,
+  emitOutbound,
+  getLiveLink,
+  linkAccount,
+  listLinkHistory,
+  resolveOrCreateContact,
+} = engine;
 // ALL_IDENTITY_KINDS is deliberately NOT on the main barrel (it is the
 // resolver's internal full-trust grant, not public API) — the guard test
 // reaches it through the `/testing` subpath, same as the store's lock
-// mechanics.
-const { ALL_IDENTITY_KINDS } = await import("@hogsend/engine/testing");
+// mechanics. `softDeleteContact` is route-internal there for the same reason.
+const { ALL_IDENTITY_KINDS, softDeleteContact } = await import(
+  "@hogsend/engine/testing"
+);
 
 const { db, client } = createDatabase({
   url: process.env.DATABASE_URL as string,
 });
+
+// The REAL admin router, for the erasure leg. `DELETE /v1/admin/contacts/:id`
+// runs its OWN transaction instead of going through `softDeleteContact`, so it
+// is an independent emit owner and needs its own delivery assertion — deleting
+// its `emitAccountUnlinked` line leaves every other test in this repo green.
+// The hatchet singleton is already mocked above, so the container's override
+// only pins the same handle explicitly.
+const container = createHogsendClient({
+  overrides: { hatchet: engine.hatchet },
+});
+const app = createApp(container);
+
+const ADMIN_HEADERS = {
+  Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
+  "Content-Type": "application/json",
+};
 
 // PRD 04 — every row this suite creates carries this per-run prefix, and
 // `afterAll` deletes exactly this namespace (resolve-policy-trusted-kinds
@@ -82,7 +144,101 @@ async function mustLink(input: LinkInput) {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// PRD 08 T3 — the outbound `account.unlinked` fixture
+// ---------------------------------------------------------------------------
+
+/** The one endpoint subscribed to `account.unlinked` for this run. */
+let endpointId = "";
+
+type UnlinkedData = {
+  state: string;
+  provider: string;
+  providerUserId: string;
+  contactId: string;
+  userId: string | null;
+  email: string | null;
+  reason: string;
+  version: string;
+  at: string;
+};
+
+/**
+ * Delivery rows for THIS run's endpoint whose dedupe key belongs to `provider`.
+ *
+ * Scoped by the RUN-prefixed provider rather than by event type alone: the emit
+ * spine fans out to every subscribed `organizationId IS NULL` endpoint, so a
+ * count filtered only on `eventType` is a count of whatever else the process
+ * emitted. Every assertion below is `toHaveLength(n)` against this, never
+ * `toBeGreaterThan(0)`.
+ */
+async function deliveriesFor(provider: string) {
+  const rows = await db
+    .select({
+      id: webhookDeliveries.id,
+      eventType: webhookDeliveries.eventType,
+      dedupeKey: webhookDeliveries.dedupeKey,
+      payload: webhookDeliveries.payload,
+    })
+    .from(webhookDeliveries)
+    .where(
+      and(
+        eq(webhookDeliveries.endpointId, endpointId),
+        like(webhookDeliveries.dedupeKey, `al:${provider}:%`),
+      ),
+    );
+  return rows.map((r) => ({
+    ...r,
+    data: (r.payload as { data: UnlinkedData }).data,
+  }));
+}
+
+/**
+ * The emits are fire-and-forget (`void emitOutbound(...)`), so the mutation
+ * resolves before the emit's INSERT lands — poll until `expected` rows appear.
+ */
+async function waitForDeliveries(
+  provider: string,
+  expected: number,
+  timeoutMs = 5000,
+) {
+  const start = Date.now();
+  let rows = await deliveriesFor(provider);
+  while (rows.length < expected && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 25));
+    rows = await deliveriesFor(provider);
+  }
+  return rows;
+}
+
+/**
+ * For the NEGATIVE assertions ("emits nothing"): polling cannot prove absence,
+ * so give the fire-and-forget path a generous, fixed window to land a row it
+ * must never land. The positive tests above measure single-digit ms.
+ */
+const SETTLE_MS = 750;
+
+beforeAll(async () => {
+  const [row] = await db
+    .insert(webhookEndpoints)
+    .values({
+      url: `https://example.com/${RUN}/account-sink`,
+      secret: "whsec_dGVzdHNlY3JldGZvcmVtaXRwb2ludGNvdmVyYWdldGVzdA==",
+      secretPrefix: "whsec_dGVzd",
+      eventTypes: ["account.unlinked"],
+      disabled: false,
+    })
+    .returning({ id: webhookEndpoints.id });
+  endpointId = row?.id ?? "";
+});
+
 afterAll(async () => {
+  // Deliveries cascade with the endpoint (FK onDelete: "cascade").
+  if (endpointId) {
+    await db
+      .delete(webhookEndpoints)
+      .where(eq(webhookEndpoints.id, endpointId));
+  }
   await db
     .delete(linkedAccounts)
     .where(like(linkedAccounts.provider, `${RUN}-%`));
@@ -583,5 +739,354 @@ describe("account links — the identity model is not widened (PRD 04 T4)", () =
     for (const a of aliases) {
       expect(["external", "email", "anonymous", "discord"]).toContain(a.kind);
     }
+  });
+});
+
+describe("account links — outbound account.unlinked (PRD 08 T3)", () => {
+  it("a merge singleton-collision unlink emits one account.unlinked with reason relinked", async () => {
+    const provider = prov("t8-merge");
+    const { survivorId, loserId, userId, anonymousId } =
+      await makeMergePair("t8-merge");
+    const pairS = uid("s");
+    const pairL = uid("l");
+    await mustLink(
+      linkInput({
+        contactId: survivorId,
+        provider,
+        identity: { providerUserId: pairS },
+        multiple: false,
+      }),
+    );
+    await mustLink(
+      linkInput({
+        contactId: loserId,
+        provider,
+        identity: { providerUserId: pairL },
+        multiple: false,
+      }),
+    );
+
+    // The MOVED-BUT-NOT-UNLINKED row, which is the whole point of the silence
+    // assertion at the bottom. The survivor holds nothing for this second
+    // provider, so step 3 finds no collision and step 4 simply repoints the
+    // row to the survivor — a change of ownership, not a new identity fact,
+    // and therefore not an emit. Without it the loser has exactly one link,
+    // step 4 has nothing left to move, and "one emit, not one per moved row"
+    // is a claim about a row the fixture never created.
+    const quietProvider = prov("t8-merge-quiet");
+    const pairQ = uid("q");
+    await mustLink(
+      linkInput({
+        contactId: loserId,
+        provider: quietProvider,
+        identity: { providerUserId: pairQ },
+        multiple: false,
+      }),
+    );
+
+    const result = await merge(userId, anonymousId);
+    expect(result.linkUnlinks).toHaveLength(1);
+
+    // The repoint really happened — the row moved, live, at its original
+    // version.
+    const moved = await getLiveLink({
+      db,
+      provider: quietProvider,
+      providerUserId: pairQ,
+    });
+    expect(moved?.contactId).toBe(survivorId);
+    expect(moved?.version).toBe("1");
+
+    const rows = await waitForDeliveries(provider, 1);
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row?.eventType).toBe("account.unlinked");
+    // The dedupe key is the PURE template, verbatim segments, `v<version>`.
+    expect(row?.dedupeKey).toBe(`al:${provider}:${pairL}:v2`);
+    expect(row?.data).toMatchObject({
+      state: "unlinked",
+      provider,
+      providerUserId: pairL,
+      contactId: loserId,
+      reason: "relinked",
+      // A decimal STRING, never a JSON number (DECISIONS §5.1).
+      version: "2",
+    });
+    expect(typeof row?.data.version).toBe("string");
+    // `userId`/`email` come off the store's `owner` block — the loser is
+    // anon-only, so its contactKey is the anonymous id, not the survivor's.
+    expect(row?.data.userId).toBe(anonymousId);
+    expect(row?.data.email).toBeNull();
+
+    // The repoint leg is deliberately silent: one emit for the one link that
+    // actually ended, not one per moved row. `quietProvider`'s row moved to
+    // the survivor in step 4 of `foldLinkedAccounts` and must announce
+    // NOTHING; add an emit there and this line fails.
+    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    expect(await deliveriesFor(quietProvider)).toHaveLength(0);
+    expect(await deliveriesFor(provider)).toHaveLength(1);
+  });
+
+  it("a rolled-back merge emits nothing", async () => {
+    const provider = prov("t8-rollback");
+    const { survivorId, loserId, userId, anonymousId } =
+      await makeMergePair("t8-rollback");
+    const pairS = uid("s");
+    const pairL = uid("l");
+    await mustLink(
+      linkInput({
+        contactId: survivorId,
+        provider,
+        identity: { providerUserId: pairS },
+        multiple: false,
+      }),
+    );
+    const seeded = await mustLink(
+      linkInput({
+        contactId: loserId,
+        provider,
+        identity: { providerUserId: pairL },
+        multiple: false,
+      }),
+    );
+
+    // FORCE the rollback rather than skipping the path: wrap `db.transaction`
+    // so the resolver's callback runs to completion — locks taken, fold done,
+    // the loser's link soft-unlinked at its new version — and only THEN throws
+    // inside the transaction. Postgres rolls back, `db.transaction` rejects,
+    // and the post-commit emit line is never reached. A test that merely
+    // avoided the code path could not fail.
+    class ForcedRollback extends Error {}
+    let captured: { linkUnlinks?: unknown[] } | undefined;
+    const rollbackDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") {
+          return async (cb: (tx: unknown) => Promise<unknown>) =>
+            target.transaction(async (tx) => {
+              captured = (await cb(tx)) as { linkUnlinks?: unknown[] };
+              throw new ForcedRollback("forced rollback after the fold");
+            });
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof db;
+
+    await expect(
+      resolveOrCreateContact({ db: rollbackDb, userId, anonymousId }),
+    ).rejects.toBeInstanceOf(ForcedRollback);
+
+    // The fold DID run and DID produce a fact — this is what makes the zero
+    // below meaningful rather than vacuous.
+    expect(captured?.linkUnlinks).toHaveLength(1);
+
+    // And the rollback really rolled back: the loser's link is live again at
+    // its original version, and the two contacts never merged.
+    const live = await getLiveLink({ db, provider, providerUserId: pairL });
+    expect(live?.id).toBe(seeded.row.id);
+    expect(live?.unlinkedAt).toBeNull();
+    const [loser] = await db
+      .select({ deletedAt: contacts.deletedAt })
+      .from(contacts)
+      .where(eq(contacts.id, loserId));
+    expect(loser?.deletedAt).toBeNull();
+
+    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    expect(await deliveriesFor(provider)).toHaveLength(0);
+  });
+
+  it("deleting a contact emits one account.unlinked per live link with reason api", async () => {
+    const provider = prov("t8-delete");
+    const userId = uid("del-ext");
+    const contact = await resolveOrCreateContact({ db, userId });
+    const pairA = uid("a");
+    const pairB = uid("b");
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pairA },
+      }),
+    );
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pairB },
+      }),
+    );
+
+    const result = await softDeleteContact({ db, userId });
+    expect(result.deleted).toBe(true);
+    expect(result.linkUnlinks).toHaveLength(2);
+
+    const rows = await waitForDeliveries(provider, 2);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.eventType).toBe("account.unlinked");
+      expect(row.data).toMatchObject({
+        state: "unlinked",
+        provider,
+        contactId: contact.id,
+        userId,
+        reason: "api",
+        version: "2",
+      });
+    }
+    expect(rows.map((r) => r.data.providerUserId).sort()).toEqual(
+      [pairA, pairB].sort(),
+    );
+    expect(rows.map((r) => r.dedupeKey).sort()).toEqual(
+      [`al:${provider}:${pairA}:v2`, `al:${provider}:${pairB}:v2`].sort(),
+    );
+  });
+
+  it("the admin erasure route emits one account.unlinked per live link with reason api", async () => {
+    // The GDPR-erasure path (DECISIONS §15.3). It is a THIRD emit owner: it
+    // does not call `softDeleteContact`, so the sibling test above cannot
+    // cover it, and an erased player announced to nobody stays linked in the
+    // customer's mirror forever.
+    const provider = prov("t8-route-erase");
+    const userId = uid("erase-ext");
+    const contact = await resolveOrCreateContact({ db, userId });
+    const pairA = uid("a");
+    const pairB = uid("b");
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pairA },
+      }),
+    );
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pairB },
+      }),
+    );
+
+    const res = await app.request(`/v1/admin/contacts/${contact.id}`, {
+      method: "DELETE",
+      headers: ADMIN_HEADERS,
+    });
+    expect(res.status).toBe(200);
+
+    const rows = await waitForDeliveries(provider, 2);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.eventType).toBe("account.unlinked");
+      expect(row.data).toMatchObject({
+        state: "unlinked",
+        provider,
+        contactId: contact.id,
+        userId,
+        reason: "api",
+        version: "2",
+      });
+    }
+    expect(rows.map((r) => r.data.providerUserId).sort()).toEqual(
+      [pairA, pairB].sort(),
+    );
+    expect(rows.map((r) => r.dedupeKey).sort()).toEqual(
+      [`al:${provider}:${pairA}:v2`, `al:${provider}:${pairB}:v2`].sort(),
+    );
+  });
+
+  it("a duplicate emit at the same version inserts no second delivery row", async () => {
+    const provider = prov("t8-dupe");
+    const userId = uid("dupe-ext");
+    const contact = await resolveOrCreateContact({ db, userId });
+    const pair = uid("u");
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pair },
+      }),
+    );
+
+    const result = await softDeleteContact({ db, userId });
+    const fact = result.linkUnlinks?.[0];
+    if (!fact) throw new Error("delete produced no unlink fact");
+    expect(await waitForDeliveries(provider, 1)).toHaveLength(1);
+
+    // The RETRY shape: the identical event at the identical version, which is
+    // what a re-driven producer replays. `(endpointId, dedupeKey)` is
+    // partial-unique and `emitOutbound` does `onConflictDoNothing` on it, so
+    // the second emit must write nothing.
+    const dedupeKey = `al:${provider}:${pair}:v${fact.version}`;
+    await emitOutbound({
+      db,
+      hatchet: engine.hatchet,
+      logger: engine.createLogger("error"),
+      event: "account.unlinked",
+      dedupeKey,
+      payload: {
+        state: "unlinked",
+        provider,
+        providerUserId: pair,
+        contactId: contact.id,
+        userId,
+        email: null,
+        reason: "api",
+        version: fact.version,
+        at: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    const rows = await deliveriesFor(provider);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.dedupeKey).toBe(dedupeKey);
+  });
+
+  it("an emit failure does not fail the mutation", async () => {
+    const provider = prov("t8-emitfail");
+    const userId = uid("fail-ext");
+    const contact = await resolveOrCreateContact({ db, userId });
+    const pair = uid("u");
+    await mustLink(
+      linkInput({
+        contactId: contact.id,
+        provider,
+        identity: { providerUserId: pair },
+      }),
+    );
+
+    // ACTUALLY make the emit fail. `softDeleteContact` reaches the database
+    // only through `db.transaction`; the post-commit emit is the one caller of
+    // `db.select` on this handle, so poisoning `select` breaks the emit's
+    // endpoint lookup and nothing else. Compare with the passing sibling test
+    // above: same fixture shape, one delivery row — here, none.
+    const poisoned = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "select") {
+          return () => {
+            throw new Error("forced emit failure");
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof db;
+
+    const result = await softDeleteContact({ db: poisoned, userId });
+
+    // The MUTATION is untouched: it returned, it reported, and it committed.
+    expect(result.deleted).toBe(true);
+    expect(result.id).toBe(contact.id);
+    expect(result.linkUnlinks).toHaveLength(1);
+    expect(
+      await getLiveLink({ db, provider, providerUserId: pair }),
+    ).toBeNull();
+    const [row] = await db
+      .select({ deletedAt: contacts.deletedAt })
+      .from(contacts)
+      .where(eq(contacts.id, contact.id));
+    expect(row?.deletedAt).not.toBeNull();
+
+    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    expect(await deliveriesFor(provider)).toHaveLength(0);
   });
 });

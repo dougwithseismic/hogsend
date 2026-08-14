@@ -12,6 +12,9 @@ import { configDefaults, defineConfig } from "vitest/config";
 // Re-derive on drift:
 //   rg -l "outboundWebhook|webhookEndpoint|emitOutbound" src/__tests__
 const WEBHOOK_FANOUT = [
+  // Seeds a global endpoint and asserts `account.unlinked` delivery COUNTS
+  // (toHaveLength) for the merge + contact-deletion emit legs.
+  "src/__tests__/account-link-merge.test.ts",
   "src/__tests__/destinations.test.ts",
   "src/__tests__/groups-outbound.test.ts",
   "src/__tests__/impact-digest.test.ts",

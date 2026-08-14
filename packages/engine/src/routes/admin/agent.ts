@@ -369,6 +369,8 @@ agentRouter.post("/confirm", async (c) => {
         break;
       }
 
+      // NOT an `account.unlinked` emit point: `softDeleteContact` fans those
+      // out itself, post-commit, for every caller (PRD 08 T3).
       case "delete_contact":
         result = await softDeleteContact({
           db,
