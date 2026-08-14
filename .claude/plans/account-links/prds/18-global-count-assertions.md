@@ -83,7 +83,43 @@ scoped query. State the reasoning in a comment.
 Run the cloud suite on a THROWAWAY container rather than the shared 5434, per the recorded hazard, so
 the result is not itself contaminated.
 
-### T3 — `publish-cli-auth.test.ts`: capture the real diff, then scope
+### T3 — ANSWERED 2026-08-14: it is a DEADLOCK, not an assertion, and not a count
+
+**The recorded ask was "capture the actual assertion diff next time it fires". Captured, on CI:**
+
+```
+FAIL publish-cli-auth.test.ts > publish intake — hscli_ sessions
+     > refuses a REVOKED session, storing nothing
+Error: Failed query: delete from "cloud"."builds" where "environment_id" = $1
+  ❯ resetBuilds  src/__tests__/publish-cli-auth.test.ts:166
+Caused by: PostgresError: deadlock detected            (code 40P01)
+  detail: Process 845 waits for ShareLock on transaction 8844
+```
+
+**There is no assertion diff. The test never reaches an assertion.** It dies in its own cleanup
+helper, `resetBuilds`, on a `DELETE FROM builds WHERE environment_id = $1` that deadlocks against
+another transaction holding a conflicting lock.
+
+So BOTH standing hypotheses are dead:
+- The security reading was already ruled out, correctly (`CliSessionService` refuses on a null check).
+- The fallback guess — "a leaked row, or a burst-limit 429 where a 401 was expected" — is ALSO wrong.
+  The recorded text should stop offering it.
+
+It is not a global-count problem either, so this row does not belong to this PRD's headline class any
+more than T1 did. Two of the three "confirmed instances" have now been refuted by measurement. The
+honest common factor across T1, T3 and Hazard 4 is narrower and more useful: **concurrent writers on
+one database**, which shows up as a timeout, a deadlock or an over-count depending on where it lands.
+
+**The drift is the diagnostic.** Two consecutive CI runs on the same tree failed in DIFFERENT files
+(`deferred-provision.test.ts`, then this one). A defect does not move; contention does.
+
+Fix direction (unverified, for whoever picks this up): `resetBuilds` deletes by `environment_id`
+while another test's transaction holds rows in the same table. Either scope the delete to rows the
+test owns, order the lock acquisition consistently, or give the file its own environment id so the
+two never contend for the same rows. Do NOT wrap it in a retry: that converts a deadlock into a
+slower deadlock and hides the ordering bug.
+
+### T3 (original text) — `publish-cli-auth.test.ts`: capture the real diff, then scope
 _Boundary:_ `apps/cloud`
 _Depends:_ —
 
