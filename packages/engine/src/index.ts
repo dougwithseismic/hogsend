@@ -46,10 +46,24 @@ export * from "@hogsend/core";
 // `SendEmailOptions` is the high-level journey-facing send options from
 // `./lib/email.js`; the provider-contract `SendEmailOptions` remains available
 // via `@hogsend/core`.)
+// --- Account links: provider contract (canonical origin: @hogsend/core) ---
+// Already covered by the `export * from "@hogsend/core"` above — re-named here
+// for discoverability, mirroring the email/analytics contract re-exports.
 export {
+  ACCOUNT_LINK_HOOK_TIMEOUT_MS,
+  ACCOUNT_LINK_ID_RE,
+  AccountLinkCallbackError,
+  type AccountLinkCapabilities,
+  type AccountLinkHooks,
+  type AccountLinkMeta,
+  type AccountLinkProvider,
   bySubject,
+  defineAccountLink,
   defineAnalyticsProvider,
   defineEmailProvider,
+  type LinkedIdentity,
+  type LinkTokens,
+  RESERVED_ACCOUNT_LINK_IDS,
   type Subject,
   WebhookHandshakeSignal,
 } from "@hogsend/core";
@@ -67,6 +81,15 @@ export {
   type JournalShape,
   type SchemaVersion,
 } from "@hogsend/db";
+// The two built-in account-link providers — config over the @hogsend/core
+// presets (DECISIONS §3.1), exported so a consumer can construct one directly
+// with code-supplied config and pass it via `accountLinks.providers`.
+export {
+  type SteamAccountLinkConfig,
+  steamAccountLink,
+  type TwitchAccountLinkConfig,
+  twitchAccountLink,
+} from "./account-links/index.js";
 // --- App / container / worker factories ---
 export {
   type AppEnv,
@@ -292,6 +315,53 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+// The one origin allowlist parser (PRD 07 `returnTo`, PRD 10 `postMessage`) —
+// fail-loud at boot; the container calls it, exported for consumers/tests.
+export {
+  isAllowedReturnTo,
+  parseAllowedOrigins,
+} from "./lib/account-link-origins.js";
+// The container-held provider registry (`client.accountLinkProviders`).
+export { AccountLinkProviderRegistry } from "./lib/account-link-provider-registry.js";
+// The server-side WARM minter. Returns an ENGINE-origin `/start` URL — never a
+// provider authorize URL (DECISIONS §15.2). PRD 09's `POST
+// /v1/accounts/link-url` returns exactly this value and PRD 13's embed derives
+// its `postMessage` expectedOrigin from it.
+export {
+  AccountLinkReturnToError,
+  type MintAccountLinkUrlArgs,
+  mintAccountLinkUrl,
+} from "./lib/account-link-url.js";
+// --- Account links (the link store — the ONE writer of `linked_accounts`) ---
+//
+// Deliberately NARROW. This barrel is the committed semver boundary for
+// `@hogsend/engine`, so anything exported here is a promise we keep or
+// major-bump. `lockPairs`, `pairLockKey`, `MAX_VERSION_RACE_RETRIES` and
+// `AccountLinkLockSetChangedError` are the store's internal mechanics — how we
+// happen to take advisory locks and signal a stale pre-read today — and the PRD
+// documents the last of those as an INTERNAL retry signal. They stay module-
+// private (still importable within the engine, and the tests import the module
+// directly) so a change to the locking strategy is not a breaking change.
+export {
+  AccountLinkVersionRaceError,
+  type ContactUnlinkFact,
+  type DisplacedLink,
+  getLiveLink,
+  type LinkAccountInput,
+  type LinkAccountResult,
+  type LinkedAccountRecord,
+  type LinkMutationStatus,
+  type LinkOwner,
+  linkAccount,
+  listLinkHistory,
+  listLiveLinksForContact,
+  type UnlinkAccountInput,
+  type UnlinkAccountInTxResult,
+  type UnlinkAccountResult,
+  unlinkAccount,
+  unlinkAccountInTx,
+  unlinkAccountsForContactInTx,
+} from "./lib/account-links.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {
   InvalidProposalError,
@@ -418,10 +488,13 @@ export {
 // `ResolvePolicy`/`IdentityKind` (PRD 06): the explicit caller-declared trust
 // shape both resolver entry points accept via `policy` — the additive
 // replacement for the deprecated `restrictToAnonymous`/`allowCreate` booleans.
+// `MergedLinkUnlink` (PRD 04): the link soft-unlink facts a collide-MERGE
+// reports on the resolve result (`linkUnlinks`), for post-commit emission.
 export {
   deleteIdentityAliasesForContact,
   type IdentityKind,
   identifiedContactFilter,
+  type MergedLinkUnlink,
   type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,
@@ -885,6 +958,19 @@ export {
 } from "./middleware/rate-limit.js";
 // --- Middleware (consumer-mounted routes, e.g. the @hogsend/mcp hosted route) ---
 export { requireAdmin } from "./middleware/require-admin.js";
+// The `/v1/accounts/*` serialization boundary — TWO SHAPES, ONE ROW (PRD 09
+// T2). `serializePublicLinkedAccount` is the ONLY shape `GET /v1/accounts/me`
+// may return: four display keys, no id, no version. Exported so PRD 12's
+// server SDK and PRD 13's embed type against the same declarations the routes
+// answer with, rather than re-declaring them and drifting.
+export {
+  linkedAccountSchema,
+  publicLinkedAccountSchema,
+  type SerializedLinkedAccount,
+  type SerializedPublicLinkedAccount,
+  serializeLinkedAccount,
+  serializePublicLinkedAccount,
+} from "./routes/accounts/serialize.js";
 // --- Contact sources (Clay/Attio/generic-webhook → cold prospects) ---
 export {
   type ColdChannelPosture,

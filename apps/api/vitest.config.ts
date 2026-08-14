@@ -12,6 +12,25 @@ import { configDefaults, defineConfig } from "vitest/config";
 // Re-derive on drift:
 //   rg -l "outboundWebhook|webhookEndpoint|emitOutbound" src/__tests__
 const WEBHOOK_FANOUT = [
+  // Seeds a global endpoint and asserts `account.unlinked` delivery COUNTS
+  // (toHaveLength) for the merge + contact-deletion emit legs.
+  "src/__tests__/account-link-merge.test.ts",
+  // Seeds a global endpoint and counts `account.linked` / `account.unlinked` /
+  // `account.link_failed` deliveries from the hosted callback's emit sites.
+  "src/__tests__/accounts-link-failed-emit.test.ts",
+  // Same endpoint tables: drives the callback's `account.linked` emit and
+  // asserts the delivery count for it (PRD 07's suite, PRD 08 T4b).
+  "src/__tests__/accounts-callback.test.ts",
+  // Seeds a global endpoint and asserts EXACT `account.linked` delivery counts
+  // for the insert-only import — including the ABSENCE of any delivery for a
+  // refused takeover, which another file's fan-out would otherwise fill in.
+  "src/__tests__/accounts-import-insert-only.test.ts",
+  // Seeds a global endpoint and counts `account.unlinked` deliveries from the
+  // data plane's operator DELETE.
+  "src/__tests__/accounts-dataplane.test.ts",
+  // Seeds a global endpoint and counts `account.unlinked` deliveries (one per
+  // revoked row) from the userToken-gated player revoke.
+  "src/__tests__/accounts-me-revoke.test.ts",
   "src/__tests__/destinations.test.ts",
   "src/__tests__/groups-outbound.test.ts",
   "src/__tests__/impact-digest.test.ts",

@@ -13,6 +13,14 @@ import { safeEqual } from "../webhook-sources/verify.js";
  *    link was issued for, so the callback attaches the platform identity to THAT
  *    contact (never to whatever email the platform happens to report — the
  *    grafting/account-takeover vector).
+ *  - `purpose: "account_link"` — binds ONE account-link attempt
+ *    (`/v1/accounts/:provider/start` → `/callback`, PRD 07) to the provider it
+ *    was minted for (`providerId`) and to the contact side it may attach to:
+ *    either a sealed `contactId` (the WARM binding, authoritative — the
+ *    provider-reported email is NEVER a resolution key) or an `anonymousId`
+ *    (the COLD binding, which may attach only to an anonymous-only contact,
+ *    DECISIONS §6.10). It also carries the already-allowlist-checked
+ *    `returnTo`, re-checked at redirect time.
  *
  * The token is `base64url(JSON(payload)).base64url(HMAC-SHA256(payloadB64))`,
  * signed with the engine's `BETTER_AUTH_SECRET`. The same hardened constant-time
@@ -25,12 +33,49 @@ import { safeEqual } from "../webhook-sources/verify.js";
  * it, but the same token works until expiry. The mint TTL is the replay window.
  */
 export interface ConnectorStateIntent {
-  purpose: "install" | "member_link";
-  connectorId: string;
-  /** Member-link only — the bound contact id (authoritative resolution key). */
+  purpose: "install" | "member_link" | "account_link";
+  /**
+   * Connector flows only (`install` / `member_link`). OPTIONAL now that
+   * `account_link` exists — an account-link state binds `providerId` instead.
+   */
+  connectorId?: string;
+  /**
+   * `account_link` only — the `AccountLinkProvider` `meta.id` this state was
+   * minted for.
+   *
+   * A NEW field, deliberately NOT a reuse of {@link connectorId}: one secret
+   * signs every state in the process, so a state minted for one surface is
+   * signature-valid on the other, and a future connector id colliding with an
+   * account-link provider id (both `"discord"`, say) would make the two
+   * indistinguishable. Two fields cannot be confused. The connector callback's
+   * `intent.connectorId !== id` check already rejects an account-link state
+   * incidentally (`undefined !== id`), and it also states the rule explicitly
+   * with a purpose allowlist.
+   */
+  providerId?: string;
+  /**
+   * `member_link`, and `account_link`'s WARM binding — the bound contact id.
+   * AUTHORITATIVE: the callback attaches to THIS contact and never to whatever
+   * email the platform reports (DECISIONS §6.3).
+   */
   contactId?: string;
   /** Member-link only — the bound contact email (authoritative resolution key). */
   email?: string;
+  /**
+   * `account_link` COLD binding only — the browser anonymous key the link
+   * attaches to. It is browser-readable by design, so a cold link may attach
+   * ONLY to an anonymous-only contact and may never displace a live owner
+   * (DECISIONS §6.10). Exactly one of {@link contactId} / `anonymousId` is set
+   * on an account-link state.
+   */
+  anonymousId?: string;
+  /**
+   * `account_link` only — where to send the player after a completed link.
+   * Allowlist-checked at MINT time AND re-checked at redirect time, because
+   * the allowlist can change between the two (and a signed state outlives a
+   * config edit).
+   */
+  returnTo?: string;
   /**
    * High-entropy per-mint value so two states are never byte-identical AND so
    * the callback can burn it for single-use replay protection (see header).

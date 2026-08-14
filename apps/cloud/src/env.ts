@@ -146,6 +146,15 @@ export const env = createEnv({
     CLOUD_SUBSTRATE: isDevOrTest
       ? z.enum(["fake", "railway"]).default("fake")
       : z.enum(["fake", "railway"]),
+    // Whether `enqueueBuild` may run a build IN THIS PROCESS on the fake
+    // substrate. Defaults to "on" everywhere, so a fresh clone still walks a
+    // publish end to end with no Hatchet. The test suite turns it "off"
+    // (vitest.config.ts): the intake tests assert refusals and row shapes, and
+    // a build started as a side effect keeps UPDATE-ing `builds` rows after
+    // the test's `await` resolves — which deadlocks against the next test's
+    // cleanup DELETE. The flag is checked AFTER the real-substrate refusal, so
+    // "a real substrate with no Hatchet fails closed" is unchanged.
+    CLOUD_INLINE_BUILDS: z.enum(["on", "off"]).default("on"),
     // The Railway workspace token. OPTIONAL here (a fake-substrate deploy
     // needs none) and enforced at the point of use: `getSubstrate()` refuses
     // to build a Railway substrate without it (PRD 04 EARS — never silently

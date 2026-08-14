@@ -1,5 +1,7 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
+  AccountLinkHooks,
+  AccountLinkProvider,
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
   ConversionDestination,
@@ -64,6 +66,9 @@ import type { DefinedJourney } from "./journeys/define-journey.js";
 import { getJourneySourceLocations } from "./journeys/journey-source-locations-singleton.js";
 import { getJourneySources } from "./journeys/journey-sources-singleton.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
+import { parseAllowedOrigins } from "./lib/account-link-origins.js";
+import { AccountLinkProviderRegistry } from "./lib/account-link-provider-registry.js";
+import { accountLinksFromEnv } from "./lib/account-links-from-env.js";
 import {
   isAnalyticsProvider,
   wrapLegacyAnalyticsService,
@@ -210,6 +215,27 @@ export interface HogsendClient {
    * Undefined when no SMS provider is configured.
    */
   smsProvider?: SmsProvider;
+  /**
+   * The container-held registry of account-link providers (Steam, Twitch, or
+   * consumer-authored via `defineAccountLink`), keyed by `meta.id`. The
+   * `/v1/accounts/:provider/*` routes resolve providers out of this and 404 an
+   * unknown id. Unlike email/SMS/analytics there is NO single active provider:
+   * the player picks one per link, so there is no `accountLinkProvider` field,
+   * no `ACCOUNT_LINK_PROVIDER` env, and no "not registered" boot throw — the
+   * missing symmetry is deliberate. Empty when none configured (an
+   * unconfigured provider is ABSENT, never present-but-disabled).
+   */
+  accountLinkProviders: AccountLinkProviderRegistry;
+  /**
+   * The consumer's account-link hooks, held VERBATIM — no wrapping, no
+   * per-hook defaulting. The container only holds them: `beforeLink` is
+   * invoked by the hosted callback (PRD 07) and `afterLink`/`afterUnlink` by
+   * the link store (PRD 03), and by nothing else (DECISIONS §15.4). `{}` when
+   * none supplied.
+   */
+  accountLinkHooks: AccountLinkHooks;
+  /** Parsed + validated ACCOUNT_LINK_ALLOWED_ORIGINS. Empty array = none permitted. */
+  accountLinkAllowedOrigins: string[];
   /**
    * The container-held registry of enrichment providers, keyed by `meta.id` —
    * the enrichment sibling of {@link smsProviders}. Empty when no enrichment
@@ -459,6 +485,26 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * Account linking (Steam, Twitch, or your own `defineAccountLink` provider).
+   * The engine owns the stateful flow (state tokens, the link store,
+   * versioning, hooks, outbound events); a provider is only the two proof
+   * wires (authorize URL + callback → proven identity).
+   */
+  accountLinks?: {
+    /** Register MANY providers. Merged AFTER env presets, so a same-id provider wins. */
+    providers?: AccountLinkProvider[];
+    /** In-process hooks. beforeLink is fail-closed; afterLink/afterUnlink fail-open (DECISIONS §9). */
+    hooks?: AccountLinkHooks;
+    /**
+     * Extra allowed origins, concatenated AFTER ACCOUNT_LINK_ALLOWED_ORIGINS and
+     * parsed by the same rule. A malformed entry THROWS at boot. This is the ONE
+     * allowlist: PRD 07 checks `returnTo` against it, PRD 10 uses it as the
+     * `postMessage` targetOrigin set, and PRD 10 validates its `resultRedirect`
+     * against it. PRD 10 CONSUMES this field and does not redeclare it.
+     */
+    allowedOrigins?: string[];
   };
   /**
    * Enrichment (Refinement) is a first-class provider kind mirroring
@@ -904,6 +950,77 @@ export function createHogsendClient(
     ...(opts.sms?.provider ? [opts.sms.provider] : []),
   ]);
   const smsConfigured = smsProviders.count() > 0;
+
+  // Account-link providers (Steam / Twitch / consumer-authored). NO active-
+  // provider resolution here, on purpose: unlike email/SMS/analytics there is
+  // no single active account-link provider — the player picks one per link and
+  // the route resolves by the `:provider` path param — so there is no
+  // ACCOUNT_LINK_PROVIDER env and no "not registered" boot throw. Do not "fix"
+  // the missing symmetry. Duplicate ids inside ONE providers array are almost
+  // certainly an authoring mistake, so warn (last-writer-wins, like every
+  // other registry merge).
+  const consumerAccountLinkProviders = opts.accountLinks?.providers ?? [];
+  {
+    const seenAccountLinkIds = new Set<string>();
+    for (const provider of consumerAccountLinkProviders) {
+      const id = provider.meta?.id;
+      if (!id) continue; // the registry ctor below throws the real TypeError
+      if (seenAccountLinkIds.has(id)) {
+        logger.warn(
+          `accountLinks.providers contains "${id}" more than once — the last one wins (last-writer-wins on meta.id)`,
+        );
+      }
+      seenAccountLinkIds.add(id);
+    }
+  }
+  // Env presets FIRST, consumer last (last-writer-wins on meta.id) — the same
+  // merge order and reason as the email registry. The env builder returns its
+  // warnings rather than console.warn-ing, so they go through the real logger.
+  // Presets register only on operator INTENT (any ACCOUNT_LINK_* / steam env
+  // var, or ANY `accountLinks` option — even `{}`), keeping a deploy that
+  // never asked for account linking fully inert.
+  const accountLinkEnv = accountLinksFromEnv(env, {
+    consumerOptedIn: opts.accountLinks !== undefined,
+  });
+  for (const warning of accountLinkEnv.warnings) logger.warn(warning);
+  const accountLinkProviders = new AccountLinkProviderRegistry([
+    ...accountLinkEnv.providers,
+    ...consumerAccountLinkProviders,
+  ]);
+  const accountLinkAllowedOrigins = parseAllowedOrigins([
+    ...(env.ACCOUNT_LINK_ALLOWED_ORIGINS?.split(",") ?? []),
+    ...(opts.accountLinks?.allowedOrigins ?? []),
+  ]);
+  const accountLinkHooks: AccountLinkHooks = opts.accountLinks?.hooks ?? {};
+  if (
+    accountLinkProviders.count() > 0 &&
+    accountLinkAllowedOrigins.length === 0
+  ) {
+    // Providers with an empty allowlist is a legal boot (the hosted pages
+    // still work) but a silently degraded one: no `returnTo` is accepted and
+    // `postMessage` never fires, so the embed button spins to a timeout while
+    // the link commits server-side. Say so ONCE at boot, where it is
+    // diagnosable, rather than after a player closes the popup.
+    logger.warn(
+      "account link providers are registered but no allowed origin is configured — no returnTo will be accepted and no postMessage will be sent. Set ACCOUNT_LINK_ALLOWED_ORIGINS (or accountLinks.allowedOrigins)",
+    );
+  }
+  // Gate on the RAW `process.env.REDIS_URL`, for the same reason the
+  // better-auth secondary-storage wiring below does: `env.REDIS_URL` carries a
+  // localhost default and is never empty, and the engine's Redis singleton is
+  // only ever CONSTRUCTED when the raw var is set — so this is exactly the
+  // condition under which `getRedisIfConnected()` is null at request time.
+  if (accountLinkProviders.count() > 0 && !process.env.REDIS_URL) {
+    // The hosted flow is FAIL-CLOSED on Redis (DECISIONS §6.8): PKCE custody
+    // and the callback's single-use nonce burn both live there, so
+    // `/v1/accounts/:provider/start` and `/callback` answer 503 without it.
+    // That is a deliberate divergence from the connector callback, which
+    // degrades to TTL-only validity — so say it ONCE at boot rather than
+    // letting an operator discover it as a 503 on a player's link.
+    logger.warn(
+      "account link providers are registered but redis is not connected — the hosted flow fails closed and /v1/accounts/:provider/start and /callback will answer 503. Set REDIS_URL",
+    );
+  }
 
   // CRM sync providers (§Phase 4). No env presets yet — CRM credentials are
   // per-deployment enough that construction stays consumer-side; the single
@@ -1650,6 +1767,9 @@ export function createHogsendClient(
     smsService,
     smsProviders,
     smsProvider,
+    accountLinkProviders,
+    accountLinkHooks,
+    accountLinkAllowedOrigins,
     enrichmentProviders,
     enrichmentProvider,
     crmProviders,

@@ -1,3 +1,12 @@
+export {
+  accountLinkProviderIdSchema,
+  accountLinkVersionSchema,
+  linkedIdentitySchema,
+  linkMethodSchema,
+  linkTokensSchema,
+  providerUserIdSchema,
+  unlinkReasonSchema,
+} from "./account-link.schema.js";
 export { bucketMetaSchema } from "./bucket.schema.js";
 export {
   groupIdentifySchema,

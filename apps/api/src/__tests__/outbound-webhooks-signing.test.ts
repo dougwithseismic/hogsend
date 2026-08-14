@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 32-event catalog, in order", () => {
+  it("is exactly the 35-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -255,6 +255,13 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "group.identified",
       "group.member_added",
       "group.member_removed",
+      // Third-party platform account links (defineAccountLink) — emitted from
+      // the intent layer only, never the ingest path. The two state events
+      // carry full current state + a monotonic version; link_failed mutated
+      // nothing, so it carries neither.
+      "account.linked",
+      "account.unlinked",
+      "account.link_failed",
       // Weekly impact digest (impact experiments D5). Self-referential: the
       // cron watermarks off its own delivery rows.
       "impact.digest",

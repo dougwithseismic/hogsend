@@ -4,6 +4,7 @@ import type { HogsendClient } from "../container.js";
 import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { requirePublishableOrIngest } from "../middleware/publishable-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
+import { createAccountsRouter } from "./accounts/index.js";
 import { adminRouter } from "./admin/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
 import { registerConnectorRoutes } from "./connectors/index.js";
@@ -147,6 +148,80 @@ export function registerRoutes(
   // SAME stateful instance double-counts every send (two sliding-window entries
   // per request), halving the effective per-key budget (decision #16 / risk 15).
   v1.use("/emails/*", emailRateLimit);
+
+  // ---- Account links (PRD 07's hosted flow + PRD 09's data plane) ----
+  //
+  // THREE TIERS ON ONE PREFIX, and every path is enumerated EXPLICITLY. There
+  // is deliberately NO `/accounts/*` catch-all: a `/<prefix>/*` `use` in Hono
+  // also matches the bare `/<prefix>` path AND every literal sibling, so one
+  // would 401 the browser-reachable `/accounts/me` + `/accounts/link-url` and
+  // the unauthenticated `/accounts/manage` — the same trap documented for
+  // `/contacts/*` and `/lists/*` above, which fails CLOSED and silently
+  // (DECISIONS §15.1).
+  //
+  // Tier 1 — browser-reachable literals (publishable OR secret-ingest), each
+  // `userToken`-gated INSIDE its handler. Both `/me` entries are enumerated
+  // rather than written `/accounts/me/*`: the wildcard trap applies at every
+  // depth.
+  v1.use("/accounts/me", requirePublishableOrIngest);
+  v1.use("/accounts/me/revoke", requirePublishableOrIngest);
+  v1.use("/accounts/link-url", requirePublishableOrIngest);
+  // Tier 2 — secret-only literals, in the style of `/contacts/find` and
+  // `/flags/evaluate` above. `accounts` is an ORTHOGONAL scope
+  // (`middleware/api-key.ts:35-40`): an explicit grant or `full-admin`, and no
+  // SCOPE_HIERARCHY edit.
+  v1.use("/accounts", requireApiKey, requireScope("accounts"));
+  v1.use("/accounts/import", requireApiKey, requireScope("accounts"));
+  v1.use("/accounts/mint-link", requireApiKey, requireScope("accounts"));
+  // `/accounts/manage` (PRD 11) gets NO guard: it is the unauthenticated,
+  // token-bearing player page, the same posture as `/v1/email` at :45.
+  //
+  // Tier 3 — the two-segment param pattern gets ONE BRANCHING guard, never a
+  // stacked `requireApiKey, requireScope` pair. This is the most dangerous
+  // registration in the file: Hono runs EVERY matching `use`, so this pattern
+  // also fires on `/accounts/me/revoke`, `/accounts/:provider/start` and
+  // `/accounts/:provider/callback`. Stacking would 401 the entire hosted OAuth
+  // flow (PRD 07's routes carry no Authorization header) and 403 the primary
+  // player revoke (a pk_ key holds only `["ingest-public"]`). Branch, exactly
+  // like the method-branching `/contacts` guard above.
+  //
+  // `start`, `callback` and `me` are all in `RESERVED_ACCOUNT_LINK_IDS`, so no
+  // real provider or providerUserId can reach these branches by accident.
+  const accountsScopeGuard = requireScope("accounts");
+  v1.use("/accounts/:provider/:providerUserId", async (c, next) => {
+    const provider = c.req.param("provider");
+    const second = c.req.param("providerUserId");
+    // PRD 07's unauthenticated, self-verifying hosted flow. No guard at all.
+    //
+    // GATED ON METHOD, and that is load-bearing. A `use` matches EVERY method,
+    // but the routes this exemption exists for are GET-only. Without the method
+    // check, `DELETE /v1/accounts/steam/start` passes no guard here, then finds
+    // no matching GET literal, and falls through to the param route's DELETE —
+    // the secret-key operator unlink — with no API key at all.
+    const method = c.req.method;
+    if (method === "GET" && (second === "start" || second === "callback")) {
+      return next();
+    }
+    // The browser-reachable player revoke. Publishable tier; ownership comes
+    // from the userToken inside the handler, never from the request. Also
+    // method-gated: the literal is POST-only, so a DELETE on this same shape
+    // would otherwise reach the operator unlink holding only a `pk_` key.
+    if (method === "POST" && provider === "me" && second === "revoke") {
+      return requirePublishableOrIngest(c, next);
+    }
+    // Everything else on this shape is the operator reverse lookup / unlink.
+    // `requireApiKey` only runs its `next` on a successful auth, so use a flag
+    // to detect a short-circuit and surface its response (the `/contacts`
+    // DELETE idiom above).
+    let authed = false;
+    const res = await requireApiKey(c, async () => {
+      authed = true;
+    });
+    if (!authed) return res;
+    return accountsScopeGuard(c, next);
+  });
+
+  v1.route("/accounts", createAccountsRouter());
 
   v1.route("/contacts", contactsRouter);
   v1.route("/events", eventsRouter);

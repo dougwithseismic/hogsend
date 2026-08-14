@@ -114,6 +114,23 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
           });
           return c.json({ error: "Invalid state" }, 400);
         }
+        // Bind the state to THIS SURFACE. One secret signs every state in the
+        // process, so an `account_link` state (PRD 07's hosted flow) is
+        // signature-valid here too. The `connectorId` check below rejects it
+        // incidentally — an account-link state carries none, and
+        // `undefined !== id` — but incidental is not a statement of the rule,
+        // and `plugin-discord`'s exhaustive `else` is a plugin's defence that a
+        // new plugin can drop. State the allowlist here, at the dispatcher.
+        if (
+          stateCheck.intent.purpose !== "install" &&
+          stateCheck.intent.purpose !== "member_link"
+        ) {
+          logger.warn("connector oauth callback: unsupported state purpose", {
+            connectorId: id,
+            purpose: stateCheck.intent.purpose,
+          });
+          return c.json({ error: "Invalid state" }, 400);
+        }
         // Bind the state to THIS connector: `BETTER_AUTH_SECRET` signs every
         // connector's state, so a state minted for connector A is
         // signature-valid here too. Reject a state whose `connectorId` does not

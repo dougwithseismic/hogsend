@@ -50,6 +50,7 @@
     "@types/react-dom": "^19.2.3",
     "playwright": "^1.61.1",
     "postcss": "^8.5.14",
+    "simple-icons": "^16.28.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.10"

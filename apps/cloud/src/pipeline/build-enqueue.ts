@@ -34,7 +34,7 @@ import { getCloudHatchet, getRunBuildTask } from "./hatchet";
  * the baton.
  */
 
-export type BuildEnqueueMode = "hatchet" | "inline" | "joined";
+export type BuildEnqueueMode = "hatchet" | "inline" | "joined" | "held";
 
 export interface BuildEnqueueResult {
   buildId: string;
@@ -81,6 +81,13 @@ export async function enqueueBuild(
       `Refusing to build ${buildId} in-process: CLOUD_SUBSTRATE=${env.CLOUD_SUBSTRATE} requires CLOUD_HATCHET_CLIENT_TOKEN so builds are durable`,
     );
   }
+
+  // The test suite's stand-down (`CLOUD_INLINE_BUILDS=off`): the row stays
+  // `queued` and NOTHING starts in this process. Deliberately after the
+  // fail-closed check above — turning inline builds off never turns a real
+  // substrate's refusal into silence — and only reachable on the fake
+  // substrate, where a `queued` row is exactly what the intake promised.
+  if (env.CLOUD_INLINE_BUILDS === "off") return { buildId, mode: "held" };
 
   if (inflight.has(buildId)) return { buildId, mode: "joined" };
 

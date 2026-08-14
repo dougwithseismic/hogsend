@@ -287,6 +287,14 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
+    // NOT an `account.unlinked` emit point, though `result.linkUnlinks` is
+    // right there: `softDeleteContact` already fanned those out post-commit
+    // (PRD 08 T3), once for all three of its callers. Emitting again here
+    // would be silently swallowed by the `(endpointId, dedupeKey)` index, so
+    // the duplicate would cost a build cycle and hide which layer owns the
+    // fact rather than failing a test. The field stays on the result as the
+    // route's reporting channel.
+    //
     // The widened `softDeleteContact` returns the deleted row's identity so the
     // `contact.deleted` outbound webhook carries it without a second read-back.
     if (result.id) {

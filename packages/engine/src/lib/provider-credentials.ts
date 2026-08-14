@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 import { type Database, providerCredentials } from "@hogsend/db";
 import { and, eq } from "drizzle-orm";
-import { env } from "../env.js";
+import { getAppSecret } from "./app-secret.js";
 
 /**
  * Provider-neutral credential storage: encrypted-at-rest OAuth tokens (and,
@@ -173,6 +173,20 @@ function decryptJson(
   return value;
 }
 
+/**
+ * Seal/unseal for callers OUTSIDE the credential store (today: the
+ * account-link store, sealing per-contact token grants into
+ * `linked_accounts.tokens`). ONE AES-256-GCM construction in the engine, one
+ * place a secret rotation is handled. Same failure posture: an undecryptable
+ * blob throws `ProviderCredentialDecryptError` loudly rather than silently
+ * degrading.
+ *
+ * These two aliases are the whole external surface — `encryptJson` /
+ * `decryptJson` stay private so there is exactly one name per operation rather
+ * than two ways to do the same thing.
+ */
+export { decryptJson as unsealJson, encryptJson as sealJson };
+
 function encryptPayload(
   payload: OAuthCredentialPayload,
   secret: string,
@@ -240,7 +254,7 @@ export async function getProviderCredential(
   return {
     providerId: row.providerId,
     kind: row.kind as CredentialKind,
-    payload: decryptPayload(row.payload, env.BETTER_AUTH_SECRET, providerId),
+    payload: decryptPayload(row.payload, await getAppSecret(), providerId),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -260,7 +274,7 @@ export async function saveProviderCredential(
   },
 ): Promise<ProviderCredentialMeta> {
   const kind = opts.kind ?? "oauth";
-  const encrypted = encryptPayload(opts.payload, env.BETTER_AUTH_SECRET);
+  const encrypted = encryptPayload(opts.payload, await getAppSecret());
 
   const [row] = await db
     .insert(providerCredentials)
@@ -352,7 +366,7 @@ export async function getDerivedCredential(
 
   return decryptJson(
     row.payload,
-    env.BETTER_AUTH_SECRET,
+    await getAppSecret(),
     providerId,
   ) as DerivedCredentialPayload;
 }
@@ -367,7 +381,7 @@ export async function saveDerivedCredential(
   providerId: string,
   payload: DerivedCredentialPayload,
 ): Promise<void> {
-  const encrypted = encryptJson(payload, env.BETTER_AUTH_SECRET);
+  const encrypted = encryptJson(payload, await getAppSecret());
 
   await db
     .insert(providerCredentials)

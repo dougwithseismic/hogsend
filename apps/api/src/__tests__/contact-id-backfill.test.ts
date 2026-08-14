@@ -495,7 +495,37 @@ afterAll(async () => {
 
 // ---------------------------------------------------------------------------
 
-describe("contactIdBackfillTask", () => {
+/**
+ * The sweep's cost is the WHOLE DATABASE, so its time budget cannot be the
+ * suite default.
+ *
+ * `backfillTask.fn()` walks every LIVE CONTACT and issues one bounded UPDATE
+ * per (contact, table) — six statements per contact even when it writes
+ * nothing — then walks every stale alias key the same way. That is O(rows the
+ * whole suite has ever left in the shared 5434 Postgres), not O(this fixture),
+ * and this file's own `RUN`-namespacing cannot shrink it: the rows it pays for
+ * belong to other files. Measured 2026-08-14 against the repo's container
+ * (17,469 live contacts, 530 stale alias keys): ~108,000 statements, ~20s per
+ * sweep — and that number only ever grows, because the suite seeds contacts it
+ * never deletes.
+ *
+ * Against that, the config's 30s `testTimeout` is not a budget, it is a coin
+ * flip. And losing it is not a local failure: vitest fails the test but does
+ * NOT stop the sweep, so the abandoned run keeps stamping rows while the file
+ * moves on, and every LATER test inherits a corrupted fixture. One timeout at
+ * the first sweep is what turned this file's full-suite run into five failures
+ * (`import_jobs` stuck at "processing", `xmin`s bumped under the
+ * "physically untouched" assertion, and an `updated` count short by exactly the
+ * rows the zombie sweep had already claimed).
+ *
+ * Hence the two rules below: every sweep-driving test states its budget, and no
+ * single test drives the sweep twice. Raise this constant if the dev database
+ * grows again — never the assertions. Nothing here is softened; the claims are
+ * only given room to finish.
+ */
+const SWEEP_BUDGET_MS = 90_000;
+
+describe("contactIdBackfillTask", { timeout: SWEEP_BUDGET_MS }, () => {
   let firstRun: BackfillResult;
   let jobId = "";
   let before: Snapshot;
@@ -607,7 +637,7 @@ describe("contactIdBackfillTask", () => {
   });
 });
 
-describe("the per-statement bound", () => {
+describe("the per-statement bound", { timeout: SWEEP_BUDGET_MS }, () => {
   it("reaches the same end state with rows-per-statement = 1", async () => {
     // A FRESH fixture (the earlier one is fully stamped), fat enough that a
     // cap of 1 forces many iterations of the same loop.
@@ -656,7 +686,9 @@ describe("the per-statement bound", () => {
 // re-hits the same row, so `missing` never drains and `flipReady` can never pass.
 // ---------------------------------------------------------------------------
 
-describe("the sweep vs the contact-scoped uniqueness indexes (PRD 05 T3)", () => {
+describe("the sweep vs the contact-scoped uniqueness indexes (PRD 05 T3)", {
+  timeout: SWEEP_BUDGET_MS,
+}, () => {
   it("skips colliding stamps, folds the preference opt-out, and never aborts", async () => {
     const canon = uid("t3-canon");
     const stale = uid("t3-stale");
@@ -801,8 +833,18 @@ describe("the sweep vs the contact-scoped uniqueness indexes (PRD 05 T3)", () =>
       orphaned: 0,
     });
     expect(verdict.flipReady).toBe(true);
+  });
 
-    // ...and the next sweep is not wedged on the same row either.
+  // INVARIANT 4: the NEXT sweep is not wedged on the same skipped row — the
+  // failure mode this whole describe exists for is a job that re-hits one
+  // colliding row forever, so "it completed once" is only half the claim.
+  //
+  // Its own test rather than a second `await` inside the one above: a sweep is
+  // a whole-database walk (see SWEEP_BUDGET_MS), and a test that drives two of
+  // them asks for twice the budget while reporting one verdict. Sequencing is
+  // the file's existing idiom — vitest runs a file's `it`s in declaration
+  // order, so this runs against the exact post-skip state the case above left.
+  it("...and the next sweep is not wedged on the same skipped row", async () => {
     const second = await backfillTask.fn({ pauseMs: 0 });
     expect(second.status).toBe("completed");
   });

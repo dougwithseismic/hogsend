@@ -7,6 +7,8 @@ import {
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, asc, count, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { emitAccountUnlinked } from "../../lib/account-link-emit.js";
+import { unlinkAccountsForContactInTx } from "../../lib/account-links.js";
 import {
   ALL_IDENTITY_KINDS,
   contactKeySql,
@@ -650,7 +652,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ contact: serializeContact(updated) }, 200);
   })
   .openapi(deleteRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { id } = c.req.valid("param");
 
     const contact = await resolveContact({ db, id });
@@ -661,13 +663,39 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     // Soft-delete + erasure hook in ONE transaction (PRD 02 T1): every
     // contact_aliases row keyed to the erased contact is that person's own
     // identity data, whatever `reason`/`from_contact_id` it carries.
-    await db.transaction(async (tx) => {
+    //
+    // PRD 04 T5 (DECISIONS §15.3): this route is the ERASURE hook, so it also
+    // soft-unlinks every live account link at that pair's own next version
+    // (tokens hard-deleted) AND, via `erase: true`, nulls the personal display
+    // fields (verified_email/username/avatar_url) on every historical row —
+    // the version sequence survives erasure; the personal data does not. The
+    // transaction RETURNS the unlink facts; PRD 08 binds them and emits one
+    // `account.unlinked` per fact post-commit so mirrors converge.
+    const linkUnlinks = await db.transaction(async (tx) => {
+      const facts = await unlinkAccountsForContactInTx(tx, contact.id, {
+        reason: "api",
+        erase: true,
+      });
       await tx
         .update(contacts)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(eq(contacts.id, contact.id));
       await deleteIdentityAliasesForContact(tx, contact.id);
+      return facts;
     });
+
+    // PRD 08 T3 — one `account.unlinked` per soft-unlinked row, `reason:
+    // "api"`, STRICTLY after the transaction resolved (a rolled-back erasure
+    // never reaches this line). This route runs its own transaction rather
+    // than going through `softDeleteContact`, so it owns this emit itself; the
+    // shared fan-out keeps the payload and dedupe key identical to the other
+    // legs.
+    //
+    // The CONTAINER's handles, like every other emit in this file: a
+    // deployment using `overrides.hatchet` must not have this one emit slip
+    // past onto the module singleton's live gRPC dial while `contact.updated`
+    // from the sibling route goes to the override.
+    emitAccountUnlinked(db, linkUnlinks, { hatchet, logger });
 
     return c.json({ deleted: true }, 200);
   });

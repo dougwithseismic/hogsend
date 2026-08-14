@@ -9,6 +9,7 @@ import {
   emailSends,
   groupMemberships,
   journeyStates,
+  linkedAccounts,
   userEvents,
 } from "@hogsend/db";
 import {
@@ -25,6 +26,18 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+// The account-link store (PRD 03) is the ONE module allowed to write a
+// `linked_accounts` VERSION — this file only consumes its tx-scoped helpers
+// (the merge fold, the delete leg) plus one version-free contact_id repoint
+// inside `foldLinkedAccounts`. No import cycle: account-links.ts never imports
+// this module.
+import { emitAccountUnlinked } from "./account-link-emit.js";
+import {
+  type ContactUnlinkFact,
+  type LinkOwner,
+  unlinkAccountInTx,
+  unlinkAccountsForContactInTx,
+} from "./account-links.js";
 import { createLogger } from "./logger.js";
 
 /** Module logger (the house lib idiom — see connector-actions.ts:28). Used only
@@ -1051,6 +1064,33 @@ interface ResolveContactOptions {
 }
 
 /**
+ * One `linked_accounts` soft-unlink the merge fold performed (PRD 04 T2): the
+ * loser's live singleton link lost the arbitration to the survivor's. PRD 08
+ * emits one `account.unlinked` per entry AFTER the resolve transaction
+ * commits; nothing is emitted here (DECISIONS §8). `version` is that pair's
+ * OWN next version, a STRING end to end (DECISIONS §5.1).
+ */
+export interface MergedLinkUnlink {
+  provider: string;
+  providerUserId: string;
+  version: string;
+  /** The loser contact that held the soft-unlinked row. */
+  contactId: string;
+  reason: "relinked";
+  /**
+   * The owner facts the store read INSIDE the fold's transaction (DECISIONS
+   * §15.5). PRD 08's payload carries `userId` (`contactKey()`) and `email`,
+   * and neither lives on `linked_accounts` — without carrying them here the
+   * post-commit emit would either ship two nulls or bolt a second contacts
+   * read on after the lock released, which is no longer the state that
+   * committed. `unlinkAccountInTx`'s `unlinked` arm returns it
+   * (`account-links.ts:260`) and the fold only narrows to that arm, so the
+   * fold copies it straight across — no extra query.
+   */
+  owner: LinkOwner;
+}
+
+/**
  * The shared implementation's result. Identical to
  * {@link resolveOrCreateContact}'s (documented there) EXCEPT that `id` is
  * nullable: the refusal arm returns `null`. The two exported entry points
@@ -1065,6 +1105,9 @@ interface ResolveContactSharedResult {
   merged: boolean;
   mergedKeys?: string[];
   mergedIdentifiedKeys?: string[];
+  /** PRD 04: link soft-unlinks a collide-MERGE performed (see
+   * {@link MergedLinkUnlink}). Absent when the resolve unlinked nothing. */
+  linkUnlinks?: MergedLinkUnlink[];
 }
 
 /**
@@ -1200,7 +1243,7 @@ async function resolveContactShared(
   const patch = contactProperties ?? {};
   const hasPatch = Object.keys(patch).length > 0;
 
-  return db.transaction(async (tx) => {
+  const committed = await db.transaction(async (tx) => {
     // (−1) ENGINE-INTERNAL PROVENANCE PIN. A uuid-shaped `contactId` from a
     // trusted internal re-emit pins resolution to that exact row (no value-key
     // probe, no mint), so a contact's own canonical key round-tripping back as a
@@ -1380,7 +1423,7 @@ async function resolveContactShared(
     if (clamped) {
       throw new PublishableAnonymousMergeError();
     }
-    const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
+    const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys, linkUnlinks } =
       await mergeContacts(tx, candidates, {
         userId,
         email,
@@ -1399,8 +1442,36 @@ async function resolveContactShared(
       merged: true,
       mergedKeys,
       mergedIdentifiedKeys,
+      linkUnlinks,
     };
   });
+
+  // One widening step: the callback's inferred return is a UNION of per-arm
+  // object literals and only the merge arm declares `linkUnlinks`, so the
+  // field is unreadable off the raw union. This is the declared result type
+  // the old `return db.transaction(...)` was checked against — no cast, no
+  // behaviour change.
+  const resolved: ResolveContactSharedResult = committed;
+
+  // THE MERGE'S `account.unlinked` EMIT (PRD 08 T3), and the reason this
+  // function `await`s its own transaction instead of returning it.
+  //
+  // `foldLinkedAccounts` produced these facts INSIDE the transaction above, so
+  // it cannot emit them itself: a merge that rolled back after the fold must
+  // never have announced an unlink that never happened. Here we are strictly
+  // past the COMMIT — the transaction promise has resolved, so a rollback took
+  // the `throw` path and never reached this line. This is the commit/intent
+  // layer DECISIONS §8 names, and it is ONE owner for every call site of
+  // `resolveOrCreateContact` / `resolveContactNoCreate`.
+  //
+  // Only the singleton-COLLISION soft-unlinks are here. The repoint that moves
+  // the loser's surviving links to the survivor is deliberately silent — see
+  // the note on step 4 of `foldLinkedAccounts`.
+  if (resolved.linkUnlinks && resolved.linkUnlinks.length > 0) {
+    emitAccountUnlinked(db, resolved.linkUnlinks);
+  }
+
+  return resolved;
 }
 
 /**
@@ -1446,6 +1517,13 @@ export async function resolveOrCreateContact(
    * `identity.merge.residual_twin` for observability. Never aliased.
    */
   mergedIdentifiedKeys?: string[];
+  /**
+   * PRD 04: the `linked_accounts` soft-unlinks a collide-MERGE performed
+   * (loser's live singleton link lost the arbitration — see
+   * {@link MergedLinkUnlink}). PRD 08 emits one `account.unlinked` per entry
+   * post-commit. Absent when the resolve unlinked nothing.
+   */
+  linkUnlinks?: MergedLinkUnlink[];
 }> {
   // PRD 06: this entry point is create-on-miss BY CONTRACT — honouring a
   // refuse-on-miss policy here would make the refusal arm reachable and force
@@ -1501,6 +1579,8 @@ export async function resolveContactNoCreate(
   merged: boolean;
   mergedKeys?: string[];
   mergedIdentifiedKeys?: string[];
+  /** As {@link resolveOrCreateContact} (PRD 04). */
+  linkUnlinks?: MergedLinkUnlink[];
 }> {
   // Mirror the shared body's normalization so the precondition reads the same
   // keys resolution will (a whitespace-only `userId` is not a supplied key).
@@ -1570,6 +1650,9 @@ async function fillInLink(
   resolvedKey: string;
   mergedKeys?: string[];
   mergedIdentifiedKeys?: string[];
+  /** Shape parity with {@link mergeContacts} (PRD 04); a fill-in-link never
+   * touches `linked_accounts`, so this arm never sets it. */
+  linkUnlinks?: MergedLinkUnlink[];
 }> {
   const set: Record<string, unknown> = {
     lastSeenAt: new Date(),
@@ -1781,6 +1864,7 @@ async function mergeContacts(
   resolvedKey: string;
   mergedKeys?: string[];
   mergedIdentifiedKeys?: string[];
+  linkUnlinks?: MergedLinkUnlink[];
 }> {
   const { survivor, losers } = pickSurvivor(candidates);
   const survivorKey = contactKey(survivor);
@@ -1791,6 +1875,9 @@ async function mergeContacts(
   // merge on the safe path — it is recorded as the twin residual, NEVER aliased.
   const safeLoserKeys: string[] = [];
   const identifiedLoserKeys: string[] = [];
+  // PRD 04: every `linked_accounts` soft-unlink the fold performs, returned so
+  // PRD 08 can emit `account.unlinked` post-commit. Never emitted in here.
+  const linkMutations: MergedLinkUnlink[] = [];
 
   for (const loser of losers) {
     // The id is the last-resort key for a loser that has neither external nor
@@ -1934,6 +2021,13 @@ async function mergeContacts(
     // count/list disagree). uq(group_id, contact_id) forbids a blind rewrite
     // when BOTH already belong to the same group, so fold-then-rewrite.
     await foldGroupMemberships(tx, survivor.id, loser.id);
+
+    // (vi-d) linked_accounts FOLD — the same stranding failure as (vi-c), with
+    // an extra wrinkle: the singleton partial-unique index forbids a blind
+    // repoint. See foldLinkedAccounts.
+    linkMutations.push(
+      ...(await foldLinkedAccounts(tx, survivor.id, loser.id)),
+    );
 
     // (ix) RECORD aliases for each loser key → survivor.
     await recordMergeAliases(tx, survivor.id, loser);
@@ -2122,6 +2216,7 @@ async function mergeContacts(
     mergedKeys: safeLoserKeys.length > 0 ? safeLoserKeys : undefined,
     mergedIdentifiedKeys:
       identifiedLoserKeys.length > 0 ? identifiedLoserKeys : undefined,
+    linkUnlinks: linkMutations.length > 0 ? linkMutations : undefined,
   };
 }
 
@@ -2393,6 +2488,125 @@ async function foldGroupMemberships(
 }
 
 /**
+ * linked_accounts FOLD (vi-d, PRD 04 T2).
+ * `linked_accounts_contact_provider_singleton_idx` is a PARTIAL unique index
+ * on (contact_id, provider) WHERE unlinked_at IS NULL AND singleton, so a
+ * blind repoint raises 23505 whenever survivor and loser both hold a live
+ * singleton link for the same provider. Resolution: the survivor's row stays
+ * (the survivor is what `pickSurvivor` considers primary, consistent with
+ * every other fold), the loser's is SOFT-unlinked with reason "relinked"
+ * through the store's versioning helper (never raw SQL — an unlink whose
+ * version does not advance is discarded forever by the consumer's monotonic
+ * guard, DECISIONS §5.3), and everything else repoints.
+ *
+ * `multiple: true` links (singleton = false) and already-unlinked history rows
+ * need no arbitration: they are outside the partial index, so they just move.
+ *
+ * Known lock-order hazard, stated rather than hidden (PRD 04): the merge
+ * transaction already holds contact-key advisory locks (taken at the top of
+ * the resolve tx) and only NOW takes pair locks; the store takes pair locks
+ * and then touches `linked_accounts` rows belonging to contacts. The two
+ * never take the SAME two advisory locks in opposite orders, so there is no
+ * advisory-lock cycle, but a ROW-lock cycle between a merge and a concurrent
+ * link on the same rows is possible in principle — Postgres detects it and
+ * aborts one side with 40P01, which surfaces as a failed resolve/link the
+ * caller retries. Mitigation, not elimination: this fold runs as LATE as
+ * possible in the merge (immediately before `recordMergeAliases`) so the
+ * window is a few statements wide. Do not attempt a global lock ordering
+ * across the two subsystems.
+ */
+async function foldLinkedAccounts(
+  tx: Tx,
+  survivorId: string,
+  loserId: string,
+): Promise<MergedLinkUnlink[]> {
+  const facts: MergedLinkUnlink[] = [];
+
+  // 1. The survivor's occupied singleton providers.
+  const survivorSingletons = await tx
+    .select({ provider: linkedAccounts.provider })
+    .from(linkedAccounts)
+    .where(
+      and(
+        eq(linkedAccounts.contactId, survivorId),
+        isNull(linkedAccounts.unlinkedAt),
+        eq(linkedAccounts.singleton, true),
+      ),
+    );
+  const occupied = survivorSingletons.map((r) => r.provider);
+
+  if (occupied.length > 0) {
+    // 2. The collisions: the loser's live singleton rows for those providers.
+    const collisions = await tx
+      .select({
+        id: linkedAccounts.id,
+        provider: linkedAccounts.provider,
+        providerUserId: linkedAccounts.providerUserId,
+      })
+      .from(linkedAccounts)
+      .where(
+        and(
+          eq(linkedAccounts.contactId, loserId),
+          isNull(linkedAccounts.unlinkedAt),
+          eq(linkedAccounts.singleton, true),
+          inArray(linkedAccounts.provider, occupied),
+        ),
+      );
+
+    // 3. Soft-unlink each collision at that pair's OWN next version, through
+    // the store (PRD 03's tx-scoped entry point — `contacts.ts` never writes
+    // a version).
+    for (const row of collisions) {
+      const outcome = await unlinkAccountInTx(tx, {
+        rowId: row.id,
+        provider: row.provider,
+        providerUserId: row.providerUserId,
+        reason: "relinked",
+      });
+      // The store's result is a UNION, not a bare success: a `not_found`
+      // means the row went stale between our read and the pair lock
+      // (unlinked/relinked by a concurrent commit) — nothing was mutated, so
+      // recording a fact here would make PRD 08 emit a phantom
+      // `account.unlinked`. Skip it; step 4 still repoints whatever remains.
+      if (outcome.status !== "unlinked") continue;
+      facts.push({
+        provider: row.provider,
+        providerUserId: row.providerUserId,
+        version: outcome.version,
+        contactId: loserId,
+        reason: "relinked",
+        // The `unlinked` arm the narrowing above just proved (the join to
+        // `contacts` the store did under the pair lock). Copied, never
+        // re-read: PRD 08's payload needs `userId`/`email`, and a second
+        // lookup at emit time is no longer the state that committed.
+        owner: outcome.owner,
+      });
+    }
+  }
+
+  // 4. Repoint EVERYTHING remaining — live, historical, and the rows step 3
+  // just unlinked (an unlinked row is outside every partial index, so it
+  // moves without conflict; leaving it behind would strand history on the
+  // soft-deleted loser). A version-free ownership repoint, not a state
+  // transition: version/linked_at/method/tokens are preserved.
+  //
+  // DELIBERATELY NOT AN EMIT POINT (PRD 08). A reader looking for the
+  // `account.unlinked` that step 3 produces will look here too: moving a link
+  // to the merge's survivor is not a new identity fact, it allocates no
+  // version, and emitting from here would double-report every merge. Step 3's
+  // soft-unlink is the different thing that IS emitted — it really did end a
+  // link, at its own new version — and even that emit does not happen here:
+  // this whole function runs INSIDE the merge transaction, so the emit lives
+  // post-commit in `resolveContactShared` (DECISIONS §8, commit/intent layer).
+  await tx
+    .update(linkedAccounts)
+    .set({ contactId: survivorId, updatedAt: new Date() })
+    .where(eq(linkedAccounts.contactId, loserId));
+
+  return facts;
+}
+
+/**
  * email_preferences FOLD (risk 6 — suppression/unsubscribe must NEVER be lost).
  * For each of the loser's pref rows, fold it into whatever currently sits at
  * `(survivorKey, email)`:
@@ -2571,6 +2785,15 @@ async function adoptOrphanHistory(
   await foldEmailPreferences(tx, [fromKey], ownKey, row.id, undefined, {
     stampOnly: true,
   });
+
+  // linked_accounts is deliberately ABSENT here, and that is not an omission.
+  // This function stamps rows that sat under a text key with NO owner
+  // (`WHERE user_id = :fromKey AND contact_id IS NULL`). `linked_accounts` has
+  // no `user_id` column and its `contact_id` is NOT NULL: a link row can only
+  // be created from a callback where the contact is already bound (DECISIONS
+  // §7), so an orphan link row is unrepresentable. The merge path DOES carry
+  // links — see foldLinkedAccounts. Do not "fix" this by adding a statement;
+  // add a test instead if you doubt it.
 }
 
 /** RECORD a contact_aliases row per loser key → survivor (reason 'merge'). */
@@ -2808,6 +3031,8 @@ export async function upsertContact(opts: {
   mergedKeys?: string[];
   /** §5.3 MF-2: already-identified loser keys (twin residual); never aliased. */
   mergedIdentifiedKeys?: string[];
+  /** As {@link resolveOrCreateContact} (PRD 04). */
+  linkUnlinks?: MergedLinkUnlink[];
 }> {
   return resolveOrCreateContact({
     db: opts.db,
@@ -2879,6 +3104,13 @@ export async function softDeleteContact(opts: {
   id?: string;
   externalId?: string | null;
   email?: string | null;
+  /**
+   * PRD 04 T5 (DECISIONS §15.3): one fact per live `linked_accounts` row this
+   * delete soft-unlinked (token blobs hard-deleted alongside). PRD 08 emits
+   * one `account.unlinked` per entry post-commit so mirrors converge. Absent
+   * when the deleted contact(s) held no live links.
+   */
+  linkUnlinks?: ContactUnlinkFact[];
 }> {
   const { db } = opts;
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
@@ -2919,6 +3151,22 @@ export async function softDeleteContact(opts: {
     }
     if (targetIds.size === 0) return undefined;
 
+    // PRD 04 T5 (DECISIONS §15.3): soft-unlink every live link the target(s)
+    // hold, in this SAME transaction, each at its own pair's next version
+    // through the store's tx-scoped helper — a live row outliving its owner
+    // locks the `(provider, provider_user_id)` pair forever, so an erased
+    // player could never relink their own account under onConflict "reject".
+    // Tokens are hard-deleted alongside. Idempotent by construction: a target
+    // with no live links contributes nothing.
+    const linkUnlinks: ContactUnlinkFact[] = [];
+    for (const targetId of targetIds) {
+      linkUnlinks.push(
+        ...(await unlinkAccountsForContactInTx(tx, targetId, {
+          reason: "api",
+        })),
+      );
+    }
+
     const updated = await tx
       .update(contacts)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -2935,16 +3183,31 @@ export async function softDeleteContact(opts: {
     for (const deleted of updated) {
       await deleteIdentityAliasesForContact(tx, deleted.id);
     }
-    return updated[0];
+    return updated[0] ? { row: updated[0], linkUnlinks } : undefined;
   });
 
   if (!row) return { deleted: false };
 
+  // THE CONTACT-DELETION `account.unlinked` EMIT (PRD 08 T3, DECISIONS §15.3),
+  // one per live link, `reason: "api"`. Post-commit: the transaction above has
+  // resolved, so a rollback never reaches this line.
+  //
+  // It lives HERE rather than at the callers because `softDeleteContact` has
+  // THREE of them — `routes/contacts/index.ts`'s DELETE, the agent tool's
+  // `delete_contact` arm, and any consumer-built deletion flow — and each one
+  // that forgot would leave a customer's mirror recording a deleted player as
+  // still linked, forever. The facts stay on the return value as well; that is
+  // the reporting channel (and what the delete-leg tests assert), not a second
+  // emit point. The admin erasure route runs its OWN transaction and therefore
+  // owns its own post-commit emit (`routes/admin/contacts.ts`).
+  emitAccountUnlinked(db, row.linkUnlinks);
+
   return {
     deleted: true,
-    id: row.id,
-    externalId: row.externalId,
-    email: row.email,
+    id: row.row.id,
+    externalId: row.row.externalId,
+    email: row.row.email,
+    linkUnlinks: row.linkUnlinks.length > 0 ? row.linkUnlinks : undefined,
   };
 }
 

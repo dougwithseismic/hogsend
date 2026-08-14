@@ -95,6 +95,30 @@ test("AC 4: contact.refined is present in ALL THREE hand-synced catalogs", () =>
   );
 });
 
+test("AC: the three account.* events are present in ALL THREE hand-synced catalogs", () => {
+  const engine = WEBHOOK_EVENT_TYPES as readonly string[];
+  const cli = readCliCatalog();
+  const client = readClientCatalog();
+  for (const event of [
+    "account.linked",
+    "account.unlinked",
+    "account.link_failed",
+  ]) {
+    assert.ok(
+      engine.includes(event),
+      `packages/engine/src/lib/webhook-signing.ts is missing ${event}`,
+    );
+    assert.ok(
+      cli.includes(event),
+      `packages/cli/src/commands/webhooks.ts is missing ${event}`,
+    );
+    assert.ok(
+      client.includes(event),
+      `packages/client/src/types.ts is missing ${event}`,
+    );
+  }
+});
+
 test("AC 4: the CLI's vendored catalog is the engine catalog, entry for entry", () => {
   assertSameSet(
     readCliCatalog(),

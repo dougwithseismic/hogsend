@@ -64,6 +64,8 @@ export {
 } from "./registry/index.js";
 export * from "./schedule/index.js";
 export {
+  accountLinkProviderIdSchema,
+  accountLinkVersionSchema,
   bucketMetaSchema,
   groupIdentifySchema,
   groupKeySchema,
@@ -71,6 +73,11 @@ export {
   groupsAssociationSchema,
   groupTypeSchema,
   journeyMetaSchema,
+  linkedIdentitySchema,
+  linkMethodSchema,
+  linkTokensSchema,
+  providerUserIdSchema,
+  unlinkReasonSchema,
 } from "./schemas/index.js";
 export {
   bySubject,

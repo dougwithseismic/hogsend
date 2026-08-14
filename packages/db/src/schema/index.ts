@@ -32,6 +32,7 @@ export * from "./journey-configs.js";
 export * from "./journey-logs.js";
 export * from "./journey-states.js";
 export * from "./link-clicks.js";
+export * from "./linked-accounts.js";
 export * from "./links.js";
 export * from "./operator-settings.js";
 export * from "./provider-credentials.js";
