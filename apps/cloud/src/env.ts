@@ -276,7 +276,7 @@ export const env = createEnv({
     // `@hogsend/plugin-hogsend` was scaffolded in and crash-looped on
     // `EMAIL_PROVIDER=hogsend`. A default that has to be remembered is a
     // default that goes stale.
-    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.64.0"),
+    CLOUD_DEFAULT_ENGINE_VERSION: z.string().min(1).default("0.65.0"),
     // The local SCRATCH directory: the root of the `LocalDiskArtifactStore`
     // (the dev/CI store) AND the build pipeline's `workRoot`, where a tarball
     // is unpacked before the image build. Once a bucket is configured (below)

@@ -1,5 +1,114 @@
 # @hogsend/engine
 
+## 0.65.0
+
+### Minor Changes
+
+- bc1e9d6: Account link container wiring. `createHogsendClient` gains an `accountLinks: { providers, hooks, allowedOrigins }` option group, and the client exposes three new fields: `accountLinkProviders` (an `AccountLinkProviderRegistry` keyed by `meta.id`, last-writer-wins, consumer providers merged after env presets), `accountLinkHooks` (the consumer's `AccountLinkHooks`, held verbatim — invoked only by the callback route and the link store, never by the container), and `accountLinkAllowedOrigins` (the parsed origin allowlist). Additive: a deploy with no account linking boots unchanged and stays silent.
+
+  Unlike email/SMS/analytics there is no single active account-link provider — the player picks one per link and the routes resolve by the `:provider` path param — so there is no `ACCOUNT_LINK_PROVIDER` env and no "not registered" boot throw. A provider whose credentials are missing is ABSENT from the registry, never present-but-disabled.
+
+  `parseAllowedOrigins` (exported) parses the ONE allowlist governing both `returnTo` and the `postMessage` targetOrigin, from the `ACCOUNT_LINK_ALLOWED_ORIGINS` csv concatenated env-first with `accountLinks.allowedOrigins`. It FAILS LOUD: a path, a bare `*`, a wildcard host, or any entry whose `new URL(entry).origin` does not round-trip throws at boot naming the offending entry — an allowlist entry is a security control, and a silently dropped one is a link button that spins to a timeout while the link has committed server-side. Registered providers with an empty allowlist warn once at boot.
+
+  New env vars, all optional: `ACCOUNT_LINK_TWITCH_CLIENT_ID` / `ACCOUNT_LINK_TWITCH_CLIENT_SECRET` (the Twitch OAuth pair), `STEAM_WEB_API_KEY` (profile pull + playtime sync only — Steam login is OpenID 2.0 and registers without it), `ACCOUNT_LINK_ALLOWED_ORIGINS`, and `ACCOUNT_LINK_STATE_TTL_SECONDS` (default 900). The engine also re-exports the `@hogsend/core` provider contract (`defineAccountLink`, `AccountLinkProvider`, `AccountLinkHooks`, …) and the new `AccountLinkProviderRegistry`.
+
+- a537c4c: The account-link data plane: `/v1/accounts/*`, plus the `accounts` API-key scope. This is the surface a customer reconciles against, and the surface that removes their need for a backend endpoint before they can drop in a link button.
+
+  Secret key + `accounts` scope: `GET /v1/accounts` (live links by `contactId` / `email` / `provider`, newest first, `limit` default 50 max 200), `GET /v1/accounts/{provider}/{providerUserId}` (reverse lookup — who owns this platform account right now; an unlinked pair is history, not a live owner, and 404s), `DELETE` on the same path (the operator unlink, `reason: "api"`), `POST /v1/accounts/import` and `POST /v1/accounts/mint-link`. `accounts` is ORTHOGONAL, exactly like `ingest`: an explicit grant or `full-admin` satisfies it, so there is no `SCOPE_HIERARCHY` edit and no migration (`api_keys.scopes` is a jsonb string array). The admin key-create enum accepts it.
+
+  Browser-reachable, `userToken`-gated: `GET /v1/accounts/me`, `POST /v1/accounts/me/revoke` and `POST /v1/accounts/link-url`. `link-url` is the DX unlock — the customer's browser calls it directly with a token their own server minted, so they ship no backend endpoint. `me/revoke` is the PRIMARY player unlink: the publisher's site already knows the signed-in player, so the in-app path needs no email, no hosted page and no token in a URL (the hosted manage page is the fallback for a player with no session; the secret `DELETE` is a server call a player cannot make).
+
+  `POST /v1/accounts/import` is INSERT-ONLY and that is structural, not a policy check: it passes `allowDisplaceLiveOwner: false` and pins `onConflict: "reject"`, so the store refuses inside its advisory-locked transaction. A pair that already has a live owner is reported under `conflicts` with the existing row left untouched — same contact, same version, same `linkedAt`, no new version allocated — because only a completed hosted callback may move a link. A `multiple: false` provider whose author chose `onConflict: "replace"` does not become an import-time takeover primitive. A referenced contact that does not exist is a conflict, never a minted contact. Partial success: a conflicting batch still applies its clean rows and returns both counts. `linkAccount` gains an optional `linkedAt`, used only on the INSERT, so an import preserves the customer's historical timestamp.
+
+  `GET /v1/accounts/me` NEVER CONFIRMS EXISTENCE. It returns four display keys (`provider`, `username`, `avatarUrl`, `linkedAt`) built as a fresh object literal — never a spread of the row, which is how `providerUserId` leaks the day someone adds a column — and an absent, malformed, expired, forged or unknown-user token returns `200 { "accounts": [] }`, byte-identical to a real user with no links. `POST /v1/accounts/me/revoke` is non-confirming the same way (`200 { "revoked": 0 }`), and passes `expectContactId` on every per-row unlink so a hosted callback relinking the pair mid-revoke cannot have the new owner's just-proven link destroyed by the old owner's revoke.
+
+  `version` is a Postgres `bigint` serialized as a decimal STRING at every boundary. Nothing on this plane parses it: a value above `Number.MAX_SAFE_INTEGER` rounded through float64 breaks the consumer's `incoming.version > stored.version` guard invisibly, which is the exact case the guard exists for.
+
+  Route guards on `/v1/accounts/*` BRANCH, they never stack, and every guarded path is enumerated explicitly. Hono runs every matching `use` and `app.route("/v1", v1)` flattens middleware, so a blanket `/accounts/*` guard also matches the bare `/accounts` path and every literal sibling, and a guard on the two-segment `/{provider}/{providerUserId}` pattern also fires on `/accounts/me/revoke` and on the hosted flow's `/start` and `/callback` — which carry no `Authorization` header by construction. Both mistakes fail CLOSED and silently (401 with no key, 403 with a `pk_` one), so the tests that pin this assert NEITHER 401 NOR 403, and both broken forms were run by hand to confirm they fail.
+
+  `serializeLinkedAccount` / `serializePublicLinkedAccount` and their schemas are exported, so an SDK types against the same declarations the routes answer with. `emitOutbound` for `account.linked` / `account.unlinked` now lives in one shared module used by both the hosted callback and the data plane, so a `replacedSingleton` ending (which the `linked` arm carries too, not only `relinked`) cannot be announced by one site and dropped by another.
+
+- b1223b8: The hosted account-link flow: `GET /v1/accounts/:provider/start` and `GET /v1/accounts/:provider/callback`. `/start` resolves the binding, mints the one-attempt signed state and PKCE material, and 302s to the provider's authorize URL, writing nothing. `/callback` verifies the state before dispatching, burns its nonce single-use, consumes the PKCE verifier, takes the provider's proof, runs the `beforeLink` veto, resolves the contact, and hands an already-resolved `contactId` to the link store. Both routes are UNAUTHENTICATED by construction — public browser redirect targets that self-authenticate through the signed state and the provider's own proof of control — so no api-key guard may be registered on the two-segment `/accounts/:provider/:providerUserId` pattern, which Hono also matches against `/start` and `/callback`.
+
+  `ConnectorStateIntent` gains `purpose: "account_link"` with `providerId` / `anonymousId` / `returnTo`, and `connectorId` becomes optional. Source-compatible for every existing caller (a widened union plus new optional fields), but it is a public type change: code reading `intent.connectorId` now gets `string | undefined`. `providerId` is a NEW field rather than a reuse of `connectorId`, because one secret signs every state in the process and two fields cannot be confused even by an id collision. The connector OAuth callback now states its purpose allowlist explicitly instead of rejecting a cross-surface state only incidentally.
+
+  `mintAccountLinkUrl` (exported) returns an ENGINE-origin `<API_PUBLIC_URL>/v1/accounts/<provider>/start?t=<signed state>` URL and never a provider authorize URL — the embed SDK derives its `postMessage` expected origin from it. `isAllowedReturnTo` is exported alongside `parseAllowedOrigins`; a `returnTo` is allowlist-checked at mint AND re-checked at redirect, because the allowlist can be edited while a signed state is in flight.
+
+  Security posture, all mutation-tested. A COLD link (bound to a browser anonymous key) resolves its contact with an explicitly clamped `policy: { create: "on-miss", allowMerge: "anonymous-only", trustedKinds: ["anonymous"] }` and treats a `PublishableAnonymousMergeError` as a hard refusal — the default policy would fill in a link onto whatever contact owns that anon alias, including an identified victim's, and `anonymous_id` arrives on an unauthenticated URL. Only a completed WARM callback passes `allowDisplaceLiveOwner: true`, so a cold link can never take a platform account off its current owner. `beforeLink` is fail-closed (a throw, a 5s timeout and `{ allow: false }` all reject), runs strictly before any write, and is the only hook this route invokes — `afterLink`/`afterUnlink` keep their single invoker, the store. The contact resolve runs strictly after the veto and outside the store's transaction, since `resolveOrCreateContact` takes its own advisory locks.
+
+  Unlike the connector callback, which degrades to TTL-only validity without Redis, `/v1/accounts/*` FAILS CLOSED: no Redis means 503, and the nonce burn refuses rather than waving a replay through. A replayed account-link callback can move a link between contacts, and PKCE verifier custody lives in Redis regardless. The container warns once at boot when providers are registered without `REDIS_URL`. Both surfaces are IP-throttled (20 per 15 minutes) and the warm mint additionally per contact.
+
+  A cold `/start` with no `anonymous_id` MINTS one and sets it as a first-party `hs_anon_id` cookie rather than answering 400: Steam yields no email ever and `IdentityKind` is not widened, so the browser key is the only thing a cold Steam link can key a contact on.
+
+- dc6619c: Account link events reach the journey plane: `defineJourney({ trigger: { event: "account.linked" } })` now fires, as do `account.unlinked` and `account.link_failed`. All event properties are scalars, but the three events carry DIFFERENT sets: `account.linked` has `state`/`provider`/`providerUserId`/`username`/`method`/`relink`/`version`, `account.unlinked` has `state`/`provider`/`providerUserId`/`reason`/`version`, and `account.link_failed` has only `provider`/`reason`. `version` stays a decimal string — compare it with `BigInt()`.
+
+  `POST /v1/accounts/import` does NOT enroll journeys unless you pass `enrollJourneys: true`, so a backfill cannot run a welcome journey once per imported row; the outbound webhook fires either way.
+
+  Also fixes a fail-open case in `collidesWithIdentified`: a contact keyed on its row uuid (neither `external_id` nor `anonymous_id` set) was invisible to the guard, so unauthenticated surfaces that accept an `anonymous_id` could file events under that person's canonical key.
+
+  This is a second plane beside the outbound webhook, not a replacement: the journey plane runs journeys inside Hogsend, the outbound spine ships state to your subscriber, and every link event reaches both. A failed link never creates a contact.
+
+- a7d1576: Add `account.linked`, `account.unlinked` and `account.link_failed` to the outbound webhook catalog.
+
+  The catalog is public surface on all three packages, so all three version together. `WEBHOOK_EVENT_TYPES` (`@hogsend/engine`) is the single source of truth; the CLI's tuple and the client's `OutboundEventType` union are hand-maintained copies that cannot import the engine, and a drift test asserts all three stay in exact set agreement. Shipping the engine without the other two would publish an engine that emits three events the CLI cannot subscribe to and the client cannot type — the precise drift that test exists to prevent, escaping through the release instead of the code.
+
+  The two state events carry FULL CURRENT STATE rather than a delta: `{ state, provider, providerUserId, contactId, userId, email, version, at }`, plus `username`/`method`/`relink` on `account.linked` and `reason` on `account.unlinked`. A subscriber upserts on `(provider, providerUserId)` and applies only when `incoming.version > stored.version`, which makes duplicate, out-of-order and late deliveries all no-ops. `version` is a Postgres `bigint` serialized as a decimal STRING — compare it with `BigInt()` or a numeric column, never `parseInt`, because a value above `Number.MAX_SAFE_INTEGER` rounded through float64 breaks that guard invisibly.
+
+  `account.link_failed` carries no `version`, no `state` and no dedupe key: nothing mutated, so there is no current state to report and nothing to compare. Two genuine failures are two genuine facts, and suppressing the second would hide a brute-force pattern. It never mints a contact.
+
+  All three are emitted from the intent layer only — the hosted callback and the data plane — never from the ingest path, mirroring the `group.*` rule. The store returns mutation facts and emits nothing; two guards pin that, one scanning for the emit symbols and one pinning the store's runtime import list, so a future emit surface under a name nobody has invented yet still has to import its way past them.
+
+- 5f1127c: Add the account link store, the one writer of `linked_accounts`.
+
+  Every mutation runs in a single transaction that takes every advisory lock it
+  will need, sorted, as its first statement, so two players swapping platform
+  accounts cannot deadlock. Versions are monotonic per platform account across
+  live and unlinked rows, computed in SQL inside that lock, and cross every
+  boundary as strings because the value exceeds the JS safe integer range. A
+  relink burns two versions with the displaced row strictly below the new one, so
+  a consumer applying `incoming.version > stored.version` discards a late unlink
+  instead of recording the wrong owner. `afterLink` and `afterUnlink` are invoked
+  here and nowhere else, post-commit and fail-open.
+
+- f382009: Built-in account-link providers: `steamAccountLink` (OpenID 2.0, registered from env unconditionally — `STEAM_WEB_API_KEY` optionally adds the profile pull and playtime sync) and `twitchAccountLink` (OAuth2 + PKCE, registered when both `ACCOUNT_LINK_TWITCH_CLIENT_ID` and `ACCOUNT_LINK_TWITCH_CLIENT_SECRET` are set). Env presets merge into the container's account-link registry ahead of consumer-supplied providers.
+
+### Patch Changes
+
+- 531529a: Contact merge carries `linked_accounts` with it, and contact deletion takes
+  them away.
+
+  A merge soft-deletes the loser, so the FK cascade never fires and a player's
+  proven platform link was silently stranded on a dead row. The merge now folds
+  `linked_accounts` like every other contact-scoped table: everything repoints to
+  the survivor, and when both contacts hold a live singleton link for the same
+  provider the survivor's row wins while the loser's is soft-unlinked with reason
+  `relinked` at that pair's own next version — never a blind repoint, which would
+  raise 23505 on the singleton partial-unique index and abort an ordinary
+  identify call.
+
+  Both deletion entry points (`softDeleteContact` and the admin delete route) now
+  soft-unlink every live link inside their existing transactions via the store's
+  new `unlinkAccountsForContactInTx`, hard-delete the token blobs, and — on
+  erasure — null the personal display fields while preserving the version
+  sequence. Without this a live row outlives its owner forever and an erased
+  player can never relink their own account under `onConflict: "reject"`.
+
+  Additive result fields: the resolver's merge results carry `linkUnlinks`
+  (`MergedLinkUnlink[]`) and `softDeleteContact` returns `linkUnlinks`
+  (`ContactUnlinkFact[]`), the facts the outbound `account.unlinked` emits are
+  built from post-commit.
+
+- Updated dependencies [2ab4693]
+- Updated dependencies [0a92abd]
+- Updated dependencies [dbea404]
+  - @hogsend/core@0.65.0
+  - @hogsend/attribution@0.65.0
+  - @hogsend/email@0.65.0
+  - @hogsend/plugin-posthog@0.65.0
+  - @hogsend/plugin-resend@0.65.0
+  - @hogsend/sms@0.65.0
+  - @hogsend/db@0.65.0
+
 ## 0.64.0
 
 ### Minor Changes
