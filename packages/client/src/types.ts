@@ -524,6 +524,9 @@ export type OutboundEventType =
   | "group.identified"
   | "group.member_added"
   | "group.member_removed"
+  | "account.linked"
+  | "account.unlinked"
+  | "account.link_failed"
   | "impact.digest";
 
 /**

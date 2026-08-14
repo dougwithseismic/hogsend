@@ -25,7 +25,7 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 31-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 35-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
  *
@@ -48,6 +48,16 @@ import { Webhook } from "svix";
  * `link.arrived` is the landing-confirmed subset of `link.clicked`: the
  * visitor reported back from the destination (opt-in `hs_ref` +
  * POST /v1/t/arrive) with identity evidence.
+ *
+ * The `account.*` family reports a player's third-party platform account
+ * (`defineAccountLink`: Steam, Twitch, …) being bound to or released from a
+ * contact. `account.linked` and `account.unlinked` are the two STATE events —
+ * each carries the FULL current state including `{ state, version }`, never a
+ * delta, so a subscriber upserts on `(provider, providerUserId)` and applies
+ * only when `incoming.version > stored.version`. `account.link_failed` reports
+ * a flow that ended without mutating anything, so it carries no version and
+ * never mints a contact. Like `group.*`, all three are emitted from the
+ * intent-layer link/unlink call sites ONLY — never from the ingest path.
  *
  * `impact.digest` is the weekly facts-only impact rollup (shipped journey
  * versions/labels + holdout-lift threshold crossings). It is the one
@@ -101,6 +111,13 @@ export const WEBHOOK_EVENT_TYPES = [
   "group.identified",
   "group.member_added",
   "group.member_removed",
+  // Third-party platform account links (`defineAccountLink`). Emitted from the
+  // intent layer ONLY (the link/unlink call sites), never the ingest path.
+  // The two STATE events carry full current state + a monotonic `version`;
+  // `account.link_failed` mutated nothing, so it carries neither.
+  "account.linked",
+  "account.unlinked",
+  "account.link_failed",
   // Weekly impact digest (impact experiments D5). Self-referential: the
   // cron watermarks off its own delivery rows.
   "impact.digest",
