@@ -89,6 +89,7 @@ export interface AccountLinkEmitContext {
 export function noteLinked(
   ctx: AccountLinkEmitContext,
   result: Extract<LinkAccountResult, { status: "linked" | "relinked" }>,
+  opts: { journeyPlane?: boolean } = {},
 ): void {
   ctx.logger.info("account linked", {
     provider: ctx.providerId,
@@ -105,12 +106,22 @@ export function noteLinked(
   // emit (DECISIONS §8) — see the header of `lib/account-link-ingest.ts`.
   // It is fire-and-forget on purpose, so it can neither delay nor break the
   // ordering the outbound chain below depends on.
-  ingestAccountLinked(ctx.db, result, {
-    hatchet: ctx.hatchet,
-    logger: ctx.logger,
-    ...(ctx.registry ? { registry: ctx.registry } : {}),
-    ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
-  });
+  //
+  // `journeyPlane: false` is the BULK-BACKFILL opt-out, and it suppresses ONLY
+  // this plane — the outbound emit below still fires, because the customer's
+  // mirror must converge whether or not a journey ran. A backfill of a
+  // publisher's existing Steam history is a statement about the PAST: enrolling
+  // it would run a welcome journey once per imported row, so `POST
+  // /v1/accounts/import` defaults to off and opts in per request. A live link
+  // (the hosted callback) never passes this.
+  if (opts.journeyPlane !== false) {
+    ingestAccountLinked(ctx.db, result, {
+      hatchet: ctx.hatchet,
+      logger: ctx.logger,
+      ...(ctx.registry ? { registry: ctx.registry } : {}),
+      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+    });
+  }
 
   const { provider, providerUserId } = result.row;
   const linked = () =>

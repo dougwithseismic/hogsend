@@ -42,7 +42,7 @@ const importRoute = createRoute({
   tags: ["Accounts"],
   summary: "Import existing links (insert-only)",
   description:
-    'SECRET API KEY + `accounts` scope. Inserts links a customer already had, stamped `method: "import"`, preserving `linkedAt` when supplied. INSERT-ONLY: a pair that already has a live owner is reported under `conflicts` with the existing row left completely untouched — same contact, same version, same `linkedAt` — because only a completed hosted callback may move a link. Partial success: every non-conflicting row is applied and both counts are returned. Max 1000 rows.',
+    'SECRET API KEY + `accounts` scope. Inserts links a customer already had, stamped `method: "import"`, preserving `linkedAt` when supplied. INSERT-ONLY: a pair that already has a live owner is reported under `conflicts` with the existing row left completely untouched — same contact, same version, same `linkedAt` — because only a completed hosted callback may move a link. Partial success: every non-conflicting row is applied and both counts are returned. Max 1000 rows. Journeys are NOT enrolled unless `enrollJourneys: true` — a backfill would otherwise run an `account.linked` journey once per row; the outbound webhook fires either way.',
   request: {
     body: {
       content: {
@@ -66,6 +66,16 @@ const importRoute = createRoute({
                   }),
               )
               .max(1000),
+            /**
+             * Enroll journeys for the imported links. DEFAULT FALSE, because a
+             * backfill is a statement about the PAST: leaving it on would run
+             * an `account.linked` journey once per row, so importing a
+             * publisher's existing Steam history would send its welcome email
+             * to the entire back catalogue. The outbound `account.linked`
+             * webhook fires either way — the customer's mirror must converge
+             * regardless of whether a journey ran.
+             */
+            enrollJourneys: z.boolean().optional().default(false),
           }),
         },
       },
@@ -98,7 +108,7 @@ export function registerAccountsImportRoute(router: OpenAPIHono<AppEnv>) {
       logger,
       registry,
     } = c.get("container");
-    const { rows } = c.req.valid("json");
+    const { rows, enrollJourneys } = c.req.valid("json");
 
     let inserted = 0;
     const conflicts: z.infer<typeof conflictSchema>[] = [];
@@ -188,6 +198,10 @@ export function registerAccountsImportRoute(router: OpenAPIHono<AppEnv>) {
           ...(analytics ? { analytics } : {}),
         },
         result,
+        // Off by default: a bulk backfill must not run a welcome journey once
+        // per imported row. The outbound emit inside `noteLinked` is
+        // unaffected.
+        { journeyPlane: enrollJourneys },
       );
     }
 

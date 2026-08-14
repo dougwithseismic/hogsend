@@ -365,18 +365,16 @@ sign-in may move a link, because moving one on an API call would let a bad
 import reassign a player's identity. A conflicting batch still applies its
 clean rows.
 
-<Callout type="warn" title="A backfill enrols journeys, one per row">
-An imported link is a real link, so it reaches the journey plane like any
-other. Backfill 1000 rows and your `account.linked` journey runs 1000 times —
-if it sends a welcome email, that is 1000 emails. Imported rows are stamped
-`method: "import"`, so exclude them where you do not want them:
+<Callout type="info" title="A backfill does not enrol journeys">
+`enrollJourneys` defaults to `false`. A backfill is a statement about the past,
+so importing 1000 existing links does not run your `account.linked` journey
+1000 times — nobody sends a welcome email to their whole back catalogue on
+migration day. Pass `"enrollJourneys": true` when you do want it.
 
-```ts
-where: (b) => b.prop("method").neq("import")
-```
-
-Re-running the same import is safe: an unchanged pair transitions nothing, so
-it emits nothing and enrols nothing.
+The outbound webhook fires either way: the customer's mirror must converge
+whether or not a journey ran. Imported rows are stamped `method: "import"`, so
+an opted-in trigger can still exclude them with
+`where: (b) => b.prop("method").neq("import")`.
 </Callout>
 
 ## Adding another platform

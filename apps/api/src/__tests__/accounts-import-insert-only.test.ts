@@ -139,15 +139,32 @@ async function makeContact(): Promise<string> {
   return row.id;
 }
 
-function importRows(rows: Record<string, unknown>[]) {
+function importRows(
+  rows: Record<string, unknown>[],
+  body: Record<string, unknown> = {},
+) {
   return app.request("/v1/accounts/import", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${SECRET_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, ...body }),
   });
+}
+
+/** Every `account.linked` the journey plane pushed, oldest first. */
+function linkedPushes(): Record<string, unknown>[] {
+  const push = engine.hatchet.events.push as unknown as {
+    mock: { calls: unknown[][] };
+  };
+  // `hatchet.events.push(eventName, input)` — the name is the FIRST argument,
+  // and the event's scalars live under `input.properties`.
+  return push.mock.calls
+    .filter((call) => call[0] === "account.linked")
+    .map(
+      (call) => (call[1] as { properties: Record<string, unknown> }).properties,
+    );
 }
 
 /**
@@ -480,5 +497,70 @@ describe("POST /v1/accounts/import CANNOT steal a live link", () => {
     ]);
     expect(await liveRow("steam", providerUserId)).toHaveLength(0);
     expect(await countContacts()).toBe(before);
+  });
+
+  it("does NOT enroll journeys by default, but still emits outbound", async () => {
+    // THE BACKFILL GUARD. An import is a statement about the PAST. Left on,
+    // a publisher importing years of Steam history would run their
+    // `account.linked` journey once per row and send a welcome email to the
+    // entire back catalogue on migration day. The outbound webhook is a
+    // different plane and must STILL fire — the customer's mirror has to
+    // converge whether or not a journey ran.
+    const contactId = await makeContact();
+    const providerUserId = uid("no-enroll");
+
+    const res = await importRows([
+      { provider: "steam", providerUserId, contactId },
+    ]);
+    expect(((await res.json()) as { inserted: number }).inserted).toBe(1);
+    expect(await liveRow("steam", providerUserId)).toHaveLength(1);
+
+    // The outbound plane DID fire.
+    await expect
+      .poll(async () =>
+        (await pairDeliveries("steam", providerUserId)).map((d) => d.eventType),
+      )
+      .toEqual(["account.linked"]);
+
+    // A TIMING CONTROL, not a hope. The journey-plane push is fire-and-forget,
+    // so asserting "nothing pushed yet" the instant the request returns passes
+    // whether the default is off OR merely slow — the assertion would be
+    // vacuous (VERIFIED: with the default flipped back to `true`, the naive
+    // form still passed). So drive a SECOND import that DOES opt in, wait for
+    // ITS push to land, and only then claim the first produced none: both
+    // travel the same path and the second started later, so once the second
+    // has arrived the first would have too.
+    const controlId = uid("control");
+    await importRows(
+      [{ provider: "steam", providerUserId: controlId, contactId }],
+      { enrollJourneys: true },
+    );
+    await expect
+      .poll(() => linkedPushes().some((p) => p.providerUserId === controlId))
+      .toBe(true);
+
+    expect(
+      linkedPushes().filter((p) => p.providerUserId === providerUserId),
+    ).toEqual([]);
+  });
+
+  it("enrolls when the caller explicitly asks", async () => {
+    // The opt-out must be a DEFAULT, not a ceiling: a customer who genuinely
+    // wants imported links to run a journey can still say so.
+    const contactId = await makeContact();
+    const providerUserId = uid("enroll");
+    const before = linkedPushes().length;
+
+    const res = await importRows(
+      [{ provider: "steam", providerUserId, contactId }],
+      { enrollJourneys: true },
+    );
+    expect(((await res.json()) as { inserted: number }).inserted).toBe(1);
+
+    await expect.poll(() => linkedPushes().length).toBe(before + 1);
+    const pushed = linkedPushes().at(-1);
+    expect(pushed?.providerUserId).toBe(providerUserId);
+    // Stamped as an import, which is what lets a trigger exclude backfills.
+    expect(pushed?.method).toBe("import");
   });
 });

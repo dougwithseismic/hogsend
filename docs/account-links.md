@@ -697,23 +697,28 @@ by that same contact is neither an insert nor a conflict; nothing transitioned,
 so nothing is emitted. Imported rows are stamped `method: "import"` and hold no
 tokens.
 
-**A backfill enrolls journeys, one per inserted row.** An import is a real link,
-so it reaches the journey plane like any other — backfilling 1000 rows fires
-your `account.linked` journey 1000 times, and if that journey sends a welcome
-email, it sends 1000 of them. This is deliberate (an imported link IS a link),
-but it is rarely what you want on a migration.
+**An import does not enroll journeys.** A backfill is a statement about the
+past, so `enrollJourneys` defaults to `false`: importing a publisher's existing
+Steam history does not run an `account.linked` journey once per row, and does
+not send a welcome email to the entire back catalogue on migration day. Opt in
+per request when you want it:
 
-`method` is one of the event properties, so exclude backfills where you do not
-want them:
-
-```ts
-trigger: {
-  event: "account.linked",
-  where: (b) => b.prop("method").neq("import"),
-}
+```bash
+-d '{"enrollJourneys":true,"rows":[…]}'
 ```
 
-Re-running the same import is safe on its own: an unchanged pair transitions
+The **outbound** `account.linked` webhook fires either way — the customer's
+mirror has to converge whether or not a journey ran. The two are different
+planes.
+
+If you do opt in, imported rows are stamped `method: "import"` and `method` is
+one of the event properties, so a trigger can still single them out:
+
+```ts
+where: (b) => b.prop("method").neq("import")
+```
+
+Re-running the same import is safe regardless: an unchanged pair transitions
 nothing, so it emits nothing and enrolls nothing.
 
 ## Provider setup
