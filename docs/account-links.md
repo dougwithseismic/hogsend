@@ -697,6 +697,25 @@ by that same contact is neither an insert nor a conflict; nothing transitioned,
 so nothing is emitted. Imported rows are stamped `method: "import"` and hold no
 tokens.
 
+**A backfill enrolls journeys, one per inserted row.** An import is a real link,
+so it reaches the journey plane like any other — backfilling 1000 rows fires
+your `account.linked` journey 1000 times, and if that journey sends a welcome
+email, it sends 1000 of them. This is deliberate (an imported link IS a link),
+but it is rarely what you want on a migration.
+
+`method` is one of the event properties, so exclude backfills where you do not
+want them:
+
+```ts
+trigger: {
+  event: "account.linked",
+  where: (b) => b.prop("method").neq("import"),
+}
+```
+
+Re-running the same import is safe on its own: an unchanged pair transitions
+nothing, so it emits nothing and enrolls nothing.
+
 ## Provider setup
 
 ### Steam
