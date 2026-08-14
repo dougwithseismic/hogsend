@@ -122,6 +122,7 @@ Each row names exactly ONE file. The table is exhaustive.
 | `account.unlinked` | PRD 11's manage-page revoke | PRD 11 T4 | `al:<provider>:<uid>:v<version>` |
 | `account.unlinked` | PRD 04's merge, for a SINGLETON-COLLISION soft-unlink, AFTER the merge transaction commits, off the mutation facts the merge returns | T3 | `al:<provider>:<uid>:v<version>`, `reason: "relinked"` |
 | `account.unlinked` | PRD 04's contact DELETION leg, one per live link, after the delete transaction commits, off the facts `unlinkAccountsForContactInTx` returns (DECISIONS §15.3) | T3 | `al:<provider>:<uid>:v<version>`, `reason: "api"` |
+| `account.unlinked` | PRD 07's callback handler, for a SINGLETON DISPLACEMENT (`replacedSingleton`) — the contact's OTHER pair on a `multiple:false` provider, ended by this link | T4 | `al:<provider>:<uid>:v<version>` keyed on **ITS OWN pair**, `reason: "relinked"`. **Added 2026-08-14 — see the ruling below** |
 | `account.link_failed` | PRD 07's callback handler, at each of the four rejection points | T4 | **none** (see below) |
 
 NOT emit points, and each needs a comment where a future reader would expect one:
@@ -142,6 +143,33 @@ NOT emit points, and each needs a comment where a future reader would expect one
   emit.
 - PRD 14's property-sync cron and `tokens_revoked_at` write. DECISIONS §8 rejected `account.updated`
   precisely so this stays quiet; a customer who cares reads `tokensRevokedAt` from the pull plane.
+
+### RULING 2026-08-14 — `replacedSingleton` IS an emit point, and this table was incomplete
+
+BUILD found the gap and correctly refused to invent an emit for it, flagging it instead. The table
+above said it was exhaustive and it was wrong.
+
+`LinkAccountResult.replacedSingleton` is the contact's OTHER pair on a `multiple:false` provider,
+soft-unlinked because this link displaced it. It is a real link ending, at its own version, on its own
+pair — and **the store already announces it on the IN-PROCESS plane**:
+`lib/account-links.ts:813-830` invokes `afterUnlink` with `reason: "relinked"`, under a comment
+saying it is *"mirroring the outbound event order (DECISIONS §5)"*. That mirror did not exist.
+
+Emitting it is the only choice consistent with what is already locked:
+- **DECISIONS §3.2** — the in-process plane exists so a consumer can write the fact into their own
+  database. If the two planes disagree about whether a link ended, a consumer joining them records a
+  contradiction, and the push plane is the one that is wrong.
+- **The deletion leg's own justification** — "a customer's mirror records a deleted player as still
+  linked, forever." A displaced singleton has exactly that failure: no later event will ever fire for
+  that pair, so the wrong owner is recorded permanently.
+
+Implementation notes that are easy to get wrong:
+- **Key it on `r.provider` / `r.providerUserId`, which DIFFER from `result.row`'s.** It is a different
+  pair, not a different version of the same one. A key built from the new pair would collide with the
+  `account.linked` emit and be silently swallowed by `onConflictDoNothing`.
+- Emit it BEFORE the `account.linked` that displaced it, same as the `previous` relink leg, for the
+  same monotonic-guard reason.
+- `owner` comes from `r.owner`, read inside the locked transaction — never re-looked-up.
 
 **`account.link_failed` gets no dedupeKey.** It has no version, so there is no monotonic value to key
 on, and a NULL `dedupeKey` is never blocked because Postgres treats multiple NULLs as distinct

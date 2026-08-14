@@ -117,6 +117,14 @@ FAILED" and burns a cycle, or worse reports "gate ran" having proven nothing. An
 gate that catches the `@hogsend/testing` import-time-`env.ts` class described below — the defect that
 shipped RED once while every other gate was green.
 
+**The turbo TEST gate is vacuous for untracked new files too — not just `check-types`.** Turbo hashes
+git-tracked files only, so a change consisting SOLELY of new untracked files does not move any task's
+cache key and `turbo run test` returns `46 cached, 46 total >>> FULL TURBO` in ~200ms **without
+executing a single test**. The `check-types` caveat below is usually quoted as if it were specific to
+typechecking; it is not. If your change adds new files and you have not committed them, add `--force`
+or you have proven nothing. (Observed 2026-08-14 during the PRD 19 T2 proofs: a re-green run completed
+in 199ms having run nothing.)
+
 **A gate is only trusted once it has been watched failing.** Before relying on a gate you have not
 seen fail, break something deliberately, confirm it goes red and names the right thing, and revert.
 This applies especially to the cross-workspace gate, whose failure mode is a package nobody in

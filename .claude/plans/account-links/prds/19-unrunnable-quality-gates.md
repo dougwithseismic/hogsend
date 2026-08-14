@@ -121,3 +121,41 @@ None.
 - [ ] `git status` clean after T2's reverts.
 
 ## Implementation Notes
+
+**T1, T3, T4 shipped `bfd06587`. T2 (the proofs) run 2026-08-14, tree reverted clean.**
+
+T3 was WORSE than this PRD described. The Done-when checklists did not merely cite the vacuous
+`check-types` — **sixteen of them omitted the cross-workspace gate entirely**, listing only
+`pnpm lint / pnpm check-types / cd apps/api && pnpm test`. So every PRD in this stack was gated by a
+typecheck that skips uncommitted files plus no coverage at all of the one gate below. All sixteen
+fixed; the prose explaining the vacuity stays.
+
+**T2 — all four gates were watched failing, and gate 4's justification is now PROVEN rather than
+recounted.** The first attempt at the literal historical repro (`export { env }` from
+`engine/testing.ts`) did NOT reproduce — and that is itself a finding: the incident was remediated in
+`packages/testing/vitest.config.ts`, which now injects the vars under a comment naming this exact
+failure. That config block is load-bearing and the env-drag edge is live TODAY via the account-link
+store.
+
+So the CLASS was reproduced with a fresh edge that block does not cover — an env module requiring
+`ADMIN_API_KEY` (present in `apps/api`'s test env, absent from `packages/testing`'s), exported from
+`engine/testing.ts`. Against that one state:
+
+| Gate | Result |
+| --- | --- |
+| lint | **GREEN** |
+| `packages/engine` `tsc --noEmit` | **GREEN** |
+| `apps/api` test | **GREEN** — 2591 passed |
+| cross-workspace turbo test | **RED** — `@hogsend/testing` 6 suites failed, `Tests no tests` |
+
+**Three of four gates certified a change that took a package from 74 passing tests to zero.** That is
+the entire argument for the gate, and it is now evidence rather than a story.
+
+**A second vacuity was found and is now recorded in §4:** `turbo run test` is cache-vacuous for
+untracked new files exactly as `check-types` is — a re-green run reported `FULL TURBO` in 199ms having
+executed nothing. The gate-4b proof was only picked up because the same change also edited a TRACKED
+file. Use `--force` when your change is new files.
+
+**One correction to this PRD's Defect 2:** `apps/api` ran fully green three times on this branch, so
+it is no longer a known-red gate. §4's table records it as green as of `4c3f8b70` rather than red — a
+stale known-red entry is itself a licence to wave a gate through.
