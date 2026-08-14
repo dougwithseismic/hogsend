@@ -38,6 +38,38 @@ all. Building 09 onward first would mean certifying each of them against instrum
 | 19 | [two gates cannot fail, one cannot run](prds/19-unrunnable-quality-gates.md) | `[ ]` | 17, 18 | **P0, NEXT.** `pnpm -C <dir> turbo run test` dies `EACCES` before running anything (no root `turbo` script) — and its error reads exactly like a failing suite. That is the ONE gate catching the `@hogsend/testing` import-time-env class. Plus `check-types` is vacuous yet still cited in Done-when lists |
 | 20 | [the suite talks to databases nobody chose](prds/20-test-db-residue-and-placeholder.md) | `[ ]` | — | **P0, surfaced by 17 + 18.** The vitest placeholder `DATABASE_URL` points at 5432, where an unrelated project's Postgres ACCEPTS it (hogsend is on 5434), so DB calls silently succeed against a stranger — the same class as the recorded `REDIS_URL` incident. Plus cross-file residue (two files fail/pass by ordering) and 19,376 undeleted seeded contacts making every sweep slower forever |
 
+## PROVEN AGAINST REAL STEAM — 2026-08-14
+
+Not a test. A real server on the branch, a real browser, real `steamcommunity.com`, a real Steam
+account, a real row.
+
+```
+14:51:55  account linked  provider=steam version=1 contactId=6ebc8c2d-…  HTTP 200
+```
+
+| Leg | Evidence |
+| --- | --- |
+| Boot | API up on the branch, schema `0072_lively_sue_storm` applied and `inSync: true` |
+| `accounts` scope | admin key-create accepted `["accounts","ingest"]`, issued a real `hsk_` key |
+| `POST /v1/accounts/mint-link` | returned an **engine-origin** URL with a signed state sealing the contact; answered `unknown_contact` before the contact existed |
+| `GET /{provider}/start` | 302 to `steamcommunity.com`; Steam ACCEPTED the OpenID request (`realm`, `return_to`, `identifier_select` all correct) |
+| Steam | authenticated and signed a real identity: `claimed_id=…/id/76561197993723325` |
+| `GET /{provider}/callback` | `account linked`, `version: "1"`, `method: "oauth"`, HTTP 200, branded success page |
+| Postgres | one `linked_accounts` row, `unlinked_at NULL`, `version 1` |
+| `GET /{provider}/{providerUserId}` | reverse lookup resolves the SteamID to the contact |
+| `GET /v1/accounts?email=` | lists the link |
+| `GET /v1/accounts/me` | forged token AND absent token both → `200 {"accounts":[]}`, byte-identical |
+
+**The first attempt FAILED, and that was the security working.** The state was minted at 14:20 with a
+15-minute TTL and clicked at 14:50. The callback logged `reason: "expired"`, emitted
+`account.link_failed` with `contactId: null`, wrote NOTHING, and the page said "Nothing was changed."
+Steam had already returned a valid signed identity by then — only the expired state stopped it. The
+TTL, the no-mint guarantee and the honest failure page all demonstrated themselves on a live request.
+
+`username`/`avatarUrl` came back `null`: expected, `STEAM_WEB_API_KEY` is unset and it is the
+OPTIONAL widener. **Steam needed no credentials, no app registration and no secret** — the wedge held
+in practice, not just in the spec.
+
 ## Legend
 
 - `[ ]` not started
