@@ -154,6 +154,7 @@ export async function collidesWithIdentified(
   // would fail OPEN there. Keep both legs (PRD 07 re-spec).
   const rows = await db
     .select({
+      id: contacts.id,
       externalId: contacts.externalId,
       email: contacts.email,
       anonymousId: contacts.anonymousId,
@@ -165,6 +166,19 @@ export async function collidesWithIdentified(
           eq(contacts.externalId, value),
           eq(contacts.email, value),
           eq(contacts.anonymousId, value),
+          // THE UUID LEG. A contact holding neither an `external_id` nor an
+          // `anonymous_id` — an email-only CRM row, which is the ordinary
+          // shape for an imported contact — is keyed on its ROW UUID, and
+          // that key LEAVES THE SYSTEM (Hatchet payloads, `hs_t` tokens,
+          // webhook payloads), so it is guessable in a way a browser-local
+          // anon id is not. Without this leg every caller of this guard is
+          // fail-OPEN for exactly those contacts: an unauthenticated surface
+          // that accepts an `anonymous_id` will happily file events under a
+          // real person's canonical key. `keysAnotherContact` below has
+          // carried this leg, and this comment, since PRD 07; this one did
+          // not, and the account-link cold `link_failed` screen inherited the
+          // hole (verified by reproduction, not inference).
+          ...(UUID_REGEX.test(value) ? [eq(contacts.id, value)] : []),
         ),
         isNull(contacts.deletedAt),
       ),
@@ -176,6 +190,9 @@ export async function collidesWithIdentified(
     // The supplied value is this contact's `email` AND that email is its
     // canonical key (no external_id) → identified rows are keyed on it. Reject.
     if (row.email === value && !row.externalId) return true;
+    // The supplied value IS this contact's canonical key by uuid fallback
+    // (neither string key set) → its history is keyed on it. Reject.
+    if (row.id === value && !row.externalId && !row.anonymousId) return true;
   }
   return false;
 }

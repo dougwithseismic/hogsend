@@ -165,7 +165,7 @@ export function noteLinked(
 
   void ended
     .reduce<Promise<void>>(
-      (chain, facts) => chain.then(() => noteUnlinked(ctx, facts)),
+      (chain, facts) => chain.then(() => noteUnlinked(ctx, facts, opts)),
       Promise.resolve(),
     )
     .then(linked)
@@ -187,6 +187,7 @@ export function noteLinked(
 export function noteUnlinked(
   ctx: AccountLinkEmitContext,
   facts: AccountUnlinkedFacts,
+  opts: { journeyPlane?: boolean } = {},
 ): Promise<void> {
   // THE JOURNEY PLANE, beside the outbound one — see `noteLinked` above and
   // the header of `lib/account-link-ingest.ts`. TWO DIFFERENT PLANES; neither
@@ -194,12 +195,20 @@ export function noteUnlinked(
   // promise: `noteLinked` chains on that promise to order the outbound
   // deliveries, and a re-ingest that rejected would then swallow the
   // `account.linked` emit behind it.
-  ingestAccountUnlinked(ctx.db, facts, {
-    hatchet: ctx.hatchet,
-    logger: ctx.logger,
-    ...(ctx.registry ? { registry: ctx.registry } : {}),
-    ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
-  });
+  //
+  // `journeyPlane: false` is the same BULK opt-out `noteLinked` carries, and
+  // it must exist on BOTH: one call can produce a link AND up to two unlinks,
+  // so gating only the link half would let a suppressed 1000-row backfill
+  // still fire 2000 unlink enrolments the moment the import is allowed to
+  // displace. The outbound emit below is unaffected either way.
+  if (opts.journeyPlane !== false) {
+    ingestAccountUnlinked(ctx.db, facts, {
+      hatchet: ctx.hatchet,
+      logger: ctx.logger,
+      ...(ctx.registry ? { registry: ctx.registry } : {}),
+      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+    });
+  }
 
   return emitOutbound({
     db: ctx.db,

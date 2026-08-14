@@ -131,6 +131,13 @@ export function ingestAccountLinked(
       // actually decides the row.
       userId: facts.owner.userId ?? facts.owner.contactId,
       contactId: facts.owner.contactId,
+      // The CONTACT's email, threaded so `JourneyUser.email` is populated:
+      // without it `ingestEvent` pushes `userEmail: ""` and the documented
+      // recipe — `sendEmail({ to: user.email })` in an `account.linked`
+      // journey — sends to an empty string. Every sibling re-ingest in the
+      // engine supplies it (contacts.ts merge fold, bucket-emit,
+      // tracking-events); this one did not.
+      ...(facts.owner.email ? { userEmail: facts.owner.email } : {}),
       eventProperties: {
         state: "linked",
         provider,
@@ -168,6 +175,9 @@ export function ingestAccountUnlinked(
       // Nullable by type only — see {@link ingestAccountLinked}.
       userId: facts.owner.userId ?? facts.owner.contactId,
       contactId: facts.owner.contactId,
+      // See {@link ingestAccountLinked} — a journey reacting to an unlink
+      // needs a recipient too.
+      ...(facts.owner.email ? { userEmail: facts.owner.email } : {}),
       eventProperties: {
         state: "unlinked",
         provider: facts.provider,
@@ -261,6 +271,7 @@ export function ingestAccountLinkFailed(
 interface AccountLinkIngestEvent {
   event: "account.linked" | "account.unlinked" | "account.link_failed";
   userId?: string;
+  userEmail?: string;
   anonymousId?: string;
   contactId?: string;
   eventProperties: Record<string, string | number | boolean | null>;

@@ -132,6 +132,14 @@ const freshIp = () => `${RUN}-${ipSeq++}`;
 
 const journeyIds: string[] = [];
 
+/**
+ * Contacts with EVERY identity column NULL (keyed on their row uuid). The
+ * file's `afterAll` deletes by `external_id LIKE` / `anonymous_id LIKE`, and
+ * neither predicate matches a NULL column, so these must be deleted by id or
+ * they orphan in the shared database forever.
+ */
+const uuidKeyedCleanup: string[] = [];
+
 /** The `hatchet.events.push` payload `ingestEvent` sends for one event name. */
 type PushInput = {
   userId: string;
@@ -357,6 +365,11 @@ afterAll(async () => {
   // Both predicates are LIKE on a NOT-NULL-only match — see `makeContact`.
   await db.delete(contacts).where(like(contacts.externalId, `${RUN}%`));
   await db.delete(contacts).where(like(contacts.anonymousId, `${RUN}%`));
+  // Uuid-keyed rows carry NO matchable column — delete them by id.
+  for (const id of uuidKeyedCleanup) {
+    await db.delete(userEvents).where(eq(userEvents.userId, id));
+    await db.delete(contacts).where(eq(contacts.id, id));
+  }
 
   // THE TEARDOWN ORACLE. A global before/after count cannot be asserted in a
   // file-parallel suite (other files mint contacts throughout), so the exact
@@ -378,7 +391,8 @@ afterAll(async () => {
 
 describe("account.linked reaches the journey plane", () => {
   it("enrolls a journey triggered on account.linked", async () => {
-    const owner = await makeContact({ email: `${uid("owner")}@example.test` });
+    const ownerEmail = `${uid("owner")}@example.test`;
+    const owner = await makeContact({ email: ownerEmail });
     const providerUserId = uid("puid");
 
     const input = await link({
@@ -393,6 +407,11 @@ describe("account.linked reaches the journey plane", () => {
     // The wire the journey actually receives.
     expect(input.userId).toBe(owner.externalId);
     expect(input.contactId).toBe(owner.id);
+    // THE RECIPIENT. `JourneyUser.email` comes from the pushed `userEmail`,
+    // and the documented recipe for this very journey is
+    // `sendEmail({ to: user.email })` — which silently sends to "" when the
+    // re-ingest omits it. Every sibling re-ingest in the engine supplies it.
+    expect(input.userEmail).toBe(ownerEmail);
     expect(input.properties).toMatchObject({
       state: "linked",
       provider: STEAM,
@@ -859,6 +878,44 @@ describe("account.link_failed reaches the journey plane without minting", () => 
         .from(contacts)
         .where(eq(contacts.externalId, anonymousId)),
     ).toHaveLength(0);
+  });
+
+  it("refuses to file a cold failure onto a UUID-KEYED contact's timeline", async () => {
+    // THE HOLE THE SCREEN HAD. A contact with neither `external_id` nor
+    // `anonymous_id` — an email-only CRM row, the ordinary shape for an
+    // imported contact — is keyed on its ROW UUID, and that uuid LEAVES the
+    // system in Hatchet payloads, `hs_t` tokens and webhook bodies. It is
+    // guessable in a way a browser-local anon id is not.
+    //
+    // `collidesWithIdentified` probed external_id/email/anonymous_id and had
+    // no uuid leg, so it returned false for exactly these contacts and the
+    // cold screen was fail-OPEN for them: an unauthenticated callback could
+    // file `account.link_failed` under a real person's canonical key and
+    // drive their journeys. Its sibling `keysAnotherContact` has carried the
+    // uuid leg since PRD 07; this guard did not.
+    const [victim] = await db
+      .insert(contacts)
+      .values({ email: `${uid("uuidvictim")}@example.test` })
+      .returning({ id: contacts.id });
+    if (!victim) throw new Error("contact insert failed");
+    uuidKeyedCleanup.push(victim.id);
+
+    const { AccountLinkCallbackError } = await import("@hogsend/core");
+    steam.fails(new AccountLinkCallbackError("denied", "cancelled"));
+    const res = await callback(accountLinkState({ anonymousId: victim.id }));
+    expect(res.status).toBe(400);
+
+    // A POSITIVE CONTROL, not a bare settle: drive a second cold failure with
+    // a fresh anon id and wait for ITS row, so "the victim has none" cannot
+    // pass merely because no re-ingest was attempted at all.
+    const controlKey = uid("uuid-control");
+    steam.fails(new AccountLinkCallbackError("denied", "cancelled"));
+    await callback(accountLinkState({ anonymousId: controlKey }));
+    expect(
+      await waitFor(() => storedEvent("account.link_failed", controlKey), 1),
+    ).toHaveLength(1);
+
+    expect(await storedEvent("account.link_failed", victim.id)).toHaveLength(0);
   });
 
   it("refuses to file a cold failure onto an IDENTIFIED contact's timeline", async () => {
