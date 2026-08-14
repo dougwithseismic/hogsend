@@ -1,4 +1,6 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { AnalyticsProvider } from "@hogsend/core";
+import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { Database } from "@hogsend/db";
 import {
   type AccountUnlinkedFacts,
@@ -6,6 +8,10 @@ import {
   buildAccountUnlinkedPayload,
   buildDedupeKey,
 } from "../../lib/account-link-events.js";
+import {
+  ingestAccountLinked,
+  ingestAccountUnlinked,
+} from "../../lib/account-link-ingest.js";
 import type { LinkAccountResult } from "../../lib/account-links.js";
 import type { Logger } from "../../lib/logger.js";
 import { emitOutbound } from "../../lib/outbound.js";
@@ -38,6 +44,16 @@ export interface AccountLinkEmitContext {
   db: Database;
   hatchet: HatchetClient;
   logger: Logger;
+  /**
+   * The JOURNEY plane's handles (PRD 08 T5) — the container's, so a test or a
+   * consumer that swapped either one is honored instead of the process
+   * singleton silently winning. Both optional: `lib/account-link-ingest.ts`
+   * falls back to the singletons `createHogsendClient` installs at boot, which
+   * is what keeps the container-free `lib/contacts.ts` call site a two-arg
+   * call.
+   */
+  registry?: JourneyRegistry;
+  analytics?: AnalyticsProvider;
 }
 
 /**
@@ -73,6 +89,7 @@ export interface AccountLinkEmitContext {
 export function noteLinked(
   ctx: AccountLinkEmitContext,
   result: Extract<LinkAccountResult, { status: "linked" | "relinked" }>,
+  opts: { journeyPlane?: boolean } = {},
 ): void {
   ctx.logger.info("account linked", {
     provider: ctx.providerId,
@@ -116,17 +133,48 @@ export function noteLinked(
     });
   }
 
+  // THE JOURNEY PLANE, beside the outbound one. TWO DIFFERENT PLANES; neither
+  // may be collapsed into the other, and the ingest path must never emit
+  // (DECISIONS §8) — see the header of `lib/account-link-ingest.ts`.
+  //
+  // `journeyPlane: false` is the BULK opt-out: a backfill is a statement about
+  // the PAST, so `POST /v1/accounts/import` defaults it off. It suppresses only
+  // this plane — the outbound emits still fire, because the customer's mirror
+  // must converge whether or not a journey ran.
+  const ingestLinked = () => {
+    if (opts.journeyPlane === false) return;
+    ingestAccountLinked(ctx.db, result, {
+      hatchet: ctx.hatchet,
+      logger: ctx.logger,
+      ...(ctx.registry ? { registry: ctx.registry } : {}),
+      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+    });
+  };
+
   if (ended.length === 0) {
+    ingestLinked();
     void linked().catch(ctx.logger.warn);
     return;
   }
 
+  // ORDERED, on BOTH planes, for the reason the docstring above gives: every
+  // ending is announced before the link that caused it. `noteUnlinked` ingests
+  // its own fact as the chain reaches it, and the link's ingest hangs off the
+  // same `.then` as the outbound `linked()` — so the journey plane cannot
+  // invert an order the outbound plane calls load-bearing. Ingesting the link
+  // eagerly (before `ended` was even walked) is exactly what did invert it: on
+  // a `replacedSingleton` both facts belong to the SAME contact, so a journey
+  // with `trigger: account.linked` and `exitOn: account.unlinked` enrolled on
+  // the new link and was then exited by the displacement it replaced.
   void ended
     .reduce<Promise<void>>(
-      (chain, facts) => chain.then(() => noteUnlinked(ctx, facts)),
+      (chain, facts) => chain.then(() => noteUnlinked(ctx, facts, opts)),
       Promise.resolve(),
     )
-    .then(linked)
+    .then(() => {
+      ingestLinked();
+      return linked();
+    })
     .catch(ctx.logger.warn);
 }
 
@@ -145,7 +193,29 @@ export function noteLinked(
 export function noteUnlinked(
   ctx: AccountLinkEmitContext,
   facts: AccountUnlinkedFacts,
+  opts: { journeyPlane?: boolean } = {},
 ): Promise<void> {
+  // THE JOURNEY PLANE, beside the outbound one — see `noteLinked` above and
+  // the header of `lib/account-link-ingest.ts`. TWO DIFFERENT PLANES; neither
+  // may be collapsed into the other. Deliberately NOT part of the returned
+  // promise: `noteLinked` chains on that promise to order the outbound
+  // deliveries, and a re-ingest that rejected would then swallow the
+  // `account.linked` emit behind it.
+  //
+  // `journeyPlane: false` is the same BULK opt-out `noteLinked` carries, and
+  // it must exist on BOTH: one call can produce a link AND up to two unlinks,
+  // so gating only the link half would let a suppressed 1000-row backfill
+  // still fire 2000 unlink enrolments the moment the import is allowed to
+  // displace. The outbound emit below is unaffected either way.
+  if (opts.journeyPlane !== false) {
+    ingestAccountUnlinked(ctx.db, facts, {
+      hatchet: ctx.hatchet,
+      logger: ctx.logger,
+      ...(ctx.registry ? { registry: ctx.registry } : {}),
+      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+    });
+  }
+
   return emitOutbound({
     db: ctx.db,
     hatchet: ctx.hatchet,

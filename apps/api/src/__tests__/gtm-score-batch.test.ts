@@ -160,7 +160,28 @@ it("recency IGNORES the gtm.scored row this job writes", async () => {
   expect(row?.feature_uses).toBe(0);
 });
 
-it("the keyset cursor advances and terminates", async () => {
+/**
+ * A WHOLE-DATABASE budget, not the suite default.
+ *
+ * This case walks the ENTIRE contacts table one row at a time (`limit: 1`), so
+ * its cost is one query per contact in the shared dev database — not per
+ * contact this file seeded. The suite creates contacts it never deletes, so
+ * that number only grows: measured 6.7s running this file alone and 19.9s
+ * under a full parallel suite, against vitest's 30s default.
+ *
+ * It therefore fails intermittently with a TIMEOUT, in a file no diff in
+ * flight has touched — which reads exactly like a regression in whatever is
+ * being reviewed at the time, and is not one. (It cost two misattributions in
+ * one session.) 90s is ~4.5x the measured loaded cost, matching the budget
+ * PRD 18 T1 shipped for the same shape.
+ *
+ * The DURABLE fix is to stop the walk being whole-database — a scope argument
+ * on `selectScoreBatch`, or truncating the dev database periodically. This
+ * budget buys headroom; it does not stop the growth.
+ */
+it("the keyset cursor advances and terminates", {
+  timeout: 90_000,
+}, async () => {
   await seed("cursor-a", {}, []);
   await seed("cursor-b", {}, []);
 

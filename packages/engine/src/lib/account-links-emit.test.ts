@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -318,5 +318,208 @@ test("the store module imports nothing new at runtime", () => {
     "lib/account-links.ts changed its runtime imports. If the new import " +
       "cannot emit (re-read DECISIONS §15.7 — the store returns facts, its " +
       "callers emit), add it to ALLOWED_RUNTIME_IMPORTS.",
+  );
+});
+
+const INGEST_HELPER_SOURCE = readFileSync(
+  fileURLToPath(new URL("./account-link-ingest.ts", import.meta.url)),
+  "utf8",
+);
+
+test("the two planes stay two planes", () => {
+  // PRD 08 T5. `lib/account-link-ingest.ts` (journey plane) and
+  // `lib/account-link-emit.ts` (outbound plane) are called SIDE BY SIDE at
+  // every account-link site, which is exactly how someone later "simplifies"
+  // one into the other. Nothing else can catch that: collapsing the emit into
+  // the ingest still writes a delivery row, and collapsing the ingest into the
+  // emit still routes a journey — until the two fan out to the wrong audience.
+  // DECISIONS §8 (the `group.*` rule): the intent layer emits, and the ingest
+  // path never does.
+  const ingestHits = INGEST_HELPER_SOURCE.split("\n")
+    .map((line, i) => [i + 1, line] as const)
+    .filter(
+      ([, line]) =>
+        !line.trimStart().startsWith("*") &&
+        !line.trimStart().startsWith("//") &&
+        EMIT_SYMBOLS.some((symbol) => line.includes(symbol)),
+    );
+  assert.deepEqual(
+    ingestHits,
+    [],
+    "lib/account-link-ingest.ts must reach NO emit surface — the ingest path " +
+      `never emits (DECISIONS §8); found: ${JSON.stringify(ingestHits)}`,
+  );
+
+  const emitHits = EMIT_HELPER_SOURCE.split("\n")
+    .map((line, i) => [i + 1, line] as const)
+    .filter(
+      ([, line]) =>
+        !line.trimStart().startsWith("*") &&
+        !line.trimStart().startsWith("//") &&
+        ["ingestEvent", "ingestAccountUnlinked"].some((s) => line.includes(s)),
+    );
+  assert.deepEqual(
+    emitHits,
+    [],
+    "lib/account-link-emit.ts must reach NO ingest surface — the two planes " +
+      `are called side by side, never nested; found: ${JSON.stringify(emitHits)}`,
+  );
+});
+
+test("the ingest helper reaches ingestion only by DYNAMIC import", () => {
+  // Same hazard as the emit helper's guard above, one layer along:
+  // `lib/contacts.ts` now imports THIS module (the merge fold's post-commit
+  // `account.unlinked`), and `src/testing.ts` re-exports from
+  // `lib/contacts.ts`. `./ingestion.js` reaches `lib/hatchet.js`, whose import
+  // runs `HatchetClient.init(...)` — so a static import here throws
+  // "Invalid token format" the instant the documented side-effect-free
+  // `@hogsend/engine/testing` barrel is loaded. It is ALSO a module cycle
+  // (`ingestion.ts` imports `contacts.ts` imports this). A SOURCE read because
+  // every gate stays green without it: the test environments all hand
+  // `HATCHET_CLIENT_TOKEN` a well-formed dummy JWT.
+  const forbidden = ["./ingestion.js", "./contacts.js", "./hatchet.js"];
+  const statics = staticImports(INGEST_HELPER_SOURCE);
+  assert.deepEqual(
+    statics.filter((s) => forbidden.includes(s)),
+    [],
+    "lib/account-link-ingest.ts must import ./ingestion.js, ./contacts.js " +
+      "and ./hatchet.js DYNAMICALLY (inside the fire-and-forget body), never " +
+      `statically. Found: ${JSON.stringify(statics)}`,
+  );
+
+  // And they ARE still reached — a guard that passed because the re-ingest
+  // stopped ingesting would be worthless.
+  const dynamics = dynamicImports(INGEST_HELPER_SOURCE);
+  for (const specifier of forbidden) {
+    assert.ok(
+      dynamics.includes(specifier),
+      `lib/account-link-ingest.ts no longer dynamically imports ${specifier}`,
+    );
+  }
+});
+
+test("every account-link emit site also reaches the journey plane", () => {
+  // THE PAIRING GUARD (PRD 08 T5). The two planes are called side by side, and
+  // the failure mode this catches is the one nothing else can: a NEW emit site
+  // that ships to the customer's subscriber and never routes a journey. Both
+  // planes fail SILENTLY when absent — an outbound-only site leaves every
+  // account-link journey dead for that path, and nothing throws, nothing logs,
+  // and every existing test stays green. The "two planes stay two planes"
+  // guard above only stops the two being NESTED; it cannot see a site that
+  // forgot one.
+  //
+  // Enumerated from source rather than pinned as a literal list, so a new file
+  // is judged by what it DOES, not by whether someone remembered to list it.
+  const SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+  // A FILESYSTEM walk, not `git ls-files`. Enumerating from the git index
+  // means a brand-new, not-yet-added emit file is INVISIBLE — and a new file
+  // is precisely the shape this guard exists to catch. (Verified: an untracked
+  // emit site with no re-ingest passed, and only failed after `git add -N`.)
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) return walk(full);
+      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) {
+        return [];
+      }
+      return [full.slice(SRC.length + 1)];
+    });
+  const files = walk(SRC);
+
+  // The machinery, not a site: these DECLARE the surfaces (the outbound spine
+  // itself, the event catalog, the payload builders) and the two account-link
+  // helper modules DEFINE them.
+  const MACHINERY = [
+    "lib/outbound.ts",
+    "lib/webhook-signing.ts",
+    "lib/account-link-events.ts",
+    "lib/account-link-emit.ts",
+    "lib/account-link-ingest.ts",
+  ];
+
+  // The deliberate one-plane emits, COUNTED per file with the reason. Both are
+  // erasure legs: the contact is deleted in the SAME transaction as the
+  // unlink, so there is no subject left to enroll. Filing a fresh `user_events`
+  // row and starting a journey for a just-erased person contradicts the
+  // erasure, and the only keys available are a soft-deleted row (which ingest
+  // drops as provenance-lost) or a value key that would MINT — resurrecting the
+  // row just erased. They still EMIT, because the customer's mirror must
+  // converge.
+  //
+  // A COUNT, not a filename, because `lib/contacts.ts` holds a PAIRED site (the
+  // merge fold) alongside its erasure leg — exempting the whole file would
+  // blind the guard to the merge fold losing its journey plane.
+  //
+  // Raising a number here is a real decision. An unpaired emit is invisible in
+  // production; write down why, or call the chokepoints instead.
+  const ERASURE_ONLY: Record<string, number> = {
+    // `softDeleteContact` — the deletion leg.
+    "lib/contacts.ts": 1,
+    // The admin erasure route, which runs its own transaction.
+    "routes/admin/contacts.ts": 1,
+  };
+
+  // COUNTED PER EVENT KIND, not per file. A whole-file total is defeated by a
+  // count-preserving RELOCATION: deleting the `ingestAccountUnlinked` from
+  // `noteUnlinked` and adding a second `ingestAccountLinked` to `noteLinked`
+  // holds `routes/accounts/emit.ts` at 2 emits / 2 re-ingests while
+  // `account.unlinked` reaches no journey at all. (Verified — the whole-file
+  // form passed that mutation.) Pairing each KIND with its own re-ingest makes
+  // the two halves un-swappable.
+  const count = (src: string, re: RegExp) => (src.match(re) ?? []).length;
+  const unbalanced: string[] = [];
+  let totalEmits = 0;
+  for (const file of files) {
+    if (MACHINERY.includes(file)) continue;
+    const code = readFileSync(`${SRC}/${file}`, "utf8")
+      .split("\n")
+      .filter((line) => {
+        const t = line.trimStart();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
+      .join("\n");
+
+    // Whitespace-permissive: an 80-col wrap can split `event:` from its
+    // literal, and a strict single-space match would score that as zero emits.
+    const emitted = (kind: string) =>
+      count(code, new RegExp(`event:\\s*"account\\.${kind}"`, "g"));
+    // Calls only — the trailing `(` keeps a bare `import { … }` from counting.
+    const ingested = (fn: string) =>
+      count(code, new RegExp(`\\bingestAccount${fn}\\(`, "g"));
+
+    const kinds: Array<[string, number, number]> = [
+      ["account.linked", emitted("linked"), ingested("Linked")],
+      [
+        "account.unlinked",
+        emitted("unlinked") +
+          count(code, /emitAccountUnlinked\(/g) -
+          (ERASURE_ONLY[file] ?? 0),
+        ingested("Unlinked"),
+      ],
+      ["account.link_failed", emitted("link_failed"), ingested("LinkFailed")],
+    ];
+    for (const [kind, emits, ingests] of kinds) {
+      totalEmits += emits;
+      if (emits !== ingests) {
+        unbalanced.push(
+          `${file} [${kind}]: ${emits} emit(s), ${ingests} re-ingest(s)`,
+        );
+      }
+    }
+  }
+
+  assert.ok(
+    totalEmits > 0,
+    "found NO account-link emit sites — this guard just went vacuous",
+  );
+  assert.deepEqual(
+    unbalanced,
+    [],
+    "every account.* emit must be PAIRED with a journey-plane re-ingest in " +
+      "the same file. A one-plane site is a SILENT hole: outbound-only " +
+      "leaves journeys dead, ingest-only leaves the customer's mirror " +
+      "stale, and neither fails loudly. Call the chokepoints in " +
+      "routes/accounts/emit.ts, or — if the site genuinely has no subject " +
+      "to enroll — add it to ERASURE_ONLY with the reason.",
   );
 });

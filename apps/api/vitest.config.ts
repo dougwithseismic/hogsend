@@ -47,6 +47,15 @@ const WEBHOOK_FANOUT = [
   // comparison RUN-namespacing cannot scope. It needs the same serial
   // barrier (no other file mutating contacts mid-comparison).
   "src/__tests__/admin-impact-global-control.test.ts",
+  // Also NOT a webhook file, and it seeds no endpoint and asserts on no
+  // delivery row — it is here for the reason directly above. PRD 08 T5's
+  // "a failed link never mints a contact" guard is a before/after count of
+  // the WHOLE contacts table, which is the only oracle that can see a row
+  // minted under a key the test did not predict, and which RUN-namespacing
+  // therefore cannot scope. Measured file-parallel: the count drifted by 7
+  // between the two reads because other files were creating and deleting
+  // contacts in the window.
+  "src/__tests__/accounts-journey-trigger.test.ts",
   // Also not a webhook file, same reason one layer down: the backfill's
   // "physically untouched" assertions compare Postgres `xmin` (tuple version)
   // before and after a re-drive, and ANY concurrent write to those rows bumps

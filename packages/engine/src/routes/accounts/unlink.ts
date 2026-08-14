@@ -41,8 +41,15 @@ export async function unlinkFromRoute(
     expectContactId?: string;
   },
 ): Promise<UnlinkAccountResult> {
-  const { accountLinkHooks, accountLinkProviders, db, hatchet, logger } =
-    c.get("container");
+  const {
+    accountLinkHooks,
+    accountLinkProviders,
+    analytics,
+    db,
+    hatchet,
+    logger,
+    registry,
+  } = c.get("container");
 
   const provider = accountLinkProviders.get(opts.provider);
   const revoke = provider?.revoke?.bind(provider);
@@ -70,7 +77,14 @@ export async function unlinkFromRoute(
   // `void … .catch` per `emitOutbound`'s contract: it never throws, and an
   // emit must never fail a mutation the customer already committed.
   void noteUnlinked(
-    { providerId: opts.provider, db, hatchet, logger },
+    {
+      providerId: opts.provider,
+      db,
+      hatchet,
+      logger,
+      registry,
+      ...(analytics ? { analytics } : {}),
+    },
     {
       provider: opts.provider,
       providerUserId: opts.providerUserId,

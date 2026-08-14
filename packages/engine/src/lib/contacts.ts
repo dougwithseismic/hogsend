@@ -32,6 +32,7 @@ import {
 // inside `foldLinkedAccounts`. No import cycle: account-links.ts never imports
 // this module.
 import { emitAccountUnlinked } from "./account-link-emit.js";
+import { ingestAccountUnlinked } from "./account-link-ingest.js";
 import {
   type ContactUnlinkFact,
   type LinkOwner,
@@ -153,6 +154,7 @@ export async function collidesWithIdentified(
   // would fail OPEN there. Keep both legs (PRD 07 re-spec).
   const rows = await db
     .select({
+      id: contacts.id,
       externalId: contacts.externalId,
       email: contacts.email,
       anonymousId: contacts.anonymousId,
@@ -164,6 +166,19 @@ export async function collidesWithIdentified(
           eq(contacts.externalId, value),
           eq(contacts.email, value),
           eq(contacts.anonymousId, value),
+          // THE UUID LEG. A contact holding neither an `external_id` nor an
+          // `anonymous_id` — an email-only CRM row, which is the ordinary
+          // shape for an imported contact — is keyed on its ROW UUID, and
+          // that key LEAVES THE SYSTEM (Hatchet payloads, `hs_t` tokens,
+          // webhook payloads), so it is guessable in a way a browser-local
+          // anon id is not. Without this leg every caller of this guard is
+          // fail-OPEN for exactly those contacts: an unauthenticated surface
+          // that accepts an `anonymous_id` will happily file events under a
+          // real person's canonical key. `keysAnotherContact` below has
+          // carried this leg, and this comment, since PRD 07; this one did
+          // not, and the account-link cold `link_failed` screen inherited the
+          // hole (verified by reproduction, not inference).
+          ...(UUID_REGEX.test(value) ? [eq(contacts.id, value)] : []),
         ),
         isNull(contacts.deletedAt),
       ),
@@ -175,6 +190,9 @@ export async function collidesWithIdentified(
     // The supplied value is this contact's `email` AND that email is its
     // canonical key (no external_id) → identified rows are keyed on it. Reject.
     if (row.email === value && !row.externalId) return true;
+    // The supplied value IS this contact's canonical key by uuid fallback
+    // (neither string key set) → its history is keyed on it. Reject.
+    if (row.id === value && !row.externalId && !row.anonymousId) return true;
   }
   return false;
 }
@@ -1469,6 +1487,22 @@ async function resolveContactShared(
   // the note on step 4 of `foldLinkedAccounts`.
   if (resolved.linkUnlinks && resolved.linkUnlinks.length > 0) {
     emitAccountUnlinked(db, resolved.linkUnlinks);
+    // THE JOURNEY PLANE, beside the outbound one (PRD 08 T5). TWO DIFFERENT
+    // PLANES: `emitAccountUnlinked` writes a `webhook_deliveries` row for the
+    // CUSTOMER'S subscriber; this writes `user_events` + pushes to Hatchet so
+    // a journey can trigger on `account.unlinked`. Neither may be collapsed
+    // into the other — see the header of `lib/account-link-ingest.ts`.
+    //
+    // Yes, this re-enters `ingestEvent`, which is what called this resolver.
+    // It is bounded at one hop and cannot loop: `fact.owner.contactId` is the
+    // LOSER row (soft-deleted by the merge just above), so the re-ingest takes
+    // the provenance-pin branch, which follows the merge alias to the SURVIVOR
+    // and returns without probing value keys — so it can neither merge again
+    // nor produce a second `linkUnlinks`. It is also fire-and-forget and
+    // strictly post-commit, so it cannot slow or fail the resolve.
+    for (const fact of resolved.linkUnlinks) {
+      ingestAccountUnlinked(db, fact);
+    }
   }
 
   return resolved;
@@ -3201,6 +3235,23 @@ export async function softDeleteContact(opts: {
   // emit point. The admin erasure route runs its OWN transaction and therefore
   // owns its own post-commit emit (`routes/admin/contacts.ts`).
   emitAccountUnlinked(db, row.linkUnlinks);
+
+  // NO journey-plane re-ingest here, deliberately (PRD 08 T5). Every other
+  // `account.unlinked` site gets one; this one must not, for two independent
+  // reasons:
+  //
+  //  1. The subject was just ERASED. Filing a fresh `user_events` row for a
+  //     contact that was soft-deleted microseconds ago — and enrolling them in
+  //     a journey that would then try to reach them — is the opposite of what
+  //     a deletion means.
+  //  2. There is no safe key anyway. The pin (`fact.owner.contactId`) resolves
+  //     to a soft-deleted row with no merge alias to follow, so the re-ingest
+  //     would be dropped as provenance-lost; and the only alternative,
+  //     `owner.userId`, is a value key that `resolveOrCreateContact` would
+  //     MINT a fresh contact for — RESURRECTING the row the caller just
+  //     erased.
+  //
+  // The customer's mirror still converges: that is what the emit above is for.
 
   return {
     deleted: true,

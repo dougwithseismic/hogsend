@@ -305,10 +305,59 @@ export const gameServerSource = defineWebhookSource({
 });
 ```
 
-<Callout type="warn" title="A journey cannot trigger on account.linked yet">
-The journey-plane re-ingest is not built. The event reaches the outbound spine
-and the hooks, not the journey registry. Trigger on the event a webhook source
-like the one above emits, or on one your `afterLink` hook produces.
+## Triggering a journey on the link itself
+
+The link events reach the journey plane, so you trigger on them directly — no
+webhook source needed:
+
+```ts
+export const steamWelcome = defineJourney({
+  meta: {
+    id: "steam-welcome",
+    trigger: {
+      event: "account.linked",
+      where: (b) => b.prop("provider").eq("steam"),
+    },
+    entryLimit: { type: "once" },
+  },
+  async run(user, ctx) {
+    await sendEmail({ to: user.email, template: Templates.STEAM_LINKED });
+  },
+});
+```
+
+`account.unlinked` and `account.link_failed` trigger the same way, but they do
+**not** carry the same properties. A `where` clause on a property an event does
+not have reads `undefined`, never matches, and enrols nothing — with nothing
+logged — so check before you write one:
+
+| Property | `account.linked` | `account.unlinked` | `account.link_failed` |
+| --- | :---: | :---: | :---: |
+| `provider` | ✓ | ✓ | ✓ |
+| `state` | `"linked"` | `"unlinked"` | — |
+| `providerUserId` | ✓ | ✓ | — |
+| `version` | ✓ | ✓ | — |
+| `username` | ✓ | — | — |
+| `method` | ✓ | — | — |
+| `relink` | ✓ | — | — |
+| `reason` | — | ✓ | ✓ |
+
+A failed link carries only `provider` and `reason` — it never established a
+`providerUserId`. `reason` is `player`, `api` or `relinked` on an unlink, and
+`denied`, `vetoed`, `exchange_failed` or `state_invalid` on a failure.
+
+<Callout type="info" title="Two planes, one fact">
+The journey plane fires journeys inside Hogsend. The outbound webhook ships
+state to your own subscriber. Both receive every link event, and neither
+replaces the other.
+</Callout>
+
+<Callout type="warn" title="A link_failed journey can enrol with no contact">
+A failed link never *creates* a contact, but the cold path — a browser that
+failed before identifying — still routes the event with no contact attached.
+`user.email` is empty and the journey's `contactId` is null, so
+`sendEmail({ to: user.email })` would throw and fail the run. Guard on
+`user.email` first, or trigger only where the subject is known.
 </Callout>
 
 ## Reading and unlinking
@@ -339,6 +388,18 @@ sign-in may move a link, because moving one on an API call would let a bad
 import reassign a player's identity. A conflicting batch still applies its
 clean rows.
 
+<Callout type="info" title="A backfill does not enrol journeys">
+`enrollJourneys` defaults to `false`. A backfill is a statement about the past,
+so importing 1000 existing links does not run your `account.linked` journey
+1000 times — nobody sends a welcome email to their whole back catalogue on
+migration day. Pass `"enrollJourneys": true` when you do want it.
+
+The outbound webhook fires either way: the customer's mirror must converge
+whether or not a journey ran. Imported rows are stamped `method: "import"`, so
+an opted-in trigger can still exclude them with
+`where: (b) => b.prop("method").neq("import")`.
+</Callout>
+
 ## Adding another platform
 
 Providers are configuration, not packages. `oauth2Link()` takes an authorize
@@ -359,6 +420,4 @@ Known and named, so you do not hunt for them.
 - Not built yet: the hosted manage page, an embed SDK button, the
   `@hogsend/client` `accounts.*` resource, the periodic property sync, and the
   Studio panel.
-- A journey cannot yet trigger on `account.linked`. The events reach the
-  outbound spine, not the journey plane.
 - The hosted result pages are functional and unbranded.

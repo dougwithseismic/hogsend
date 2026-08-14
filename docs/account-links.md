@@ -577,10 +577,58 @@ never a cached mirror. Outside the engine process, `GET
 /v1/accounts/{provider}/{providerUserId}` answers the same question with a
 secret key.
 
-**A journey cannot trigger on `account.linked`.** The journey-plane re-ingest is
-not built: the event reaches the outbound spine and the hooks, not the journey
-registry. A journey triggers on the event this webhook source emits, or on any
-event your own `afterLink` hook goes on to produce.
+### Triggering a journey on a link
+
+`account.linked`, `account.unlinked` and `account.link_failed` reach the journey
+plane, so a journey triggers on them directly:
+
+```ts
+export const steamWelcome = defineJourney({
+  meta: {
+    id: "steam-welcome",
+    trigger: { event: "account.linked", where: (b) => b.prop("provider").eq("steam") },
+    entryLimit: { type: "once" },
+  },
+  async run(user, ctx) {
+    await sendEmail({ to: user.email, template: Templates.STEAM_LINKED });
+  },
+});
+```
+
+**The three events carry DIFFERENT properties.** All are scalars, and a `where`
+clause on a property the event does not carry reads `undefined`, never matches,
+and enrolls nothing — silently, with nothing logged. So check this table before
+writing a trigger condition:
+
+| Property | `account.linked` | `account.unlinked` | `account.link_failed` |
+| --- | :---: | :---: | :---: |
+| `provider` | ✓ | ✓ | ✓ |
+| `state` | `"linked"` | `"unlinked"` | — |
+| `providerUserId` | ✓ | ✓ | — |
+| `version` | ✓ | ✓ | — |
+| `username` | ✓ | — | — |
+| `method` | ✓ | — | — |
+| `relink` | ✓ | — | — |
+| `reason` | — | ✓ | ✓ |
+
+`version` is a decimal STRING — compare it with `BigInt()`, never `parseInt`.
+
+`reason` is the discriminator worth branching on. On `account.unlinked` it is
+`player`, `api` or `relinked`; on `account.link_failed` it is `denied`,
+`vetoed`, `exchange_failed` or `state_invalid`. A failed link carries ONLY
+`provider` and `reason` — there is no `providerUserId`, because a link that
+failed never established one.
+
+This is a SECOND plane, not a replacement for the outbound webhook. The journey
+plane fires journeys inside Hogsend and reaches no subscriber; the outbound
+spine ships state to yours. A fact arrives on both.
+
+**An `account.link_failed` journey may enroll a contactless subject.** A failed
+link never CREATES a contact, but the cold path (a browser that failed before
+identifying) still routes the event with no contact attached: `user.email` is
+empty and the journey's `contactId` is null. So a journey on this event must not
+assume a recipient — guard on `user.email` before sending anything, or trigger
+only where you know the subject is sealed.
 
 ## Unlinking
 
@@ -672,6 +720,30 @@ back. A row naming a contact that does not exist is a conflict with
 by that same contact is neither an insert nor a conflict; nothing transitioned,
 so nothing is emitted. Imported rows are stamped `method: "import"` and hold no
 tokens.
+
+**An import does not enroll journeys.** A backfill is a statement about the
+past, so `enrollJourneys` defaults to `false`: importing a publisher's existing
+Steam history does not run an `account.linked` journey once per row, and does
+not send a welcome email to the entire back catalogue on migration day. Opt in
+per request when you want it:
+
+```bash
+-d '{"enrollJourneys":true,"rows":[…]}'
+```
+
+The **outbound** `account.linked` webhook fires either way — the customer's
+mirror has to converge whether or not a journey ran. The two are different
+planes.
+
+If you do opt in, imported rows are stamped `method: "import"` and `method` is
+one of the event properties, so a trigger can still single them out:
+
+```ts
+where: (b) => b.prop("method").neq("import")
+```
+
+Re-running the same import is safe regardless: an unchanged pair transitions
+nothing, so it emits nothing and enrolls nothing.
 
 ## Provider setup
 

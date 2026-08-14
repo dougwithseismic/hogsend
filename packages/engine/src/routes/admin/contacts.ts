@@ -697,5 +697,13 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     // from the sibling route goes to the override.
     emitAccountUnlinked(db, linkUnlinks, { hatchet, logger });
 
+    // NO journey-plane re-ingest here, deliberately (PRD 08 T5), for the same
+    // two reasons `softDeleteContact` states at its own emit: this route IS
+    // the erasure hook, so writing a fresh `user_events` row for the contact
+    // it just erased contradicts the erasure — and the only keys available are
+    // a pin at a soft-deleted row (dropped as provenance-lost) or a value key
+    // that would MINT the erased contact straight back. The customer's mirror
+    // still converges via the emit above.
+
     return c.json({ deleted: true }, 200);
   });
