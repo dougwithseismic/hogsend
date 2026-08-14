@@ -595,16 +595,40 @@ export const steamWelcome = defineJourney({
 });
 ```
 
-The event properties are scalars: `provider`, `providerUserId`, `username`,
-`method`, `relink`, `version`, and `state`. `version` is a decimal STRING —
-compare it with `BigInt()`, never `parseInt`.
+**The three events carry DIFFERENT properties.** All are scalars, and a `where`
+clause on a property the event does not carry reads `undefined`, never matches,
+and enrolls nothing — silently, with nothing logged. So check this table before
+writing a trigger condition:
+
+| Property | `account.linked` | `account.unlinked` | `account.link_failed` |
+| --- | :---: | :---: | :---: |
+| `provider` | ✓ | ✓ | ✓ |
+| `state` | `"linked"` | `"unlinked"` | — |
+| `providerUserId` | ✓ | ✓ | — |
+| `version` | ✓ | ✓ | — |
+| `username` | ✓ | — | — |
+| `method` | ✓ | — | — |
+| `relink` | ✓ | — | — |
+| `reason` | — | ✓ | ✓ |
+
+`version` is a decimal STRING — compare it with `BigInt()`, never `parseInt`.
+
+`reason` is the discriminator worth branching on. On `account.unlinked` it is
+`player`, `api` or `relinked`; on `account.link_failed` it is `denied`,
+`vetoed`, `exchange_failed` or `state_invalid`. A failed link carries ONLY
+`provider` and `reason` — there is no `providerUserId`, because a link that
+failed never established one.
 
 This is a SECOND plane, not a replacement for the outbound webhook. The journey
 plane fires journeys inside Hogsend and reaches no subscriber; the outbound
 spine ships state to yours. A fact arrives on both.
 
-An `account.link_failed` never creates a contact, so a journey only sees one
-when the failure can be attributed to a contact that already exists.
+**An `account.link_failed` journey may enroll a contactless subject.** A failed
+link never CREATES a contact, but the cold path (a browser that failed before
+identifying) still routes the event with no contact attached: `user.email` is
+empty and the journey's `contactId` is null. So a journey on this event must not
+assume a recipient — guard on `user.email` before sending anything, or trigger
+only where you know the subject is sealed.
 
 ## Unlinking
 

@@ -326,15 +326,38 @@ export const steamWelcome = defineJourney({
 });
 ```
 
-`account.unlinked` and `account.link_failed` work the same way. The properties
-are scalars: `provider`, `providerUserId`, `username`, `method`, `relink`,
-`version`, `state`.
+`account.unlinked` and `account.link_failed` trigger the same way, but they do
+**not** carry the same properties. A `where` clause on a property an event does
+not have reads `undefined`, never matches, and enrols nothing — with nothing
+logged — so check before you write one:
+
+| Property | `account.linked` | `account.unlinked` | `account.link_failed` |
+| --- | :---: | :---: | :---: |
+| `provider` | ✓ | ✓ | ✓ |
+| `state` | `"linked"` | `"unlinked"` | — |
+| `providerUserId` | ✓ | ✓ | — |
+| `version` | ✓ | ✓ | — |
+| `username` | ✓ | — | — |
+| `method` | ✓ | — | — |
+| `relink` | ✓ | — | — |
+| `reason` | — | ✓ | ✓ |
+
+A failed link carries only `provider` and `reason` — it never established a
+`providerUserId`. `reason` is `player`, `api` or `relinked` on an unlink, and
+`denied`, `vetoed`, `exchange_failed` or `state_invalid` on a failure.
 
 <Callout type="info" title="Two planes, one fact">
 The journey plane fires journeys inside Hogsend. The outbound webhook ships
 state to your own subscriber. Both receive every link event, and neither
-replaces the other. A failed link never creates a contact, so a journey sees
-`account.link_failed` only for a contact that already exists.
+replaces the other.
+</Callout>
+
+<Callout type="warn" title="A link_failed journey can enrol with no contact">
+A failed link never *creates* a contact, but the cold path — a browser that
+failed before identifying — still routes the event with no contact attached.
+`user.email` is empty and the journey's `contactId` is null, so
+`sendEmail({ to: user.email })` would throw and fail the run. Guard on
+`user.email` first, or trigger only where the subject is known.
 </Callout>
 
 ## Reading and unlinking
