@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -411,17 +410,25 @@ test("every account-link emit site also reaches the journey plane", () => {
   //
   // Enumerated from source rather than pinned as a literal list, so a new file
   // is judged by what it DOES, not by whether someone remembered to list it.
-  const SRC = fileURLToPath(new URL("..", import.meta.url));
-  const files = execFileSync("git", ["ls-files", "-z", "*.ts"], {
-    cwd: SRC,
-    encoding: "utf8",
-  })
-    .split("\0")
-    .filter((f) => f && !f.endsWith(".test.ts"));
+  const SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+  // A FILESYSTEM walk, not `git ls-files`. Enumerating from the git index
+  // means a brand-new, not-yet-added emit file is INVISIBLE — and a new file
+  // is precisely the shape this guard exists to catch. (Verified: an untracked
+  // emit site with no re-ingest passed, and only failed after `git add -N`.)
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) return walk(full);
+      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) {
+        return [];
+      }
+      return [full.slice(SRC.length + 1)];
+    });
+  const files = walk(SRC);
 
   // The machinery, not a site: these DECLARE the surfaces (the outbound spine
-  // itself, the event catalog) and the two account-link helper modules DEFINE
-  // them. A name appearing here is a definition, not an emit.
+  // itself, the event catalog, the payload builders) and the two account-link
+  // helper modules DEFINE them.
   const MACHINERY = [
     "lib/outbound.ts",
     "lib/webhook-signing.ts",
@@ -430,18 +437,18 @@ test("every account-link emit site also reaches the journey plane", () => {
     "lib/account-link-ingest.ts",
   ];
 
-  // The deliberate one-plane emits, COUNTED per file with the reason. Both
-  // are erasure legs: the contact is deleted in the SAME transaction as the
-  // unlink, so there is no subject left to enroll. Filing a fresh
-  // `user_events` row and starting a journey for a just-erased person
-  // contradicts the erasure, and the only keys available are a soft-deleted
-  // row (which ingest drops as provenance-lost) or a value key that would
-  // MINT — resurrecting the row we just erased. They still EMIT, because the
-  // customer's mirror must converge.
+  // The deliberate one-plane emits, COUNTED per file with the reason. Both are
+  // erasure legs: the contact is deleted in the SAME transaction as the
+  // unlink, so there is no subject left to enroll. Filing a fresh `user_events`
+  // row and starting a journey for a just-erased person contradicts the
+  // erasure, and the only keys available are a soft-deleted row (which ingest
+  // drops as provenance-lost) or a value key that would MINT — resurrecting the
+  // row just erased. They still EMIT, because the customer's mirror must
+  // converge.
   //
-  // A COUNT, not a filename, because `lib/contacts.ts` holds a PAIRED site
-  // (the merge fold) alongside its erasure leg — exempting the whole file
-  // would blind the guard to the merge fold losing its journey plane.
+  // A COUNT, not a filename, because `lib/contacts.ts` holds a PAIRED site (the
+  // merge fold) alongside its erasure leg — exempting the whole file would
+  // blind the guard to the merge fold losing its journey plane.
   //
   // Raising a number here is a real decision. An unpaired emit is invisible in
   // production; write down why, or call the chokepoints instead.
@@ -452,11 +459,13 @@ test("every account-link emit site also reaches the journey plane", () => {
     "routes/admin/contacts.ts": 1,
   };
 
-  // COUNTED, not merely present. A file-granular "does this file ingest at
-  // all?" check is far too coarse: `routes/accounts/emit.ts` holds BOTH
-  // chokepoints, so dropping the journey plane from `noteUnlinked` alone would
-  // still leave the file ingesting via `noteLinked` and the guard would pass
-  // while `account.unlinked` went dark. Counting the pairs catches that.
+  // COUNTED PER EVENT KIND, not per file. A whole-file total is defeated by a
+  // count-preserving RELOCATION: deleting the `ingestAccountUnlinked` from
+  // `noteUnlinked` and adding a second `ingestAccountLinked` to `noteLinked`
+  // holds `routes/accounts/emit.ts` at 2 emits / 2 re-ingests while
+  // `account.unlinked` reaches no journey at all. (Verified — the whole-file
+  // form passed that mutation.) Pairing each KIND with its own re-ingest makes
+  // the two halves un-swappable.
   const count = (src: string, re: RegExp) => (src.match(re) ?? []).length;
   const unbalanced: string[] = [];
   let totalEmits = 0;
@@ -469,18 +478,33 @@ test("every account-link emit site also reaches the journey plane", () => {
         return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
       })
       .join("\n");
+
+    // Whitespace-permissive: an 80-col wrap can split `event:` from its
+    // literal, and a strict single-space match would score that as zero emits.
+    const emitted = (kind: string) =>
+      count(code, new RegExp(`event:\\s*"account\\.${kind}"`, "g"));
     // Calls only — the trailing `(` keeps a bare `import { … }` from counting.
-    const emits =
-      count(code, /event: "account\.(?:linked|unlinked|link_failed)"/g) +
-      count(code, /emitAccountUnlinked\(/g) -
-      (ERASURE_ONLY[file] ?? 0);
-    const ingests = count(
-      code,
-      /ingestAccount(?:Linked|Unlinked|LinkFailed)\(/g,
-    );
-    totalEmits += emits;
-    if (emits !== ingests) {
-      unbalanced.push(`${file}: ${emits} emit(s), ${ingests} re-ingest(s)`);
+    const ingested = (fn: string) =>
+      count(code, new RegExp(`\\bingestAccount${fn}\\(`, "g"));
+
+    const kinds: Array<[string, number, number]> = [
+      ["account.linked", emitted("linked"), ingested("Linked")],
+      [
+        "account.unlinked",
+        emitted("unlinked") +
+          count(code, /emitAccountUnlinked\(/g) -
+          (ERASURE_ONLY[file] ?? 0),
+        ingested("Unlinked"),
+      ],
+      ["account.link_failed", emitted("link_failed"), ingested("LinkFailed")],
+    ];
+    for (const [kind, emits, ingests] of kinds) {
+      totalEmits += emits;
+      if (emits !== ingests) {
+        unbalanced.push(
+          `${file} [${kind}]: ${emits} emit(s), ${ingests} re-ingest(s)`,
+        );
+      }
     }
   }
 

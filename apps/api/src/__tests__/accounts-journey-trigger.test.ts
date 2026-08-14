@@ -825,6 +825,22 @@ describe("account.unlinked reaches the journey plane", () => {
       version: "3",
     });
     expect(unlinkedPush?.properties.version).toBe("2");
+
+    // THE ORDER, which the outbound plane calls load-bearing and the journey
+    // plane must not contradict. The unlink at the LOWER version is announced
+    // BEFORE the link that caused it. Both facts here belong to DIFFERENT
+    // contacts, but on a `replacedSingleton` they belong to the same one, and
+    // a journey with `trigger: account.linked` + `exitOn: account.unlinked`
+    // would enroll on the new link and then be exited by the displacement of
+    // the link it replaced. Asserted on the shared push log so it compares the
+    // two events against each other rather than each in isolation.
+    const order = pushes.mock.calls
+      .map((call: unknown[]) => call[0] as string)
+      .filter(
+        (name) => name === "account.linked" || name === "account.unlinked",
+      );
+    expect(order.at(-2)).toBe("account.unlinked");
+    expect(order.at(-1)).toBe("account.linked");
   });
 });
 

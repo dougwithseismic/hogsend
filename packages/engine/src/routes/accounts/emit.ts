@@ -98,31 +98,6 @@ export function noteLinked(
     contactId: result.owner.contactId,
   });
 
-  // THE JOURNEY PLANE, beside the outbound one. TWO DIFFERENT PLANES: this
-  // writes `user_events` + pushes to Hatchet so `defineJourney({ trigger: {
-  // event: "account.linked" } })` fires inside Hogsend; the `emitOutbound`
-  // below writes a `webhook_deliveries` row for the CUSTOMER'S subscriber.
-  // Neither may be collapsed into the other, and the ingest path must never
-  // emit (DECISIONS §8) — see the header of `lib/account-link-ingest.ts`.
-  // It is fire-and-forget on purpose, so it can neither delay nor break the
-  // ordering the outbound chain below depends on.
-  //
-  // `journeyPlane: false` is the BULK-BACKFILL opt-out, and it suppresses ONLY
-  // this plane — the outbound emit below still fires, because the customer's
-  // mirror must converge whether or not a journey ran. A backfill of a
-  // publisher's existing Steam history is a statement about the PAST: enrolling
-  // it would run a welcome journey once per imported row, so `POST
-  // /v1/accounts/import` defaults to off and opts in per request. A live link
-  // (the hosted callback) never passes this.
-  if (opts.journeyPlane !== false) {
-    ingestAccountLinked(ctx.db, result, {
-      hatchet: ctx.hatchet,
-      logger: ctx.logger,
-      ...(ctx.registry ? { registry: ctx.registry } : {}),
-      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
-    });
-  }
-
   const { provider, providerUserId } = result.row;
   const linked = () =>
     emitOutbound({
@@ -158,17 +133,48 @@ export function noteLinked(
     });
   }
 
+  // THE JOURNEY PLANE, beside the outbound one. TWO DIFFERENT PLANES; neither
+  // may be collapsed into the other, and the ingest path must never emit
+  // (DECISIONS §8) — see the header of `lib/account-link-ingest.ts`.
+  //
+  // `journeyPlane: false` is the BULK opt-out: a backfill is a statement about
+  // the PAST, so `POST /v1/accounts/import` defaults it off. It suppresses only
+  // this plane — the outbound emits still fire, because the customer's mirror
+  // must converge whether or not a journey ran.
+  const ingestLinked = () => {
+    if (opts.journeyPlane === false) return;
+    ingestAccountLinked(ctx.db, result, {
+      hatchet: ctx.hatchet,
+      logger: ctx.logger,
+      ...(ctx.registry ? { registry: ctx.registry } : {}),
+      ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+    });
+  };
+
   if (ended.length === 0) {
+    ingestLinked();
     void linked().catch(ctx.logger.warn);
     return;
   }
 
+  // ORDERED, on BOTH planes, for the reason the docstring above gives: every
+  // ending is announced before the link that caused it. `noteUnlinked` ingests
+  // its own fact as the chain reaches it, and the link's ingest hangs off the
+  // same `.then` as the outbound `linked()` — so the journey plane cannot
+  // invert an order the outbound plane calls load-bearing. Ingesting the link
+  // eagerly (before `ended` was even walked) is exactly what did invert it: on
+  // a `replacedSingleton` both facts belong to the SAME contact, so a journey
+  // with `trigger: account.linked` and `exitOn: account.unlinked` enrolled on
+  // the new link and was then exited by the displacement it replaced.
   void ended
     .reduce<Promise<void>>(
       (chain, facts) => chain.then(() => noteUnlinked(ctx, facts, opts)),
       Promise.resolve(),
     )
-    .then(linked)
+    .then(() => {
+      ingestLinked();
+      return linked();
+    })
     .catch(ctx.logger.warn);
 }
 
