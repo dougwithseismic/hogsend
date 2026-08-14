@@ -40,9 +40,10 @@ Hogsend closes that response gap. Scaffold the framework, ship your first journe
 
 1. **Scaffold your app** — `pnpm dlx create-hogsend@latest my-app` emits a thin app that pins `@hogsend/engine` and holds your content.
 2. **Events flow in** — Send them from `@hogsend/js`, call `POST /v1/events` from your server, point a PostHog webhook at the app, or wire any `defineWebhookSource()` (Stripe, Clerk, your CRM). They all normalize to one event for a user through `ingestEvent()`.
-3. **Your code reacts** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
-4. **Email sends through a swappable provider** — [Resend](https://resend.com) by default, [Postmark](/docs/guides/email) opt-in, or any other behind the `EmailProvider` contract. React Email templates with first-party open/click tracking, unsubscribe management, and deliverability monitoring — all engine-owned, so they come along with any provider.
-5. **Engagement flows back out** — Opens, clicks, sends, journey completions, and bucket transitions fan out to PostHog, Segment, Slack, a CRM, or a warehouse via [outbound destinations](/docs/data-api/destinations).
+3. **Identity gets joined up** — One person arrives under many keys: an anonymous id, an email, a `userId`, and on a game a platform account. [`defineAccountLink()`](/docs/guides/account-links) binds their Steam or Twitch account to the contact, so a SteamID and an email are the same person to every journey, bucket and email after it. Steam needs no credentials at all.
+4. **Your code reacts** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
+5. **Email sends through a swappable provider** — [Resend](https://resend.com) by default, [Postmark](/docs/guides/email) opt-in, or any other behind the `EmailProvider` contract. React Email templates with first-party open/click tracking, unsubscribe management, and deliverability monitoring — all engine-owned, so they come along with any provider.
+6. **Engagement flows back out** — Opens, clicks, sends, journey completions, and bucket transitions fan out to PostHog, Segment, Slack, a CRM, or a warehouse via [outbound destinations](/docs/data-api/destinations).
 
 ## Get started in minutes
 
