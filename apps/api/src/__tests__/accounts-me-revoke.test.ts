@@ -48,7 +48,7 @@ const {
   webhookDeliveries,
   webhookEndpoints,
 } = await import("@hogsend/db");
-const { and, asc, eq, isNull, like, sql } = await import("drizzle-orm");
+const { and, asc, eq, isNull, like } = await import("drizzle-orm");
 const engine = await import("@hogsend/engine");
 const { createApp, createHogsendClient, generateUserToken, linkAccount } =
   engine;
