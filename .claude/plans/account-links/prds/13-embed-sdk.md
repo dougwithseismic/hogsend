@@ -404,9 +404,10 @@ of the troubleshooting table.
 - [ ] Changesets added for `@hogsend/js` and `@hogsend/react` (both are public-surface changes).
 - [ ] Gates green from the worktree root:
       ```
-      pnpm lint
-      pnpm check-types
-      cd apps/api && pnpm test
+      pnpm -C $WT lint
+      pnpm -C $WT/packages/<pkg> exec tsc --noEmit   # NOT root check-types: vacuous
+      pnpm -C $WT/apps/api test
+      pnpm -C $WT exec turbo run test --filter='!@hogsend/api'   # `exec` is load-bearing
       ```
 - [ ] Plus, since this changes a published package's public surface: `pnpm build`.
 - [ ] Package-local suites green: `pnpm --filter @hogsend/js test` and

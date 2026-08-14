@@ -628,7 +628,8 @@ credentials have not landed.
 - [ ] `returnTo` is allowlist-checked at mint AND at redirect.
 - [ ] Changeset added for `@hogsend/engine`.
 - [ ] `pnpm lint`
-- [ ] `pnpm check-types`
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test`
 - [ ] `pnpm build`
 - [ ] `pnpm --filter @hogsend/engine test`

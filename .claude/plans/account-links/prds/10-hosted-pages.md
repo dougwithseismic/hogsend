@@ -356,9 +356,10 @@ and are not needed here.
 - [ ] Changeset added for `@hogsend/engine`.
 - [ ] From the worktree root (DECISIONS §4):
       ```
-      pnpm lint
-      pnpm check-types
-      cd apps/api && pnpm test
+      pnpm -C $WT lint
+      pnpm -C $WT/packages/<pkg> exec tsc --noEmit   # NOT root check-types: vacuous
+      pnpm -C $WT/apps/api test
+      pnpm -C $WT exec turbo run test --filter='!@hogsend/api'   # `exec` is load-bearing
       ```
 - [ ] Public-surface change, so also: `pnpm build`.
 

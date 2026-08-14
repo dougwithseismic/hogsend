@@ -324,7 +324,8 @@ None. Local Postgres on 5434 (docker compose) is all this needs.
       packages/db/src/schema/linked-accounts.ts` returns nothing.
 - [ ] No `synced_at` column is present: it belongs to PRD 14's migration.
 - [ ] `pnpm lint` green.
-- [ ] `pnpm check-types` green.
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test` green.
 - [ ] `pnpm build` green.
 - [ ] A changeset exists for `@hogsend/db`.

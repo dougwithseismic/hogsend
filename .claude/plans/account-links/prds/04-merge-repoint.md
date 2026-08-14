@@ -427,7 +427,8 @@ None.
       Implementation Notes.
 - [ ] `ALL_IDENTITY_KINDS` and `IdentityKind` are byte-identical to the pre-PRD versions.
 - [ ] `pnpm lint` green.
-- [ ] `pnpm check-types` green.
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test` green (the whole suite, not just the new file: this touches the
       merge path every identity test drives).
 - [ ] `pnpm build` green.

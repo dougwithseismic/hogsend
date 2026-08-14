@@ -368,7 +368,8 @@ credentials have not landed, and let PRD 07 proceed.
 - [ ] No test performs real network I/O and no error message contains a response body or a secret.
 - [ ] Changeset added for `@hogsend/engine`.
 - [ ] `pnpm lint`
-- [ ] `pnpm check-types`
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test`
 - [ ] `pnpm build`
 - [ ] `pnpm --filter @hogsend/engine test`

@@ -555,7 +555,8 @@ real Steam or Twitch credential. The credentials seam lands in PRD 06/07.
       is a module constant.
 - [ ] `cd packages/core && pnpm test` green.
 - [ ] `pnpm lint` green.
-- [ ] `pnpm check-types` green.
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test` green.
 - [ ] `pnpm build` green (this changes the engine's transitive public surface).
 - [ ] A changeset exists for `@hogsend/core`.

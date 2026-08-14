@@ -674,7 +674,8 @@ no Steam or Twitch credential is required. Real credentials are the PRD 07 seam.
 - [ ] `unlinkAccountInTx` is exported, takes a caller's `tx`, and PRD 04 can call it without
       opening a nested transaction.
 - [ ] `pnpm lint` green.
-- [ ] `pnpm check-types` green.
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test` green.
 - [ ] `pnpm build` green.
 - [ ] A changeset exists for `@hogsend/engine`.

@@ -293,9 +293,10 @@ parallel with the credential-blocked ones.
 - [ ] Changesets added for `@hogsend/engine` and `packages/studio`.
 - [ ] Gates green from the worktree root:
       ```
-      pnpm lint
-      pnpm check-types
-      cd apps/api && pnpm test
+      pnpm -C $WT lint
+      pnpm -C $WT/packages/<pkg> exec tsc --noEmit   # NOT root check-types: vacuous
+      pnpm -C $WT/apps/api test
+      pnpm -C $WT exec turbo run test --filter='!@hogsend/api'   # `exec` is load-bearing
       ```
 - [ ] Plus, since this changes the engine's public route surface: `pnpm build`.
 - [ ] `pnpm --filter @hogsend/studio test` green.

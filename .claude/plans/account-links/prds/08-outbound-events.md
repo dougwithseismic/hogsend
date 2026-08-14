@@ -451,7 +451,8 @@ already built and tested.
       runtime and adds nothing to the Hatchet journal.
 - [ ] Changesets added for `@hogsend/engine`, `@hogsend/cli`, `@hogsend/client`.
 - [ ] `pnpm lint`
-- [ ] `pnpm check-types`
+- [ ] `pnpm -C $WT/packages/<pkg> exec tsc --noEmit` for every package touched (NOT root `check-types` — vacuous, DECISIONS §4).
+- [ ] `pnpm -C $WT exec turbo run test --filter='!@hogsend/api'` (the `exec` is load-bearing — DECISIONS §4).
 - [ ] `cd apps/api && pnpm test`
 - [ ] `pnpm build`
 - [ ] `pnpm --filter @hogsend/engine test`

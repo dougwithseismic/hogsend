@@ -91,16 +91,36 @@ Verified against the tree at `a4bbec5a`. Every PRD must reuse these, not fork th
 
 ## 4. Quality gates
 
-Every task runs these from the worktree root before it is accepted. Verbatim:
+Every task runs these before it is accepted. **Stated in the `-C` form, because that is how they are
+actually invoked** — a bare `cd` inside a compound shell command silently resets to the MAIN checkout,
+so agents are required to use `-C`, and a gate that only works without it is not a gate. `$WT` is the
+worktree root.
 
 ```
-pnpm lint
-pnpm -C packages/<pkg> exec tsc --noEmit     # NOT root check-types — see below
-cd apps/api && pnpm test
-pnpm turbo run test --filter='!@hogsend/api' # the OTHER packages — see below
+pnpm -C $WT lint
+pnpm -C $WT/packages/<pkg> exec tsc --noEmit          # NOT root check-types — see below
+pnpm -C $WT/apps/api test
+pnpm -C $WT exec turbo run test --filter='!@hogsend/api'   # the OTHER packages — see below
 ```
 
-Plus, for tasks touching the engine's public surface: `pnpm build`.
+Plus, for tasks touching the engine's public surface: `pnpm -C $WT build`.
+
+**Note the `exec` on the turbo line — it is load-bearing.** Without it,
+`pnpm -C $WT turbo run test …` dies with `spawn $WT EACCES` /
+`ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` **before running a single test**, because the root
+`package.json` has no `turbo` script (it has `"test": "turbo run test"`), so pnpm falls through to
+executing `turbo` as a binary and mis-spawns the directory. Confirmed: `pnpm -C $WT turbo --version`
+fails identically while `pnpm -C $WT exec turbo --version` prints the version.
+
+That failure exits non-zero and reads *exactly* like a failing suite, so an agent reports "gate
+FAILED" and burns a cycle, or worse reports "gate ran" having proven nothing. And this is the ONE
+gate that catches the `@hogsend/testing` import-time-`env.ts` class described below — the defect that
+shipped RED once while every other gate was green.
+
+**A gate is only trusted once it has been watched failing.** Before relying on a gate you have not
+seen fail, break something deliberately, confirm it goes red and names the right thing, and revert.
+This applies especially to the cross-workspace gate, whose failure mode is a package nobody in
+`apps/api` imports.
 
 **Why `pnpm check-types` is not the typecheck gate.** Turbo hashes git-tracked files only, so
 uncommitted NEW files never move the cache key and the root task returns a vacuous `FULL TURBO` pass
@@ -117,6 +137,33 @@ that path. Only running the other workspaces' tests catches it. PRD 04 found and
 in `packages/testing/vitest.config.ts` and the `bucket-emit.test.ts` idiom in
 `connector-actions.test.ts`), but the lesson is the gate, not the fix: **adding ANY export to
 `engine/testing.ts` can drag `env.ts` into a package that has no env.**
+
+**Shared-database rules for tests** (learned the hard way in PRDs 17, 18, 20):
+
+- **Scope count assertions to rows the test OWNS.** The suite runs files in parallel against one
+  Postgres, so a broad predicate counts other files' rows. Never fix this with a retry, a `waitFor`
+  around a count, or by softening an exact count to `toBeGreaterThan(0)` — scoping narrows WHICH rows
+  are counted, never WHETHER the claim is checked.
+- **A test driving a whole-database production job needs a budget sized to THAT JOB**, not the suite
+  default — and the budget carries the measurement that justifies it. The contact-id sweep costs
+  ~108,000 statements against the shared dev database; a 30s default could not hold one, let alone two.
+- **A timed-out async test does NOT stop the work it started.** The rest of the file inherits it. When
+  one timeout is followed by a cluster of failures in the same file, suspect the cascade before
+  diagnosing each failure separately — four of five failures in PRD 18 were one abandoned sweep.
+- **A drifting failure set across runs on an unchanged tree is contention, not a regression.**
+  Diagnose it before blaming the diff in flight. Equally: do not assume contention either — PRD 18's
+  premise was contention and the measurement refuted it. Capture the ACTUAL failure first.
+- **A test's DB target is not what the config claims.** The vitest placeholder `DATABASE_URL` points
+  at 5432, which on a dev machine hosts an unrelated project's Postgres that ACCEPTS it (hogsend is on
+  5434), so calls silently succeed against a stranger. See PRD 20.
+
+**Currently-red gates and their owners.** A red gate outside your boundary is REPORTED, never
+normalised and never worked around by weakening a test. Remove entries here as they close.
+
+| Gate | Status |
+| --- | --- |
+| `pnpm -C $WT/apps/api test` | **GREEN as of `4c3f8b70`** (2591 passed, 0 failed). Was red on clean `main` — PRD 17 + PRD 18 T1. Occasional ordering residue remains: see PRD 20 |
+| `apps/cloud` suite | `ops-stats`, `publish-cli-auth` flakes open — PRD 18 T2/T3. Run it on a THROWAWAY container, not the shared 5434 |
 
 Additional standing rules:
 

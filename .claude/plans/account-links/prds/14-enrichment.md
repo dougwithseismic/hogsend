@@ -504,9 +504,10 @@ Nothing here is blocked on the seam: every task's tests run against the Fakes.
 - [ ] Changesets added for `@hogsend/core`, `@hogsend/db` and `@hogsend/engine`.
 - [ ] Gates green from the worktree root:
       ```
-      pnpm lint
-      pnpm check-types
-      cd apps/api && pnpm test
+      pnpm -C $WT lint
+      pnpm -C $WT/packages/<pkg> exec tsc --noEmit   # NOT root check-types: vacuous
+      pnpm -C $WT/apps/api test
+      pnpm -C $WT exec turbo run test --filter='!@hogsend/api'   # `exec` is load-bearing
       ```
 - [ ] Plus, since this changes the engine's public surface: `pnpm build`.
 - [ ] `pnpm --filter @hogsend/engine test` and `pnpm --filter @hogsend/core test` green (both are
