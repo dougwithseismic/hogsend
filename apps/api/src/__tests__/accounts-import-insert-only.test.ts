@@ -241,7 +241,17 @@ async function countContacts(): Promise<number> {
   const rows = (await db.execute(
     sql`SELECT count(*)::int AS n FROM contacts`,
   )) as unknown as Array<{ n: number }>;
-  return rows[0]?.n ?? -1;
+  const n = rows[0]?.n;
+  // THROW rather than fall back to a sentinel. A `?? -1` is invisible in a
+  // symmetric before/after comparison — it degrades to `expect(-1).toBe(-1)`
+  // and the no-mint oracle passes with its reader completely dead (verified:
+  // pointing this at a non-existent column left the guard green). The
+  // realistic trigger is a drizzle major bump or a driver swap where
+  // `db.execute` returns `{ rows }` instead of an array.
+  if (typeof n !== "number") {
+    throw new Error("contact count query returned no numeric row");
+  }
+  return n;
 }
 
 describe("POST /v1/accounts/import inserts", () => {

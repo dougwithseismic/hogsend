@@ -236,7 +236,17 @@ async function countContacts(): Promise<number> {
   const rows = (await db.execute(
     sql`SELECT count(*)::int AS n FROM contacts`,
   )) as unknown as Array<{ n: number }>;
-  return rows[0]?.n ?? -1;
+  const n = rows[0]?.n;
+  // THROW rather than fall back to a sentinel. A `?? -1` is invisible in a
+  // symmetric before/after comparison — it degrades to `expect(-1).toBe(-1)`
+  // and the no-mint oracle passes with its reader completely dead (verified:
+  // pointing this at a non-existent column left the guard green). The
+  // realistic trigger is a drizzle major bump or a driver swap where
+  // `db.execute` returns `{ rows }` instead of an array.
+  if (typeof n !== "number") {
+    throw new Error("contact count query returned no numeric row");
+  }
+  return n;
 }
 
 /**
@@ -255,7 +265,17 @@ async function countContactsKeyed(value: string): Promise<number> {
            OR anonymous_id = ${value}
            OR email = ${value}`,
   )) as unknown as Array<{ n: number }>;
-  return rows[0]?.n ?? -1;
+  const n = rows[0]?.n;
+  // THROW rather than fall back to a sentinel. A `?? -1` is invisible in a
+  // symmetric before/after comparison — it degrades to `expect(-1).toBe(-1)`
+  // and the no-mint oracle passes with its reader completely dead (verified:
+  // pointing this at a non-existent column left the guard green). The
+  // realistic trigger is a drizzle major bump or a driver swap where
+  // `db.execute` returns `{ rows }` instead of an array.
+  if (typeof n !== "number") {
+    throw new Error("contact count query returned no numeric row");
+  }
+  return n;
 }
 
 /** Contacts this RUN owns, on any identity column. The teardown oracle. */
@@ -266,7 +286,17 @@ async function countRunContacts(): Promise<number> {
            OR anonymous_id LIKE ${`${RUN}%`}
            OR email LIKE ${`${RUN}%`}`,
   )) as unknown as Array<{ n: number }>;
-  return rows[0]?.n ?? -1;
+  const n = rows[0]?.n;
+  // THROW rather than fall back to a sentinel. A `?? -1` is invisible in a
+  // symmetric before/after comparison — it degrades to `expect(-1).toBe(-1)`
+  // and the no-mint oracle passes with its reader completely dead (verified:
+  // pointing this at a non-existent column left the guard green). The
+  // realistic trigger is a drizzle major bump or a driver swap where
+  // `db.execute` returns `{ rows }` instead of an array.
+  if (typeof n !== "number") {
+    throw new Error("contact count query returned no numeric row");
+  }
+  return n;
 }
 
 /** Durable ctx stub: the run bodies below issue nothing durable. */
@@ -435,6 +465,19 @@ describe("account.linked reaches the journey plane", () => {
       },
       run: async () => {},
     });
+
+    // THE ROUTING, which is what connects the two halves of this test. Above,
+    // the engine PUSHED `account.linked`; below, that payload is hand-fed to
+    // `executeJourneyRun`. Neither half proves Hatchet would ever deliver one
+    // to the other — that is `onEvents`, and without this assertion the whole
+    // file passes with journeys registered against an event name Hatchet never
+    // routes (verified: mutating `onEvents` to a constant that matches nothing
+    // left all cases green).
+    // The mock spreads `...config`, so the routing key IS on the object; it is
+    // just absent from Hatchet's declared task type.
+    expect(
+      (journey.task as unknown as { onEvents: string[] }).onEvents,
+    ).toEqual(["account.linked"]);
 
     const result = await executeJourneyRun({
       meta: journey.meta as JourneyMeta,
