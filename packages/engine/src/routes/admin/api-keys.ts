@@ -113,6 +113,13 @@ const createKeyRoute = createRoute({
                     "full-admin",
                     "ingest",
                     "ingest-public",
+                    // The account-link data plane (`/v1/accounts`, the reverse
+                    // lookup + unlink, import, mint-link). ORTHOGONAL, like
+                    // `ingest`: `hasScope` treats an unrecognised required
+                    // scope as "explicit grant or full-admin", so this needs no
+                    // SCOPE_HIERARCHY edit and no migration (`api_keys.scopes`
+                    // is a jsonb string array).
+                    "accounts",
                   ]),
                 )
                 .min(1)

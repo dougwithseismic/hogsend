@@ -162,6 +162,15 @@ export interface LinkAccountInput {
    * the hook; it just records the refusal.
    */
   vetoed?: boolean;
+  /**
+   * Override the INSERTed row's `linked_at`. The import path (PRD 09 T5) uses
+   * it to preserve the customer's historical timestamp; every other caller
+   * omits it and takes the column default (`now()`).
+   *
+   * It touches ONLY the insert. A same-owner refresh must not rewrite the
+   * timestamp of a link that already exists, and no unlink path reads it.
+   */
+  linkedAt?: Date;
   hooks?: AccountLinkHooks;
   logger?: Logger;
 }
@@ -759,6 +768,7 @@ export async function linkAccount(
             method: input.method,
             singleton: !input.multiple,
             version,
+            ...(input.linkedAt ? { linkedAt: input.linkedAt } : {}),
           })
           .returning();
         if (!inserted) throw new Error("link insert returned no row");
@@ -1228,6 +1238,42 @@ export async function listLiveLinksForContact(opts: {
       ),
     )
     .orderBy(linkedAccounts.provider, linkedAccounts.providerUserId);
+  return rows.map(toLinkedAccountRecord);
+}
+
+/**
+ * The pull plane's list read (PRD 09 T3): live links filtered by contact
+ * and/or provider, NEWEST FIRST, paginated. Strongly consistent by
+ * construction — it reads the live row, never a cached mirror (DECISIONS
+ * §3.2).
+ *
+ * At least one of `contactId` / `provider` is always supplied by the route
+ * (the no-filter request is a 400 there, not a full-table scan here), but this
+ * function does not enforce that: it is a read helper, and a caller that wants
+ * every live link is asking a legitimate question with a bounded `limit`.
+ */
+export async function listLiveLinks(opts: {
+  db: Database;
+  contactId?: string;
+  provider?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<LinkedAccountRecord[]> {
+  const rows = await opts.db
+    .select()
+    .from(linkedAccounts)
+    .where(
+      and(
+        isNull(linkedAccounts.unlinkedAt),
+        ...(opts.contactId
+          ? [eq(linkedAccounts.contactId, opts.contactId)]
+          : []),
+        ...(opts.provider ? [eq(linkedAccounts.provider, opts.provider)] : []),
+      ),
+    )
+    .orderBy(desc(linkedAccounts.linkedAt), desc(linkedAccounts.id))
+    .limit(opts.limit ?? 50)
+    .offset(opts.offset ?? 0);
   return rows.map(toLinkedAccountRecord);
 }
 

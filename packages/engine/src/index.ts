@@ -958,6 +958,19 @@ export {
 } from "./middleware/rate-limit.js";
 // --- Middleware (consumer-mounted routes, e.g. the @hogsend/mcp hosted route) ---
 export { requireAdmin } from "./middleware/require-admin.js";
+// The `/v1/accounts/*` serialization boundary — TWO SHAPES, ONE ROW (PRD 09
+// T2). `serializePublicLinkedAccount` is the ONLY shape `GET /v1/accounts/me`
+// may return: four display keys, no id, no version. Exported so PRD 12's
+// server SDK and PRD 13's embed type against the same declarations the routes
+// answer with, rather than re-declaring them and drifting.
+export {
+  linkedAccountSchema,
+  publicLinkedAccountSchema,
+  type SerializedLinkedAccount,
+  type SerializedPublicLinkedAccount,
+  serializeLinkedAccount,
+  serializePublicLinkedAccount,
+} from "./routes/accounts/serialize.js";
 // --- Contact sources (Clay/Attio/generic-webhook → cold prospects) ---
 export {
   type ColdChannelPosture,

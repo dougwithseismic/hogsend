@@ -1,4 +1,3 @@
-import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import {
   AccountLinkCallbackError,
   type BeforeLinkContext,
@@ -8,13 +7,7 @@ import { contacts, type Database } from "@hogsend/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import {
-  type AccountUnlinkedFacts,
-  buildAccountLinkedPayload,
-  buildAccountUnlinkedPayload,
-  buildDedupeKey,
-  buildLinkFailedPayload,
-} from "../../lib/account-link-events.js";
+import { buildLinkFailedPayload } from "../../lib/account-link-events.js";
 import { runBeforeLink } from "../../lib/account-link-hooks.js";
 import { burnAccountLinkNonce } from "../../lib/account-link-nonce.js";
 import { isAllowedReturnTo } from "../../lib/account-link-origins.js";
@@ -27,9 +20,9 @@ import {
   PublishableAnonymousMergeError,
   resolveOrCreateContact,
 } from "../../lib/contacts.js";
-import type { Logger } from "../../lib/logger.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { getRedisIfConnected } from "../../lib/redis.js";
+import { type AccountLinkEmitContext, noteLinked } from "./emit.js";
 import { accountLinkErrorPage, accountLinkSuccessPage } from "./pages.js";
 import {
   accountLinkCallbackRedirectUri,
@@ -50,29 +43,6 @@ import {
  * sites: a null Redis REFUSES here (fail closed), and the contact side of the
  * link is decided here rather than by the store.
  */
-
-/**
- * Everything the failure/success notes need to answer identically.
- *
- * `db` and `logger` are the REQUEST CONTAINER's, and those two DO matter: the
- * writes and the log lines belong to this request.
- *
- * `hatchet` is carried ONLY to satisfy `emitOutbound`'s signature, and saying
- * anything stronger would be false. `emitOutbound` destructures
- * `const { db, logger, event, payload, dedupeKey } = opts` (`outbound.ts:619`)
- * and NEVER reads `opts.hatchet`; the delivery enqueue goes through the
- * MODULE-LEVEL `deliverWebhookTask`, built from the `lib/hatchet.ts` singleton
- * at import time. So threading the container's handle here does not redirect
- * anything and `opts.overrides.hatchet` cannot reroute a delivery — passing it
- * is forward-compat for the day `emitOutbound` enqueues through the handle it
- * is given, nothing more.
- */
-interface EmitContext {
-  providerId: string;
-  db: Database;
-  hatchet: HatchetClient;
-  logger: Logger;
-}
 
 export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
   router.openapi(
@@ -107,7 +77,7 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
       // (1) Provider.
       const provider = accountLinkProviders.get(providerId);
       if (!provider) return c.json({ error: "unknown_provider" }, 404);
-      const fail: EmitContext = { providerId, db, hatchet, logger };
+      const fail: AccountLinkEmitContext = { providerId, db, hatchet, logger };
       const errorPage = () =>
         c.html(accountLinkErrorPage(provider.meta.name), 400);
 
@@ -543,7 +513,7 @@ async function readContactFacts(
  * produces), which is why no translation table exists anywhere on this path.
  */
 function noteLinkFailed(
-  fail: EmitContext,
+  fail: AccountLinkEmitContext,
   reason: "denied" | "vetoed" | "exchange_failed" | "state_invalid",
   contactId: string | null,
 ): void {
@@ -566,125 +536,4 @@ function noteLinkFailed(
       contactId,
     }),
   }).catch(fail.logger.warn);
-}
-
-/**
- * THE `account.linked` SITE, the intent layer emitting off the facts the store
- * returned (DECISIONS §8/§15.7 — the store itself never emits).
- *
- * One mutation can END up to two links, and every ending is emitted BEFORE the
- * `account.linked` that caused it. The ORDER IS LOAD-BEARING for the `previous`
- * leg: `account.unlinked` for the displaced owner at the LOWER version (N+1)
- * FIRST, then `account.linked` at the higher one (N+2). A consumer's guard is
- * `incoming.version > stored.version`, so if the two deliveries arrive out of
- * order the late unlink at N+1 is DISCARDED against a stored N+2 — rather than
- * winning and permanently recording the wrong owner.
- *
- * The emits are therefore CHAINED, not fired side by side: independent
- * `void emitOutbound(...)` calls race their own INSERTs, which is no ordering
- * at all. Chaining keeps the handler non-blocking (nothing is awaited here)
- * while making each unlink's delivery row — and its enqueue — strictly first.
- *
- * The two endings, which are NOT the same thing:
- *
- *  - `previous` — the SAME platform account changing hands. Its unlink shares
- *    this pair's version sequence, which is the whole reason the order matters.
- *  - `replacedSingleton` — this contact's OTHER pair on a `multiple: false`
- *    provider, soft-unlinked to make room. It is a DIFFERENT pair with its OWN
- *    version sequence, so its dedupe key is built from `r.provider` /
- *    `r.providerUserId`, never from `result.row`'s. A key built from the NEW
- *    pair would collide with the `account.linked` emit above and be silently
- *    swallowed by `onConflictDoNothing` — no error, no missing-row assertion,
- *    just a permanently unreported link ending. The store already announces
- *    this one on the IN-PROCESS plane (`lib/account-links.ts`, `afterUnlink`
- *    with `reason: "relinked"`); this is the push-plane mirror that comment
- *    always claimed, so the two planes agree about whether a link ended.
- */
-function noteLinked(
-  fail: EmitContext,
-  result: Extract<
-    Awaited<ReturnType<typeof linkAccount>>,
-    { status: "linked" | "relinked" }
-  >,
-): void {
-  fail.logger.info("account linked", {
-    provider: fail.providerId,
-    status: result.status,
-    version: result.version,
-    contactId: result.owner.contactId,
-  });
-
-  const { provider, providerUserId } = result.row;
-  const linked = () =>
-    emitOutbound({
-      db: fail.db,
-      hatchet: fail.hatchet,
-      logger: fail.logger,
-      event: "account.linked",
-      payload: buildAccountLinkedPayload(result),
-      dedupeKey: buildDedupeKey(provider, providerUserId, result.version),
-    });
-
-  // Every ending this mutation produced, each with ITS OWN pair, version and
-  // owner — all read by the store inside the pair-locked transaction and never
-  // re-read here.
-  const ended: AccountUnlinkedFacts[] = [];
-  if (result.replacedSingleton) {
-    const r = result.replacedSingleton;
-    ended.push({
-      provider: r.provider,
-      providerUserId: r.providerUserId,
-      version: r.version,
-      reason: "relinked",
-      owner: r.owner,
-    });
-  }
-  if (result.status === "relinked") {
-    ended.push({
-      provider,
-      providerUserId,
-      version: result.previous.version,
-      reason: "relinked",
-      owner: result.previous.owner,
-    });
-  }
-
-  if (ended.length === 0) {
-    void linked().catch(fail.logger.warn);
-    return;
-  }
-
-  void ended
-    .reduce<Promise<void>>(
-      (chain, facts) => chain.then(() => noteUnlinked(fail, facts)),
-      Promise.resolve(),
-    )
-    .then(linked)
-    .catch(fail.logger.warn);
-}
-
-/**
- * One `account.unlinked`, keyed off the facts' OWN pair.
- *
- * The key is derived here rather than at the call site so the pair in the
- * payload and the pair in the dedupe key cannot be different pairs — the exact
- * mistake that would make a `replacedSingleton` emit collide with the
- * `account.linked` it accompanies.
- */
-function noteUnlinked(
-  fail: EmitContext,
-  facts: AccountUnlinkedFacts,
-): Promise<void> {
-  return emitOutbound({
-    db: fail.db,
-    hatchet: fail.hatchet,
-    logger: fail.logger,
-    event: "account.unlinked",
-    payload: buildAccountUnlinkedPayload(facts),
-    dedupeKey: buildDedupeKey(
-      facts.provider,
-      facts.providerUserId,
-      facts.version,
-    ),
-  });
 }
