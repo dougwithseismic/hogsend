@@ -326,6 +326,262 @@ These are in-process hooks, not a delivery mechanism. A process that dies
 mid-hook loses the call. Anything that must not be missed belongs on the outbound
 webhooks or on a pull reconcile.
 
+## Examples
+
+Four things a consumer writes. The first, second and fourth type-check against
+the exported types; the third runs in your app, against your database, so only
+its guard is ours.
+
+### 1. Register providers
+
+This repo's own consumer app is the reference: `apps/api/src/account-links.ts`
+holds the hooks, `apps/api/src/index.ts` and `apps/api/src/worker.ts` pass them.
+Providers are not listed anywhere in it. The env presets build them, so the same
+code serves a Steam-only deploy and a Steam plus Twitch one.
+
+```ts
+import { contacts, type Database } from "@hogsend/db";
+import type { AccountLinkHooks } from "@hogsend/engine";
+import { eq, sql } from "drizzle-orm";
+
+// The hooks are passed INTO createHogsendClient, which is what builds `db`, so
+// they read a deferred handle wired after the client exists.
+let dbHandle: Database | undefined;
+export function setAccountLinkDb(db: Database): void {
+  dbHandle = db;
+}
+
+export const accountLinkHooks: AccountLinkHooks = {
+  // Post-commit, at-least-once, fail-open, bounded at 5s. Idempotent by
+  // construction: one UPDATE setting the same keys to the same values, with no
+  // read-modify-write in between. A null value clears its key.
+  async afterLink(ctx) {
+    if (!dbHandle) return;
+    const patch = {
+      [`${ctx.provider}_user_id`]: ctx.identity.providerUserId,
+      [`${ctx.provider}_username`]: ctx.identity.username ?? null,
+      [`${ctx.provider}_linked_at`]: ctx.at,
+      // The bigint version as a STRING. Never parseInt it.
+      [`${ctx.provider}_link_version`]: ctx.version,
+    };
+    await dbHandle
+      .update(contacts)
+      .set({
+        properties: sql`jsonb_strip_nulls(COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
+      })
+      .where(eq(contacts.id, ctx.contactId));
+  },
+};
+```
+
+```ts
+const client = createHogsendClient({
+  journeys,
+  email: { templates },
+  accountLinks: {
+    hooks: accountLinkHooks,
+    allowedOrigins: ["https://play.yourgame.com"],
+  },
+});
+setAccountLinkDb(client.db);
+```
+
+The link lands on `contacts.properties` as `steam_user_id`,
+`steam_linked_at` and `steam_link_version`, so journeys, buckets and the Studio
+contact panel read it with no new machinery. `afterUnlink` sets the same keys to
+`null`, which `jsonb_strip_nulls` removes.
+
+Passing `accountLinks` at all is operator intent, so `apps/api` passes it only
+when one of the four env-intent vars is set: `ACCOUNT_LINK_ALLOWED_ORIGINS`,
+`ACCOUNT_LINK_TWITCH_CLIENT_ID`, `ACCOUNT_LINK_TWITCH_CLIENT_SECRET` or
+`STEAM_WEB_API_KEY`. `ACCOUNT_LINK_STATE_TTL_SECONDS` is not one of them,
+because it carries a default and counting it would make every deploy look like
+it opted in. That keeps a deploy that never asked for account linking free of a
+live `/v1/accounts/steam/start`. An app built for account linking can pass the
+option unconditionally.
+
+### 2. Add a platform the engine does not ship
+
+Battle.net is a plain OAuth2 authorization-code platform, so it is
+`oauth2Link()` plus a field mapping. No package, no plugin, no engine change.
+
+```ts
+import { AccountLinkCallbackError, oauth2Link } from "@hogsend/engine";
+
+export const battlenet = oauth2Link({
+  meta: { id: "battlenet", name: "Battle.net" },
+  authorizeEndpoint: "https://oauth.battle.net/authorize",
+  tokenEndpoint: "https://oauth.battle.net/token",
+  clientId: process.env.BATTLENET_CLIENT_ID ?? "",
+  clientSecret: process.env.BATTLENET_CLIENT_SECRET ?? "",
+  scopes: ["openid"],
+  usePkce: true,
+  userInfo: {
+    url: "https://oauth.battle.net/oauth/userinfo",
+    // MUST pick the platform's immutable id. `sub` is the account id;
+    // `battletag` is a renameable handle, so it is display data only.
+    map: (json) => {
+      const profile = json as { sub?: string; battletag?: string };
+      if (!profile.sub) {
+        throw new AccountLinkCallbackError(
+          "exchange_failed",
+          "userinfo carried no sub",
+        );
+      }
+      return {
+        providerUserId: profile.sub,
+        ...(profile.battletag ? { username: profile.battletag } : {}),
+      };
+    },
+  },
+  // One live Battle.net account per contact, and an account already owned by
+  // someone else is refused rather than moved.
+  multiple: false,
+  onConflict: "reject",
+});
+```
+
+Register it with `accountLinks: { providers: [battlenet] }`. Add `storeTokens:
+true` to seal the grant into `linked_accounts.tokens`, which also enables
+`refresh()`, and `revokeEndpoint` to add best-effort revoke on unlink. Set
+`userInfo.headers` for a platform that needs a second header on the profile
+call, as Twitch does with `Client-Id`.
+
+### 3. Mirror links into your own database
+
+The version guard, in full, with the discard branch written out. This is the
+example to copy exactly: it is what makes duplicate, out-of-order and late
+deliveries safe.
+
+```ts
+// The payload of account.linked / account.unlinked, narrowed to the fields the
+// mirror needs. `version` is a decimal string because the column is a Postgres
+// bigint.
+interface AccountEvent {
+  state: "linked" | "unlinked";
+  provider: string;
+  providerUserId: string;
+  contactId: string;
+  userId: string | null;
+  email: string | null;
+  version: string;
+  at: string;
+}
+
+export async function handleAccountEvent(event: AccountEvent) {
+  const stored = await db.playerAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider: event.provider,
+        providerUserId: event.providerUserId,
+      },
+    },
+  });
+
+  // DISCARD. A duplicate, a reordered pair and a late delivery all land here.
+  // BigInt, never parseInt: past Number.MAX_SAFE_INTEGER a float64 comparison
+  // stops discriminating and records the wrong owner, silently and forever.
+  if (stored && BigInt(event.version) <= BigInt(stored.version)) {
+    return "discarded";
+  }
+
+  // APPLY. Upsert keyed on the pair, never on contactId: a relink moves the
+  // pair between contacts and both mutations belong to one version sequence.
+  await db.playerAccount.upsert({
+    where: {
+      provider_providerUserId: {
+        provider: event.provider,
+        providerUserId: event.providerUserId,
+      },
+    },
+    create: {
+      provider: event.provider,
+      providerUserId: event.providerUserId,
+      state: event.state,
+      contactId: event.contactId,
+      version: event.version,
+      linkedAt: event.at,
+    },
+    update: {
+      state: event.state,
+      contactId: event.contactId,
+      version: event.version,
+      linkedAt: event.at,
+    },
+  });
+  return "applied";
+}
+```
+
+Verify the signature first: the delivery is a signed outbound webhook, and this
+handler must not run on an unverified body. `account.link_failed` carries no
+`version` and no `state`, so it never reaches this function.
+
+### 4. Use a link server-side
+
+The reverse lookup. Your game server knows a SteamID and nothing else; this
+turns it into the contact and puts the event on the lifecycle spine under the
+contact's own key, where a journey can trigger on it.
+
+```ts
+import { contacts } from "@hogsend/db";
+import { defineWebhookSource, getLiveLink } from "@hogsend/engine";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+export const gameServerSource = defineWebhookSource({
+  meta: { id: "game-server", name: "Game server" },
+  auth: {
+    type: "match",
+    header: "x-game-server-secret",
+    envKey: "GAME_SERVER_WEBHOOK_SECRET",
+  },
+  schema: z.object({
+    steamId: z.string().regex(/^\d{17}$/),
+    event: z.string(),
+    level: z.number().optional(),
+  }),
+  async transform(payload, ctx) {
+    const link = await getLiveLink({
+      db: ctx.db,
+      provider: "steam",
+      providerUserId: payload.steamId,
+    });
+    // No link means we do not know who this is. Returning null ingests
+    // nothing, which is the honest answer: a SteamID is not a contact.
+    if (!link) return null;
+
+    const [contact] = await ctx.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, link.contactId))
+      .limit(1);
+    if (!contact) return null;
+
+    return {
+      event: payload.event,
+      // The canonical contact key: external_id ?? anonymous_id ?? id.
+      userId: contact.externalId ?? contact.anonymousId ?? contact.id,
+      ...(contact.email ? { userEmail: contact.email } : {}),
+      eventProperties: {
+        steam_id: payload.steamId,
+        ...(payload.level === undefined ? {} : { level: payload.level }),
+      },
+    };
+  },
+});
+```
+
+`getLiveLink` reads the live row directly, so it is strongly consistent and
+never a cached mirror. Outside the engine process, `GET
+/v1/accounts/{provider}/{providerUserId}` answers the same question with a
+secret key.
+
+**A journey cannot trigger on `account.linked`.** The journey-plane re-ingest is
+not built: the event reaches the outbound spine and the hooks, not the journey
+registry. A journey triggers on the event this webhook source emits, or on any
+event your own `afterLink` hook goes on to produce.
+
 ## Unlinking
 
 **`POST /v1/accounts/me/revoke` is the primary path.** The publisher's site

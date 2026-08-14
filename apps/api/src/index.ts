@@ -17,6 +17,7 @@ import {
   telegramConnector,
 } from "@hogsend/plugin-telegram";
 import { serve } from "@hono/node-server";
+import { accountLinks, setAccountLinkDb } from "./account-links.js";
 import { buckets } from "./buckets/index.js";
 import { conversions } from "./conversions/index.js";
 import {
@@ -71,6 +72,12 @@ const client = createHogsendClient({
   // Discord OUTBOUND destination — always registered (config-driven per
   // webhook_endpoint), so lifecycle events can fan out to a Discord channel.
   destinations: [discordDestination],
+  // Account linking (Steam / Twitch). Providers come from the engine's env
+  // presets — Steam needs no credential, Twitch needs both ACCOUNT_LINK_TWITCH_*
+  // vars — so this only adds the in-process hooks. `accountLinks` is undefined
+  // until an account-link env var is set, because passing the option at all is
+  // operator intent and would register Steam on a deploy that never asked.
+  ...(accountLinks ? { accountLinks } : {}),
 });
 
 // The Discord connector callbacks (saveDerived/resolveContact) capture the
@@ -78,6 +85,11 @@ const client = createHogsendClient({
 // its db/identity) exist. `client.identity` is what `resolveContact` uses so the
 // `/link` contact-merge propagates a PostHog merge through the engine path (§7).
 setDiscordDb(client.db, client.identity);
+
+// Same deferred-handle wiring for the account-link hooks: they were passed into
+// the call that builds `db`, and they run at request time (the hosted callback,
+// the data plane), long after this line.
+setAccountLinkDb(client.db);
 
 // Env-only deploys never run `hogsend connect discord`, so the derived
 // credential lacks `discordAppId` and Studio's install button / member-link

@@ -1,6 +1,7 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
 import { discordActions } from "@hogsend/plugin-discord";
 import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
+import { accountLinks, setAccountLinkDb } from "./account-links.js";
 import { buckets } from "./buckets/index.js";
 import { conversions } from "./conversions/index.js";
 import {
@@ -50,8 +51,14 @@ async function main() {
       ...(discordConnector ? discordActions : []),
     ],
     destinations: [discordDestination],
+    // Mirror the API's account-link registration (registry-mirror rule) so both
+    // containers describe the same deployment. The link store runs in the API
+    // process today, so the hooks fire there; mirroring keeps the two configs
+    // from drifting when a worker-side path (the property-sync cron) lands.
+    ...(accountLinks ? { accountLinks } : {}),
   });
   setDiscordDb(client.db, client.identity);
+  setAccountLinkDb(client.db);
   const worker = createWorker({
     container: client,
     journeys,
