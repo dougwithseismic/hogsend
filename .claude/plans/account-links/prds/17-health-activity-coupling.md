@@ -113,3 +113,39 @@ None. No credential, no external service, no human decision.
 - [ ] `pnpm -C apps/api test` shows this file green.
 
 ## Implementation Notes
+
+**SHIPPED 2026-08-14, `66b413e6`.** The route is unchanged; the diff is one test file, 10 `expect`s
+to 25.
+
+**This PRD's stated MECHANISM was wrong, and BUILD corrected it. The conclusion was right.** The PRD
+above blames the 1500ms `ACTIVITY_TIMEOUT_MS` race and calls the failure load-dependent. It is
+neither. `apps/api/vitest.config.ts:86` sets a placeholder
+`DATABASE_URL: postgresql://test:test@localhost:5432/test`, and on a dev machine port 5432 hosts an
+UNRELATED project's Postgres that **accepts that connection**. So `SELECT 1` succeeds
+(`database.status: "up"`, `latencyMs: 19`) while `journey_states` and `email_sends` do not exist
+there, both COUNT queries error, and the bare catch at `health.ts:147-149` returns `NULL_ACTIVITY`.
+Deterministic on every run, which is why it also failed in isolation — a fact the PRD's
+load-dependent story could not explain and I should have noticed when I wrote it.
+
+The conclusion survives unchanged: `dbUp && counts === null` is legal, intended, and independent of
+the component check, so the test forbade the behaviour the route was built for. Both degradation
+paths still reach it; only which one fires here was misidentified.
+
+**T1 alone was vacuous on its numeric leg.** The rewritten shape assertion skips `null`, and in this
+environment all four counts ARE null — so it asserts nothing about numbers. That is why the injected-
+`db` success case exists: it is the only thing exercising the numeric branch at all. Worth
+remembering as a pattern — "assert `A | B`" quietly becomes "assert nothing" when the environment only
+ever produces one of them.
+
+Injection is via a shallow container copy (`createApp({ ...container, db })`) proxying only `select`,
+which is the sole call `queryRecentActivity` makes — the component ping and both schema-version reads
+go through `db.execute`. So the rest of the handler runs for real and no second pool or Hatchet client
+is created.
+
+Both new cases were watched failing before being trusted: removing the catch turns the throw case
+into `expected 500 to be 200`, and replacing `Number(...)` with a cast turns the success case into
+`expected '2' to be type of 'number'`.
+
+**Follow-up owed, outside this boundary — see PRD 20.** The placeholder `DATABASE_URL` resolving to a
+real foreign database is not specific to this route, and its comment claims an unreachable address it
+does not have.

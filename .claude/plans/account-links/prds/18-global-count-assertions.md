@@ -17,7 +17,7 @@ Confirmed instances:
 
 | Test | Mechanism |
 | --- | --- |
-| `apps/api/.../contact-id-backfill.test.ts` — `the sweep vs the contact-scoped uniqueness indexes (PRD 05 T3)` | Fails only under full-suite concurrency; PASSES alone (verified this run: 22/23 alone, then failing in the 247-file run). |
+| ~~`apps/api/.../contact-id-backfill.test.ts`~~ | **RETRACTED — this row was WRONG. It is not this class at all.** See "The T1 correction" below. |
 | `apps/cloud/.../ops-stats.test.ts` — `readOpsStats` | **Mechanism already diagnosed and recorded**: `readOpsStats` reads GLOBAL fleet counts while the rest of the suite seeds the same database, so `zero-fills every enum key on an empty fleet` is only ever true when nothing else is running. Any new seed makes it likelier. |
 | `apps/cloud/.../publish-cli-auth.test.ts` — `refuses a REVOKED session, storing nothing` | Failed twice in five full-suite runs. **The security reading is RULED OUT** — `CliSessionService` refuses on `if (row.revokedAt)`, a null check, so there is no window where a revoked session is accepted. What remains fits contention: the test asserts `buildRows(envA)` is EMPTY while sharing one Postgres. |
 
@@ -113,4 +113,65 @@ None.
 - [ ] `pnpm -C apps/api test`
 - [ ] the `apps/cloud` suite, on a throwaway container.
 
+## The T1 correction (2026-08-14) — global COST, not global COUNT
+
+**T1 SHIPPED as `4c3f8b70`, but not as this PRD specified it, because the premise was wrong.** BUILD
+was told to capture the actual assertion diff before assuming the shape, and doing so refuted the row.
+
+There is no assertion diff. **The failure is a 30s TIMEOUT**, and the four assertion failures
+underneath it were one cascade from it:
+
+```
+× skips colliding stamps, folds the preference opt-out, and never aborts   30001ms
+  Error: Test timed out in 30000ms.
+```
+
+Two facts rule this class out for this file, and I should have checked both before writing the row:
+
+1. **`contact-id-backfill.test.ts` is already in the serial `webhook-fanout` project** (`maxWorkers: 1`).
+   Nothing else runs while it runs, so cross-file contention cannot be the mechanism.
+2. **Its counting assertions are already scoped**, and the file documents that at `:592-600` and
+   `:639-644`.
+
+The real mechanism is **cost, not contention**. `runContactIdBackfill` walks every live contact and
+issues one bounded `UPDATE` per (contact, table) even when it writes nothing: measured against the
+shared dev database, 17,469 live contacts + 530 stale alias keys ⇒ ~108,000 statements ⇒ **~20s per
+sweep**. The T3 case drove TWO sweeps inside a 30s default. No amount of `WHERE`-scoping helps, because
+the rows the sweep pays for belong to other files.
+
+The blast radius explains the cascade, and is the transferable lesson: **vitest fails a timed-out test
+but does not stop the async work it started.** The abandoned sweep kept stamping while the file moved
+on, which is why one timeout produced five failures — including one on the very assertion this PRD
+told BUILD not to touch, which had not failed on its own merit.
+
+Fix shipped: a `SWEEP_BUDGET_MS = 90_000` budget on the three sweep-driving describes (sized to a
+whole-database job, ~4.5x the measured sweep), and the two-sweep case split so each test reports one
+verdict for one sweep. Every assertion byte-identical; 100 `expect(` calls before and after.
+
+**Amend the T4 standing rule accordingly.** The count-scoping rule still stands for T2/T3, but it is
+not the whole class. Add:
+- A test that drives a whole-database production job needs a timeout budget sized to THAT JOB, not the
+  suite default — and the budget should carry the measurement that justifies it.
+- A timed-out async test does not stop the work it started; the rest of the file inherits it. When one
+  timeout is followed by a cluster of assertion failures in the same file, suspect the cascade before
+  diagnosing each failure separately.
+
+**Two hazards recorded for whoever runs this suite:**
+- **Two concurrent PROCESSES running this file both run the global sweep and steal each other's
+  stamps.** An interim run failed with `expected 0 to be greater than or equal to 6` and passed two
+  minutes later on identical code. If another agent runs `apps/api test` at the same time, this file's
+  result is meaningless.
+- **The growth is unfixed.** The suite seeds contacts it never deletes (19,376 rows), so every sweep
+  gets slower forever. The budget buys ~4x. Durable fixes — a scope argument on
+  `runContactIdBackfill`, or periodically truncating the dev database — are outside T1.
+
 ## Implementation Notes
+
+T1 shipped (`4c3f8b70`) per the correction above. Full `apps/api` suite: **0 failures**, 2591 passed.
+The scoped case was mutation-proved — replacing the collision-skip guard with `sql.empty()` makes it
+fail with a 23505 on its OWN fixture key, then reverted clean.
+
+**T2 and T3 (`apps/cloud`: `ops-stats`, `publish-cli-auth`) are NOT started.** Their rows in the
+Confirmed-instances table stand — both have recorded global-count mechanisms and neither was touched
+here. Note that T1's retraction is a warning for them too: capture the ACTUAL failure before assuming
+it is this class.
