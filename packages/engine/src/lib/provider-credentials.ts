@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 import { type Database, providerCredentials } from "@hogsend/db";
 import { and, eq } from "drizzle-orm";
-import { env } from "../env.js";
+import { getAppSecret } from "./app-secret.js";
 
 /**
  * Provider-neutral credential storage: encrypted-at-rest OAuth tokens (and,
@@ -254,7 +254,7 @@ export async function getProviderCredential(
   return {
     providerId: row.providerId,
     kind: row.kind as CredentialKind,
-    payload: decryptPayload(row.payload, env.BETTER_AUTH_SECRET, providerId),
+    payload: decryptPayload(row.payload, await getAppSecret(), providerId),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -274,7 +274,7 @@ export async function saveProviderCredential(
   },
 ): Promise<ProviderCredentialMeta> {
   const kind = opts.kind ?? "oauth";
-  const encrypted = encryptPayload(opts.payload, env.BETTER_AUTH_SECRET);
+  const encrypted = encryptPayload(opts.payload, await getAppSecret());
 
   const [row] = await db
     .insert(providerCredentials)
@@ -366,7 +366,7 @@ export async function getDerivedCredential(
 
   return decryptJson(
     row.payload,
-    env.BETTER_AUTH_SECRET,
+    await getAppSecret(),
     providerId,
   ) as DerivedCredentialPayload;
 }
@@ -381,7 +381,7 @@ export async function saveDerivedCredential(
   providerId: string,
   payload: DerivedCredentialPayload,
 ): Promise<void> {
-  const encrypted = encryptJson(payload, env.BETTER_AUTH_SECRET);
+  const encrypted = encryptJson(payload, await getAppSecret());
 
   await db
     .insert(providerCredentials)

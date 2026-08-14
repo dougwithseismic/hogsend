@@ -208,7 +208,12 @@ const ALLOWED_RUNTIME_IMPORTS = [
   "@hogsend/core",
   "@hogsend/db",
   "drizzle-orm",
-  "../env.js",
+  // NOT "../env.js": that file validates at import time, and this module is
+  // reachable from the `@hogsend/engine/testing` barrel. `./app-secret.js`
+  // is the lazy accessor that keeps the barrel importable with no
+  // environment — see `src/testing-barrel.test.ts`, which fails if the
+  // static form comes back.
+  "./app-secret.js",
   "./provider-credentials.js",
 ];
 

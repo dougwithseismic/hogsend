@@ -8,7 +8,7 @@ import type {
 import { ACCOUNT_LINK_HOOK_TIMEOUT_MS } from "@hogsend/core";
 import { contacts, type Database, linkedAccounts } from "@hogsend/db";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { env } from "../env.js";
+import { getAppSecret } from "./app-secret.js";
 import type { Logger } from "./logger.js";
 import { sealJson, unsealJson } from "./provider-credentials.js";
 
@@ -390,9 +390,13 @@ function toLinkedAccountRecord(row: LinkedAccountRow): LinkedAccountRecord {
 }
 
 /** Seal a token grant. AES-256-GCM via `lib/provider-credentials.ts` — ONE
- * construction in the engine, one place a secret rotation is handled. */
-function sealTokens(tokens: LinkTokens): string {
-  return sealJson(tokens, env.BETTER_AUTH_SECRET);
+ * construction in the engine, one place a secret rotation is handled.
+ *
+ * Async only because the secret is fetched lazily (see `lib/app-secret.ts`);
+ * the crypto itself is synchronous, and both call sites are already inside the
+ * link transaction's async body. */
+async function sealTokens(tokens: LinkTokens): Promise<string> {
+  return sealJson(tokens, await getAppSecret());
 }
 
 // ---------------------------------------------------------------------------
@@ -629,7 +633,7 @@ export async function linkAccount(
             updatedAt: new Date(),
           };
           if (input.storeTokens && identity.tokens) {
-            set.tokens = sealTokens(identity.tokens);
+            set.tokens = await sealTokens(identity.tokens);
           }
           const [updated] = await tx
             .update(linkedAccounts)
@@ -763,7 +767,7 @@ export async function linkAccount(
             // the identity carried them.
             tokens:
               input.storeTokens && identity.tokens
-                ? sealTokens(identity.tokens)
+                ? await sealTokens(identity.tokens)
                 : null,
             method: input.method,
             singleton: !input.multiple,
@@ -1009,7 +1013,7 @@ export async function unlinkAccount(
     try {
       const tokens = unsealJson(
         outcome.row.tokens,
-        env.BETTER_AUTH_SECRET,
+        await getAppSecret(),
         `account-link:${input.provider}`,
       ) as LinkTokens;
       await input.revoke(tokens);
