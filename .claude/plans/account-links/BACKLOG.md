@@ -14,7 +14,7 @@ Branch `feat/account-links`, worktree `.claude/worktrees/account-links`, branche
 | 05 | [Container wiring + provider registry](prds/05-container-wiring.md) | `[x]` | 01 | `accountLinks: { providers, hooks }`, `client.accountLinkProviders`, env-driven config, boot validation |
 | 06 | [Concrete providers: Steam + Twitch](prds/06-providers.md) | `[x]` | 01, 05 | The two built-in definitions. **Discord is deliberately OUT (DECISIONS §12)** — it already links via `plugin-discord` and a second writer on `contacts.discordId` is the drift risk. Steam is the bespoke OpenID 2.0 one: mandatory `check_authentication` round-trip posted to Steam's HARDCODED endpoint (never `openid.op_endpoint` from the callback), strict `claimed_id` parse, `return_to` echo check |
 | 07 | [Hosted flow: state, start, callback](prds/07-hosted-flow.md) | `[x]` | 03, 05, 06 | `account_link` state purpose, PKCE, nonce burn, throttle, `beforeLink` veto, cold vs warm |
-| 08 | [Outbound events + catalog sync](prds/08-outbound-events.md) | `[ ]` | 03 | The three events, full-state versioned payloads, dedupe keys, **three** hand-synced catalog copies |
+| 08 | [Outbound events + catalog sync](prds/08-outbound-events.md) | `[ ]` | 03 | The three events, full-state versioned payloads, dedupe keys, **three** hand-synced catalog copies. **T1-T3 SHIPPED** (`356ddd9a` catalog, `baa9c0c9` payload types, `2c07d292` emit helpers + merge/deletion legs). **Remaining: T4** (callback emits + the four `link_failed` reasons), **T4b** (fanout registration), **T5** (journey-plane re-ingest), **T6** (changesets) |
 | 09 | [Data plane: `/v1/accounts/*`](prds/09-data-plane.md) | `[ ]` | 03, 05 | List, reverse lookup, unlink, insert-only import, mint-link, and the one userToken-gated `me` route. New `accounts` scope |
 | 10 | [Hosted pages + branding](prds/10-hosted-pages.md) | `[ ]` | 07 | Generalize `ColdConnectBranding`; link/success/error pages; `postMessage` origin allowlist |
 | 11 | [Player manage + revoke page](prds/11-manage-page.md) | `[ ]` | 09, 10 | `GET /v1/accounts/manage?token=`, a DEDICATED contact-id-keyed token (NOT the unsubscribe payload, which mandates an email Steam never yields), per-row revoke. The fallback surface; the in-app userToken revoke is primary (DECISIONS §14) |
@@ -23,6 +23,19 @@ Branch `feat/account-links`, worktree `.claude/worktrees/account-links`, branche
 | 14 | [Token custody + property sync](prds/14-enrichment.md) | `[ ]` | 03, 06 | Sealed tokens, `refresh()`/`revoke()`, one Hatchet cron writing namespaced contact properties, `invalid_grant` handling. Field is `sync: { every, read }` — NOT `enrichment` (saturated term, see DECISIONS §10) |
 | 15 | [Studio panel](prds/15-studio-panel.md) | `[ ]` | 03, 09 (row shape only) | Observe-only contact-detail panel + reverse lookup. **Needs its own `/v1/admin/accounts` router behind `requireAdmin`** — Studio is cookie-authed and cannot call the `hsk_`-scoped data plane. Mirrors `routes/admin/groups.ts`. No authoring UI |
 | 16 | [Docs + dogfood wiring](prds/16-docs-and-dogfood.md) | `[ ]` | 07, 09, 13 | `docs/account-links.md`, the verbatim consumer upsert rule, and a real provider wired into `apps/api` |
+
+## Wave 2 — the gates themselves (queued 2026-08-14)
+
+Surfaced while building PRD 08. These are not account-link features; they are the reason a green
+gate is not currently evidence. **They jump the queue** — every remaining PRD's Done-when names
+`cd apps/api && pnpm test`, which cannot pass today, and one of the four gates does not execute at
+all. Building 09 onward first would mean certifying each of them against instruments that do not read.
+
+| # | PRD | Status | Depends on | Scope |
+| --- | --- | --- | --- | --- |
+| 17 | [health-activity asserts a coupling the route refuses](prds/17-health-activity-coupling.md) | `[ ]` | — | **P0, reproducible red on clean `main`.** The test requires numeric counts whenever the DB component is `up`; `routes/health.ts` degrades counts to null on a 1500ms deadline OR any throw, independently of that component. The route is right and the test forbids the feature. Fix the test, pin the degradation path so the relaxed assertion still bites |
+| 18 | [global-count assertions under a shared Postgres](prds/18-global-count-assertions.md) | `[ ]` | — | **P0, a CLASS not an instance.** `contact-id-backfill` (apps/api), `ops-stats` + `publish-cli-auth` (apps/cloud) assert global counts while parallel files seed the same DB. Scope each to owned rows — never retry, never soften to `toBeGreaterThan(0)`, never serialise the suite |
+| 19 | [two gates cannot fail, one cannot run](prds/19-unrunnable-quality-gates.md) | `[ ]` | 17, 18 | **P0.** `pnpm -C <dir> turbo run test` dies `EACCES` before running anything (no root `turbo` script) — and its error reads exactly like a failing suite. That is the ONE gate catching the `@hogsend/testing` import-time-env class. Plus `check-types` is vacuous yet still cited in Done-when lists |
 
 ## Legend
 
