@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -396,4 +397,105 @@ test("the ingest helper reaches ingestion only by DYNAMIC import", () => {
       `lib/account-link-ingest.ts no longer dynamically imports ${specifier}`,
     );
   }
+});
+
+test("every account-link emit site also reaches the journey plane", () => {
+  // THE PAIRING GUARD (PRD 08 T5). The two planes are called side by side, and
+  // the failure mode this catches is the one nothing else can: a NEW emit site
+  // that ships to the customer's subscriber and never routes a journey. Both
+  // planes fail SILENTLY when absent — an outbound-only site leaves every
+  // account-link journey dead for that path, and nothing throws, nothing logs,
+  // and every existing test stays green. The "two planes stay two planes"
+  // guard above only stops the two being NESTED; it cannot see a site that
+  // forgot one.
+  //
+  // Enumerated from source rather than pinned as a literal list, so a new file
+  // is judged by what it DOES, not by whether someone remembered to list it.
+  const SRC = fileURLToPath(new URL("..", import.meta.url));
+  const files = execFileSync("git", ["ls-files", "-z", "*.ts"], {
+    cwd: SRC,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter((f) => f && !f.endsWith(".test.ts"));
+
+  // The machinery, not a site: these DECLARE the surfaces (the outbound spine
+  // itself, the event catalog) and the two account-link helper modules DEFINE
+  // them. A name appearing here is a definition, not an emit.
+  const MACHINERY = [
+    "lib/outbound.ts",
+    "lib/webhook-signing.ts",
+    "lib/account-link-events.ts",
+    "lib/account-link-emit.ts",
+    "lib/account-link-ingest.ts",
+  ];
+
+  // The deliberate one-plane emits, COUNTED per file with the reason. Both
+  // are erasure legs: the contact is deleted in the SAME transaction as the
+  // unlink, so there is no subject left to enroll. Filing a fresh
+  // `user_events` row and starting a journey for a just-erased person
+  // contradicts the erasure, and the only keys available are a soft-deleted
+  // row (which ingest drops as provenance-lost) or a value key that would
+  // MINT — resurrecting the row we just erased. They still EMIT, because the
+  // customer's mirror must converge.
+  //
+  // A COUNT, not a filename, because `lib/contacts.ts` holds a PAIRED site
+  // (the merge fold) alongside its erasure leg — exempting the whole file
+  // would blind the guard to the merge fold losing its journey plane.
+  //
+  // Raising a number here is a real decision. An unpaired emit is invisible in
+  // production; write down why, or call the chokepoints instead.
+  const ERASURE_ONLY: Record<string, number> = {
+    // `softDeleteContact` — the deletion leg.
+    "lib/contacts.ts": 1,
+    // The admin erasure route, which runs its own transaction.
+    "routes/admin/contacts.ts": 1,
+  };
+
+  // COUNTED, not merely present. A file-granular "does this file ingest at
+  // all?" check is far too coarse: `routes/accounts/emit.ts` holds BOTH
+  // chokepoints, so dropping the journey plane from `noteUnlinked` alone would
+  // still leave the file ingesting via `noteLinked` and the guard would pass
+  // while `account.unlinked` went dark. Counting the pairs catches that.
+  const count = (src: string, re: RegExp) => (src.match(re) ?? []).length;
+  const unbalanced: string[] = [];
+  let totalEmits = 0;
+  for (const file of files) {
+    if (MACHINERY.includes(file)) continue;
+    const code = readFileSync(`${SRC}/${file}`, "utf8")
+      .split("\n")
+      .filter((line) => {
+        const t = line.trimStart();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
+      .join("\n");
+    // Calls only — the trailing `(` keeps a bare `import { … }` from counting.
+    const emits =
+      count(code, /event: "account\.(?:linked|unlinked|link_failed)"/g) +
+      count(code, /emitAccountUnlinked\(/g) -
+      (ERASURE_ONLY[file] ?? 0);
+    const ingests = count(
+      code,
+      /ingestAccount(?:Linked|Unlinked|LinkFailed)\(/g,
+    );
+    totalEmits += emits;
+    if (emits !== ingests) {
+      unbalanced.push(`${file}: ${emits} emit(s), ${ingests} re-ingest(s)`);
+    }
+  }
+
+  assert.ok(
+    totalEmits > 0,
+    "found NO account-link emit sites — this guard just went vacuous",
+  );
+  assert.deepEqual(
+    unbalanced,
+    [],
+    "every account.* emit must be PAIRED with a journey-plane re-ingest in " +
+      "the same file. A one-plane site is a SILENT hole: outbound-only " +
+      "leaves journeys dead, ingest-only leaves the customer's mirror " +
+      "stale, and neither fails loudly. Call the chokepoints in " +
+      "routes/accounts/emit.ts, or — if the site genuinely has no subject " +
+      "to enroll — add it to ERASURE_ONLY with the reason.",
+  );
 });
