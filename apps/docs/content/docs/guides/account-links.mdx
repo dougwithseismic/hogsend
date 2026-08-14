@@ -1,0 +1,364 @@
+---
+title: Account Linking
+description: Bind a player's Steam or Twitch account to a Hogsend contact. Steam needs no credentials, every link carries a monotonic version, and your own database can mirror it exactly.
+---
+
+You know a player by their SteamID. Your CRM knows them by email. Nothing joins
+the two, so the churn email never reaches the player who stopped logging in.
+
+`defineAccountLink` binds a third-party platform account to a Hogsend contact.
+The player signs in through the platform, and from then on the platform id and
+the contact are the same person to every part of the system.
+
+<Callout title="Steam needs no credentials">
+"Sign in through Steam" is OpenID 2.0. The relying party presents no secret, so
+there is no app to register and no key to obtain. Steam links on a bare deploy.
+Twitch needs a client id and secret.
+</Callout>
+
+## Turn it on
+
+Providers register on operator intent. Intent is exactly four environment
+variables (`ACCOUNT_LINK_ALLOWED_ORIGINS`, `ACCOUNT_LINK_TWITCH_CLIENT_ID`,
+`ACCOUNT_LINK_TWITCH_CLIENT_SECRET`, `STEAM_WEB_API_KEY`) or passing any
+`accountLinks` option to `createHogsendClient`, including `{}`. With no intent,
+no providers register and nothing throws at boot.
+
+`ACCOUNT_LINK_STATE_TTL_SECONDS` is deliberately not intent: it carries a
+default, so counting it would make every deploy look like it opted in.
+
+```bash
+# Steam. This one variable is enough.
+ACCOUNT_LINK_ALLOWED_ORIGINS=https://yourgame.com
+
+# Twitch. BOTH are required, or it does not register.
+ACCOUNT_LINK_TWITCH_CLIENT_ID=...
+ACCOUNT_LINK_TWITCH_CLIENT_SECRET=...
+
+# Optional. Widens Steam with persona name and avatar.
+STEAM_WEB_API_KEY=...
+```
+
+Redis is required: the mint throttle fails closed without it.
+
+## Link an account
+
+Your server mints a URL for a contact, then sends the player to it.
+
+```bash
+curl -X POST $API/v1/accounts/mint-link \
+  -H "Authorization: Bearer $SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"steam","email":"player@example.com"}'
+```
+
+```json
+{ "url": "https://api.yourgame.com/v1/accounts/steam/start?t=...", "expiresAt": "..." }
+```
+
+Open that URL. The engine redirects to the platform, the player signs in, and
+the callback writes the link and shows a result page. The URL is engine-origin,
+never the provider's.
+
+<Callout type="warn" title="Mint on click, not in advance">
+The state token lives 15 minutes by default
+(`ACCOUNT_LINK_STATE_TTL_SECONDS`). An expired link is refused and nothing is
+written, so mint the URL when the player clicks, not when the page loads.
+</Callout>
+
+If the player is already signed in to your site, skip your backend entirely.
+`POST /v1/accounts/link-url` takes a `userToken` your server minted and returns
+the same shape. It mints only for that token's own user: a `contactId`, `email`
+or differing `userId` in the body is a `403` with no mint.
+
+## The three planes
+
+The same fact reaches you three ways. Pick per use case.
+
+| Plane | Surface | Use it for |
+| --- | --- | --- |
+| PULL | `/v1/accounts/*` | The authoritative read. Reconciliation, support tooling, "who owns this SteamID right now". |
+| PUSH | `account.linked`, `account.unlinked`, `account.link_failed` | Keeping your own database in sync as links change. |
+| IN-PROCESS | `afterLink` / `afterUnlink` hooks | Writing straight into your production database inside your own app. |
+
+## The version contract
+
+This is the part to get right. Every mutation carries a `version` that
+increases monotonically per `(provider, providerUserId)`.
+
+Upsert on that pair and apply only when the incoming version is greater than
+what you have stored. That one rule makes duplicate, out-of-order and late
+deliveries all no-ops, so you never need to reason about delivery order.
+
+```ts
+// version is a decimal STRING, because the column is a Postgres bigint.
+if (BigInt(incoming.version) > BigInt(stored.version)) {
+  await upsert(incoming);
+}
+```
+
+<Callout type="warn">
+Never `parseInt` a version. A value above `Number.MAX_SAFE_INTEGER` rounded
+through a JavaScript number breaks the comparison silently, which is the exact
+case the guard exists for. Compare with `BigInt()` or a numeric column.
+</Callout>
+
+## Examples
+
+### Register providers
+
+Providers are not listed in your code. The env presets build them, so the same
+wiring serves a Steam-only deploy and a Steam plus Twitch one. What you write is
+the hook.
+
+```ts
+import { contacts, type Database } from "@hogsend/db";
+import { createHogsendClient, type AccountLinkHooks } from "@hogsend/engine";
+import { eq, sql } from "drizzle-orm";
+
+// The hooks are passed INTO createHogsendClient, which is what builds `db`, so
+// they read a deferred handle wired after the client exists.
+let dbHandle: Database | undefined;
+export function setAccountLinkDb(db: Database): void {
+  dbHandle = db;
+}
+
+export const accountLinkHooks: AccountLinkHooks = {
+  // Post-commit, at-least-once, fail-open, bounded at 5s. Idempotent by
+  // construction: one UPDATE setting the same keys to the same values.
+  async afterLink(ctx) {
+    if (!dbHandle) return;
+    const patch = {
+      [`${ctx.provider}_user_id`]: ctx.identity.providerUserId,
+      [`${ctx.provider}_username`]: ctx.identity.username ?? null,
+      // The bigint version as a STRING. Never parseInt it.
+      [`${ctx.provider}_link_version`]: ctx.version,
+    };
+    await dbHandle
+      .update(contacts)
+      .set({
+        properties: sql`jsonb_strip_nulls(COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
+      })
+      .where(eq(contacts.id, ctx.contactId));
+  },
+};
+
+const client = createHogsendClient({
+  accountLinks: {
+    hooks: accountLinkHooks,
+    allowedOrigins: ["https://play.yourgame.com"],
+  },
+});
+setAccountLinkDb(client.db);
+```
+
+The SteamID lands on `contacts.properties`, so journeys, buckets and the Studio
+contact panel read it with no new machinery.
+
+### Add a platform we do not ship
+
+Battle.net is a plain OAuth2 platform, so it is `oauth2Link()` plus a field
+mapping. No package to install and no engine change.
+
+```ts
+import { AccountLinkCallbackError, oauth2Link } from "@hogsend/engine";
+
+export const battlenet = oauth2Link({
+  meta: { id: "battlenet", name: "Battle.net" },
+  authorizeEndpoint: "https://oauth.battle.net/authorize",
+  tokenEndpoint: "https://oauth.battle.net/token",
+  clientId: process.env.BATTLENET_CLIENT_ID ?? "",
+  clientSecret: process.env.BATTLENET_CLIENT_SECRET ?? "",
+  scopes: ["openid"],
+  usePkce: true,
+  userInfo: {
+    url: "https://oauth.battle.net/oauth/userinfo",
+    // MUST pick the platform's immutable id. `sub` is the account id;
+    // `battletag` is a renameable handle, so it is display data only.
+    map: (json) => {
+      const profile = json as { sub?: string; battletag?: string };
+      if (!profile.sub) {
+        throw new AccountLinkCallbackError(
+          "exchange_failed",
+          "userinfo carried no sub",
+        );
+      }
+      return {
+        providerUserId: profile.sub,
+        ...(profile.battletag ? { username: profile.battletag } : {}),
+      };
+    },
+  },
+});
+```
+
+Pass it as `accountLinks: { providers: [battlenet] }`.
+
+### Mirror links into your own database
+
+The version guard in full, with the discard branch written out. This is the
+example to copy exactly.
+
+```ts
+// The verified account.linked / account.unlinked payload, narrowed to the
+// fields a mirror needs.
+interface AccountEvent {
+  state: "linked" | "unlinked";
+  provider: string;
+  providerUserId: string;
+  contactId: string;
+  // A decimal string, because the column is a Postgres bigint.
+  version: string;
+}
+
+export async function handleAccountEvent(event: AccountEvent) {
+  const stored = await db.playerAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider: event.provider,
+        providerUserId: event.providerUserId,
+      },
+    },
+  });
+
+  // DISCARD. A duplicate, a reordered pair and a late delivery all land here.
+  if (stored && BigInt(event.version) <= BigInt(stored.version)) {
+    return "discarded";
+  }
+
+  // APPLY. Keyed on the pair, never on contactId: a relink moves the pair
+  // between contacts and both mutations share one version sequence.
+  await db.playerAccount.upsert({
+    where: {
+      provider_providerUserId: {
+        provider: event.provider,
+        providerUserId: event.providerUserId,
+      },
+    },
+    create: {
+      provider: event.provider,
+      providerUserId: event.providerUserId,
+      state: event.state,
+      contactId: event.contactId,
+      version: event.version,
+    },
+    update: {
+      state: event.state,
+      contactId: event.contactId,
+      version: event.version,
+    },
+  });
+  return "applied";
+}
+```
+
+Verify the webhook signature before this runs, and remember `version` is a
+decimal string.
+
+### Use a link server-side
+
+The reverse lookup. Your game server knows a SteamID and nothing else. This
+turns it into the contact and puts the event on the lifecycle spine under the
+contact's own key, where a journey can trigger on it.
+
+```ts
+import { contacts } from "@hogsend/db";
+import { defineWebhookSource, getLiveLink } from "@hogsend/engine";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+export const gameServerSource = defineWebhookSource({
+  meta: { id: "game-server", name: "Game server" },
+  auth: {
+    type: "match",
+    header: "x-game-server-secret",
+    envKey: "GAME_SERVER_WEBHOOK_SECRET",
+  },
+  schema: z.object({
+    steamId: z.string().regex(/^\d{17}$/),
+    event: z.string(),
+  }),
+  async transform(payload, ctx) {
+    const link = await getLiveLink({
+      db: ctx.db,
+      provider: "steam",
+      providerUserId: payload.steamId,
+    });
+    // No link means we do not know who this is. A SteamID is not a contact.
+    if (!link) return null;
+
+    const [contact] = await ctx.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, link.contactId))
+      .limit(1);
+    if (!contact) return null;
+
+    return {
+      event: payload.event,
+      // The canonical contact key: external_id ?? anonymous_id ?? id.
+      userId: contact.externalId ?? contact.anonymousId ?? contact.id,
+      ...(contact.email ? { userEmail: contact.email } : {}),
+      eventProperties: { steam_id: payload.steamId },
+    };
+  },
+});
+```
+
+<Callout type="warn" title="A journey cannot trigger on account.linked yet">
+The journey-plane re-ingest is not built. The event reaches the outbound spine
+and the hooks, not the journey registry. Trigger on the event a webhook source
+like the one above emits, or on one your `afterLink` hook produces.
+</Callout>
+
+## Reading and unlinking
+
+```bash
+# Who owns this platform account right now?
+curl $API/v1/accounts/steam/76561197960287930 -H "Authorization: Bearer $SECRET_KEY"
+
+# Every live link for a contact.
+curl "$API/v1/accounts?email=player@example.com" -H "Authorization: Bearer $SECRET_KEY"
+```
+
+There are two unlink surfaces. `POST /v1/accounts/me/revoke` is the primary
+one: your site already knows the signed-in player, so it needs a `userToken`
+and no email. `DELETE /v1/accounts/{provider}/{providerUserId}` is the operator
+path for reconciliation and support.
+
+`GET /v1/accounts/me` returns display fields only, and never confirms
+existence. An absent, malformed, expired or forged token returns
+`200 {"accounts":[]}`, identical to a real player with no links. It is
+browser-reachable, so it must not become an enumeration oracle.
+
+## Backfilling existing links
+
+`POST /v1/accounts/import` is insert-only. A pair that already has a live owner
+is reported under `conflicts` with the existing row untouched: only a completed
+sign-in may move a link, because moving one on an API call would let a bad
+import reassign a player's identity. A conflicting batch still applies its
+clean rows.
+
+## Adding another platform
+
+Providers are configuration, not packages. `oauth2Link()` takes an authorize
+URL, a token URL, a profile URL and a field mapping, which is all most OAuth2
+platforms need. The Battle.net example above is a whole provider.
+
+Discord is deliberately not an account-link provider: it already links through
+`@hogsend/plugin-discord`, and a second writer on the same contact field would
+drift.
+
+## Limitations
+
+Known and named, so you do not hunt for them.
+
+- Steam returns no `username` or `avatarUrl` unless `STEAM_WEB_API_KEY` is set.
+- Epic, Xbox and PSN are not built. Epic requires an organization application
+  that takes weeks to approve.
+- Not built yet: the hosted manage page, an embed SDK button, the
+  `@hogsend/client` `accounts.*` resource, the periodic property sync, and the
+  Studio panel.
+- A journey cannot yet trigger on `account.linked`. The events reach the
+  outbound spine, not the journey plane.
+- The hosted result pages are functional and unbranded.

@@ -11,7 +11,7 @@ description: A TypeScript framework for growth teams that code. Identify and enr
 One command scaffolds the whole stack, one command runs it: `pnpm dlx create-hogsend@latest my-app`, then `pnpm hogsend dev` — API, worker, Studio, and database in a single terminal. Already on PostHog? Point a webhook at your app and the events you capture today start triggering journeys.
 </Callout>
 
-Hogsend is a TypeScript framework for growth engineering. Identify and enrich the people on your product, react to the events they fire, message them where they are — email, SMS, Discord, Telegram — and measure what each journey moved. Buckets, tracked links, feature flags, funnels, groups, and a Studio to watch it all come built in.
+Hogsend is a TypeScript framework for growth engineering. Identify and enrich the people on your product, react to the events they fire, message them where they are — email, SMS, Discord, Telegram — and measure what each journey moved. Buckets, tracked links, feature flags, funnels, groups, account linking, and a Studio to watch it all come built in.
 
 Under it all is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A call from your own app, a Stripe event, a PostHog webhook — they all normalize to an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, CRM, or warehouse.
 
@@ -125,6 +125,7 @@ You register this journey by adding it to the `journeys` array your app exports 
 - **Swappable email delivery** — Resend by default, Postmark opt-in, or bring your own behind the `EmailProvider` contract. React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center — all engine-owned, so they come along with any provider.
 - **A public data plane** — Write contacts, events, and transactional emails from your own code with one ingest-scoped key via [`POST /v1/events`](/docs/data-api/events) or the typed [`@hogsend/client`](/docs/data-api/client-sdk).
 - **Outbound destinations** — Fan the lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse over the durable webhook spine with [`defineDestination()`](/docs/data-api/destinations).
+- **Account linking** — Bind a player's Steam or Twitch account to a contact with [`defineAccountLink()`](/docs/guides/account-links), so the platform id and the email are the same person. Steam needs no credentials at all. Every link carries a monotonic version, so your own database can mirror it exactly.
 - **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.
 - **Two-track migrations** — Engine schema ships upstream in `@hogsend/db` and gates boot; your own client schema is yours to evolve. Both run from a single `pnpm db:migrate`.
 - **Admin API and Studio** — The same operational surface powers the CLI and visual Studio for contacts, journey control, email metrics, alerting, and audit logs.
