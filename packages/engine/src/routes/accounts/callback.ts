@@ -9,6 +9,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { buildLinkFailedPayload } from "../../lib/account-link-events.js";
 import { runBeforeLink } from "../../lib/account-link-hooks.js";
+import { ingestAccountLinkFailed } from "../../lib/account-link-ingest.js";
 import { burnAccountLinkNonce } from "../../lib/account-link-nonce.js";
 import { isAllowedReturnTo } from "../../lib/account-link-origins.js";
 import { takePkceVerifier } from "../../lib/account-link-pkce.js";
@@ -68,16 +69,25 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
         accountLinkProviders,
         accountLinkAllowedOrigins,
         accountLinkHooks,
+        analytics,
         db,
         env,
         hatchet,
         logger,
+        registry,
       } = container;
 
       // (1) Provider.
       const provider = accountLinkProviders.get(providerId);
       if (!provider) return c.json({ error: "unknown_provider" }, 404);
-      const fail: AccountLinkEmitContext = { providerId, db, hatchet, logger };
+      const fail: AccountLinkEmitContext = {
+        providerId,
+        db,
+        hatchet,
+        logger,
+        registry,
+        ...(analytics ? { analytics } : {}),
+      };
       const errorPage = () =>
         c.html(accountLinkErrorPage(provider.meta.name), 400);
 
@@ -157,7 +167,12 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
         logger.warn("account link callback: state replay rejected", {
           provider: providerId,
         });
-        noteLinkFailed(fail, "state_invalid", intent.contactId ?? null);
+        noteLinkFailed(
+          fail,
+          "state_invalid",
+          intent.contactId ?? null,
+          intent.anonymousId,
+        );
         return errorPage();
       }
 
@@ -173,7 +188,12 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
               provider: providerId,
             },
           );
-          noteLinkFailed(fail, "state_invalid", intent.contactId ?? null);
+          noteLinkFailed(
+            fail,
+            "state_invalid",
+            intent.contactId ?? null,
+            intent.anonymousId,
+          );
           return errorPage();
         }
         codeVerifier = verifier;
@@ -213,7 +233,12 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
           reason,
           error: err instanceof Error ? err.message : "unknown error",
         });
-        noteLinkFailed(fail, reason, intent.contactId ?? null);
+        noteLinkFailed(
+          fail,
+          reason,
+          intent.contactId ?? null,
+          intent.anonymousId,
+        );
         return errorPage();
       }
 
@@ -290,6 +315,7 @@ export function registerAccountLinkCallbackRoute(router: OpenAPIHono<AppEnv>) {
           fail,
           "vetoed",
           warm ? (intent.contactId ?? null) : null,
+          warm ? undefined : intent.anonymousId,
         );
         return errorPage();
       }
@@ -516,12 +542,44 @@ function noteLinkFailed(
   fail: AccountLinkEmitContext,
   reason: "denied" | "vetoed" | "exchange_failed" | "state_invalid",
   contactId: string | null,
+  coldAnonymousId?: string,
 ): void {
   fail.logger.info("account link failed", {
     provider: fail.providerId,
     reason,
     contactId,
   });
+
+  // THE JOURNEY PLANE, beside the outbound one (PRD 08 T5). TWO DIFFERENT
+  // PLANES: this writes `user_events` + pushes to Hatchet so a journey can
+  // trigger on `account.link_failed`; the `emitOutbound` below writes a
+  // `webhook_deliveries` row for the CUSTOMER'S subscriber. Neither may be
+  // collapsed into the other — see the header of `lib/account-link-ingest.ts`.
+  //
+  // The SUBJECT is not the payload's `contactId` field by accident: warm uses
+  // the sealed (server-minted, unforgeable) id, and cold uses the state's
+  // `anonymous_id`, which the payload deliberately does NOT carry. A failure
+  // with neither — a state that did not verify, a sealed contact that is gone
+  // — reaches the journey plane not at all: there is nothing trustworthy to
+  // attribute it to, and inventing one is how a failed link mints a contact.
+  ingestAccountLinkFailed(
+    fail.db,
+    {
+      provider: fail.providerId,
+      reason,
+      subject: contactId
+        ? { contactId }
+        : coldAnonymousId
+          ? { anonymousId: coldAnonymousId }
+          : null,
+    },
+    {
+      hatchet: fail.hatchet,
+      logger: fail.logger,
+      ...(fail.registry ? { registry: fail.registry } : {}),
+      ...(fail.analytics ? { analytics: fail.analytics } : {}),
+    },
+  );
   // `void … .catch` per the `emitOutbound` contract: it never throws, and the
   // catch is the defence-in-depth its docstring asks every call site for. An
   // emit must never fail the callback.

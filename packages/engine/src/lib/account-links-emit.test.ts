@@ -320,3 +320,80 @@ test("the store module imports nothing new at runtime", () => {
       "callers emit), add it to ALLOWED_RUNTIME_IMPORTS.",
   );
 });
+
+const INGEST_HELPER_SOURCE = readFileSync(
+  fileURLToPath(new URL("./account-link-ingest.ts", import.meta.url)),
+  "utf8",
+);
+
+test("the two planes stay two planes", () => {
+  // PRD 08 T5. `lib/account-link-ingest.ts` (journey plane) and
+  // `lib/account-link-emit.ts` (outbound plane) are called SIDE BY SIDE at
+  // every account-link site, which is exactly how someone later "simplifies"
+  // one into the other. Nothing else can catch that: collapsing the emit into
+  // the ingest still writes a delivery row, and collapsing the ingest into the
+  // emit still routes a journey — until the two fan out to the wrong audience.
+  // DECISIONS §8 (the `group.*` rule): the intent layer emits, and the ingest
+  // path never does.
+  const ingestHits = INGEST_HELPER_SOURCE.split("\n")
+    .map((line, i) => [i + 1, line] as const)
+    .filter(
+      ([, line]) =>
+        !line.trimStart().startsWith("*") &&
+        !line.trimStart().startsWith("//") &&
+        EMIT_SYMBOLS.some((symbol) => line.includes(symbol)),
+    );
+  assert.deepEqual(
+    ingestHits,
+    [],
+    "lib/account-link-ingest.ts must reach NO emit surface — the ingest path " +
+      `never emits (DECISIONS §8); found: ${JSON.stringify(ingestHits)}`,
+  );
+
+  const emitHits = EMIT_HELPER_SOURCE.split("\n")
+    .map((line, i) => [i + 1, line] as const)
+    .filter(
+      ([, line]) =>
+        !line.trimStart().startsWith("*") &&
+        !line.trimStart().startsWith("//") &&
+        ["ingestEvent", "ingestAccountUnlinked"].some((s) => line.includes(s)),
+    );
+  assert.deepEqual(
+    emitHits,
+    [],
+    "lib/account-link-emit.ts must reach NO ingest surface — the two planes " +
+      `are called side by side, never nested; found: ${JSON.stringify(emitHits)}`,
+  );
+});
+
+test("the ingest helper reaches ingestion only by DYNAMIC import", () => {
+  // Same hazard as the emit helper's guard above, one layer along:
+  // `lib/contacts.ts` now imports THIS module (the merge fold's post-commit
+  // `account.unlinked`), and `src/testing.ts` re-exports from
+  // `lib/contacts.ts`. `./ingestion.js` reaches `lib/hatchet.js`, whose import
+  // runs `HatchetClient.init(...)` — so a static import here throws
+  // "Invalid token format" the instant the documented side-effect-free
+  // `@hogsend/engine/testing` barrel is loaded. It is ALSO a module cycle
+  // (`ingestion.ts` imports `contacts.ts` imports this). A SOURCE read because
+  // every gate stays green without it: the test environments all hand
+  // `HATCHET_CLIENT_TOKEN` a well-formed dummy JWT.
+  const forbidden = ["./ingestion.js", "./contacts.js", "./hatchet.js"];
+  const statics = staticImports(INGEST_HELPER_SOURCE);
+  assert.deepEqual(
+    statics.filter((s) => forbidden.includes(s)),
+    [],
+    "lib/account-link-ingest.ts must import ./ingestion.js, ./contacts.js " +
+      "and ./hatchet.js DYNAMICALLY (inside the fire-and-forget body), never " +
+      `statically. Found: ${JSON.stringify(statics)}`,
+  );
+
+  // And they ARE still reached — a guard that passed because the re-ingest
+  // stopped ingesting would be worthless.
+  const dynamics = dynamicImports(INGEST_HELPER_SOURCE);
+  for (const specifier of forbidden) {
+    assert.ok(
+      dynamics.includes(specifier),
+      `lib/account-link-ingest.ts no longer dynamically imports ${specifier}`,
+    );
+  }
+});

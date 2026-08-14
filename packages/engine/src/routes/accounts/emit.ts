@@ -1,4 +1,6 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { AnalyticsProvider } from "@hogsend/core";
+import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { Database } from "@hogsend/db";
 import {
   type AccountUnlinkedFacts,
@@ -6,6 +8,10 @@ import {
   buildAccountUnlinkedPayload,
   buildDedupeKey,
 } from "../../lib/account-link-events.js";
+import {
+  ingestAccountLinked,
+  ingestAccountUnlinked,
+} from "../../lib/account-link-ingest.js";
 import type { LinkAccountResult } from "../../lib/account-links.js";
 import type { Logger } from "../../lib/logger.js";
 import { emitOutbound } from "../../lib/outbound.js";
@@ -38,6 +44,16 @@ export interface AccountLinkEmitContext {
   db: Database;
   hatchet: HatchetClient;
   logger: Logger;
+  /**
+   * The JOURNEY plane's handles (PRD 08 T5) — the container's, so a test or a
+   * consumer that swapped either one is honored instead of the process
+   * singleton silently winning. Both optional: `lib/account-link-ingest.ts`
+   * falls back to the singletons `createHogsendClient` installs at boot, which
+   * is what keeps the container-free `lib/contacts.ts` call site a two-arg
+   * call.
+   */
+  registry?: JourneyRegistry;
+  analytics?: AnalyticsProvider;
 }
 
 /**
@@ -79,6 +95,21 @@ export function noteLinked(
     status: result.status,
     version: result.version,
     contactId: result.owner.contactId,
+  });
+
+  // THE JOURNEY PLANE, beside the outbound one. TWO DIFFERENT PLANES: this
+  // writes `user_events` + pushes to Hatchet so `defineJourney({ trigger: {
+  // event: "account.linked" } })` fires inside Hogsend; the `emitOutbound`
+  // below writes a `webhook_deliveries` row for the CUSTOMER'S subscriber.
+  // Neither may be collapsed into the other, and the ingest path must never
+  // emit (DECISIONS §8) — see the header of `lib/account-link-ingest.ts`.
+  // It is fire-and-forget on purpose, so it can neither delay nor break the
+  // ordering the outbound chain below depends on.
+  ingestAccountLinked(ctx.db, result, {
+    hatchet: ctx.hatchet,
+    logger: ctx.logger,
+    ...(ctx.registry ? { registry: ctx.registry } : {}),
+    ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
   });
 
   const { provider, providerUserId } = result.row;
@@ -146,6 +177,19 @@ export function noteUnlinked(
   ctx: AccountLinkEmitContext,
   facts: AccountUnlinkedFacts,
 ): Promise<void> {
+  // THE JOURNEY PLANE, beside the outbound one — see `noteLinked` above and
+  // the header of `lib/account-link-ingest.ts`. TWO DIFFERENT PLANES; neither
+  // may be collapsed into the other. Deliberately NOT part of the returned
+  // promise: `noteLinked` chains on that promise to order the outbound
+  // deliveries, and a re-ingest that rejected would then swallow the
+  // `account.linked` emit behind it.
+  ingestAccountUnlinked(ctx.db, facts, {
+    hatchet: ctx.hatchet,
+    logger: ctx.logger,
+    ...(ctx.registry ? { registry: ctx.registry } : {}),
+    ...(ctx.analytics ? { analytics: ctx.analytics } : {}),
+  });
+
   return emitOutbound({
     db: ctx.db,
     hatchet: ctx.hatchet,

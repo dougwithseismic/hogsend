@@ -89,8 +89,15 @@ const importRoute = createRoute({
 
 export function registerAccountsImportRoute(router: OpenAPIHono<AppEnv>) {
   router.openapi(importRoute, async (c) => {
-    const { accountLinkHooks, accountLinkProviders, db, hatchet, logger } =
-      c.get("container");
+    const {
+      accountLinkHooks,
+      accountLinkProviders,
+      analytics,
+      db,
+      hatchet,
+      logger,
+      registry,
+    } = c.get("container");
     const { rows } = c.req.valid("json");
 
     let inserted = 0;
@@ -171,7 +178,17 @@ export function registerAccountsImportRoute(router: OpenAPIHono<AppEnv>) {
       // ending, which the `linked` arm can carry too. (This route cannot
       // produce one today, since `onConflict` is pinned to `"reject"`; sharing
       // the fan-out is what keeps that true if it ever changes.)
-      noteLinked({ providerId: row.provider, db, hatchet, logger }, result);
+      noteLinked(
+        {
+          providerId: row.provider,
+          db,
+          hatchet,
+          logger,
+          registry,
+          ...(analytics ? { analytics } : {}),
+        },
+        result,
+      );
     }
 
     return c.json({ inserted, conflicts }, 200);
