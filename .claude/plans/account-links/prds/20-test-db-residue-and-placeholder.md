@@ -57,6 +57,74 @@ occupied is worse than a placeholder that refuses, because "connected" is the an
 - WHEN two processes run `apps/api test` concurrently, the contact-id sweep file SHALL either be safe
   or SHALL fail loudly with a message naming the conflict — never report a misleading green.
 
+### Hazard 4 — THE PRE-PUSH GATE CANNOT PASS, and its failure impersonates your diff
+
+**This is the most consequential finding in this PRD. Observed 2026-08-14; it blocked a push twice.**
+
+`lefthook.yml` pre-push runs, `parallel: true`:
+
+```
+check-types: pnpm exec turbo run check-types --filter='...[origin/main]'
+test:        pnpm exec turbo run test        --filter='...[origin/main]'
+```
+
+Every affected workspace, concurrently, alongside the typecheck. `apps/api` (2691 tests) and
+`apps/cloud` (1808 tests) therefore hit the SAME Postgres at the same time.
+
+Result on a tree that passes cleanly:
+
+| Run | Result |
+| --- | --- |
+| `pnpm -C apps/api test` alone | **186s, 2684 passed, 0 failed, exit 0** |
+| the pre-push command, same tree | **~610s, 14 files failed** |
+
+Every failure signature is "got MORE than expected", which is the fingerprint of another writer, not
+a defect:
+
+```
+expected "vi.fn()" to be called 1 times, but got 8 times
+expected "vi.fn()" to be called 35 times, but got 43 times      (35 = the correct catalog size)
+expected 7 to be 2 · expected 3 to be 2 · expected [...] to have a length of 1 but got 2
+```
+
+Plus **8 files that failed at IMPORT with no test named** — connection-pool exhaustion, not assertion
+failures.
+
+**Why this outranks the rest of this PRD.** The gate fails at the end of a ten-minute hook with
+`@hogsend/api#test exited (1)`, which reads exactly like "your branch broke something". The only way
+to learn otherwise is to re-run the suite serially and compare, which nobody does at push time. So the
+predictable behaviour is `--no-verify` becoming routine, and then the gate protects nothing at all.
+
+The hook's own comment already concedes the ground: *"CI remains the authoritative full-suite gate on
+every PR/push."* If that is true, the local hook should be either trustworthy or absent.
+
+Fix candidates, cheapest first:
+1. Give each workspace its own database (`apps/api` and `apps/cloud` already read
+   `HOGSEND_TEST_DATABASE_URL`; give them distinct values), so parallel suites cannot collide.
+2. Or serialise the DB-backed workspaces in the hook (`--concurrency=1` for those tasks only).
+3. Or drop the test leg from pre-push entirely and let CI own it, per the hook's own comment.
+Option 1 is the real fix; it also closes Hazards 1 to 3.
+
+### Hazard 3 — a running dev server fails the suite, and the failure looks like your diff
+
+**Observed 2026-08-14, and it blocked a push.** With `apps/api` running locally on port 3007 against
+the same Postgres, `pnpm -C apps/api test` took **626s and FAILED**. The pre-push hook refused the
+push. With the dev server killed and nothing else changed, the same tree ran **186s and passed 2684 /
+0 failed**.
+
+That is a 3.4x slowdown and a false red, on an unchanged working tree, caused entirely by a process
+outside the test runner. The failure arrives as `@hogsend/api#test exited (1)` at the end of a
+ten-minute hook, which reads exactly like "your branch broke something" and is the most expensive
+possible moment to learn otherwise.
+
+This compounds Hazard 2: the contact-id sweep is global, so a dev server holding connections and a
+suite running the sweep contend directly, and the suite's own budget (PRD 18's `SWEEP_BUDGET_MS`) was
+measured with NO server running.
+
+Fix candidates, cheapest first: detect a listener on the API port in the test bootstrap and refuse
+with a message naming the cause; or have the pre-push hook check it. A loud refusal beats a
+ten-minute false red.
+
 ## Tasks
 
 ### T1 — Make the placeholder refuse
