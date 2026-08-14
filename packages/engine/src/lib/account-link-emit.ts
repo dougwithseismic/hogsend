@@ -16,10 +16,15 @@ const logger = createLogger(process.env.LOG_LEVEL);
 /**
  * The container's handles, when the caller has a container.
  *
- * `container.ts` honours `opts.overrides.hatchet`, so a route that emits
- * through the module singleton is emitting down a DIFFERENT dial than every
- * other emit in the same handler — the override is a supported hatch and a
- * silent bypass of it is a real split-brain, not a style point. Both are
+ * `logger` attributes the emit to the caller's request. `hatchet` buys exactly
+ * one thing — it spares this module the `./hatchet.js` dynamic import below,
+ * which is what runs `HatchetClient.init` — plus satisfying `emitOutbound`'s
+ * signature. It does NOT redirect delivery, and claiming otherwise would be
+ * false: `emitOutbound` destructures
+ * `const { db, logger, event, payload, dedupeKey } = opts`
+ * (`outbound.ts:619`) and never reads `opts.hatchet`, and the enqueue runs
+ * through the MODULE-LEVEL `deliverWebhookTask` built from the singleton at
+ * import time, so `opts.overrides.hatchet` cannot reroute it. Both fields are
  * optional so the container-free `lib/contacts.ts` call sites stay a two-arg
  * call.
  */

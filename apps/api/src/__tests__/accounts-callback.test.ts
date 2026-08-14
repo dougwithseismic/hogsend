@@ -1,5 +1,13 @@
 import type { AfterLinkContext, BeforeLinkContext } from "@hogsend/core";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { fakeAccountLink } from "./account-link-fakes.js";
 
 // Same real test DB the engine singletons + the route container read.
@@ -7,10 +15,44 @@ process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { contacts, createDatabase, linkedAccounts } = await import(
-  "@hogsend/db"
-);
-const { and, eq, isNull, like } = await import("drizzle-orm");
+// PRD 08 T4: this route now emits through the fire-and-forget outbound spine,
+// which enqueues the MODULE-LEVEL `deliverWebhookTask` built from the engine's
+// `lib/hatchet.ts` singleton at import time — NOT a container hatchet. Mock the
+// singleton itself (the account-link-merge idiom) so delivery rows land here
+// without a live gRPC dial.
+const { hatchetMock } = vi.hoisted(() => {
+  const factory = () => ({
+    hatchet: {
+      durableTask: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait: vi.fn(),
+        runAndWait: vi.fn(),
+      })),
+      task: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait: vi.fn(async () => ({})),
+      })),
+      events: { push: vi.fn() },
+      runs: { cancel: vi.fn(), get: vi.fn() },
+      worker: vi.fn(),
+    },
+  });
+  return { hatchetMock: factory };
+});
+
+vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
+vi.mock("../lib/hatchet.js", () => hatchetMock());
+
+const {
+  contacts,
+  createDatabase,
+  linkedAccounts,
+  webhookDeliveries,
+  webhookEndpoints,
+} = await import("@hogsend/db");
+const { and, asc, eq, isNull, like } = await import("drizzle-orm");
 const { createApp, createHogsendClient, signConnectorState } = await import(
   "@hogsend/engine"
 );
@@ -91,7 +133,38 @@ beforeEach(() => {
   steam.fails(null);
 });
 
+/**
+ * PRD 08 T4b — the one endpoint subscribed to `account.linked` for this run.
+ *
+ * This suite drives every emit site the callback owns (four
+ * `account.link_failed` reasons and the successful link), so it seeds the
+ * endpoint and asserts the delivery count itself rather than emitting blind
+ * into another file's fixture. That assertion is what puts this file in the
+ * serial `WEBHOOK_FANOUT` project: the emit spine selects endpoints GLOBALLY.
+ */
+let endpointId = "";
+
+beforeAll(async () => {
+  const [row] = await db
+    .insert(webhookEndpoints)
+    .values({
+      url: `https://example.com/${RUN}/callback-sink`,
+      secret: "whsec_dGVzdHNlY3JldGZvcmVtaXRwb2ludGNvdmVyYWdldGVzdA==",
+      secretPrefix: "whsec_dGVzd",
+      eventTypes: ["account.linked"],
+      disabled: false,
+    })
+    .returning({ id: webhookEndpoints.id });
+  endpointId = row?.id ?? "";
+});
+
 afterAll(async () => {
+  // Deliveries cascade with the endpoint (FK onDelete: "cascade").
+  if (endpointId) {
+    await db
+      .delete(webhookEndpoints)
+      .where(eq(webhookEndpoints.id, endpointId));
+  }
   await db
     .delete(linkedAccounts)
     .where(eq(linkedAccounts.provider, "steamreal"));
@@ -730,5 +803,66 @@ describe("provider failures", () => {
     // A failure never mints a contact, and never runs the veto.
     expect(beforeLinkCalls).toEqual([]);
     expect(afterLinkCalls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PRD 08 T4 — the outbound emit, counted
+// ---------------------------------------------------------------------------
+
+describe("outbound", () => {
+  /** `account.linked` rows for THIS run, oldest first. */
+  async function linkedDeliveries(providerUserId: string) {
+    return db
+      .select({
+        dedupeKey: webhookDeliveries.dedupeKey,
+        payload: webhookDeliveries.payload,
+      })
+      .from(webhookDeliveries)
+      .where(
+        and(
+          eq(webhookDeliveries.endpointId, endpointId),
+          like(webhookDeliveries.dedupeKey, `al:steam:${providerUserId}:%`),
+        ),
+      )
+      .orderBy(asc(webhookDeliveries.createdAt));
+  }
+
+  it("a successful callback emits exactly one account.linked", async () => {
+    const externalId = uid("ext");
+    const contactId = await makeContact({
+      externalId,
+      email: `${RUN}-emit@example.test`,
+    });
+    const providerUserId = uid("steamid");
+    steam.proves({ providerUserId, username: "emitting-player" });
+
+    const res = await callback("steam", accountLinkState({ contactId }));
+    expect(res.status).toBe(200);
+
+    // Fire-and-forget: poll for the row rather than assuming it landed by the
+    // time the response resolved.
+    const start = Date.now();
+    let rows = await linkedDeliveries(providerUserId);
+    while (rows.length < 1 && Date.now() - start < 5000) {
+      await new Promise((r) => setTimeout(r, 25));
+      rows = await linkedDeliveries(providerUserId);
+    }
+
+    // COUNTED, never `toBeGreaterThan(0)`: a second emit for the same link is
+    // exactly the bug the dedupe key exists to prevent.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.dedupeKey).toBe(`al:steam:${providerUserId}:v1`);
+    expect(
+      (rows[0]?.payload as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      state: "linked",
+      provider: "steam",
+      providerUserId,
+      contactId,
+      userId: externalId,
+      relink: false,
+      version: "1",
+    });
   });
 });
