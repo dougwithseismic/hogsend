@@ -305,10 +305,36 @@ export const gameServerSource = defineWebhookSource({
 });
 ```
 
-<Callout type="warn" title="A journey cannot trigger on account.linked yet">
-The journey-plane re-ingest is not built. The event reaches the outbound spine
-and the hooks, not the journey registry. Trigger on the event a webhook source
-like the one above emits, or on one your `afterLink` hook produces.
+## Triggering a journey on the link itself
+
+The link events reach the journey plane, so you trigger on them directly — no
+webhook source needed:
+
+```ts
+export const steamWelcome = defineJourney({
+  meta: {
+    id: "steam-welcome",
+    trigger: {
+      event: "account.linked",
+      where: (b) => b.prop("provider").eq("steam"),
+    },
+    entryLimit: { type: "once" },
+  },
+  async run(user, ctx) {
+    await sendEmail({ to: user.email, template: Templates.STEAM_LINKED });
+  },
+});
+```
+
+`account.unlinked` and `account.link_failed` work the same way. The properties
+are scalars: `provider`, `providerUserId`, `username`, `method`, `relink`,
+`version`, `state`.
+
+<Callout type="info" title="Two planes, one fact">
+The journey plane fires journeys inside Hogsend. The outbound webhook ships
+state to your own subscriber. Both receive every link event, and neither
+replaces the other. A failed link never creates a contact, so a journey sees
+`account.link_failed` only for a contact that already exists.
 </Callout>
 
 ## Reading and unlinking
@@ -359,6 +385,4 @@ Known and named, so you do not hunt for them.
 - Not built yet: the hosted manage page, an embed SDK button, the
   `@hogsend/client` `accounts.*` resource, the periodic property sync, and the
   Studio panel.
-- A journey cannot yet trigger on `account.linked`. The events reach the
-  outbound spine, not the journey plane.
 - The hosted result pages are functional and unbranded.

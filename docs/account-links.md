@@ -577,10 +577,34 @@ never a cached mirror. Outside the engine process, `GET
 /v1/accounts/{provider}/{providerUserId}` answers the same question with a
 secret key.
 
-**A journey cannot trigger on `account.linked`.** The journey-plane re-ingest is
-not built: the event reaches the outbound spine and the hooks, not the journey
-registry. A journey triggers on the event this webhook source emits, or on any
-event your own `afterLink` hook goes on to produce.
+### Triggering a journey on a link
+
+`account.linked`, `account.unlinked` and `account.link_failed` reach the journey
+plane, so a journey triggers on them directly:
+
+```ts
+export const steamWelcome = defineJourney({
+  meta: {
+    id: "steam-welcome",
+    trigger: { event: "account.linked", where: (b) => b.prop("provider").eq("steam") },
+    entryLimit: { type: "once" },
+  },
+  async run(user, ctx) {
+    await sendEmail({ to: user.email, template: Templates.STEAM_LINKED });
+  },
+});
+```
+
+The event properties are scalars: `provider`, `providerUserId`, `username`,
+`method`, `relink`, `version`, and `state`. `version` is a decimal STRING —
+compare it with `BigInt()`, never `parseInt`.
+
+This is a SECOND plane, not a replacement for the outbound webhook. The journey
+plane fires journeys inside Hogsend and reaches no subscriber; the outbound
+spine ships state to yours. A fact arrives on both.
+
+An `account.link_failed` never creates a contact, so a journey only sees one
+when the failure can be attributed to a contact that already exists.
 
 ## Unlinking
 
