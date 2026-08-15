@@ -78,6 +78,7 @@ async function rowFor(contactId: string) {
       cursor,
       now: NOW,
       windowStart: WINDOW_START,
+      scope: { externalIdLike: `${RUN}-%` },
     });
     if (page.length === 0) return undefined;
     const hit = page.find((r) => r.id === contactId);
@@ -161,31 +162,23 @@ it("recency IGNORES the gtm.scored row this job writes", async () => {
 });
 
 /**
- * A WHOLE-DATABASE budget, not the suite default.
+ * The keyset cursor advances and terminates — SCOPED to this file's own rows.
  *
- * This case walks the ENTIRE contacts table one row at a time (`limit: 1`), so
- * its cost is one query per contact in the shared dev database — not per
- * contact this file seeded. The suite creates contacts it never deletes, so
- * that number only grows: measured 6.7s running this file alone and 19.9s
- * under a full parallel suite, against vitest's 30s default.
- *
- * It therefore fails intermittently with a TIMEOUT, in a file no diff in
- * flight has touched — which reads exactly like a regression in whatever is
- * being reviewed at the time, and is not one. (It cost two misattributions in
- * one session.) 90s is ~4.5x the measured loaded cost, matching the budget
- * PRD 18 T1 shipped for the same shape.
- *
- * The DURABLE fix is to stop the walk being whole-database — a scope argument
- * on `selectScoreBatch`, or truncating the dev database periodically. This
- * budget buys headroom; it does not stop the growth.
+ * This case walks one row at a time (`limit: 1`) to exercise the cursor, but
+ * scopes the page to `${RUN}-%` so its cost is O(rows this file seeded), NOT
+ * one query per contact in the shared dev database. Before the scope argument
+ * this walked the ENTIRE contacts table — a set the suite only ever grows
+ * (contacts it seeds but never deletes) — so it measured 6.7s solo and 19.9s
+ * under a full parallel suite and failed intermittently (timeout, or a
+ * mid-walk pool/lock rejection surfacing at ~20s) in a file no diff in flight
+ * had touched. Scoping the walk removes the whole-database cost at its root,
+ * so no oversized timeout budget is needed.
  */
-it("the keyset cursor advances and terminates", {
-  timeout: 90_000,
-}, async () => {
+it("the keyset cursor advances and terminates", async () => {
   await seed("cursor-a", {}, []);
   await seed("cursor-b", {}, []);
 
-  // Walk the whole table one row at a time; it must terminate and never repeat.
+  // Walk this file's own rows one at a time; must terminate and never repeat.
   let cursor = ZERO_UUID;
   const seen = new Set<string>();
   let pages = 0;
@@ -195,6 +188,7 @@ it("the keyset cursor advances and terminates", {
       cursor,
       now: NOW,
       windowStart: WINDOW_START,
+      scope: { externalIdLike: `${RUN}-%` },
     });
     if (page.length === 0) break;
     for (const r of page) {
