@@ -760,6 +760,7 @@ const EXPLORER_RECIPES = [
   { label: "Flags", path: "hogsend/src/flags.ts" },
   { label: "Groups", path: "api/src/routes/groups.ts" },
   { label: "Destinations", path: "hogsend/src/destinations/crm.ts" },
+  { label: "Account links", path: "hogsend/src/account-links/steam.ts" },
   { label: "Webhook sources", path: "hogsend/src/webhook-sources/billing.ts" },
   { label: "Links & QR", path: "hogsend/scripts/mint-link.ts" },
   { label: "Broadcasts", path: "api/src/campaigns/march-launch.ts" },

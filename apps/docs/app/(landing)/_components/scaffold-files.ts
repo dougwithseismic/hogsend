@@ -858,6 +858,44 @@ export const crm = defineDestination({
   }),
 });`,
   },
+  {
+    path: "hogsend/src/account-links/steam.ts",
+    lang: "ts",
+    note: {
+      title: "Bind a Steam login to a contact",
+      body: "You know the player by their SteamID; your CRM knows them by email. Account links join the two, so the churn email finally reaches the player who stopped logging in. Steam is OpenID — no app to register, no secret. Twitch registers from env; add any OAuth2 platform in code.",
+      tags: ["Steam OpenID", "Twitch", "BYO OAuth2"],
+    },
+    source: `import { createHogsendClient, oauth2Link } from "@hogsend/engine";
+
+// Steam + Twitch register from env. Add any OAuth2 platform in code:
+const battlenet = oauth2Link({
+  meta: { id: "battlenet", name: "Battle.net" },
+  authorizeEndpoint: "https://oauth.battle.net/authorize",
+  tokenEndpoint: "https://oauth.battle.net/token",
+  clientId: process.env.BATTLENET_CLIENT_ID ?? "",
+  clientSecret: process.env.BATTLENET_CLIENT_SECRET ?? "",
+  scopes: ["openid"],
+  usePkce: true,
+  userInfo: {
+    url: "https://oauth.battle.net/oauth/userinfo",
+    map: (json) => ({
+      providerUserId: json.sub as string,
+      username: json.battletag as string | undefined,
+    }),
+  },
+});
+
+// A player's SteamID and your CRM's email are now the same person.
+// The id lands on contacts.properties, so journeys read it with no
+// new machinery — trigger on "account.linked" and welcome them.
+export const client = createHogsendClient({
+  accountLinks: {
+    providers: [battlenet],
+    allowedOrigins: ["https://play.yourgame.com"],
+  },
+});`,
+  },
 
   /* ---- emails — one file per template the journeys reference -------------- */
   email("hogsend/src/emails/product/welcome.tsx", {
