@@ -223,15 +223,31 @@ export interface ScoreRow {
  */
 export async function selectScoreBatch(
   database: Database,
-  opts: { limit: number; cursor: string; now: Date; windowStart: Date },
+  opts: {
+    limit: number;
+    cursor: string;
+    now: Date;
+    windowStart: Date;
+    // TEST-ONLY. Bounds the keyset page to contacts whose external_id matches
+    // this LIKE pattern, so a test walks only its own seeded rows instead of the
+    // whole shared dev table. Production callers (`gtmScoreTask`/`runBatch`/
+    // `runBatchedBackfill`) MUST NOT pass this — the nightly recompute has to
+    // walk every live contact. Filters external_id, not id (contacts.id is a
+    // uuid; the run token lives on external_id).
+    scope?: { externalIdLike: string };
+  },
 ): Promise<ScoreRow[]> {
-  const { limit, cursor, now, windowStart } = opts;
+  const { limit, cursor, now, windowStart, scope } = opts;
+  const scopeFilter = scope
+    ? sql`AND external_id LIKE ${scope.externalIdLike}`
+    : sql``;
   return (await database.execute(sql`
     WITH batch AS (
       SELECT id, external_id, anonymous_id, properties
       FROM contacts
       WHERE deleted_at IS NULL
         AND id > ${cursor}::uuid
+        ${scopeFilter}
       ORDER BY id
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

@@ -140,6 +140,12 @@ export const importContactsTask = hatchet.task({
               allowMerge: "any",
               trustedKinds: ["external", "email"],
             },
+            // A backfill is a statement about the PAST. If a row merges into a
+            // contact whose loser held a live linked account, the fold emits an
+            // `account.unlinked` — do NOT enrol journeys on it once per row
+            // (the outbound webhook still fires). Mirrors the
+            // `/v1/accounts/import` route's own `enrollJourneys` default-off.
+            enrollJourneys: false,
           }).then(async (result) => {
             await attachPhone(db, result.id, row.phone);
             return { index: i + idx, ok: true };

@@ -1079,6 +1079,21 @@ interface ResolveContactOptions {
   source?: string;
   /** Timestamp paired with {@link source}; defaults to now() at create time. */
   sourcedAt?: Date;
+  /**
+   * JOURNEY-PLANE opt-out for the merge fold's `account.unlinked` re-ingest
+   * (PRD 08 T5). Default `true`: an organic resolve (a live `/v1/events`
+   * ingest that happens to fold two contacts) SHOULD enrol journeys on the
+   * `account.unlinked` a merge produced, exactly as a direct unlink would.
+   *
+   * A BULK importer sets `false`. A CSV import is a statement about the PAST,
+   * and one job can merge many rows whose losers each held a live linked
+   * account — so left on, a single import would fan out one journey enrolment
+   * per such row (the same amplification class the `/v1/accounts/import`
+   * route gates with its own `enrollJourneys`). This suppresses ONLY the
+   * journey plane; the outbound `account.unlinked` webhook still fires, so the
+   * customer's mirror converges whether or not a journey ran.
+   */
+  enrollJourneys?: boolean;
 }
 
 /**
@@ -1500,8 +1515,15 @@ async function resolveContactShared(
     // and returns without probing value keys — so it can neither merge again
     // nor produce a second `linkUnlinks`. It is also fire-and-forget and
     // strictly post-commit, so it cannot slow or fail the resolve.
-    for (const fact of resolved.linkUnlinks) {
-      ingestAccountUnlinked(db, fact);
+    //
+    // A BULK importer opts OUT here (`enrollJourneys: false`): one job can fold
+    // many rows, and left on it would fan out one enrolment per merged row that
+    // dropped a live link. The outbound `emitAccountUnlinked` above is
+    // deliberately NOT gated — the customer's mirror converges regardless.
+    if (opts.enrollJourneys !== false) {
+      for (const fact of resolved.linkUnlinks) {
+        ingestAccountUnlinked(db, fact);
+      }
     }
   }
 

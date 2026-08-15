@@ -41,6 +41,7 @@ const {
   contacts,
   createDatabase,
   linkedAccounts,
+  userEvents,
   webhookDeliveries,
   webhookEndpoints,
 } = await import("@hogsend/db");
@@ -242,6 +243,9 @@ afterAll(async () => {
   await db
     .delete(linkedAccounts)
     .where(like(linkedAccounts.provider, `${RUN}-%`));
+  // The journey plane (`ingestAccountUnlinked`) writes `user_events` rows keyed
+  // by the loser's RUN-prefixed anonymous id — clean them like everything else.
+  await db.delete(userEvents).where(like(userEvents.userId, `${RUN}-%`));
   const rows = await db
     .select({ id: contacts.id })
     .from(contacts)
@@ -1088,5 +1092,105 @@ describe("account links — outbound account.unlinked (PRD 08 T3)", () => {
 
     await new Promise((r) => setTimeout(r, SETTLE_MS));
     expect(await deliveriesFor(provider)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PRD 08 T5 (0.66) — the JOURNEY PLANE opt-out for the merge fold.
+//
+// A merge that drops a live linked account re-ingests `account.unlinked` so a
+// journey can trigger on it. That is right for an ORGANIC resolve, but a BULK
+// importer folds many rows at once — so `importContactsTask` passes
+// `enrollJourneys: false`, suppressing ONLY the journey plane. The outbound
+// webhook must still fire on both paths; the customer's mirror does not care
+// whether the row arrived by import or by live traffic.
+// ---------------------------------------------------------------------------
+
+/** The journey-plane `user_events` rows a merge unlink produced for `userKey`. */
+async function journeyUnlinkedFor(userKey: string) {
+  return db
+    .select({ id: userEvents.id })
+    .from(userEvents)
+    .where(
+      and(
+        eq(userEvents.userId, userKey),
+        eq(userEvents.event, "account.unlinked"),
+      ),
+    );
+}
+
+/** Poll until `expected` journey rows land (the re-ingest is fire-and-forget). */
+async function waitForJourneyUnlinked(
+  userKey: string,
+  expected: number,
+  timeoutMs = 5000,
+) {
+  const start = Date.now();
+  let rows = await journeyUnlinkedFor(userKey);
+  while (rows.length < expected && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 25));
+    rows = await journeyUnlinkedFor(userKey);
+  }
+  return rows;
+}
+
+/** Survivor + loser both singleton-linked on one provider, primed to merge. */
+async function seedSingletonCollision(label: string) {
+  const provider = prov(label);
+  const { survivorId, loserId, userId, anonymousId } =
+    await makeMergePair(label);
+  await mustLink(
+    linkInput({
+      contactId: survivorId,
+      provider,
+      identity: { providerUserId: uid("s") },
+      multiple: false,
+    }),
+  );
+  await mustLink(
+    linkInput({
+      contactId: loserId,
+      provider,
+      identity: { providerUserId: uid("l") },
+      multiple: false,
+    }),
+  );
+  return { provider, userId, anonymousId, loserId };
+}
+
+describe("account links — merge fold journey plane (PRD 08 T5)", () => {
+  it("enrollJourneys:false suppresses the journey re-ingest but not the webhook", async () => {
+    // Kick the SUPPRESSED merge off FIRST so it has strictly longer to (wrongly)
+    // land a journey row than the ENROLLED merge we wait on below — the absence
+    // assertion is meaningful only because its window is the larger one. A fixed
+    // sleep would pass whether or not the gate works; the enrolled merge is the
+    // timing control instead.
+    const off = await seedSingletonCollision("t5-off");
+    const suppressed = await resolveOrCreateContact({
+      db,
+      userId: off.userId,
+      anonymousId: off.anonymousId,
+      enrollJourneys: false,
+    });
+    expect(suppressed.linkUnlinks).toHaveLength(1);
+
+    const on = await seedSingletonCollision("t5-on");
+    const enrolled = await merge(on.userId, on.anonymousId);
+    expect(enrolled.linkUnlinks).toHaveLength(1);
+
+    // The re-ingest pins to the loser's `contactId`, which follows the merge
+    // alias to the SURVIVOR — so `user_events.userId` is the survivor's
+    // canonical key (its external id), not the loser's anon id.
+    // The default-on merge DID re-ingest — one journey row.
+    const onRows = await waitForJourneyUnlinked(on.userId, 1);
+    expect(onRows).toHaveLength(1);
+
+    // The opted-out merge did NOT — even though it was fired first.
+    expect(await journeyUnlinkedFor(off.userId)).toHaveLength(0);
+
+    // Both merges still emitted the OUTBOUND account.unlinked: the gate touches
+    // only the journey plane. (One delivery each — the singleton collision.)
+    expect(await waitForDeliveries(off.provider, 1)).toHaveLength(1);
+    expect(await waitForDeliveries(on.provider, 1)).toHaveLength(1);
   });
 });
