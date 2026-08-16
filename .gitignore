@@ -71,3 +71,6 @@ marketing/screenshots/
 # Promo/discount code exports — live Stripe codes, never commit
 free-codes-*.csv
 .railway-nonce
+
+# Transient backlog-runner loop marker — must never be committed (re-arms the block-until-green Stop hook)
+.claude/.loop-active
