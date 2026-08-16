@@ -74,4 +74,36 @@ Reviewed and approved; the three decisions surfaced. No code.
 
 ## Implementation Notes
 
-_(filled if/when promoted to a build wave)_
+**CLOSED — NO CODE (2026-08-16). The build-wave investigation refuted this PRD's shrink premise.**
+
+Promoting PRD 03 to a build wave required first answering "which walkthrough verbs are load-bearing?"
+(plan decision #2). An evidence scan of every `SesClient` call site under `apps/cloud/src` (excluding
+`ses/` internals, `__tests__`, and `diagnostics/`) found:
+
+- **18 of the 20 contract verbs have a direct RUNTIME caller** — `ses-tenants`, `ses-domains`,
+  `email-enforcement`, `email-trust-tiers`, `ses-availability`, `reputation-sweep`, `email-relay`,
+  `email-inbound-forward`. Only `getTenant` (load-bearing *internally* to `AwsSesClient`'s
+  idempotency/ARN reads — no external caller) and `listRecommendations` (zero runtime callers) are
+  non-runtime. The plan's assumption that ~15 verbs are "ceremony" is FALSE.
+- The `ses-walkthrough` exhaustive real-vs-fake compare is therefore NOT over-built: it is the single
+  guarantee that `FakeSesClient` — used pervasively across app tests — does not silently drift from
+  real SES on ANY verb a runtime path depends on. Its own test (`ses-walkthrough.test.ts:533-536`)
+  DELIBERATELY pins all 20 `SES_VERBS` into the run as a completeness invariant.
+- The exhaustive comparison has **no per-test-run cost**: it hits real AWS only when a human passes
+  `--i-know-this-hits-aws`; the offline unit tests exercise only the walkthrough machinery. There is
+  nothing to "shrink for speed."
+
+**Building the shrink would remove drift-detection for 13 runtime-load-bearing verbs — a coverage
+regression, against the wave's zero-regression bar.** Cutting even the two genuinely-unused verbs
+(`getTenant`, `listRecommendations`) would force rewriting the clean "all 20" completeness invariant
+at `:533` into an "all 20 except these" exception list — MORE machinery, not less. Net negative.
+
+**The delivery-proof half was already done.** `ses-delivery-proof` sends ONLY to the SES mailbox
+simulator (`guards.ts:33` `SIMULATOR_DOMAIN`, `requireSimulatorRecipient()` throws on any non-simulator
+address, re-checked per scenario at `proof.ts:281`) and hand-synthesizes NO events — real
+bounce/complaint flow SES → SNS → ingress → `email_events`. There was never any synthesis to replace.
+
+**Outcome:** PRD 03 closes as investigated-and-refuted. The LocalStack rejection (§ above) stands. The
+two harnesses are already right-sized for their job after PRD 01 lifted them out of the app gates; the
+genuine simplification of the SES/diagnostics area was PRD 01 (relocation), not a walkthrough shrink.
+No diagnostics code changed this wave.
