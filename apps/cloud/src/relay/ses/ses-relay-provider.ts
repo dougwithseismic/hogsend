@@ -1,5 +1,3 @@
-import type { NormalizedSesEvent } from "../../lib/ses-events";
-import { normalizeSesNotification } from "../../lib/ses-events";
 import type { SesClient } from "../../ses/contract";
 import type {
   RelayProvider,
@@ -37,9 +35,5 @@ export class SesRelayProvider implements RelayProvider {
 
   async sendBatch(input: RelaySendBatchInput): Promise<RelaySendBatchResult> {
     return await this.ses.sendBatch(input);
-  }
-
-  normalizeEvent(payload: unknown): NormalizedSesEvent | null {
-    return normalizeSesNotification(payload);
   }
 }

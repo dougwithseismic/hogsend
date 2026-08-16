@@ -1,15 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { normalizeSesNotification } from "../lib/ses-events";
 import { getFakeRelay, getRelay, SesRelayProvider } from "../relay/index";
 import { FakeSesClient } from "../ses/fake";
 import { getFakeSesClient, resetSesClients } from "../ses/index";
 import type { SesMessage } from "../ses/types";
 import { SesError } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
-import {
-  sesBounceNotification,
-  sesDeliveryNotification,
-} from "./helpers/ses-notifications";
 
 /**
  * The relay seam (`src/relay`) — the provider-neutral wire the control plane
@@ -18,10 +13,9 @@ import {
  * `SesRelayProvider` is a THIN adapter over the frozen SES seam, so every
  * assertion here is about faithfulness: the send result carries the fake's own
  * message id under the neutral `id`, the batch result is the fake's `{ results }`
- * unchanged, a normalized event equals what the owning function produces, and a
- * `SesError` rides OUT of the relay with its `kind` intact rather than being
- * swallowed. No test reaches AWS — the suite runs with no credentials, so the
- * process-wide client is always the Fake.
+ * unchanged, and a `SesError` rides OUT of the relay with its `kind` intact
+ * rather than being swallowed. No test reaches AWS — the suite runs with no
+ * credentials, so the process-wide client is always the Fake.
  */
 
 const DOMAIN = "acme.test";
@@ -97,20 +91,6 @@ describe("SesRelayProvider", () => {
       { status: "sent", messageId: "fake-ses-message-1" },
       { status: "sent", messageId: "fake-ses-message-2" },
     ]);
-  });
-
-  it("normalizeEvent delegates to normalizeSesNotification verbatim", async () => {
-    const ses = await sendReadyFake();
-    const relay = new SesRelayProvider(ses);
-
-    for (const payload of [
-      sesDeliveryNotification(),
-      sesBounceNotification(),
-    ]) {
-      expect(relay.normalizeEvent(payload)).toEqual(
-        normalizeSesNotification(payload),
-      );
-    }
   });
 
   it("propagates a SesError out of send unchanged (instanceof + kind)", async () => {

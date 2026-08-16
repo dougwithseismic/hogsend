@@ -4,6 +4,12 @@ import type { CloudDb } from "../db";
 import { db as defaultDb } from "../db";
 import { environments, organizations } from "../db/schema";
 import {
+  getRelay,
+  type RelayProvider,
+  type RelaySendBatchResult,
+  SesRelayProvider,
+} from "../relay";
+import {
   claimIdempotencyKey,
   commitIdempotencyClaim,
   releaseIdempotencyClaim,
@@ -19,7 +25,6 @@ import {
 import { createEmailAllowanceGate } from "../services/email-usage";
 import { RelayTokenService } from "../services/relay-tokens";
 import type { SesClient } from "../ses/contract";
-import { getSesClient } from "../ses/index";
 import { sesConfigurationSetName, sesTenantName } from "../ses/names";
 import { SesError, type SesErrorKind, type SesMessage } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
@@ -235,11 +240,27 @@ export interface RelayCaller {
 
 export interface RelayDeps {
   db?: CloudDb;
-  /** Defaults to the process-wide client for the caller's region. */
+  /** The provider-neutral wire. Defaults to `getRelay(region)`. */
+  relay?: RelayProvider;
+  /**
+   * A test-injection convenience: a raw `SesClient` the resolver wraps in a
+   * `SesRelayProvider`. Superseded by `relay` when both are supplied.
+   */
   ses?: SesClient;
   /** Defaults to the real `usage_counters`-backed gate (PRD 09). */
   allowance?: AllowanceGate;
   now?: Date;
+}
+
+/**
+ * The relay this request sends through. Precedence: an explicit `relay`, then a
+ * `SesClient` wrapped in the adapter (so a test injecting `{ ses }` drives the
+ * SAME fake through the neutral seam), then the process-wide `getRelay(region)`.
+ */
+function resolveRelay(deps: RelayDeps, region: SubstrateRegion): RelayProvider {
+  return (
+    deps.relay ?? (deps.ses ? new SesRelayProvider(deps.ses) : getRelay(region))
+  );
 }
 
 /**
@@ -418,19 +439,19 @@ export async function handleRelaySend(
     );
   }
 
-  const ses = deps.ses ?? getSesClient(caller.region);
+  const relay = resolveRelay(deps, caller.region);
   try {
-    const { messageId } = await ses.sendEmail({
+    const { id } = await relay.send({
       tenantName: caller.tenantName,
       configurationSetName: caller.configurationSetName,
       message: toSesMessage(parsed.data.message),
     });
-    await commitIdempotencyClaim({ rowId: claim.rowId, messageId, db });
+    await commitIdempotencyClaim({ rowId: claim.rowId, messageId: id, db });
     // AFTER the wire, and only on the path that reached it: the replay branch
     // above returned without counting, which is what stops a journey replay
     // billing twice.
     await meter(gate, caller, 1, now);
-    return json(200, { id: messageId });
+    return json(200, { id });
   } catch (error) {
     // NOTHING is left behind by a send that did not happen: a recorded key for
     // an undelivered message turns a blip into permanent silent loss. The
@@ -566,10 +587,10 @@ export async function handleRelaySendBatch(
   // Every item a replay means the wire is not touched AT ALL — which is what
   // makes a retried batch cost only its failures.
   if (pending.length > 0) {
-    const ses = deps.ses ?? getSesClient(caller.region);
-    let entries: Awaited<ReturnType<SesClient["sendBatch"]>>["results"];
+    const relay = resolveRelay(deps, caller.region);
+    let entries: RelaySendBatchResult["results"];
     try {
-      ({ results: entries } = await ses.sendBatch({
+      ({ results: entries } = await relay.sendBatch({
         tenantName: caller.tenantName,
         configurationSetName: caller.configurationSetName,
         messages: pending.map((item) => item.message),

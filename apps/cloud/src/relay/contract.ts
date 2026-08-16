@@ -1,4 +1,3 @@
-import type { NormalizedSesEvent } from "../lib/ses-events";
 import type { SesBatchEntryResult, SesMessage } from "../ses/types";
 import type { SubstrateRegion } from "../substrate/types";
 
@@ -36,13 +35,6 @@ export interface RelayProvider {
    * the result is one entry per input message, in order.
    */
   sendBatch(input: RelaySendBatchInput): Promise<RelaySendBatchResult>;
-
-  /**
-   * Turn an inbound substrate notification into the neutral relay event, or
-   * `null` when it is not one this wire consumes. A pure translation — it
-   * neither classifies nor signs.
-   */
-  normalizeEvent(payload: unknown): NormalizedSesEvent | null;
 }
 
 /** One outbound message plus the routing scope it is sent under. */
@@ -76,7 +68,3 @@ export interface RelaySendBatchInput {
  * result is renamed to `{ id }`.
  */
 export type RelaySendBatchResult = { results: SesBatchEntryResult[] };
-
-/** The neutral inbound event a normalized notification becomes. Re-exported so
- * callers depend on the relay seam, not `lib/ses-events`. */
-export type RelayEvent = NormalizedSesEvent;

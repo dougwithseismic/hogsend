@@ -4,7 +4,6 @@ import type { RelayProvider } from "./contract";
 import { SesRelayProvider } from "./ses/ses-relay-provider";
 
 export type {
-  RelayEvent,
   RelayProvider,
   RelaySendBatchInput,
   RelaySendBatchResult,
