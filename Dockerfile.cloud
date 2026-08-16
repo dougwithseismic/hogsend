@@ -4,10 +4,12 @@
 #   migrate              ->  tsx scripts/migrate.ts               (pre-deploy)
 #
 # Same skeleton as the root Dockerfile (node:22-bookworm-slim, corepack pnpm
-# 11.12.0, fetch → build → runner). apps/cloud has no @hogsend/* runtime
-# dependency, so the runner is the Next standalone output plus one `pnpm deploy`
-# bundle whose prod node_modules carry tsx/drizzle/postgres for the worker and
-# the migration gate.
+# 11.12.0, fetch → build → runner). apps/cloud's one @hogsend/* dependency is
+# `@hogsend/plugin-hogsend` (workspace:*), whose runtime entry is a tsup-built
+# `dist/` — so the build stage builds it before `next build`; the web server
+# gets it bundled into the Next standalone output, and the worker/migrate get it
+# via the `pnpm deploy` bundle (whose prod node_modules also carry
+# tsx/drizzle/postgres for the worker and the migration gate).
 #
 # The worker's `hogsend publish` build step needs a Docker daemon, which a
 # Railway container does not have — tenant image builds fail with a clear error
@@ -29,7 +31,12 @@ FROM base AS build
 COPY --from=fetch /pnpm/store /pnpm/store
 COPY . .
 RUN pnpm install --frozen-lockfile --offline --filter @hogsend/cloud...
-RUN pnpm --filter @hogsend/cloud build
+# Build cloud AND its workspace deps in topological order: apps/cloud imports
+# @hogsend/plugin-hogsend, whose runtime entry is a tsup-built dist/, so that
+# dist must exist before `next build` resolves it (and before the `pnpm deploy`
+# bundle below copies it for the worker/migrate runtime). `--filter …cloud`
+# alone builds only Next and leaves the dep unbuilt → "Module not found".
+RUN pnpm --filter @hogsend/cloud... build
 RUN pnpm --offline --config.inject-workspace-packages=true \
     --filter @hogsend/cloud deploy --prod /deploy/cloud
 
