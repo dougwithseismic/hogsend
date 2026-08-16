@@ -1,10 +1,10 @@
-import { SES_REGION_BY_SUBSTRATE_REGION } from "../ses/types";
+import { SES_REGION_BY_SUBSTRATE_REGION } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import { domainOfAddress } from "../ses-walkthrough/arns";
 import {
   CONFIRMATION_FLAG,
   WalkthroughRefusal,
 } from "../ses-walkthrough/guards";
-import type { SubstrateRegion } from "../substrate/types";
 
 /**
  * Everything that decides whether the delivery proof may touch AWS, the

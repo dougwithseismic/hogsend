@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { SES_VERBS, type SesClient } from "../ses/contract";
-import { FakeSesClient } from "../ses/fake";
+import { SES_PUBLISHED_EVENT_TYPES } from "../../src/services/ses-tenants";
+import { SES_VERBS, type SesClient } from "../../src/ses/contract";
+import { FakeSesClient } from "../../src/ses/fake";
 import type {
   SesCreateIdentityInput,
   SesIdentity,
   SesIdentityRef,
-} from "../ses/types";
-import { SesError } from "../ses/types";
-import type { RecordedStep, TenantCensus } from "../ses-walkthrough";
+} from "../../src/ses/types";
+import { SesError } from "../../src/ses/types";
+import type { SubstrateRegion } from "../../src/substrate/types";
+import type { RecordedStep, TenantCensus } from "../src/ses-walkthrough";
 import {
   ACCESS_KEY_VAR,
   assertAccountSweepable,
@@ -28,8 +30,8 @@ import {
   WalkthroughRefusal,
   walkthroughNames,
   walkthroughRunId,
-} from "../ses-walkthrough";
-import type { SubstrateRegion } from "../substrate/types";
+} from "../src/ses-walkthrough";
+import { WALKTHROUGH_PUBLISHED_EVENT_TYPES } from "../src/ses-walkthrough/walkthrough";
 
 /**
  * The parts of the live SES walkthrough that are testable with no AWS account.
@@ -879,5 +881,18 @@ describe("the report", () => {
     expect(rendered).toContain("SKIPPED");
     expect(rendered).toContain(`hogsend._domainkey.${names.identityDomain}`);
     expect(rendered).not.toContain(KEYPAIR.privateKey);
+  });
+});
+
+describe("walkthrough published event types", () => {
+  it("keeps the live walkthrough subscribing to the SAME set", () => {
+    // The walkthrough (PRD 11) holds its own copy of this list because it is a
+    // standalone script that must not import the db-bound tenant service. A
+    // copy that drifts has the one script we use to prove the Fake matches AWS
+    // exercising a shape production no longer sends — so the copy is pinned
+    // here rather than trusted.
+    expect([...WALKTHROUGH_PUBLISHED_EVENT_TYPES]).toEqual([
+      ...SES_PUBLISHED_EVENT_TYPES,
+    ]);
   });
 });

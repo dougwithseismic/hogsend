@@ -3,16 +3,16 @@ import {
   type DnsRecord,
   dkimRecord,
   generateDkimKeypair,
-} from "../lib/sending-domains";
-import type { SesClient } from "../ses/contract";
-import type { FakeSesClient } from "../ses/fake";
+} from "../../../src/lib/sending-domains";
+import type { SesClient } from "../../../src/ses/contract";
+import type { FakeSesClient } from "../../../src/ses/fake";
 import {
   SesError,
   type SesEventType,
   type SesIdentity,
   type SesSuppressionReason,
   type SesTenant,
-} from "../ses/types";
+} from "../../../src/ses/types";
 import {
   type SenderIdentityCandidate,
   senderIdentityCandidates,

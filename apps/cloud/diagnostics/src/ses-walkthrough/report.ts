@@ -1,5 +1,5 @@
-import type { SesRegion } from "../ses/types";
-import type { SubstrateRegion } from "../substrate/types";
+import type { SesRegion } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import type { CleanupReport } from "./cleanup";
 import type { Divergence, RecordedStep } from "./divergence";
 import type { WalkthroughNames } from "./naming";

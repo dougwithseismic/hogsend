@@ -34,7 +34,7 @@
  * Run it SPARINGLY (PRD 11's operational warning): bursts of send activity
  * from a young account are the shape that draws an AWS account review.
  */
-import { runDeliveryProof } from "../src/ses-delivery-proof/index";
+import { runDeliveryProof } from "./src/ses-delivery-proof/index";
 
 // No top-level await: `apps/cloud` is not `"type": "module"`, so tsx compiles
 // this to CJS and a top-level await is a transform error rather than a runtime

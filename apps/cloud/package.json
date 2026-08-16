@@ -14,8 +14,10 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "build:default-image": "tsx scripts/build-default-image.ts",
     "seed:dev": "tsx scripts/seed-dev.ts",
-    "ses:walkthrough": "tsx scripts/ses-walkthrough.ts",
-    "ses:delivery-proof": "tsx scripts/ses-delivery-proof.ts"
+    "ses:walkthrough": "tsx diagnostics/ses-walkthrough.ts",
+    "ses:delivery-proof": "tsx diagnostics/ses-delivery-proof.ts",
+    "diagnostics:test": "vitest run --config diagnostics/vitest.config.ts",
+    "diagnostics:check-types": "tsc --noEmit -p diagnostics/tsconfig.json"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1101.0",

@@ -22,14 +22,12 @@ import {
   provisionSesTenant,
   SES_EVENT_DESTINATION_NAME,
   SES_PROVISION_STEPS,
-  SES_PUBLISHED_EVENT_TYPES,
   type SesProvisionStep,
 } from "../services/ses-tenants";
 import type { SesClient } from "../ses/contract";
 import { FakeSesClient } from "../ses/fake";
 import { getFakeSesClient, getSesClient, resetSesClients } from "../ses/index";
 import { sesConfigurationSetName, sesTenantName } from "../ses/names";
-import { WALKTHROUGH_PUBLISHED_EVENT_TYPES } from "../ses-walkthrough/walkthrough";
 
 /**
  * SES tenant provisioning (PRD 06), against the deterministic Fake. Nothing
@@ -271,16 +269,9 @@ describe("provisionSesTenant", () => {
     expect(set?.eventDestinations).toHaveLength(1);
   });
 
-  it("keeps the live walkthrough subscribing to the SAME set", () => {
-    // The walkthrough (PRD 11) holds its own copy of this list because it is a
-    // standalone script that must not import the db-bound tenant service. A
-    // copy that drifts has the one script we use to prove the Fake matches AWS
-    // exercising a shape production no longer sends — so the copy is pinned
-    // here rather than trusted.
-    expect([...WALKTHROUGH_PUBLISHED_EVENT_TYPES]).toEqual([
-      ...SES_PUBLISHED_EVENT_TYPES,
-    ]);
-  });
+  // The drift guard pinning the walkthrough harness's published-event-type copy
+  // against SES_PUBLISHED_EVENT_TYPES now lives with that harness under
+  // apps/cloud/diagnostics/test/ (the harness moved out of the app's gates).
 
   it("adds REJECT to a destination provisioned before PRD 18 existed", async () => {
     // THE back-compat line. Every configuration set already out there carries

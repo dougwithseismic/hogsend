@@ -9,22 +9,29 @@ import {
   type Mock,
   vi,
 } from "vitest";
-import { db, sqlClient } from "../db";
-import { runCloudMigrations } from "../db/migrator";
-import { emailEvents, organizations, sesTenants } from "../db/schema";
-import { env } from "../env";
-import { normalizeSesNotification } from "../lib/ses-events";
-import { ingestSesEvent } from "../services/email-events";
-import { AWS_SES_ID } from "../ses/aws";
-import type { SesClient } from "../ses/contract";
-import { FakeSesClient, type FakeSesSentMessage } from "../ses/fake";
-import { SesError } from "../ses/types";
+import {
+  sesBounceNotification,
+  sesComplaintNotification,
+  sesDeliveryNotification,
+  tagForEnvironment,
+} from "../../src/__tests__/helpers/ses-notifications";
+import { db, sqlClient } from "../../src/db";
+import { runCloudMigrations } from "../../src/db/migrator";
+import { emailEvents, organizations, sesTenants } from "../../src/db/schema";
+import { env } from "../../src/env";
+import { normalizeSesNotification } from "../../src/lib/ses-events";
+import { ingestSesEvent } from "../../src/services/email-events";
+import { AWS_SES_ID } from "../../src/ses/aws";
+import type { SesClient } from "../../src/ses/contract";
+import { FakeSesClient, type FakeSesSentMessage } from "../../src/ses/fake";
+import { SesError } from "../../src/ses/types";
+import type { SubstrateRegion } from "../../src/substrate/types";
 import type {
   DeliveryProofDeps,
   DeliveryProofReport,
   ProofNames,
   ProofSnsClient,
-} from "../ses-delivery-proof";
+} from "../src/ses-delivery-proof";
 import {
   executeProof,
   observeEmailEvents,
@@ -37,21 +44,14 @@ import {
   runDeliveryProof,
   SIMULATOR_DOMAIN,
   simulatorRecipient,
-} from "../ses-delivery-proof";
-import type { TenantCensus } from "../ses-walkthrough";
+} from "../src/ses-delivery-proof";
+import type { TenantCensus } from "../src/ses-walkthrough";
 import {
   ACCESS_KEY_VAR,
   isWalkthroughTenantName,
   SECRET_KEY_VAR,
   WalkthroughRefusal,
-} from "../ses-walkthrough";
-import type { SubstrateRegion } from "../substrate/types";
-import {
-  sesBounceNotification,
-  sesComplaintNotification,
-  sesDeliveryNotification,
-  tagForEnvironment,
-} from "./helpers/ses-notifications";
+} from "../src/ses-walkthrough";
 
 /**
  * The SES delivery proof (PRD 19 tasks 3–4), provable with no AWS account.
@@ -994,7 +994,7 @@ describe("runDeliveryProof — the exit code is the gate", () => {
 describe("the stub instance", () => {
   it("verifies the relay signature with the plugin's own scheme, 401s a bad one", async () => {
     const { startStubInstance } = await import(
-      "../ses-delivery-proof/stub-instance"
+      "../src/ses-delivery-proof/stub-instance"
     );
     const { signHogsendRelayWebhook, HOGSEND_RELAY_SIGNATURE_HEADER } =
       await import("@hogsend/plugin-hogsend");

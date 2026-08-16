@@ -1,6 +1,6 @@
-import type { SesRegion } from "../ses/types";
+import type { SesRegion } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import type { CleanupFailure, CleanupReport } from "../ses-walkthrough/cleanup";
-import type { SubstrateRegion } from "../substrate/types";
 import type { ProofNames } from "./naming";
 import type { ObservedEvent } from "./observe";
 import type { ProofLink, ProofStep } from "./proof";

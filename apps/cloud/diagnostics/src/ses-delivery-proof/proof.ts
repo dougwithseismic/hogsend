@@ -1,11 +1,11 @@
-import type { CloudDb } from "../db";
-import type { SesClient } from "../ses/contract";
-import { resolveSesRegion } from "../ses/contract";
-import { SesError, type SesMessage } from "../ses/types";
+import type { CloudDb } from "../../../src/db";
+import type { SesClient } from "../../../src/ses/contract";
+import { resolveSesRegion } from "../../../src/ses/contract";
+import { SesError, type SesMessage } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import { domainOfAddress, tenantScopedArn } from "../ses-walkthrough/arns";
 import { type CleanupReport, CleanupStack } from "../ses-walkthrough/cleanup";
 import { WALKTHROUGH_PUBLISHED_EVENT_TYPES } from "../ses-walkthrough/walkthrough";
-import type { SubstrateRegion } from "../substrate/types";
 import {
   PROOF_SCENARIOS,
   type ProofScenario,

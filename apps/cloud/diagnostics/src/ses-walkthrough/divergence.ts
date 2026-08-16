@@ -1,5 +1,5 @@
-import type { SesVerb } from "../ses/contract";
-import { SesError, type SesErrorKind } from "../ses/types";
+import type { SesVerb } from "../../../src/ses/contract";
+import { SesError, type SesErrorKind } from "../../../src/ses/types";
 
 /**
  * The deliverable: a structural diff between what AWS answered and what

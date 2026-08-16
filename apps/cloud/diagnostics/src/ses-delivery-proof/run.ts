@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import type { CloudDb } from "../db";
-import { db as defaultDb } from "../db";
-import { AWS_SES_ID, type AwsSesCredentials } from "../ses/aws";
-import { resolveSesRegion, type SesClient } from "../ses/contract";
-import { getSesClient } from "../ses/index";
-import type { SesRegion } from "../ses/types";
+import type { CloudDb } from "../../../src/db";
+import { db as defaultDb } from "../../../src/db";
+import { AWS_SES_ID, type AwsSesCredentials } from "../../../src/ses/aws";
+import { resolveSesRegion, type SesClient } from "../../../src/ses/contract";
+import { getSesClient } from "../../../src/ses/index";
+import type { SesRegion } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import { awsTenantCensus, type TenantCensus } from "../ses-walkthrough/census";
 import {
   assertAccountSweepable,
@@ -13,7 +14,6 @@ import {
 } from "../ses-walkthrough/guards";
 import { walkthroughRunId } from "../ses-walkthrough/naming";
 import { scrub } from "../ses-walkthrough/report";
-import type { SubstrateRegion } from "../substrate/types";
 import {
   parseProofArgs,
   proofUsage,

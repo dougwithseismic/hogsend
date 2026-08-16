@@ -1,9 +1,14 @@
 import { eq } from "drizzle-orm";
-import type { CloudDb } from "../db";
-import { environments, organizations, sesTenants, stacks } from "../db/schema";
-import { encryptSecretPayload } from "../lib/crypto";
-import type { SesRegion } from "../ses/types";
-import type { SubstrateRegion } from "../substrate/types";
+import type { CloudDb } from "../../../src/db";
+import {
+  environments,
+  organizations,
+  sesTenants,
+  stacks,
+} from "../../../src/db/schema";
+import { encryptSecretPayload } from "../../../src/lib/crypto";
+import type { SesRegion } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import type { ProofNames } from "./naming";
 
 /**

@@ -31,7 +31,7 @@
  * SKIPPED with the reason, never quietly passed over — a verb nobody exercised
  * is a verb whose Fake is still unproven.
  */
-import { runWalkthrough } from "../src/ses-walkthrough/index";
+import { runWalkthrough } from "./src/ses-walkthrough/index";
 
 // No top-level await: `apps/cloud` is not `"type": "module"`, so tsx compiles
 // this to CJS and a top-level await is a transform error rather than a runtime

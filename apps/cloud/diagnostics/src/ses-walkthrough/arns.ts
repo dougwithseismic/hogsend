@@ -1,4 +1,4 @@
-import { SesError } from "../ses/types";
+import { SesError } from "../../../src/ses/types";
 
 /**
  * ARNs for the resources a tenant is associated with, derived from the TENANT's

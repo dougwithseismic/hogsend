@@ -1,11 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { type DkimKeypair, generateDkimKeypair } from "../lib/sending-domains";
-import { AWS_SES_ID, type AwsSesCredentials } from "../ses/aws";
-import { resolveSesRegion, type SesClient } from "../ses/contract";
-import { FakeSesClient } from "../ses/fake";
-import { getSesClient } from "../ses/index";
-import type { SesRegion } from "../ses/types";
-import type { SubstrateRegion } from "../substrate/types";
+import {
+  type DkimKeypair,
+  generateDkimKeypair,
+} from "../../../src/lib/sending-domains";
+import { AWS_SES_ID, type AwsSesCredentials } from "../../../src/ses/aws";
+import { resolveSesRegion, type SesClient } from "../../../src/ses/contract";
+import { FakeSesClient } from "../../../src/ses/fake";
+import { getSesClient } from "../../../src/ses/index";
+import type { SesRegion } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import { awsTenantCensus, type TenantCensus } from "./census";
 import {
   assertAccountSweepable,

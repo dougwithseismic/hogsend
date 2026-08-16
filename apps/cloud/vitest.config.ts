@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   // Mirrors the tsconfig `@/*` path so route handlers (which Next resolves via
@@ -10,6 +10,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // The SES diagnostic harnesses live in apps/cloud/diagnostics/ with their
+    // own vitest project (diagnostics/vitest.config.ts) and are NOT part of the
+    // app's default test run. Belt-and-braces alongside the src-only include.
+    exclude: [...configDefaults.exclude, "diagnostics/**"],
     // Migrations touch a real database and hold an advisory lock; the default
     // 5s timeout flakes on a cold connection + CREATE DATABASE.
     testTimeout: 60_000,

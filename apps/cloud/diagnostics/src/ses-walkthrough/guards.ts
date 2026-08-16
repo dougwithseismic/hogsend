@@ -1,6 +1,6 @@
-import type { AwsSesCredentials } from "../ses/aws";
-import { SES_REGION_BY_SUBSTRATE_REGION } from "../ses/types";
-import type { SubstrateRegion } from "../substrate/types";
+import type { AwsSesCredentials } from "../../../src/ses/aws";
+import { SES_REGION_BY_SUBSTRATE_REGION } from "../../../src/ses/types";
+import type { SubstrateRegion } from "../../../src/substrate/types";
 import {
   DEFAULT_IDENTITY_BASE,
   isWalkthroughTenantName,

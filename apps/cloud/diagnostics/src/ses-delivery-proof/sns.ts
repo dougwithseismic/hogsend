@@ -4,8 +4,8 @@ import {
   SubscribeCommand,
   UnsubscribeCommand,
 } from "@aws-sdk/client-sns";
-import type { AwsSesCredentials } from "../ses/aws";
-import type { SesRegion } from "../ses/types";
+import type { AwsSesCredentials } from "../../../src/ses/aws";
+import type { SesRegion } from "../../../src/ses/types";
 
 /**
  * The three SNS calls the proof needs, and why they are NOT on the SES seam.

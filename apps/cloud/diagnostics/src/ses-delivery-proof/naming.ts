@@ -1,4 +1,4 @@
-import { sesConfigurationSetName, sesTenantName } from "../ses/names";
+import { sesConfigurationSetName, sesTenantName } from "../../../src/ses/names";
 import {
   WALKTHROUGH_ENVIRONMENT_PREFIX,
   WALKTHROUGH_EVENT_DESTINATION_NAME,

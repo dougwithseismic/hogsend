@@ -1,6 +1,6 @@
 import { paginateListTenants, SESv2Client } from "@aws-sdk/client-sesv2";
-import type { AwsSesCredentials } from "../ses/aws";
-import type { SesRegion } from "../ses/types";
+import type { AwsSesCredentials } from "../../../src/ses/aws";
+import type { SesRegion } from "../../../src/ses/types";
 
 /**
  * "What tenants does this account already hold?"

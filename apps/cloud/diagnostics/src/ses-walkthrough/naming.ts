@@ -1,4 +1,4 @@
-import { sesConfigurationSetName, sesTenantName } from "../ses/names";
+import { sesConfigurationSetName, sesTenantName } from "../../../src/ses/names";
 
 /**
  * What ONE run of the live walkthrough calls its own AWS resources.

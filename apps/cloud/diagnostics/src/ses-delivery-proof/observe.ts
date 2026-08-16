@@ -1,6 +1,6 @@
 import { inArray } from "drizzle-orm";
-import type { CloudDb } from "../db";
-import { emailEvents } from "../db/schema";
+import type { CloudDb } from "../../../src/db";
+import { emailEvents } from "../../../src/db/schema";
 import type { ProofScenario } from "./guards";
 
 /**
