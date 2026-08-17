@@ -1,6 +1,10 @@
 import type { AccountLinkProvider } from "@hogsend/core";
+import { battlenetAccountLink } from "../account-links/battlenet.js";
+import { epicAccountLink } from "../account-links/epic.js";
+import { riotAccountLink } from "../account-links/riot.js";
 import { steamAccountLink } from "../account-links/steam.js";
 import { twitchAccountLink } from "../account-links/twitch.js";
+import { xboxAccountLink } from "../account-links/xbox.js";
 import type { env as envSchema } from "../env.js";
 
 export interface AccountLinkEnvResult {
@@ -31,6 +35,14 @@ function hasEnvIntent(env: typeof envSchema): boolean {
     env.ACCOUNT_LINK_TWITCH_CLIENT_ID ||
       env.ACCOUNT_LINK_TWITCH_CLIENT_SECRET ||
       env.STEAM_WEB_API_KEY ||
+      env.ACCOUNT_LINK_BATTLENET_CLIENT_ID ||
+      env.ACCOUNT_LINK_BATTLENET_CLIENT_SECRET ||
+      env.ACCOUNT_LINK_EPIC_CLIENT_ID ||
+      env.ACCOUNT_LINK_EPIC_CLIENT_SECRET ||
+      env.ACCOUNT_LINK_XBOX_CLIENT_ID ||
+      env.ACCOUNT_LINK_XBOX_CLIENT_SECRET ||
+      env.ACCOUNT_LINK_RIOT_CLIENT_ID ||
+      env.ACCOUNT_LINK_RIOT_CLIENT_SECRET ||
       env.ACCOUNT_LINK_ALLOWED_ORIGINS,
   );
 }
@@ -41,9 +53,9 @@ function hasEnvIntent(env: typeof envSchema): boolean {
  * deliberate divergences:
  *
  * 1. **Static imports.** No `loadOptionalPlugin`, no runtime-assembled
- *    specifier, because Steam and Twitch are IN-PACKAGE config over the
- *    `@hogsend/core` presets, not opt-in plugin packages (DECISIONS §3.1). No
- *    top-level `await`, so `createHogsendClient` stays synchronous.
+ *    specifier, because the six built-in providers are IN-PACKAGE config over
+ *    the `@hogsend/core` presets, not opt-in plugin packages (DECISIONS §3.1).
+ *    No top-level `await`, so `createHogsendClient` stays synchronous.
  * 2. **It returns warnings rather than calling `console.warn`.** The email
  *    preset builder warns straight to `console.warn` because it runs before a
  *    logger exists; here the container already has `logger`, so the strings
@@ -55,7 +67,7 @@ function hasEnvIntent(env: typeof envSchema): boolean {
  *   preserving this repo's inert-when-unconfigured posture: a deploy that
  *   never asked for account linking gets no public `/v1/accounts/*` surface
  *   and no boot warning. Intent is EITHER env-side ({@link hasEnvIntent}: any
- *   `ACCOUNT_LINK_TWITCH_*` var, `STEAM_WEB_API_KEY`, or
+ *   `ACCOUNT_LINK_*` var, `STEAM_WEB_API_KEY`, or
  *   `ACCOUNT_LINK_ALLOWED_ORIGINS` set) OR code-side
  *   ({@link AccountLinksFromEnvOptions.consumerOptedIn}: any `accountLinks`
  *   option passed, even `{}`). No intent ⇒ empty result.
@@ -70,13 +82,12 @@ function hasEnvIntent(env: typeof envSchema): boolean {
  *   `API_PUBLIC_URL` (already required by the engine env), trailing slash
  *   stripped — Steam rejects the assertion under a wrong realm. Steam
  *   contributes no warning and cannot be half-configured.
- * - Twitch is registered iff BOTH `ACCOUNT_LINK_TWITCH_CLIENT_ID` and
- *   `ACCOUNT_LINK_TWITCH_CLIENT_SECRET` are set. Exactly one set ⇒ no
- *   registration (absent from the registry, not present-but-disabled) plus a
- *   warning naming the MISSING var.
- * - Steam and twitch are the ONLY branches, by decision (DECISIONS §12): a
- *   platform whose linking already ships elsewhere in this repo keeps its one
- *   writer, so no third branch is added here.
+ * - OAuth providers (Twitch, Battle.net, Epic, Xbox, Riot) are registered iff
+ *   BOTH `ACCOUNT_LINK_<ID>_CLIENT_ID` and `_CLIENT_SECRET` are set. Exactly
+ *   one set ⇒ no registration (absent from the registry, not
+ *   present-but-disabled) plus a warning naming the MISSING var.
+ * - Discord is the only excluded platform: it already ships via
+ *   `plugin-discord`, and a second writer on `contacts.discordId` would drift.
  *
  * These presets come FIRST in the container's merge — a consumer-supplied
  * provider of the same id wins (last-writer-wins on the registry).
@@ -101,25 +112,78 @@ export function accountLinksFromEnv(
     }),
   );
 
-  const twitchClientId = env.ACCOUNT_LINK_TWITCH_CLIENT_ID;
-  const twitchClientSecret = env.ACCOUNT_LINK_TWITCH_CLIENT_SECRET;
-  if (twitchClientId && twitchClientSecret) {
-    providers.push(
-      twitchAccountLink({
-        clientId: twitchClientId,
-        clientSecret: twitchClientSecret,
-      }),
-    );
-  } else if (twitchClientId || twitchClientSecret) {
-    const missing = twitchClientId
-      ? "ACCOUNT_LINK_TWITCH_CLIENT_SECRET"
-      : "ACCOUNT_LINK_TWITCH_CLIENT_ID";
-    warnings.push(
-      `twitch account linking is half-configured: ${missing} is unset, so ` +
-        "the twitch provider is NOT registered. Set both " +
-        "ACCOUNT_LINK_TWITCH_CLIENT_ID and ACCOUNT_LINK_TWITCH_CLIENT_SECRET " +
-        "(from https://dev.twitch.tv/console/apps), or unset both",
-    );
+  const oauthPresets: Array<{
+    id: string;
+    clientId: string | undefined;
+    clientSecret: string | undefined;
+    idVar: string;
+    secretVar: string;
+    factory: (cfg: {
+      clientId: string;
+      clientSecret: string;
+    }) => AccountLinkProvider;
+    portal: string;
+  }> = [
+    {
+      id: "twitch",
+      clientId: env.ACCOUNT_LINK_TWITCH_CLIENT_ID,
+      clientSecret: env.ACCOUNT_LINK_TWITCH_CLIENT_SECRET,
+      idVar: "ACCOUNT_LINK_TWITCH_CLIENT_ID",
+      secretVar: "ACCOUNT_LINK_TWITCH_CLIENT_SECRET",
+      factory: twitchAccountLink,
+      portal: "https://dev.twitch.tv/console/apps",
+    },
+    {
+      id: "battlenet",
+      clientId: env.ACCOUNT_LINK_BATTLENET_CLIENT_ID,
+      clientSecret: env.ACCOUNT_LINK_BATTLENET_CLIENT_SECRET,
+      idVar: "ACCOUNT_LINK_BATTLENET_CLIENT_ID",
+      secretVar: "ACCOUNT_LINK_BATTLENET_CLIENT_SECRET",
+      factory: battlenetAccountLink,
+      portal: "https://develop.battle.net/access",
+    },
+    {
+      id: "epic",
+      clientId: env.ACCOUNT_LINK_EPIC_CLIENT_ID,
+      clientSecret: env.ACCOUNT_LINK_EPIC_CLIENT_SECRET,
+      idVar: "ACCOUNT_LINK_EPIC_CLIENT_ID",
+      secretVar: "ACCOUNT_LINK_EPIC_CLIENT_SECRET",
+      factory: epicAccountLink,
+      portal: "https://dev.epicgames.com/portal",
+    },
+    {
+      id: "xbox",
+      clientId: env.ACCOUNT_LINK_XBOX_CLIENT_ID,
+      clientSecret: env.ACCOUNT_LINK_XBOX_CLIENT_SECRET,
+      idVar: "ACCOUNT_LINK_XBOX_CLIENT_ID",
+      secretVar: "ACCOUNT_LINK_XBOX_CLIENT_SECRET",
+      factory: xboxAccountLink,
+      portal: "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps",
+    },
+    {
+      id: "riot",
+      clientId: env.ACCOUNT_LINK_RIOT_CLIENT_ID,
+      clientSecret: env.ACCOUNT_LINK_RIOT_CLIENT_SECRET,
+      idVar: "ACCOUNT_LINK_RIOT_CLIENT_ID",
+      secretVar: "ACCOUNT_LINK_RIOT_CLIENT_SECRET",
+      factory: riotAccountLink,
+      portal: "https://developer.riotgames.com",
+    },
+  ];
+
+  for (const p of oauthPresets) {
+    if (p.clientId && p.clientSecret) {
+      providers.push(
+        p.factory({ clientId: p.clientId, clientSecret: p.clientSecret }),
+      );
+    } else if (p.clientId || p.clientSecret) {
+      const missing = p.clientId ? p.secretVar : p.idVar;
+      warnings.push(
+        `${p.id} account linking is half-configured: ${missing} is unset, ` +
+          `so the ${p.id} provider is NOT registered. Set both ${p.idVar} ` +
+          `and ${p.secretVar} (from ${p.portal}), or unset both`,
+      );
+    }
   }
 
   return { providers, warnings };

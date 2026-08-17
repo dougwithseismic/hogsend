@@ -1,7 +1,7 @@
 # Account links
 
-An account link binds a player's third-party platform account (Steam, Twitch) to
-a Hogsend contact. The case it was built for: you know a player by their
+An account link binds a player's third-party platform account (Steam, Twitch,
+Battle.net, Epic Games, Xbox, Riot Games) to a Hogsend contact. The case it was built for: you know a player by their
 SteamID, your CRM knows them by email, and nothing joins the two, so a Steam
 event cannot start a journey and a lifecycle email cannot name the account it is
 about. A completed link is an identity fact (a row in `linked_accounts`), a
@@ -402,26 +402,25 @@ option unconditionally.
 
 ### 2. Add a platform the engine does not ship
 
-Battle.net is a plain OAuth2 authorization-code platform, so it is
-`oauth2Link()` plus a field mapping. No package, no plugin, no engine change.
+Any OAuth2 authorization-code platform is `oauth2Link()` plus a field mapping.
+No package, no plugin, no engine change. PlayStation is shown as a hypothetical
+(it requires PlayStation Partners Program access).
 
 ```ts
 import { AccountLinkCallbackError, oauth2Link } from "@hogsend/engine";
 
-export const battlenet = oauth2Link({
-  meta: { id: "battlenet", name: "Battle.net" },
-  authorizeEndpoint: "https://oauth.battle.net/authorize",
-  tokenEndpoint: "https://oauth.battle.net/token",
-  clientId: process.env.BATTLENET_CLIENT_ID ?? "",
-  clientSecret: process.env.BATTLENET_CLIENT_SECRET ?? "",
-  scopes: ["openid"],
+export const playstation = oauth2Link({
+  meta: { id: "playstation", name: "PlayStation Network" },
+  authorizeEndpoint: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize",
+  tokenEndpoint: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token",
+  clientId: process.env.PSN_CLIENT_ID ?? "",
+  clientSecret: process.env.PSN_CLIENT_SECRET ?? "",
+  scopes: ["psn:s2s"],
   usePkce: true,
   userInfo: {
-    url: "https://oauth.battle.net/oauth/userinfo",
-    // MUST pick the platform's immutable id. `sub` is the account id;
-    // `battletag` is a renameable handle, so it is display data only.
+    url: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/userinfo",
     map: (json) => {
-      const profile = json as { sub?: string; battletag?: string };
+      const profile = json as { sub?: string; online_id?: string };
       if (!profile.sub) {
         throw new AccountLinkCallbackError(
           "exchange_failed",
@@ -430,18 +429,16 @@ export const battlenet = oauth2Link({
       }
       return {
         providerUserId: profile.sub,
-        ...(profile.battletag ? { username: profile.battletag } : {}),
+        ...(profile.online_id ? { username: profile.online_id } : {}),
       };
     },
   },
-  // One live Battle.net account per contact, and an account already owned by
-  // someone else is refused rather than moved.
   multiple: false,
   onConflict: "reject",
 });
 ```
 
-Register it with `accountLinks: { providers: [battlenet] }`. Add `storeTokens:
+Register it with `accountLinks: { providers: [playstation] }`. Add `storeTokens:
 true` to seal the grant into `linked_accounts.tokens`, which also enables
 `refresh()`, and `revokeEndpoint` to add best-effort revoke on unlink. Set
 `userInfo.headers` for a platform that needs a second header on the profile
@@ -895,8 +892,10 @@ without `multiple: false`, or `refresh` / `revoke` without
 
 ## Deferrals (v1)
 
-- Epic, Xbox and PSN presets. Epic in particular is gated on an organization
-  application that takes weeks to approve.
+- PSN preset. Sony's auth APIs require PlayStation Partners Program membership
+  (NDA-gated, no public docs).
+- GOG preset. No public OAuth2 API; GOG Galaxy has no third-party authorization
+  endpoint.
 - The Framer script-tag drop-in.
 - Promoting a provider to a real `IdentityKind`. A steamid64 is not a merge key
   today; a cold Steam link keys its contact on a browser anonymous id until the
