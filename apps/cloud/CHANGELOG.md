@@ -1,5 +1,12 @@
 # @hogsend/cloud
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [15533c3]
+  - @hogsend/plugin-hogsend@0.66.0
+
 ## 0.0.2
 
 ### Patch Changes
