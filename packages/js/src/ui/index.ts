@@ -163,14 +163,14 @@ export function mountToasts(
 ): Mounted {
   ensureStyles();
   const toasts = client.toasts();
-  // Toasts arrive over the realtime channel; make sure it is open.
-  client.connect();
   const own = !target;
   const host = target ? resolveTarget(target) : el("div", "hs-toasts");
   if (!host) {
     console.warn("[hogsend] ui.toasts: target not found");
     return { destroy() {} };
   }
+  // Toasts arrive over the realtime channel; make sure it is open.
+  client.connect();
   if (own) {
     (host as HTMLElement).dataset.position = opts.position ?? "bottom-right";
     document.body.appendChild(host);

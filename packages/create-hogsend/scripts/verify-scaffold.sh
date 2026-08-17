@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
+PACKAGES=(attribution cli client core db email engine js plugin-posthog plugin-resend sms studio testing)
 # Opt-in provider plugins (`--with <id>`). NOT scaffold defaults — a separate
 # list because release-doctor asserts PACKAGES above equals HOGSEND_PACKAGES +
 # the template's @hogsend deps, and these belong to neither.
