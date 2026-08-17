@@ -94,6 +94,16 @@ export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
     realtime: "poll",
   };
 
+  const existing = typeof window !== "undefined" ? window.hogsend : undefined;
+
+  // Double embed (tag pasted twice, or a page that already booted a client):
+  // keep the live client rather than clobbering it with a second one that
+  // would double every capture. A stub is anything without a `capture`.
+  if (existing && typeof (existing as Hogsend).capture === "function") {
+    console.warn("[hogsend] already booted; ignoring a second script tag");
+    return existing as Hogsend;
+  }
+
   let client: Hogsend;
   try {
     client = createHogsend(config);
@@ -105,25 +115,28 @@ export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
     return null;
   }
 
-  const stub = typeof window !== "undefined" ? window.hogsend : undefined;
-  const queued =
-    stub && Array.isArray((stub as HogsendStub)._q)
-      ? ((stub as HogsendStub)._q as unknown[][])
-      : [];
-
+  const stubQueue = (existing as HogsendStub | undefined)?._q;
+  const queued = Array.isArray(stubQueue) ? stubQueue : [];
   if (typeof window !== "undefined") window.hogsend = client;
 
   for (const call of queued) {
     const [method, ...args] = call;
     const fn = (client as unknown as Record<string, unknown>)[String(method)];
-    if (typeof fn === "function") {
-      try {
-        void (fn as (...a: unknown[]) => unknown).apply(client, args);
-      } catch (err) {
-        console.warn(`[hogsend] queued ${String(method)} failed:`, err);
-      }
-    } else {
+    if (typeof fn !== "function") {
       console.warn(`[hogsend] queued call to unknown method ${String(method)}`);
+      continue;
+    }
+    // Sync throws AND async rejections (identify/flush return promises) are
+    // both swallowed with a warning: a bad queued call must not surface as an
+    // unhandled rejection on the host page.
+    const onError = (err: unknown) =>
+      console.warn(`[hogsend] queued ${String(method)} failed:`, err);
+    try {
+      Promise.resolve(
+        (fn as (...a: unknown[]) => unknown).apply(client, args),
+      ).catch(onError);
+    } catch (err) {
+      onError(err);
     }
   }
 

@@ -105,4 +105,52 @@ describe("bootSnippet", () => {
     expect(sent).toContain("$pageview");
     client?.teardown();
   });
+
+  it("keeps an already-booted client instead of clobbering it", () => {
+    const { fetchImpl } = makeFetch();
+    const first = { capture: vi.fn() };
+    vi.stubGlobal("window", { hogsend: first });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = bootSnippet({
+      key: "pk_test",
+      host: "https://api.test.local",
+      fetch: fetchImpl,
+    });
+    expect(result).toBe(first);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("swallows a rejecting queued call with a warning, no unhandled rejection", async () => {
+    const { fetchImpl } = makeFetch();
+    const win: Record<string, unknown> = {
+      hogsend: { _q: [["identify", ""], ["nope"]] },
+    };
+    vi.stubGlobal("window", win);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const unhandled = vi.fn();
+    const proc = (
+      globalThis as {
+        process?: {
+          on(ev: string, fn: (r: unknown) => void): void;
+          off(ev: string, fn: (r: unknown) => void): void;
+        };
+      }
+    ).process;
+    proc?.on("unhandledRejection", unhandled);
+    const client = bootSnippet({
+      key: "pk_test",
+      host: "https://api.test.local",
+      fetch: fetchImpl,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    proc?.off("unhandledRejection", unhandled);
+    expect(unhandled).not.toHaveBeenCalled();
+    // unknown method warned; identify("") either resolved or warned, never threw
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("nope"))).toBe(
+      true,
+    );
+    client?.teardown();
+    warn.mockRestore();
+  });
 });
