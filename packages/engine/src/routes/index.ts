@@ -17,6 +17,7 @@ import { flagsRouter } from "./flags/index.js";
 import { groupsRouter } from "./groups/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
+import { createSnippetRouter } from "./snippet.js";
 import { trackingRouter } from "./tracking/index.js";
 import { shortLinkRouter } from "./tracking/short.js";
 import { vanityRouter } from "./tracking/vanity.js";
@@ -243,6 +244,11 @@ export function registerRoutes(
   // (`${SMS_LINK_HOST ?? API_PUBLIC_URL}/s/:code`); every character counts
   // against the GSM-7 segment budget. Unauthenticated like /l.
   app.route("/", shortLinkRouter);
+
+  // Drop-in browser SDK — root-mounted so the pasted tag is
+  // `${API_PUBLIC_URL}/hogsend.js`. Public; 404s when @hogsend/js is not
+  // installed next to the engine (best-effort, like the Studio SPA).
+  app.route("/", createSnippetRouter());
 
   // Generic connector dispatch (oauth/interactions/ingress) — the static
   // `connectors/` prefix is registered BEFORE the `:sourceId` webhook catch-all

@@ -44,6 +44,7 @@
       "import": "./dist/realtime/index.js",
       "require": "./dist/realtime/index.cjs"
     },
+    "./hogsend.js": "./dist/hogsend.js",
     "./package.json": "./package.json"
   },
   "files": [

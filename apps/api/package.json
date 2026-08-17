@@ -27,6 +27,7 @@
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",
     "@hogsend/engine": "workspace:^",
+    "@hogsend/js": "workspace:^",
     "@hogsend/mcp": "workspace:^",
     "@hogsend/plugin-apollo": "workspace:^",
     "@hogsend/plugin-discord": "workspace:^",
@@ -58,7 +59,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
     "@repo/typescript-config": "workspace:*",
     "@testing-library/react": "^16.3.2",

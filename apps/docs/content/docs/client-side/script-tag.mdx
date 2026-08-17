@@ -1,0 +1,75 @@
+---
+title: Script tag
+description: "No bundler, no React: your engine serves @hogsend/js as one script at /hogsend.js. Paste the tag, get capture, identity, feed, preferences, and flags on any page."
+---
+
+Every Hogsend engine serves the browser SDK at `GET /hogsend.js`. It is the same `@hogsend/js` client the React layer uses, built as one self-booting file (about 10 KB gzipped). Webflow, Framer, Astro, WordPress, a static HTML page: one tag.
+
+## The tag
+
+```html
+<script
+  src="https://api.example.com/hogsend.js"
+  data-key="pk_..."
+  defer
+></script>
+```
+
+`data-key` is a `pk_` publishable key (mint one as in the [Quickstart](./quickstart), with the page's origin in `allowedOrigins`). The engine host is read from the script's own `src`, so there is nothing else to configure.
+
+On load the script creates the client, assigns it to `window.hogsend`, and dispatches a `hogsend:ready` event on `document`:
+
+```html
+<script>
+  document.addEventListener("hogsend:ready", (e) => {
+    const hogsend = e.detail; // same object as window.hogsend
+    hogsend.capture("pricing_viewed", { plan: "team" });
+  });
+</script>
+```
+
+`window.hogsend` is the full client: `capture`, `identify`, `setUserToken`, `reset`, `group`, `feed()`, `preferences()`, `banners()`, `toasts()`, `flags`, `subscribe`. Same API as [`createHogsend`](./provider).
+
+## Calling before the script loads
+
+Install the classic stub first and the calls replay in order once the SDK boots:
+
+```html
+<script>
+  window.hogsend = window.hogsend || { _q: [] };
+  window.hogsend._q.push(["capture", "landing_viewed", { variant: "b" }]);
+</script>
+<script src="https://api.example.com/hogsend.js" data-key="pk_..." async></script>
+```
+
+Each entry is `[method, ...args]`. Unknown methods log a `console.warn` and are skipped.
+
+## Attributes
+
+| Attribute | Default | Effect |
+| --- | --- | --- |
+| `data-key` | required | Publishable key. Without it the script logs a warning and does nothing; the page is never broken. |
+| `data-host` | origin of `src` | Engine URL. Set it when the script is proxied or copied to another host. |
+| `data-user-id` | | Known user id for a logged-in page. |
+| `data-user-token` | | Server-minted proof for `data-user-id` (see [Identifying users](./identifying-users)). |
+| `data-pageview` | off | `"true"` captures `$pageview` on boot with `$current_url`, `$pathname`, `title`, `referrer`. |
+
+`window.__HOGSEND__ = { publishableKey, apiUrl }` set before the tag is also honoured, and `data-*` wins over it.
+
+Realtime is polling. A browser cannot set an `Authorization` header on `EventSource`, so the SSE transport is not selected here.
+
+## Caching
+
+The engine sends `Cache-Control: public, max-age=300, stale-while-revalidate=86400` and a content-hash `ETag`. A page revalidates at most every five minutes and gets a `304` when nothing changed. Deploying an engine with a newer `@hogsend/js` reaches every page within minutes with no cache-busting URL. Set `HOGSEND_JS_PATH` to serve a file from another location.
+
+The response carries `Cross-Origin-Resource-Policy: cross-origin` so the tag loads from any site, and the SDK talks back to the engine with the `pk_` key over CORS. The engine is a first-party host for your marketing site: `api.example.com`, not a third-party CDN.
+
+## When the route 404s
+
+`/hogsend.js` is served when `@hogsend/js` is installed next to `@hogsend/engine`. New scaffolds include it. On an older app:
+
+```bash
+pnpm add @hogsend/js
+```
+
+Nothing is bundled into your API: the engine reads `node_modules/@hogsend/js/dist/hogsend.js` at boot, the same way it serves the Studio.

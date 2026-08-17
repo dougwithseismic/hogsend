@@ -67,6 +67,14 @@
     "winston": "^3.19.0",
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "@hogsend/js": "^0.65.0"
+  },
+  "peerDependenciesMeta": {
+    "@hogsend/js": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
     "@hogsend/plugin-apollo": "workspace:^",
     "@hogsend/plugin-hogsend": "workspace:^",

@@ -833,6 +833,11 @@ export type {
   SmsTrackedSendResult,
 } from "./lib/sms-service-types.js";
 export { SMS_CHANNEL_ID } from "./lib/sms-tracked.js";
+export {
+  type LoadedSnippet,
+  loadSnippet,
+  resolveSnippetPath,
+} from "./lib/snippet.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 // --- In-app survey/rating (sendSurvey — producer sugar over sendFeedItem) ---
 export { type SendSurveyOptions, sendSurvey } from "./lib/survey.js";
@@ -971,6 +976,7 @@ export {
   serializeLinkedAccount,
   serializePublicLinkedAccount,
 } from "./routes/accounts/serialize.js";
+export { createSnippetRouter } from "./routes/snippet.js";
 // --- Contact sources (Clay/Attio/generic-webhook → cold prospects) ---
 export {
   type ColdChannelPosture,
