@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEST="${1:?usage: pack-tarballs.sh <destination-dir>}"
 
-PACKAGES=(attribution cli client core db email engine plugin-posthog plugin-resend sms studio testing)
+PACKAGES=(attribution cli client core db email engine js plugin-posthog plugin-resend sms studio testing)
 # Opt-in provider plugins (`create-hogsend --with <id>`). NOT scaffold defaults,
 # so deliberately a separate list — release-doctor asserts PACKAGES above stays
 # equal to HOGSEND_PACKAGES + template/_package.json.
@@ -27,7 +27,7 @@ mkdir -p "$DEST"
 # refuses to type-strip raw .ts under node_modules). One batched invocation:
 # workspace resolution is paid once and pnpm parallelizes independent builds.
 pnpm --dir "$REPO_ROOT" --filter @hogsend/studio --filter @hogsend/cli \
-  --filter @hogsend/client --filter @hogsend/plugin-apollo \
+  --filter @hogsend/client --filter @hogsend/js --filter @hogsend/plugin-apollo \
   --filter @hogsend/plugin-hogsend --filter @hogsend/plugin-postmark \
   --filter @hogsend/plugin-twilio \
   build >/dev/null

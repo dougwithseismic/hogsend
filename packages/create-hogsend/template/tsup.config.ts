@@ -18,5 +18,7 @@ export default defineConfig({
   // resolve from node_modules at runtime. `@hogsend/studio` is never bundled:
   // it's a prebuilt static SPA the engine locates via `require.resolve`, not a
   // code import, so tsup leaves it in node_modules where the engine serves it.
+  // Same for `@hogsend/js`: the engine reads its `dist/hogsend.js` off disk to
+  // serve the drop-in `<script>` at `/hogsend.js`; it is never imported here.
   noExternal: [/^@hogsend\//],
 });

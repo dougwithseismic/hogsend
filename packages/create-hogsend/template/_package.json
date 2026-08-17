@@ -34,6 +34,7 @@
     "@hogsend/db": "^{{ENGINE_VERSION}}",
     "@hogsend/email": "^{{ENGINE_VERSION}}",
     "@hogsend/engine": "^{{ENGINE_VERSION}}",
+    "@hogsend/js": "^{{ENGINE_VERSION}}",
     "@hogsend/plugin-posthog": "^{{ENGINE_VERSION}}",
     "@hogsend/plugin-resend": "^{{ENGINE_VERSION}}",
     "@hogsend/sms": "^{{ENGINE_VERSION}}",

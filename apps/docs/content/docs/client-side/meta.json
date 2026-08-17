@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "quickstart",
+    "script-tag",
     "provider",
     "identifying-users",
     "hooks",

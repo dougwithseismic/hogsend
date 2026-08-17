@@ -16,6 +16,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
+import { SNIPPET_PATH } from "./routes/snippet.js";
 import {
   type DefinedWebhookSource,
   webhookSourceToConnector,
@@ -81,7 +82,14 @@ export function createApp(
     await next();
   });
 
-  app.use("*", secureHeaders());
+  // secureHeaders sets `Cross-Origin-Resource-Policy: same-origin` AFTER the
+  // handler runs (a route cannot override it), which would block a cross-origin
+  // `<script src>` load of the drop-in SDK. That one path is the SDK itself,
+  // meant to be embedded on other origins, so it skips the middleware.
+  const secure = secureHeaders();
+  app.use("*", (c, next) =>
+    c.req.path === SNIPPET_PATH ? next() : secure(c, next),
+  );
   app.use(
     "*",
     cors({

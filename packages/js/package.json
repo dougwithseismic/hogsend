@@ -44,6 +44,12 @@
       "import": "./dist/realtime/index.js",
       "require": "./dist/realtime/index.cjs"
     },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js",
+      "require": "./dist/ui/index.cjs"
+    },
+    "./hogsend.js": "./dist/hogsend.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -64,6 +70,7 @@
     "@hogsend/core": "workspace:^",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
+    "happy-dom": "^20.11.2",
     "tsup": "^8.5.1",
     "vitest": "^4.1.10"
   },
