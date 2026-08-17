@@ -13,11 +13,11 @@ import {
  * every `hogsend.com` path the notice emits must be a route the public site
  * (`apps/docs`) actually publishes.
  *
- * Scoped deliberately to the bare `hogsend.com` host. The
- * `cloud.hogsend.com/environments/{{environment}}` link is reproduced from
- * the source document as written and is flagged there as pending
- * confirmation — it is a dashboard link, not a docs route, and is not
- * asserted here.
+ * The docs-route check is scoped to the bare `hogsend.com` host. The
+ * `cloud.hogsend.com/environments/:id` dashboard link is a separate concern
+ * and is pinned by its own test below: the dashboard route resolves an
+ * environment by its uuid, so the deep link must carry the environment ID —
+ * the human-readable NAME 404s (`notFound()`).
  */
 
 const DOCS_APP_DIR = resolve(
@@ -54,6 +54,13 @@ function hogsendComPaths(text: string): string[] {
   );
 }
 
+/** The `/environments/...` path of every cloud dashboard link in a notice. */
+function cloudEnvironmentPaths(text: string): string[] {
+  return [
+    ...text.matchAll(/https:\/\/cloud\.hogsend\.com(\/environments\/[^\s]*)/g),
+  ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
 describe("suspension notice link targets", () => {
   const routes = new Set(collectStaticRoutes(DOCS_APP_DIR));
 
@@ -68,6 +75,7 @@ describe("suspension notice link targets", () => {
     const notice = renderSuspensionNotice({
       variant: "automatic",
       environment: "production",
+      environmentId: "11111111-1111-4111-8111-111111111111",
       suspendedAt: new Date("2026-08-10T14:32:00Z"),
       clause: "5.1",
       cause: "Complaint rate crossed the review threshold.",
@@ -90,11 +98,15 @@ describe("suspension notice link targets", () => {
     const noAppeal = renderSuspensionNotice({
       variant: "manual",
       environment: "production",
+      environmentId: "11111111-1111-4111-8111-111111111111",
       suspendedAt: new Date("2026-08-10T14:32:00Z"),
       clause: "3.2",
       cause: "Phishing reported by a mailbox provider.",
     });
-    const reinstated = renderReinstatementNotice({ environment: "production" });
+    const reinstated = renderReinstatementNotice({
+      environment: "production",
+      environmentId: "11111111-1111-4111-8111-111111111111",
+    });
 
     for (const path of [
       ...hogsendComPaths(noAppeal.text),
@@ -104,6 +116,33 @@ describe("suspension notice link targets", () => {
         routes.has(path),
         `a notice links https://hogsend.com${path} but apps/docs publishes no such route`,
       ).toBe(true);
+    }
+  });
+
+  it("the sending-status link deep-links the environment ID, never its name", () => {
+    // The `/environments/[id]` dashboard route resolves by uuid and calls
+    // notFound() on anything else, so a link built from the human-readable
+    // name is a guaranteed 404 for a suspended paying customer. The ID is
+    // also URL-encoded, so a stray character in it cannot break the path.
+    const environmentId = "11111111-1111-4111-8111-111111111111";
+    const suspension = renderSuspensionNotice({
+      variant: "automatic",
+      environment: "prod space/name",
+      environmentId,
+      suspendedAt: new Date("2026-08-10T14:32:00Z"),
+      clause: "5.1",
+      cause: "Complaint rate crossed the review threshold.",
+    });
+    const reinstated = renderReinstatementNotice({
+      environment: "prod space/name",
+      environmentId,
+    });
+
+    for (const notice of [suspension, reinstated]) {
+      const paths = cloudEnvironmentPaths(notice.text);
+      expect(paths).toEqual([`/environments/${environmentId}`]);
+      // The display name — which is not URL-safe here — never reaches the URL.
+      expect(paths[0]).not.toContain("space");
     }
   });
 });

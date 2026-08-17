@@ -388,6 +388,62 @@ describe("reportEmailOverage (EARS 9)", () => {
     // Every other org was still walked; the sweep returned rather than threw.
     expect(result.period).toBe(PERIOD);
   });
+
+  it("closes the PREVIOUS month within 48h of the boundary", async () => {
+    // The revenue-leak shape: a send on the LAST day of month M, billed by the
+    // nightly run early in M+1. If billing only ever looked at periodOf(now) it
+    // would bill M+1 (empty) and the tail of M — counted but past M's last run —
+    // would be metered and never invoiced. `sweepPeriods` closes M too.
+    const lastDayOfM = new Date(Date.UTC(2026, 0, 31, 23, 0, 0)); // 2026-01-31
+    const earlyMPlus1 = new Date(Date.UTC(2026, 1, 1, 3, 0, 0)); // 2026-02-01 03:00
+    const prevPeriod = usageMonth(lastDayOfM); // 2026-01
+
+    seq += 1;
+    const [row] = await db
+      .insert(environments)
+      .values({
+        organizationId: PAID_ORG,
+        name: `overage-${seq}`,
+        kind: "test",
+      })
+      .returning();
+    if (!row) throw new Error("failed to seed environment");
+    await recordRelayEmails(
+      {
+        organizationId: PAID_ORG,
+        environmentId: row.id,
+        count: ALLOWANCE + 300,
+        at: lastDayOfM,
+      },
+      db,
+    );
+
+    await reportEmailOverage({
+      db,
+      billing,
+      sender,
+      now: () => earlyMPlus1,
+    });
+
+    // Billed for month M, from a run in M+1.
+    expect(billing.usageReports).toHaveLength(1);
+    expect(billing.usageReports[0]).toMatchObject({
+      organizationId: PAID_ORG,
+      quantity: 300,
+      period: prevPeriod,
+    });
+    // ...and the ledger row lands under M, so a re-run is a no-op.
+    const [led] = await db
+      .select()
+      .from(emailOverageReports)
+      .where(
+        and(
+          eq(emailOverageReports.organizationId, PAID_ORG),
+          eq(emailOverageReports.period, prevPeriod),
+        ),
+      );
+    expect(led).toMatchObject({ reportedQuantity: 300, pendingQuantity: null });
+  });
 });
 
 // ---------------------------------------------------------------------------

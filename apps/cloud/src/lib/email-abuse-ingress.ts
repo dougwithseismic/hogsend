@@ -359,6 +359,7 @@ async function notifyOwner(input: DispatchInput, cause: string): Promise<void> {
   const notice = renderSuspensionNotice({
     variant: "automatic",
     environment: target.environmentName,
+    environmentId,
     suspendedAt: input.event.occurredAt,
     clause: REPUTATION_CLAUSE,
     cause,

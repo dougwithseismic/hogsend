@@ -107,7 +107,13 @@ export function emailRelayBucket(environmentId: string): string {
   return `email_relay:${environmentId}`;
 }
 
-/** SES accepts at most 50 destinations on one message. */
+/**
+ * SES accepts at most 50 destinations on ONE message — and that ceiling is on
+ * the COMBINED total of To + Cc + Bcc, not each field on its own. The schema
+ * enforces both the per-field cap (readability) and the combined total (the
+ * real invariant), so a `to:[50] + cc:[50]` message is a deterministic 400 up
+ * front rather than a `send_rejected` at the SES wire.
+ */
 const MAX_RECIPIENTS = 50;
 /** One request, one batch. Bounded so a single call cannot become a campaign. */
 export const MAX_BATCH_ITEMS = 50;
@@ -207,6 +213,18 @@ const messageSchema = z
   .refine(
     (message) => Boolean(message.html) || Boolean(message.text),
     "a message needs an html or a text body",
+  )
+  .refine(
+    (message) =>
+      message.to.length +
+        (message.cc?.length ?? 0) +
+        (message.bcc?.length ?? 0) <=
+      MAX_RECIPIENTS,
+    // SES caps the COMBINED To+Cc+Bcc destination count, so the per-field caps
+    // above are not enough: `to:[50] + cc:[50]` passes them yet is 100
+    // destinations at the wire. Refuse it here, deterministically, rather than
+    // letting SES reject it as a 400 `send_rejected`.
+    `a message may address at most ${MAX_RECIPIENTS} recipients across to, cc and bcc`,
   );
 
 const sendBodySchema = z.strictObject({ message: messageSchema });
@@ -440,18 +458,13 @@ export async function handleRelaySend(
   }
 
   const relay = resolveRelay(deps, caller.region);
+  let id: string;
   try {
-    const { id } = await relay.send({
+    ({ id } = await relay.send({
       tenantName: caller.tenantName,
       configurationSetName: caller.configurationSetName,
       message: toSesMessage(parsed.data.message),
-    });
-    await commitIdempotencyClaim({ rowId: claim.rowId, messageId: id, db });
-    // AFTER the wire, and only on the path that reached it: the replay branch
-    // above returned without counting, which is what stops a journey replay
-    // billing twice.
-    await meter(gate, caller, 1, now);
-    return json(200, { id });
+    }));
   } catch (error) {
     // NOTHING is left behind by a send that did not happen: a recorded key for
     // an undelivered message turns a blip into permanent silent loss. The
@@ -464,6 +477,24 @@ export async function handleRelaySend(
     });
     return sendFailureResponse(error, caller, db, now);
   }
+
+  // SES ACCEPTED (a message id exists). Past this line the send is DONE, and a
+  // post-send DB blip must never release the claim nor surface as a retryable
+  // failure — either would re-send a message already delivered, the exact
+  // double-send this ordering exists to prevent. Record what we can (commit the
+  // claim so a future retry replays; meter the send — the replay branch above
+  // returned without counting, which is what stops a journey replay billing
+  // twice) and answer with the id regardless of a bookkeeping error.
+  try {
+    await commitIdempotencyClaim({ rowId: claim.rowId, messageId: id, db });
+    await meter(gate, caller, 1, now);
+  } catch (error) {
+    console.error(
+      `[cloud:email-relay] post-send bookkeeping failed for environment ${caller.environmentId} (message ${id} already delivered):`,
+      error,
+    );
+  }
+  return json(200, { id });
 }
 
 /** One entry of a batch response, positional with the request's `items`. */
@@ -616,20 +647,40 @@ export async function handleRelaySendBatch(
     for (const [position, item] of pending.entries()) {
       const outcome = entries[position];
       if (outcome?.status === "sent") {
-        await commitIdempotencyClaim({
-          rowId: item.rowId,
-          messageId: outcome.messageId,
-          db,
-        });
+        // SES ACCEPTED this message. A commit blip must never release the claim
+        // or throw out of the loop — either would strand a later sent item's
+        // commit and re-send an already-delivered message on the batch retry.
+        // Record the id regardless; a future retry then replays it.
+        try {
+          await commitIdempotencyClaim({
+            rowId: item.rowId,
+            messageId: outcome.messageId,
+            db,
+          });
+        } catch (commitError) {
+          console.error(
+            `[cloud:email-relay] post-send commit failed for environment ${caller.environmentId} (message ${outcome.messageId} already delivered):`,
+            commitError,
+          );
+        }
         results[item.index] = { status: "sent", id: outcome.messageId };
         delivered += 1;
         continue;
       }
-      await releaseIdempotencyClaim({
-        rowId: item.rowId,
-        claimedAt: item.claimedAt,
-        db,
-      });
+      // This item never reached SES: releasing reopens the key for the retry. A
+      // release blip must not abort the loop and strand a sent item's commit.
+      try {
+        await releaseIdempotencyClaim({
+          rowId: item.rowId,
+          claimedAt: item.claimedAt,
+          db,
+        });
+      } catch (releaseError) {
+        console.error(
+          `[cloud:email-relay] claim release failed for environment ${caller.environmentId}:`,
+          releaseError,
+        );
+      }
       const kind = outcome?.kind ?? "unknown";
       failureKinds.push(kind);
       results[item.index] = {
@@ -645,8 +696,16 @@ export async function handleRelaySendBatch(
 
     // What the wire ACCEPTED, which is what a batch is billed for: the items
     // that failed cost nothing, and the ones that replayed were counted the
-    // first time round.
-    await meter(gate, caller, delivered, now);
+    // first time round. A metering blip is post-send too — swallow it rather
+    // than throw, so the delivered items are never re-sent on a retry.
+    try {
+      await meter(gate, caller, delivered, now);
+    } catch (meterError) {
+      console.error(
+        `[cloud:email-relay] post-send metering failed for environment ${caller.environmentId} (${delivered} delivered):`,
+        meterError,
+      );
+    }
 
     // A per-entry pause is still a pause: mirror it so the next request
     // short-circuits without dialling.

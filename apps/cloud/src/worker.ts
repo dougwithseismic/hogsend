@@ -12,6 +12,7 @@ import {
   getBuildSweepTask,
   getCloudHatchet,
   getHealthSweepTask,
+  getInboundForwardSweepTask,
   getProvisionStackTask,
   getProvisionSweepTask,
   getReputationSweepTask,
@@ -21,6 +22,7 @@ import {
   SWEEP_BILLING_TASK,
   SWEEP_BUILDS_TASK,
   SWEEP_EMAIL_REPUTATION_TASK,
+  SWEEP_INBOUND_FORWARDS_TASK,
   SWEEP_PROVISIONS_TASK,
   SWEEP_STACK_ALERTS_TASK,
   SWEEP_STACK_HEALTH_TASK,
@@ -41,6 +43,7 @@ const worker = startWorker({
     SWEEP_PROVISIONS_TASK,
     SWEEP_STACK_ALERTS_TASK,
     SWEEP_EMAIL_REPUTATION_TASK,
+    SWEEP_INBOUND_FORWARDS_TASK,
   ],
   // Built here rather than inside the runtime so the runtime stays a plain
   // function over injected config — the Hatchet client is the one dependency
@@ -61,6 +64,7 @@ const worker = startWorker({
         getProvisionSweepTask(client),
         getAlertSweepTask(client),
         getReputationSweepTask(client),
+        getInboundForwardSweepTask(client),
       ],
     });
     // `start()` does not resolve until the worker stops — awaiting it here
@@ -92,6 +96,7 @@ process.stdout.write(
       SWEEP_PROVISIONS_TASK,
       SWEEP_STACK_ALERTS_TASK,
       SWEEP_EMAIL_REPUTATION_TASK,
+      SWEEP_INBOUND_FORWARDS_TASK,
     ],
   })}\n`,
 );

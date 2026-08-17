@@ -5,6 +5,10 @@ import {
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types";
 import { env } from "../env";
 import { BILLING_SWEEP_CRON, runBillingSweep } from "../metering/sweep";
+import {
+  INBOUND_FORWARD_REDRIVE_CRON,
+  redriveStuckForwards,
+} from "../services/email-inbound-redrive";
 import { ALERT_SWEEP_CRON, sweepStackAlerts } from "./alert-sweep";
 import { runBuildOnHost } from "./build-host";
 import { BUILD_SWEEP_CRON, sweepBuilds } from "./build-sweep";
@@ -60,6 +64,9 @@ export const SWEEP_STACK_ALERTS_TASK = "sweep-stack-alerts";
 
 /** The hourly trust-tier and reputation sweep (PRD 08 tasks 4 and 7). */
 export const SWEEP_EMAIL_REPUTATION_TASK = "sweep-email-reputation";
+
+/** The sweep that re-drives inbound forwards a transient SES/tenant blip stuck. */
+export const SWEEP_INBOUND_FORWARDS_TASK = "sweep-inbound-forwards";
 
 /** The JSON summary a finished `provision-stack` run leaves in Hatchet. */
 export interface ProvisionTaskOutput extends JsonObject {
@@ -563,4 +570,68 @@ export function getReputationSweepTask(
 ): ReputationSweepTask {
   reputationSweepCache ??= buildReputationSweepTask(client);
   return reputationSweepCache;
+}
+
+/** The JSON summary a finished inbound-forward re-drive leaves in Hatchet. */
+export interface InboundForwardSweepTaskOutput extends JsonObject {
+  forwarded: string[];
+  stillFailing: string[];
+  skipped: string[];
+}
+
+/**
+ * The `sweep-inbound-forwards` cron task — every five minutes.
+ *
+ * The mandatory inbound forward never gates durability, so a transient SES or
+ * mid-provision failure settles the row terminal with only `forward_error` set —
+ * a state no SNS redelivery re-drives. Without this sweep the reply reaches the
+ * human only when an operator reads the re-drive list. See
+ * `services/email-inbound-redrive.ts`.
+ *
+ * `retries: 0`, the sweep's usual reason: a re-drive is idempotent
+ * (`forwarded_at IS NULL` guards it), so a Hatchet retry would be safe but
+ * pointless — a failure that survived the tick survives the retry, and the next
+ * tick is five minutes away.
+ *
+ * SINGLE-FLIGHT (`CANCEL_NEWEST`, never the default): the body re-fetches S3 and
+ * sends over SES per row, so a slow tick can still be running when the next
+ * fires. Cancelling the incumbent would abandon a batch part-way; discarding the
+ * newcomer is right for a singleton cron — the stuck rows are still there next
+ * tick.
+ */
+function buildInboundForwardSweepTask(client: HatchetClient) {
+  return client.task({
+    name: SWEEP_INBOUND_FORWARDS_TASK,
+    onCrons: [INBOUND_FORWARD_REDRIVE_CRON],
+    retries: 0,
+    concurrency: {
+      expression: `'${SWEEP_INBOUND_FORWARDS_TASK}'`,
+      maxRuns: 1,
+      limitStrategy: ConcurrencyLimitStrategy.CANCEL_NEWEST,
+    },
+    // A bounded batch, each row an S3 read plus one SES send. Generous against a
+    // slow S3 tail and a slow mail API.
+    executionTimeout: "10m",
+    fn: async (): Promise<InboundForwardSweepTaskOutput> => {
+      const result = await redriveStuckForwards();
+      return {
+        forwarded: result.forwarded,
+        stillFailing: result.stillFailing,
+        skipped: result.skipped,
+      };
+    },
+  });
+}
+
+export type InboundForwardSweepTask = ReturnType<
+  typeof buildInboundForwardSweepTask
+>;
+
+let inboundForwardSweepCache: InboundForwardSweepTask | undefined;
+
+export function getInboundForwardSweepTask(
+  client: HatchetClient,
+): InboundForwardSweepTask {
+  inboundForwardSweepCache ??= buildInboundForwardSweepTask(client);
+  return inboundForwardSweepCache;
 }

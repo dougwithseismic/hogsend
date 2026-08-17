@@ -428,6 +428,7 @@ describe("the suspension notice", () => {
     const notice = renderSuspensionNotice({
       variant: "automatic",
       environment: "production",
+      environmentId: "11111111-1111-4111-8111-111111111111",
       suspendedAt: new Date("2026-08-10T14:32:00Z"),
       clause: "5.1",
       cause: "Complaint rate crossed the review threshold.",
@@ -454,6 +455,7 @@ describe("the suspension notice", () => {
     const notice = renderSuspensionNotice({
       variant: "automatic",
       environment: "production",
+      environmentId: "11111111-1111-4111-8111-111111111111",
       suspendedAt: new Date("2026-08-10T14:32:00Z"),
       clause: "5.1",
       cause: "SES paused this tenant.",

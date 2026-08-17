@@ -699,3 +699,67 @@ describe("POST /api/email/send-batch — the route as Next runs it", () => {
     expect(ses.__sent()).toHaveLength(before + 1);
   });
 });
+
+describe("POST /api/email/send-batch — a post-send DB blip never re-sends", () => {
+  /**
+   * A `db` that lets everything through EXCEPT a claim commit, which rejects as
+   * a transient DB error would — mirrors the send suite's guard. Only the
+   * `emailIdempotency` UPDATE fails, landing exactly where SES has already
+   * accepted the message.
+   */
+  function commitFailingDb(): typeof db {
+    return new Proxy(db, {
+      get(target, prop) {
+        if (prop === "update") {
+          return (table: unknown) => {
+            if (table === emailIdempotency) {
+              return {
+                set: () => ({
+                  where: () =>
+                    Promise.reject(new Error("transient db commit blip")),
+                }),
+              };
+            }
+            return (target.update as (t: unknown) => unknown)(table);
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof db;
+  }
+
+  it("keeps the claim and never re-sends when a per-item commit fails", async () => {
+    const fixture = await seed();
+
+    const response = await handleRelaySendBatch(
+      batchRequest({
+        token: fixture.token,
+        body: { items: [item("batch-commit-blip", "one@example.test")] },
+      }),
+      { ses: fixture.ses, db: commitFailingDb() },
+    );
+
+    // Before the fix the per-item commit threw straight out of the handler (no
+    // try around the loop), so this call REJECTED — the route would 500 and the
+    // durable layer would re-drive the whole batch, re-sending the delivered
+    // item. Now it resolves 200 with the item reported sent.
+    expect(response.status).toBe(200);
+    const first = await results(response);
+    expect(first[0]).toMatchObject({ status: "sent", id: expect.any(String) });
+    expect(fixture.ses.__sent()).toHaveLength(1);
+
+    // The claim survives; a retry finds it in flight and never re-sends.
+    expect(await idempotencyRows(fixture.environmentId)).toHaveLength(1);
+
+    const retry = await handleRelaySendBatch(
+      batchRequest({
+        token: fixture.token,
+        body: { items: [item("batch-commit-blip", "one@example.test")] },
+      }),
+      { ses: fixture.ses },
+    );
+    expect(retry.status).toBe(200);
+    expect(fixture.ses.__sent()).toHaveLength(1);
+  });
+});
