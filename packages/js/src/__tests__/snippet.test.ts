@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootSnippet, readScriptOptions } from "../snippet.js";
+import { bootSnippet, readScriptOptions, STUB_METHODS } from "../snippet.js";
 
 // ---------------------------------------------------------------------------
 // The drop-in `<script>` entry: reads its config off the tag, replaces the
@@ -173,5 +173,34 @@ describe("bootSnippet", () => {
     );
     client?.teardown();
     warn.mockRestore();
+  });
+
+  it("every stubbed loader method exists on the booted client and replays", async () => {
+    const { fetchImpl, bodies } = makeFetch();
+    // The documented async loader: each method queues [name, ...args].
+    const q: unknown[][] = [];
+    const stub: Record<string, unknown> = { _q: q };
+    for (const m of STUB_METHODS) {
+      stub[m] = (...args: unknown[]) => {
+        q.push([m, ...args]);
+      };
+    }
+    (stub.capture as (...a: unknown[]) => void)("early_event", { n: 1 });
+    (stub.group as (...a: unknown[]) => void)("company", "acme.com");
+    vi.stubGlobal("window", { hogsend: stub });
+    const client = bootSnippet({
+      key: "pk_test",
+      host: "https://api.test.local",
+      fetch: fetchImpl,
+    });
+    for (const m of STUB_METHODS) {
+      expect(typeof (client as unknown as Record<string, unknown>)[m]).toBe(
+        "function",
+      );
+    }
+    await client?.flush();
+    expect(bodies.join("\n")).toContain("early_event");
+    expect(client?.getGroups()).toEqual({ company: "acme.com" });
+    client?.teardown();
   });
 });
