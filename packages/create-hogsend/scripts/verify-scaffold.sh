@@ -181,9 +181,12 @@ for pkg in "${PACKAGES[@]}"; do
   # match the glob rather than hardcoding a version that drifts each release.
   tgz="$(tarball_for "$pkg")"
   case "$pkg" in
-    studio | cli | client)
+    studio | cli | client | js)
       # These ship a built dist/ — assert it travelled in the tarball.
       tar_has "$tgz" 'package/dist/' || fail "$tgz missing package/dist/**"
+      # The drop-in the engine serves at /hogsend.js is a build artifact too.
+      [ "$pkg" = js ] && { tar_has "$tgz" 'package/dist/hogsend.js' \
+        || fail "$tgz missing package/dist/hogsend.js"; }
       ;;
     *)
       tar_has "$tgz" 'package/src/' || fail "$tgz missing package/src/**"
@@ -607,6 +610,22 @@ for entry in index worker; do
   fi
   echo "    dist/$entry.js boots without a plugin-load diagnostic"
 done
+
+# --- 8c. the drop-in script resolves from the scaffold's node_modules -------
+# The engine serves GET /hogsend.js by `require.resolve("@hogsend/js/package.json")`
+# + sibling dist/hogsend.js at runtime (never a code import, like the Studio).
+# Prove the tarball-installed package lands where that lookup reads, or every
+# scaffold would 404 the tag its docs tell users to paste.
+echo "==> [8c] @hogsend/js dist/hogsend.js resolves from the scaffold"
+(cd "$APPDIR" && node -e '
+  const { createRequire } = require("node:module");
+  const { existsSync } = require("node:fs");
+  const { dirname, join } = require("node:path");
+  const req = createRequire(process.cwd() + "/dist/index.js");
+  const file = join(dirname(req.resolve("@hogsend/js/package.json")), "dist", "hogsend.js");
+  if (!existsSync(file)) { console.error("missing " + file); process.exit(1); }
+') || fail "@hogsend/js/dist/hogsend.js is not resolvable from the scaffolded app — /hogsend.js would 404"
+echo "    /hogsend.js asset resolvable"
 
 # --- 9. lint --------------------------------------------------------------
 echo "==> [9/10] biome check (scaffolded app)"
