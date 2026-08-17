@@ -5,7 +5,41 @@ description: "No bundler, no React: your engine serves @hogsend/js as one script
 
 Every Hogsend engine serves the browser SDK at `GET /hogsend.js`. It is the same `@hogsend/js` client the React layer uses, built as one self-booting file (about 11 KB gzipped) with two vanilla DOM renderers on top. Webflow, Framer, Astro, WordPress, a static HTML page: one tag.
 
-## The tag
+## Install: the loader (recommended)
+
+Paste this in `<head>`. It defines `window.hogsend` immediately with queued `capture`, `identify`, `group`, `setUserToken`, `reset`, `resetGroups`, `flush`, `connect` and `captureRef`, then loads the SDK asynchronously. Calls made before the script arrives replay in order on boot, so any inline script or tag manager can call `hogsend.capture(...)` from the first byte.
+
+```html
+<script>
+!function(w,d,c){if(w.hogsend&&w.hogsend._q)return;var q=[],s={_q:q};
+["capture","identify","setUserToken","reset","group","resetGroups","flush","connect","captureRef"]
+.forEach(function(m){s[m]=function(){q.push([m].concat([].slice.call(arguments)))}});
+w.hogsend=s;var e=d.createElement("script");e.async=!0;e.src=c.host+"/hogsend.js";
+for(var k in c)k!=="host"&&(e.dataset[k]=c[k]);d.head.appendChild(e)}
+(window,document,{host:"https://api.example.com",key:"pk_..."});
+</script>
+```
+
+The config object takes the same keys as the tag attributes below (`key`, `userId`, `userToken`, `pageview`, `connect`, `datalayer`, `datalayerWatch`) in camelCase, e.g. `{host, key, pageview: "true"}`.
+
+```js
+hogsend.capture("pricing_viewed", { plan: "team" });
+hogsend.group("company", "acme.com");
+```
+
+Methods that return a value (`getDistinctId`, `feed()`, `preferences()`, `ui.*`) are not stubbed: they exist once the SDK has booted. Wait for `hogsend:ready` for those:
+
+```html
+<script>
+  document.addEventListener("hogsend:ready", ({ detail: hogsend }) => {
+    hogsend.ui.banner("#announcement");
+  });
+</script>
+```
+
+## Install: the plain tag
+
+One tag, no loader. Simplest when nothing on the page needs to call the SDK before it loads.
 
 ```html
 <script
@@ -15,32 +49,11 @@ Every Hogsend engine serves the browser SDK at `GET /hogsend.js`. It is the same
 ></script>
 ```
 
-`data-key` is a `pk_` publishable key (mint one as in the [Quickstart](./quickstart), with the page's origin in `allowedOrigins`). The engine host is read from the script's own `src`, so there is nothing else to configure.
+`data-key` is a `pk_` publishable key (mint one as in the [Quickstart](./quickstart), with the page's origin in `allowedOrigins`). The engine host is read from the script's own `src`, so there is nothing else to configure. On load the script assigns the client to `window.hogsend` and dispatches `hogsend:ready` on `document`.
 
-On load the script creates the client, assigns it to `window.hogsend`, and dispatches a `hogsend:ready` event on `document`:
+With the plain tag, code that must run before load can still queue by hand: `window.hogsend = window.hogsend || { _q: [] }; window.hogsend._q.push(["capture", "landing_viewed"]);`.
 
-```html
-<script>
-  document.addEventListener("hogsend:ready", (e) => {
-    const hogsend = e.detail; // same object as window.hogsend
-    hogsend.capture("pricing_viewed", { plan: "team" });
-  });
-</script>
-```
-
-## Calling before the script loads
-
-Install the classic stub first and the calls replay in order once the SDK boots:
-
-```html
-<script>
-  window.hogsend = window.hogsend || { _q: [] };
-  window.hogsend._q.push(["capture", "landing_viewed", { variant: "b" }]);
-</script>
-<script src="https://api.example.com/hogsend.js" data-key="pk_..." async></script>
-```
-
-Each entry is `[method, ...args]`. Unknown methods and rejected calls log a `console.warn`; nothing throws into your page. A second copy of the tag on the same page is ignored with a warning, so a duplicate embed never doubles your events.
+Unknown queued methods and rejected calls log a `console.warn`; nothing throws into your page. A second copy of the tag on the same page is ignored with a warning, so a duplicate embed never doubles your events.
 
 ## Attributes
 
@@ -55,7 +68,7 @@ Each entry is `[method, ...args]`. Unknown methods and rejected calls log a `con
 | `data-datalayer` | off | `"push"` mirrors every captured event to `window.dataLayer` as `{ event: "hogsend.<name>", hogsend: { event, properties } }`. |
 | `data-datalayer-watch` | | Comma-separated allowlist of `dataLayer` event names to ingest as Hogsend events. See [dataLayer](./datalayer). |
 
-`window.__HOGSEND__ = { publishableKey, apiUrl }` set before the tag is also honoured; `data-*` wins over it.
+`window.__HOGSEND__ = { publishableKey, apiUrl }` set before the tag is also honoured; `data-*` (and the loader config) wins over it.
 
 Realtime is polling. A browser cannot set an `Authorization` header on `EventSource`, so the SSE transport is not selected here.
 
@@ -65,14 +78,21 @@ It is the full [`@hogsend/js` client](./provider) plus a `ui` namespace. Everyth
 
 ### Identity
 
+Anonymous works out of the box: the SDK mints and persists an anonymous id, and every event and feed read is scoped to it. To act as a known user, your backend mints a short-lived `userToken` for the id *its own session* resolved (`generateUserToken` from `@hogsend/engine`; the scaffold ships a reference route at `POST /v1/example/user-token`), the page fetches it after login, and hands both to the SDK:
+
 ```js
-hogsend.identify("user_123", { plan: "team" });   // link the browser to a user
-hogsend.setUserToken(tokenFromYourServer);         // prove it (secure mode)
-hogsend.reset();                                    // logout: new anonymous id
-hogsend.getDistinctId(); hogsend.getContactKey(); hogsend.isIdentified();
+const { userToken } = await fetch("/api/hogsend-token").then((r) => r.json());
+hogsend.setUserToken(userToken);
+hogsend.identify("user_123", { plan: "team" });   // traits are optional
 ```
 
-A `pk_` key is anonymous-only. `identify()` stamps events with the id and adopts the anonymous history when the contact resolves, but the engine trusts the id as that contact only when a server-minted `userToken` is present (`data-user-token` on the tag, or `setUserToken()` after login). The same rule as the React provider; the full story is in [Identifying users](./identifying-users).
+Or on the tag / loader config for a page that already knows the user: `data-user-id` + `data-user-token`. `hogsend.reset()` on logout returns to a fresh anonymous id.
+
+<Callout type="warn">
+`identify()` without a `userToken` is refused. A `pk_` key is public, so the engine will not let a browser claim an arbitrary user id: the identify returns `403`, and because the client now believes it is that user, every capture after it is refused too until `reset()` or a token arrives. Mint the token first, or stay anonymous. This is the same rule as the React provider; the reasoning is in [Identifying users](./identifying-users).
+</Callout>
+
+`getDistinctId()`, `getContactKey()` and `isIdentified()` read the current state. Anonymous history is folded onto the contact server-side once the identified events arrive.
 
 ### Events, groups, attribution
 

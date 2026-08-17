@@ -31,6 +31,25 @@ export interface HogsendStub {
   _q?: unknown[][];
 }
 
+/**
+ * Fire-and-forget methods the async loader stubs BEFORE the script arrives, so
+ * `hogsend.capture(...)` on a page works from the first byte and replays on
+ * boot. Only methods whose return value nobody needs synchronously belong here
+ * (getters like `getDistinctId` cannot be queued). The documented loader in
+ * apps/docs `client-side/script-tag` embeds this exact list; a test pins it.
+ */
+export const STUB_METHODS = [
+  "capture",
+  "identify",
+  "setUserToken",
+  "reset",
+  "group",
+  "resetGroups",
+  "flush",
+  "connect",
+  "captureRef",
+] as const;
+
 declare global {
   interface Window {
     hogsend?: HogsendSnippet | HogsendStub;
@@ -141,8 +160,14 @@ export function bootSnippet(opts: SnippetOptions = {}): HogsendSnippet | null {
 
   // Double embed (tag pasted twice, or a page that already booted a client):
   // keep the live client rather than clobbering it with a second one that
-  // would double every capture. A stub is anything without a `capture`.
-  if (existing && typeof (existing as Hogsend).capture === "function") {
+  // would double every capture. The async loader's stub ALSO has a `capture`
+  // function (it queues), so "booted" means: has `capture` and no `_q`.
+  const stubQueue = (existing as HogsendStub | undefined)?._q;
+  if (
+    existing &&
+    !Array.isArray(stubQueue) &&
+    typeof (existing as Hogsend).capture === "function"
+  ) {
     console.warn("[hogsend] already booted; ignoring a second script tag");
     return existing as HogsendSnippet;
   }
@@ -159,7 +184,6 @@ export function bootSnippet(opts: SnippetOptions = {}): HogsendSnippet | null {
     return null;
   }
 
-  const stubQueue = (existing as HogsendStub | undefined)?._q;
   const queued = Array.isArray(stubQueue) ? stubQueue : [];
   if (typeof window !== "undefined") window.hogsend = client;
 
