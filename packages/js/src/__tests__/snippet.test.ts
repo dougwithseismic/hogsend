@@ -45,7 +45,26 @@ describe("readScriptOptions", () => {
       host: "https://api.acme.com",
       userId: "u1",
       pageview: true,
+      dataLayerPush: false,
+      connect: false,
     });
+  });
+
+  it("reads dataLayer + connect attributes", () => {
+    const opts = readScriptOptions(
+      fakeScript(
+        {
+          key: "pk_x",
+          datalayer: "push",
+          datalayerWatch: "purchase, signup ,",
+          connect: "",
+        },
+        "https://api.acme.com/hogsend.js",
+      ),
+    );
+    expect(opts.dataLayerPush).toBe(true);
+    expect(opts.dataLayerWatch).toEqual(["purchase", "signup"]);
+    expect(opts.connect).toBe(true);
   });
 
   it("prefers an explicit data-host and defaults pageview off", () => {
@@ -95,6 +114,8 @@ describe("bootSnippet", () => {
 
     expect(client).not.toBeNull();
     expect(win.hogsend).toBe(client);
+    expect(typeof client?.ui.banner).toBe("function");
+    expect(typeof client?.ui.toasts).toBe("function");
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("hogsend:ready");
     expect(events[0]?.detail).toBe(client);

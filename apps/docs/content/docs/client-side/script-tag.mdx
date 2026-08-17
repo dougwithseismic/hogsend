@@ -1,9 +1,9 @@
 ---
 title: Script tag
-description: "No bundler, no React: your engine serves @hogsend/js as one script at /hogsend.js. Paste the tag, get capture, identity, feed, preferences, and flags on any page."
+description: "No bundler, no React: your engine serves @hogsend/js as one script at /hogsend.js. Paste the tag and get capture, identity, attribution, feed, preferences, flags, banners and toasts on any page."
 ---
 
-Every Hogsend engine serves the browser SDK at `GET /hogsend.js`. It is the same `@hogsend/js` client the React layer uses, built as one self-booting file (about 10 KB gzipped). Webflow, Framer, Astro, WordPress, a static HTML page: one tag.
+Every Hogsend engine serves the browser SDK at `GET /hogsend.js`. It is the same `@hogsend/js` client the React layer uses, built as one self-booting file (about 11 KB gzipped) with two vanilla DOM renderers on top. Webflow, Framer, Astro, WordPress, a static HTML page: one tag.
 
 ## The tag
 
@@ -28,8 +28,6 @@ On load the script creates the client, assigns it to `window.hogsend`, and dispa
 </script>
 ```
 
-`window.hogsend` is the full client: `capture`, `identify`, `setUserToken`, `reset`, `group`, `feed()`, `preferences()`, `banners()`, `toasts()`, `flags`, `subscribe`. Same API as [`createHogsend`](./provider).
-
 ## Calling before the script loads
 
 Install the classic stub first and the calls replay in order once the SDK boots:
@@ -42,21 +40,95 @@ Install the classic stub first and the calls replay in order once the SDK boots:
 <script src="https://api.example.com/hogsend.js" data-key="pk_..." async></script>
 ```
 
-Each entry is `[method, ...args]`. Unknown methods log a `console.warn` and are skipped.
+Each entry is `[method, ...args]`. Unknown methods and rejected calls log a `console.warn`; nothing throws into your page. A second copy of the tag on the same page is ignored with a warning, so a duplicate embed never doubles your events.
 
 ## Attributes
 
 | Attribute | Default | Effect |
 | --- | --- | --- |
-| `data-key` | required | Publishable key. Without it the script logs a warning and does nothing; the page is never broken. |
+| `data-key` | required | Publishable key. Without it the script logs a warning and does nothing. |
 | `data-host` | origin of `src` | Engine URL. Set it when the script is proxied or copied to another host. |
 | `data-user-id` | | Known user id for a logged-in page. |
 | `data-user-token` | | Server-minted proof for `data-user-id` (see [Identifying users](./identifying-users)). |
-| `data-pageview` | off | `"true"` captures `$pageview` on boot with `$current_url`, `$pathname`, `title`, `referrer`. |
+| `data-pageview` | off | `"true"` (or bare) captures `$pageview` on boot with `$current_url`, `$pathname`, `title`, `referrer`. |
+| `data-connect` | off | Open the realtime channel on boot so feed items and toasts arrive live. `ui.toasts()` opens it for you. |
+| `data-datalayer` | off | `"push"` mirrors every captured event to `window.dataLayer` as `{ event: "hogsend.<name>", hogsend: { event, properties } }`. |
+| `data-datalayer-watch` | | Comma-separated allowlist of `dataLayer` event names to ingest as Hogsend events. See [dataLayer](./datalayer). |
 
-`window.__HOGSEND__ = { publishableKey, apiUrl }` set before the tag is also honoured, and `data-*` wins over it.
+`window.__HOGSEND__ = { publishableKey, apiUrl }` set before the tag is also honoured; `data-*` wins over it.
 
 Realtime is polling. A browser cannot set an `Authorization` header on `EventSource`, so the SSE transport is not selected here.
+
+## What `window.hogsend` can do
+
+It is the full [`@hogsend/js` client](./provider) plus a `ui` namespace. Everything below works with no React on the page.
+
+### Identity
+
+```js
+hogsend.identify("user_123", { plan: "team" });   // link the browser to a user
+hogsend.setUserToken(tokenFromYourServer);         // prove it (secure mode)
+hogsend.reset();                                    // logout: new anonymous id
+hogsend.getDistinctId(); hogsend.getContactKey(); hogsend.isIdentified();
+```
+
+A `pk_` key is anonymous-only. `identify()` stamps events with the id and adopts the anonymous history when the contact resolves, but the engine trusts the id as that contact only when a server-minted `userToken` is present (`data-user-token` on the tag, or `setUserToken()` after login). The same rule as the React provider; the full story is in [Identifying users](./identifying-users).
+
+### Events, groups, attribution
+
+```js
+hogsend.capture("checkout_started", { cart: 3 });
+hogsend.flush();                                     // force-send the queue
+hogsend.group("company", "acme.com");                // associate later events
+hogsend.getAttributionFields();                      // utm_*, click ids, referrer
+```
+
+Arrival attribution runs on boot: `utm_*` parameters, click ids (`gclid`, `gbraid`, `wbraid`, `fbclid`, `msclkid`, `ttclid`, `li_fat_id`, `twclid`), the landing page and the referrer are stored in `localStorage` and stamped on every event, and an attributed landing fires `campaign.arrived` once per (signature, visitor, UTC day). A landing page on a page builder gets attribution with no extra code. Every capture goes through `POST /v1/events` and can trigger a journey.
+
+### Feed, preferences, flags
+
+```js
+const feed = hogsend.feed();                 // or hogsend.feed("in_app")
+const { items, metadata } = await feed.fetch();   // metadata.unreadCount, ...
+feed.on("items", () => render(hogsend.getSnapshot().feeds));
+await feed.markAsRead([id]); await feed.markAllAsRead();
+await feed.markAsArchived([id]); await feed.fetchNextPage();
+hogsend.connect();                            // live updates (poll)
+
+const prefs = hogsend.preferences();
+await prefs.get(); await prefs.lists();
+await prefs.setPreference("newsletter", false);
+await prefs.subscribe(listId); await prefs.setUnsubscribedAll(true);
+
+hogsend.getFlag("new-pricing"); hogsend.flags();
+```
+
+`subscribe(listener)` + `getSnapshot()` expose the reactive store (`identity`, `groups`, `flags`, `feeds`, `banners`) for your own rendering.
+
+### Vanilla UI: `hogsend.ui`
+
+Two DOM renderers ship in the drop-in for the surfaces that need one. Styles are injected once and read the same `--hs-color-*` tokens as [`@hogsend/react` theming](./theming), so overriding a token themes both.
+
+```html
+<div id="announcement"></div>
+<script>
+  document.addEventListener("hogsend:ready", ({ detail: hogsend }) => {
+    hogsend.ui.banner("#announcement", { slot: "top" });   // current banner for the slot
+    hogsend.ui.toasts();                                  // fixed toast stack, bottom-right
+  });
+</script>
+```
+
+- `ui.banner(target, { slot = "top", autoCapture = true, dismissLabel })` renders the highest-priority undismissed banner into `target` (selector or element), with the action link and a dismiss button. Emits `banner.shown` once per banner, `banner.clicked` and `banner.dismissed` through the client. Returns `{ destroy() }`.
+- `ui.toasts(target?, { position = "bottom-right" })` renders the toast stack; with no `target` it appends its own fixed container to `body`. Opens the realtime channel so server-sent toasts arrive. Returns `{ destroy() }`.
+
+Classes: `.hs-banner`, `.hs-banner__title/__body/__action/__dismiss`, `.hs-toasts[data-position]`, `.hs-toast`, `.hs-toast__title/__body/__action/__dismiss`. Not in the drop-in: the notification bell and feed list. Render those from `hogsend.feed()` or use `@hogsend/react`.
+
+The same renderers are importable for bundled non-React apps:
+
+```ts
+import { mountBanner, mountToasts } from "@hogsend/js/ui";
+```
 
 ## Caching
 

@@ -9,6 +9,7 @@ export default defineConfig([
       "src/banner/index.ts",
       "src/toast/index.ts",
       "src/realtime/index.ts",
+      "src/ui/index.ts",
     ],
     format: ["esm", "cjs"],
     // NOTE: browser target, NOT "node22" — these SDKs run in the browser and

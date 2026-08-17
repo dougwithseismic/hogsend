@@ -15,7 +15,16 @@
  */
 
 import { createHogsend } from "./client.js";
-import type { Hogsend, HogsendConfig, Properties } from "./types.js";
+import type {
+  DataLayerConfig,
+  Hogsend,
+  HogsendConfig,
+  Properties,
+} from "./types.js";
+import { createUi, type HogsendUi } from "./ui/index.js";
+
+/** What the drop-in puts on `window.hogsend`: the client plus DOM helpers. */
+export type HogsendSnippet = Hogsend & { ui: HogsendUi };
 
 /** Async stub shape a page may install before the script loads. */
 export interface HogsendStub {
@@ -24,7 +33,7 @@ export interface HogsendStub {
 
 declare global {
   interface Window {
-    hogsend?: Hogsend | HogsendStub;
+    hogsend?: HogsendSnippet | HogsendStub;
   }
 }
 
@@ -36,8 +45,19 @@ export interface SnippetOptions {
   userToken?: string;
   /** Capture `$pageview` on boot. Default off. */
   pageview?: boolean;
+  /** Mirror captured events onto `window.dataLayer`. Default off. */
+  dataLayerPush?: boolean;
+  /** Allowlist of `window.dataLayer` event names to ingest. */
+  dataLayerWatch?: string[];
+  /** Open the realtime channel on boot (feed/toasts). Default off. */
+  connect?: boolean;
   /** Injectable fetch (tests). */
   fetch?: typeof fetch;
+}
+
+/** `data-x` / `data-x=""` / `data-x="true"` all mean on. */
+function flag(value: string | undefined): boolean {
+  return value === "true" || value === "";
 }
 
 /** Read `data-*` options off the currently executing script tag. */
@@ -59,7 +79,17 @@ export function readScriptOptions(
     ...(host ? { host } : {}),
     ...(d.userId ? { userId: d.userId } : {}),
     ...(d.userToken ? { userToken: d.userToken } : {}),
-    pageview: d.pageview === "true" || d.pageview === "",
+    pageview: flag(d.pageview),
+    dataLayerPush: d.datalayer === "push" || d.datalayer === "both",
+    ...(d.datalayerWatch
+      ? {
+          dataLayerWatch: d.datalayerWatch
+            .split(",")
+            .map((e) => e.trim())
+            .filter(Boolean),
+        }
+      : {}),
+    connect: flag(d.connect),
   };
 }
 
@@ -81,7 +111,19 @@ function pageviewProperties(): Properties {
  * `console.warn`) when no publishable key can be resolved. Never throws: a
  * misconfigured tag must not break the host page.
  */
-export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
+function dataLayerConfig(opts: SnippetOptions): DataLayerConfig | undefined {
+  const watch = opts.dataLayerWatch?.length
+    ? { events: opts.dataLayerWatch }
+    : undefined;
+  if (!opts.dataLayerPush && !watch) return undefined;
+  return {
+    ...(opts.dataLayerPush ? { push: true } : {}),
+    ...(watch ? { watch } : {}),
+  };
+}
+
+export function bootSnippet(opts: SnippetOptions = {}): HogsendSnippet | null {
+  const dataLayer = dataLayerConfig(opts);
   // Casts: `resolveConfig` fills missing values from window.__HOGSEND__ /
   // location.origin and throws when nothing resolves; caught below.
   const config: HogsendConfig = {
@@ -90,6 +132,7 @@ export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
     ...(opts.userId ? { userId: opts.userId } : {}),
     ...(opts.userToken ? { userToken: opts.userToken } : {}),
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    ...(dataLayer ? { dataLayer } : {}),
     // Cannot set Authorization on EventSource from a browser; poll works.
     realtime: "poll",
   };
@@ -101,12 +144,13 @@ export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
   // would double every capture. A stub is anything without a `capture`.
   if (existing && typeof (existing as Hogsend).capture === "function") {
     console.warn("[hogsend] already booted; ignoring a second script tag");
-    return existing as Hogsend;
+    return existing as HogsendSnippet;
   }
 
-  let client: Hogsend;
+  let client: HogsendSnippet;
   try {
-    client = createHogsend(config);
+    const base = createHogsend(config);
+    client = Object.assign(base, { ui: createUi(base) });
   } catch (err) {
     console.warn(
       "[hogsend] not started:",
@@ -141,6 +185,7 @@ export function bootSnippet(opts: SnippetOptions = {}): Hogsend | null {
   }
 
   if (opts.pageview) void client.capture("$pageview", pageviewProperties());
+  if (opts.connect) client.connect();
 
   if (typeof document !== "undefined" && typeof CustomEvent === "function") {
     document.dispatchEvent(
