@@ -1,5 +1,25 @@
 # @hogsend/engine
 
+## 0.66.0
+
+### Minor Changes
+
+- df68b0e: Drop-in `<script>` build of the browser SDK. `@hogsend/js` now ships `dist/hogsend.js`, a self-booting IIFE that reads `data-key`/`data-host`/`data-user-id`/`data-user-token`/`data-pageview` off its script tag, replays a `window.hogsend._q` stub queue, assigns `window.hogsend`, and fires `hogsend:ready`. The engine serves it first-party at `GET /hogsend.js` with a content-hash ETag, `max-age=300, stale-while-revalidate=86400`, and `Cross-Origin-Resource-Policy: cross-origin` (best-effort: 404 when `@hogsend/js` is not installed, override with `HOGSEND_JS_PATH`). New scaffolds depend on `@hogsend/js` so the route works out of the box. The drop-in also carries `data-datalayer="push"` / `data-datalayer-watch` (GTM bridge), `data-connect`, and a `hogsend.ui` namespace with vanilla `banner()` / `toasts()` renderers (also importable as `@hogsend/js/ui`).
+- 33027ab: The contact resolver's merge fold can now opt out of the journey plane. A merge that drops a live linked account re-ingests `account.unlinked` so a journey can trigger on it — correct for an organic resolve, but a bulk import folds many rows at once and would fan out one enrolment per merged row that dropped a live link.
+
+  `ResolveContactOptions` gains `enrollJourneys` (default `true`, so organic ingest is unchanged); the built-in contact importer passes `false`. The gate suppresses only the journey plane — the outbound `account.unlinked` webhook still fires on both paths, so a subscriber's mirror converges whether the change arrived by import or by live traffic. Mirrors the `POST /v1/accounts/import` route's own `enrollJourneys` default-off.
+
+### Patch Changes
+
+- Updated dependencies [15533c3]
+  - @hogsend/attribution@0.66.0
+  - @hogsend/core@0.66.0
+  - @hogsend/db@0.66.0
+  - @hogsend/email@0.66.0
+  - @hogsend/plugin-posthog@0.66.0
+  - @hogsend/plugin-resend@0.66.0
+  - @hogsend/sms@0.66.0
+
 ## 0.65.0
 
 ### Minor Changes
