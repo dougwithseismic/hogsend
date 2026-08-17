@@ -316,6 +316,28 @@ describe("POST /api/email/send — the tenant is the TOKEN's (EARS 4)", () => {
     }
     expect(sendCalls(fixture.ses)).toBe(0);
   });
+
+  it("REJECTS a message whose combined to+cc+bcc exceeds the recipient cap", async () => {
+    const fixture = await seed();
+
+    // Each field is at (or under) the 50-cap on its own, but SES caps the
+    // COMBINED destination count: to:[50] + cc:[1] is 51 at the wire. Refuse it
+    // up front rather than let SES return a 400 send_rejected.
+    const to = Array.from({ length: 50 }, (_, i) => `to-${i}@example.test`);
+    const cc = ["cc-0@example.test"];
+    const response = await handleRelaySend(
+      sendRequest({
+        token: fixture.token,
+        idempotencyKey: "combined-recipient-cap",
+        body: { message: message({ to, cc }) },
+      }),
+      { ses: fixture.ses },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_request" });
+    expect(sendCalls(fixture.ses)).toBe(0);
+  });
 });
 
 describe("POST /api/email/send — idempotency (EARS 3)", () => {
@@ -884,5 +906,64 @@ describe("email idempotency claims", () => {
         ),
       );
     expect(remaining).toHaveLength(1);
+  });
+});
+
+describe("POST /api/email/send — a post-send DB blip never re-sends", () => {
+  /**
+   * A `db` that lets everything through EXCEPT the claim commit, which rejects
+   * as a transient DB error would. ONLY the `emailIdempotency` UPDATE is failed,
+   * so the rate-limit charge, tier cap, allowance and the claim INSERT all run
+   * for real — the failure lands exactly where SES has already accepted the
+   * message, which is the double-send window.
+   */
+  function commitFailingDb(): typeof db {
+    return new Proxy(db, {
+      get(target, prop) {
+        if (prop === "update") {
+          return (table: unknown) => {
+            if (table === emailIdempotency) {
+              return {
+                set: () => ({
+                  where: () =>
+                    Promise.reject(new Error("transient db commit blip")),
+                }),
+              };
+            }
+            return (target.update as (t: unknown) => unknown)(table);
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof db;
+  }
+
+  it("keeps the claim and never re-sends when the post-send commit fails", async () => {
+    const fixture = await seed();
+
+    const response = await handleRelaySend(
+      sendRequest({ token: fixture.token, idempotencyKey: "commit-blip" }),
+      { ses: fixture.ses, db: commitFailingDb() },
+    );
+
+    // SES accepted, so the caller gets the id and a NON-retryable 200. Before
+    // the fix the commit ran inside the SES try: its failure released the claim
+    // and returned 502 send_failed, which `retryable()` marks retryable — the
+    // durable layer re-sent and the recipient got it twice.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: expect.any(String) });
+    expect(sendCalls(fixture.ses)).toBe(1);
+
+    // The claim was NOT deleted, so a retry finds it in flight rather than a
+    // clean key, and never dials SES again.
+    expect(await idempotencyRows(fixture.environmentId)).toHaveLength(1);
+
+    const retry = await handleRelaySend(
+      sendRequest({ token: fixture.token, idempotencyKey: "commit-blip" }),
+      { ses: fixture.ses },
+    );
+    expect([200, 409]).toContain(retry.status);
+    expect(sendCalls(fixture.ses)).toBe(1);
   });
 });
