@@ -42,6 +42,10 @@ const PLUGIN_LOGOS: PluginLogo[] = [
   // identity to a contact (`defineAccountLink`). Steam needs no credentials.
   { name: "Steam", file: "steam.svg", ratio: 1 },
   { name: "Twitch", file: "twitch.svg", ratio: 1 },
+  { name: "Battle.net", file: "battlenet.svg", ratio: 1 },
+  { name: "Epic Games", file: "epic.svg", ratio: 1 },
+  { name: "Xbox", file: "xbox.svg", ratio: 1 },
+  { name: "Riot Games", file: "riot.svg", ratio: 1 },
   { name: "PostHog", file: "posthog.svg", ratio: 1 },
   { name: "Resend", file: "resend.svg", ratio: 1 },
   {

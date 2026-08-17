@@ -230,10 +230,10 @@ export const env = createEnv({
       .int()
       .nonnegative()
       .default(0),
-    // --- Account links (Steam / Twitch, opt-in) ---
+    // --- Account links (opt-in) ---
     // Declared here (PRD 05); READ by the env presets (PRD 06). Convention:
     // ACCOUNT_LINK_<PROVIDER_ID>_CLIENT_ID / _CLIENT_SECRET for OAuth pairs.
-    // Only the two built-ins get declared vars — this schema is STATIC, so a
+    // The six built-ins get declared vars — this schema is STATIC, so a
     // consumer-authored provider configures in CODE via the closure it passes
     // to `accountLinks.providers`, never via a dynamically-named env key.
     //
@@ -251,6 +251,22 @@ export const env = createEnv({
     // uses; an ACCOUNT_LINK_STEAM_CLIENT_SECRET name would be a lie (Steam has
     // no OAuth client pair at all).
     STEAM_WEB_API_KEY: z.string().min(1).optional(),
+    // Battle.net: the preset is built only when BOTH id + secret are present
+    // (same rule as Twitch). Register at https://develop.battle.net/access.
+    ACCOUNT_LINK_BATTLENET_CLIENT_ID: z.string().min(1).optional(),
+    ACCOUNT_LINK_BATTLENET_CLIENT_SECRET: z.string().min(1).optional(),
+    // Epic Games: the preset is built only when BOTH id + secret are present.
+    // Register at https://dev.epicgames.com/portal.
+    ACCOUNT_LINK_EPIC_CLIENT_ID: z.string().min(1).optional(),
+    ACCOUNT_LINK_EPIC_CLIENT_SECRET: z.string().min(1).optional(),
+    // Xbox (Microsoft Entra): the preset is built only when BOTH id + secret
+    // are present. Register at https://portal.azure.com.
+    ACCOUNT_LINK_XBOX_CLIENT_ID: z.string().min(1).optional(),
+    ACCOUNT_LINK_XBOX_CLIENT_SECRET: z.string().min(1).optional(),
+    // Riot Games: the preset is built only when BOTH id + secret are present.
+    // Register at https://developer.riotgames.com.
+    ACCOUNT_LINK_RIOT_CLIENT_ID: z.string().min(1).optional(),
+    ACCOUNT_LINK_RIOT_CLIENT_SECRET: z.string().min(1).optional(),
     // CSV of absolute origins ("https://play.example.com,https://example.com")
     // — the ONE allowlist governing both `returnTo` (PRD 07) and the
     // `postMessage` targetOrigin (PRD 10). Unset ⇒ empty list ⇒ no `returnTo`

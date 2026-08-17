@@ -1,6 +1,6 @@
 ---
 title: Account Linking
-description: Bind a player's Steam or Twitch account to a Hogsend contact. Steam needs no credentials, every link carries a monotonic version, and your own database can mirror it exactly.
+description: Bind a player's Steam, Twitch, Battle.net, Epic Games, Xbox, or Riot Games account to a Hogsend contact.
 ---
 
 You know a player by their SteamID. Your CRM knows them by email. Nothing joins
@@ -11,32 +11,48 @@ The player signs in through the platform, and from then on the platform id and
 the contact are the same person to every part of the system.
 
 <Callout title="Steam needs no credentials">
-"Sign in through Steam" is OpenID 2.0. The relying party presents no secret, so
-there is no app to register and no key to obtain. Steam links on a bare deploy.
-Twitch needs a client id and secret.
+Steam uses OpenID 2.0 — no app to register, no key to obtain. It links on a bare
+deploy. The other five built-in providers (Twitch, Battle.net, Epic Games, Xbox,
+Riot Games) are OAuth2 and each needs a client id and secret from its developer
+portal.
 </Callout>
 
 ## Turn it on
 
-Providers register on operator intent. Intent is exactly four environment
-variables (`ACCOUNT_LINK_ALLOWED_ORIGINS`, `ACCOUNT_LINK_TWITCH_CLIENT_ID`,
-`ACCOUNT_LINK_TWITCH_CLIENT_SECRET`, `STEAM_WEB_API_KEY`) or passing any
-`accountLinks` option to `createHogsendClient`, including `{}`. With no intent,
-no providers register and nothing throws at boot.
+Providers register on operator intent. Intent is any `ACCOUNT_LINK_*` env var,
+`STEAM_WEB_API_KEY`, or passing any `accountLinks` option to
+`createHogsendClient`, including `{}`. With no intent, no providers register
+and nothing throws at boot.
 
 `ACCOUNT_LINK_STATE_TTL_SECONDS` is deliberately not intent: it carries a
 default, so counting it would make every deploy look like it opted in.
 
 ```bash
-# Steam. This one variable is enough.
+# Steam — this one variable is enough (OpenID 2.0, no credentials).
 ACCOUNT_LINK_ALLOWED_ORIGINS=https://yourgame.com
+
+# Optional. Widens Steam with persona name and avatar.
+STEAM_WEB_API_KEY=...
 
 # Twitch. BOTH are required, or it does not register.
 ACCOUNT_LINK_TWITCH_CLIENT_ID=...
 ACCOUNT_LINK_TWITCH_CLIENT_SECRET=...
 
-# Optional. Widens Steam with persona name and avatar.
-STEAM_WEB_API_KEY=...
+# Battle.net. BOTH required.
+ACCOUNT_LINK_BATTLENET_CLIENT_ID=...
+ACCOUNT_LINK_BATTLENET_CLIENT_SECRET=...
+
+# Epic Games. BOTH required.
+ACCOUNT_LINK_EPIC_CLIENT_ID=...
+ACCOUNT_LINK_EPIC_CLIENT_SECRET=...
+
+# Xbox (Microsoft identity). BOTH required.
+ACCOUNT_LINK_XBOX_CLIENT_ID=...
+ACCOUNT_LINK_XBOX_CLIENT_SECRET=...
+
+# Riot Games (RSO). BOTH required.
+ACCOUNT_LINK_RIOT_CLIENT_ID=...
+ACCOUNT_LINK_RIOT_CLIENT_SECRET=...
 ```
 
 Redis is required: the mint throttle fails closed without it.
@@ -157,26 +173,25 @@ contact panel read it with no new machinery.
 
 ### Add a platform we do not ship
 
-Battle.net is a plain OAuth2 platform, so it is `oauth2Link()` plus a field
-mapping. No package to install and no engine change.
+Any OAuth2 platform is `oauth2Link()` plus a field mapping. No package to
+install and no engine change. PlayStation is shown here as a hypothetical — it
+requires PlayStation Partners Program access, which is why it is not built in.
 
 ```ts
 import { AccountLinkCallbackError, oauth2Link } from "@hogsend/engine";
 
-export const battlenet = oauth2Link({
-  meta: { id: "battlenet", name: "Battle.net" },
-  authorizeEndpoint: "https://oauth.battle.net/authorize",
-  tokenEndpoint: "https://oauth.battle.net/token",
-  clientId: process.env.BATTLENET_CLIENT_ID ?? "",
-  clientSecret: process.env.BATTLENET_CLIENT_SECRET ?? "",
-  scopes: ["openid"],
+export const playstation = oauth2Link({
+  meta: { id: "playstation", name: "PlayStation Network" },
+  authorizeEndpoint: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize",
+  tokenEndpoint: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/token",
+  clientId: process.env.PSN_CLIENT_ID ?? "",
+  clientSecret: process.env.PSN_CLIENT_SECRET ?? "",
+  scopes: ["psn:s2s"],
   usePkce: true,
   userInfo: {
-    url: "https://oauth.battle.net/oauth/userinfo",
-    // MUST pick the platform's immutable id. `sub` is the account id;
-    // `battletag` is a renameable handle, so it is display data only.
+    url: "https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/userinfo",
     map: (json) => {
-      const profile = json as { sub?: string; battletag?: string };
+      const profile = json as { sub?: string; online_id?: string };
       if (!profile.sub) {
         throw new AccountLinkCallbackError(
           "exchange_failed",
@@ -185,14 +200,14 @@ export const battlenet = oauth2Link({
       }
       return {
         providerUserId: profile.sub,
-        ...(profile.battletag ? { username: profile.battletag } : {}),
+        ...(profile.online_id ? { username: profile.online_id } : {}),
       };
     },
   },
 });
 ```
 
-Pass it as `accountLinks: { providers: [battlenet] }`.
+Pass it as `accountLinks: { providers: [playstation] }`.
 
 ### Mirror links into your own database
 
@@ -402,9 +417,19 @@ an opted-in trigger can still exclude them with
 
 ## Adding another platform
 
-Providers are configuration, not packages. `oauth2Link()` takes an authorize
-URL, a token URL, a profile URL and a field mapping, which is all most OAuth2
-platforms need. The Battle.net example above is a whole provider.
+Six providers ship built-in: **Steam** (OpenID 2.0, no credentials),
+**Twitch**, **Battle.net**, **Epic Games**, **Xbox** and **Riot Games** (all
+OAuth2, each needing a client id and secret). Providers are configuration, not
+packages — `oauth2Link()` takes an authorize URL, a token URL, a profile URL
+and a field mapping, which is all most OAuth2 platforms need. The PlayStation
+example above is a whole provider.
+
+Platforms that are NOT built in and why:
+
+- **GOG** — no public OAuth2 API. GOG Galaxy has no third-party authorization
+  endpoint.
+- **PlayStation** — Sony's auth APIs require PlayStation Partners Program
+  membership, which is an NDA-gated program with no public docs.
 
 Discord is deliberately not an account-link provider: it already links through
 `@hogsend/plugin-discord`, and a second writer on the same contact field would
@@ -415,8 +440,12 @@ drift.
 Known and named, so you do not hunt for them.
 
 - Steam returns no `username` or `avatarUrl` unless `STEAM_WEB_API_KEY` is set.
-- Epic, Xbox and PSN are not built. Epic requires an organization application
-  that takes weeks to approve.
+  The OpenID assertion carries the steamid64 and nothing else.
+- Riot Games returns no username from the RSO userinfo endpoint. The link
+  carries only the PUUID.
+- Xbox links to the Microsoft account identity (Graph API). The Xbox gamertag
+  is not fetched (it requires a separate Xbox Live token exchange that
+  `oauth2Link` cannot express).
 - Not built yet: the hosted manage page, an embed SDK button, the
   `@hogsend/client` `accounts.*` resource, the periodic property sync, and the
   Studio panel.
