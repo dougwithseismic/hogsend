@@ -121,6 +121,7 @@ export async function suspendEmailSending(
   const notice = renderSuspensionNotice({
     variant: input.variant ?? "automatic",
     environment: target.environmentName,
+    environmentId: input.environmentId,
     suspendedAt: at,
     clause: input.clause,
     cause: input.cause,
@@ -212,7 +213,10 @@ export async function reinstateEmailSending(input: {
   const notified = await notify(
     db,
     target,
-    renderReinstatementNotice({ environment: target.environmentName }),
+    renderReinstatementNotice({
+      environment: target.environmentName,
+      environmentId: input.environmentId,
+    }),
     input.sender,
     input.environmentId,
   );

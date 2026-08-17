@@ -27,9 +27,10 @@ import {
  *     rendered when there are numbers and replaced by the recorded cause alone
  *     when there are not — an omission, not a rewrite, because printing
  *     "your undefined reached undefined" would be worse than either.
- *  3. **The dashboard link is `{{environment}}`-shaped as the document writes
- *     it.** The document flags the two URLs as pending confirmation; they are
- *     reproduced exactly rather than guessed at.
+ *  3. **The dashboard link targets the environment's uuid, not its name.** The
+ *     `/environments/:id` dashboard route resolves by id and 404s on a name, so
+ *     the deep link uses `environmentId` (URL-encoded) while the human-readable
+ *     name stays in the body copy.
  *
  * The clause number is load-bearing. `AUP_CLAUSES` is the only place a clause
  * is named, and §6.7's no-appeal rule for phishing and malware changes the
@@ -56,6 +57,12 @@ export interface SuspensionNoticeFacts {
    */
   variant: "automatic" | "manual";
   environment: string;
+  /**
+   * The environment's uuid. The dashboard route resolves by id, not name, so
+   * the deep link uses this; `environment` stays as the human-readable display
+   * text.
+   */
+  environmentId: string;
   suspendedAt: Date;
   clause: AupClause | string;
   /** The recorded cause, verbatim. Always present; it is the one fact we have. */
@@ -200,7 +207,7 @@ export function renderSuspensionNotice(
     ...whatToDo(facts),
     "",
     "Full policy: https://hogsend.com/acceptable-use",
-    `Your sending status: https://cloud.hogsend.com/environments/${facts.environment}`,
+    `Your sending status: https://cloud.hogsend.com/environments/${encodeURIComponent(facts.environmentId)}`,
     "",
     `Appeals: ${APPEAL_EMAIL}`,
   ];
@@ -221,6 +228,7 @@ export function renderSuspensionNotice(
  */
 export function renderReinstatementNotice(facts: {
   environment: string;
+  environmentId: string;
 }): RenderedNotice {
   return {
     subject: `Sending restored for ${facts.environment}`,
@@ -237,7 +245,7 @@ export function renderReinstatementNotice(facts: {
       "are on your dashboard and are what decides how quickly the cap comes",
       "back.",
       "",
-      `Your sending status: https://cloud.hogsend.com/environments/${facts.environment}`,
+      `Your sending status: https://cloud.hogsend.com/environments/${encodeURIComponent(facts.environmentId)}`,
     ].join("\n"),
   };
 }
