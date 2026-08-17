@@ -24,7 +24,7 @@ import {
   EMAIL_ALLOWANCE_WARNING_PERCENTS,
   planLimits,
 } from "../services/plan-limits";
-import { usageMonth, usagePeriod } from "../services/usage";
+import { sweepPeriods, usageMonth, usagePeriod } from "../services/usage";
 import { METERING_ACTOR, reasonOf } from "./enforcement";
 
 /**
@@ -128,29 +128,41 @@ export interface ReportOverageResult {
 }
 
 /**
- * Bill every organization that went over its included allowance this period.
+ * Bill every organization that went over its included allowance.
+ *
+ * Bills the CURRENT period and, while a month boundary is still fresh, the
+ * PREVIOUS one too — the same closing window the usage meter uses
+ * (`sweepPeriods`). Without it, an overage recorded in the tail of month M —
+ * after M's last nightly run — is counted in `usage_counters` but never
+ * reported to the provider, because the run early in M+1 would only ever look
+ * at M+1. Current period first, so a failure closing the previous month cannot
+ * starve the current one.
  *
  * Safe to run as often as you like: the ledger makes a second run a no-op, and
- * a run that finds new usage bills only the new usage.
+ * a run that finds new usage bills only the new usage. Each `OrganizationOverage`
+ * carries its own `period`, so the caller can tell the two months apart.
  */
 export async function reportEmailOverage(
   overrides: Partial<OverageDeps> = {},
 ): Promise<ReportOverageResult> {
   const deps = resolve(overrides);
-  const period = periodOf(deps.now());
+  const periods = sweepPeriods(deps.now());
   const reports: OrganizationOverage[] = [];
   const failed: OverageFailure[] = [];
 
-  for (const organization of await allOrganizations(deps.db)) {
-    try {
-      const report = await reportOne(deps, organization, period);
-      if (report) reports.push(report);
-    } catch (error) {
-      failed.push(await recordFailure(deps, organization.id, period, error));
+  const organizationsList = await allOrganizations(deps.db);
+  for (const { month: period } of periods) {
+    for (const organization of organizationsList) {
+      try {
+        const report = await reportOne(deps, organization, period);
+        if (report) reports.push(report);
+      } catch (error) {
+        failed.push(await recordFailure(deps, organization.id, period, error));
+      }
     }
   }
 
-  return { period, reports, failed };
+  return { period: periodOf(deps.now()), reports, failed };
 }
 
 export interface ReconcileOverageResult {
@@ -177,71 +189,78 @@ export async function reconcileEmailOverage(
   overrides: Partial<OverageDeps> = {},
 ): Promise<ReconcileOverageResult> {
   const deps = resolve(overrides);
-  const period = periodOf(deps.now());
+  const periods = sweepPeriods(deps.now());
   const repaired: OrganizationOverage[] = [];
   const drifted: ReconcileOverageResult["drifted"] = [];
   const failed: OverageFailure[] = [];
 
-  const ledger = await deps.db
-    .select()
-    .from(emailOverageReports)
-    .where(eq(emailOverageReports.period, period));
-
-  for (const row of ledger) {
-    const [organization] = await deps.db
+  // The same closing window `reportEmailOverage` uses: the ledger for the tail
+  // of month M is only written by the run early in M+1, so reconciling M+1
+  // alone would never notice a usage record dropped in M.
+  for (const { month: period } of periods) {
+    const ledger = await deps.db
       .select()
-      .from(organizations)
-      .where(eq(organizations.id, row.organizationId))
-      .limit(1);
-    if (!organization) continue;
+      .from(emailOverageReports)
+      .where(eq(emailOverageReports.period, period));
 
-    try {
-      const counted = await countedOverage(deps, organization, period);
-      const settled = row.reportedQuantity;
+    for (const row of ledger) {
+      const [organization] = await deps.db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, row.organizationId))
+        .limit(1);
+      if (!organization) continue;
 
-      if (counted > settled || row.pendingQuantity !== null) {
-        const report = await reportOne(deps, organization, period);
-        if (report?.reported) {
-          repaired.push(report);
+      try {
+        const counted = await countedOverage(deps, organization, period);
+        const settled = row.reportedQuantity;
+
+        if (counted > settled || row.pendingQuantity !== null) {
+          const report = await reportOne(deps, organization, period);
+          if (report?.reported) {
+            repaired.push(report);
+            await writeAudit(deps.db, {
+              actor: METERING_ACTOR,
+              organizationId: organization.id,
+              action: OVERAGE_RECONCILED_ACTION,
+              subject: organization.id,
+              detail: {
+                period,
+                wasReported: settled,
+                counted,
+                delta: report.delta,
+              },
+            });
+          }
+          continue;
+        }
+
+        if (counted < settled) {
+          drifted.push({
+            organizationId: organization.id,
+            reported: settled,
+            counted,
+          });
+          // Nothing to send: a meter event cannot be taken back, and inventing
+          // a negative quantity would be a credit nobody authorised. The row is
+          // the record an operator (and a refund) can act on.
           await writeAudit(deps.db, {
             actor: METERING_ACTOR,
             organizationId: organization.id,
-            action: OVERAGE_RECONCILED_ACTION,
+            action: OVERAGE_DRIFT_ACTION,
             subject: organization.id,
-            detail: {
-              period,
-              wasReported: settled,
-              counted,
-              delta: report.delta,
-            },
+            detail: { period, reported: settled, counted },
           });
         }
-        continue;
+      } catch (error) {
+        failed.push(
+          await recordFailure(deps, row.organizationId, period, error),
+        );
       }
-
-      if (counted < settled) {
-        drifted.push({
-          organizationId: organization.id,
-          reported: settled,
-          counted,
-        });
-        // Nothing to send: a meter event cannot be taken back, and inventing a
-        // negative quantity would be a credit nobody authorised. The row is the
-        // record an operator (and a refund) can act on.
-        await writeAudit(deps.db, {
-          actor: METERING_ACTOR,
-          organizationId: organization.id,
-          action: OVERAGE_DRIFT_ACTION,
-          subject: organization.id,
-          detail: { period, reported: settled, counted },
-        });
-      }
-    } catch (error) {
-      failed.push(await recordFailure(deps, row.organizationId, period, error));
     }
   }
 
-  return { period, repaired, drifted, failed };
+  return { period: periodOf(deps.now()), repaired, drifted, failed };
 }
 
 // ---------------------------------------------------------------------------

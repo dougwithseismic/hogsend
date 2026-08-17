@@ -11,6 +11,8 @@ import {
 } from "../services/billing-plan";
 import { OrgService, type StackRow } from "../services/orgs";
 import {
+  CLOSE_PREVIOUS_PERIOD_MS,
+  sweepPeriods,
   type UsagePeriod,
   upsertUsageCounter,
   usagePeriod,
@@ -86,11 +88,10 @@ export const USAGE_SWEEP_FAILED_ACTION = "usage.sweep_failed";
 export const TRIAL_EXPIRED_ACTION = "billing.trial_expired";
 
 /**
- * How close to a month boundary the sweep also re-closes the previous period.
- * Two days: comfortably more than the 24h between two crons, so a single missed
- * run cannot leave a month permanently short.
+ * Re-exported from `services/usage` so both the usage meter and the email
+ * overage billing close the previous period from ONE window definition.
  */
-export const CLOSE_PREVIOUS_PERIOD_MS = 48 * 60 * 60 * 1_000;
+export { CLOSE_PREVIOUS_PERIOD_MS, sweepPeriods };
 
 export interface MeteringDeps {
   db: CloudDb;
@@ -140,20 +141,6 @@ export interface UsageSweepResult {
   swept: number;
   counters: StackUsage[];
   failed: StackSweepFailure[];
-}
-
-/**
- * The periods one run meters: the current one, plus the previous one while the
- * boundary is still fresh (see the module note). Current FIRST — a failure on
- * one stack stops that stack's remaining periods, and the period enforcement
- * reads must never be the one that got skipped.
- */
-export function sweepPeriods(now: Date): UsagePeriod[] {
-  const current = usagePeriod(now);
-  if (now.getTime() - current.since.getTime() >= CLOSE_PREVIOUS_PERIOD_MS) {
-    return [current];
-  }
-  return [current, usagePeriod(new Date(current.since.getTime() - 1))];
 }
 
 /**

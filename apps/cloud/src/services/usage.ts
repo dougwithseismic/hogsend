@@ -63,6 +63,33 @@ export function usagePeriod(at: Date): UsagePeriod {
 }
 
 /**
+ * How close to a month boundary a sweep also re-closes the previous period.
+ * Two days: comfortably more than the 24h between two crons, so a single missed
+ * run cannot leave a month permanently short.
+ *
+ * Lives here beside `usagePeriod` rather than in the sweep so BOTH the usage
+ * meter and the email-overage billing draw the closing window from one
+ * definition — a second copy would let them disagree about which month is still
+ * open, and an overage recorded in the tail of month M would be metered but
+ * never billed.
+ */
+export const CLOSE_PREVIOUS_PERIOD_MS = 48 * 60 * 60 * 1_000;
+
+/**
+ * The periods one run closes: the current one, plus the previous one while the
+ * boundary is still fresh. Current FIRST — a failure on one tenant stops that
+ * tenant's remaining periods, and the period enforcement reads must never be
+ * the one that got skipped.
+ */
+export function sweepPeriods(now: Date): UsagePeriod[] {
+  const current = usagePeriod(now);
+  if (now.getTime() - current.since.getTime() >= CLOSE_PREVIOUS_PERIOD_MS) {
+    return [current];
+  }
+  return [current, usagePeriod(new Date(current.since.getTime() - 1))];
+}
+
+/**
  * A trial lasts 14 days, so its window can straddle exactly ONE month boundary.
  * The lookback is clamped to that so a stale `trial` row — an org whose expiry
  * sweep never ran — can never make the window walk a tenant's whole history.
