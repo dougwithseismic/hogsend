@@ -21,6 +21,7 @@ import {
   toBanner,
 } from "./banner/index.js";
 import { resolveConfig } from "./config.js";
+import { createContactClient } from "./contact/index.js";
 import { startDataLayerBridge } from "./datalayer/index.js";
 import type {
   FeedClient,
@@ -134,6 +135,11 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   // The caller's own referral link. NOT fetched on init: the route is
   // userToken-gated, so an anonymous page load has nothing to ask for.
   const referralClient = createReferralClient({ transport, identity, store });
+  // Contact traits — the operator-allowlisted projection of the identified
+  // contact, resolved server-side through the same identity boundary as flags
+  // and refreshed on the same triggers (plus after identify() commits).
+  const contactClient = createContactClient({ transport, identity, store });
+  void contactClient.refresh();
 
   // One feed-store + feed-client per feedId (so React's useMemo over feed() is
   // stable and realtime pipes into the SAME slice the client reads).
@@ -249,6 +255,8 @@ export function createHogsend(config: HogsendConfig): Hogsend {
         // The previous user's share link must not be readable across an
         // identity flip; the next link() re-fetches for the new token.
         referralClient.clear();
+        contactClient.clear();
+        void contactClient.refresh();
       }
     }),
   );
@@ -447,6 +455,12 @@ export function createHogsend(config: HogsendConfig): Hogsend {
       ...(userToken ? { userToken } : {}),
       ...(traits ? { properties: traits } : {}),
     });
+    // Re-read the projection AFTER the PUT commits. This only yields traits
+    // when a server-minted userToken is present: without one the read falls
+    // back to the anonymousId, and the engine projects an identified row as
+    // empty on that token-less arm, so the slice stays
+    // { identified: false, traits: {} }.
+    await contactClient.refresh();
   }
 
   /**
@@ -474,6 +488,8 @@ export function createHogsend(config: HogsendConfig): Hogsend {
       identity.reset();
       // PostHog parity: an identity reset drops group associations too.
       resetGroups();
+      // The previous contact's allowlisted traits must not survive a logout.
+      contactClient.clear();
       // Logout WITHOUT a client rebuild (the provider no longer remounts): the
       // previous recipient's feed/banner items must not linger in the now-anon
       // session. Clear every slice (emits immediately → the bell empties), then
@@ -491,6 +507,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
     flags: () => flagsClient.getAll(),
     getFlag: (key) => flagsClient.getFlag(key),
+
+    getContact: () => contactClient.get(),
+    getTrait: (key) => contactClient.getTrait(key),
 
     capture: (event, properties, opts) =>
       spine.capture(event, properties, opts),

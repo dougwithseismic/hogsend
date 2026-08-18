@@ -495,6 +495,7 @@ export {
   type IdentityKind,
   identifiedContactFilter,
   type MergedLinkUnlink,
+  projectPublicContact,
   type ResolvePolicy,
   resolveContactNoCreate,
   resolveOrCreateContact,

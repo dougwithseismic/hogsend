@@ -434,6 +434,38 @@ export function serializeContact(
   };
 }
 
+/**
+ * The BROWSER-safe projection of a contact (`GET /v1/contacts/me`). Applies the
+ * operator allowlist: only EXACT `publicProperties` keys survive, and `email`
+ * is present only when `exposeEmail` is on. A missing row projects to
+ * `{ identified: false, traits: {} }` — the route never 404s, so the absence of
+ * a contact is indistinguishable from an empty allowlist.
+ *
+ * `identified` means the row carries a real identity (`externalId` or `email`);
+ * an anonymous-only row reads its own traits but is NOT identified.
+ */
+export function projectPublicContact(
+  row: ContactRow | null | undefined,
+  config: { publicProperties: string[]; exposeEmail: boolean },
+): {
+  identified: boolean;
+  traits: Record<string, unknown>;
+  email?: string | null;
+} {
+  const props = (row?.properties ?? {}) as Record<string, unknown>;
+  const traits: Record<string, unknown> = {};
+  if (row) {
+    for (const key of config.publicProperties) {
+      if (Object.hasOwn(props, key)) traits[key] = props[key];
+    }
+  }
+  return {
+    identified: Boolean(row && (row.externalId || row.email)),
+    traits,
+    ...(config.exposeEmail ? { email: row?.email ?? null } : {}),
+  };
+}
+
 export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
   return {
     id: row.id,

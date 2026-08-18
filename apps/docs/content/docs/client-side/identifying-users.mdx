@@ -9,6 +9,8 @@ The browser ships a `pk_` publishable key, which is **anonymous-only by design**
 
 The default path requires zero setup. With no `userId`/`userToken`, the client mints and persists an anonymous id; `capture` and feed reads work, and events are stamped `source: "inapp"`. An anonymous visitor's feed shows whatever the engine has written for that anonymous id. You only reach for a `userToken` when you want the browser to act as a known user.
 
+Reading back works the same way: `GET /v1/contacts/me` resolves the recipient from the `userToken` (or the caller's own anonymous id) and returns the operator-allowlisted traits, never a contact named in the request. See [Personalization](./personalization).
+
 ## Why `pk_` is anonymous-only — by design
 
 A `pk_` key is shipped to every browser, so it must be assumed public. If a public key could assert it *is* an arbitrary `userId`, anyone could read another user's feed or write contact-bound traits and list preferences under a guessed id — a pre-seed / impersonation hole. So the engine refuses identity-asserting writes on a bare `pk_` key and falls back to the request's `anonymousId`. This is a **guard, not a limitation**: anonymous-by-default is the secure floor, and a verified `userToken` is the only way up from it.

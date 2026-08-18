@@ -35,6 +35,7 @@ Client interactions emit `inapp.*` and `banner.*` events through `POST /v1/event
 - **[Script tag](./script-tag)** — no bundler, no React: one `<script src="…/hogsend.js">` served by your engine.
 - **[Provider](./provider)** — `<HogsendProvider>` / `<HogsendFeedProvider>` props, color mode, identity, BYO-proxy.
 - **[Hooks](./hooks)** — `useHogsend`, `useHogsendFeed` (alias `useInbox`), `usePreferences`, `useBanner`, `useToast`, `useColorMode`, `useStoreSelector`.
+- **[Personalization](./personalization)** — `useContact` / `useTrait` over the operator-allowlisted contact traits.
 - **[Components](./components)** — `NotificationBell`, `NotificationFeed`, `FeedPopover`, `BannerView`, `ToastContainer`, plus the headless `FeedStateProvider` render-prop.
 - **[Theming](./theming)** — the `--hs-*` CSS tokens and the five-layer override surface.
 - **[Events](./events)** — the `inapp.*` / `banner.*` event names, props, and idempotency keys.
@@ -50,6 +51,8 @@ A `pk_` key with no `allowedOrigins` entry, a request with no `Origin` header, o
 </Callout>
 
 A `pk_` key is anon-only by default. To act on a concrete `userId`, the browser presents a `userToken` minted server-side after your own login via `generateUserToken` and threaded through `createHogsend({ userToken })` / `<HogsendProvider userToken>`.
+
+`GET /v1/contacts/me` reads the same way: the recipient is resolved server-side from the `userToken` (or the caller's own anonymous id), and it returns only the properties the operator put on the engine's `contacts.publicProperties` allowlist, which is empty by default. See [Personalization](./personalization).
 
 <Callout type="warn">
 `generateUserToken` is server-only — it signs with `BETTER_AUTH_SECRET` over `node:crypto`. Never call it in a browser or mount it as a route; doing so leaks the signing secret. Return the token from a logged-in endpoint and point `onUserTokenExpiring` at re-hitting that endpoint.

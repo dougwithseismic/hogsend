@@ -28,6 +28,12 @@ export {
   createBannerStore,
 } from "./banner/index.js";
 export { createHogsend } from "./client.js";
+export type {
+  ContactClient,
+  ContactClientOptions,
+  ContactTraits,
+} from "./contact/index.js";
+export { createContactClient } from "./contact/index.js";
 export { HogsendAPIError, RateLimitError } from "./errors.js";
 export type {
   FeedBlock,
@@ -87,6 +93,7 @@ export type {
   CaptureOptions,
   CaptureResult,
   ColorMode,
+  ContactSlice,
   DataLayerConfig,
   DataLayerEntry,
   DataLayerInbound,

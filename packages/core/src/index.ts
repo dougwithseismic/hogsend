@@ -25,6 +25,11 @@ export {
   normalizeWhere,
   type PropertyMatcher,
 } from "./conditions/index.js";
+export type {
+  ContactTraitsMap,
+  IsEmptyTraitsMap,
+  TraitKey,
+} from "./contacts/traits.js";
 export {
   type ConversionMeta,
   type ConversionValueSource,

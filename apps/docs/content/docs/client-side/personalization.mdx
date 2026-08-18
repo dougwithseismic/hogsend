@@ -1,0 +1,98 @@
+---
+title: Personalization
+description: "Read an operator-allowlisted projection of the identified contact's traits in the browser. useContact / useTrait over GET /v1/contacts/me, resolved server-side through the same identity boundary as flags and the feed."
+---
+
+A contact row holds whatever your journeys, webhooks, and server SDK wrote onto it. None of it is browser-readable by default. `contacts.publicProperties` is an operator allowlist: exact property keys the engine may project to a browser, and nothing else. With no allowlist configured, `GET /v1/contacts/me` answers `{ identified: false, traits: {} }` for everyone, so an existing deploy exposes nothing until you opt a key in.
+
+## Configure the allowlist
+
+```ts title="src/index.ts and src/worker.ts"
+import { createHogsendClient } from "@hogsend/engine";
+
+const client = createHogsendClient({
+  contacts: {
+    publicProperties: ["plan", "seats", "trialEndsAt"],
+    exposeEmail: false,
+  },
+});
+```
+
+- `publicProperties`: exact `contacts.properties` keys. Match is exact; there is no wildcard and no prefix form. A key that is not on the list is omitted from the response, whether or not the contact carries it. Default `[]`.
+- `exposeEmail`: when `true`, the response carries `email`. When `false` the field is absent entirely. Default `false`.
+
+Treat the allowlist as public API: every value under an allowlisted key reaches any browser that can address that contact. Keep internal scores, lead grades, and anything you would not print on the page off it.
+
+## Read it in React
+
+```tsx title="components/plan-badge.tsx"
+"use client";
+
+import { useContact, useTrait } from "@hogsend/react";
+
+export function PlanBadge() {
+  const { traits, identified, email, loading } = useContact();
+  if (loading) return null;
+  if (!identified) return <a href="/login">Sign in</a>;
+  return <span>{String(traits.plan ?? "free")}</span>;
+}
+
+export function SeatCount() {
+  const seats = useTrait("seats"); // undefined until the first fetch resolves
+  return <span>{String(seats ?? "-")}</span>;
+}
+```
+
+`useContact()` returns `{ traits, identified, email, loading }`. `loading` is `true` until the first `GET /v1/contacts/me` resolves. `identified` is `true` only for a contact carrying an `externalId` or an `email`; an anonymous visitor reads `false` with `{}` traits. `email` is `undefined` unless the operator set `exposeEmail`.
+
+`useTrait(key)` selects one value out of the store, so a component re-renders only when that trait changes (`Object.is` bailout). Both hooks must be called inside [`<HogsendProvider>`](./provider) and neither fetches. They read the slice the SDK already maintains.
+
+Without React, the same data is on the client handle:
+
+```ts
+hogsend.getContact(); // { identified, traits, email? }
+hogsend.getTrait("plan");
+```
+
+## When the traits refresh
+
+The SDK fetches `GET /v1/contacts/me` on init, whenever the resolved identity changes, and again after `identify()`'s `PUT /v1/contacts` resolves, so a trait written by that identify call is visible on the next render. The slice is cleared synchronously on an identity change and on `reset()`, so one user's traits are never readable as another's. A failed fetch never rejects and never throws, and the last-good slice stays.
+
+## Typed traits
+
+`@hogsend/core` ships an empty, augmentable `ContactTraitsMap`. Declare the keys you allowlisted and both hooks type-check the key and narrow the value:
+
+```ts title="src/hogsend-traits.d.ts"
+declare module "@hogsend/core" {
+  interface ContactTraitsMap {
+    plan: "free" | "pro";
+    seats: number;
+    trialEndsAt: string;
+  }
+}
+```
+
+Unaugmented, `useTrait` takes a `string` key and returns `unknown`. Nothing breaks, you just lose the narrowing. Augmenting the map does not expose anything: the engine's allowlist is the only thing that does, and a declared-but-not-allowlisted key reads `undefined` at runtime.
+
+## Traits or a flag?
+
+Both personalize, and they answer different questions.
+
+| Use a trait | Use a [flag](../flags) |
+|---|---|
+| Render a value you already store on the contact: plan name, seat count, renewal date | Decide whether a code path runs at all |
+| The value is data, and changes when the contact changes | The answer is a rule an operator dials live in Studio |
+| You need the exact stored string or number | You need a sticky rollout bucket or a multivariate arm |
+
+A flag can target the same contact properties, so "show the upgrade banner to free plans" is a flag with a `plan` condition, while "print the plan name in the header" is a trait.
+
+## Security
+
+Identity is resolved server-side by the same boundary as `GET /v1/flags` and the in-app feed. The route reads a `userToken`-verified `userId`, a secret key's trusted `userId`/`email`, or a publishable caller's own anonymous id. A `userId` or `email` sent on a bare `pk_` request is ignored. A public key cannot ask for another person's traits by naming them. A token-less `pk_` request reads traits only from an anonymous-only contact; when the browser's anonymous id belongs to an identified contact, the response is empty until a `userToken` is supplied. See [Identifying users](./identifying-users) for how the token is minted.
+
+- Invalid or expired `userToken` → `403`.
+- A `pk_` `anonymousId` that collides with an already-identified contact → `403`.
+- No usable identity at all → `400`.
+- No contact for the recipient → `200` with an empty projection, never `404`, so the response does not confirm whether a contact exists.
+
+The route is guarded by `requirePublishableOrIngest`, the same gate as the rest of the browser surface, so the key's `Origin` allowlist applies and is fail-closed.

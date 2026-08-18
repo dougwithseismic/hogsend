@@ -301,6 +301,14 @@ export interface HogsendState {
    * null for an anonymous session, because the route is `userToken`-gated.
    */
   referral?: ReferralSliceState;
+  /**
+   * The operator-allowlisted projection of the identified contact's traits
+   * (`GET /v1/contacts/me`). Absent until the first fetch resolves. Only keys
+   * on the engine's `contacts.publicProperties` allowlist appear here, and
+   * `email` only when `contacts.exposeEmail` is on; the default allowlist is
+   * empty, so an unconfigured deploy reads `{ identified, traits: {} }`.
+   */
+  contact?: ContactSlice;
   /** Keyed by feedId (v2). */
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
@@ -315,6 +323,17 @@ export interface ReferralSliceState {
   link: ReferralLink | null;
   stats: ReferralStats | null;
   loading: boolean;
+}
+
+/**
+ * The `contact` slice: the server-resolved, allowlisted trait projection for
+ * the current identity. `identified` is false for an anonymous visitor or a
+ * contact row that carries neither an externalId nor an email.
+ */
+export interface ContactSlice {
+  identified: boolean;
+  traits: Record<string, unknown>;
+  email?: string | null;
 }
 
 /**
@@ -410,6 +429,23 @@ export interface Hogsend {
    * beacon (`hs_ref` on the URL -> `POST /v1/t/arrive`, automatic on init).
    */
   referral: ReferralClient;
+
+  // ── contact traits ──
+  /**
+   * The allowlisted projection of the identified contact, read from the
+   * reactive `contact` slice (`GET /v1/contacts/me`, refreshed on init, on
+   * identity change, and after `identify()` resolves). Empty and unidentified
+   * until the first fetch resolves, and traits are only readable once a
+   * server-minted `userToken` is set (`setUserToken` / the provider prop).
+   * A token-less `identify()` leaves this empty and unidentified.
+   */
+  getContact(): ContactSlice;
+  /**
+   * A single allowlisted trait's value, or `undefined` until the first fetch
+   * resolves, when the trait is not on the operator's allowlist, or while no
+   * server-minted `userToken` is set.
+   */
+  getTrait(key: string): unknown;
 
   // ── the spine (single telemetry path) ──
   capture(

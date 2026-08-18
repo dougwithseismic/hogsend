@@ -766,6 +766,10 @@ const EXPLORER_RECIPES = [
   { label: "Broadcasts", path: "api/src/campaigns/march-launch.ts" },
   { label: "Backend API", path: "api/src/routes/signup.ts" },
   { label: "React hooks", path: "web/src/components/paywall.tsx" },
+  {
+    label: "Personalization",
+    path: "web/src/components/account-header.tsx",
+  },
   { label: "Video", path: "web/src/components/lesson-player.tsx" },
   {
     label: "Claude skills",
