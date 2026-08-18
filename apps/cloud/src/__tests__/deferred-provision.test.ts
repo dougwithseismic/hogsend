@@ -229,20 +229,21 @@ describe("POST /api/publish/:environmentId", () => {
       await gate;
       return realProvision(spec);
     };
-    // The substrate call is NOT the first thing that can fail: `ensure-tenant-db`
-    // runs before it, and a real `CREATE DATABASE` for this fixture can park
-    // the stack in `error` on a slow runner before the assertions read the row
-    // (runs 32137333490 and its predecessor lost exactly that race). Gate the
-    // FIRST dependency the pipeline touches after `start`, so the row is
-    // deterministically past `deferred` and short of `error` at read time.
-    const { TenantDbService } = await import("../services/tenant-db");
-    const gatedTenantDb = new TenantDbService();
-    const realCreate = gatedTenantDb.create.bind(gatedTenantDb);
-    gatedTenantDb.create = async (...args) => {
+    // The substrate call is NOT the first thing that can fail: `start` and
+    // `ensure-tenant-db` run before it, and this fixture (an org with no cell)
+    // throws in the latter, parking the stack in `error` on a slow runner
+    // before the assertions read the row (runs 32137333490, 32139059866 lost
+    // that race; local passes win it). Gate the pipeline's FIRST write, the
+    // `start` transition, so the row is deterministically `requested` at read
+    // time under any scheduling.
+    const { StackService } = await import("../services/stacks");
+    const gatedStacks = new StackService();
+    const realTransition = gatedStacks.transition.bind(gatedStacks);
+    gatedStacks.transition = async (...args) => {
       await gate;
-      return realCreate(...args);
+      return realTransition(...args);
     };
-    configureProvisioning({ substrate: gated, tenantDb: gatedTenantDb });
+    configureProvisioning({ substrate: gated, stackService: gatedStacks });
 
     try {
       const response = await publishRoute(
