@@ -1,9 +1,12 @@
+import { type DefinedReferral, durationToMs } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
-import { contacts, referralTouches } from "@hogsend/db";
+import { contacts, links, referralTouches, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { canonicalTrackedRowFilter, vanityUrlFor } from "../../lib/links.js";
 import {
+  getReferralOverview,
   getReferralReport,
   getReferralTree,
   InvalidWindowError,
@@ -93,6 +96,88 @@ const touchSchema = z.object({
   qualifiedAt: z.string().nullable(),
   linkId: z.string().nullable(),
 });
+
+const definitionSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  description: z.string().nullable(),
+  /** The qualify event, or null when bind IS qualify. */
+  qualifyEvent: z.string().nullable(),
+  qualifyHasConditions: z.boolean(),
+  bindWindowMs: z.number(),
+  /** A fixed destination URL, or null when it is computed per referrer. */
+  destination: z.string().nullable(),
+  campaign: z.string().nullable(),
+  hooks: z.array(z.string()),
+});
+
+const currencyValueList = z.array(currencyValueSchema);
+
+const overviewSchema = z.object({
+  referral: z.string(),
+  referrals: z.array(z.string()),
+  /** Null when the ledger holds a referral id no longer authored in code. */
+  definition: definitionSchema.nullable(),
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+  referrers: z.number(),
+  links: z.number(),
+  funnel: z.object({
+    touched: z.number(),
+    bound: z.number(),
+    qualified: z.number(),
+    converted: z.number(),
+  }),
+  rejected: z.object({
+    total: z.number(),
+    byReason: z.array(z.object({ reason: z.string(), count: z.number() })),
+  }),
+  sources: z.array(z.object({ source: z.string(), count: z.number() })),
+  refereeValue: currencyValueList,
+  granularity: z.enum(["day", "week"]),
+  series: z.array(
+    z.object({
+      date: z.string(),
+      touched: z.number(),
+      bound: z.number(),
+      qualified: z.number(),
+    }),
+  ),
+});
+
+const referrerLinkSchema = z.object({
+  id: z.string(),
+  slug: z.string().nullable(),
+  vanityUrl: z.string().nullable(),
+  url: z.string(),
+  originalUrl: z.string(),
+  campaign: z.string().nullable(),
+  clickCount: z.number(),
+  createdAt: z.string(),
+});
+
+/** What of a `defineReferral` an operator can read back. No functions cross. */
+function serializeDefinition(
+  def: DefinedReferral,
+): z.infer<typeof definitionSchema> {
+  const hooks = (
+    ["beforeTouch", "beforeBind", "beforeQualify"] as const
+  ).filter((h) => typeof def.meta[h] === "function");
+  return {
+    id: def.id,
+    name: def.meta.name ?? null,
+    description: def.meta.description ?? null,
+    qualifyEvent: def.meta.qualify?.event ?? null,
+    qualifyHasConditions: (def.qualifyWhere?.length ?? 0) > 0,
+    bindWindowMs: durationToMs(def.bindWindow),
+    destination:
+      typeof def.meta.link.destination === "string"
+        ? def.meta.link.destination
+        : null,
+    campaign: def.meta.link.campaign ?? null,
+    hooks,
+  };
+}
 
 /** `"1,0.5,0.25"` -> `[1, 0.5, 0.25]`. Throws on anything else. */
 function parseWeights(input: string | undefined, depth: number): number[] {
@@ -190,6 +275,31 @@ const listRoute = createRoute({
   },
 });
 
+const overviewRoute = createRoute({
+  method: "get",
+  path: "/overview",
+  tags: ["Admin — Referrals"],
+  summary: "Program overview: definition, funnel, sources, rejections, series",
+  request: {
+    query: z.object({
+      referral: z.string().min(1).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: overviewSchema } },
+      description:
+        "Ledger counts for one referral over the period; the same from/to the leaderboard takes",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Invalid date",
+    },
+  },
+});
+
 const detailRoute = createRoute({
   method: "get",
   path: "/{contactId}",
@@ -218,6 +328,7 @@ const detailRoute = createRoute({
             contactId: z.string(),
             contact: contactSchema.nullable(),
             depth: z.number(),
+            links: z.array(referrerLinkSchema),
             nodes: z.array(treeNodeSchema),
             touches: z.array(touchSchema),
           }),
@@ -293,8 +404,41 @@ export const adminReferralsRouter = new OpenAPIHono<AppEnv>()
       200,
     );
   })
-  .openapi(detailRoute, async (c) => {
+  .openapi(overviewRoute, async (c) => {
     const { db, referrals } = c.get("container");
+    const query = c.req.valid("query");
+    const registered = referrals.ids();
+    const referralId = query.referral ?? registered[0] ?? "default";
+    let from: Date | undefined;
+    let to: Date | undefined;
+    try {
+      from = parseDate(query.from, "from");
+      to = parseDate(query.to, "to");
+    } catch (err) {
+      if (err instanceof RangeError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+    const overview = await getReferralOverview({
+      db,
+      referralId,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+    const def = referrals.get(referralId);
+    return c.json(
+      {
+        referral: referralId,
+        referrals: registered,
+        definition: def ? serializeDefinition(def) : null,
+        from: from ? from.toISOString() : null,
+        to: to ? to.toISOString() : null,
+        ...overview,
+      },
+      200,
+    );
+  })
+  .openapi(detailRoute, async (c) => {
+    const { db, env, referrals } = c.get("container");
     const { contactId } = c.req.valid("param");
     const query = c.req.valid("query");
     const registered = referrals.ids();
@@ -312,6 +456,7 @@ export const adminReferralsRouter = new OpenAPIHono<AppEnv>()
           contactId,
           contact: null,
           depth: query.depth,
+          links: [],
           nodes: [],
           touches: [],
         },
@@ -319,7 +464,7 @@ export const adminReferralsRouter = new OpenAPIHono<AppEnv>()
       );
     }
 
-    const [nodes, touchRows] = await Promise.all([
+    const [nodes, touchRows, linkRows] = await Promise.all([
       getReferralTree({
         db,
         referralId,
@@ -338,6 +483,33 @@ export const adminReferralsRouter = new OpenAPIHono<AppEnv>()
         )
         .orderBy(desc(referralTouches.touchedAt))
         .limit(query.limit),
+      // The referrer's own share links: what they were given to send around.
+      db
+        .select({
+          id: links.id,
+          slug: links.slug,
+          originalUrl: links.originalUrl,
+          campaign: links.campaign,
+          createdAt: links.createdAt,
+          trackedLinkId: sql<
+            string | null
+          >`min(${trackedLinks.id}::text) filter (where ${canonicalTrackedRowFilter()})`,
+          clickCount:
+            sql<number>`coalesce(sum(${trackedLinks.clickCount}), 0)`.mapWith(
+              Number,
+            ),
+        })
+        .from(links)
+        .leftJoin(trackedLinks, eq(trackedLinks.linkId, links.id))
+        .where(
+          and(
+            eq(links.referralId, referralId),
+            eq(links.ownerContactId, resolved),
+            isNull(links.archivedAt),
+          ),
+        )
+        .groupBy(links.id)
+        .orderBy(desc(links.createdAt)),
     ]);
 
     // One identity lookup covers the referrer, every tree node and every
@@ -357,6 +529,16 @@ export const adminReferralsRouter = new OpenAPIHono<AppEnv>()
         contactId: resolved,
         contact: identity.get(resolved) ?? null,
         depth: query.depth,
+        links: linkRows.map((l) => ({
+          id: l.id,
+          slug: l.slug,
+          vanityUrl: l.slug ? vanityUrlFor(env.API_PUBLIC_URL, l.slug) : null,
+          url: `${env.API_PUBLIC_URL}/v1/t/c/${l.trackedLinkId ?? ""}`,
+          originalUrl: l.originalUrl,
+          campaign: l.campaign,
+          clickCount: l.clickCount,
+          createdAt: l.createdAt.toISOString(),
+        })),
         nodes: nodes.map((n) => ({
           ...n,
           contact: identity.get(n.contactId) ?? null,

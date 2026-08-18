@@ -196,7 +196,8 @@ later refers an ancestor terminates.
 | `GET /v1/referrals/tree/:contactId` | secret key, `referrals` scope |
 | `GET /v1/referrals/me` | publishable or secret key, plus a server-minted `userToken` |
 | `GET /v1/admin/referrals` | admin; the leaderboard plus contact identity |
-| `GET /v1/admin/referrals/:contactId` | admin; the tree plus the touch log |
+| `GET /v1/admin/referrals/overview` | admin; the definition as configured, funnel, sources, rejections by reason, referee revenue and a touched/bound/qualified series over `from`/`to` |
+| `GET /v1/admin/referrals/:contactId` | admin; the referrer's share links, the tree and the touch log |
 
 `referrals` is a new orthogonal scope, like `accounts`.
 
@@ -230,10 +231,19 @@ a default when the link carries none.
 
 ## Studio
 
-Observe-only. `Referrals` is the leaderboard with a model / window / depth
-picker that does nothing but re-query, and `Referrals → <contact>` is the tree
-drill-in plus the touch log, rejected rows and reasons included. No create or
-edit UI: authoring stays in code.
+Observe-only. `Referrals` reads the program's definition back from code
+(qualify event, bind window, destination, campaign, hooks), then shows the
+period's numbers from the ledger: referrers, links minted, qualified, referee
+revenue per currency, rejections by reason, a touched → bound → qualified →
+converted funnel, a per-day (or per-week) trend and touch sources. Below that
+sits the leaderboard, ranked by tree value under the chosen model / window /
+depth; period, model, window and depth are request parameters that re-query
+and store nothing, and the same `from` bounds the tiles and the table.
+`Referrals → <contact>` is the drill-in: the referrer's share links (copy /
+open), stat tiles including tree revenue, the descendants drawn as an indented
+tree under whoever brought them in, and the touch log with status and source
+filters, rejected rows and reasons included. No create or edit UI: authoring
+stays in code.
 
 ## Not built
 

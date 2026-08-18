@@ -12,9 +12,8 @@ process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
-const { contacts, conversions, referralTouches, userEvents } = await import(
-  "@hogsend/db"
-);
+const { contacts, conversions, links, referralTouches, userEvents } =
+  await import("@hogsend/db");
 const { eq, like } = await import("drizzle-orm");
 const { createApp, createHogsendClient, defineReferral } = await import(
   "@hogsend/engine"
@@ -130,6 +129,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(links).where(eq(links.referralId, REFERRAL));
   await db
     .delete(referralTouches)
     .where(eq(referralTouches.referralId, REFERRAL));
@@ -228,5 +228,128 @@ describe("GET /v1/admin/referrals/:contactId", () => {
     const body = (await res.json()) as { nodes: unknown[]; touches: unknown[] };
     expect(body.nodes).toEqual([]);
     expect(body.touches).toEqual([]);
+  });
+});
+
+describe("GET /v1/admin/referrals/overview", () => {
+  it("returns the definition as configured, the funnel and the series", async () => {
+    const res = await app.request(
+      `/v1/admin/referrals/overview?referral=${encodeURIComponent(REFERRAL)}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      referral: string;
+      definition: {
+        id: string;
+        qualifyEvent: string | null;
+        destination: string | null;
+        bindWindowMs: number;
+        hooks: string[];
+      } | null;
+      referrers: number;
+      funnel: {
+        touched: number;
+        bound: number;
+        qualified: number;
+        converted: number;
+      };
+      rejected: {
+        total: number;
+        byReason: { reason: string; count: number }[];
+      };
+      sources: { source: string; count: number }[];
+      refereeValue: { currency: string; value: number }[];
+      granularity: string;
+      series: { touched: number; bound: number; qualified: number }[];
+    };
+
+    expect(body.referral).toBe(REFERRAL);
+    // What was authored, readable next to what happened. No qualify event
+    // means bind IS qualify, and a string destination comes through verbatim.
+    expect(body.definition?.id).toBe(REFERRAL);
+    expect(body.definition?.qualifyEvent).toBeNull();
+    expect(body.definition?.destination).toBe("https://example.com/join");
+    expect(body.definition?.bindWindowMs).toBe(30 * DAY);
+    expect(body.definition?.hooks).toEqual([]);
+
+    // Two live touches (A->B qualified, B->C bound) and one rejected self-touch.
+    expect(body.referrers).toBe(2);
+    expect(body.funnel).toEqual({
+      touched: 2,
+      bound: 2,
+      qualified: 1,
+      converted: 1,
+    });
+    expect(body.rejected).toEqual({
+      total: 1,
+      byReason: [{ reason: "self", count: 1 }],
+    });
+    expect(body.sources).toEqual(
+      expect.arrayContaining([
+        { source: "link", count: 2 },
+        { source: "slug_entry", count: 1 },
+      ]),
+    );
+    // B's 100 USD, per currency, unweighted.
+    expect(body.refereeValue).toEqual([{ currency: "USD", value: 100 }]);
+
+    // All-time period runs from the first touch (Feb 2026) to now: over three
+    // months buckets by week. Whatever the bucket, the counts fold back to the
+    // funnel's totals.
+    expect(body.granularity).toBe("week");
+    const sum = (k: "touched" | "bound" | "qualified") =>
+      body.series.reduce((acc, p) => acc + p[k], 0);
+    expect(sum("touched")).toBe(2);
+    expect(sum("bound")).toBe(2);
+    expect(sum("qualified")).toBe(1);
+  });
+
+  it("bounds the funnel by from/to", async () => {
+    // Only B->C (touched at T0+2d) sits inside this period.
+    const from = new Date(T0.getTime() + 1.5 * DAY).toISOString();
+    const to = new Date(T0.getTime() + 2.5 * DAY).toISOString();
+    const res = await app.request(
+      `/v1/admin/referrals/overview?referral=${encodeURIComponent(REFERRAL)}&from=${from}&to=${to}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      funnel: { touched: number; qualified: number; converted: number };
+      refereeValue: unknown[];
+    };
+    expect(body.funnel.touched).toBe(1);
+    expect(body.funnel.qualified).toBe(0);
+    // B's conversion is at T0+5d, outside the period.
+    expect(body.funnel.converted).toBe(0);
+    expect(body.refereeValue).toEqual([]);
+  });
+
+  it("rejects an invalid date with a 400", async () => {
+    const res = await app.request("/v1/admin/referrals/overview?from=nope", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /v1/admin/referrals/:contactId links", () => {
+  it("returns the referrer's own share links", async () => {
+    const { getReferralLink } = await import("@hogsend/engine");
+    const minted = await getReferralLink({
+      container,
+      referral: REFERRAL,
+      contactId: ids.a as string,
+    });
+    const res = await app.request(
+      `/v1/admin/referrals/${ids.a}?referral=${encodeURIComponent(REFERRAL)}`,
+      { headers: AUTH_HEADER },
+    );
+    const body = (await res.json()) as {
+      links: { id: string; url: string; originalUrl: string }[];
+    };
+    expect(body.links.map((l) => l.id)).toEqual([minted.linkId]);
+    expect(body.links[0]?.originalUrl).toBe("https://example.com/join");
+    expect(body.links[0]?.url).toContain("/v1/t/c/");
   });
 });

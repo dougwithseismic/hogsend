@@ -518,3 +518,222 @@ export async function getReferralTree(
   }
   return [...byNode.values()];
 }
+
+// ---------------------------------------------------------------------------
+// overview
+// ---------------------------------------------------------------------------
+
+export interface ReferralOverviewOptions {
+  db: Database;
+  referralId: string;
+  /** Period start; omitted = all time. */
+  from?: Date;
+  to?: Date;
+}
+
+export interface ReferralSeriesPoint {
+  date: string;
+  touched: number;
+  bound: number;
+  qualified: number;
+}
+
+export interface ReferralOverview {
+  /** Distinct referrers with at least one non-rejected touch in the period. */
+  referrers: number;
+  /** Live `shared` links minted for this referral (not period-bounded). */
+  links: number;
+  funnel: {
+    touched: number;
+    bound: number;
+    qualified: number;
+    /** Bound/qualified referees with at least one conversion in the period. */
+    converted: number;
+  };
+  rejected: { total: number; byReason: { reason: string; count: number }[] };
+  sources: { source: string; count: number }[];
+  /**
+   * Conversions fired by referred contacts in the period, per currency: the
+   * ledger's number, before any model or level weight. The leaderboard's
+   * weighted totals can only be less than or equal to this.
+   */
+  refereeValue: CurrencyValue[];
+  /** `day` under ~3 months of range, else `week`. */
+  granularity: "day" | "week";
+  series: ReferralSeriesPoint[];
+}
+
+interface CountRow {
+  key: string | null;
+  count: number;
+}
+
+const WEEK_THRESHOLD_MS = 92 * MS.d;
+
+function rowsOf<T>(result: unknown): T[] {
+  return Array.isArray(result)
+    ? (result as T[])
+    : ((result as { rows?: T[] }).rows ?? []);
+}
+
+/**
+ * The program-level numbers the Studio header reads. Every count comes from
+ * `referral_touches` (plus `links` for the mint count and `conversions` for
+ * the money), bounded by the same `from`/`to` the leaderboard takes, so the
+ * tiles and the table describe one period.
+ */
+export async function getReferralOverview(
+  opts: ReferralOverviewOptions,
+): Promise<ReferralOverview> {
+  const { db, referralId, from, to } = opts;
+  const inPeriod = (col: ReturnType<typeof sql>) => sql`
+    (${from ? sql`${col} >= ${from.toISOString()}::timestamptz` : sql`TRUE`})
+    AND (${to ? sql`${col} <= ${to.toISOString()}::timestamptz` : sql`TRUE`})
+  `;
+
+  const [totals, rejected, sources, value, linkCount, bounds] =
+    await Promise.all([
+      db.execute(sql`
+        SELECT
+          count(*) FILTER (WHERE t.status <> 'rejected')::int AS touched,
+          count(*) FILTER (WHERE t.status IN ('bound','qualified'))::int AS bound,
+          count(*) FILTER (WHERE t.status = 'qualified')::int AS qualified,
+          count(DISTINCT t.referrer_contact_id)
+            FILTER (WHERE t.status <> 'rejected')::int AS referrers,
+          count(DISTINCT t.referee_contact_id) FILTER (
+            WHERE t.status IN ('bound','qualified')
+              AND EXISTS (
+                SELECT 1 FROM conversions c
+                WHERE c.contact_id = t.referee_contact_id
+                  AND ${inPeriod(sql`c.occurred_at`)}
+              )
+          )::int AS converted
+        FROM referral_touches t
+        WHERE t.referral_id = ${referralId}
+          AND ${inPeriod(sql`t.touched_at`)}
+      `),
+      db.execute(sql`
+        SELECT t.rejected_reason AS key, count(*)::int AS count
+        FROM referral_touches t
+        WHERE t.referral_id = ${referralId}
+          AND t.status = 'rejected'
+          AND ${inPeriod(sql`t.touched_at`)}
+        GROUP BY 1 ORDER BY 2 DESC
+      `),
+      db.execute(sql`
+        SELECT t.source AS key, count(*)::int AS count
+        FROM referral_touches t
+        WHERE t.referral_id = ${referralId}
+          AND ${inPeriod(sql`t.touched_at`)}
+        GROUP BY 1 ORDER BY 2 DESC
+      `),
+      db.execute(sql`
+        SELECT COALESCE(c.currency, ${NO_CURRENCY}) AS key,
+               COALESCE(SUM(c.value), 0)::float8 AS count
+        FROM conversions c
+        WHERE ${inPeriod(sql`c.occurred_at`)}
+          AND EXISTS (
+            SELECT 1 FROM referral_touches t
+            WHERE t.referral_id = ${referralId}
+              AND t.referee_contact_id = c.contact_id
+              AND t.status IN ('bound','qualified')
+          )
+        GROUP BY 1 ORDER BY 1
+      `),
+      db.execute(sql`
+        SELECT count(*)::int AS count, NULL::text AS key
+        FROM links l
+        WHERE l.referral_id = ${referralId} AND l.archived_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT min(t.touched_at) AS key, count(*)::int AS count
+        FROM referral_touches t
+        WHERE t.referral_id = ${referralId}
+      `),
+    ]);
+
+  const totalRow = rowsOf<{
+    touched: number;
+    bound: number;
+    qualified: number;
+    referrers: number;
+    converted: number;
+  }>(totals)[0];
+
+  // The series needs a concrete start: the period's `from`, else the first
+  // touch on record, else now (an empty program draws an empty chart).
+  const firstTouch = rowsOf<CountRow>(bounds)[0]?.key;
+  const start = from ?? (firstTouch ? new Date(firstTouch) : new Date());
+  const end = to ?? new Date();
+  const granularity: "day" | "week" =
+    end.getTime() - start.getTime() > WEEK_THRESHOLD_MS ? "week" : "day";
+
+  const series = rowsOf<{
+    bucket: string | Date;
+    touched: number;
+    bound: number;
+    qualified: number;
+  }>(
+    await db.execute(sql`
+      WITH buckets AS (
+        SELECT generate_series(
+          date_trunc(${granularity}, ${start.toISOString()}::timestamptz),
+          date_trunc(${granularity}, ${end.toISOString()}::timestamptz),
+          ${granularity === "day" ? "1 day" : "1 week"}::interval
+        ) AS bucket
+      ),
+      t AS (
+        SELECT * FROM referral_touches
+        WHERE referral_id = ${referralId}
+      )
+      SELECT b.bucket,
+        (SELECT count(*)::int FROM t
+          WHERE t.status <> 'rejected'
+            AND date_trunc(${granularity}, t.touched_at) = b.bucket) AS touched,
+        (SELECT count(*)::int FROM t
+          WHERE t.bound_at IS NOT NULL AND t.status <> 'rejected'
+            AND date_trunc(${granularity}, t.bound_at) = b.bucket) AS bound,
+        (SELECT count(*)::int FROM t
+          WHERE t.qualified_at IS NOT NULL
+            AND date_trunc(${granularity}, t.qualified_at) = b.bucket) AS qualified
+      FROM buckets b
+      ORDER BY b.bucket
+    `),
+  );
+
+  const asCounts = (result: unknown, fallback: string) =>
+    rowsOf<CountRow>(result).map((r) => ({
+      key: r.key ?? fallback,
+      count: Number(r.count),
+    }));
+  const rejectedRows = asCounts(rejected, "unknown");
+
+  return {
+    referrers: Number(totalRow?.referrers ?? 0),
+    links: Number(rowsOf<CountRow>(linkCount)[0]?.count ?? 0),
+    funnel: {
+      touched: Number(totalRow?.touched ?? 0),
+      bound: Number(totalRow?.bound ?? 0),
+      qualified: Number(totalRow?.qualified ?? 0),
+      converted: Number(totalRow?.converted ?? 0),
+    },
+    rejected: {
+      total: rejectedRows.reduce((acc, r) => acc + r.count, 0),
+      byReason: rejectedRows.map((r) => ({ reason: r.key, count: r.count })),
+    },
+    sources: asCounts(sources, "unknown").map((r) => ({
+      source: r.key,
+      count: r.count,
+    })),
+    refereeValue: rowsOf<CountRow>(value)
+      .map((r) => ({ currency: r.key ?? NO_CURRENCY, value: Number(r.count) }))
+      .filter((v) => v.value !== 0),
+    granularity,
+    series: series.map((p) => ({
+      date: new Date(p.bucket).toISOString(),
+      touched: Number(p.touched),
+      bound: Number(p.bound),
+      qualified: Number(p.qualified),
+    })),
+  };
+}

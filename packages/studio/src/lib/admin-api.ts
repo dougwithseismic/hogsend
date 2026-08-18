@@ -1078,6 +1078,75 @@ export function getReferralReport(filters: ReferralReportFilters = {}) {
   });
 }
 
+/** What of a `defineReferral` the engine reads back. Functions never cross. */
+export type ReferralDefinition = {
+  id: string;
+  name: string | null;
+  description: string | null;
+  qualifyEvent: string | null;
+  qualifyHasConditions: boolean;
+  bindWindowMs: number;
+  destination: string | null;
+  campaign: string | null;
+  hooks: string[];
+};
+
+export type ReferralSeriesPoint = {
+  date: string;
+  touched: number;
+  bound: number;
+  qualified: number;
+};
+
+export type ReferralOverview = {
+  referral: string;
+  referrals: string[];
+  definition: ReferralDefinition | null;
+  from: string | null;
+  to: string | null;
+  referrers: number;
+  links: number;
+  funnel: {
+    touched: number;
+    bound: number;
+    qualified: number;
+    converted: number;
+  };
+  rejected: { total: number; byReason: { reason: string; count: number }[] };
+  sources: { source: string; count: number }[];
+  refereeValue: ReferralValue[];
+  granularity: "day" | "week";
+  series: ReferralSeriesPoint[];
+};
+
+export type ReferralOverviewFilters = {
+  referral?: string;
+  from?: string;
+  to?: string;
+};
+
+export function getReferralOverview(filters: ReferralOverviewFilters = {}) {
+  return api.get<ReferralOverview>("/v1/admin/referrals/overview", {
+    query: {
+      referral: filters.referral || undefined,
+      from: filters.from || undefined,
+      to: filters.to || undefined,
+    },
+  });
+}
+
+/** One of the referrer's own share links. */
+export type ReferrerLink = {
+  id: string;
+  slug: string | null;
+  vanityUrl: string | null;
+  url: string;
+  originalUrl: string;
+  campaign: string | null;
+  clickCount: number;
+  createdAt: string;
+};
+
 export function getReferralDetail(
   contactId: string,
   query: { referral?: string; depth?: number; limit?: number } = {},
@@ -1088,6 +1157,7 @@ export function getReferralDetail(
     contactId: string;
     contact: ReferralContact | null;
     depth: number;
+    links: ReferrerLink[];
     nodes: ReferralTreeNode[];
     touches: ReferralTouch[];
   }>(`/v1/admin/referrals/${encodeURIComponent(contactId)}`, {
@@ -2401,6 +2471,8 @@ export const qk = {
   groupTypes: ["group-types"] as const,
   referralReport: (filters: ReferralReportFilters) =>
     ["referral-report", filters] as const,
+  referralOverview: (filters: ReferralOverviewFilters) =>
+    ["referral-overview", filters] as const,
   referralDetail: (
     contactId: string,
     filter: { referral?: string; depth?: number },

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Copy, ExternalLink } from "lucide-react";
+import { useMemo, useState } from "react";
 import { StatCard } from "@/components/stat-card";
 import {
   EmptyState,
@@ -9,6 +9,7 @@ import {
   PageHeader,
   TableSkeleton,
 } from "@/components/states";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import {
@@ -19,25 +20,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useToast } from "@/components/ui/toast";
 import {
   getReferralDetail,
   qk,
   type ReferralContact,
+  type ReferralTouch,
+  type ReferralTreeNode,
   type ReferralValue,
 } from "@/lib/admin-api";
 import {
   formatAmountWithCode,
   formatDateTime,
   formatNumber,
+  formatRelative,
 } from "@/lib/format";
 import { ContactDetailDrawer } from "./contacts/contact-detail-drawer";
 
 /**
- * Observe-only referral drill-in: one referrer's descendants and their own
- * touch log, rejected rows included with the reason. Read-only, like the group
- * detail view. The tree is a LEDGER view (every non-rejected edge, no window,
- * no weights), which is why its numbers can differ from the leaderboard's
- * model-weighted value.
+ * Observe-only referral drill-in: one referrer's share links, their
+ * descendants drawn as the tree they are, and their own touch log with the
+ * rejected rows and reasons. Read-only, like the group detail view. The tree
+ * is a LEDGER view (every non-rejected edge, no window, no weights), which is
+ * why its numbers can differ from the leaderboard's model-weighted value.
  */
 
 function displayName(
@@ -57,6 +62,33 @@ function ValueCell({ value }: { value: ReferralValue[] }) {
   );
 }
 
+function valueString(value: ReferralValue[]): string {
+  if (value.length === 0) return "—";
+  return value
+    .map((v) => formatAmountWithCode(v.value, v.currency))
+    .join(" · ");
+}
+
+/** Sum a list of per-currency values, per currency. Never across currencies. */
+function sumValues(lists: ReferralValue[][]): ReferralValue[] {
+  const totals = new Map<string, number>();
+  for (const list of lists) {
+    for (const v of list) {
+      totals.set(v.currency, (totals.get(v.currency) ?? 0) + v.value);
+    }
+  }
+  return [...totals.entries()]
+    .map(([currency, value]) => ({ currency, value }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+const STATUS_TONE: Record<string, string> = {
+  qualified: "bg-accent",
+  bound: "bg-white/60",
+  touched: "bg-white/25",
+  rejected: "bg-white/10",
+};
+
 /** Status colours: rejected reads muted, qualified reads as the good outcome. */
 function StatusCell({
   status,
@@ -72,17 +104,68 @@ function StatusCell({
         ? "text-white/40"
         : "text-white/70";
   return (
-    <span className={tone}>
-      {status}
-      {reason ? (
-        <span className="block text-white/40 text-xs">{reason}</span>
-      ) : null}
+    <span className={`inline-flex items-center gap-2 ${tone}`}>
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${
+          STATUS_TONE[status] ?? "bg-white/25"
+        }`}
+      />
+      <span>
+        {status}
+        {reason ? (
+          <span className="block text-white/40 text-xs">{reason}</span>
+        ) : null}
+      </span>
     </span>
   );
 }
 
+/**
+ * Order the flat node list depth-first so a child renders directly under its
+ * parent, and carry the level for indentation. A referee reached by two paths
+ * appears once per path (that is what the ledger holds).
+ */
+function orderTree(
+  rootId: string,
+  nodes: ReferralTreeNode[],
+): ReferralTreeNode[] {
+  const byParent = new Map<string, ReferralTreeNode[]>();
+  for (const node of nodes) {
+    const list = byParent.get(node.viaContactId) ?? [];
+    list.push(node);
+    byParent.set(node.viaContactId, list);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => a.touchedAt.localeCompare(b.touchedAt));
+  }
+  const out: ReferralTreeNode[] = [];
+  const seen = new Set<string>();
+  const walk = (parentId: string, level: number) => {
+    for (const node of byParent.get(parentId) ?? []) {
+      if (node.level !== level) continue;
+      const key = `${node.contactId}:${node.level}:${node.viaContactId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(node);
+      walk(node.contactId, level + 1);
+    }
+  };
+  walk(rootId, 1);
+  // Anything the walk could not reach (a truncated tree) still gets listed.
+  for (const node of nodes) {
+    const key = `${node.contactId}:${node.level}:${node.viaContactId}`;
+    if (!seen.has(key)) out.push(node);
+  }
+  return out;
+}
+
+const STATUS_FILTERS = ["all", "qualified", "bound", "touched", "rejected"];
+
 export function ReferralDetailView({ contactId }: { contactId: string }) {
+  const { toast } = useToast();
   const [depth, setDepth] = useState(3);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     null,
   );
@@ -95,10 +178,53 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
   const data = query.data;
   const nodes = data?.nodes ?? [];
   const touches = data?.touches ?? [];
+  const links = data?.links ?? [];
+
+  const ordered = useMemo(
+    () => (data ? orderTree(data.contactId, nodes) : []),
+    [data, nodes],
+  );
+
   const qualified = touches.filter((t) => t.status === "qualified").length;
   const bound = touches.filter(
     (t) => t.status === "bound" || t.status === "qualified",
   ).length;
+  const rejected = touches.filter((t) => t.status === "rejected");
+  const rejectedByReason = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of rejected) {
+      const reason = t.rejectedReason ?? "unknown";
+      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [rejected]);
+  const treeValue = useMemo(
+    () => sumValues(nodes.map((n) => n.value)),
+    [nodes],
+  );
+  const directValue = useMemo(
+    () => sumValues(nodes.filter((n) => n.level === 1).map((n) => n.value)),
+    [nodes],
+  );
+  const sources = useMemo(
+    () => [...new Set(touches.map((t) => t.source))].sort(),
+    [touches],
+  );
+
+  const visibleTouches = touches.filter(
+    (t: ReferralTouch) =>
+      (statusFilter === "all" || t.status === statusFilter) &&
+      (sourceFilter === "all" || t.source === sourceFilter),
+  );
+
+  async function copy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast({ title: "Copied to clipboard" });
+    } catch {
+      toast({ variant: "error", title: "Copy failed" });
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -118,7 +244,7 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
         <>
           <PageHeader
             title={displayName(data.contact, data.contactId)}
-            description={`Referral program "${data.referral}"`}
+            description={`Referrer under "${data.referral}"`}
           />
 
           <div className="flex flex-wrap items-center gap-3">
@@ -133,24 +259,139 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
               }))}
               onChange={(next) => setDepth(Number(next) || 1)}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedContactId(data.contactId)}
+            >
+              Open contact
+            </Button>
             <span className="font-mono text-white/40 text-xs">
               {data.contactId}
             </span>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
             <StatCard label="Touches" value={formatNumber(touches.length)} />
             <StatCard label="Bound" value={formatNumber(bound)} />
             <StatCard label="Qualified" value={formatNumber(qualified)} />
-            <StatCard label="Tree size" value={formatNumber(nodes.length)} />
+            <StatCard
+              label="Rejected"
+              value={formatNumber(rejected.length)}
+              hint={
+                rejectedByReason
+                  .slice(0, 3)
+                  .map(([reason, count]) => `${reason} ${count}`)
+                  .join(" · ") || undefined
+              }
+            />
+            <StatCard
+              label="Tree size"
+              value={formatNumber(nodes.length)}
+              hint={`to ${depth} level${depth === 1 ? "" : "s"}`}
+            />
+            <StatCard
+              label="Tree revenue"
+              value={valueString(treeValue)}
+              hint={
+                nodes.length > 0
+                  ? `direct ${valueString(directValue)}, unweighted`
+                  : undefined
+              }
+            />
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Share links</CardTitle>
+              <p className="text-xs text-white/40">
+                The shared links minted for this referrer. Anyone landing from
+                one is touched; only the referrer is credited.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {links.length === 0 ? (
+                <p className="text-sm text-white/40">
+                  No link minted yet. One is minted the first time
+                  getReferralLink() or hogsend.referral.link() runs for this
+                  contact.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Link</TableHead>
+                      <TableHead>Slug</TableHead>
+                      <TableHead>Destination</TableHead>
+                      <TableHead className="text-right">Clicks</TableHead>
+                      <TableHead>Minted</TableHead>
+                      <TableHead className="w-24" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {links.map((l) => {
+                      const share = l.vanityUrl ?? l.url;
+                      return (
+                        <TableRow key={l.id}>
+                          <TableCell className="font-mono text-white/80 text-xs">
+                            {share}
+                          </TableCell>
+                          <TableCell className="font-mono text-white/60 text-xs">
+                            {l.slug ?? "—"}
+                          </TableCell>
+                          <TableCell
+                            className="max-w-[28ch] truncate font-mono text-white/60 text-xs"
+                            title={l.originalUrl}
+                          >
+                            {l.originalUrl}
+                          </TableCell>
+                          <TableCell className="text-right text-white/70">
+                            {formatNumber(l.clickCount)}
+                          </TableCell>
+                          <TableCell
+                            className="text-white/60"
+                            title={formatDateTime(l.createdAt)}
+                          >
+                            {formatRelative(l.createdAt)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Copy share link"
+                                onClick={() => copy(share)}
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Open share link"
+                                onClick={() =>
+                                  window.open(share, "_blank", "noopener")
+                                }
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Tree</CardTitle>
               <p className="text-xs text-white/40">
-                Descendants to {depth} level{depth === 1 ? "" : "s"}. Every
-                non-rejected edge, unweighted and unwindowed.
+                Descendants to {depth} level{depth === 1 ? "" : "s"}, each under
+                the person who brought them in. Every non-rejected edge,
+                unweighted and unwindowed.
               </p>
             </CardHeader>
             <CardContent>
@@ -164,33 +405,60 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Contact</TableHead>
-                      <TableHead className="text-right">Level</TableHead>
-                      <TableHead>Via</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Touched</TableHead>
+                      <TableHead>Qualified</TableHead>
                       <TableHead className="text-right">Conversions</TableHead>
                       <TableHead className="text-right">Value</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {nodes.map((n) => (
+                    {ordered.map((n) => (
                       <TableRow
                         key={`${n.contactId}:${n.level}:${n.viaContactId}`}
                         className="cursor-pointer"
                         onClick={() => setSelectedContactId(n.contactId)}
                       >
-                        <TableCell className="text-white/90">
-                          {displayName(n.contact, n.contactId)}
-                        </TableCell>
-                        <TableCell className="text-right text-white/70">
-                          {n.level}
-                        </TableCell>
-                        <TableCell className="font-mono text-white/50 text-xs">
-                          {n.viaContactId === data.contactId
-                            ? "direct"
-                            : n.viaContactId}
+                        <TableCell>
+                          <div
+                            className="flex items-center gap-2"
+                            style={{ paddingLeft: `${(n.level - 1) * 20}px` }}
+                          >
+                            <span
+                              className={
+                                n.level === 1
+                                  ? "text-white/30"
+                                  : "text-white/20"
+                              }
+                            >
+                              {n.level === 1 ? "•" : "└"}
+                            </span>
+                            <span>
+                              <span className="text-white/90">
+                                {displayName(n.contact, n.contactId)}
+                              </span>
+                              <span className="ml-2 font-mono text-[10px] text-white/35 uppercase tracking-[0.04em]">
+                                L{n.level}
+                              </span>
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <StatusCell status={n.status} />
+                        </TableCell>
+                        <TableCell
+                          className="text-white/60"
+                          title={formatDateTime(n.touchedAt)}
+                        >
+                          {formatRelative(n.touchedAt)}
+                        </TableCell>
+                        <TableCell
+                          className="text-white/60"
+                          title={
+                            n.qualifiedAt ? formatDateTime(n.qualifiedAt) : ""
+                          }
+                        >
+                          {n.qualifiedAt ? formatRelative(n.qualifiedAt) : "—"}
                         </TableCell>
                         <TableCell className="text-right text-white/70">
                           {formatNumber(n.conversions)}
@@ -207,12 +475,38 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Touch log</CardTitle>
-              <p className="text-xs text-white/40">
-                Every touch this referrer generated, newest first, rejected ones
-                included with their reason.
-              </p>
+            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>Touch log</CardTitle>
+                <p className="text-xs text-white/40">
+                  Every touch this referrer generated, newest first, rejected
+                  ones included with their reason.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Combobox
+                  ariaLabel="Status filter"
+                  className="w-32"
+                  placeholder="Status"
+                  value={statusFilter}
+                  options={STATUS_FILTERS.map((s) => ({
+                    value: s,
+                    label: s === "all" ? "All statuses" : s,
+                  }))}
+                  onChange={setStatusFilter}
+                />
+                <Combobox
+                  ariaLabel="Source filter"
+                  className="w-32"
+                  placeholder="Source"
+                  value={sourceFilter}
+                  options={[
+                    { value: "all", label: "All sources" },
+                    ...sources.map((s) => ({ value: s, label: s })),
+                  ]}
+                  onChange={setSourceFilter}
+                />
+              </div>
             </CardHeader>
             <CardContent>
               {touches.length === 0 ? (
@@ -220,6 +514,10 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
                   title="No touches"
                   description="No click, slug entry or import has recorded a touch for this referrer."
                 />
+              ) : visibleTouches.length === 0 ? (
+                <p className="text-sm text-white/40">
+                  No touch matches these filters.
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -233,7 +531,7 @@ export function ReferralDetailView({ contactId }: { contactId: string }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {touches.map((t) => (
+                    {visibleTouches.map((t) => (
                       <TableRow
                         key={t.id}
                         className={t.refereeContactId ? "cursor-pointer" : ""}
