@@ -229,7 +229,20 @@ describe("POST /api/publish/:environmentId", () => {
       await gate;
       return realProvision(spec);
     };
-    configureProvisioning({ substrate: gated });
+    // The substrate call is NOT the first thing that can fail: `ensure-tenant-db`
+    // runs before it, and a real `CREATE DATABASE` for this fixture can park
+    // the stack in `error` on a slow runner before the assertions read the row
+    // (runs 32137333490 and its predecessor lost exactly that race). Gate the
+    // FIRST dependency the pipeline touches after `start`, so the row is
+    // deterministically past `deferred` and short of `error` at read time.
+    const { TenantDbService } = await import("../services/tenant-db");
+    const gatedTenantDb = new TenantDbService();
+    const realCreate = gatedTenantDb.create.bind(gatedTenantDb);
+    gatedTenantDb.create = async (...args) => {
+      await gate;
+      return realCreate(...args);
+    };
+    configureProvisioning({ substrate: gated, tenantDb: gatedTenantDb });
 
     try {
       const response = await publishRoute(

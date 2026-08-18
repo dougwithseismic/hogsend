@@ -2,8 +2,14 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { AnalyticsProvider, DefinedReferral } from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import { contacts, type Database, referralTouches } from "@hogsend/db";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  attributionCredits,
+  contacts,
+  type Database,
+  referralTouches,
+  userEvents,
+} from "@hogsend/db";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { getAnalytics } from "./analytics-singleton.js";
 import { createLogger, type Logger } from "./logger.js";
@@ -663,8 +669,6 @@ async function stampAttributionCredits(
   touch: ReferralTouchRecord,
 ): Promise<void> {
   if (!touch.clickId) return;
-  const { attributionCredits, userEvents } = await import("@hogsend/db");
-  const { sql } = await import("drizzle-orm");
   await input.db
     .update(attributionCredits)
     .set({ referralTouchId: touch.id })
