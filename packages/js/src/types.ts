@@ -290,10 +290,29 @@ export interface HogsendState {
    * (never `featureFlags`) so it coexists with PostHog's `useFeatureFlag`.
    */
   flags?: Record<string, unknown>;
+  /**
+   * The operator-allowlisted projection of the identified contact's traits
+   * (`GET /v1/contacts/me`). Absent until the first fetch resolves. Only keys
+   * on the engine's `contacts.publicProperties` allowlist appear here, and
+   * `email` only when `contacts.exposeEmail` is on; the default allowlist is
+   * empty, so an unconfigured deploy reads `{ identified, traits: {} }`.
+   */
+  contact?: ContactSlice;
   /** Keyed by feedId (v2). */
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
   banners?: Record<string, BannerSliceState>;
+}
+
+/**
+ * The `contact` slice: the server-resolved, allowlisted trait projection for
+ * the current identity. `identified` is false for an anonymous visitor or a
+ * contact row that carries neither an externalId nor an email.
+ */
+export interface ContactSlice {
+  identified: boolean;
+  traits: Record<string, unknown>;
+  email?: string | null;
 }
 
 /**
@@ -376,6 +395,23 @@ export interface Hogsend {
   getFlag: IsEmptyFlagRegistry extends true
     ? (key: string) => unknown
     : <K extends FlagKey>(key: K) => FlagRegistryMap[K] | undefined;
+
+  // ── contact traits ──
+  /**
+   * The allowlisted projection of the identified contact, read from the
+   * reactive `contact` slice (`GET /v1/contacts/me`, refreshed on init, on
+   * identity change, and after `identify()` resolves). Empty and unidentified
+   * until the first fetch resolves, and traits are only readable once a
+   * server-minted `userToken` is set (`setUserToken` / the provider prop).
+   * A token-less `identify()` leaves this empty and unidentified.
+   */
+  getContact(): ContactSlice;
+  /**
+   * A single allowlisted trait's value, or `undefined` until the first fetch
+   * resolves, when the trait is not on the operator's allowlist, or while no
+   * server-minted `userToken` is set.
+   */
+  getTrait(key: string): unknown;
 
   // ── the spine (single telemetry path) ──
   capture(

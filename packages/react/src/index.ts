@@ -95,6 +95,11 @@ export {
   useColorMode,
   watchSystemColorMode,
 } from "./hooks/use-color-mode.js";
+export {
+  type UseContactResult,
+  useContact,
+  useTrait,
+} from "./hooks/use-contact.js";
 export { useFlag, useFlags } from "./hooks/use-flags.js";
 export { type UseGroup, useGroup } from "./hooks/use-group.js";
 export { type UseHogsend, useHogsend } from "./hooks/use-hogsend.js";
