@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 35-event catalog, in order", () => {
+  it("is exactly the 41-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -262,6 +262,15 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "account.linked",
       "account.unlinked",
       "account.link_failed",
+      // Referrals (defineReferral, PRD 05) — emitted from the referral intent
+      // layer only; the store never emits. `level` on tree_converted is a fact
+      // on the event, so depth and weights stay report-time parameters.
+      "referral.touched",
+      "referral.bound",
+      "referral.qualified",
+      "referral.converted",
+      "referral.tree_converted",
+      "referral.rejected",
       // Weekly impact digest (impact experiments D5). Self-referential: the
       // cron watermarks off its own delivery rows.
       "impact.digest",

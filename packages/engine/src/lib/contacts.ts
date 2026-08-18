@@ -1500,6 +1500,44 @@ async function resolveContactShared(
   // Only the singleton-COLLISION soft-unlinks are here. The repoint that moves
   // the loser's surviving links to the survivor is deliberately silent — see
   // the note on step 4 of `foldLinkedAccounts`.
+  // REFERRAL BIND (PRD 05 stage 3), post-commit for the same reason the
+  // account-link emit above is: `bindReferral` announces `referral.bound` on
+  // both planes, and a resolve that rolled back must never have announced a
+  // bind that never happened. This is the ONE bind site precisely because
+  // `resolveContactShared` is the ONE owner of every `resolveOrCreateContact`
+  // / `resolveContactNoCreate` call.
+  //
+  // The keys scanned are every key this resolve just made this contact's:
+  // the resolved canonical key (which the create arm's `adoptOrphanHistory`
+  // just stamped history under), the anon key supplied by the identify call,
+  // and any key a merge absorbed. `bindTouches` is a no-op for a key with no
+  // unbound touch, so the extra scans cost one indexed lookup on a partial
+  // index built for exactly this query.
+  if (resolved.id !== null) {
+    const boundContactId = resolved.id;
+    const keys = new Set<string>([resolved.resolvedKey]);
+    if (opts.anonymousId) keys.add(opts.anonymousId);
+    for (const key of resolved.mergedKeys ?? []) keys.add(key);
+    // AWAITED, not fire-and-forget: the same ingest that identifies the
+    // referee may ALSO be the qualify event (a `signup` carrying the email),
+    // and `ingestEvent`'s qualify hook runs after this resolve and reads
+    // `status = 'bound'`. A detached bind would lose that race and the touch
+    // would sit at `touched` until the next qualifying event. Errors are still
+    // swallowed with an attributed log: an identify must never fail because a
+    // referral edge could not be stamped.
+    try {
+      const { bindReferral } = await import("./referral-intent.js");
+      for (const refereeKey of keys) {
+        await bindReferral({ db, refereeKey, contactId: boundContactId });
+      }
+    } catch (error: unknown) {
+      logger.warn("referral bind failed", {
+        contactId: boundContactId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (resolved.linkUnlinks && resolved.linkUnlinks.length > 0) {
     emitAccountUnlinked(db, resolved.linkUnlinks);
     // THE JOURNEY PLANE, beside the outbound one (PRD 08 T5). TWO DIFFERENT

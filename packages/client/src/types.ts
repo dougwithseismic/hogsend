@@ -527,6 +527,12 @@ export type OutboundEventType =
   | "account.linked"
   | "account.unlinked"
   | "account.link_failed"
+  | "referral.touched"
+  | "referral.bound"
+  | "referral.qualified"
+  | "referral.converted"
+  | "referral.tree_converted"
+  | "referral.rejected"
   | "impact.digest";
 
 /**

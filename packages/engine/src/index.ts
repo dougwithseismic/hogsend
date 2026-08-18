@@ -766,6 +766,38 @@ export {
   getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
+// --- Referral intent layer (the ONE place the store is called AND emits) ---
+export {
+  type BindReferralInput,
+  bindReferral,
+  type ConvertReferralInput,
+  convertReferral,
+  type QualifyReferralInput,
+  qualifyReferral,
+  qualifyReferralsForEvent,
+  REFERRAL_TREE_MAX_DEPTH,
+  type ReferralIntentHandles,
+  type TouchReferralInput,
+  type TouchReferralResult,
+  touchReferral,
+} from "./lib/referral-intent.js";
+// --- Referrals: definition wiring + the journey-safe link mint ---
+// `defineReferral` itself lives in `@hogsend/core` (re-exported from the core
+// barrel). Pass definitions to `createHogsendClient({ referrals: [...] })` in
+// BOTH index.ts and worker.ts; `client.referrals` is the resolved registry.
+export {
+  type GetReferralLinkOptions,
+  getReferralLink,
+  type ReferralLink,
+  type ReferralLinkContainer,
+} from "./lib/referral-link.js";
+export { ReferralRegistry } from "./lib/referral-registry.js";
+export {
+  getReferralRuntime,
+  type ReferralRuntime,
+  resetReferralRuntime,
+  setReferralRuntime,
+} from "./lib/referral-runtime.js";
 // --- Referral store (the ONE writer of referral_touches; NEVER emits) ---
 // The store returns mutation FACTS; the intent layer emits `referral.*`
 // outbound and re-ingests for journeys, side by side (PRD 05 §6). Pinned by

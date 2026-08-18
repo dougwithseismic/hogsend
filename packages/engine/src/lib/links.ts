@@ -71,6 +71,13 @@ export interface MintLinkOptions {
   /** UTM-style campaign grouping (public links). */
   campaign?: string;
   /**
+   * The `defineReferral` id this link belongs to (`getReferralLink` sets it).
+   * Stored on the row so a CLICK can find the DEFINITION that owns it - the
+   * hooks, the bind window and the qualify rule - without inferring it from
+   * `campaign`, which is operator-facing grouping and may be absent or shared.
+   */
+  referralId?: string;
+  /**
    * The canonical contact key a click should stitch - honoured ONLY for
    * `type: "personal"`; dropped for public AND shared links (the share-safe
    * invariant).
@@ -396,6 +403,7 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
         description: opts.description ?? null,
         appendRef: opts.appendRef ?? false,
         campaign: opts.campaign ?? null,
+        referralId: opts.referralId ?? null,
         source: opts.source,
         distinctId,
         ownerContactId,

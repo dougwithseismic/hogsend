@@ -66,6 +66,12 @@ export const links = pgTable(
     ownerContactId: uuid("owner_contact_id").references(() => contacts.id, {
       onDelete: "set null",
     }),
+    // The `defineReferral` id this link belongs to, for "shared" links minted
+    // by `getReferralLink`. NOT foreign-keyed: referrals are code-defined, like
+    // `referral_touches.referral_id`. It is what lets a click on a shared link
+    // find its DEFINITION (hooks, bindWindow, qualify) without guessing -
+    // `campaign` is operator-facing grouping and would be lossy here.
+    referralId: text("referral_id"),
     // The admin actor who minted it (mirrors api_keys.createdBy).
     createdBy: text("created_by"),
     // Caller-supplied idempotent-mint key: re-minting with the same key + same
@@ -88,5 +94,7 @@ export const links = pgTable(
     index("links_created_at_idx").on(table.createdAt),
     // "which links does this referrer own" - the referral link mint + report.
     index("links_owner_contact_idx").on(table.ownerContactId),
+    // "which links belong to this referral program".
+    index("links_referral_idx").on(table.referralId),
   ],
 );
