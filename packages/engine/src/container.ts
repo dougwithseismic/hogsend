@@ -380,6 +380,13 @@ export interface HogsendClient {
    * (frequency cap).
    */
   defaults: HogsendDefaults;
+  /**
+   * Resolved browser-readable contact projection (`GET /v1/contacts/me`).
+   * `publicProperties` is an operator ALLOWLIST of exact `contacts.properties`
+   * keys; `exposeEmail` opts the address in. Both default to closed
+   * (`[]` / `false`), so a deploy that configures nothing exposes nothing.
+   */
+  contactsConfig: { publicProperties: string[]; exposeEmail: boolean };
 }
 
 export interface HogsendClientOptions {
@@ -485,6 +492,20 @@ export interface HogsendClientOptions {
     optOutReplies?: boolean;
     linkTracking?: boolean;
     linkHost?: string;
+  };
+  /**
+   * What `GET /v1/contacts/me` may hand back to a browser.
+   *
+   * - `publicProperties` — EXACT `contacts.properties` keys the browser may
+   *   read. No wildcard, no prefix match. Anything not listed is omitted.
+   * - `exposeEmail` — include the contact's email address in the response.
+   *
+   * Defaults are closed (`[]` / `false`): with no `contacts` option the route
+   * answers `{ identified: false, traits: {} }` for everyone.
+   */
+  contacts?: {
+    publicProperties?: string[];
+    exposeEmail?: boolean;
   };
   /**
    * Account linking (Steam, Twitch, or your own `defineAccountLink` provider).
@@ -1795,6 +1816,10 @@ export function createHogsendClient(
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,
+    contactsConfig: {
+      publicProperties: opts.contacts?.publicProperties ?? [],
+      exposeEmail: opts.contacts?.exposeEmail ?? false,
+    },
   };
 
   // Boot-time reader for `hogsend connect posthog`'s persisted phc_: when no

@@ -88,6 +88,10 @@ export const GLOSSARY: Record<string, string> = {
     "One browser client for the whole tree. pk_ keys are anonymous-only by design; identity is server-minted.",
   useFlag:
     "Reads a flag defined in your repo — same hook shape as PostHog's, and a typo'd key won't compile.",
+  useContact:
+    "Reads the contact's allowlisted properties back into the browser: identified, loading, and the traits the engine's publicProperties list permits.",
+  useTrait:
+    "One allowlisted trait, read reactively; the component re-renders only when that value changes.",
   capture:
     "A first-party event from the browser — any journey can trigger on it.",
   track:

@@ -1531,6 +1531,36 @@ export function Paywall() {
 }`,
   },
   {
+    path: "web/src/components/account-header.tsx",
+    lang: "tsx",
+    note: {
+      title: "Personalize on traits you already store",
+      body: "useContact reads the contact's properties back into the browser, limited to the keys the engine allowlists in createHogsendClient({ contacts: { publicProperties } }). Identity is the server-minted userToken; a pk_ key on its own reads nothing about an identified person. Flags decide whether, traits fill in what.",
+      tags: ["useContact()", "useTrait()", "Operator allowlist"],
+    },
+    source: `import { useContact, useTrait } from "@hogsend/react";
+
+// The engine allowlists what the browser may read:
+//   createHogsendClient({
+//     contacts: { publicProperties: ["plan", "seats"] },
+//   })
+// Anything not listed never leaves the server.
+export function AccountHeader() {
+  const { identified, loading } = useContact();
+  const plan = useTrait("plan"); // re-renders only when plan changes
+  const seats = useTrait("seats");
+
+  if (loading || !identified) return null;
+
+  return (
+    <header>
+      <span>{plan} plan</span>
+      <span>{seats} seats</span>
+    </header>
+  );
+}`,
+  },
+  {
     path: "web/src/components/lesson-player.tsx",
     lang: "tsx",
     note: {

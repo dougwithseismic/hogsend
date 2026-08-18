@@ -4,6 +4,7 @@ import {
   ALL_IDENTITY_KINDS,
   findContacts,
   PublishableAnonymousMergeError,
+  projectPublicContact,
   resolveContact,
   resolveOrCreateContact,
   serializeContact,
@@ -17,6 +18,7 @@ import {
   listMembershipError,
   requireIdentity,
 } from "../_shared.js";
+import { resolveFeedRecipient } from "../feed/recipient.js";
 
 // The public, serialized contact shape (§2.5). `externalId` is nullable (D1 —
 // email-only / anonymous contacts) and timestamps are ISO strings.
@@ -124,6 +126,58 @@ const findRoute = createRoute({
     400: {
       content: { "application/json": { schema: errorSchema } },
       description: "Missing query key",
+    },
+  },
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/contacts/me — the BROWSER read of the identified contact's traits
+// (publishable OR secret-ingest tier; guarded as a LITERAL in routes/index.ts).
+// Identity is recipient-scoped SERVER-SIDE via `resolveFeedRecipient`, the same
+// leak boundary as `GET /v1/flags` and the in-app feed: a userToken-verified
+// userId, a secret key's trusted userId/email, or a publishable caller's OWN
+// anon id (a pk_ `anonymousId` colliding with an IDENTIFIED contact's canonical
+// key is rejected 403). A request-supplied contact key is NEVER honored.
+//
+// What comes back is an operator ALLOWLIST projection, not the contact row: only
+// exact `contacts.publicProperties` keys, plus `email` when `exposeEmail`. The
+// default config is empty, so a deploy that configures nothing exposes nothing.
+// No contact / empty allowlist answers 200 `{ identified: false, traits: {} }` —
+// never 404, so the response does not confirm whether a contact exists.
+// ---------------------------------------------------------------------------
+const meQuerySchema = z.object({
+  userToken: z.string().optional(),
+  anonymousId: z.string().optional(),
+  userId: z.string().optional(),
+  email: z.string().optional(),
+});
+
+const publicContactSchema = z.object({
+  identified: z.boolean(),
+  traits: z.record(z.string(), z.unknown()),
+  email: z.string().nullable().optional(),
+});
+
+const meRoute = createRoute({
+  method: "get",
+  path: "/me",
+  tags: ["Contacts"],
+  summary: "Read the resolved recipient's public traits",
+  description:
+    "Recipient-scoped server-side. Returns only the operator-allowlisted contact properties (client option `contacts.publicProperties`), plus the email when `contacts.exposeEmail` is on. Empty allowlist or no contact returns an empty projection, never 404.",
+  request: { query: meQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: publicContactSchema } },
+      description: "The recipient's allowlisted traits",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Missing identity",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Invalid userToken or non-addressable anonymousId",
     },
   },
 });
@@ -274,6 +328,30 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const rows = await findContacts({ db, email, userId });
 
     return c.json({ contacts: rows.map((row) => serializeContact(row)) }, 200);
+  })
+  .openapi(meRoute, async (c) => {
+    const { db, contactsConfig } = c.get("container");
+    const query = c.req.valid("query");
+    const rec = await resolveFeedRecipient(c, query);
+    if (!rec.ok) return c.json({ error: rec.error }, rec.status);
+    // `resolveFeedRecipient` already did the trust work; the only remaining
+    // read is the row it pinned. No `contactId` means no contact exists for
+    // this recipient yet, which projects to the same empty answer as a
+    // configured-closed allowlist.
+    const row = rec.contactId
+      ? await resolveContact({ db, id: rec.contactId })
+      : null;
+    // pk_ is ANON-ONLY; identity is a server-minted userToken. On the token-less
+    // publishable arm the resolver pins whatever live row holds this browser's
+    // anon id in its `anonymous_id` COLUMN — and that row may be an IDENTIFIED
+    // contact (a server-side stitch, or a pre-logout id that leaked), because
+    // `collidesWithIdentified` only rejects a value that IS a canonical key.
+    // Flags tolerate that (booleans); traits are PII, so an identified row is
+    // only readable through a token (or a secret key). Project it as empty.
+    const tokenless = c.get("publishable") === true && !query.userToken;
+    const identifiedRow = Boolean(row && (row.externalId || row.email));
+    const visible = tokenless && identifiedRow ? null : row;
+    return c.json(projectPublicContact(visible, contactsConfig), 200);
   })
   .openapi(deleteRoute, async (c) => {
     const { db, hatchet, logger } = c.get("container");

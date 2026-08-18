@@ -49,6 +49,28 @@ function CheckoutButton() {
 
 `identify(userId, traits)` sets the userId then issues `PUT /v1/contacts` with `{ userId, anonymousId, userToken?, properties }`. `capture(event, properties?, opts?)` enqueues through the single telemetry spine and stamps `source: "inapp"`; `userToken` is sent only when a userId is bound.
 
+## useContact / useTrait
+
+The operator-allowlisted projection of the resolved contact's traits.
+
+```ts
+interface UseContactResult {
+  traits: Record<string, unknown>;   // only keys on contacts.publicProperties
+  identified: boolean;               // contact carries an externalId or email
+  email: string | null | undefined;  // undefined unless contacts.exposeEmail
+  loading: boolean;                  // true until the first fetch resolves
+}
+```
+
+```tsx
+import { useContact, useTrait } from "@hogsend/react";
+
+const { traits, identified, loading } = useContact();
+const plan = useTrait("plan"); // re-renders only when this trait changes
+```
+
+Neither hook fetches. The SDK loads `GET /v1/contacts/me` on init, on identity change, and after `identify()` resolves, and these hooks select against that slice. The allowlist is empty by default, so both read empty until an operator configures `contacts.publicProperties`. See [Personalization](./personalization).
+
 ## usePreferences
 
 The contact's subscription state plus the list catalog.

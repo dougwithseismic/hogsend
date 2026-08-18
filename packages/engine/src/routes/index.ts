@@ -138,6 +138,13 @@ export function registerRoutes(
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
   v1.use("/contacts/find", requireApiKey, requireScope("ingest"));
+  // `GET /v1/contacts/me` is the BROWSER read of the allowlisted contact
+  // projection — publishable OR secret-ingest, exactly like `GET /v1/flags`.
+  // Registered as a LITERAL for the reason spelled out above: a
+  // `/contacts/*` wildcard would ALSO match the bare `/contacts` upsert and
+  // re-run on top of its method-branch guard. Identity is resolved
+  // server-side inside the handler, so this guard only sets the key tier.
+  v1.use("/contacts/me", requirePublishableOrIngest);
   // `POST /v1/flags/evaluate` is the SERVER SDK read — secret-only, exactly like
   // the other secret data-plane routes. The bare `/flags` (browser GET) is
   // guarded separately above; guard ONLY the `/evaluate` path here so the two
