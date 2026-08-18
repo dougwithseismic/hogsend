@@ -1,28 +1,21 @@
 ---
-"@hogsend/attribution": patch
-"@hogsend/cli": patch
-"@hogsend/client": patch
-"@hogsend/core": patch
-"@hogsend/db": patch
-"@hogsend/email": patch
-"@hogsend/engine": patch
-"hogsend": patch
-"@hogsend/mcp": patch
-"@hogsend/plugin-apollo": patch
-"@hogsend/plugin-discord": patch
-"@hogsend/plugin-hogsend": patch
-"@hogsend/plugin-meta-capi": patch
-"@hogsend/plugin-posthog": patch
-"@hogsend/plugin-postmark": patch
-"@hogsend/plugin-resend": patch
-"@hogsend/plugin-telegram": patch
-"@hogsend/plugin-twilio": patch
-"@hogsend/react": patch
-"@hogsend/sms": patch
-"@hogsend/studio": patch
-"@hogsend/testing": patch
-"@hogsend/video": patch
-"create-hogsend": patch
+"@hogsend/attribution": minor
+"@hogsend/cli": minor
+"@hogsend/email": minor
+"hogsend": minor
+"@hogsend/plugin-apollo": minor
+"@hogsend/plugin-discord": minor
+"@hogsend/plugin-hogsend": minor
+"@hogsend/plugin-meta-capi": minor
+"@hogsend/plugin-posthog": minor
+"@hogsend/plugin-postmark": minor
+"@hogsend/plugin-resend": minor
+"@hogsend/plugin-telegram": minor
+"@hogsend/plugin-twilio": minor
+"@hogsend/sms": minor
+"@hogsend/testing": minor
+"@hogsend/video": minor
+"create-hogsend": minor
 ---
 
 Keep the engine version line uniform: bump every engine-line package (and the
