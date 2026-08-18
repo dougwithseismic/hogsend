@@ -64,6 +64,15 @@ export {
   createPollTransport,
   createSseTransport,
 } from "./realtime/index.js";
+export type {
+  ReferralClient,
+  ReferralClientOptions,
+  ReferralLink,
+  ReferralLinkOptions,
+  ReferralMe,
+  ReferralStats,
+} from "./referral/index.js";
+export { createReferralClient } from "./referral/index.js";
 export type { Patch, Store } from "./store/external-store.js";
 export { createStore } from "./store/external-store.js";
 export type {
@@ -94,5 +103,6 @@ export type {
   PreferencesState,
   Properties,
   RealtimeMode,
+  ReferralSliceState,
   StorageAdapter,
 } from "./types.js";

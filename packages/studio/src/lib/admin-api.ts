@@ -953,6 +953,152 @@ export function listGroupMembers(
   );
 }
 
+// --- Referrals -----------------------------------------------------------
+
+/**
+ * The referral model vocabulary, mirroring the engine's `REFERRAL_MODELS`
+ * (`lib/referral-report.ts`). Model, depth, window and weights are REQUEST
+ * parameters: the picker re-queries, nothing is persisted per model and
+ * nothing is backfilled when the reader changes their mind.
+ */
+export const REFERRAL_MODELS = [
+  "first_touch",
+  "last_touch",
+  "linear",
+  "time_decay",
+  "position",
+] as const;
+
+export type ReferralModel = (typeof REFERRAL_MODELS)[number];
+
+/**
+ * One currency's worth of referral-credited money. Same law as group revenue:
+ * per currency, never summed across currencies, because no rate is applied.
+ */
+export type ReferralValue = {
+  currency: string;
+  value: number;
+};
+
+/** One level of a beneficiary's tree: level 1 is their direct referees. */
+export type ReferralTreeLevel = {
+  level: number;
+  referees: number;
+  conversions: number;
+  value: ReferralValue[];
+};
+
+/** Identity for a contact id, so a leaderboard row can show a name. */
+export type ReferralContact = {
+  id: string;
+  email: string | null;
+  externalId: string | null;
+};
+
+/**
+ * One row of `GET /v1/admin/referrals`: a referrer and the revenue their tree
+ * produced under the requested model. `direct` counts are NOT model-filtered:
+ * how many people this person touched is a fact about the referrer.
+ */
+export type ReferralBeneficiary = {
+  contactId: string;
+  contact: ReferralContact | null;
+  direct: { touched: number; bound: number; qualified: number };
+  tree: ReferralTreeLevel[];
+  value: ReferralValue[];
+};
+
+/** One descendant in a referrer's tree (a ledger view: no window, no weights). */
+export type ReferralTreeNode = {
+  contactId: string;
+  contact: ReferralContact | null;
+  level: number;
+  viaContactId: string;
+  status: string;
+  touchedAt: string;
+  boundAt: string | null;
+  qualifiedAt: string | null;
+  conversions: number;
+  value: ReferralValue[];
+};
+
+/** One `referral_touches` row, including rejected ones and the reason. */
+export type ReferralTouch = {
+  id: string;
+  referralId: string;
+  refereeKey: string;
+  refereeContactId: string | null;
+  referee: ReferralContact | null;
+  source: string;
+  status: string;
+  rejectedReason: string | null;
+  touchedAt: string;
+  boundAt: string | null;
+  qualifiedAt: string | null;
+  linkId: string | null;
+};
+
+export type ReferralReportFilters = {
+  referral?: string;
+  model?: ReferralModel;
+  window?: string;
+  depth?: number;
+  /** Comma-separated level weights, index 0 = level 1 ("1,0.5,0.25"). */
+  weights?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export function getReferralReport(filters: ReferralReportFilters = {}) {
+  return api.get<{
+    referral: string;
+    referrals: string[];
+    model: ReferralModel;
+    window: string;
+    depth: number;
+    weights: number[];
+    beneficiaries: ReferralBeneficiary[];
+    limit: number;
+    offset: number;
+    nextOffset: number | null;
+  }>("/v1/admin/referrals", {
+    query: {
+      referral: filters.referral || undefined,
+      model: filters.model,
+      window: filters.window,
+      depth: filters.depth,
+      weights: filters.weights || undefined,
+      from: filters.from || undefined,
+      to: filters.to || undefined,
+      limit: filters.limit,
+      offset: filters.offset,
+    },
+  });
+}
+
+export function getReferralDetail(
+  contactId: string,
+  query: { referral?: string; depth?: number; limit?: number } = {},
+) {
+  return api.get<{
+    referral: string;
+    referrals: string[];
+    contactId: string;
+    contact: ReferralContact | null;
+    depth: number;
+    nodes: ReferralTreeNode[];
+    touches: ReferralTouch[];
+  }>(`/v1/admin/referrals/${encodeURIComponent(contactId)}`, {
+    query: {
+      referral: query.referral || undefined,
+      depth: query.depth,
+      limit: query.limit,
+    },
+  });
+}
+
 // --- Contacts ------------------------------------------------------------
 
 export type Contact = {
@@ -2253,6 +2399,12 @@ export const qk = {
   bucketTrend: (id: string) => ["bucket-trend", id] as const,
   groups: (filters: GroupListFilters) => ["groups", filters] as const,
   groupTypes: ["group-types"] as const,
+  referralReport: (filters: ReferralReportFilters) =>
+    ["referral-report", filters] as const,
+  referralDetail: (
+    contactId: string,
+    filter: { referral?: string; depth?: number },
+  ) => ["referral-detail", contactId, filter] as const,
   group: (groupType: string, groupKey: string) =>
     ["group", groupType, groupKey] as const,
   groupMembers: (

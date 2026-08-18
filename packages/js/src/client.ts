@@ -36,6 +36,7 @@ import { resolveStorage } from "./identity/storage.js";
 import { createPreferencesClient } from "./preferences/index.js";
 import type { RealtimeChannel, RealtimeTransport } from "./realtime/index.js";
 import { createPollTransport, createSseTransport } from "./realtime/index.js";
+import { createReferralClient } from "./referral/index.js";
 import { createEventSpine, type EventSpine } from "./spine/event-spine.js";
 import { createTransport } from "./spine/transport.js";
 import { createStore } from "./store/external-store.js";
@@ -129,6 +130,10 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const flagsClient = createFlagsClient({ transport, identity, store });
   void flagsClient.refresh();
   let lastFlagsDistinctId = store.getSnapshot().identity.distinctId;
+
+  // The caller's own referral link. NOT fetched on init: the route is
+  // userToken-gated, so an anonymous page load has nothing to ask for.
+  const referralClient = createReferralClient({ transport, identity, store });
 
   // One feed-store + feed-client per feedId (so React's useMemo over feed() is
   // stable and realtime pipes into the SAME slice the client reads).
@@ -241,6 +246,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
         // identity.
         flagsClient.clear();
         void flagsClient.refresh();
+        // The previous user's share link must not be readable across an
+        // identity flip; the next link() re-fetches for the new token.
+        referralClient.clear();
       }
     }),
   );
@@ -478,6 +486,8 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     group,
     resetGroups,
     getGroups,
+
+    referral: referralClient,
 
     flags: () => flagsClient.getAll(),
     getFlag: (key) => flagsClient.getFlag(key),

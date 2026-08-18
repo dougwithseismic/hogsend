@@ -1,6 +1,6 @@
 ---
 title: MCP server
-description: "The @hogsend/mcp server exposes a running Hogsend instance to MCP clients — Claude Desktop, Cursor, and claude.ai connectors — with three tools (manage_blueprint, hogsend_report, send_test_email), the blueprint authoring-guide resource, and the find_and_fix_bottleneck prompt. It runs over stdio via npx or as a consumer-mounted Streamable HTTP route at POST /v1/mcp, and every call is admin-gated with the operator's own full-admin key."
+description: "The @hogsend/mcp server exposes a running Hogsend instance to MCP clients (Claude Desktop, Cursor, and claude.ai connectors) with five tools (manage_blueprint, hogsend_report, get_referral_report, get_referral_tree, send_test_email), the blueprint authoring-guide resource, and the find_and_fix_bottleneck prompt. It runs over stdio via npx or as a consumer-mounted Streamable HTTP route at POST /v1/mcp, and every call is admin-gated with the operator's own full-admin key."
 ---
 
 `@hogsend/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server for Hogsend. It gives an MCP client an agent-facing surface over your instance's admin API — author and operate Journey Blueprints, pull a health report, and send a test email — without a deploy in the loop.
@@ -18,6 +18,8 @@ Both build the same server, and both talk to the admin API with a `full-admin` k
 |---|---|
 | `manage_blueprint` (tool) | Author and operate [Journey Blueprints](/docs/cli/blueprints) — `action: create \| update \| validate \| enable \| disable`. JSON-graph journeys stored in the DB and run by the interpreter, no deploy. There is no `promote` action — promoting to code is the [`hogsend blueprints promote`](/docs/cli/blueprints) CLI. |
 | `hogsend_report` (tool) | Read-only health report over existing admin metrics routes — `scope: health \| blueprints \| journeys \| deliverability \| catalog`. Findings carry `severity` / `evidence` / `suggested_action`. See [what the report checks](#what-the-report-checks). |
+| `get_referral_report` (tool) | Read-only referral leaderboard: who is referring, and the revenue their tree produced under the requested `model` / `window` / `depth` / `weights`. Every monetary field is a list of `{ currency, value }`; values are never converted between currencies. |
+| `get_referral_tree` (tool) | Read-only drill-in for one referrer: their descendants to `depth` plus their touch log, rejected touches and reasons included. A ledger view: no window, no weights. |
 | `send_test_email` (tool) | Send one real test email of a registered template — `{ templateKey, to, props? }`. This **delivers to a real inbox**; it is not a dry run. |
 | `hogsend://blueprint-authoring-guide` (resource) | The full blueprint graph vocabulary — node / edge / condition types, durations, structural rules, and the validate→iterate→write workflow. Loaded on demand. |
 | `find_and_fix_bottleneck` (prompt) | A canned, safe workflow: run the report → explain the worst finding → propose a fix as a **draft** blueprint → wait for explicit approval before enabling anything. |

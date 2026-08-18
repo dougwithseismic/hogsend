@@ -109,6 +109,11 @@ export {
   type UsePreferences,
   usePreferences,
 } from "./hooks/use-preferences.js";
+export {
+  type UseReferralLink,
+  type UseReferralLinkOptions,
+  useReferralLink,
+} from "./hooks/use-referral-link.js";
 export { useStoreSelector } from "./hooks/use-store.js";
 export { type UseToast, useToast } from "./hooks/use-toast.js";
 // ── styling utilities ──

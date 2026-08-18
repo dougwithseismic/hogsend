@@ -16,6 +16,7 @@ import {
   QrCode,
   Send,
   Settings,
+  Share2,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -40,6 +41,7 @@ export const navItems: NavItem[] = [
   { label: "Flags", path: "/flags", icon: Flag },
   { label: "Buckets", path: "/buckets", icon: Boxes },
   { label: "Groups", path: "/groups", icon: Building2 },
+  { label: "Referrals", path: "/referrals", icon: Share2 },
   { label: "Contacts", path: "/contacts", icon: Users },
   { label: "Suppressions", path: "/suppressions", icon: Ban },
   { label: "Integrations", path: "/integrations", icon: Plug },

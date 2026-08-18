@@ -17,6 +17,7 @@ import { flagsRouter } from "./flags/index.js";
 import { groupsRouter } from "./groups/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
+import { createReferralsRouter } from "./referrals/index.js";
 import { createSnippetRouter } from "./snippet.js";
 import { trackingRouter } from "./tracking/index.js";
 import { shortLinkRouter } from "./tracking/short.js";
@@ -223,6 +224,37 @@ export function registerRoutes(
   });
 
   v1.route("/accounts", createAccountsRouter());
+
+  // ---- Referrals (PRD 05 §7.2) ----
+  //
+  // TWO TIERS on one prefix, every path enumerated EXPLICITLY. There is
+  // deliberately NO `/referrals/*` catch-all: a `/<prefix>/*` `use` in Hono
+  // also matches the bare `/<prefix>` path AND every literal sibling, so one
+  // would 401 the browser-reachable `/referrals/me`, the same trap documented
+  // for `/contacts/*`, `/lists/*` and `/accounts/*` above.
+  //
+  // Tier 1: the browser-reachable literal, `userToken`-gated INSIDE its
+  // handler and non-confirming on every token failure.
+  v1.use("/referrals/me", requirePublishableOrIngest);
+  // Tier 2: secret-only. `referrals` is an ORTHOGONAL scope exactly like
+  // `accounts`: an explicit grant or `full-admin`, and no SCOPE_HIERARCHY edit
+  // (`middleware/api-key.ts` `hasScope`). A `pk_` key holds only
+  // `["ingest-public"]`, so it 403s here rather than escalating.
+  //
+  // `/tree/*` is the ONLY parameterised path and it is GET-only, so it needs no
+  // method branch: nothing browser-reachable lives under it, unlike the
+  // `/accounts/:provider/:providerUserId` shape.
+  for (const path of [
+    "/referrals",
+    "/referrals/report",
+    "/referrals/touch",
+    "/referrals/import",
+    "/referrals/tree/*",
+  ]) {
+    v1.use(path, requireApiKey, requireScope("referrals"));
+  }
+
+  v1.route("/referrals", createReferralsRouter());
 
   v1.route("/contacts", contactsRouter);
   v1.route("/events", eventsRouter);

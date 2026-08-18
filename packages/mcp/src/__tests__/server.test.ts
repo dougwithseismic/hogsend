@@ -32,9 +32,11 @@ describe("createHogsendMcpServer registration", () => {
     await server.close();
   });
 
-  it("exposes exactly the 3 tools", async () => {
+  it("exposes exactly the 5 tools", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "get_referral_report",
+      "get_referral_tree",
       "hogsend_report",
       "manage_blueprint",
       "send_test_email",

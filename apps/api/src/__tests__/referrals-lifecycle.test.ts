@@ -571,7 +571,7 @@ describe("qualify", () => {
         event: "subscription.started",
         anonymousId: anonId,
         userId: `${RUN}-race-referee`,
-        email: `${RUN}-race-referee@example.test`,
+        userEmail: `${RUN}-race-referee@example.test`,
         eventProperties: { plan: "pro" },
         idempotencyKey: `${RUN}-race-1`,
       },

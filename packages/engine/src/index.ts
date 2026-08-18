@@ -792,6 +792,23 @@ export {
   type ReferralLinkContainer,
 } from "./lib/referral-link.js";
 export { ReferralRegistry } from "./lib/referral-registry.js";
+// --- Referral REPORT (report-time model/window/depth/weights, PRD 05 §5.3) ---
+export {
+  type CurrencyValue,
+  getReferralReport,
+  getReferralTree,
+  InvalidWindowError,
+  NO_CURRENCY,
+  parseWindowMs,
+  REFERRAL_MODELS,
+  REFERRAL_REPORT_MAX_DEPTH,
+  type ReferralBeneficiary,
+  type ReferralModel,
+  type ReferralReport,
+  type ReferralTreeLevel,
+  type ReferralTreeNode,
+  resolveLevelWeights,
+} from "./lib/referral-report.js";
 export {
   getReferralRuntime,
   type ReferralRuntime,
