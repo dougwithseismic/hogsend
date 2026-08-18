@@ -630,8 +630,10 @@ export interface RotateWebhookSecretResult {
 /**
  * `personal` links stitch the visitor's anon session to the link's
  * `distinctId`; `public` links are share-safe (never carry a `distinctId`).
+ * `shared` links (referral links) are owned by a person via `ownerContactId`
+ * and stitch NOBODY: they attribute to the owner, never identify the clicker.
  */
-export type LinkType = "personal" | "public";
+export type LinkType = "personal" | "public" | "shared";
 
 /** A managed tracked link (the flat shape shared by every links endpoint). */
 export interface Link {
@@ -640,6 +642,8 @@ export interface Link {
   trackedLinkId: string | null;
   originalUrl: string;
   type: LinkType;
+  /** The credited contact for a `shared` link; null for personal/public. */
+  ownerContactId: string | null;
   /** Vanity slug (`/l/:slug`, normalized lowercase); null when unset. */
   slug: string | null;
   /** The slug's short URL; null when no slug is set. */
@@ -725,8 +729,13 @@ export interface CreateLinkInput {
   description?: string;
   appendRef?: boolean;
   campaign?: string;
-  /** Honoured only for `type: "personal"` links (dropped for public). */
+  /** Honoured only for `type: "personal"` links (dropped for public/shared). */
   distinctId?: string;
+  /**
+   * REQUIRED for `type: "shared"` and rejected on personal/public (400): the
+   * contact a shared link credits. Attribution only - never stitched.
+   */
+  ownerContactId?: string;
   /** Originating channel. The SDK defaults this to `"api"`. */
   source?: "studio" | "api";
   /**

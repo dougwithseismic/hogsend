@@ -54,6 +54,14 @@ export const attributionCredits = pgTable(
     campaignId: uuid("campaign_id"),
     templateKey: text("template_key"),
     funnelId: text("funnel_id"),
+    /**
+     * The `referral_touches` row that produced this credit, when the touchpoint
+     * was a referral (PRD 05 5.2) - so referral revenue and marketing
+     * attribution are ONE ledger, queryable as `channel = 'referral'`.
+     * No FK, for the same reason as `touchpoint_event_id`: the edge log and the
+     * ledger may be retained on different schedules.
+     */
+    referralTouchId: uuid("referral_touch_id"),
     /** The conversion's occurredAt (denormalized for windowed reporting). */
     convertedAt: timestamp("converted_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -73,5 +81,6 @@ export const attributionCredits = pgTable(
     index("attribution_credits_channel_idx").on(table.channel),
     index("attribution_credits_journey_idx").on(table.journeyId),
     index("attribution_credits_campaign_idx").on(table.campaignId),
+    index("attribution_credits_referral_touch_idx").on(table.referralTouchId),
   ],
 );

@@ -1580,7 +1580,12 @@ export type Link = {
   /** The link's redirect tracked-row id (one per managed link). */
   trackedLinkId: string | null;
   originalUrl: string;
-  type: "personal" | "public";
+  // "shared" = a referral link: owned by a person (ownerContactId), clicked by
+  // someone else, stitches nobody. Studio does not MINT these (authoring stays
+  // in code) but must render them honestly when the API returns one.
+  type: "personal" | "public" | "shared";
+  /** The credited contact for a `shared` link; null for personal/public. */
+  ownerContactId: string | null;
   /** Vanity slug (normalized lowercase, unique per instance) — null if unset. */
   slug: string | null;
   /** The vanity short URL (`${API_PUBLIC_URL}/l/:slug`) — null if no slug. */
@@ -1650,7 +1655,7 @@ export type LinkDetail = Link & {
 export type CreatedLink = Link;
 
 export function listLinks(filters?: {
-  type?: "personal" | "public";
+  type?: "personal" | "public" | "shared";
   includeArchived?: boolean;
   /** true = only links whose QR scan row exists (the "QR codes" lens). */
   hasQr?: boolean;

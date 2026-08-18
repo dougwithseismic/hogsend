@@ -46,6 +46,7 @@ export class LinksResource {
     return this.http.post<CreatedLink>(BASE, {
       url: input.url,
       type: input.type,
+      ownerContactId: input.ownerContactId,
       slug: input.slug,
       label: input.label,
       description: input.description,

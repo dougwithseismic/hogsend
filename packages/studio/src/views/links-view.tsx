@@ -49,6 +49,8 @@ const TYPES = [
   { value: "personal", label: "Personal" },
 ];
 
+// The MINTABLE types. Studio does not mint `shared` (referral) links -
+// authoring stays in code - but `TypeBadge` still has to render one.
 type LinkType = "personal" | "public";
 
 // Mirrors the engine's normalizeSlug: 1-64 lowercase [a-z0-9-], no
@@ -112,12 +114,10 @@ function SlugField({
   );
 }
 
-function TypeBadge({ type }: { type: LinkType }) {
-  return type === "personal" ? (
-    <Badge variant="destructive">Personal</Badge>
-  ) : (
-    <Badge variant="secondary">Public</Badge>
-  );
+function TypeBadge({ type }: { type: LinkType | "shared" }) {
+  if (type === "personal") return <Badge variant="destructive">Personal</Badge>;
+  if (type === "shared") return <Badge variant="outline">Shared</Badge>;
+  return <Badge variant="secondary">Public</Badge>;
 }
 
 export function LinksView() {

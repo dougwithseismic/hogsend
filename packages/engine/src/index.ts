@@ -700,6 +700,7 @@ export {
 // internal mechanics behind the /qr endpoint, not semver surface.
 export {
   IdempotencyConflictError,
+  LinkOwnershipError,
   type LinkType,
   type MintedLink,
   type MintLinkOptions,
@@ -765,6 +766,33 @@ export {
   getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
+// --- Referral store (the ONE writer of referral_touches; NEVER emits) ---
+// The store returns mutation FACTS; the intent layer emits `referral.*`
+// outbound and re-ingests for journeys, side by side (PRD 05 §6). Pinned by
+// `lib/referrals-no-emit.test.ts`.
+export {
+  type BindTouchesInput,
+  type BindTouchesResult,
+  bindTouches,
+  type ListTouchesInput,
+  listTouchesForReferee,
+  listTouchesForReferrer,
+  type QualifyTouchInput,
+  type QualifyTouchResult,
+  qualifyTouch,
+  REFERRAL_IDEMPOTENCY_PROPERTY,
+  REFERRAL_VETO_REASON_PROPERTY,
+  type RecordTouchInput,
+  type RecordTouchResult,
+  type ReferralRejectReason,
+  type ReferralTouchRecord,
+  type ReferralTouchSource,
+  type ReferralTouchStatus,
+  type RejectTouchInput,
+  type RejectTouchResult,
+  recordTouch,
+  rejectTouch,
+} from "./lib/referrals.js";
 // --- Refinement (`refineContact` — a STANDALONE import, never on `ctx`) ---
 export {
   REFINE_EVENT,
