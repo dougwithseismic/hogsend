@@ -15,6 +15,7 @@ import { funnels } from "./funnels.js";
 import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
+import { referrals } from "./referrals.js";
 import { smsTemplates } from "./sms/index.js";
 import { gtmScoreTask } from "./workflows/index.js";
 
@@ -56,6 +57,8 @@ async function main() {
     // process today, so the hooks fire there; mirroring keeps the two configs
     // from drifting when a worker-side path (the property-sync cron) lands.
     ...(accountLinks ? { accountLinks } : {}),
+    // Referrals (PRD 05). Registered in BOTH processes (registry-mirror rule).
+    referrals,
   });
   setDiscordDb(client.db, client.identity);
   setAccountLinkDb(client.db);

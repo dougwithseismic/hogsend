@@ -33,6 +33,7 @@ import { funnels } from "./funnels.js";
 import { Events, Templates } from "./journeys/constants/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
+import { referrals } from "./referrals.js";
 import { smsTemplates } from "./sms/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
@@ -78,6 +79,8 @@ const client = createHogsendClient({
   // until an account-link env var is set, because passing the option at all is
   // operator intent and would register Steam on a deploy that never asked.
   ...(accountLinks ? { accountLinks } : {}),
+  // Referrals (PRD 05). Registered in BOTH processes (registry-mirror rule).
+  referrals,
 });
 
 // The Discord connector callbacks (saveDerived/resolveContact) capture the
