@@ -552,7 +552,7 @@ describe("registration", () => {
     for (const name of CLOUD_TOOL_NAMES) expect(names).toContain(name);
     // The instance tools are still there — the two sets coexist.
     expect(names).toContain("manage_blueprint");
-    expect(names).toHaveLength(CLOUD_TOOL_NAMES.length + 3);
+    expect(names).toHaveLength(CLOUD_TOOL_NAMES.length + 5);
   });
 
   it("registers NONE of them on a hosted-shaped server", async () => {
@@ -561,6 +561,8 @@ describe("registration", () => {
     const names = await listTools(false);
     for (const name of CLOUD_TOOL_NAMES) expect(names).not.toContain(name);
     expect(names).toEqual([
+      "get_referral_report",
+      "get_referral_tree",
       "hogsend_report",
       "manage_blueprint",
       "send_test_email",

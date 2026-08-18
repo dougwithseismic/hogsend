@@ -200,9 +200,9 @@ const presetLogger = {
 };
 
 describe("impact.digest catalog membership", () => {
-  it("is a member of WEBHOOK_EVENT_TYPES (count 35)", () => {
+  it("is a member of WEBHOOK_EVENT_TYPES (count 41)", () => {
     expect(WEBHOOK_EVENT_TYPES).toContain("impact.digest");
-    expect(WEBHOOK_EVENT_TYPES).toHaveLength(35);
+    expect(WEBHOOK_EVENT_TYPES).toHaveLength(41);
   });
 });
 

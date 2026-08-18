@@ -512,6 +512,20 @@
       "when": 1786622801045,
       "tag": "0072_lively_sue_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1787049110134,
+      "tag": "0073_yummy_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787050674297,
+      "tag": "0074_flat_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

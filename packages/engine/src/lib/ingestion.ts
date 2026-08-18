@@ -802,6 +802,38 @@ export async function ingestEvent(opts: {
       }
     : null;
 
+  // (5b-referral) REFERRAL QUALIFY (PRD 05 §6 qualify). Does THIS event
+  // promote one of this contact's BOUND touches? Cheap on a miss (one map
+  // lookup keyed by `qualify.event`), so it runs on every ingested event, and
+  // entirely inert with no referrals registered.
+  //
+  // Gated on `contactId !== null` for the same reason site 5 is: a touch can
+  // only qualify once it is BOUND, and a bound touch by definition has a
+  // referee CONTACT — a refused resolve has no contact to look one up for.
+  // Best-effort: the event is already durable.
+  if (insertedRow && contactId !== null) {
+    try {
+      const { qualifyReferralsForEvent } = await import("./referral-intent.js");
+      await qualifyReferralsForEvent({
+        handles: {
+          db,
+          hatchet,
+          registry,
+          logger,
+          ...(opts.analytics ? { analytics: opts.analytics } : {}),
+        },
+        event: event.event,
+        eventProperties: event.eventProperties,
+        contactId,
+      });
+    } catch (err) {
+      logger.warn("referral qualify evaluation failed", {
+        event: event.event,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // (5c) Conversion-point evaluation (plan §5.1) — the unique
   // (definition, event) index makes any replay a no-op.
   //
@@ -865,6 +897,35 @@ export async function ingestEvent(opts: {
           });
         } catch (err) {
           logger.warn("attribution credit write failed", {
+            conversionId: firedConversion.conversionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // THE REFERRAL TREE (PRD 05 §6 convert). Beside the attribution
+        // ledger, never inside it: the ledger answers "which touchpoints get
+        // credit", the tree answers "which PEOPLE get told". Announces
+        // `referral.converted` to the direct referrer and
+        // `referral.tree_converted` to each ancestor to depth 5, with `level`
+        // as a FACT on the event so a reward journey filters on it. Inert
+        // with no referrals registered; isolated so a tree failure can never
+        // cost a conversion.
+        try {
+          const { convertReferral } = await import("./referral-intent.js");
+          await convertReferral({
+            db,
+            hatchet,
+            registry,
+            logger,
+            ...(opts.analytics ? { analytics: opts.analytics } : {}),
+            contactId,
+            conversionId: firedConversion.conversionId,
+            value: firedConversion.value ?? null,
+            currency: firedConversion.currency ?? null,
+            occurredAt: insertedRow.occurredAt,
+          });
+        } catch (err) {
+          logger.warn("referral conversion walk failed", {
             conversionId: firedConversion.conversionId,
             error: err instanceof Error ? err.message : String(err),
           });

@@ -22,6 +22,8 @@ import { JourneysView } from "@/views/journeys-view";
 import { LinksView } from "@/views/links-view";
 import { OverviewView } from "@/views/overview-view";
 import { QrCodesView } from "@/views/qr-codes-view";
+import { ReferralDetailView } from "@/views/referral-detail-view";
+import { ReferralsView } from "@/views/referrals-view";
 import { SendsView } from "@/views/sends-view";
 import { SettingsView } from "@/views/settings-view";
 import { SetupView } from "@/views/setup-view";
@@ -174,6 +176,23 @@ const groupDetailRoute = createRoute({
   },
 });
 
+const referralsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/referrals",
+  component: ReferralsView,
+});
+
+const referralDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/referrals/$contactId",
+  // Params are read here so the view stays router-agnostic, matching the
+  // group/campaign detail routes.
+  component: function ReferralDetailRoute() {
+    const { contactId } = referralDetailRoute.useParams();
+    return <ReferralDetailView contactId={contactId} />;
+  },
+});
+
 const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
@@ -233,6 +252,8 @@ const routeTree = rootRoute.addChildren([
   bucketsRoute,
   groupsRoute,
   groupDetailRoute,
+  referralsRoute,
+  referralDetailRoute,
   contactsRoute,
   suppressionsRoute,
   integrationsRoute,

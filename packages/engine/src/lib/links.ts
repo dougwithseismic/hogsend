@@ -16,9 +16,26 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
  * SHARE-SAFE INVARIANT: a link is identity-bearing (carries a `distinctId` the
  * click can stitch + may mint a single-use `hs_t`) ONLY when `type: "personal"`
  * AND an explicit `distinctId` is passed. A `"public"` link NEVER carries a
- * person token — a shared/reshared public link attributes by campaign only.
+ * person token - a shared/reshared public link attributes by campaign only.
+ * `"shared"` (a referral link) is owned by a person and clicked by SOMEONE
+ * ELSE, so it sits on the PUBLIC side of that invariant: it attributes to
+ * `ownerContactId` and stitches nobody.
  */
-export type LinkType = "personal" | "public";
+export type LinkType = "personal" | "public" | "shared";
+
+/**
+ * Thrown when the `shared` link ownership invariant is broken (PRD 05 5.2):
+ * a `shared` link with no `ownerContactId` credits nobody, and an
+ * `ownerContactId` on a `personal`/`public` link is a silent no-op that reads
+ * as if attribution were configured. Both are authoring errors, so they throw
+ * at mint time rather than minting a link that quietly does nothing.
+ */
+export class LinkOwnershipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LinkOwnershipError";
+  }
+}
 
 export interface MintLinkOptions {
   db: Database;
@@ -28,8 +45,22 @@ export interface MintLinkOptions {
   baseUrl: string;
   /** Originating channel: "studio" | "discord" | "sms" | "referral" | … (open). */
   source: string;
-  /** "personal" (1:1, identity-bearing) | "public" (shareable). Default "public". */
+  /**
+   * "personal" (1:1, identity-bearing) | "public" (shareable) | "shared"
+   * (owned by a person, clicked by others - a referral link). Default
+   * "public".
+   */
   type?: LinkType;
+  /**
+   * The contact this link earns credit FOR. REQUIRED for `type: "shared"`,
+   * forbidden on `personal`/`public` (see {@link LinkOwnershipError}).
+   *
+   * This is an ATTRIBUTION field, never an identity one: it is deliberately
+   * not `distinctId`, because a referral link's clicker must never be stitched
+   * to its owner. Reusing `personal` for this would identify every referee AS
+   * the referrer, which is precisely the share-safe invariant's failure mode.
+   */
+  ownerContactId?: string;
   /** Operator-facing name (Studio list). */
   label?: string;
   /**
@@ -40,8 +71,16 @@ export interface MintLinkOptions {
   /** UTM-style campaign grouping (public links). */
   campaign?: string;
   /**
-   * The canonical contact key a click should stitch — honoured ONLY for
-   * `type: "personal"`; dropped for public links (the share-safe invariant).
+   * The `defineReferral` id this link belongs to (`getReferralLink` sets it).
+   * Stored on the row so a CLICK can find the DEFINITION that owns it - the
+   * hooks, the bind window and the qualify rule - without inferring it from
+   * `campaign`, which is operator-facing grouping and may be absent or shared.
+   */
+  referralId?: string;
+  /**
+   * The canonical contact key a click should stitch - honoured ONLY for
+   * `type: "personal"`; dropped for public AND shared links (the share-safe
+   * invariant).
    */
   distinctId?: string;
   /** The admin actor who minted it (Studio). */
@@ -81,6 +120,10 @@ export interface MintedLink {
   slug: string | null;
   /** The vanity short URL (`${baseUrl}/l/:slug`), if a slug was minted. */
   vanityUrl: string | null;
+  /** The link's type, as stored. */
+  type: LinkType;
+  /** The credited owner for a `shared` link; null for personal/public. */
+  ownerContactId: string | null;
   /**
    * True when the mint RECOVERED an existing live link (same slug or
    * idempotencyKey + same destination) instead of inserting a new one.
@@ -290,7 +333,12 @@ export function assertHttpUrl(url: string): void {
 async function recoverExistingLink(
   db: Database,
   baseUrl: string,
-  row: { id: string; slug: string | null },
+  row: {
+    id: string;
+    slug: string | null;
+    type: string;
+    ownerContactId: string | null;
+  },
 ): Promise<MintedLink | null> {
   const [tracked] = await db
     .select({ id: sql<string | null>`min(${trackedLinks.id}::text)` })
@@ -304,6 +352,8 @@ async function recoverExistingLink(
     url: `${baseUrl}/v1/t/c/${trackedLinkId}`,
     slug: row.slug,
     vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
+    type: row.type as LinkType,
+    ownerContactId: row.ownerContactId,
     existing: true,
   };
 }
@@ -314,7 +364,25 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
     throw new Error("mintLink: slug and idempotencyKey are mutually exclusive");
   }
   const type: LinkType = opts.type ?? "public";
-  // A public link must NEVER carry a person token — drop any distinctId.
+  // THE OWNERSHIP INVARIANT (PRD 05 5.2). Loud at mint time, because both
+  // halves fail SILENTLY otherwise: an unowned shared link records touches
+  // that credit nobody, and an owner set on a public link looks like
+  // attribution is wired when nothing reads it.
+  const ownerContactId = opts.ownerContactId ?? null;
+  if (type === "shared" && !ownerContactId) {
+    throw new LinkOwnershipError(
+      'mintLink: type "shared" requires ownerContactId - a shared link is ' +
+        "owned by the person it credits",
+    );
+  }
+  if (type !== "shared" && ownerContactId) {
+    throw new LinkOwnershipError(
+      `mintLink: ownerContactId is only valid for type "shared", got "${type}"`,
+    );
+  }
+  // Only a PERSONAL link carries a person token. A public link must never
+  // carry one, and neither must a shared link: it is clicked by someone other
+  // than its owner, so stitching would identify every referee as the referrer.
   const distinctId = type === "personal" ? (opts.distinctId ?? null) : null;
   const slug = opts.slug !== undefined ? normalizeSlug(opts.slug) : null;
 
@@ -335,8 +403,10 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
         description: opts.description ?? null,
         appendRef: opts.appendRef ?? false,
         campaign: opts.campaign ?? null,
+        referralId: opts.referralId ?? null,
         source: opts.source,
         distinctId,
+        ownerContactId,
         createdBy: opts.createdBy ?? null,
         idempotencyKey: opts.idempotencyKey ?? null,
       });
@@ -360,13 +430,19 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
         .from(links)
         .where(and(eq(links.slug, slug), isNull(links.archivedAt)))
         .limit(1);
-      if (row && row.originalUrl === opts.url && row.type === type) {
+      if (
+        row &&
+        row.originalUrl === opts.url &&
+        row.type === type &&
+        row.ownerContactId === ownerContactId
+      ) {
         const recovered = await recoverExistingLink(opts.db, opts.baseUrl, row);
         if (recovered) return recovered;
       }
       // Slug held by an ARCHIVED link (the live lookup misses — archived
-      // links keep their slug reserved), a different destination, or a
-      // different type → conflict.
+      // links keep their slug reserved), a different destination, a
+      // different type, or a different owner (two referrers whose slugFrom
+      // collide must NOT share one link) → conflict.
       throw new SlugTakenError(slug);
     }
     if (opts.idempotencyKey && isIdempotencyKeyViolation(err)) {
@@ -380,7 +456,12 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
           ),
         )
         .limit(1);
-      if (row && row.originalUrl === opts.url) {
+      if (
+        row &&
+        row.originalUrl === opts.url &&
+        row.type === type &&
+        row.ownerContactId === ownerContactId
+      ) {
         const recovered = await recoverExistingLink(opts.db, opts.baseUrl, row);
         if (recovered) return recovered;
       }
@@ -398,6 +479,8 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
     url: `${opts.baseUrl}/v1/t/c/${trackedLinkId}`,
     slug,
     vanityUrl: slug ? vanityUrlFor(opts.baseUrl, slug) : null,
+    type,
+    ownerContactId,
     existing: false,
   };
 }

@@ -28,6 +28,11 @@ import type {
   FeedPageInfo,
 } from "./feed/index.js";
 import type { RealtimeTransport } from "./realtime/index.js";
+import type {
+  ReferralClient,
+  ReferralLink,
+  ReferralStats,
+} from "./referral/index.js";
 import type { Store } from "./store/external-store.js";
 import type { ToastClient } from "./toast/index.js";
 
@@ -291,6 +296,12 @@ export interface HogsendState {
    */
   flags?: Record<string, unknown>;
   /**
+   * The caller's OWN referral link and counts (`GET /v1/referrals/me`).
+   * Undefined until `hogsend.referral.link()` is called; `link`/`stats` stay
+   * null for an anonymous session, because the route is `userToken`-gated.
+   */
+  referral?: ReferralSliceState;
+  /**
    * The operator-allowlisted projection of the identified contact's traits
    * (`GET /v1/contacts/me`). Absent until the first fetch resolves. Only keys
    * on the engine's `contacts.publicProperties` allowlist appear here, and
@@ -302,6 +313,16 @@ export interface HogsendState {
   feeds?: Record<string, FeedSliceState>;
   /** Keyed by slot (v3). */
   banners?: Record<string, BannerSliceState>;
+}
+
+/**
+ * Referral slice shape. `link`/`stats` are null until a `userToken`-gated
+ * fetch returns a link; `loading` is true only while a request is in flight.
+ */
+export interface ReferralSliceState {
+  link: ReferralLink | null;
+  stats: ReferralStats | null;
+  loading: boolean;
 }
 
 /**
@@ -395,6 +416,19 @@ export interface Hogsend {
   getFlag: IsEmptyFlagRegistry extends true
     ? (key: string) => unknown
     : <K extends FlagKey>(key: K) => FlagRegistryMap[K] | undefined;
+
+  // ── referrals ──
+  /**
+   * The caller's own share link and counts. `link()` fetches
+   * `GET /v1/referrals/me` (gated on a server-minted `userToken`) and writes
+   * the reactive `referral` slice; `getLink()` reads that slice without a
+   * request. Both answer `null` for an anonymous session, and `link()` never
+   * rejects.
+   *
+   * There is no capture API here: a referral touch rides the EXISTING arrival
+   * beacon (`hs_ref` on the URL -> `POST /v1/t/arrive`, automatic on init).
+   */
+  referral: ReferralClient;
 
   // ── contact traits ──
   /**

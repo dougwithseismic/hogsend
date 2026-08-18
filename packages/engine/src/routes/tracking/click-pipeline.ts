@@ -159,6 +159,14 @@ export async function handleTrackedClick(
       : []),
   ]);
 
+  // REFERRAL LINKS (`type: "shared"`) record no touch HERE, deliberately. A
+  // shared link stitches nobody (it carries no `distinct_id`), so the click
+  // knows the referrer but has no key at all for the CLICKER — and inventing
+  // one from the click id would mint an edge to a person who never arrives.
+  // The referee's anonymous id first exists at `POST /v1/t/arrive`, reported
+  // back with the `hs_ref` the redirect appends, which is where the touch is
+  // written (`routes/tracking/arrive.ts`). `getReferralLink` therefore always
+  // mints with `appendRef: true`.
   const { hatchet, registry, logger } = c.get("container");
 
   // SEMANTIC link: the click is a PROVISIONAL answer. Confirmation is

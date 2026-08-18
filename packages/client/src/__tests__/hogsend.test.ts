@@ -1045,3 +1045,135 @@ describe("timeout", () => {
     expect(err.status).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// referrals (secret-key plane, `referrals` scope)
+// ---------------------------------------------------------------------------
+
+describe("referrals", () => {
+  it("touch POSTs /v1/referrals/touch with the body verbatim", async () => {
+    const body = {
+      touchId: "rt_1",
+      referral: "invite",
+      referrerContactId: "c_1",
+      refereeContactId: null,
+      status: "touched",
+      created: true,
+      rejected: false,
+    };
+    const { fetchImpl, calls } = makeFetch({ body });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).referrals.touch({
+      referral: "invite",
+      referrerKey: "u_1",
+      refereeKey: "anon_9",
+      source: "invite",
+      properties: { campaign: "spring" },
+      idempotencyKey: "k1",
+    });
+    expect(res).toEqual(body);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/referrals/touch");
+    expect(calls[0]?.body).toEqual({
+      referral: "invite",
+      referrerKey: "u_1",
+      refereeKey: "anon_9",
+      source: "invite",
+      properties: { campaign: "spring" },
+      idempotencyKey: "k1",
+    });
+  });
+
+  it("report GETs /v1/referrals/report, joining weights and ISO-ing dates", async () => {
+    const body = {
+      referral: "invite",
+      model: "first_touch",
+      window: "90d",
+      depth: 3,
+      weights: [1, 0.5, 0.25],
+      from: "2026-01-01T00:00:00.000Z",
+      to: null,
+      beneficiaries: [],
+      nextCursor: null,
+    };
+    const { fetchImpl, calls } = makeFetch({ body });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).referrals.report({
+      referral: "invite",
+      model: "first_touch",
+      window: "90d",
+      depth: 3,
+      weights: [1, 0.5, 0.25],
+      from: new Date("2026-01-01T00:00:00.000Z"),
+      limit: 10,
+    });
+    expect(res).toEqual(body);
+    const url = new URL(calls[0]?.url ?? "");
+    expect(url.pathname).toBe("/v1/referrals/report");
+    expect(url.searchParams.get("weights")).toBe("1,0.5,0.25");
+    expect(url.searchParams.get("from")).toBe("2026-01-01T00:00:00.000Z");
+    expect(url.searchParams.get("depth")).toBe("3");
+    expect(url.searchParams.has("to")).toBe(false);
+    expect(url.searchParams.has("cursor")).toBe(false);
+  });
+
+  it("report sends no query params when called with no input", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { beneficiaries: [] } });
+    await client(fetchImpl as unknown as typeof fetch).referrals.report();
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/referrals/report");
+  });
+
+  it("tree GETs /v1/referrals/tree/{contactId}, url-encoding the key", async () => {
+    const body = {
+      referral: "default",
+      contactId: "c_1",
+      depth: 2,
+      nodes: [],
+    };
+    const { fetchImpl, calls } = makeFetch({ body });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).referrals.tree("user/1", { depth: 2 });
+    expect(res).toEqual(body);
+    const url = new URL(calls[0]?.url ?? "");
+    expect(calls[0]?.method).toBe("GET");
+    expect(url.pathname).toBe("/v1/referrals/tree/user%2F1");
+    expect(url.searchParams.get("depth")).toBe("2");
+  });
+
+  it("import POSTs /v1/referrals/import with ISO touchedAt per row", async () => {
+    const body = {
+      referral: "default",
+      inserted: 1,
+      existing: 0,
+      rejected: 0,
+      skipped: 0,
+    };
+    const { fetchImpl, calls } = makeFetch({ body });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).referrals.import({
+      touches: [
+        {
+          referrerKey: "u_1",
+          refereeKey: "u_2",
+          touchedAt: new Date("2026-02-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    expect(res).toEqual(body);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/referrals/import");
+    expect(calls[0]?.body).toEqual({
+      touches: [
+        {
+          referrerKey: "u_1",
+          refereeKey: "u_2",
+          touchedAt: "2026-02-02T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+});

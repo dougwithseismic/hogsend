@@ -319,6 +319,51 @@ export interface OutboundPayloads {
     heldOutAt: string;
   };
   /**
+   * A referral EDGE reached its first end: someone clicked a `shared` link and
+   * landed. `refereeContactId` is NULL on the (normal) cold path — the referee
+   * is a browser id, not yet a person — which is exactly why this event names
+   * only the REFERRER as its subject and mints no contact.
+   */
+  "referral.touched": ReferralTouchPayload;
+  /**
+   * The edge gained its second end: the referee identified and
+   * `adoptOrphanHistory` stamped the touch. Delivered ONCE per touch (one
+   * dedupe key), and re-ingested onto the journey bus for BOTH ends.
+   */
+  "referral.bound": ReferralTouchPayload & { boundAt: string; side: string };
+  /**
+   * A bound referee did the thing the program asked for (`qualify.event`, with
+   * optional `where`). Exactly once per touch — the store's
+   * `qualified_at IS NULL` predicate is the guard.
+   */
+  "referral.qualified": ReferralTouchPayload & {
+    event: string | null;
+    conversionId: string | null;
+    qualifiedAt: string;
+    side: string;
+  };
+  /** A referee converted; the DIRECT referrer is told (`level` is always 1). */
+  "referral.converted": ReferralConversionPayload;
+  /**
+   * An ANCESTOR above the direct referrer is told about the same conversion,
+   * one delivery per hop to depth 5. `level` is a FACT on the event: a reward
+   * journey filters with `trigger.where: (b) => b.prop("level").eq(1)`, and
+   * that is the only place levels appear in code. Depth and weights stay
+   * report-time parameters.
+   */
+  "referral.tree_converted": ReferralConversionPayload;
+  /**
+   * An edge was refused — `self` (the referee turned out to BE the referrer,
+   * which falls out of the identity merge rather than a fraud heuristic),
+   * `window` (the touch was older than `bindWindow` at identify),
+   * `duplicate`, or `veto` (a `before*` hook said no; its free text rides
+   * `detail`).
+   */
+  "referral.rejected": ReferralTouchPayload & {
+    reason: string | null;
+    detail?: string | null;
+  };
+  /**
    * Weekly impact digest (impact experiments D5) — facts-only rollup of
    * shipped journey changes and holdout-lift threshold crossings, emitted
    * by the engine-owned cron. Shipped entries are structurally
@@ -568,6 +613,55 @@ export interface ImpactDigestLiftEntry {
   previousWinProbability: number | null;
   smallSample: boolean;
 }
+
+/**
+ * The shared shape of every touch-scoped referral event. Scalars only: these
+ * payloads double as the journey-bus `eventProperties`, and `ingestEvent`
+ * filters the Hatchet push down to `string | number | boolean | null`, so a
+ * nested field would be silently dropped between `user_events` and the journey
+ * (and a `where` clause naming it would never match).
+ */
+export type ReferralTouchPayload = {
+  referralId: string;
+  touchId: string;
+  referrerContactId: string;
+  /** NULL until the edge binds. */
+  refereeContactId: string | null;
+  /** The canonical key at touch time — an ANONYMOUS id on a cold touch. */
+  refereeKey: string;
+  source: string;
+  linkId: string | null;
+  clickId: string | null;
+  status: string;
+  /** ISO 8601. */
+  touchedAt: string;
+};
+
+/** `referral.converted` / `referral.tree_converted`. */
+export type ReferralConversionPayload = {
+  referralId: string;
+  touchId: string;
+  /** 1 = the direct referrer; 2+ = an ancestor. Capped at 5. */
+  level: number;
+  /** The contact being TOLD (who earns at this level). */
+  beneficiaryContactId: string;
+  /** The contact who actually converted. */
+  refereeContactId: string;
+  /** The next hop toward the referee — "your friend's friend". */
+  viaContactId: string;
+  conversionId: string;
+  /**
+   * The converted amount. NOT named `value`: this payload doubles verbatim as
+   * the journey-bus `eventProperties`, and a `value` there would fire the
+   * built-in wildcard `revenue` conversion (trigger `*` + `value > 0`) FOR THE
+   * BENEFICIARY - minting a phantom conversion on every ancestor and
+   * re-entering `convertReferral` up the whole chain.
+   */
+  conversionValue: number | null;
+  currency: string | null;
+  /** ISO 8601. */
+  at: string;
+};
 
 export type ImpactDigestEntry =
   | ImpactDigestShippedEntry

@@ -1,6 +1,7 @@
 /**
- * `createHogsendMcpServer` — assembles the MCP server: the three tools
- * (`manage_blueprint`, `hogsend_report`, `send_test_email`), the
+ * `createHogsendMcpServer` assembles the MCP server: the five tools
+ * (`manage_blueprint`, `hogsend_report`, `get_referral_report`,
+ * `get_referral_tree`, `send_test_email`), the
  * `hogsend://blueprint-authoring-guide` resource, and the
  * `find_and_fix_bottleneck` prompt. Every tool talks to the injected
  * {@link AdminClient}, so the SAME server assembles identically over the stdio
@@ -18,6 +19,10 @@ import { toContent } from "./lib/tool.js";
 import { findAndFixPrompt } from "./prompts/find-and-fix.js";
 import { authoringGuideResource } from "./resources/authoring-guide.js";
 import { createManageBlueprintTool } from "./tools/manage-blueprint.js";
+import {
+  createReferralReportTool,
+  createReferralTreeTool,
+} from "./tools/referrals.js";
 import { createReportTool } from "./tools/report.js";
 import { createSendTestEmailTool } from "./tools/send-test-email.js";
 
@@ -34,7 +39,7 @@ export interface CreateHogsendMcpServerOptions {
    * The instance's admin API client. OPTIONAL, because the stdio bin is useful
    * before any instance exists: the `cloud_*` tools (PRD 18) sign you in and
    * publish a scaffold, and at that point in the journey there is no instance
-   * to hold an admin key FOR. Omitted → the three instance tools are not
+   * to hold an admin key FOR. Omitted → the instance tools are not
    * registered and the resource + prompt still are, so a client sees exactly
    * the tools that can actually work.
    *
@@ -72,6 +77,31 @@ export function createHogsendMcpServer(
     { description: report.description, inputSchema: report.inputSchema },
     async (args): Promise<CallToolResult> =>
       toContent(await report.handler(args)),
+  );
+
+  // Read-only referral reporting: the leaderboard and the per-referrer
+  // drill-in. Both are GETs against the admin routes, so they add no write
+  // surface.
+  const referralReport = createReferralReportTool(client);
+  server.registerTool(
+    referralReport.name,
+    {
+      description: referralReport.description,
+      inputSchema: referralReport.inputSchema,
+    },
+    async (args): Promise<CallToolResult> =>
+      toContent(await referralReport.handler(args)),
+  );
+
+  const referralTree = createReferralTreeTool(client);
+  server.registerTool(
+    referralTree.name,
+    {
+      description: referralTree.description,
+      inputSchema: referralTree.inputSchema,
+    },
+    async (args): Promise<CallToolResult> =>
+      toContent(await referralTree.handler(args)),
   );
 
   const sendTestEmail = createSendTestEmailTool(client);

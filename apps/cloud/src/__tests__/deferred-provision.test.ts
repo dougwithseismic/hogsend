@@ -229,7 +229,21 @@ describe("POST /api/publish/:environmentId", () => {
       await gate;
       return realProvision(spec);
     };
-    configureProvisioning({ substrate: gated });
+    // The substrate call is NOT the first thing that can fail: `start` and
+    // `ensure-tenant-db` run before it, and this fixture (an org with no cell)
+    // throws in the latter, parking the stack in `error` on a slow runner
+    // before the assertions read the row (runs 32137333490, 32139059866 lost
+    // that race; local passes win it). Gate the pipeline's FIRST write, the
+    // `start` transition, so the row is deterministically `requested` at read
+    // time under any scheduling.
+    const { StackService } = await import("../services/stacks");
+    const gatedStacks = new StackService();
+    const realTransition = gatedStacks.transition.bind(gatedStacks);
+    gatedStacks.transition = async (...args) => {
+      await gate;
+      return realTransition(...args);
+    };
+    configureProvisioning({ substrate: gated, stackService: gatedStacks });
 
     try {
       const response = await publishRoute(

@@ -118,6 +118,16 @@ export const WEBHOOK_EVENT_TYPES = [
   "account.linked",
   "account.unlinked",
   "account.link_failed",
+  // Referrals (`defineReferral`, PRD 05). Emitted from the referral INTENT
+  // layer only (`lib/referral-intent.ts`), never from the store, which never
+  // emits. `level` on `referral.tree_converted` is a FACT on the event, not
+  // program config: depth and weights stay report-time parameters.
+  "referral.touched",
+  "referral.bound",
+  "referral.qualified",
+  "referral.converted",
+  "referral.tree_converted",
+  "referral.rejected",
   // Weekly impact digest (impact experiments D5). Self-referential: the
   // cron watermarks off its own delivery rows.
   "impact.digest",

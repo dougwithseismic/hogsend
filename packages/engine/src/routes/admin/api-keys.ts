@@ -120,6 +120,11 @@ const createKeyRoute = createRoute({
                     // SCOPE_HIERARCHY edit and no migration (`api_keys.scopes`
                     // is a jsonb string array).
                     "accounts",
+                    // The referral data plane (`/v1/referrals` report, tree,
+                    // touch, import). ORTHOGONAL for the same reason
+                    // `accounts` is; `/v1/referrals/me` is NOT covered by it
+                    // (that one is publishable + userToken).
+                    "referrals",
                   ]),
                 )
                 .min(1)

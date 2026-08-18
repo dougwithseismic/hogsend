@@ -67,7 +67,10 @@ const linkSchema = z.object({
   // link somehow has no tracked row — kept nullable to stay total.
   trackedLinkId: z.string().nullable(),
   originalUrl: z.string(),
-  type: z.enum(["personal", "public"]),
+  type: z.enum(["personal", "public", "shared"]),
+  // The credited owner of a "shared" (referral) link; null otherwise. An
+  // ATTRIBUTION field, never an identity one - a shared link stitches nobody.
+  ownerContactId: z.string().nullable(),
   // Vanity slug (normalized lowercase, unique per instance) + its short URL
   // (`${API_PUBLIC_URL}/l/:slug`). Both null when no slug is set.
   slug: z.string().nullable(),
@@ -157,8 +160,10 @@ function serializeLink(
     id: row.id,
     trackedLinkId,
     originalUrl: row.originalUrl,
-    // The column is a free text; mintLink only ever writes these two values.
-    type: row.type === "personal" ? "personal" : "public",
+    // The column is free text; mintLink only ever writes these three values.
+    type:
+      row.type === "personal" || row.type === "shared" ? row.type : "public",
+    ownerContactId: row.ownerContactId,
     slug: row.slug,
     vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
     label: row.label,
@@ -193,7 +198,10 @@ const createLinkRoute = createRoute({
           schema: z
             .object({
               url: z.string().url(),
-              type: z.enum(["personal", "public"]).default("public"),
+              type: z.enum(["personal", "public", "shared"]).default("public"),
+              // REQUIRED for type "shared", rejected on personal/public
+              // (mintLink's ownership invariant -> 400).
+              ownerContactId: z.string().uuid().optional(),
               // Optional vanity slug (`/l/:slug`). Normalized lowercase; 409 if
               // already taken by a different destination (same destination +
               // type recovers the existing link — see idempotencyKey).
@@ -252,7 +260,7 @@ const listLinksRoute = createRoute({
     query: z.object({
       limit: z.coerce.number().min(1).max(200).default(50),
       offset: z.coerce.number().min(0).default(0),
-      type: z.enum(["personal", "public"]).optional(),
+      type: z.enum(["personal", "public", "shared"]).optional(),
       includeArchived: z.coerce.boolean().default(false),
       // true = only links whose QR scan row exists — the "QR codes" lens
       // (a QR code IS a managed link whose QR row has been minted).
@@ -448,6 +456,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         appendRef: body.appendRef,
         campaign: body.campaign,
         distinctId: body.distinctId,
+        ownerContactId: body.ownerContactId,
         createdBy: resolveActor(c) ?? undefined,
         idempotencyKey: body.idempotencyKey,
       });

@@ -701,6 +701,7 @@ export {
 // internal mechanics behind the /qr endpoint, not semver surface.
 export {
   IdempotencyConflictError,
+  LinkOwnershipError,
   type LinkType,
   type MintedLink,
   type MintLinkOptions,
@@ -766,6 +767,82 @@ export {
   getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
+// --- Referral intent layer (the ONE place the store is called AND emits) ---
+export {
+  type BindReferralInput,
+  bindReferral,
+  type ConvertReferralInput,
+  convertReferral,
+  type QualifyReferralInput,
+  qualifyReferral,
+  qualifyReferralsForEvent,
+  REFERRAL_TREE_MAX_DEPTH,
+  type ReferralIntentHandles,
+  type TouchReferralInput,
+  type TouchReferralResult,
+  touchReferral,
+} from "./lib/referral-intent.js";
+// --- Referrals: definition wiring + the journey-safe link mint ---
+// `defineReferral` itself lives in `@hogsend/core` (re-exported from the core
+// barrel). Pass definitions to `createHogsendClient({ referrals: [...] })` in
+// BOTH index.ts and worker.ts; `client.referrals` is the resolved registry.
+export {
+  type GetReferralLinkOptions,
+  getReferralLink,
+  type ReferralLink,
+  type ReferralLinkContainer,
+} from "./lib/referral-link.js";
+export { ReferralRegistry } from "./lib/referral-registry.js";
+// --- Referral REPORT (report-time model/window/depth/weights, PRD 05 §5.3) ---
+export {
+  type CurrencyValue,
+  getReferralReport,
+  getReferralTree,
+  InvalidWindowError,
+  NO_CURRENCY,
+  parseWindowMs,
+  REFERRAL_MODELS,
+  REFERRAL_REPORT_MAX_DEPTH,
+  type ReferralBeneficiary,
+  type ReferralModel,
+  type ReferralReport,
+  type ReferralTreeLevel,
+  type ReferralTreeNode,
+  resolveLevelWeights,
+} from "./lib/referral-report.js";
+export {
+  getReferralRuntime,
+  type ReferralRuntime,
+  resetReferralRuntime,
+  setReferralRuntime,
+} from "./lib/referral-runtime.js";
+// --- Referral store (the ONE writer of referral_touches; NEVER emits) ---
+// The store returns mutation FACTS; the intent layer emits `referral.*`
+// outbound and re-ingests for journeys, side by side (PRD 05 §6). Pinned by
+// `lib/referrals-no-emit.test.ts`.
+export {
+  type BindTouchesInput,
+  type BindTouchesResult,
+  bindTouches,
+  type ListTouchesInput,
+  listTouchesForReferee,
+  listTouchesForReferrer,
+  type QualifyTouchInput,
+  type QualifyTouchResult,
+  qualifyTouch,
+  REFERRAL_IDEMPOTENCY_PROPERTY,
+  REFERRAL_VETO_REASON_PROPERTY,
+  type RecordTouchInput,
+  type RecordTouchResult,
+  type ReferralRejectReason,
+  type ReferralTouchRecord,
+  type ReferralTouchSource,
+  type ReferralTouchStatus,
+  type RejectTouchInput,
+  type RejectTouchResult,
+  recordTouch,
+  rejectTouch,
+} from "./lib/referrals.js";
 // --- Refinement (`refineContact` — a STANDALONE import, never on `ctx`) ---
 export {
   REFINE_EVENT,

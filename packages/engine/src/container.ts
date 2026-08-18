@@ -10,6 +10,7 @@ import type {
   DefinedConversion,
   DefinedFlag,
   DefinedFunnel,
+  DefinedReferral,
   EmailProvider,
   EnrichmentProvider,
   FunnelStageEntry,
@@ -125,6 +126,8 @@ import {
   getOperatorSetting,
 } from "./lib/operator-settings.js";
 import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
+import { ReferralRegistry } from "./lib/referral-registry.js";
+import { setReferralRuntime } from "./lib/referral-runtime.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { setSmsService } from "./lib/sms.js";
@@ -236,6 +239,16 @@ export interface HogsendClient {
   accountLinkHooks: AccountLinkHooks;
   /** Parsed + validated ACCOUNT_LINK_ALLOWED_ORIGINS. Empty array = none permitted. */
   accountLinkAllowedOrigins: string[];
+  /**
+   * The container-held registry of referral definitions (`defineReferral`),
+   * keyed by id. There is NO env preset and NO single active referral: a
+   * referral exists because it was authored in code, and a product may run
+   * several at once. EMPTY is the normal state of a deploy that never asked
+   * for referrals, and every wired site (the arrive touch, the bind at
+   * identity adoption, the qualify evaluation in `ingestEvent`, the conversion
+   * tree walk) is INERT while it stays empty.
+   */
+  referrals: ReferralRegistry;
   /**
    * The container-held registry of enrichment providers, keyed by `meta.id` —
    * the enrichment sibling of {@link smsProviders}. Empty when no enrichment
@@ -527,6 +540,14 @@ export interface HogsendClientOptions {
      */
     allowedOrigins?: string[];
   };
+  /**
+   * Referral programs, authored with `defineReferral` (PRD 05). Pass the SAME
+   * array in BOTH `index.ts` and `worker.ts`: the HTTP side runs the touch and
+   * the bind, the worker side runs `getReferralLink` inside journeys.
+   * Duplicate ids inside one array warn and last-writer-wins, like every other
+   * registry merge. Omitted ⇒ referrals are entirely inert.
+   */
+  referrals?: DefinedReferral[];
   /**
    * Enrichment (Refinement) is a first-class provider kind mirroring
    * {@link email}/{@link sms}. The engine owns the cohesive refinement
@@ -1013,6 +1034,21 @@ export function createHogsendClient(
     ...(opts.accountLinks?.allowedOrigins ?? []),
   ]);
   const accountLinkHooks: AccountLinkHooks = opts.accountLinks?.hooks ?? {};
+  // Referrals: code-only, no env preset. Duplicate ids in one array are almost
+  // certainly an authoring mistake, so warn (last-writer-wins, mirroring the
+  // account-link providers merge just above).
+  {
+    const seenReferralIds = new Set<string>();
+    for (const referral of opts.referrals ?? []) {
+      if (seenReferralIds.has(referral.id)) {
+        logger.warn(
+          `referrals contains "${referral.id}" more than once — the last one wins (last-writer-wins on id)`,
+        );
+      }
+      seenReferralIds.add(referral.id);
+    }
+  }
+  const referrals = new ReferralRegistry(opts.referrals ?? []);
   if (
     accountLinkProviders.count() > 0 &&
     accountLinkAllowedOrigins.length === 0
@@ -1774,6 +1810,21 @@ export function createHogsendClient(
     `Destination registry loaded: ${destinationRegistry.count()} destinations`,
   );
 
+  // The referral runtime, for the sites that hold no container: the bind in
+  // `lib/contacts.ts` (post-commit, library code), the qualify + conversion
+  // walk in `lib/ingestion.ts`, and `getReferralLink` inside a durable journey
+  // task. OPTIONAL by design — a deploy with no referrals installs an empty
+  // registry and every one of those sites stays inert.
+  setReferralRuntime({
+    referrals,
+    db,
+    baseUrl: env.API_PUBLIC_URL,
+    hatchet,
+    registry,
+    logger,
+    ...(analytics ? { analytics } : {}),
+  });
+
   const client: HogsendClient = {
     env,
     logger,
@@ -1791,6 +1842,7 @@ export function createHogsendClient(
     accountLinkProviders,
     accountLinkHooks,
     accountLinkAllowedOrigins,
+    referrals,
     enrichmentProviders,
     enrichmentProvider,
     crmProviders,

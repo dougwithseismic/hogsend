@@ -527,6 +527,12 @@ export type OutboundEventType =
   | "account.linked"
   | "account.unlinked"
   | "account.link_failed"
+  | "referral.touched"
+  | "referral.bound"
+  | "referral.qualified"
+  | "referral.converted"
+  | "referral.tree_converted"
+  | "referral.rejected"
   | "impact.digest";
 
 /**
@@ -630,8 +636,10 @@ export interface RotateWebhookSecretResult {
 /**
  * `personal` links stitch the visitor's anon session to the link's
  * `distinctId`; `public` links are share-safe (never carry a `distinctId`).
+ * `shared` links (referral links) are owned by a person via `ownerContactId`
+ * and stitch NOBODY: they attribute to the owner, never identify the clicker.
  */
-export type LinkType = "personal" | "public";
+export type LinkType = "personal" | "public" | "shared";
 
 /** A managed tracked link (the flat shape shared by every links endpoint). */
 export interface Link {
@@ -640,6 +648,8 @@ export interface Link {
   trackedLinkId: string | null;
   originalUrl: string;
   type: LinkType;
+  /** The credited contact for a `shared` link; null for personal/public. */
+  ownerContactId: string | null;
   /** Vanity slug (`/l/:slug`, normalized lowercase); null when unset. */
   slug: string | null;
   /** The slug's short URL; null when no slug is set. */
@@ -725,8 +735,13 @@ export interface CreateLinkInput {
   description?: string;
   appendRef?: boolean;
   campaign?: string;
-  /** Honoured only for `type: "personal"` links (dropped for public). */
+  /** Honoured only for `type: "personal"` links (dropped for public/shared). */
   distinctId?: string;
+  /**
+   * REQUIRED for `type: "shared"` and rejected on personal/public (400): the
+   * contact a shared link credits. Attribution only - never stitched.
+   */
+  ownerContactId?: string;
   /** Originating channel. The SDK defaults this to `"api"`. */
   source?: "studio" | "api";
   /**
@@ -879,3 +894,168 @@ type UntypedCampaignTemplate = CampaignEnvelope &
 export type SendCampaignInput = IsEmptyRegistry extends true
   ? UntypedCampaignTemplate
   : TypedCampaignTemplate;
+
+// ---------------------------------------------------------------------------
+// Referrals (secret-key plane, `referrals` scope)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attribution model for the referral report. Mirrors the engine's
+ * `REFERRAL_MODELS`; duplicated here so the browser/server SDK never imports
+ * the engine.
+ */
+export type ReferralModel =
+  | "first_touch"
+  | "last_touch"
+  | "linear"
+  | "time_decay"
+  | "position";
+
+/** How a touch was recorded. `link` and `import` are engine-written. */
+export type ReferralTouchSource = "slug_entry" | "invite" | "manual";
+
+/** Input to `referrals.touch`. */
+export interface ReferralTouchInput {
+  /** The `defineReferral` id. Default `"default"`. */
+  referral?: string;
+  /** The referrer, by uuid. One of the three referrer fields is required. */
+  referrerContactId?: string;
+  /** The referrer, by external key. */
+  referrerKey?: string;
+  /** The slug of the referrer's shared link; also selects the referral. */
+  slug?: string;
+  /** The referee, by uuid. One of the two referee fields is required. */
+  refereeContactId?: string;
+  /** The referee, by canonical key (anon id or contact key). */
+  refereeKey?: string;
+  source: ReferralTouchSource;
+  /** Scalar bag stored on the touch row. */
+  properties?: Record<string, unknown>;
+  idempotencyKey?: string;
+}
+
+/** Result of `referrals.touch`. */
+export interface ReferralTouchResult {
+  /** Null when nothing was written (no eligible edge). */
+  touchId: string | null;
+  referral: string;
+  referrerContactId: string;
+  /** Null on a cold touch (the referee has not identified yet). */
+  refereeContactId: string | null;
+  /** `touched` | `bound` | `qualified` | `rejected` | `skipped`. */
+  status: string;
+  /** True only when THIS call inserted the edge (and therefore emitted). */
+  created: boolean;
+  rejected: boolean;
+}
+
+/** A monetary total in one currency. Currencies are NEVER converted. */
+export interface ReferralValue {
+  /** ISO 4217, or `"XXX"` when the conversion carried no currency. */
+  currency: string;
+  value: number;
+}
+
+/** Input to `referrals.report`. */
+export interface ReferralReportInput {
+  referral?: string;
+  /** Default `"first_touch"`. */
+  model?: ReferralModel;
+  /** Touch-to-bind window, e.g. `"30d"`. Default `"30d"`. */
+  window?: string;
+  /** Levels of the referrer chain to credit. Default 1, cap 5. */
+  depth?: number;
+  /** Per-level weights, e.g. `[1, 0.5, 0.25]`. At most `depth` entries. */
+  weights?: number[];
+  /** Filters CONVERSIONS by time, not the tree. */
+  from?: Date | string;
+  to?: Date | string;
+  limit?: number;
+  /** Opaque; pass back the previous response's `nextCursor`. */
+  cursor?: string;
+}
+
+/** One level of a beneficiary's tree. */
+export interface ReferralReportLevel {
+  level: number;
+  referees: number;
+  conversions: number;
+  value: ReferralValue[];
+}
+
+/** One referrer's credited row in the report. */
+export interface ReferralBeneficiary {
+  contactId: string;
+  direct: { touched: number; bound: number; qualified: number };
+  tree: ReferralReportLevel[];
+  /** Total credited value across levels, per currency. */
+  value: ReferralValue[];
+}
+
+/** Result of `referrals.report`: the request parameters echoed plus rows. */
+export interface ReferralReport {
+  referral: string;
+  model: ReferralModel;
+  window: string;
+  depth: number;
+  weights: number[];
+  from: string | null;
+  to: string | null;
+  beneficiaries: ReferralBeneficiary[];
+  nextCursor: string | null;
+}
+
+/** Input to `referrals.tree` (the contact travels in the path). */
+export interface ReferralTreeInput {
+  referral?: string;
+  /** Default 3, cap 5. */
+  depth?: number;
+}
+
+/** One descendant in a referrer's tree. */
+export interface ReferralTreeNode {
+  contactId: string;
+  level: number;
+  /** The contact whose edge produced this node. */
+  viaContactId: string;
+  status: string;
+  touchedAt: string;
+  boundAt: string | null;
+  qualifiedAt: string | null;
+  conversions: number;
+  value: ReferralValue[];
+}
+
+/** Result of `referrals.tree`. */
+export interface ReferralTree {
+  referral: string;
+  contactId: string;
+  depth: number;
+  nodes: ReferralTreeNode[];
+}
+
+/** One row of `referrals.import`. */
+export interface ImportReferralTouchInput {
+  referrerContactId?: string;
+  referrerKey?: string;
+  refereeContactId?: string;
+  refereeKey?: string;
+  touchedAt: Date | string;
+  properties?: Record<string, unknown>;
+  idempotencyKey?: string;
+}
+
+/** Input to `referrals.import`. Max 1000 rows. */
+export interface ImportReferralTouchesInput {
+  referral?: string;
+  touches: ImportReferralTouchInput[];
+}
+
+/** Per-row outcome counts from `referrals.import`. */
+export interface ImportReferralTouchesResult {
+  referral: string;
+  inserted: number;
+  existing: number;
+  rejected: number;
+  skipped: number;
+}

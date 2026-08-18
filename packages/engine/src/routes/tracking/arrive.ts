@@ -1,3 +1,4 @@
+import { DEFAULT_REFERRAL_ID } from "@hogsend/core";
 import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull } from "drizzle-orm";
@@ -5,9 +6,11 @@ import type { AppEnv } from "../../app.js";
 import {
   collidesWithIdentified,
   PublishableAnonymousMergeError,
+  resolveContactNoCreate,
 } from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { emitOutbound } from "../../lib/outbound.js";
+import { touchReferral } from "../../lib/referral-intent.js";
 import { LINK_ARRIVED } from "../../lib/tracking-event-names.js";
 import {
   InvalidUserTokenError,
@@ -104,6 +107,11 @@ export const arriveRouter = new OpenAPIHono<AppEnv>().openapi(
         source: trackedLinks.source,
         linkId: links.id,
         campaign: links.campaign,
+        // Referral provenance: a `shared` link is owned by a person and
+        // clicked by someone else, so an arrival on one is a referral TOUCH.
+        linkType: links.type,
+        ownerContactId: links.ownerContactId,
+        referralId: links.referralId,
       })
       .from(linkClicks)
       .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
@@ -294,6 +302,88 @@ export const arriveRouter = new OpenAPIHono<AppEnv>().openapi(
       });
     }
 
+    // --- REFERRAL TOUCH -----------------------------------------------------
+    // ARRIVE, not the click, is where a cold referral touch can be recorded:
+    // a `shared` link carries no `distinct_id` (it stitches nobody), so the
+    // click itself knows the referrer but NOT the clicker. The `hs_ref` the
+    // redirect appended is what brings the two together here, which is why
+    // `getReferralLink` always mints with `appendRef: true`.
+    //
+    // The touch is written from the STAMPED identity, exactly like the ingest
+    // above, so a replayed ref cannot re-attribute; `clickId = ref` is the
+    // store's replay key, so a replay is a no-op rather than a second edge.
+    // No contact is minted on the anon leg: `refereeKey` is the raw anonymous
+    // id and the store writes it VERBATIM to `referral_touches.referee_key`,
+    // which is the value `adoptOrphanHistory` will bind against at identify.
+    await recordReferralArrival({
+      container: c.get("container"),
+      hit,
+      ref,
+      refereeKey: stamp.visitorDistinctId,
+      isToken,
+    }).catch((err: unknown) => {
+      logger.warn("arrive: referral touch failed", {
+        ref,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     return ok();
   },
 );
+
+/**
+ * Record the referral touch for an arrival, when the link is a `shared` link
+ * belonging to a REGISTERED referral. Every other case is a silent no-op:
+ * a non-shared link, an owner-less link, an unregistered referral id (the
+ * program was deleted from code) and a self-arrival all leave no row.
+ */
+async function recordReferralArrival(opts: {
+  container: AppEnv["Variables"]["container"];
+  hit: {
+    linkId: string;
+    linkType: string | null;
+    ownerContactId: string | null;
+    referralId: string | null;
+  };
+  ref: string;
+  refereeKey: string;
+  isToken: boolean;
+}): Promise<void> {
+  const { container, hit, ref, refereeKey, isToken } = opts;
+  if (hit.linkType !== "shared" || !hit.ownerContactId) return;
+  const referral = container.referrals.get(
+    hit.referralId ?? DEFAULT_REFERRAL_ID,
+  );
+  if (!referral) return;
+
+  // A TOKEN arrival is a server-minted identity assertion, so the toucher is a
+  // known person and the touch binds immediately (the store's self-check
+  // applies). An ANON arrival has no contact: it stays one-ended until the
+  // visitor identifies. Resolving the token leg's contact must never CREATE
+  // one, so it goes through the no-create resolver.
+  let refereeContactId: string | null = null;
+  if (isToken) {
+    const resolved = await resolveContactNoCreate({
+      db: container.db,
+      userId: refereeKey,
+    });
+    refereeContactId = resolved.id;
+  }
+
+  await touchReferral({
+    db: container.db,
+    hatchet: container.hatchet,
+    registry: container.registry,
+    logger: container.logger,
+    ...(container.analytics ? { analytics: container.analytics } : {}),
+    referrals: container.referrals,
+    referral,
+    referrerContactId: hit.ownerContactId,
+    refereeKey,
+    refereeContactId,
+    linkId: hit.linkId,
+    clickId: ref,
+    source: "link",
+  });
+}

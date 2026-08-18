@@ -9,6 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
+import { contacts } from "./contacts.js";
 
 /**
  * Operator-owned / standalone tracked links — the managed surface behind the
@@ -24,9 +25,15 @@ export const links = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     originalUrl: text("original_url").notNull(),
+    // The three link types (PRD 05 5.1):
     // "personal" = single-recipient, identity-bearing (carries `distinctId`, may
     // mint a SINGLE-USE `hs_t`); "public" = shareable, NEVER carries a person
-    // token (campaign/UTM attribution only). Default "public" — the safe default.
+    // token (campaign/UTM attribution only); "shared" = owned by a person but
+    // clicked by SOMEONE ELSE (a referral link): it attributes to
+    // `owner_contact_id` yet stitches nobody, so it carries no `distinct_id`
+    // and never mints an `hs_t`. Default "public", the safe default.
+    // Plain text, not an enum: link types are code-defined and a pg enum would
+    // need a migration to add the next one.
     type: text("type").notNull().default("public"),
     // Operator-chosen vanity slug — the `/l/:slug` short path layered over the
     // UUID redirect. Normalized lowercase at write time; unique per instance.
@@ -51,6 +58,20 @@ export const links = pgTable(
     // report the visitor back to POST /v1/t/arrive. Per-link (not env) because
     // an appended param breaks strict OAuth redirect_uri destinations.
     appendRef: boolean("append_ref").notNull().default(false),
+    // The contact this link is ON BEHALF OF, for "shared" links only (the
+    // referrer of a referral link). NOT an identity: it is never stitched to a
+    // clicker, it only says who gets the credit. ON DELETE SET NULL because a
+    // link outlives its owner (the click history stays valid even when the
+    // owner is gone) and a cascade would delete other people's clicks.
+    ownerContactId: uuid("owner_contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    // The `defineReferral` id this link belongs to, for "shared" links minted
+    // by `getReferralLink`. NOT foreign-keyed: referrals are code-defined, like
+    // `referral_touches.referral_id`. It is what lets a click on a shared link
+    // find its DEFINITION (hooks, bindWindow, qualify) without guessing -
+    // `campaign` is operator-facing grouping and would be lossy here.
+    referralId: text("referral_id"),
     // The admin actor who minted it (mirrors api_keys.createdBy).
     createdBy: text("created_by"),
     // Caller-supplied idempotent-mint key: re-minting with the same key + same
@@ -71,5 +92,9 @@ export const links = pgTable(
     index("links_source_idx").on(table.source),
     index("links_campaign_idx").on(table.campaign),
     index("links_created_at_idx").on(table.createdAt),
+    // "which links does this referrer own" - the referral link mint + report.
+    index("links_owner_contact_idx").on(table.ownerContactId),
+    // "which links belong to this referral program".
+    index("links_referral_idx").on(table.referralId),
   ],
 );

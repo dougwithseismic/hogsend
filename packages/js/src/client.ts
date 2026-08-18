@@ -37,6 +37,7 @@ import { resolveStorage } from "./identity/storage.js";
 import { createPreferencesClient } from "./preferences/index.js";
 import type { RealtimeChannel, RealtimeTransport } from "./realtime/index.js";
 import { createPollTransport, createSseTransport } from "./realtime/index.js";
+import { createReferralClient } from "./referral/index.js";
 import { createEventSpine, type EventSpine } from "./spine/event-spine.js";
 import { createTransport } from "./spine/transport.js";
 import { createStore } from "./store/external-store.js";
@@ -131,6 +132,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   void flagsClient.refresh();
   let lastFlagsDistinctId = store.getSnapshot().identity.distinctId;
 
+  // The caller's own referral link. NOT fetched on init: the route is
+  // userToken-gated, so an anonymous page load has nothing to ask for.
+  const referralClient = createReferralClient({ transport, identity, store });
   // Contact traits — the operator-allowlisted projection of the identified
   // contact, resolved server-side through the same identity boundary as flags
   // and refreshed on the same triggers (plus after identify() commits).
@@ -248,6 +252,9 @@ export function createHogsend(config: HogsendConfig): Hogsend {
         // identity.
         flagsClient.clear();
         void flagsClient.refresh();
+        // The previous user's share link must not be readable across an
+        // identity flip; the next link() re-fetches for the new token.
+        referralClient.clear();
         contactClient.clear();
         void contactClient.refresh();
       }
@@ -495,6 +502,8 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     group,
     resetGroups,
     getGroups,
+
+    referral: referralClient,
 
     flags: () => flagsClient.getAll(),
     getFlag: (key) => flagsClient.getFlag(key),

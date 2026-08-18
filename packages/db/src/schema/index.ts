@@ -36,6 +36,7 @@ export * from "./linked-accounts.js";
 export * from "./links.js";
 export * from "./operator-settings.js";
 export * from "./provider-credentials.js";
+export * from "./referral-touches.js";
 export * from "./relations.js";
 export * from "./sms-sends.js";
 export * from "./sms-suppressions.js";

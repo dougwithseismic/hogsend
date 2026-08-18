@@ -205,6 +205,8 @@ describe("hosted MCP transport (POST /v1/mcp)", () => {
     const client = await connect(AUTH);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "get_referral_report",
+      "get_referral_tree",
       "hogsend_report",
       "manage_blueprint",
       "send_test_email",

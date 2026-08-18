@@ -7,6 +7,7 @@ import { FlagsResource } from "./resources/flags.js";
 import { GroupsResource } from "./resources/groups.js";
 import { LinksResource } from "./resources/links.js";
 import { ListsResource } from "./resources/lists.js";
+import { ReferralsResource } from "./resources/referrals.js";
 import { WebhooksResource } from "./resources/webhooks.js";
 import type { HogsendOptions } from "./types.js";
 
@@ -55,6 +56,14 @@ export class Hogsend {
    * the ingest data plane the other resources use. See {@link LinksResource}.
    */
   readonly links: LinksResource;
+  /**
+   * Record, import and report on {@link ReferralsResource referrals}: the
+   * SECRET-KEY-ONLY referral plane (`/v1/referrals`), which needs the
+   * orthogonal `referrals` scope on the key. `touch` emits and drives reward
+   * journeys; `import` is silent and insert-only; `report` and `tree` are
+   * pure reads whose model, window, depth and weights are request parameters.
+   */
+  readonly referrals: ReferralsResource;
 
   constructor(opts: HogsendOptions) {
     if (!opts.baseUrl) {
@@ -81,5 +90,6 @@ export class Hogsend {
     this.flags = new FlagsResource(http);
     this.webhooks = new WebhooksResource(http);
     this.links = new LinksResource(http);
+    this.referrals = new ReferralsResource(http);
   }
 }

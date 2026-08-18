@@ -1,0 +1,222 @@
+---
+title: Referrals
+description: Referral links, multi-level trees, and rewards as journeys, built on the contact graph you already have.
+---
+
+Your referral program has two ends Hogsend already owns: the referrer who
+shared a link and the referee who clicked it. `defineReferral` records the edge
+between them, binds it when the referee identifies, and puts every stage on the
+event bus, so the reward is a journey rather than another integration.
+
+No second cookie identity graph. A touch rides the link tracker, the bind rides
+identity resolution, and revenue rides your existing conversions. Self-referral
+falls out of the identity merge: if the referee turns out to be the referrer,
+the edge is rejected with `self`.
+
+## Define a program
+
+```ts
+// src/referrals/index.ts
+import { days, defineReferral } from "@hogsend/engine";
+
+export const invite = defineReferral({
+  id: "invite",
+  link: {
+    destination: "https://app.example.com/join",
+    // Optional: a typeable code instead of a random slug.
+    slugFrom: (referrer) => referrer.properties.handle,
+  },
+  // Optional: what counts as a real referral. Without it, a bind qualifies.
+  qualify: { event: "subscription.started" },
+  // Optional: how long after a click an identify still binds. Default 30d.
+  bindWindow: days(30),
+});
+```
+
+Wire it in **both** entry points:
+
+```ts
+createHogsendClient({ journeys, referrals: [invite], email: { templates } });
+```
+
+A referral link is a managed link with the type `shared`: owned by a person,
+clicked by someone else. It attributes to the owner and stitches the clicker to
+nobody. Clicks, the bot filter, vanity slugs and QR codes all come from the
+link tracker as they are.
+
+## Hand a referrer their link
+
+`getReferralLink` mints the link once per referrer and returns the same one
+forever after. It issues no durable call, so it is safe anywhere in a journey
+and needs no `ctx.once`.
+
+```ts
+import { defineJourney, getReferralLink, sendEmail } from "@hogsend/engine";
+import { invite } from "../referrals/index.js";
+import { Events, Templates } from "./constants/index.js";
+
+export const inviteNudge = defineJourney({
+  meta: {
+    id: "invite-nudge",
+    name: "Invite a friend",
+    enabled: true,
+    trigger: { event: Events.ONBOARDING_COMPLETED },
+    entryLimit: "once",
+  },
+  run: async (user, ctx) => {
+    if (!user.contactId) return; // anonymous subject: nobody to credit
+    const { url } = await getReferralLink({
+      referral: invite.id,
+      contactId: user.contactId,
+    });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.INVITE_A_FRIEND,
+      props: { referralUrl: url },
+    });
+  },
+});
+```
+
+## Reward the referrer
+
+Every stage emits an event, so a reward is an ordinary journey. Reward on
+`referral.qualified` for the direct referrer:
+
+```ts
+export const referralReward = defineJourney({
+  meta: {
+    id: "referral-reward",
+    name: "Referral reward",
+    enabled: true,
+    trigger: { event: "referral.qualified" },
+    entryLimit: "unlimited",
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.REFERRAL_REWARD,
+    });
+  },
+});
+```
+
+For revenue, `referral.converted` goes to the direct referrer and
+`referral.tree_converted` goes to each ancestor up the chain, carrying `level`
+and `viaContactId` as facts on the event. Filter on the level to pay only the
+direct referrer:
+
+```ts
+export const treeReward = defineJourney({
+  meta: {
+    id: "referral-tree-reward",
+    name: "Referral tree reward",
+    enabled: true,
+    trigger: {
+      event: "referral.tree_converted",
+      where: (b) => b.prop("level").eq(1),
+    },
+    entryLimit: "unlimited",
+  },
+  run: async (user, ctx) => { /* … */ },
+});
+```
+
+`level` is the only place levels appear in your code. Depth is otherwise a
+report parameter.
+
+The other events are `referral.touched`, `referral.bound` and
+`referral.rejected` (with a `reason` of `self`, `window`, `veto`, `bot` or
+`duplicate`). All six are also outbound webhook types.
+
+## Show a user their own link
+
+`useReferralLink()` reads the caller's link and counts. It is gated on a
+server-minted `userToken`: an anonymous or forged caller gets `link: null`, and
+the endpoint never confirms whether a link exists.
+
+```tsx
+"use client";
+import { useReferralLink } from "@hogsend/react";
+
+export function ReferralPanel() {
+  const { link, stats, loading } = useReferralLink({ referral: "invite" });
+  if (loading || !link) return null;
+  return (
+    <div>
+      <input readOnly value={link.url} />
+      <p>
+        {stats?.qualified ?? 0} of {stats?.touched ?? 0} invites qualified
+      </p>
+    </div>
+  );
+}
+```
+
+The browser SDK posts the arrival itself: `@hogsend/js` reads the `hs_ref`
+param on init and calls `/v1/t/arrive`, which records the touch under the
+visitor's anonymous key without creating a contact. Call
+`hogsend.captureRef()` manually if you route before init.
+
+## Read the report
+
+Model, window, depth and level weights are **request parameters**. Nothing is
+stored per model, so changing your mind costs one query and backfills nothing.
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ baseUrl, apiKey: process.env.HOGSEND_API_KEY });
+
+const report = await hs.referrals.report({
+  referral: "invite",
+  model: "first_touch",  // last_touch | linear | time_decay | position
+  window: "30d",         // touch-to-bind gap ceiling
+  depth: 3,              // levels of the referrer chain, cap 5
+  weights: [1, 0.5, 0.25],
+});
+
+for (const b of report.beneficiaries) {
+  // b.direct = { touched, bound, qualified }
+  // b.tree   = [{ level, referees, conversions, value }]
+  // b.value  = [{ currency, value }]  (never summed across currencies)
+}
+```
+
+Weights default to 1 for level 1 and 0 below it, so raising `depth` alone
+widens the tree counts without changing a revenue number. `from` and `to`
+filter conversions, not the tree.
+
+`hs.referrals.tree(contactId)` is the drill-in: every non-rejected edge below
+one referrer. It is a ledger view, not a model, so no window is applied and
+nothing is weighted. An unknown contact returns an empty list, because
+"referred nobody" is the same answer.
+
+<Callout title="Currencies are never converted">
+Every monetary field is a list of `{ currency, value }`. Hogsend applies no FX
+rate here, so a GBP total and a USD total sit side by side. Do not add them.
+</Callout>
+
+Both routes need a secret key with the `referrals` scope. The same numbers back
+the Studio Referrals view and the read-only MCP tools `get_referral_report` and
+`get_referral_tree`.
+
+## Import history
+
+`hs.referrals.import({ referral, touches })` is insert-only and **silent**: it
+writes edges without emitting any `referral.*` event, so importing a year of
+history does not fire a year of reward journeys. Self-referrals are still
+rejected. `touches` is the array of rows; `referral` is optional and defaults
+to the `default` program.
+
+## What is not included
+
+Payouts are out of scope: no Stripe Connect, no clawbacks, no KYC or tax forms.
+A payout is a report at a chosen model and depth, snapshotted when you pay, and
+the report is shaped to be that input. There are also no fingerprint fraud
+heuristics (fraud is identity plus your `beforeTouch` / `beforeBind` /
+`beforeQualify` vetoes), no discount-code feature, and no group-level referrals.
