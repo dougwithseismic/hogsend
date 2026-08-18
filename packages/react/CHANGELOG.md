@@ -1,5 +1,21 @@
 # @hogsend/react
 
+## 0.67.0
+
+### Minor Changes
+
+- 73e44a3: Referrals: `defineReferral()` turns a shared link into a referrer -> referee edge the engine already owns. New `shared` link type (`links.owner_contact_id`, `links.referral_id`), `referral_touches` edge log (migrations 0073, 0074), lifecycle touch -> bind -> qualify -> convert with `before*` vetoes and `referral.*` events on the bus and the outbound catalog. Attribution model, window, depth and level weights are parameters of `GET /v1/referrals/report`, never program config. Adds `/v1/referrals/{touch,import,tree/:contactId,me}`, the `referrals` scope, `getReferralLink()`, `@hogsend/client` `referrals.*`, `@hogsend/js` `referral.link()`, `@hogsend/react` `useReferralLink()`, MCP `get_referral_report`/`get_referral_tree`, and observe-only Studio views. No payouts.
+- ccc521f: Browser-readable contact traits. `createHogsendClient({ contacts: { publicProperties, exposeEmail } })` is an operator allowlist of exact `contacts.properties` keys (default `[]` / `false`, so an existing deploy exposes nothing), and `GET /v1/contacts/me` returns that projection for the recipient resolved server-side through the same identity boundary as `GET /v1/flags` and the in-app feed. A request-supplied contact key is never honored; no contact or an empty allowlist answers `200 { identified: false, traits: {} }` rather than `404`.
+
+  `@hogsend/js` gains a reactive `contact` slice with `hogsend.getContact()` / `hogsend.getTrait(key)`, refreshed on init, on identity change, and after `identify()` resolves, and cleared on `reset()`. `@hogsend/react` gains `useContact()` and `useTrait(key)`. `@hogsend/core` adds the zero-dependency `@hogsend/core/contact-traits` subpath with the augmentable `ContactTraitsMap` for typed keys and narrowed values.
+
+### Patch Changes
+
+- Updated dependencies [8a09968]
+- Updated dependencies [73e44a3]
+- Updated dependencies [ccc521f]
+  - @hogsend/js@0.67.0
+
 ## 0.66.0
 
 ### Minor Changes
