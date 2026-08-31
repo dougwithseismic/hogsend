@@ -93,12 +93,20 @@ grep -qi "first admin created" <<<"$BOOT_LOG" \
   || fail "env-preset admin was not minted at first boot"
 
 echo "==> [6/7] prove the admin password + the admin key"
-SIGNIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
-  -X POST "http://localhost:$PORT/api/auth/sign-in/email" \
-  -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")"
-[ "$SIGNIN_STATUS" = "200" ] \
-  || fail "admin sign-in with the preset password returned $SIGNIN_STATUS"
+# Retry sign-in a few times: Better Auth's Drizzle adapter can lag behind the
+# internal-adapter createUser by a tick (observed as deterministic 401 on CI
+# when the curl fires within ~100ms of the ready log).
+SIGNIN_OK=""
+for _ in $(seq 1 10); do
+  SIGNIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+    -X POST "http://localhost:$PORT/api/auth/sign-in/email" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")"
+  if [ "$SIGNIN_STATUS" = "200" ]; then SIGNIN_OK=1; break; fi
+  sleep 1
+done
+[ -n "$SIGNIN_OK" ] \
+  || fail "admin sign-in with the preset password returned $SIGNIN_STATUS after retries"
 (cd "$APPDIR" && node --env-file=.env node_modules/@hogsend/cli/dist/bin.js \
   stats --json >/dev/null) || fail "hogsend stats --json failed with the minted admin key"
 
