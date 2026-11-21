@@ -368,6 +368,27 @@ export const env = createEnv({
      * HOGSEND_TEST_MODE precedent). Unset ⇒ "false" ⇒ behavior unchanged.
      */
     HOGSEND_INGEST_SUSPENDED: z.enum(["true", "false"]).default("false"),
+    // --- Data-plane rate limits (middleware/rate-limit.ts) ---
+    // Sliding-window budgets on the data plane. All optional: unset falls back
+    // to the defaults in `middleware/rate-limit.ts`, the single source for the
+    // numbers (the OUTBOUND_WEBHOOK_* stance).
+    //
+    // The browser-reachable ingest routes (everything behind
+    // `requirePublishableOrIngest`: `/v1/events`, the `/v1/contacts` upsert,
+    // `/v1/contacts/me`, `/v1/lists*`, `/v1/feed*`, `/v1/flags`, and the
+    // `/me` reads of accounts and referrals) carry two budgets that share one
+    // window:
+    //   - INGEST_RATE_LIMIT_MAX: per SECRET key (default 3000).
+    //   - INGEST_PUBLIC_RATE_LIMIT_MAX: per PUBLISHABLE key per client IP
+    //     (default 1000). A pk_ key is shared by every visitor of a site, so
+    //     its budget is per visitor, not per key.
+    //   - INGEST_RATE_LIMIT_WINDOW_MS: the window (default 60000).
+    INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
+    INGEST_PUBLIC_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
+    INGEST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
+    // Per-key budget on `/v1/emails` (transactional sends), separate from the
+    // ingest budgets above. Per minute, default 30.
+    EMAIL_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
     ENABLED_JOURNEYS: z.string().default("*"),
     // Buckets: same `"*"`-or-csv contract as ENABLED_JOURNEYS (Section 9.3).
     // Evaluated at worker boot — a toggle requires a worker restart; only the

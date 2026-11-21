@@ -50,6 +50,8 @@ Browser-direct calls authenticate with a `pk_` publishable key (`Authorization: 
 A `pk_` key with no `allowedOrigins` entry, a request with no `Origin` header, or an `Origin` not in the allowlist all return `403`. The allowlist is required and fail-closed.
 </Callout>
 
+Publishable-key traffic is rate-limited per key and per client IP (1000 requests a minute by default, `INGEST_PUBLIC_RATE_LIMIT_MAX`), so one visitor can't spend the budget for your whole site. Responses carry `RateLimit-*` headers that CORS exposes to the page; on a `429` the SDK retries queued events with backoff, and other calls reject with `RateLimitError` (`retryAfter` in seconds). See [Rate limits](/docs/data-api/authentication#rate-limits).
+
 A `pk_` key is anon-only by default. To act on a concrete `userId`, the browser presents a `userToken` minted server-side after your own login via `generateUserToken` and threaded through `createHogsend({ userToken })` / `<HogsendProvider userToken>`.
 
 `GET /v1/contacts/me` reads the same way: the recipient is resolved server-side from the `userToken` (or the caller's own anonymous id), and it returns only the properties the operator put on the engine's `contacts.publicProperties` allowlist, which is empty by default. See [Personalization](./personalization).

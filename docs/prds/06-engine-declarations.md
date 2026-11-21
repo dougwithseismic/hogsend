@@ -48,7 +48,7 @@ pinning `@hono/zod-openapi` to exactly `1.4.0`.
 
 ## Implementation Notes
 
-Shipped in #684 (squash `e786d310`), to be published as `@hogsend/engine@0.67.1` when Version Packages #685 is merged.
+Shipped in #684 (squash `e786d310`), to be published as `@hogsend/engine@0.68.0` when Version Packages #685 is merged.
 
 - `packages/engine/tsconfig.build.json` emits 350 declaration files (3.3 MB)
   in ~22 s with zero errors. `build` and `prepack` both run it.

@@ -8,7 +8,7 @@ Hogsend has **two authentication surfaces**:
 - **Studio login** — the human path. A logged-in operator using the [Studio](/docs/operating/studio) admin UI, authed by a Better Auth session cookie. Public sign-up is disabled; the first admin is minted from your server (see [Studio admin login](#studio-admin-login) below).
 - **API keys** — the machine path. Bearer tokens in the `Authorization` header for the CLI, CI, agents, and your own app code. This is the bulk of the page below.
 
-API keys guard two planes: the **admin/ops plane** (`/v1/admin/*`) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` — see the [Data API](/docs/data-api/authentication)). Hogsend supports two key modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use.
+API keys guard two planes: the **admin/ops plane** (`/v1/admin/*`) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` — see the [Data API](/docs/data-api/authentication)). Hogsend supports two key modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use. Database-backed keys come in two classes: **secret** (`hsk_`, server-side) and **publishable** (`pk_`, browser code, Origin-checked). The difference is covered in [Data API: Secret and publishable keys](/docs/data-api/authentication#secret-and-publishable-keys).
 
 <Callout type="info">
   Both planes are bearer-authed, but the data plane is **not** under `/v1/admin`. A key reaches the data plane only via the `ingest` scope (or `full-admin`), and an `ingest`-only key reaches nothing on `/v1/admin/*`. See [Key Scopes](#key-scopes) below for why `ingest` is orthogonal, not hierarchical.
@@ -45,12 +45,12 @@ When a request hits any `/v1/admin/*` endpoint, the auth middleware runs this se
 2. Check if the token matches the `ADMIN_API_KEY` environment variable (legacy key, full access)
 3. If no match, SHA-256 hash the token and look it up in the `apiKeys` database table
 4. Verify the key is not revoked and not expired
-5. Check that the key's scopes permit the requested operation. For admin routes this is hierarchical (GET requires `read`, mutations require `journey-admin` or `full-admin`); the data-plane routes require the orthogonal `ingest` scope instead (see [Key Scopes](#key-scopes))
+5. Check that the key's scopes permit the requested operation. A bearer request to any admin route requires `full-admin`; the data-plane routes require the orthogonal `ingest` scope instead (see [Key Scopes](#key-scopes))
 6. If neither mode matches, return `401 Unauthorized`
 
 If no admin key is configured at all (no `ADMIN_API_KEY` env var, no database keys), admin endpoints return `503 Service Unavailable`.
 
-Active database-backed keys are cached in memory for 60 seconds. A newly created key works immediately (cache miss triggers a DB lookup). A revoked key may still work for up to 60 seconds until its cache entry expires.
+Active secret keys are cached in memory for 60 seconds per API instance. A newly created key works immediately (cache miss triggers a DB lookup). Revoking or rotating a key evicts its entry on the instance that served the request; other instances may accept it for up to 60 seconds until their entry expires. Publishable keys are not cached.
 
 ## Legacy Key (Quick Start)
 
@@ -77,8 +77,8 @@ curl -X POST http://localhost:3002/v1/admin/api-keys \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Ops Dashboard",
-    "scopes": ["read"],
+    "name": "Deploy pipeline",
+    "scopes": ["full-admin"],
     "expiresAt": "2026-12-31T00:00:00.000Z"
   }'
 ```
@@ -86,10 +86,11 @@ curl -X POST http://localhost:3002/v1/admin/api-keys \
 ```json
 {
   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "name": "Ops Dashboard",
+  "name": "Deploy pipeline",
   "key": "hsk_abc123def456ghi789jkl012mno345pqr678",
   "keyPrefix": "hsk_abc1",
-  "scopes": ["read"],
+  "scopes": ["full-admin"],
+  "allowedOrigins": null,
   "expiresAt": "2026-12-31T00:00:00.000Z",
   "createdAt": "2026-01-15T10:30:00.000Z"
 }
@@ -105,14 +106,17 @@ Each database-backed key has one or more scopes that control what it can do. The
 
 | Scope | Kind | What it allows |
 |---|---|---|
-| `read` | hierarchical | All GET admin endpoints -- list contacts, view metrics, browse events, inspect journeys |
-| `journey-admin` | hierarchical | Everything in `read`, plus journey management -- enable/disable journeys, enroll users, cancel instances |
-| `full-admin` | hierarchical | Everything admin -- key management, bulk imports/exports, alerts, event replay, email resend. **Also implies `ingest`** |
+| `read` | hierarchical | Reserved. Accepted at mint time, but no admin route grants anything to it over a bearer key today |
+| `journey-admin` | hierarchical | Reserved, like `read` |
+| `full-admin` | hierarchical | The whole admin plane (`/v1/admin/*`) -- metrics, contacts, journeys, key management, bulk imports/exports, alerts, event replay, email resend. **Also implies every orthogonal scope** |
 | `ingest` | **orthogonal** | The public data plane -- write `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`. Grants **nothing** on `/v1/admin/*` |
+| `accounts` | **orthogonal** | The [account-link](/docs/guides/account-links) operator routes (`/v1/accounts` lookup, unlink, import, mint-link) |
+| `referrals` | **orthogonal** | The [referral](/docs/guides/referrals) report, tree, touch and import routes |
+| `ingest-public` | **orthogonal** | Publishable (`pk_`) keys only, set by `publishable: true`. The browser-reachable ingest routes, Origin-checked |
 
-The three admin scopes are **hierarchical and cumulative** -- a key with `["journey-admin"]` implicitly has `read`; a key with `["full-admin"]` can do everything on the admin plane.
+The three admin scopes are **hierarchical and cumulative** -- a key with `["journey-admin"]` implicitly has `read`. Today a bearer request to `/v1/admin/*` requires `full-admin`, so `read` and `journey-admin` keys reach nothing there; mint `full-admin` for admin access.
 
-`ingest` is different: it is **orthogonal, not hierarchical**. It is the data-plane scope, and it sits entirely outside the `read < journey-admin < full-admin` ladder.
+`ingest`, `accounts`, `referrals` and `ingest-public` are different: they are **orthogonal, not hierarchical**, and sit entirely outside the `read < journey-admin < full-admin` ladder.
 
 <Callout type="warn">
   A `read` or `journey-admin` key does **NOT** get `ingest`. Holding an admin tier grants nothing on the data plane. A key reaches the data plane only with an explicit `ingest` grant or `full-admin` (which implies it). Conversely, an `ingest`-only key reaches nothing on `/v1/admin/*`. Combine them (e.g. `["read", "ingest"]`) when a single key needs both planes.
@@ -122,28 +126,18 @@ This is enforced by `hasScope()` in the engine's `middleware/api-key.ts`: a requ
 
 ### Which scope do I need?
 
-| Task | Required scope |
+| Task | Credential |
 |---|---|
-| View metrics dashboard | `read` |
-| List contacts | `read` |
-| Browse email history | `read` |
-| View journey states | `read` |
-| Enable/disable a journey | `journey-admin` |
-| Enroll a user in a journey | `journey-admin` |
-| Cancel a journey instance | `journey-admin` |
-| Create or revoke API keys | `full-admin` |
-| Import contacts | `full-admin` |
-| Export contacts | `full-admin` |
-| Create alert rules | `full-admin` |
-| Replay events | `full-admin` |
-| Resend failed emails | `full-admin` |
-| Retry DLQ entries | `full-admin` |
-| Write contacts/events/emails/lists (data plane) | `ingest` |
+| Anything on `/v1/admin/*` (metrics, contacts, journeys, email history, imports/exports, alerts, replay, resend, DLQ, key management) | `full-admin` key, or a Studio session |
+| Write contacts/events/emails/lists from your backend | `ingest` key |
+| Look up, unlink or import linked accounts | `accounts` key |
+| Read referral reports and trees, record touches, import edges | `referrals` key |
+| Capture events, read the feed or flags, manage preferences from a browser | publishable key (`ingest-public`) |
 
 A request with insufficient scope returns `403 Forbidden`:
 
 ```json
-{ "error": "Insufficient scope" }
+{ "error": "Forbidden: insufficient scope" }
 ```
 
 ## Key Lifecycle
@@ -155,13 +149,13 @@ curl -X POST http://localhost:3002/v1/admin/api-keys \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "CI Pipeline",
-    "scopes": ["read"],
-    "expiresAt": "2026-06-01T00:00:00.000Z"
+    "name": "Backend (production)",
+    "scopes": ["ingest"],
+    "expiresAt": "2027-06-01T00:00:00.000Z"
   }'
 ```
 
-The `name` field is for your reference -- use it to identify what the key is for when reviewing the key list or audit logs. The `expiresAt` field is optional; keys without an expiry date are valid until revoked.
+The `name` field is for your reference -- use it to identify what the key is for when reviewing the key list or audit logs. The `expiresAt` field is optional; keys without an expiry date are valid until revoked. For a browser key, pass `"publishable": true` and a non-empty `allowedOrigins` list instead of `scopes` (see [Minting a publishable key](/docs/data-api/authentication#minting-a-publishable-key)).
 
 ### Use
 
@@ -190,25 +184,53 @@ curl -H "Authorization: Bearer your-api-key" \
 
 ### Rotate
 
-There is no in-place rotation endpoint. To rotate a key:
-
-1. Create a new key with the same name and scopes
-2. Update your systems to use the new key
-3. Revoke the old key
+`POST /v1/admin/api-keys/:id/rotate` (requires `full-admin`) mints a replacement key with the same name, scopes, key class (secret or publishable) and `allowedOrigins`, and sets the old key to expire after a grace period. Both keys work until the grace period ends, so running deployments keep working while you roll the new key out.
 
 ```bash
-# Step 1: Create replacement
-curl -X POST http://localhost:3002/v1/admin/api-keys \
+curl -X POST http://localhost:3002/v1/admin/api-keys/a1b2c3d4-e5f6-7890-abcd-ef1234567890/rotate \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{ "name": "CI Pipeline (rotated)", "scopes": ["read"] }'
-
-# Step 2: Update your CI config with the new key...
-
-# Step 3: Revoke the old key
-curl -X DELETE http://localhost:3002/v1/admin/api-keys/old-key-uuid \
-  -H "Authorization: Bearer your-api-key"
+  -d '{ "gracePeriodSeconds": 3600 }'
 ```
+
+```json
+{
+  "id": "f0e1d2c3-b4a5-4678-9abc-def012345678",
+  "name": "Backend (production)",
+  "key": "hsk_newkey456def789ghi012jkl345mno678pqr",
+  "keyPrefix": "hsk_newk",
+  "scopes": ["ingest"],
+  "allowedOrigins": null,
+  "expiresAt": null,
+  "createdAt": "2026-03-01T09:00:00.000Z",
+  "rotatedFrom": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "expiresAt": "2026-03-01T10:00:00.000Z"
+  }
+}
+```
+
+The body is optional:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `gracePeriodSeconds` | `86400` (24 hours) | How long the old key keeps working, `0` to `2592000` (30 days). `0` retires it immediately |
+| `expiresAt` | none | ISO 8601 expiry for the new key. Omit for a key that is valid until revoked |
+
+Rotation never extends the old key's life: if it already expires before the grace period would end, that earlier expiry stands. The new `key` is shown once, like on create. Rotating an unknown or revoked key returns `404`.
+
+The procedure:
+
+1. Rotate the key and save the new `key` value from the response.
+2. Deploy the new key to every system that uses the old one (env vars, CI secrets, the front-end config for a publishable key) before `rotatedFrom.expiresAt`.
+3. Check the old key's `lastUsedAt` in `GET /v1/admin/api-keys`. Once it stops moving, nothing is using it.
+4. Let it expire, or revoke it early with `DELETE /v1/admin/api-keys/:id`.
+
+If a key has leaked, rotate with `"gracePeriodSeconds": 0`, then deploy the new key. The old key stops working at once on the instance that handled the rotation and within 60 seconds on the others (the auth cache TTL); a publishable key stops at once everywhere.
+
+The API keys section of Studio settings lists, creates and revokes keys; rotation is API-only for now.
+
+The legacy `ADMIN_API_KEY` is not a database row, so it has no rotate endpoint and no grace period. To rotate it, mint a `full-admin` database key first, move your tooling to that key, then change `ADMIN_API_KEY` on the API service and redeploy (or unset it to retire the legacy key).
 
 ### Revoke
 
@@ -217,47 +239,60 @@ curl -X DELETE http://localhost:3002/v1/admin/api-keys/key-uuid \
   -H "Authorization: Bearer your-api-key"
 ```
 
-Revocation sets `revokedAt` on the key record and immediately invalidates the in-memory cache entry. Due to the 60-second cache TTL, the revoked key may still be accepted by other API instances for a brief window in multi-instance deployments.
+Revocation sets `revokedAt` on the key record and evicts the key's in-memory cache entry on the instance that served the request, so the key is refused there at once. Other API instances keep their cached entry for up to 60 seconds. Publishable keys are not cached, so a revoked `pk_` key is refused on its next request everywhere.
 
 ## Best Practices
 
-**Use read-only keys for dashboards.** Any monitoring tool, dashboard, or reporting pipeline that only reads data should use a `read`-scoped key. This limits the blast radius if the key is leaked.
+**Give application code an `ingest` key.** Your backend writes the data plane; it does not need `full-admin`. An `ingest` key that leaks can write events and contacts but cannot read your data or mint keys.
 
-**Use `journey-admin` keys for automation tools.** If you have a tool that enables/disables journeys or enrolls users, give it `journey-admin` scope. It does not need to manage API keys or run imports.
+**Use a publishable key in the browser, never a secret key.** Anything in front-end JavaScript is public. A `pk_` key is built for that: it reaches only the browser-reachable routes, from the origins you list.
 
 **Reserve `full-admin` for operators.** Only human operators and trusted automation (like your deploy pipeline) should have `full-admin` keys.
 
-**Set expiry dates on CI/CD keys.** Pipeline keys should expire and be rotated regularly. Set a 90-day expiry and automate key rotation in your CI config.
+**Use one key per service or site.** Separate keys get separate rate-limit budgets, show up separately in `lastUsedAt` and audit logs, and can be rotated or revoked one at a time.
+
+**Rotate on a schedule.** Set an expiry on CI/CD keys (90 days is common) and rotate them with `POST /v1/admin/api-keys/:id/rotate` before they lapse; the grace period covers the deploy.
 
 **Use short-lived keys for one-off tasks.** Running a data migration? Create a `full-admin` key with a 24-hour expiry. It auto-expires when you are done.
 
-**Name keys descriptively.** The name appears in audit logs. "CI Pipeline" or "Grafana Dashboard" is much more useful than "key1" when you are investigating an incident.
+**Name keys descriptively.** The name appears in audit logs. "CI Pipeline" or "Marketing site (browser)" is much more useful than "key1" when you are investigating an incident.
 
 **Audit key usage periodically.** List your keys and check `lastUsedAt` -- revoke any key that has not been used in months.
 
 ## Rate Limiting
 
-All API endpoints (admin and non-admin) are protected by a sliding-window rate limiter:
+Each plane has its own sliding-window limits, Redis-backed with an in-memory (per-instance) fallback:
 
-| Setting | Value |
-|---|---|
-| Window | 1 minute |
-| Max requests | 100 per API key |
-| Backend | Redis (primary), in-memory fallback |
+| Surface | Bucket | Default | Configure with |
+|---|---|---|---|
+| `/v1/admin/*` | per key (or Studio user) | 100 per 60s | fixed |
+| Browser-reachable ingest routes, secret key | per key | 3000 per 60s | `INGEST_RATE_LIMIT_MAX` |
+| Browser-reachable ingest routes, publishable key | per key, per client IP | 1000 per 60s | `INGEST_PUBLIC_RATE_LIMIT_MAX` |
+| `/v1/emails` | per key | 30 per 60s | `EMAIL_RATE_LIMIT_MAX` |
+
+`INGEST_RATE_LIMIT_WINDOW_MS` (default `60000`) sets the window for both ingest budgets. The legacy `ADMIN_API_KEY` is one key, so every caller using it shares one admin budget. Which routes count as browser-reachable, why the publishable budget is per IP, and how the SDKs react to a `429` are covered in [Data API: Rate limits](/docs/data-api/authentication#rate-limits).
 
 The Studio auth endpoints have their own Better Auth limiters on top of this — `/sign-in/email` at `10/60s` and `/request-password-reset` at `5/60s`. Those counters live in the shared Redis `secondaryStorage`, so they are global across replicas (set `REDIS_URL` in production — see [Studio admin login](#studio-admin-login)).
 
-Rate limit status is communicated via response headers:
+Every rate-limited response carries these headers, and CORS exposes them to browser code:
 
 | Header | Description |
 |---|---|
-| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `RateLimit-Limit` | Requests allowed per window |
+| `RateLimit-Remaining` | Requests remaining in the current window |
+| `RateLimit-Reset` | Seconds until the window frees a slot |
+| `RateLimit-Policy` | `<limit>;w=<window seconds>`, e.g. `100;w=60` |
+| `X-RateLimit-Limit`, `X-RateLimit-Remaining` | The same values under the older names |
 | `Retry-After` | Seconds until the next request is accepted (only on 429) |
 
 When the limit is exceeded:
 
 ```
 HTTP/1.1 429 Too Many Requests
+RateLimit-Limit: 100
+RateLimit-Remaining: 0
+RateLimit-Reset: 32
+RateLimit-Policy: 100;w=60
 Retry-After: 32
 ```
 
@@ -265,7 +300,7 @@ Retry-After: 32
 { "error": "Rate limit exceeded" }
 ```
 
-To stay under the limit: use bulk endpoints (`/import`, `/enroll/batch`, `/replay`) instead of looping individual calls, and cache read responses client-side when possible.
+A rejected request still counts toward the window, so wait the full `Retry-After` before retrying. To stay under the admin limit: use bulk endpoints (`/import`, `/enroll/batch`, `/replay`) instead of looping individual calls, and cache read responses client-side when possible.
 
 ## Troubleshooting
 
@@ -275,7 +310,7 @@ The token is missing, malformed, or does not match any known key.
 
 - Verify the `Authorization` header format: `Bearer <token>` (note the space)
 - Check that the key has not been revoked (`GET /v1/admin/api-keys?includeRevoked=true`)
-- Check that the key has not expired
+- Check that the key has not expired. A key rotated out with a grace period expires at `rotatedFrom.expiresAt`
 - If using the legacy key, verify `ADMIN_API_KEY` is set in your environment
 
 ### 403 Forbidden
@@ -283,16 +318,18 @@ The token is missing, malformed, or does not match any known key.
 The key is valid but does not have the required scope for this operation.
 
 - Check the key's scopes (`GET /v1/admin/api-keys`)
-- POST/PATCH/DELETE operations require `journey-admin` or `full-admin` scope
-- Key management and bulk operations require `full-admin` scope
+- Every `/v1/admin/*` route requires `full-admin` over a bearer key
+- Data-plane routes require `ingest` (or `full-admin`); a `read` or `journey-admin` key gets nothing there
+- For a publishable key, `{ "error": "Forbidden: origin not allowed" }` means the request's `Origin` is missing or not an exact match for an `allowedOrigins` entry
 
 ### 429 Too Many Requests
 
-You have exceeded the rate limit (100 requests per minute per key).
+You have exceeded a rate limit. The `RateLimit-Policy` header tells you which budget (`100;w=60` is the admin plane).
 
-- Read the `Retry-After` header to know when to retry
+- Wait for the `Retry-After` header's seconds before retrying
 - Use bulk endpoints instead of individual calls
-- If you need higher limits, adjust the rate limit configuration
+- Use a separate key per service so each gets its own budget
+- For the data-plane budgets, raise `INGEST_RATE_LIMIT_MAX`, `INGEST_PUBLIC_RATE_LIMIT_MAX` or `EMAIL_RATE_LIMIT_MAX` on the API service
 
 ### 503 Service Unavailable
 
@@ -309,11 +346,11 @@ When deploying Hogsend to production:
 
 1. **Set a strong `ADMIN_API_KEY`** — at least 32 random characters
 2. **Set a strong `BETTER_AUTH_SECRET`** — used for session signing and reset-token derivation
-3. **Provision Redis and set `REDIS_URL`** — required for sessions, reset tokens, and cross-replica auth rate limiting
+3. **Provision Redis and set `REDIS_URL`** — required for sessions, reset tokens, and cross-replica auth and API rate limiting
 4. **Mint the first Studio admin from your server** — `hogsend studio admin create` or `STUDIO_ADMIN_EMAIL`; never expose a create path over HTTP
 5. **Use HTTPS** — all API keys and session cookies are transmitted in headers; never use HTTP in production
-6. **Create scoped keys** — avoid sharing the legacy key; create read-only keys for monitoring
-7. **Set key expiry dates** — especially for CI/CD and one-time migration keys
+6. **Create scoped keys** — avoid sharing the legacy key; give application code `ingest` keys and browser code publishable keys
+7. **Set key expiry dates** — especially for CI/CD and one-time migration keys, and rotate before they lapse
 8. **Monitor audit logs** — periodically review for unexpected mutations
 9. **Configure email webhook verification** — set your provider's webhook secret (`RESEND_WEBHOOK_SECRET` for the default Resend provider; Postmark uses HTTP Basic creds via `POSTMARK_WEBHOOK_USER`/`POSTMARK_WEBHOOK_PASS`) to validate inbound delivery events
-10. **Review rate limit settings** — 100 req/min per API key is suitable for most teams but can be adjusted via environment configuration
+10. **Review rate limit settings** — the defaults (3000/min per secret key, 1000/min per publishable key per IP, 30 emails/min per key) suit most apps; adjust with `INGEST_RATE_LIMIT_MAX`, `INGEST_PUBLIC_RATE_LIMIT_MAX` and `EMAIL_RATE_LIMIT_MAX`

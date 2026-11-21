@@ -11,8 +11,8 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
 | 06 | [Ship compiled engine type declarations](prds/06-engine-declarations.md) | `[~] merged #684; reaches users when Version Packages #685 is merged (needs you)` | — | Fresh scaffold `check-types` OOMs today; ship `dist/*.d.ts` behind the `types` condition, keep runtime on `src`. Fixes #657. |
 | 07 | [Fix the correctness bugs from the engine audit](prds/07-audit-correctness.md) | `[~] merged #686; reaches users when Version Packages #685 is merged (needs you)` | — | Tracking re-ingest wrote the recipient address into `external_id`; bucket mass expiry overflowed the parameter limit; per-run DB pools; serial webhook reaper; un-timed plugin fetches. |
 | 08 | Public changelog catch-up (0.45 → current) | `[~] entries written; live when the docs site deploys` | — | Launch bar: hogsend.com/changelog stops at 0.44.0. One user-facing entry per minor, sourced from the package CHANGELOGs. |
-| 09 | [Cut the database work on every event and every send](prds/09-ingest-hot-path.md) | `[~] (part A building since 2026-11-21, autopilot)` | 07 | Audit A1–A4, A6–A9, A11: preference-email index, orphan-adoption gate, event-condition index + `EXISTS`, `pk_` key cache, outbound endpoint cache. Measured statement counts before/after. |
-| 10 | Rate-limit headers + key management | `[ ]` | — | Launch bar: `RateLimit-*` headers on public ingest; secret vs publishable keys and rotation documented and working end to end. |
+| 09 | [Cut the database work on every event and every send](prds/09-ingest-hot-path.md) | `[~] part A merged #688 (warm ingest 17 → 10 statements, indexed preference read); part B open: contact id threading, exit-check narrowing, pk_ key cache, outbound endpoint cache` | 07 | Audit A1–A4, A6–A9, A11: preference-email index, orphan-adoption gate, event-condition index + `EXISTS`, `pk_` key cache, outbound endpoint cache. Measured statement counts before/after. |
+| 10 | Rate-limit headers + key management | `[~] merged #689; reaches users when Version Packages #685 is merged (needs you). No rotate button in Studio or the CLI yet` | — | Launch bar: `RateLimit-*` headers on public ingest; secret vs publishable keys and rotation documented and working end to end. |
 | 11 | Landing first screen leads with the wedge | `[ ]` | — | Launch bar: who / outcome / why-us + one CTA from MARKET.md; Core Web Vitals green; no overflow 360–1440 px. |
 | 12 | Resolver fast path + concurrent ingest hooks | `[ ]` | 09 | Audit B1/B2: lock-free warm resolve (re-probe under lock on any change), `Promise.allSettled` for independent post-store hooks. Identity-sensitive: review panel before merge. |
 | 13 | Extensibility cleanup | `[ ]` | 12 | Audit B6/B7: one generic id-keyed registry for the six provider registries, `lib/contacts.ts` split along its clusters, one subject-table list for adoption/merge/erasure/backfill. No behaviour change. |
@@ -28,10 +28,10 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
 - [x] SDK for the main language: `@hogsend/js`, `@hogsend/react`, `@hogsend/client` (published).
 - [ ] Landing page (hogsend.com) answers who / outcome / why-us in the first screen with one CTA, and leads with the wedge from MARKET.md.
 - [x] Pricing visible without signing up (`/pricing`).
-- [ ] Versioned public changelog current with npm (page stops at 0.44.0; npm is at 0.67.0).
+- [ ] Versioned public changelog current with npm (entries through 0.68.0 merged #687 and #689; site deploys after the publish).
 - [x] Docs findability basics: sitemap (237 URLs), robots, `llms.txt`.
-- [ ] Rate-limit headers on public ingest endpoints.
-- [ ] Key management documented and working (secret vs publishable keys, rotation).
+- [ ] Rate-limit headers on public ingest endpoints (merged #689; live with the 0.68.0 publish).
+- [ ] Key management documented and working (secret vs publishable keys, rotation) (merged #689; live with the 0.68.0 publish).
 - [ ] Core Web Vitals green on the landing page.
 - [ ] No horizontal overflow 360–1440 px on landing, pricing, docs home.
 - n/a Status page — no hosted service is live (Cloud offline).
@@ -45,8 +45,10 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
   human decision (its required checks don't run on the bot-opened PR, so it
   needs your merge). Run `pnpm release:check` first if you like. It is a
   rolling accumulator: each round merged to `main` lands in it, so merge
-  whenever you want a release. Unblocks: PRD 06 and every later row reaching
-  `[x]`, the quickstart launch-bar item.
+  whenever you want a release; with row 10 merged it publishes 0.68.0.
+  Unblocks: PRD 06 and every later row reaching `[x]`, the quickstart,
+  changelog, rate-limit and key-management launch-bar items, and the docs-site
+  deploy (held so the changelog page doesn't list an unpublished version).
 
 - **Production API and Cloud are offline.** `api.hogsend.com` and
   `cloud.hogsend.com` time out: the Railway project `Hogsend` has no

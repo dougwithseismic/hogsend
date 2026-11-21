@@ -66,10 +66,10 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
-    version: "0.67.1",
-    anchor: "0-67-1",
+    version: "0.68.0",
+    anchor: "0-68-0",
     date: "November 2026",
-    title: "A new app type-checks in seconds",
+    title: "A new app type-checks in seconds, and ingest has rate limits",
     bullets: (
       <>
         <Bullet>
@@ -105,6 +105,25 @@ const ENTRIES: ChangelogEntry[] = [
           instead of a full table scan. Bucket conditions that ask whether an
           event happened stop at the first match instead of counting them all.
         </Bullet>
+        <Bullet>
+          The routes a browser can call (events, lists, feed, flags, contact
+          upserts) are now rate-limited: 3,000 requests a minute per secret key
+          and 1,000 a minute per publishable key per visitor, so one visitor
+          can&apos;t use up a site&apos;s shared budget.
+        </Bullet>
+        <Bullet>
+          Every rate-limited response carries the standard{" "}
+          <Code>RateLimit-Limit</Code>, <Code>RateLimit-Remaining</Code>,{" "}
+          <Code>RateLimit-Reset</Code> and <Code>RateLimit-Policy</Code>{" "}
+          headers, readable from browser code, and <Code>Retry-After</Code> on a
+          429 is the real wait instead of the whole window.
+        </Bullet>
+        <Bullet>
+          New <Code>POST /v1/admin/api-keys/:id/rotate</Code> replaces a key
+          with one that has the same scopes and Origin allowlist. The old key
+          keeps working for 24 hours (configurable) so you can roll it out. A
+          revoked key stops working within a minute.
+        </Bullet>
       </>
     ),
     upgradeNote: (
@@ -114,6 +133,10 @@ const ENTRIES: ChangelogEntry[] = [
         indexes and blocks writes to each table while it runs. If{" "}
         <Code>user_events</Code> is large, build them concurrently first (the
         statements are in the release notes); the migration then skips them.
+        Ingest is now rate-limited; if you send more than 3,000 events a minute
+        on one secret key, raise <Code>INGEST_RATE_LIMIT_MAX</Code> (and{" "}
+        <Code>INGEST_PUBLIC_RATE_LIMIT_MAX</Code> for browser keys) before
+        upgrading.
       </>
     ),
   },

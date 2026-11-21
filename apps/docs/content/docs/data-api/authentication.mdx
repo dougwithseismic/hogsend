@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Data-plane API keys and the ingest scope — orthogonal, not hierarchical. How to mint and use an ingest key.
+description: Secret and publishable data-plane keys, the orthogonal ingest scope, Origin allowlists, rotation, and the rate limits and headers on ingest routes.
 ---
 
 Every Data API request carries a bearer token in the `Authorization` header:
@@ -9,46 +9,71 @@ Every Data API request carries a bearer token in the `Authorization` header:
 Authorization: Bearer hsk_...
 ```
 
-The token must be a Hogsend API key holding the **`ingest`** scope. This page explains how the `ingest` scope works (it is **not** a tier of the admin hierarchy), how to mint a data key, and the per-endpoint rate budget.
+The token is a Hogsend API key. There are two classes: a **secret** key (`hsk_`) for your servers, and a **publishable** key (`pk_`) for browser code. This page covers which to use where, how the `ingest` scope works (it is **not** a tier of the admin hierarchy), how to mint and rotate keys, and the rate limits and headers on the data plane.
+
+## Secret and publishable keys
+
+| | Secret key | Publishable key |
+|---|---|---|
+| Prefix | `hsk_` | `pk_` |
+| Where it is safe | Server-side only: your backend, workers, CI. Never ship it to a browser | In browser JavaScript. It is visible to anyone who loads your page |
+| Scopes | What you grant at mint time (`ingest` for the data plane) | Always `ingest-public`. Submitted scopes are ignored |
+| Origin check | None | Required. The request's `Origin` header must be in the key's `allowedOrigins` list |
+| Reaches | Every data-plane route its scopes allow | The browser-reachable routes only: `POST /v1/events`, `/v1/lists` (read, preferences, subscribe, unsubscribe), `/v1/feed`, `/v1/flags`, the `PUT`/`POST` contact upsert, `/v1/contacts/me`, `/v1/accounts/me`, `/v1/accounts/link-url`, `/v1/referrals/me` |
+| Never reaches | n/a | `/v1/admin/*`, `/v1/emails`, `/v1/campaigns`, `/v1/groups`, `DELETE /v1/contacts`, `/v1/contacts/find`, or any other secret-only route (`403`) |
+
+A publishable key is anonymous by default. To act for a known `userId`, the browser also presents a `userToken` your server mints after its own login. See [Client-side: Auth, honestly](/docs/client-side#auth-honestly).
+
+### The Origin allowlist
+
+A publishable key carries an `allowedOrigins` list, and the engine checks it on every request, fail-closed:
+
+- A key minted with no `allowedOrigins` is refused at mint time (`400`).
+- A request with no `Origin` header, or an `Origin` not in the list, returns `403 { "error": "Forbidden: origin not allowed" }`.
+- The match is exact string equality against the `Origin` header the browser sends: scheme, host and port, no path, no trailing slash. List `https://app.example.com`, not `https://app.example.com/`. Add each environment separately (`http://localhost:3000` for local development, a staging origin, production).
+
+The allowlist stops another site's page from using your key in its visitors' browsers. It does not stop a script that sets `Origin` by hand, so a publishable key only ever gets the `ingest-public` routes above, which are designed for an untrusted caller, and its own rate limit (see [Rate limits](#rate-limits)).
 
 ## The `ingest` scope is orthogonal, not hierarchical
 
 Hogsend has two kinds of scope, and the distinction is load-bearing:
 
-- **Hierarchical scopes** — `read` < `journey-admin` < `full-admin`. These stack: a `journey-admin` key implicitly has `read`; a `full-admin` key has everything. This is the admin/ops plane.
-- **The orthogonal `ingest` scope** — the data plane. It sits *outside* the hierarchy. A key gets `ingest` access **only** if it was granted `ingest` explicitly, **or** it holds `full-admin`.
+- **Hierarchical scopes**: `read` < `journey-admin` < `full-admin`. These stack: a `journey-admin` key implicitly has `read`; a `full-admin` key has everything.
+- **Orthogonal scopes**: `ingest` (the data plane), `accounts` (the [account-link](/docs/guides/account-links) data plane), `referrals` (the [referral](/docs/guides/referrals) report and import routes), and `ingest-public` (publishable keys only). Each sits *outside* the hierarchy. A key holds an orthogonal scope **only** if it was granted explicitly, **or** it holds `full-admin`.
 
 The consequence is the part teams most often get wrong:
 
 <Callout type="warn">
-  A `read` or `journey-admin` key does **NOT** get `ingest`. Holding an admin tier — even `journey-admin` — grants you nothing on the data plane. The only keys that can write contacts/events/emails/lists are an explicit `ingest` grant or a `full-admin` key.
+  A `read` or `journey-admin` key does **NOT** get `ingest`. Holding an admin tier grants nothing on the data plane. The only keys that can write contacts/events/emails/lists are an explicit `ingest` grant or a `full-admin` key.
 </Callout>
 
 This is enforced by `hasScope()` in the engine's `middleware/api-key.ts`:
 
 ```ts
 // hierarchical (read < journey-admin < full-admin): max-rank-held >= required
-// orthogonal (ingest): keyScopes.includes("ingest") || keyScopes.includes("full-admin")
+// orthogonal (ingest, accounts, referrals): explicit grant || "full-admin"
 export function hasScope(keyScopes: string[], required: string): boolean;
 ```
 
-When the required scope (`ingest`) isn't found in the hierarchy table, the check falls through to the orthogonal branch: an explicit `ingest` grant, or `full-admin`. Anything else — including a `journey-admin` key — fails the check and the request returns `403 Forbidden`.
+When the required scope (`ingest`) isn't found in the hierarchy table, the check falls through to the orthogonal branch: an explicit `ingest` grant, or `full-admin`. Anything else, including a `journey-admin` key, fails the check and the request returns `403 Forbidden`.
+
+The admin plane has its own rule: a bearer request to `/v1/admin/*` requires `full-admin`. `read` and `journey-admin` are accepted at mint time, but no admin route currently grants anything to them over a bearer key.
 
 The matrix:
 
 | Key scopes | Reach `/v1/admin/*` | Reach data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`) |
 |---|---|---|
-| `["read"]` | GET admin only | No (403) |
-| `["journey-admin"]` | Read + journey ops | **No (403)** |
+| `["read"]` | No (403) | No (403) |
+| `["journey-admin"]` | No (403) | **No (403)** |
 | `["full-admin"]` | Everything | **Yes** (implied) |
 | `["ingest"]` | No (403) | **Yes** |
-| `["read", "ingest"]` | GET admin only | Yes |
+| `["ingest-public"]` (publishable) | No (403) | Browser-reachable routes only, Origin-checked |
 
 A pure `ingest` key is the recommended least-privilege credential for your application: it can write the data plane and nothing else. It cannot list contacts, read metrics, or manage keys.
 
 ## Minting an ingest key
 
-Data keys are created the same way as any Hogsend API key — through the admin endpoint — but you pass `"ingest"` in `scopes`. You need a `full-admin` key (or the legacy `ADMIN_API_KEY`) to bootstrap one.
+Data keys are created the same way as any Hogsend API key, through the admin endpoint, with `"ingest"` in `scopes`. You need a `full-admin` key (or the legacy `ADMIN_API_KEY`) to bootstrap one.
 
 ```bash
 curl -X POST http://localhost:3002/v1/admin/api-keys \
@@ -67,6 +92,8 @@ curl -X POST http://localhost:3002/v1/admin/api-keys \
   "key": "hsk_abc123def456ghi789jkl012mno345pqr678",
   "keyPrefix": "hsk_abc1",
   "scopes": ["ingest"],
+  "allowedOrigins": null,
+  "expiresAt": null,
   "createdAt": "2026-01-15T10:30:00.000Z"
 }
 ```
@@ -77,7 +104,24 @@ curl -X POST http://localhost:3002/v1/admin/api-keys \
   A freshly scaffolded app mints a first ingest key for you during `bootstrap` and prints it. You only need to mint keys by hand for additional environments or to rotate.
 </Callout>
 
-The `scopes` enum on `POST /v1/admin/api-keys` accepts `["read", "journey-admin", "full-admin", "ingest"]`. You can combine them — e.g. `["read", "ingest"]` for a key that both writes the data plane and reads the admin plane.
+The `scopes` enum on `POST /v1/admin/api-keys` accepts `read`, `journey-admin`, `full-admin`, `ingest`, `accounts` and `referrals` (plus `ingest-public`, which `publishable: true` sets for you). Combine them when one key needs several planes, e.g. `["ingest", "referrals"]`.
+
+## Minting a publishable key
+
+Pass `publishable: true` and at least one origin:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Marketing site (browser)",
+    "publishable": true,
+    "allowedOrigins": ["https://www.example.com", "http://localhost:3000"]
+  }'
+```
+
+The response has the same shape, with `"key": "pk_..."`, `"scopes": ["ingest-public"]` and your `allowedOrigins`. Put the key in your front-end config (`createHogsend({ publishableKey })` or `<HogsendProvider publishableKey>`). Mint one publishable key per site or app so you can rotate or revoke one without touching the others.
 
 ## Using the key
 
@@ -99,32 +143,89 @@ const hs = new Hogsend({
 });
 ```
 
+## Rotating a key
+
+`POST /v1/admin/api-keys/:id/rotate` mints a replacement with the same name, scopes, key class and `allowedOrigins`, and gives the old key a grace period (24 hours by default) before it expires. Both keys work during the grace period, so you can deploy the new key without downtime:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys/a1b2c3d4-e5f6-7890-abcd-ef1234567890/rotate \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+```
+
+The response carries the new `key` (shown once) and `rotatedFrom: { id, expiresAt }`. The full procedure, the optional `gracePeriodSeconds` and `expiresAt` body fields, and how to cut over immediately are in [Operating: Rotate](/docs/operating/authentication#rotate).
+
 ## Caching and revocation
 
-Active keys are cached in memory for 60 seconds (same as the admin plane). A newly created key works immediately (a cache miss triggers a DB lookup). A revoked or edited key may keep working for up to 60 seconds in a multi-instance deployment until the cache entry expires — revocation is **not** instant.
+Secret keys are cached in memory for 60 seconds per API instance. A newly created key works immediately (a cache miss triggers a DB lookup). Revoking or rotating a key evicts its cache entry on the instance that served the admin request, so it stops working there at once; other instances keep their cached entry for up to 60 seconds.
+
+Publishable keys are not cached: every request reads the key row, so a revoked or expired `pk_` key is refused on the next request on every instance.
 
 ## Rate limits
 
-The data plane shares the standard sliding-window limiter (100 requests/min per key, Redis-backed with an in-memory fallback). On top of that, **`/v1/emails` has its own separate budget**:
+The data plane has three budgets. Each is a sliding window, Redis-backed with an in-memory fallback (per instance) when Redis is unavailable.
 
-| Surface | Window | Max per key |
-|---|---|---|
-| Data plane (general) | 1 minute | 100 |
-| `/v1/emails` | 1 minute | **30** |
+| Routes | Bucket | Default | Env var |
+|---|---|---|---|
+| Browser-reachable ingest routes, secret key | per key | **3000** per 60s | `INGEST_RATE_LIMIT_MAX` |
+| Browser-reachable ingest routes, publishable key | per key, per client IP | **1000** per 60s | `INGEST_PUBLIC_RATE_LIMIT_MAX` |
+| `/v1/emails` | per key | **30** per 60s | `EMAIL_RATE_LIMIT_MAX` |
 
-The email budget uses a distinct rate-limit prefix, so transactional sends do **not** share the sliding window with your contact/event writes — bursting events won't eat into your send budget, and vice versa. A `429` carries a `Retry-After` header (seconds); the SDK maps it to `RateLimitError.retryAfter`.
+The browser-reachable ingest routes are the ones in the [publishable key table](#secret-and-publishable-keys): `/v1/events`, `/v1/lists`, `/v1/feed`, `/v1/flags`, the contact upsert, `/v1/contacts/me`, `/v1/accounts/me`, `/v1/accounts/link-url` and `/v1/referrals/me`. A secret key on those routes gets the secret budget; a publishable key gets the publishable one. `INGEST_RATE_LIMIT_WINDOW_MS` (default `60000`) sets the window for both ingest budgets. The email budget uses its own window and prefix, so bursting events doesn't eat into your send budget, and vice versa. Secret-only routes outside these three (`/v1/contacts/find`, `DELETE /v1/contacts`, `/v1/campaigns`, `/v1/groups`, the operator `/v1/accounts` and `/v1/referrals` routes) are not rate-limited. The admin plane has its own limit; see [Operating: Rate Limiting](/docs/operating/authentication#rate-limiting).
+
+Why the defaults:
+
+- **3000/min per secret key.** A secret key is usually one backend forwarding every user's events, and there is no batch event endpoint, so the budget has to cover a busy production app (50 requests a second sustained). It still stops a runaway loop well before it saturates an API instance.
+- **1000/min per publishable key, per client IP.** A publishable key ships to every visitor of your site, so one budget per key would be shared by your whole audience: one visitor, or anyone who copies the key, could spend it and `429` everyone else. Keying on the client IP gives each visitor their own budget. A browser on `@hogsend/js` makes a few requests a minute (one per captured event, plus a feed poll every 12 seconds), so 1000 leaves room for many visitors behind one NAT or office network.
+
+The client IP is read from the first `X-Forwarded-For` entry, then `X-Real-IP`. Run the API behind a proxy that sets one of them. A client can send its own `X-Forwarded-For` unless your proxy overwrites it, so treat the per-IP budget as fairness between visitors, not abuse protection.
+
+The order is auth, then scope, then the limit. A request that fails auth (`401`) or the scope or Origin check (`403`) spends no budget and carries no rate-limit headers.
+
+### Headers
+
+Every response from a rate-limited route carries:
+
+| Header | Meaning |
+|---|---|
+| `RateLimit-Limit` | Requests allowed per window |
+| `RateLimit-Remaining` | Requests left in the current window |
+| `RateLimit-Reset` | Seconds until the window frees a slot (computed from the oldest request still in it) |
+| `RateLimit-Policy` | `<limit>;w=<window seconds>`, e.g. `1000;w=60` |
+| `X-RateLimit-Limit`, `X-RateLimit-Remaining` | The same values under the older names |
+| `Retry-After` | Seconds to wait before retrying. Sent on `429` only, equal to `RateLimit-Reset` |
+
+The engine's CORS config lists all of them in `Access-Control-Expose-Headers`, so browser code can read them on a cross-origin response.
+
+Past the limit, the route returns:
 
 ```
 HTTP/1.1 429 Too Many Requests
+RateLimit-Limit: 1000
+RateLimit-Remaining: 0
+RateLimit-Reset: 32
+RateLimit-Policy: 1000;w=60
 Retry-After: 32
+
+{ "error": "Rate limit exceeded" }
 ```
+
+A request rejected with `429` still counts toward the window, so retrying before `Retry-After` has elapsed pushes the reset later. Wait the full `Retry-After`.
+
+### How the SDKs surface it
+
+- **`@hogsend/client`** (server) throws `RateLimitError` on a `429`, with `retryAfter` (seconds) parsed from `Retry-After`. It does not retry for you. See [Client SDK: Error types](/docs/data-api/client-sdk#error-types).
+- **`@hogsend/js`** (browser) retries queued events (everything sent through `capture`) on a `429` with exponential backoff (200 ms doubling, capped at 5 s, up to 5 retries), then drops the event. Direct calls (lists, preferences, flags, feed reads) reject with the same `RateLimitError` and `retryAfter`; the background feed poll skips that tick and tries again on the next one.
+
+### Changing the limits
+
+Set the env vars on the API service (the worker doesn't serve HTTP). Raise `INGEST_RATE_LIMIT_MAX` if one backend legitimately forwards more than 3000 requests a minute through a single key, or mint a key per service so each gets its own budget. Lower `INGEST_PUBLIC_RATE_LIMIT_MAX` if a public site sees scripted traffic. All four values are read once at boot.
 
 ## Error shapes
 
 | Status | Meaning |
 |---|---|
 | `401` | Missing or malformed bearer token, or unknown/expired/revoked key |
-| `403` | Valid key, but it lacks the `ingest` scope (e.g. a `read` or `journey-admin` key) |
-| `429` | Rate limit exceeded — back off using `Retry-After` |
+| `403` | Valid key, but it lacks the required scope (e.g. a `read` key on the data plane, or a `pk_` key on a secret-only route), or a `pk_` key's `Origin` isn't allowed |
+| `429` | Rate limit exceeded. Back off using `Retry-After` |
 
 All errors return `{ "error": "..." }`.

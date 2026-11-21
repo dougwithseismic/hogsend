@@ -4,6 +4,7 @@ import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { generateApiKey } from "../../lib/api-key-hash.js";
 import { errorSchema } from "../../lib/schemas.js";
+import { evictCachedApiKey } from "../../middleware/api-key.js";
 
 const apiKeySchema = z.object({
   id: z.string(),
@@ -192,6 +193,72 @@ const revokeRoute = createRoute({
   },
 });
 
+/** How long a rotated-out key keeps working by default: 24 hours. */
+const DEFAULT_ROTATION_GRACE_SECONDS = 24 * 60 * 60;
+/** The longest grace a rotation accepts: 30 days. */
+const MAX_ROTATION_GRACE_SECONDS = 30 * 24 * 60 * 60;
+
+const rotateRoute = createRoute({
+  method: "post",
+  path: "/{id}/rotate",
+  tags: ["Admin — API Keys"],
+  summary: "Rotate an API key",
+  description:
+    "Mints a replacement key with the same name, scopes, key class (secret " +
+    "or publishable) and Origin allowlist, and sets the old key to expire " +
+    "after a grace period so running deployments can switch over. An earlier " +
+    "existing expiry on the old key is kept. The new key is shown only once.",
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      required: false,
+      content: {
+        "application/json": {
+          schema: z.object({
+            // Seconds the OLD key keeps working. 0 expires it now.
+            gracePeriodSeconds: z
+              .number()
+              .int()
+              .min(0)
+              .max(MAX_ROTATION_GRACE_SECONDS)
+              .optional(),
+            // Expiry for the NEW key. Omitted: no expiry.
+            expiresAt: z.string().datetime().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            id: z.string(),
+            name: z.string(),
+            key: z.string(),
+            keyPrefix: z.string(),
+            scopes: z.array(z.string()),
+            allowedOrigins: z.array(z.string()).nullable(),
+            expiresAt: z.string().nullable(),
+            createdAt: z.string(),
+            rotatedFrom: z.object({
+              id: z.string(),
+              // When the old key stops being accepted.
+              expiresAt: z.string(),
+            }),
+          }),
+        },
+      },
+      description: "Replacement key created — key is shown only once",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "API key not found or already revoked",
+    },
+  },
+});
+
 function serializeKey(row: typeof apiKeys.$inferSelect) {
   return {
     id: row.id,
@@ -326,6 +393,87 @@ export const apiKeysRouter = new OpenAPIHono<AppEnv>()
       .update(apiKeys)
       .set({ revokedAt: new Date(), updatedAt: new Date() })
       .where(eq(apiKeys.id, id));
+    // Takes effect at once on this instance; other instances drop their
+    // cached entry within its 60s TTL.
+    evictCachedApiKey(rows[0].keyHash);
 
     return c.json({ revoked: true }, 200);
+  })
+  .openapi(rotateRoute, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+    // The body is optional: with no JSON body the validator hands back `{}`.
+    const body = c.req.valid("json");
+    const actor = c.get("apiKey");
+    const graceSeconds =
+      body.gracePeriodSeconds ?? DEFAULT_ROTATION_GRACE_SECONDS;
+
+    const result = await db.transaction(async (tx) => {
+      const [old] = await tx
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt)))
+        .limit(1);
+      if (!old) return null;
+
+      // The class lives in the token prefix (lib/api-key-hash.ts), so the
+      // replacement is minted in the same class. A publishable key keeps
+      // exactly `["ingest-public"]` and its Origin allowlist, as on create.
+      const publishable = old.keyPrefix.startsWith("pk_");
+      const { key, prefix, hash } = generateApiKey({ publishable });
+
+      const now = new Date();
+      const graceEnd = new Date(now.getTime() + graceSeconds * 1000);
+      // Never EXTEND the old key's life: an earlier expiry already set wins.
+      const oldExpiresAt =
+        old.expiresAt && old.expiresAt < graceEnd ? old.expiresAt : graceEnd;
+
+      const [created] = await tx
+        .insert(apiKeys)
+        .values({
+          organizationId: old.organizationId,
+          name: old.name,
+          keyPrefix: prefix,
+          keyHash: hash,
+          scopes: publishable ? ["ingest-public"] : (old.scopes as string[]),
+          allowedOrigins: publishable ? (old.allowedOrigins ?? null) : null,
+          createdBy: actor?.name ?? null,
+          expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        })
+        .returning();
+      if (!created) throw new Error("Failed to create API key");
+
+      await tx
+        .update(apiKeys)
+        .set({ expiresAt: oldExpiresAt, updatedAt: now })
+        .where(eq(apiKeys.id, old.id));
+
+      return { old, created, key, prefix, oldExpiresAt };
+    });
+
+    if (!result) {
+      return c.json({ error: "API key not found or already revoked" }, 404);
+    }
+
+    // The old key's cached entry still carries its previous expiry.
+    evictCachedApiKey(result.old.keyHash);
+
+    const { created } = result;
+    return c.json(
+      {
+        id: created.id,
+        name: created.name,
+        key: result.key,
+        keyPrefix: result.prefix,
+        scopes: created.scopes as string[],
+        allowedOrigins: created.allowedOrigins ?? null,
+        expiresAt: created.expiresAt?.toISOString() ?? null,
+        createdAt: created.createdAt.toISOString(),
+        rotatedFrom: {
+          id: result.old.id,
+          expiresAt: result.oldExpiresAt.toISOString(),
+        },
+      },
+      201,
+    );
   });
