@@ -600,14 +600,7 @@ async function reconcileBucketTtlLeaves(opts: {
   });
 }
 
-/**
- * Bulk compare-and-swap a set of active members to `left`, then emit `bucket:left`
- * for each row the UPDATE actually flipped (gated on RETURNING — the loser of a
- * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
- * a member still inside its dwell window is NOT left here (the dwell deadline is
- * carried on `expiresAt`; the next eligible tick leaves it).
- */
-async function bulkLeave(opts: {
+interface BulkLeaveOpts {
   db: Database;
   logger: Logger;
   journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
@@ -615,7 +608,16 @@ async function bulkLeave(opts: {
   leavers: BucketLeaver[];
   /** Why these members leave — TTL passes "maxDwell", criteria passes "criteria". */
   reason: BucketLeaveReason;
-}): Promise<number> {
+}
+
+/**
+ * Bulk compare-and-swap a set of active members to `left`, then emit `bucket:left`
+ * for each row the UPDATE actually flipped (gated on RETURNING — the loser of a
+ * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
+ * a member still inside its dwell window is NOT left here (the dwell deadline is
+ * carried on `expiresAt`; the next eligible tick leaves it).
+ */
+async function bulkLeave(opts: BulkLeaveOpts): Promise<number> {
   // Chunked: one `inArray` over a mass expiry (backfill stamps one maxDwellAt
   // on a whole cohort) exceeds postgres.js's 65,534-parameter limit and throws
   // on every tick. Flip + emit per BATCH_SIZE chunk so each tick makes progress.
@@ -629,14 +631,7 @@ async function bulkLeave(opts: {
   return flipped;
 }
 
-async function bulkLeaveChunk(opts: {
-  db: Database;
-  logger: Logger;
-  journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
-  bucket: BucketMeta;
-  leavers: BucketLeaver[];
-  reason: BucketLeaveReason;
-}): Promise<number> {
+async function bulkLeaveChunk(opts: BulkLeaveOpts): Promise<number> {
   const { db, logger, journeyRegistry, bucket, leavers, reason } = opts;
   const userIds = leavers.map((l) => l.userId);
   // Membership key → resolved contact row id, for the emit's provenance pin.
