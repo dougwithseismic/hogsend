@@ -99,11 +99,21 @@ const ENTRIES: ChangelogEntry[] = [
           on each delivery in turn. Discord and Postmark calls time out after 10
           seconds.
         </Bullet>
+        <Bullet>
+          Each event for a known contact now takes 10 database queries instead
+          of 17, and the preference check on every send is an index lookup
+          instead of a full table scan. Bucket conditions that ask whether an
+          event happened stop at the first match instead of counting them all.
+        </Bullet>
       </>
     ),
     upgradeNote: (
       <>
-        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No code changes.
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code>. No code changes. The migration builds five
+        indexes and blocks writes to each table while it runs. If{" "}
+        <Code>user_events</Code> is large, build them concurrently first (the
+        statements are in the release notes); the migration then skips them.
       </>
     ),
   },
