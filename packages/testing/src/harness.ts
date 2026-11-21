@@ -699,6 +699,28 @@ export class JourneyTest {
     });
   }
 
+  /**
+   * Recover an explicit `idempotencyLabel` from a derived journey key
+   * (`<kind>:<runAnchor>:<site>:<discriminant>`). The engine derives `site` as
+   * `idempotencyLabel ?? currentLabel ?? fallback`, so a site that differs from
+   * the implicit value was passed explicitly. Caller-supplied keys that do not
+   * carry the harness anchor yield nothing.
+   */
+  private idempotencyLabelDetail(
+    key: string | undefined,
+    discriminant: string,
+    fallbackSite: string,
+  ): { idempotencyLabel?: string } {
+    if (!key) return {};
+    const marker = `:${RUN_ID}:`;
+    const start = key.indexOf(marker);
+    const suffix = `:${discriminant}`;
+    if (start < 0 || !key.endsWith(suffix)) return {};
+    const site = key.slice(start + marker.length, key.length - suffix.length);
+    if (!site || site === (this.currentLabel ?? fallbackSite)) return {};
+    return { idempotencyLabel: site };
+  }
+
   private setLabel(label: string): void {
     this.currentLabel = label;
     const boundary = getJourneyBoundary();
@@ -708,6 +730,11 @@ export class JourneyTest {
   private createServices(): JourneyServiceOverrides {
     return {
       email: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          effect.template,
+          effect.template,
+        );
         if (effect.idempotencyKey) {
           const prior = this.emailIdempotency.get(effect.idempotencyKey);
           if (prior)
@@ -727,6 +754,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -743,6 +771,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -758,6 +787,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -774,6 +804,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -803,7 +834,12 @@ export class JourneyTest {
           category: message.category,
           journeyId: this.journey.meta.id,
         });
-        this.recordTimeline({ type: "email", at: message.sentAt, ...message });
+        this.recordTimeline({
+          type: "email",
+          at: message.sentAt,
+          ...message,
+          ...label,
+        });
         const result = {
           emailSendId: message.resultId,
           sentAt: message.sentAt,
@@ -817,6 +853,11 @@ export class JourneyTest {
         return this.jsonSnapshot(result, "email send result");
       },
       sms: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          effect.template,
+          effect.template,
+        );
         if (effect.idempotencyKey) {
           const prior = this.smsIdempotency.get(effect.idempotencyKey);
           if (prior) return this.jsonSnapshot(prior, "SMS idempotency result");
@@ -836,6 +877,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -852,6 +894,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -877,6 +920,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -896,6 +940,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -913,6 +958,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -940,7 +986,12 @@ export class JourneyTest {
           sentAt: message.sentAt,
           journeyId: this.journey.meta.id,
         });
-        this.recordTimeline({ type: "sms", at: message.sentAt, ...message });
+        this.recordTimeline({
+          type: "sms",
+          at: message.sentAt,
+          ...message,
+          ...label,
+        });
         const result = {
           smsSendId: message.resultId,
           status: "sent" as const,
@@ -974,6 +1025,12 @@ export class JourneyTest {
               "(pass it via createJourneyTest({ connectorActions }))",
           );
         }
+        const connectorKey = `${effect.connectorId}:${effect.action}`;
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          connectorKey,
+          connectorKey,
+        );
         if (
           definition.audience?.kind === "member" &&
           !this.subscriptionAt(this.currentMs)
@@ -981,6 +1038,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "connector",
+            ...label,
             at,
             connectorId: effect.connectorId,
             action: effect.action,
@@ -1001,6 +1059,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "connector",
+            ...label,
             at,
             connectorId: effect.connectorId,
             action: effect.action,
@@ -1020,13 +1079,18 @@ export class JourneyTest {
           resultId: `test-connector-${this.effects.connectors.length + 1}`,
         };
         this.effects.connectors.push(record);
-        this.recordTimeline({ type: "connector", ...record });
+        this.recordTimeline({ type: "connector", ...record, ...label });
         const configured = definition.result;
         return typeof configured === "function"
           ? configured(effect.args)
           : (configured ?? { id: record.resultId });
       },
       feed: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          `feed:${effect.type}`,
+          effect.type,
+        );
         const recipientKey =
           effect.recipient.userId ??
           effect.recipient.email ??
@@ -1039,6 +1103,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "feed",
+            ...label,
             at,
             feedType: effect.type,
             recipientKey,
@@ -1056,6 +1121,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "feed",
+            ...label,
             at,
             feedType: effect.type,
             recipientKey,
@@ -1087,7 +1153,12 @@ export class JourneyTest {
         };
         this.effects.feed.push(record);
         const { type: feedType, ...timelineRecord } = record;
-        this.recordTimeline({ type: "feed", feedType, ...timelineRecord });
+        this.recordTimeline({
+          type: "feed",
+          feedType,
+          ...timelineRecord,
+          ...label,
+        });
         if (effect.idempotencyKey)
           this.feedIdempotency.set(effect.idempotencyKey, record.resultId);
         return {
@@ -1158,13 +1229,15 @@ export class JourneyTest {
       sleep: async ({ duration, label }) => {
         const started = this.now.toISOString();
         const node = label ?? `wait:${JSON.stringify(duration)}`;
+        const durationMs = durationToMs(duration);
         this.setLabel(node);
         this.advanceWait({
           type: "sleep",
           at: started,
           label: node,
-          targetMs: this.currentMs + durationToMs(duration),
+          targetMs: this.currentMs + durationMs,
           outcome: "resumed",
+          detail: { durationMs },
         });
         return { sleptAt: started, resumedAt: this.now.toISOString() };
       },
@@ -1179,6 +1252,10 @@ export class JourneyTest {
           label: node,
           targetMs: target.getTime(),
           outcome: "resumed",
+          detail: {
+            until: target.toISOString(),
+            durationMs: Math.max(0, target.getTime() - this.currentMs),
+          },
         });
         return { sleptAt: started, resumedAt: this.now.toISOString() };
       },
@@ -1210,7 +1287,7 @@ export class JourneyTest {
                 new Date(startedMs).toISOString(),
                 node,
                 "exited",
-                { event, source: "pending" },
+                { event, durationMs: timeoutMs, source: "pending" },
               );
             }
             throw error;
@@ -1241,7 +1318,12 @@ export class JourneyTest {
               new Date(startedMs).toISOString(),
               node,
               "matched",
-              { event, timedOut: false, source: "lookback" },
+              {
+                event,
+                timedOut: false,
+                durationMs: timeoutMs,
+                source: "lookback",
+              },
             );
             return {
               timedOut: false,
@@ -1269,7 +1351,12 @@ export class JourneyTest {
           label: node,
           targetMs: hit ? new Date(hit.occurredAt).getTime() : deadline,
           outcome: hit ? "matched" : "timedOut",
-          detail: { event, timedOut: !hit, source: "forward" },
+          detail: {
+            event,
+            timedOut: !hit,
+            durationMs: timeoutMs,
+            source: "forward",
+          },
         });
         return hit
           ? {
@@ -1363,6 +1450,12 @@ export class JourneyTest {
             arms,
           });
         });
+        this.recordTimeline({
+          type: "variant",
+          at: this.now.toISOString(),
+          key,
+          arm: assigned,
+        });
         return assigned as A[number];
       },
       digest: async (opts: DigestOptions) => {
@@ -1390,7 +1483,7 @@ export class JourneyTest {
           label,
           targetMs: new Date(deadline).getTime(),
           outcome: "resumed",
-          detail: { event },
+          detail: { event, durationMs: windowMs },
         });
         const where = normalizeWhere(
           opts.where ??

@@ -198,6 +198,7 @@ describe("journey harness production parity", () => {
         at: start,
         label: "digest:digest.started",
         event: "digest.started",
+        durationMs: 60 * 60 * 1000,
         outcome: "resumed",
         resumedAt: "2026-07-14T10:00:00.000Z",
       },

@@ -1,10 +1,71 @@
-import { createJourneyTest } from "./harness.js";
+import { createJourneyTest, type JourneyTest } from "./harness.js";
 import type {
   JourneyDefinition,
   JourneyScenario,
   JourneyScenarioResult,
   JourneyScenarioRun,
 } from "./types.js";
+
+const scheduleTarget = (
+  kind: string,
+  name: string,
+  item: { after?: unknown; at?: unknown },
+): void => {
+  if (item.at !== undefined && item.after !== undefined) {
+    throw new Error(
+      `Scenario ${kind} "${name}" must specify either "at" or "after", not both.`,
+    );
+  }
+};
+
+/**
+ * Build a fresh harness for one scenario row and script its events and guard
+ * changes. `setup` is not called here; callers decide when it runs.
+ */
+export function createScenarioTest(
+  journey: JourneyDefinition,
+  scenario: JourneyScenario,
+): JourneyTest {
+  const test = createJourneyTest(journey, {
+    user: scenario.user,
+    now: scenario.now,
+    timezone: scenario.timezone,
+    templates: scenario.templates,
+    smsTemplates: scenario.smsTemplates,
+    smsConsent: scenario.smsConsent,
+    preferences: scenario.preferences,
+    connectorActions: scenario.connectorActions,
+    ...(scenario.subscribed !== undefined
+      ? { subscribed: scenario.subscribed }
+      : {}),
+    ...(scenario.history ? { history: scenario.history } : {}),
+    ...(scenario.entry ? { entry: scenario.entry } : {}),
+    ...(scenario.variants ? { variants: scenario.variants } : {}),
+  });
+  for (const event of scenario.events ?? []) {
+    scheduleTarget("event", event.event, event);
+    const target = { userId: event.userId, userEmail: event.userEmail };
+    if (event.at !== undefined)
+      test.events.at(event.at, event.event, event.properties, target);
+    else
+      test.events.after(
+        event.after ?? {},
+        event.event,
+        event.properties,
+        target,
+      );
+  }
+  for (const change of scenario.guard ?? []) {
+    scheduleTarget(
+      "guard change",
+      change.subscribed ? "subscribe" : "unsubscribe",
+      change,
+    );
+    if (change.at !== undefined) test.guard.at(change.at, change.subscribed);
+    else test.guard.after(change.after ?? {}, change.subscribed);
+  }
+  return test;
+}
 
 const increment = (target: Record<string, number>, key: string): void => {
   const current = Object.hasOwn(target, key) ? (target[key] ?? 0) : 0;
@@ -30,33 +91,7 @@ export async function runJourneyScenarios(
       // runner setup. Keep them inside the row boundary so a malformed date or
       // event in one table row is reported as that row's failure and later rows
       // still receive their own fresh harness.
-      test = createJourneyTest(journey, {
-        user: scenario.user,
-        now: scenario.now,
-        timezone: scenario.timezone,
-        templates: scenario.templates,
-        smsTemplates: scenario.smsTemplates,
-        smsConsent: scenario.smsConsent,
-        preferences: scenario.preferences,
-        connectorActions: scenario.connectorActions,
-      });
-      for (const event of scenario.events ?? []) {
-        if (event.at !== undefined && event.after !== undefined) {
-          throw new Error(
-            `Scenario event "${event.event}" must specify either "at" or "after", not both.`,
-          );
-        }
-        const target = { userId: event.userId, userEmail: event.userEmail };
-        if (event.at !== undefined)
-          test.events.at(event.at, event.event, event.properties, target);
-        else
-          test.events.after(
-            event.after ?? {},
-            event.event,
-            event.properties,
-            target,
-          );
-      }
+      test = createScenarioTest(journey, scenario);
       await scenario.setup?.(test);
       const status = await test.run();
       results.push({

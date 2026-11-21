@@ -1,0 +1,18 @@
+{
+  "name": "converts on day 7",
+  "journey": "trial-upgrade",
+  "user": {
+    "id": "u_123",
+    "email": "ada@example.com",
+    "properties": { "plan": "trial" }
+  },
+  "now": "2026-03-02T09:00:00.000Z",
+  "events": [
+    { "after": "1d", "event": "project.created" },
+    {
+      "after": "7d",
+      "event": "subscription.created",
+      "properties": { "plan": "pro" }
+    }
+  ]
+}

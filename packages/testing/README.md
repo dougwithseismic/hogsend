@@ -37,6 +37,13 @@ independently, including history fixtures carrying the same `journeyId`.
 `preferences.defaultOptIn` models list polarity; a `false` list requires an
 explicit `preferences.categories[id] = true` grant.
 
+`simulateJourney(journey, scenario)` runs one scenario and returns a JSON report:
+the enrollment-guard verdict, an ordered list of steps (waits with their planned
+length and how they resumed, sends with their idempotency label, triggers,
+guard changes, the exit or error), unreached events and a summary. The
+`hogsend simulate` command in `@hogsend/cli` prints that report for a journey
+in your app.
+
 Import `@hogsend/testing/vitest` once in a Vitest setup or test module to add
 `toHaveSent` and `toHaveSentTimes`. Vitest is an optional peer; the core harness
 does not import it, so its API is not coupled to a test runner.
