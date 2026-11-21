@@ -4,6 +4,7 @@ import type {
   JourneyScenario,
   JourneyScenarioResult,
   JourneyScenarioRun,
+  JourneyTestOptions,
 } from "./types.js";
 
 const scheduleTarget = (
@@ -25,8 +26,10 @@ const scheduleTarget = (
 export function createScenarioTest(
   journey: JourneyDefinition,
   scenario: JourneyScenario,
+  extra: Pick<JourneyTestOptions, "maxTimelineEntries"> = {},
 ): JourneyTest {
   const test = createJourneyTest(journey, {
+    ...extra,
     user: scenario.user,
     now: scenario.now,
     timezone: scenario.timezone,
@@ -41,6 +44,7 @@ export function createScenarioTest(
     ...(scenario.history ? { history: scenario.history } : {}),
     ...(scenario.entry ? { entry: scenario.entry } : {}),
     ...(scenario.variants ? { variants: scenario.variants } : {}),
+    ...(scenario.until ? { until: scenario.until } : {}),
   });
   for (const event of scenario.events ?? []) {
     scheduleTarget("event", event.event, event);

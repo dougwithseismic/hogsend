@@ -226,6 +226,11 @@ hogsend simulate onboarding --event "2d:project.created" --format markdown
 
 The same report is available in code from `simulateJourney(journey, scenario)`,
 which returns the ordered steps, the outcome, unreached events and a summary.
+It stops after `scenario.until` of virtual time (default `720h`) and reports a
+journey still waiting there as `running`; a run that records more than 10,000
+timeline entries fails. The harness takes the same limits as
+`createJourneyTest` options `until` and `maxTimelineEntries`, where `run()`
+rejects with `JourneyHorizonError` or `JourneyStepBudgetError` (both exported).
 
 ## What virtual time means
 

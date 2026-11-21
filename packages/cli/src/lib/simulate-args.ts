@@ -43,6 +43,10 @@ export interface SimulateArgs {
   email?: string;
   events: ScenarioEvent[];
   now?: string;
+  /** Virtual-time horizon; the harness default (720h) applies when unset. */
+  until?: Duration;
+  /** Wall-clock limit for the simulation child, in milliseconds. */
+  timeoutMs: number;
   scenario?: string;
   allScenarios?: string;
   format: SimulateFormat;
@@ -58,6 +62,50 @@ export const DEFAULT_USER: TestJourneyUser = {
   email: "sim-user@example.com",
   properties: {},
 };
+
+/** Default wall-clock limit for one `hogsend simulate` invocation. */
+export const DEFAULT_TIMEOUT_SECONDS = 60;
+
+const ISO_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.\d+)?)?(Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?$/i;
+
+/**
+ * Parse an ISO 8601 date (`2026-03-02`) or date-time
+ * (`2026-03-02T09:00`, `2026-03-02T09:00:00.000+01:00`) into a normalized UTC
+ * ISO string. Input without an offset is read as UTC, never as the machine's
+ * local time, so a run gives the same result on every machine. Anything else
+ * (`March 2`, `2026/03/02`, an impossible date such as `2026-02-30`) throws.
+ */
+export function parseIsoDate(value: string, label: string): string {
+  const fail = (): never => {
+    throw new Error(
+      `${label}: invalid date "${value}" (use an ISO 8601 date or date-time, e.g. 2026-03-02T09:00:00Z; no offset means UTC)`,
+    );
+  };
+  const text = value.trim();
+  const match = ISO_DATE.exec(text);
+  if (!match) return fail();
+  const [, year, month, day, hour, , , offset] = match;
+  const probe = new Date(
+    Date.UTC(Number(year), Number(month) - 1, Number(day)),
+  );
+  if (
+    probe.getUTCFullYear() !== Number(year) ||
+    probe.getUTCMonth() !== Number(month) - 1 ||
+    probe.getUTCDate() !== Number(day)
+  ) {
+    return fail();
+  }
+  let normalized = text.toUpperCase();
+  if (hour === undefined) normalized += "T00:00:00Z";
+  else if (offset === undefined) normalized += "Z";
+  else if (/^[+-]\d{4}$/.test(offset)) {
+    normalized = `${normalized.slice(0, -2)}:${normalized.slice(-2)}`;
+  }
+  const ms = Date.parse(normalized);
+  if (Number.isNaN(ms)) return fail();
+  return new Date(ms).toISOString();
+}
 
 const UNIT_HOURS: Record<string, number> = { w: 168, d: 24, h: 1 };
 
@@ -115,6 +163,19 @@ function parseDurationValue(value: unknown, label: string): Duration {
   throw new Error(`${label}: expected a duration like "2d" or { "hours": 48 }`);
 }
 
+/** Reject a zero or negative duration where one would make no sense. */
+function parsePositiveDuration(value: Duration, label: string): Duration {
+  const ms =
+    ((value.hours ?? 0) * 3600 +
+      (value.minutes ?? 0) * 60 +
+      (value.seconds ?? 0)) *
+    1000;
+  if (!(ms > 0)) {
+    throw new Error(`${label}: must be a duration greater than 0 (e.g. 90d)`);
+  }
+  return value;
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -133,7 +194,10 @@ function parseJsonObject(text: string, label: string): Record<string, unknown> {
 
 /**
  * Parse `--event "<after>:<event>[:<json props>]"`. Event names may contain
- * colons; the properties part is recognised by its opening `{`.
+ * colons; the properties part is recognised by its opening `{`, which may
+ * follow whitespace (`2d:evt: {"a":1}`). Event names with whitespace, braces
+ * or brackets are rejected rather than guessed at; put those in a scenario
+ * file.
  */
 export function parseEventSpec(spec: string): ScenarioEvent {
   const first = spec.indexOf(":");
@@ -144,13 +208,20 @@ export function parseEventSpec(spec: string): ScenarioEvent {
   }
   const after = parseDuration(spec.slice(0, first));
   const rest = spec.slice(first + 1);
-  const propsAt = rest.indexOf(":{");
-  const event = (propsAt >= 0 ? rest.slice(0, propsAt) : rest).trim();
+  const propsMatch = /:\s*\{/.exec(rest);
+  const event = (propsMatch ? rest.slice(0, propsMatch.index) : rest).trim();
   if (!event) throw new Error(`invalid --event "${spec}": missing event name`);
-  const properties =
-    propsAt >= 0
-      ? parseJsonObject(rest.slice(propsAt + 1), `--event "${spec}"`)
-      : undefined;
+  if (/[\s{}[\]]/.test(event)) {
+    throw new Error(
+      `invalid --event "${spec}": event name "${event}" contains whitespace, a brace or a bracket (properties must be a JSON object after a colon, e.g. "2d:project.created:{"plan":"pro"}"; use a scenario file for other event names)`,
+    );
+  }
+  const properties = propsMatch
+    ? parseJsonObject(
+        rest.slice(propsMatch.index + 1).trim(),
+        `--event "${spec}"`,
+      )
+    : undefined;
   return { event, after, ...(properties ? { properties } : {}) };
 }
 
@@ -202,7 +273,63 @@ function parseTimed<T extends { after?: Duration; at?: string }>(
     if (typeof value.at !== "string") {
       throw new Error(`${label}: "at" must be an ISO date string`);
     }
-    out.at = value.at;
+    out.at = parseIsoDate(value.at, `${label} "at"`);
+  }
+  return out;
+}
+
+/** History fixture lists and the date fields each entry may carry. */
+const HISTORY_DATES: Record<
+  string,
+  { required: string[]; optional: string[] }
+> = {
+  events: { required: ["occurredAt"], optional: [] },
+  emails: { required: ["sentAt"], optional: [] },
+  sms: { required: ["sentAt"], optional: [] },
+  journeys: { required: [], optional: ["completedAt", "enteredAt"] },
+};
+
+/**
+ * Check the dates in a `history` fixture and normalize them to UTC ISO
+ * strings, so a typo fails here with the file name rather than later inside
+ * the harness.
+ */
+function parseHistory(
+  value: Record<string, unknown>,
+  label: string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...value };
+  for (const [key, list] of Object.entries(value)) {
+    const dates = HISTORY_DATES[key];
+    if (!dates) {
+      throw new Error(
+        `${label}: unknown key "${key}" (allowed: ${Object.keys(HISTORY_DATES).join(", ")})`,
+      );
+    }
+    if (!Array.isArray(list)) {
+      throw new Error(`${label}: "${key}" must be an array`);
+    }
+    out[key] = list.map((item, index) => {
+      const itemLabel = `${label} ${key}[${index}]`;
+      if (!isRecord(item)) throw new Error(`${itemLabel}: expected an object`);
+      const copy: Record<string, unknown> = { ...item };
+      for (const field of [...dates.required, ...dates.optional]) {
+        const date = item[field];
+        if (date === undefined) {
+          if (dates.required.includes(field)) {
+            throw new Error(`${itemLabel}: "${field}" is required`);
+          }
+          continue;
+        }
+        if (typeof date !== "string") {
+          throw new Error(
+            `${itemLabel}: "${field}" must be an ISO date string`,
+          );
+        }
+        copy[field] = parseIsoDate(date, `${itemLabel} "${field}"`);
+      }
+      return copy;
+    });
   }
   return out;
 }
@@ -277,6 +404,7 @@ export function parseScenarioFile(raw: unknown, source: string): ScenarioFile {
     "journey",
     "user",
     "now",
+    "until",
     "timezone",
     "events",
     "guard",
@@ -309,7 +437,13 @@ export function parseScenarioFile(raw: unknown, source: string): ScenarioFile {
   stringField("description");
   const journey = stringField("journey");
   const now = stringField("now");
-  if (now) scenario.now = now;
+  if (now) scenario.now = parseIsoDate(now, `${source} "now"`);
+  if (raw.until !== undefined) {
+    scenario.until = parsePositiveDuration(
+      parseDurationValue(raw.until, `${source} "until"`),
+      `${source} "until"`,
+    );
+  }
   const timezone = stringField("timezone");
   if (timezone) scenario.timezone = timezone;
   if (raw.user !== undefined) {
@@ -356,11 +490,15 @@ export function parseScenarioFile(raw: unknown, source: string): ScenarioFile {
       raw.connectorActions as ScenarioData["connectorActions"];
   }
   for (const key of passthrough) {
-    if (raw[key] === undefined) continue;
-    if (!isRecord(raw[key])) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (!isRecord(value)) {
       throw new Error(`${source}: "${key}" must be an object`);
     }
-    Object.assign(scenario, { [key]: raw[key] });
+    Object.assign(scenario, {
+      [key]:
+        key === "history" ? parseHistory(value, `${source} "history"`) : value,
+    });
   }
   return { ...(journey ? { journey } : {}), scenario };
 }
@@ -411,6 +549,8 @@ export function parseSimulateArgs(argv: string[]): SimulateArgs {
       email: { type: "string" },
       event: { type: "string", multiple: true },
       now: { type: "string" },
+      until: { type: "string" },
+      timeout: { type: "string" },
       scenario: { type: "string" },
       "all-scenarios": { type: "string" },
       format: { type: "string" },
@@ -435,8 +575,20 @@ export function parseSimulateArgs(argv: string[]): SimulateArgs {
   if (values.scenario && values["all-scenarios"]) {
     throw new Error("use either --scenario or --all-scenarios, not both");
   }
-  if (values.now !== undefined && Number.isNaN(Date.parse(values.now))) {
-    throw new Error(`invalid --now "${values.now}" (use an ISO date)`);
+  const now =
+    values.now !== undefined ? parseIsoDate(values.now, "--now") : undefined;
+  const until =
+    values.until !== undefined
+      ? parsePositiveDuration(parseDuration(values.until), "--until")
+      : undefined;
+  let timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
+  if (values.timeout !== undefined) {
+    timeoutSeconds = Number(values.timeout);
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+      throw new Error(
+        `invalid --timeout "${values.timeout}" (use a number of seconds greater than 0)`,
+      );
+    }
   }
   return {
     ...(positionals[0] ? { journeyId: positionals[0] } : {}),
@@ -448,7 +600,9 @@ export function parseSimulateArgs(argv: string[]): SimulateArgs {
     ...(values["user-id"] !== undefined ? { userId: values["user-id"] } : {}),
     ...(values.email !== undefined ? { email: values.email } : {}),
     events: (values.event ?? []).map(parseEventSpec),
-    ...(values.now !== undefined ? { now: values.now } : {}),
+    ...(now !== undefined ? { now } : {}),
+    ...(until !== undefined ? { until } : {}),
+    timeoutMs: Math.round(timeoutSeconds * 1000),
     ...(values.scenario !== undefined ? { scenario: values.scenario } : {}),
     ...(values["all-scenarios"] !== undefined
       ? { allScenarios: values["all-scenarios"] }
@@ -466,12 +620,14 @@ export function parseSimulateArgs(argv: string[]): SimulateArgs {
  * Combine scenario files with the command-line inputs into concrete runs.
  * Flags layer over every scenario: `--user` merges into the file's user
  * (properties merge shallowly), `--user-id`/`--email` win, `--event`s are
- * appended, and `--now` replaces the start time. With no files, the flags
- * alone describe one run.
+ * appended, and `--now`/`--until` replace the file's values. With neither
+ * `--now` nor a file `now`, the run starts at `clock` (the current time).
+ * With no files, the flags alone describe one run.
  */
 export function buildRuns(
   args: SimulateArgs,
   files: Array<{ path: string; file: ScenarioFile }>,
+  clock: Date = new Date(),
 ): SimulationRun[] {
   const inputs =
     files.length > 0
@@ -506,12 +662,14 @@ export function buildRuns(
         ...(args.user?.properties ?? {}),
       },
     };
-    const now = args.now ?? file.scenario.now;
+    const now = args.now ?? file.scenario.now ?? clock.toISOString();
+    const until = args.until ?? file.scenario.until;
     const events = [...(file.scenario.events ?? []), ...args.events];
     const scenario: ScenarioData = {
       ...file.scenario,
       user,
-      ...(now !== undefined ? { now } : {}),
+      now,
+      ...(until !== undefined ? { until } : {}),
       ...(events.length > 0 ? { events } : {}),
     };
     return { journeyId, scenario, source: path };

@@ -1,4 +1,5 @@
 import { durationToMs } from "@hogsend/core";
+import { JourneyHorizonError } from "./errors.js";
 import { createScenarioTest } from "./scenarios.js";
 import type {
   JourneyDefinition,
@@ -17,6 +18,15 @@ const SEND_STATUSES = new Set<SimulationSendStatus>([
   "skipped",
 ]);
 const WAIT_TYPES = new Set(["sleep", "sleepUntil", "waitForEvent", "digest"]);
+
+/**
+ * Default horizon: the engine's journey execution limit
+ * (JOURNEY_EXECUTION_TIMEOUT_HOURS, 720h). A run still waiting at the horizon
+ * is reported as `running`.
+ */
+const DEFAULT_UNTIL = { hours: 720 };
+/** Default step budget: a run that records more entries is failed. */
+const DEFAULT_MAX_STEPS = 10_000;
 
 const str = (value: unknown): string | undefined =>
   typeof value === "string" && value.length > 0 ? value : undefined;
@@ -44,7 +54,12 @@ function toStep(entry: TimelineEntry): SimulationStep | undefined {
         ? { durationMs: entry.durationMs }
         : {}),
       ...(str(entry.event) ? { event: str(entry.event) } : {}),
-      outcome: entry.outcome as "resumed" | "matched" | "timedOut" | "exited",
+      outcome: entry.outcome as
+        | "resumed"
+        | "matched"
+        | "timedOut"
+        | "exited"
+        | "horizon",
       resumedAt: String(entry.resumedAt ?? at),
       ...(str(entry.source) ? { source: str(entry.source) } : {}),
     };
@@ -173,17 +188,33 @@ const describeError = (
  * holdout, already active) and reports `skipped` when they refuse the user,
  * unless `force` is set. A journey that throws is reported as `failed`;
  * invalid scenario input (a malformed date, conflicting `at`/`after`) throws.
+ *
+ * The run stops at `scenario.until` of virtual time (default 720h, the
+ * engine's journey execution limit). A journey still waiting there is
+ * reported as `running`, not failed. A run that records more than
+ * `options.maxSteps` timeline entries (default 10,000) is failed with a
+ * `JourneyStepBudgetError`.
  */
 export async function simulateJourney(
   journey: JourneyDefinition,
   scenario: JourneyScenario,
   options: SimulateJourneyOptions = {},
 ): Promise<JourneySimulation> {
-  const test = createScenarioTest(journey, scenario);
+  const until = scenario.until ?? DEFAULT_UNTIL;
+  const test = createScenarioTest(
+    journey,
+    { ...scenario, until },
+    { maxTimelineEntries: options.maxSteps ?? DEFAULT_MAX_STEPS },
+  );
   await scenario.setup?.(test);
 
   const startedAt = test.now.toISOString();
   const startMs = test.now.getTime();
+  const untilMs = durationToMs(until);
+  const horizon = {
+    at: new Date(startMs + untilMs).toISOString(),
+    durationMs: untilMs,
+  };
   const verdict = test.entry.check();
   const base = {
     journey: {
@@ -195,6 +226,7 @@ export async function simulateJourney(
     scenario: scenario.name,
     user: { id: scenario.user.id, email: scenario.user.email },
     startedAt,
+    horizon,
   };
   const entry = verdict.allowed
     ? { allowed: true }
@@ -227,8 +259,12 @@ export async function simulateJourney(
   try {
     status = await test.run();
   } catch (error) {
-    status = "failed";
-    failure = error;
+    if (error instanceof JourneyHorizonError) {
+      status = "running";
+    } else {
+      status = "failed";
+      failure = error;
+    }
   }
 
   const endedAt = test.now.toISOString();
@@ -240,6 +276,7 @@ export async function simulateJourney(
       (step) => step.kind !== "event" || new Date(step.at).getTime() >= startMs,
     );
   if (status === "completed") steps.push({ kind: "completed", at: endedAt });
+  if (status === "running") steps.push({ kind: "horizon", at: endedAt });
   if (status === "failed") {
     steps.push({
       kind: "failed",

@@ -33,6 +33,7 @@ import {
   validateVariantKey,
 } from "@hogsend/engine/testing";
 import { getSmsTemplateDefinition } from "@hogsend/sms";
+import { JourneyHorizonError, JourneyStepBudgetError } from "./errors.js";
 import { JourneyMailbox } from "./mailbox.js";
 import type {
   CapturedTrigger,
@@ -64,7 +65,7 @@ type RecordNamespace =
   | "__throttle__"
   | "__variants__";
 type WaitType = "sleep" | "sleepUntil" | "waitForEvent" | "digest";
-type WaitOutcome = "resumed" | "matched" | "timedOut" | "exited";
+type WaitOutcome = "resumed" | "matched" | "timedOut" | "exited" | "horizon";
 
 type GuardChange = {
   at: number;
@@ -111,10 +112,18 @@ export class JourneyTest {
 
   private currentMs: number;
   private readonly initialMs: number;
+  /** Absolute `until` instant, when the option is set. */
+  private readonly horizonMs: number | undefined;
+  /**
+   * Set once the horizon or the step budget stops the run. Later waits
+   * rethrow it, and `run()` reports it even if the journey caught it.
+   */
+  private halt: JourneyHorizonError | JourneyStepBudgetError | undefined;
   private sequence = 0;
   private hasRun = false;
   private readonly journalEvents: TestEvent[] = [];
   private readonly reportedEventSequences = new Set<number>();
+  private readonly reportedVariants = new Set<string>();
   private readonly guardChanges: GuardChange[] = [];
   private readonly recordValues: Record<RecordNamespace, Map<string, unknown>> =
     {
@@ -223,6 +232,21 @@ export class JourneyTest {
     );
     this.currentMs = start.getTime();
     this.initialMs = this.currentMs;
+    if (this.options.until !== undefined) {
+      const untilMs = durationToMs(this.options.until);
+      if (!(untilMs > 0)) {
+        throw new RangeError(
+          "createJourneyTest until must be a positive duration",
+        );
+      }
+      this.horizonMs = this.initialMs + untilMs;
+    }
+    const budget = this.options.maxTimelineEntries;
+    if (budget !== undefined && !(Number.isInteger(budget) && budget > 0)) {
+      throw new RangeError(
+        "createJourneyTest maxTimelineEntries must be a positive integer",
+      );
+    }
     this.recipientPreferences = this.jsonSnapshot(
       this.options.preferences ?? {},
       "recipient preferences",
@@ -316,11 +340,24 @@ export class JourneyTest {
   }
 
   private recordTimeline(entry: TimelineEntry): void {
-    this.timeline.push(this.jsonSnapshot(entry, "timeline entry"));
-    this.timeline.sort(
-      (left, right) =>
-        new Date(left.at).getTime() - new Date(right.at).getTime(),
-    );
+    const budget = this.options.maxTimelineEntries;
+    if (budget !== undefined && this.timeline.length >= budget) {
+      this.halt ??= new JourneyStepBudgetError(budget, this.now.toISOString());
+      throw this.halt;
+    }
+    const snapshot = this.jsonSnapshot(entry, "timeline entry");
+    // The timeline is kept sorted by `at`; insert after every entry at the
+    // same instant, which matches a stable sort of the appended entry.
+    const at = new Date(snapshot.at).getTime();
+    let low = 0;
+    let high = this.timeline.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      const item = this.timeline[mid];
+      if (item && new Date(item.at).getTime() <= at) low = mid + 1;
+      else high = mid;
+    }
+    this.timeline.splice(low, 0, snapshot);
   }
 
   private cloneDefinitionRegistry<T extends object>(registry: T): T {
@@ -427,9 +464,11 @@ export class JourneyTest {
     at: string;
     label: string;
     targetMs: number;
-    outcome: Exclude<WaitOutcome, "exited">;
+    outcome: Exclude<WaitOutcome, "exited" | "horizon">;
     detail?: Record<string, unknown>;
   }): TimelineEntry {
+    // A journey that caught the stop and waits again records nothing more.
+    if (this.halt) throw this.halt;
     this.updateCurrentJourney("waiting");
     try {
       this.advanceTo(opts.targetMs);
@@ -444,6 +483,14 @@ export class JourneyTest {
     } catch (error) {
       if (error instanceof JourneyExitedError) {
         this.captureWait(opts.type, opts.at, opts.label, "exited", opts.detail);
+      } else if (error instanceof JourneyHorizonError) {
+        this.captureWait(
+          opts.type,
+          opts.at,
+          opts.label,
+          "horizon",
+          opts.detail,
+        );
       }
       throw error;
     }
@@ -657,6 +704,7 @@ export class JourneyTest {
   }
 
   private advanceTo(targetMs: number): void {
+    if (this.halt) throw this.halt;
     const target = Math.max(this.currentMs, targetMs);
     if (this.pendingExitEvent) {
       const pending = this.pendingExitEvent;
@@ -664,11 +712,21 @@ export class JourneyTest {
       this.applyChangesThrough(this.currentMs);
       this.captureExitOn(pending);
     }
-    const exit = this.exitEventBefore(target);
-    const end = exit ? new Date(exit.occurredAt).getTime() : target;
+    // Stop at the horizon: scripted exits and guard changes up to it still
+    // apply, but the clock never passes it.
+    const capped =
+      this.horizonMs === undefined
+        ? target
+        : Math.min(target, Math.max(this.horizonMs, this.currentMs));
+    const exit = this.exitEventBefore(capped);
+    const end = exit ? new Date(exit.occurredAt).getTime() : capped;
     this.applyChangesThrough(end);
     this.currentMs = end;
     if (exit) this.captureExitOn(exit);
+    if (end < target) {
+      this.halt = new JourneyHorizonError(this.now.toISOString());
+      throw this.halt;
+    }
   }
 
   private hasRecentJourneySend(
@@ -1450,12 +1508,17 @@ export class JourneyTest {
             arms,
           });
         });
-        this.recordTimeline({
-          type: "variant",
-          at: this.now.toISOString(),
-          key,
-          arm: assigned,
-        });
+        // One timeline entry per key per run: repeat calls replay the same
+        // arm, so they add nothing a reader needs.
+        if (!this.reportedVariants.has(key)) {
+          this.reportedVariants.add(key);
+          this.recordTimeline({
+            type: "variant",
+            at: this.now.toISOString(),
+            key,
+            arm: assigned,
+          });
+        }
         return assigned as A[number];
       },
       digest: async (opts: DigestOptions) => {
@@ -1745,9 +1808,20 @@ export class JourneyTest {
       await runWithJourneyBoundary(boundary, () =>
         this.journey.run(user, this.context),
       );
+      // A journey that swallowed the horizon or budget error still stopped.
+      if (this.halt) throw this.halt;
       this.updateCurrentJourney("completed");
       return "completed";
     } catch (error) {
+      if (this.halt instanceof JourneyHorizonError) {
+        // Still waiting, not broken: it would resume after the horizon.
+        this.updateCurrentJourney("waiting");
+        throw this.halt;
+      }
+      if (this.halt) {
+        this.updateCurrentJourney("failed");
+        throw this.halt;
+      }
       if (error instanceof JourneyExitedError) {
         this.updateCurrentJourney("exited");
         return "exited";

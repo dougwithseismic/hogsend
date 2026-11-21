@@ -23,13 +23,19 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Compact offset from the run start: `+0m`, `+45s`, `+6h`, `+2d 6h 30m`. */
+/**
+ * Compact offset from the run start: `+0m`, `+45s`, `+6h`, `+2d 6h 30m`.
+ * Rounds before splitting into units, so 119.6s is `+2m`, never `+1m 60s`.
+ * Seconds only show under an hour; longer offsets round to the minute.
+ */
 export function formatOffset(ms: number): string {
-  if (ms <= 0) return "+0m";
-  const days = Math.floor(ms / DAY);
-  const hours = Math.floor((ms % DAY) / HOUR);
-  const minutes = Math.floor((ms % HOUR) / MINUTE);
-  const seconds = Math.round((ms % MINUTE) / 1000);
+  let total = Math.round(ms / 1000) * 1000;
+  if (total >= HOUR) total = Math.round(total / MINUTE) * MINUTE;
+  if (total <= 0) return "+0m";
+  const days = Math.floor(total / DAY);
+  const hours = Math.floor((total % DAY) / HOUR);
+  const minutes = Math.floor((total % HOUR) / MINUTE);
+  const seconds = Math.floor((total % MINUTE) / 1000);
   const parts = [
     days ? `${days}d` : "",
     hours ? `${hours}h` : "",
@@ -47,9 +53,11 @@ const plural = (count: number, unit: string): string =>
 
 /** Human duration for the summary line: at most the two largest units. */
 export function humanDuration(ms: number): string {
-  const days = Math.floor(ms / DAY);
-  const hours = Math.floor((ms % DAY) / HOUR);
-  const minutes = Math.round((ms % HOUR) / MINUTE);
+  // Round to the minute first so 59.6 minutes reads "1 hour", not "60 minutes".
+  const total = Math.round(ms / MINUTE) * MINUTE;
+  const days = Math.floor(total / DAY);
+  const hours = Math.floor((total % DAY) / HOUR);
+  const minutes = Math.floor((total % HOUR) / MINUTE);
   const parts: string[] = [];
   if (days) parts.push(plural(days, "day"));
   if (hours) parts.push(plural(hours, "hour"));
@@ -100,7 +108,9 @@ const renderSummaryParts = (report: JourneySimulation): Part[] => {
       : "";
   const parts: Part[] = [`${messages}${blocked}${span}; `];
   if (report.status === "completed") parts.push("completes.");
-  else if (report.status === "exited") {
+  else if (report.status === "running") {
+    parts.push("still running at the horizon.");
+  } else if (report.status === "exited") {
     if (report.exit?.source === "exitOn" && report.exit.reason) {
       parts.push("exits on ", { code: report.exit.reason }, ".");
     } else if (report.exit?.reason) {
@@ -151,6 +161,9 @@ function waitRow(
     detail.push(` → timed out at ${at}`);
   } else if (step.outcome === "exited") {
     detail.push(` → interrupted by exit at ${at}`);
+    tone = "warn";
+  } else if (step.outcome === "horizon") {
+    detail.push(` → still waiting at ${at} (horizon)`);
     tone = "warn";
   } else {
     detail.push(
@@ -253,6 +266,15 @@ function stepRow(
       };
     case "completed":
       return { step: "Completed", detail: [], tone: "good" };
+    case "horizon":
+      return {
+        step: "Still running",
+        detail: [
+          `stopped at the simulation horizon (${formatOffset(report.horizon.durationMs)}); extend it with `,
+          { code: "--until" },
+        ],
+        tone: "warn",
+      };
     case "failed":
       return { step: "Failed", detail: [step.error], tone: "bad" };
   }

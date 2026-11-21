@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /**
  * Helpers for importing a consumer app's TypeScript modules (journeys, flags)
@@ -26,6 +28,30 @@ export function resolveTsxBin(consumerRoot: string): string {
   if (existsSync(ownShim)) return ownShim;
   throw new Error(
     "could not find a `tsx` binary — install it in the app (pnpm add -D tsx)",
+  );
+}
+
+/**
+ * Resolve tsx's ESM loader (`tsx` package entry, `dist/loader.mjs`) as a file
+ * URL for `node --import`: from the app first (covers workspace-hoisted
+ * installs), then the CLI's own copy. Running node directly instead of the
+ * `.bin/tsx` shim means no wrapper process, so signals and a kill reach the
+ * process that runs the journeys.
+ */
+export function resolveTsxLoader(consumerRoot: string): string {
+  const candidates = [
+    createRequire(join(consumerRoot, "package.json")),
+    createRequire(import.meta.url),
+  ];
+  for (const require of candidates) {
+    try {
+      return pathToFileURL(require.resolve("tsx")).href;
+    } catch {
+      // try the next location
+    }
+  }
+  throw new Error(
+    "could not find `tsx` — install it in the app (pnpm add -D tsx)",
   );
 }
 
@@ -66,5 +92,71 @@ export function placeholderEnv(
       base.BETTER_AUTH_SECRET ?? "hogsend-flags-codegen-placeholder-secret",
     HATCHET_CLIENT_TOKEN: base.HATCHET_CLIENT_TOKEN ?? makePlaceholderJwt(),
     HATCHET_CLIENT_TLS_STRATEGY: base.HATCHET_CLIENT_TLS_STRATEGY ?? "none",
+  };
+}
+
+/**
+ * Variables the simulation child inherits from the parent: what node, tsx and
+ * the OS need to run. Matched case-insensitively (Windows env names are).
+ * Everything else is dropped, including NODE_OPTIONS.
+ */
+const SIMULATE_PASSTHROUGH = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "TERM",
+  "LOG_LEVEL",
+  // Windows
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "PATHEXT",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+]);
+
+/** Hosts under `.invalid` never resolve, so a stray connect fails at once. */
+const SIMULATE_PLACEHOLDERS = {
+  DATABASE_URL:
+    "postgresql://placeholder:placeholder@placeholder.invalid:5432/placeholder",
+  REDIS_URL: "redis://placeholder.invalid:6379",
+  BETTER_AUTH_SECRET: "hogsend-simulate-placeholder-secret-000000",
+  HATCHET_CLIENT_TLS_STRATEGY: "none",
+} as const;
+
+/**
+ * Environment for the `hogsend simulate` child. Unlike {@link placeholderEnv}
+ * it starts from a clean slate: provider credentials (PostHog, Resend,
+ * Postmark, Twilio, connector tokens, webhook secrets, AI keys) never reach
+ * the journeys, even when the parent shell has them, and the database, Redis
+ * and Hatchet settings are always placeholders. A simulation therefore cannot
+ * capture to a real analytics project or reach a real service, whatever the
+ * journeys import.
+ */
+export function simulateEnv(
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    const upper = key.toUpperCase();
+    if (SIMULATE_PASSTHROUGH.has(upper) || upper.startsWith("LC_")) {
+      env[key] = value;
+    }
+  }
+  return {
+    ...env,
+    LOG_LEVEL: env.LOG_LEVEL ?? "error",
+    ...SIMULATE_PLACEHOLDERS,
+    HATCHET_CLIENT_TOKEN: makePlaceholderJwt(),
   };
 }

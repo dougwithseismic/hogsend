@@ -28,6 +28,7 @@ const report = (
   startedAt: start,
   endedAt: at(9 * DAY),
   virtualDurationMs: 9 * DAY,
+  horizon: { at: at(30 * DAY), durationMs: 30 * DAY },
   status: "exited",
   entry: { allowed: true },
   exit: { source: "exitOn", reason: "subscription.created" },
@@ -140,12 +141,23 @@ describe("time helpers", () => {
     expect(formatOffset(9 * DAY)).toBe("+9d");
   });
 
+  it("rounds before splitting an offset into units", () => {
+    expect(formatOffset(119_600)).toBe("+2m");
+    expect(formatOffset(59_600)).toBe("+1m");
+    expect(formatOffset(400)).toBe("+0m");
+    expect(formatOffset(HOUR - 400)).toBe("+1h");
+    // Above an hour seconds are not shown, so round to the minute.
+    expect(formatOffset(HOUR + 59_000)).toBe("+1h 1m");
+    expect(formatOffset(DAY - 20_000)).toBe("+1d");
+  });
+
   it("humanizes the run length to at most two units", () => {
     expect(humanDuration(0)).toBe("under a minute");
     expect(humanDuration(60_000)).toBe("1 minute");
     expect(humanDuration(HOUR)).toBe("1 hour");
     expect(humanDuration(9 * DAY)).toBe("9 days");
     expect(humanDuration(DAY + 6 * HOUR + 20 * 60_000)).toBe("1 day 6 hours");
+    expect(humanDuration(HOUR - 20_000)).toBe("1 hour");
   });
 });
 
@@ -199,6 +211,18 @@ describe("summaryLine", () => {
       summaryLine(report({ exit: { source: "manual", reason: "converted" } })),
     ).toBe("2 emails (1 blocked) over 9 days; exits early: converted.");
   });
+
+  it("describes a run still waiting at the horizon", () => {
+    expect(
+      summaryLine(
+        report({
+          status: "running",
+          exit: undefined,
+          virtualDurationMs: 30 * DAY,
+        }),
+      ),
+    ).toBe("2 emails (1 blocked) over 30 days; still running at the horizon.");
+  });
 });
 
 describe("timelineRows", () => {
@@ -227,6 +251,48 @@ describe("timelineRows", () => {
       " → timed out at +2d",
     ]);
     expect(rows[11]?.tone).toBe("warn");
+  });
+
+  it("renders the horizon wait and the still-running row", () => {
+    const rows = timelineRows(
+      report({
+        status: "running",
+        exit: undefined,
+        endedAt: at(30 * DAY),
+        steps: [
+          {
+            kind: "enrolled",
+            at: start,
+            event: "trial.started",
+            properties: {},
+          },
+          {
+            kind: "wait",
+            at: at(28 * DAY),
+            wait: "sleep",
+            label: "week-5",
+            durationMs: 7 * DAY,
+            outcome: "horizon",
+            resumedAt: at(30 * DAY),
+          },
+          { kind: "horizon", at: at(30 * DAY) },
+        ],
+      }),
+    );
+    expect(rows.map((row) => [row.time, row.step, row.tone])).toEqual([
+      ["+0m", "Enrolled", "good"],
+      ["+28d", "Sleep", "warn"],
+      ["+30d", "Still running", "warn"],
+    ]);
+    expect(rows[1]?.detail).toEqual([
+      { code: "week-5" },
+      " for 7d",
+      " → still waiting at +30d (horizon)",
+    ]);
+    expect(rows[2]?.detail).toEqual([
+      "stopped at the simulation horizon (+30d); extend it with ",
+      { code: "--until" },
+    ]);
   });
 });
 

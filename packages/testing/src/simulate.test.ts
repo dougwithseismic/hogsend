@@ -8,7 +8,14 @@ import {
   sendSms,
 } from "@hogsend/engine/journeys";
 import { describe, expect, it } from "vitest";
-import { createJourneyTest, simulateJourney } from "./index.js";
+import {
+  createJourneyTest,
+  createScenarioTest,
+  JourneyHorizonError,
+  JourneyStepBudgetError,
+  runJourneyScenarios,
+  simulateJourney,
+} from "./index.js";
 import type { JourneyScenario, SimulationStep } from "./types.js";
 
 const user = { id: "u1", email: "ada@example.com", properties: {} };
@@ -308,6 +315,154 @@ describe("simulateJourney", () => {
         }),
       ),
     ).rejects.toThrow('either "at" or "after"');
+  });
+
+  const weekly = defineJourney({
+    meta: { ...onboarding.meta, id: "sim-weekly", exitOn: [] },
+    run: async (current, ctx) => {
+      for (let week = 1; ; week += 1) {
+        await ctx.sleep({ duration: days(7), label: `week-${week}` });
+        await sendEmail({
+          to: current.email,
+          userId: current.id,
+          template: "digest" as never,
+        });
+      }
+    },
+  });
+
+  it("reports a journey still waiting at the horizon as running", async () => {
+    const report = await simulateJourney(weekly, scenario());
+
+    expect(report.status).toBe("running");
+    expect(report.error).toBeUndefined();
+    expect(report.horizon).toEqual({
+      at: "2026-04-01T09:00:00.000Z",
+      durationMs: 720 * 60 * 60 * 1000,
+    });
+    expect(report.endedAt).toBe("2026-04-01T09:00:00.000Z");
+    // Weeks 1-4 resume; week 5 would end after the 30-day horizon.
+    expect(report.summary.sent.email).toBe(4);
+    expect(report.steps.at(-2)).toEqual({
+      kind: "wait",
+      at: "2026-03-30T09:00:00.000Z",
+      wait: "sleep",
+      label: "week-5",
+      durationMs: 7 * 24 * 60 * 60 * 1000,
+      outcome: "horizon",
+      resumedAt: "2026-04-01T09:00:00.000Z",
+    });
+    expect(report.steps.at(-1)).toEqual({
+      kind: "horizon",
+      at: "2026-04-01T09:00:00.000Z",
+    });
+  });
+
+  it("honours a custom until horizon", async () => {
+    const report = await simulateJourney(weekly, scenario({ until: days(10) }));
+
+    expect(report.status).toBe("running");
+    expect(report.horizon.at).toBe("2026-03-12T09:00:00.000Z");
+    expect(report.summary.sent.email).toBe(1);
+    expect(report.steps.at(-1)).toEqual({
+      kind: "horizon",
+      at: "2026-03-12T09:00:00.000Z",
+    });
+  });
+
+  it("does not let a journey that catches the horizon keep running", async () => {
+    const stubborn = defineJourney({
+      meta: { ...onboarding.meta, id: "sim-stubborn", exitOn: [] },
+      run: async (_current, ctx) => {
+        for (let i = 0; i < 5; i += 1) {
+          try {
+            await ctx.sleep({ duration: days(20), label: `try-${i}` });
+          } catch {
+            // swallow and try again
+          }
+        }
+      },
+    });
+    const report = await simulateJourney(stubborn, scenario());
+
+    expect(report.status).toBe("running");
+    // try-0 resumes, try-1 hits the horizon, later waits record nothing.
+    expect(report.steps.filter((step) => step.kind === "wait")).toHaveLength(2);
+  });
+
+  it("fails a run that exceeds the step budget", async () => {
+    const spin = defineJourney({
+      meta: { ...onboarding.meta, id: "sim-spin", exitOn: [] },
+      run: async (_current, ctx) => {
+        for (let i = 0; ; i += 1) await ctx.checkpoint(`step-${i}`);
+      },
+    });
+    const report = await simulateJourney(spin, scenario(), { maxSteps: 50 });
+
+    expect(report.status).toBe("failed");
+    expect(report.error).toMatchObject({ name: "JourneyStepBudgetError" });
+    expect(report.error?.message).toContain("more than 50 timeline entries");
+  });
+
+  it("applies no default horizon to the plain harness", async () => {
+    // Without `until` the harness runs past 720h; the budget stops it here.
+    const bounded = createJourneyTest(weekly, {
+      user,
+      now: start,
+      maxTimelineEntries: 30,
+    });
+    await expect(bounded.run()).rejects.toBeInstanceOf(JourneyStepBudgetError);
+    expect(bounded.now.getTime()).toBeGreaterThan(
+      new Date(start).getTime() + 720 * 60 * 60 * 1000,
+    );
+  });
+
+  it("rejects run() with JourneyHorizonError when the harness has until", async () => {
+    const test = createJourneyTest(weekly, {
+      user,
+      now: start,
+      until: days(8),
+    });
+    await expect(test.run()).rejects.toBeInstanceOf(JourneyHorizonError);
+    expect(test.now.toISOString()).toBe("2026-03-10T09:00:00.000Z");
+    expect(test.effects.waits.at(-1)).toMatchObject({
+      label: "week-2",
+      outcome: "horizon",
+    });
+  });
+
+  it("reports a scenario row that reaches its until as failed", async () => {
+    const run = await runJourneyScenarios(weekly, [
+      scenario({ name: "bounded", until: days(8) }),
+    ]);
+
+    expect(run.results[0]?.status).toBe("failed");
+    expect(run.results[0]?.error).toBeInstanceOf(JourneyHorizonError);
+    expect(run.results[0]?.virtualDurationMs).toBe(8 * 24 * 60 * 60 * 1000);
+  });
+
+  it("exports createScenarioTest for building one scripted harness", async () => {
+    const test = createScenarioTest(weekly, scenario({ until: days(1) }));
+    await expect(test.run()).rejects.toBeInstanceOf(JourneyHorizonError);
+  });
+
+  it("records one variant entry per key, however often it is read", async () => {
+    const reread = defineJourney({
+      meta: { ...onboarding.meta, id: "sim-variant-once", exitOn: [] },
+      run: async (_current, ctx) => {
+        await ctx.variant("subject", ["a", "b"]);
+        await ctx.sleep({ duration: hours(1), label: "pause" });
+        await ctx.variant("subject", ["a", "b"]);
+        await ctx.variant("cta", ["x"]);
+      },
+    });
+    const report = await simulateJourney(reread, scenario());
+
+    expect(
+      report.steps
+        .filter((step) => step.kind === "variant")
+        .map((step) => (step.kind === "variant" ? step.key : "")),
+    ).toEqual(["subject", "cta"]);
   });
 });
 

@@ -12,14 +12,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JourneySimulation } from "@hogsend/testing";
-import { placeholderEnv, resolveTsxBin } from "./consumer-module.js";
+import { resolveTsxLoader, simulateEnv } from "./consumer-module.js";
 import type { SimulationRun } from "./simulate-args.js";
 
 /**
  * Runs simulations inside the consumer app. The journeys and `@hogsend/testing`
  * must share one `@hogsend/engine` module instance (the harness hooks the
- * engine's journey boundary), so the work happens in a child process under the
- * app's own `tsx`, with every `@hogsend/*` import resolved from the app.
+ * engine's journey boundary), so the work happens in a child process
+ * (`node --import tsx`), with every `@hogsend/*` import resolved from the app.
+ * The child gets a clean environment (see `simulateEnv`), a wall-clock limit,
+ * and the parent's SIGINT/SIGTERM.
  */
 
 export interface SimulateRunnerOptions {
@@ -32,7 +34,27 @@ export interface SimulateRunnerOptions {
   /** Simulate even when the enrollment guards would skip the user. */
   force: boolean;
   runs: SimulationRun[];
+  /** Wall-clock limit for the child, in ms (default 60s). */
+  timeoutMs?: number;
 }
+
+/** A run the child could not simulate (bad scenario input, setup error). */
+export interface SimulationRunError {
+  source: string;
+  journeyId: string;
+  message: string;
+}
+
+export interface SimulationResults {
+  /** Reports for the runs that completed, in run order. */
+  simulations: JourneySimulation[];
+  /** Runs that threw before producing a report, in run order. */
+  errors: SimulationRunError[];
+}
+
+const DEFAULT_TIMEOUT_MS = 60_000;
+/** After a forwarded signal, how long the child gets before SIGKILL. */
+const KILL_GRACE_MS = 2_000;
 
 const EMAIL_REGISTRY = join("src", "emails", "registry.ts");
 const SMS_REGISTRY = join("src", "sms", "registry.ts");
@@ -97,9 +119,17 @@ export function resolveTestingEntry(appRoot: string): string {
  * journeys and templates, runs each simulation and writes the results to a
  * file, so anything the journeys or the engine print cannot corrupt them.
  */
-const LOADER = `import { readFileSync, writeFileSync } from "node:fs";
+const LOADER = `import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const configFile = process.argv[2];
+// The parent holds an IPC channel open; if it dies without cleaning up, the
+// channel closes, so remove the temp dir and stop.
+process.on("disconnect", () => {
+  rmSync(dirname(configFile), { recursive: true, force: true });
+  process.exit(1);
+});
+const config = JSON.parse(readFileSync(configFile, "utf8"));
 const result = {};
 const pick = (mod, name) =>
   mod && mod[name] !== undefined ? mod[name] : mod ? mod.default : undefined;
@@ -143,19 +173,26 @@ try {
         const smsTemplates = config.smsTemplatesUrl
           ? pick(await import(config.smsTemplatesUrl), "smsTemplates")
           : undefined;
-        result.simulations = [];
+        // One bad scenario must not hide the others, so errors are per run.
+        result.runs = [];
         for (const run of config.runs) {
-          result.simulations.push(
-            await testing.simulateJourney(
-              byId.get(run.journeyId),
-              {
-                ...run.scenario,
-                ...(templates ? { templates } : {}),
-                ...(smsTemplates ? { smsTemplates } : {}),
-              },
-              { force: config.force },
-            ),
-          );
+          try {
+            result.runs.push({
+              simulation: await testing.simulateJourney(
+                byId.get(run.journeyId),
+                {
+                  ...run.scenario,
+                  ...(templates ? { templates } : {}),
+                  ...(smsTemplates ? { smsTemplates } : {}),
+                },
+                { force: config.force },
+              ),
+            });
+          } catch (error) {
+            result.runs.push({
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     }
@@ -173,7 +210,8 @@ process.exit(0);
 `;
 
 interface LoaderResult {
-  simulations?: JourneySimulation[];
+  /** One entry per config run, in order. */
+  runs?: Array<{ simulation?: JourneySimulation; error?: string }>;
   error?: {
     code: string;
     message?: string;
@@ -183,26 +221,76 @@ interface LoaderResult {
   };
 }
 
+interface ChildOutcome {
+  status: number | null;
+  output: string;
+  /** The wall-clock limit was hit and the child was killed. */
+  timedOut: boolean;
+  /** The parent received this signal and forwarded it to the child. */
+  interrupted?: NodeJS.Signals;
+}
+
+/**
+ * Run `node <args>` with a wall-clock limit. SIGINT/SIGTERM received by the
+ * parent are forwarded to the child (SIGKILL follows after a short grace),
+ * and the child is killed if the parent exits first.
+ */
 function runChild(
-  command: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv },
-): Promise<{ status: number | null; output: string }> {
+  options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
+): Promise<ChildOutcome> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(process.execPath, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     let output = "";
+    let timedOut = false;
+    let interrupted: NodeJS.Signals | undefined;
     const collect = (chunk: Buffer) => {
       output += chunk.toString("utf8");
       if (output.length > 200_000) output = output.slice(-100_000);
     };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
-    child.on("error", reject);
-    child.on("close", (status) => resolvePromise({ status, output }));
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, options.timeoutMs);
+    const forward = (signal: NodeJS.Signals) => {
+      interrupted = signal;
+      child.kill(signal);
+      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+    };
+    const onSigint = () => forward("SIGINT");
+    const onSigterm = () => forward("SIGTERM");
+    const onExit = () => child.kill("SIGKILL");
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+    process.on("exit", onExit);
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.off("SIGINT", onSigint);
+      process.off("SIGTERM", onSigterm);
+      process.off("exit", onExit);
+    };
+
+    child.on("error", (error) => {
+      cleanup();
+      child.kill("SIGKILL");
+      reject(error);
+    });
+    child.on("close", (status) => {
+      cleanup();
+      resolvePromise({
+        status,
+        output,
+        timedOut,
+        ...(interrupted ? { interrupted } : {}),
+      });
+    });
   });
 }
 
@@ -226,12 +314,18 @@ const describeLoaderError = (
   return error.message ?? error.code;
 };
 
-/** Simulate every run in one child process and return the reports in order. */
+/**
+ * Simulate every run in one child process. Returns the reports in run order,
+ * plus the runs that threw before producing a report. Throws when the app
+ * cannot be loaded, the child is stopped by the wall-clock limit, or it
+ * exits without a result.
+ */
 export async function runSimulations(
   options: SimulateRunnerOptions,
-): Promise<JourneySimulation[]> {
+): Promise<SimulationResults> {
   const testingEntry = resolveTestingEntry(options.appRoot);
-  const tsx = resolveTsxBin(options.appRoot);
+  const tsxLoader = resolveTsxLoader(options.appRoot);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const registry = (relative: string): string | undefined => {
     if (!options.templates) return undefined;
     const path = join(options.appRoot, relative);
@@ -239,9 +333,13 @@ export async function runSimulations(
   };
 
   const dir = mkdtempSync(join(tmpdir(), "hogsend-simulate-"));
+  const removeDir = () => rmSync(dir, { recursive: true, force: true });
+  // Also clean up if the parent exits before the finally below runs.
+  process.on("exit", removeDir);
   const loaderFile = join(dir, "simulate.mjs");
   const configFile = join(dir, "config.json");
   const outFile = join(dir, "result.json");
+  let interrupted: NodeJS.Signals | undefined;
   try {
     writeFileSync(loaderFile, LOADER, "utf8");
     writeFileSync(
@@ -259,16 +357,23 @@ export async function runSimulations(
       "utf8",
     );
     // The journeys import the app's module graph, which can load the main
-    // engine entry and validate its env. Placeholders satisfy that; nothing is
-    // dialled, and the app's .env is never read.
-    const env = placeholderEnv({
-      ...process.env,
-      LOG_LEVEL: process.env.LOG_LEVEL ?? "error",
-    });
-    const child = await runChild(tsx, [loaderFile, configFile], {
-      cwd: options.appRoot,
-      env,
-    });
+    // engine entry and validate its env. The child gets a clean env with
+    // placeholders for that: no credential from this shell reaches it,
+    // nothing is dialled, and the app's .env is never read.
+    const child = await runChild(
+      ["--import", tsxLoader, loaderFile, configFile],
+      { cwd: options.appRoot, env: simulateEnv(), timeoutMs },
+    );
+    if (child.interrupted) {
+      interrupted = child.interrupted;
+      throw new Error(`simulation interrupted (${child.interrupted})`);
+    }
+    if (child.timedOut) {
+      const seconds = Math.round(timeoutMs / 100) / 10;
+      throw new Error(
+        `the simulation did not finish within ${seconds}s (wall clock) and was stopped. A journey that loops without awaiting a ctx wait can spin forever; raise the limit with --timeout <seconds> if the app is just slow to load`,
+      );
+    }
     if (!existsSync(outFile)) {
       const detail = child.output.trim();
       throw new Error(
@@ -279,8 +384,25 @@ export async function runSimulations(
     }
     const result = JSON.parse(readFileSync(outFile, "utf8")) as LoaderResult;
     if (result.error) throw new Error(describeLoaderError(result.error));
-    return result.simulations ?? [];
+    const simulations: JourneySimulation[] = [];
+    const errors: SimulationRunError[] = [];
+    (result.runs ?? []).forEach((entry, index) => {
+      const run = options.runs[index];
+      if (entry.simulation) simulations.push(entry.simulation);
+      else {
+        errors.push({
+          source: run?.source ?? `run ${index + 1}`,
+          journeyId: run?.journeyId ?? "unknown",
+          message: entry.error ?? "unknown error",
+        });
+      }
+    });
+    return { simulations, errors };
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    process.off("exit", removeDir);
+    removeDir();
+    // Exit the way an interrupted process conventionally does (128 + signo)
+    // once the child is gone and the temp dir removed.
+    if (interrupted) process.exit(interrupted === "SIGINT" ? 130 : 143);
   }
 }
