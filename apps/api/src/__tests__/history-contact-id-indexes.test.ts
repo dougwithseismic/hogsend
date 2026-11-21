@@ -125,7 +125,12 @@ describe("history tables carry a partial contact_id index (PRD 04 T2)", () => {
       return rows.map((row) => row["QUERY PLAN"]).join("\n");
     });
 
-    expect(plan).toContain("user_events_contact_id_idx");
+    // Migration 0075 (PRD 09) added `user_events_contact_event_occurred_idx`,
+    // which also leads with contact_id and carries the same partial predicate.
+    // On a tie the planner may pick either; both prove the same claim.
+    expect(plan).toMatch(
+      /user_events_contact_id_idx|user_events_contact_event_occurred_idx/,
+    );
     expect(plan).toMatch(/Index Scan|Index Only Scan|Bitmap Index Scan/);
     // No recheck of the predicate anywhere in the plan: the planner discharged
     // it at plan time, which is the whole claim.

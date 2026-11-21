@@ -69,5 +69,15 @@ export const emailPreferences = pgTable(
     index("email_preferences_contact_id_idx")
       .on(table.contactId)
       .where(sql`contact_id IS NOT NULL`),
+    // PRD 09 — the per-send preference read (`readRecipientPreferences`,
+    // `email = $1 OR contact_id = $2`) and the bounce/complaint writes
+    // (`email IN (...)`) filter on the bare address. Without this every
+    // tracked send seq-scanned the table; with it the OR is a BitmapOr of this
+    // index and the contact_id one above. Pinned by an EXPLAIN test.
+    index("email_preferences_email_idx").on(table.email),
+    // PRD 09 — the campaign suppression anti-joins (`send-campaign.ts` bucket
+    // and opt-out-list resolvers, `cohortSuppressionSql`) correlate on
+    // `lower(email)`, which the plain index above cannot serve.
+    index("email_preferences_lower_email_idx").on(sql`lower(${table.email})`),
   ],
 );

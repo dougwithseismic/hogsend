@@ -526,6 +526,13 @@
       "when": 1787050674297,
       "tag": "0074_flat_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795298692318,
+      "tag": "0075_perpetual_queen_noir",
+      "breakpoints": true
     }
   ]
 }

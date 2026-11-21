@@ -2,7 +2,7 @@ import type { Database } from "@hogsend/db";
 import type { ConditionEval } from "../types/index.js";
 import { evaluateCompositeCondition } from "./composite.js";
 import { evaluateEmailEngagementCondition } from "./email-engagement.js";
-import { evaluateEventCondition } from "./event.js";
+import { eventConditionMatches } from "./event.js";
 import { evaluatePropertyCondition } from "./property.js";
 
 export interface ConditionContext {
@@ -38,10 +38,9 @@ export async function evaluateCondition(opts: {
   switch (condition.type) {
     case "property":
       return evaluatePropertyCondition({ condition, ctx });
-    case "event": {
-      const result = await evaluateEventCondition({ condition, ctx });
-      return result.matched;
-    }
+    case "event":
+      // Yes/no only: EXISTS / capped count, never a full count (PRD 09).
+      return eventConditionMatches({ condition, ctx });
     case "email_engagement":
       return evaluateEmailEngagementCondition({ condition, ctx });
     case "channel_identity":
