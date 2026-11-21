@@ -199,10 +199,12 @@ List API keys. Revoked keys are excluded by default.
       "id": "key-uuid",
       "name": "CI Pipeline",
       "keyPrefix": "hsk_abc1",
-      "scopes": ["read"],
-      "expiresAt": "2025-06-01T00:00:00.000Z",
-      "revokedAt": null,
+      "scopes": ["ingest"],
+      "allowedOrigins": null,
+      "createdBy": "legacy",
       "lastUsedAt": "2025-01-15T10:30:00.000Z",
+      "revokedAt": null,
+      "expiresAt": "2025-06-01T00:00:00.000Z",
       "createdAt": "2025-01-01T00:00:00.000Z"
     }
   ],
@@ -226,7 +228,7 @@ Create a new API key. The raw key is only returned in this response and cannot b
 ```json
 {
   "name": "CI Pipeline",
-  "scopes": ["read"],
+  "scopes": ["ingest"],
   "expiresAt": "2025-06-01T00:00:00.000Z"
 }
 ```
@@ -234,8 +236,10 @@ Create a new API key. The raw key is only returned in this response and cannot b
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | `string` | Yes | Human-readable key name |
-| `scopes` | `string[]` | Yes | Permission scopes: `read`, `journey-admin`, `full-admin` |
+| `scopes` | `string[]` | No (default `["read"]`) | Permission scopes: `read`, `journey-admin`, `full-admin`, `ingest`, `accounts`, `referrals`. Ignored when `publishable` is `true` |
 | `expiresAt` | `string` | No | ISO 8601 expiry datetime |
+| `publishable` | `boolean` | No (default `false`) | Mint a publishable `pk_` browser key. Forces `scopes` to `["ingest-public"]` |
+| `allowedOrigins` | `string[]` | Required when `publishable` | Origins allowed to use a publishable key, matched exactly against the `Origin` header (e.g. `https://app.example.com`). Ignored for secret keys |
 
 **Response `201`**
 
@@ -245,7 +249,8 @@ Create a new API key. The raw key is only returned in this response and cannot b
   "name": "CI Pipeline",
   "key": "hsk_abc123def456ghi789...",
   "keyPrefix": "hsk_abc1",
-  "scopes": ["read"],
+  "scopes": ["ingest"],
+  "allowedOrigins": null,
   "expiresAt": "2025-06-01T00:00:00.000Z",
   "createdAt": "2025-01-15T10:30:00.000Z"
 }
@@ -253,20 +258,69 @@ Create a new API key. The raw key is only returned in this response and cannot b
 
 The `key` field contains the full API key. Store it securely -- it is SHA-256 hashed before storage and cannot be retrieved again.
 
+**Response `400`** -- Validation error, including a publishable key with no `allowedOrigins`.
+
 ```bash
 curl -X POST http://localhost:3002/v1/admin/api-keys \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "CI Pipeline",
-    "scopes": ["read"],
+    "scopes": ["ingest"],
     "expiresAt": "2025-06-01T00:00:00.000Z"
   }'
 ```
 
+### `POST /v1/admin/api-keys/{id}/rotate`
+
+Mint a replacement for a key and retire the old one after a grace period. The replacement keeps the old key's name, scopes, key class (secret or publishable) and `allowedOrigins`. Both keys work until the grace period ends. The procedure is in [Operating: Rotate](/docs/operating/authentication#rotate).
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID of the key to rotate |
+
+**Request Body** (optional)
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `gracePeriodSeconds` | `number` | `86400` | Seconds the old key keeps working, `0` to `2592000` (30 days). `0` expires it immediately. An earlier existing expiry on the old key is kept |
+| `expiresAt` | `string` | none | ISO 8601 expiry for the new key |
+
+**Response `201`**
+
+```json
+{
+  "id": "new-key-uuid",
+  "name": "CI Pipeline",
+  "key": "hsk_newkey456def789...",
+  "keyPrefix": "hsk_newk",
+  "scopes": ["ingest"],
+  "allowedOrigins": null,
+  "expiresAt": null,
+  "createdAt": "2025-03-01T09:00:00.000Z",
+  "rotatedFrom": {
+    "id": "key-uuid",
+    "expiresAt": "2025-03-02T09:00:00.000Z"
+  }
+}
+```
+
+`rotatedFrom.expiresAt` is when the old key stops being accepted. The new `key` is shown only in this response.
+
+**Response `404`** -- Key not found or already revoked.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys/key-uuid/rotate \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "gracePeriodSeconds": 3600 }'
+```
+
 ### `DELETE /v1/admin/api-keys/{id}`
 
-Revoke an API key. The key is immediately invalidated and removed from the auth cache.
+Revoke an API key. The key is refused at once on the instance that served the request (its auth cache entry is evicted); other API instances may accept it for up to 60 seconds until their cache entry expires.
 
 **Path Parameters**
 

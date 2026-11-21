@@ -79,7 +79,7 @@ Opens and clicks loop back into the engine as first-class events — they can tr
 | `401` | Missing/invalid key |
 | `403` | `skipPreferenceCheck` requested without a `full-admin` key |
 | `404` | `userId` has no resolvable email |
-| `429` | Per-key email rate limit exceeded (30/min) — separate from the general data-plane budget |
+| `429` | Per-key email rate limit exceeded (30/min by default, `EMAIL_RATE_LIMIT_MAX`) — separate from the ingest budget. Back off for `Retry-After` seconds; see [Rate limits](/docs/data-api/authentication#rate-limits) |
 
 ## Example
 

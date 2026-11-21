@@ -1,9 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app.js";
 import type { HogsendClient } from "../container.js";
 import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { requirePublishableOrIngest } from "../middleware/publishable-key.js";
-import { createRateLimit } from "../middleware/rate-limit.js";
+import {
+  createIngestRateLimit,
+  createRateLimit,
+  DEFAULT_EMAIL_RATE_LIMIT_MAX,
+} from "../middleware/rate-limit.js";
 import { createAccountsRouter } from "./accounts/index.js";
 import { adminRouter } from "./admin/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
@@ -28,13 +33,6 @@ export interface RegisterRoutesOptions {
   container: HogsendClient;
 }
 
-// Conservative per-key email budget. `/v1/emails` MUST use a distinct prefix so
-// transactional sends don't share the sliding-window budget with contact
-// upserts / event ingest (open risk #15). 30/min/key is well under the
-// contact-upsert default (100/min) — an integration loop sending more than that
-// is almost certainly a runaway.
-const EMAIL_RATE_LIMIT_MAX = 30;
-
 export function registerRoutes(
   app: OpenAPIHono<AppEnv>,
   opts: RegisterRoutesOptions,
@@ -57,9 +55,52 @@ export function registerRoutes(
   // Both the bare path and its `/*` subtree are covered (Hono treats them as
   // distinct match patterns). `/emails` layers the per-key email rate-limit on
   // top, in strict order auth → scope → rateLimit.
+  //
+  // Conservative per-key email budget (`EMAIL_RATE_LIMIT_MAX`, default 30/min).
+  // `/v1/emails` MUST use a distinct prefix so transactional sends don't share
+  // the sliding-window budget with contact upserts / event ingest (open risk
+  // #15). An integration loop sending more than that is almost certainly a
+  // runaway.
+  const { env } = opts.container;
   const emailRateLimit = createRateLimit({
     prefix: "ratelimit:emails",
-    max: EMAIL_RATE_LIMIT_MAX,
+    max: env.EMAIL_RATE_LIMIT_MAX ?? DEFAULT_EMAIL_RATE_LIMIT_MAX,
+  });
+
+  // The browser-reachable ingest budget: per secret key, and per publishable
+  // key per client IP (`INGEST_RATE_LIMIT_MAX`, `INGEST_PUBLIC_RATE_LIMIT_MAX`,
+  // `INGEST_RATE_LIMIT_WINDOW_MS`; defaults in middleware/rate-limit.ts).
+  //
+  // It is COMPOSED INTO the guard rather than registered as its own `use`, so
+  // every path below keeps exactly one middleware that runs auth → scope →
+  // rateLimit in that order, and the method-branching guards (`/contacts`,
+  // `/accounts/:provider/:providerUserId`) keep branching: the limit lands only
+  // on the branch that hands off to the publishable-or-ingest guard. DELETE
+  // `/contacts` stays secret-only and unlimited, like the other secret
+  // prefixes. A 401/403 from the guard never reaches the limiter, so a request
+  // that fails auth spends no budget.
+  //
+  // Several patterns below match the same request (`/feed` + `/feed/*` both
+  // match `GET /v1/feed`; `/accounts/me/revoke` + the param branch both match
+  // the revoke). `createRateLimit` counts a request once per instance, so the
+  // overlap costs one unit, not two.
+  const ingestRateLimit = createIngestRateLimit({
+    max: env.INGEST_RATE_LIMIT_MAX,
+    publicMax: env.INGEST_PUBLIC_RATE_LIMIT_MAX,
+    windowMs: env.INGEST_RATE_LIMIT_WINDOW_MS,
+  });
+  const publishableOrIngest = createMiddleware<AppEnv>(async (c, next) => {
+    // The guard returns its own 401/403, or calls the inner function on
+    // success. The limiter's 429 comes back through that inner call, which
+    // the guard does not propagate (its `return next()` returns this inner
+    // function's void), so capture it here — the flag idiom of the
+    // `/contacts` DELETE branch below.
+    let limited: Response | undefined;
+    const res = await requirePublishableOrIngest(c, async () => {
+      const out = await ingestRateLimit(c, next);
+      if (out instanceof Response) limited = out;
+    });
+    return limited ?? res;
   });
 
   // ---- Browser-reachable subset (publishable OR secret-ingest) ----
@@ -67,28 +108,30 @@ export function registerRoutes(
   // win Hono's match order. `requirePublishableOrIngest` accepts EITHER a
   // secret ingest-scoped key (unchanged) OR a pk_/ingest-public key (Origin-
   // allowlisted, fail-closed). Everything NOT listed here stays secret-only.
+  // `publishableOrIngest` is that guard with the ingest rate limit behind it
+  // (defined above); every browser-reachable path in this file uses it.
   //
   // `/events` has no subtree (only `POST /`), so the bare pattern is complete.
-  v1.use("/events", requirePublishableOrIngest);
+  v1.use("/events", publishableOrIngest);
   // `/lists` catalog + the new static `/preferences` read + subscribe/unsub.
-  v1.use("/lists", requirePublishableOrIngest);
-  v1.use("/lists/preferences", requirePublishableOrIngest);
-  v1.use("/lists/:id/subscribe", requirePublishableOrIngest);
-  v1.use("/lists/:id/unsubscribe", requirePublishableOrIngest);
+  v1.use("/lists", publishableOrIngest);
+  v1.use("/lists/preferences", publishableOrIngest);
+  v1.use("/lists/:id/subscribe", publishableOrIngest);
+  v1.use("/lists/:id/unsubscribe", publishableOrIngest);
   // Feed: `GET /feed` list/stream + `POST /feed/mark`/`mark-all` — publishable OR
   // secret. Both the bare `/feed` (GET list) and the `/feed/*` subtree
   // (mark/mark-all/stream) are covered (Hono treats them as distinct patterns).
   // Recipient scoping is enforced server-side in `resolveFeedRecipient`, never
   // from the request.
-  v1.use("/feed", requirePublishableOrIngest);
-  v1.use("/feed/*", requirePublishableOrIngest);
+  v1.use("/feed", publishableOrIngest);
+  v1.use("/feed/*", publishableOrIngest);
   // Flags: `GET /v1/flags` is the BROWSER read (publishable OR secret-ingest).
   // Only the bare `/flags` pattern is browser-reachable; the `/flags/evaluate`
   // subtree is secret-only (guarded in the secret section below). Because a
   // bare `use("/flags")` matches ONLY the exact path (not the subtree), the two
   // tiers never overlap. Recipient scoping is server-side in
   // `resolveFeedRecipient`, never from the request.
-  v1.use("/flags", requirePublishableOrIngest);
+  v1.use("/flags", publishableOrIngest);
   // Bare `/contacts` is dual-purpose: PUT/POST = the publishable upsert;
   // DELETE = secret-only. Hono runs ALL matching `use`s, so a single guard must
   // branch by method rather than stacking two guards (which would 403 a valid
@@ -97,7 +140,7 @@ export function registerRoutes(
   const contactsDeleteGuard = requireScope("ingest");
   v1.use("/contacts", async (c, next) => {
     if (c.req.method !== "DELETE") {
-      return requirePublishableOrIngest(c, next);
+      return publishableOrIngest(c, next);
     }
     // DELETE is secret-only: chain `requireApiKey` then `requireScope("ingest")`
     // exactly as the secret prefix loop does. `requireApiKey` only runs its
@@ -145,7 +188,7 @@ export function registerRoutes(
   // `/contacts/*` wildcard would ALSO match the bare `/contacts` upsert and
   // re-run on top of its method-branch guard. Identity is resolved
   // server-side inside the handler, so this guard only sets the key tier.
-  v1.use("/contacts/me", requirePublishableOrIngest);
+  v1.use("/contacts/me", publishableOrIngest);
   // `POST /v1/flags/evaluate` is the SERVER SDK read — secret-only, exactly like
   // the other secret data-plane routes. The bare `/flags` (browser GET) is
   // guarded separately above; guard ONLY the `/evaluate` path here so the two
@@ -172,9 +215,9 @@ export function registerRoutes(
   // `userToken`-gated INSIDE its handler. Both `/me` entries are enumerated
   // rather than written `/accounts/me/*`: the wildcard trap applies at every
   // depth.
-  v1.use("/accounts/me", requirePublishableOrIngest);
-  v1.use("/accounts/me/revoke", requirePublishableOrIngest);
-  v1.use("/accounts/link-url", requirePublishableOrIngest);
+  v1.use("/accounts/me", publishableOrIngest);
+  v1.use("/accounts/me/revoke", publishableOrIngest);
+  v1.use("/accounts/link-url", publishableOrIngest);
   // Tier 2 — secret-only literals, in the style of `/contacts/find` and
   // `/flags/evaluate` above. `accounts` is an ORTHOGONAL scope
   // (`middleware/api-key.ts:35-40`): an explicit grant or `full-admin`, and no
@@ -216,7 +259,7 @@ export function registerRoutes(
     // method-gated: the literal is POST-only, so a DELETE on this same shape
     // would otherwise reach the operator unlink holding only a `pk_` key.
     if (method === "POST" && provider === "me" && second === "revoke") {
-      return requirePublishableOrIngest(c, next);
+      return publishableOrIngest(c, next);
     }
     // Everything else on this shape is the operator reverse lookup / unlink.
     // `requireApiKey` only runs its `next` on a successful auth, so use a flag
@@ -242,7 +285,7 @@ export function registerRoutes(
   //
   // Tier 1: the browser-reachable literal, `userToken`-gated INSIDE its
   // handler and non-confirming on every token failure.
-  v1.use("/referrals/me", requirePublishableOrIngest);
+  v1.use("/referrals/me", publishableOrIngest);
   // Tier 2: secret-only. `referrals` is an ORTHOGONAL scope exactly like
   // `accounts`: an explicit grant or `full-admin`, and no SCOPE_HIERARCHY edit
   // (`middleware/api-key.ts` `hasScope`). A `pk_` key holds only

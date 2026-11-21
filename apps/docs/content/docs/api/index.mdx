@@ -50,18 +50,21 @@ curl -H "Authorization: Bearer your-api-key" \
   http://localhost:3002/v1/admin/contacts
 ```
 
-Keys are SHA-256 hashed before storage -- the raw key is only shown once at creation time. Scopes come in **two kinds**:
+Keys are SHA-256 hashed before storage -- the raw key is only shown once at creation time. Database-backed keys are either **secret** (`hsk_`, server-side) or **publishable** (`pk_`, browser code, checked against a per-key `Origin` allowlist; see [Secret and publishable keys](/docs/data-api/authentication#secret-and-publishable-keys)). Scopes come in **two kinds**:
 
 | Scope | Kind | Access |
 |---|---|---|
-| `read` | hierarchical | GET admin endpoints only |
-| `journey-admin` | hierarchical | Read + journey management |
-| `full-admin` | hierarchical | All admin operations. **Also implies `ingest`** |
+| `read` | hierarchical | Reserved; no admin route grants anything to it over a bearer key today |
+| `journey-admin` | hierarchical | Reserved, like `read` |
+| `full-admin` | hierarchical | All admin operations. **Also implies every orthogonal scope** |
 | `ingest` | **orthogonal** | The data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`). No `/v1/admin/*` access |
+| `accounts` | **orthogonal** | The account-link operator routes (`/v1/accounts`) |
+| `referrals` | **orthogonal** | The referral report, tree, touch and import routes (`/v1/referrals`) |
+| `ingest-public` | **orthogonal** | Publishable keys only: the browser-reachable ingest routes, Origin-checked |
 
-The three admin scopes are **hierarchical**: `read < journey-admin < full-admin`, each implying the ones below it. `ingest` is **orthogonal** — it sits outside that ladder. A `read` or `journey-admin` key does **not** get `ingest`, and an `ingest`-only key does **not** get admin access. The only ways to reach the data plane are an explicit `ingest` grant or `full-admin`. Combine scopes (e.g. `["read", "ingest"]`) for a key that needs both planes.
+A bearer request to `/v1/admin/*` requires `full-admin`. The orthogonal scopes sit outside the `read < journey-admin < full-admin` ladder: a `read` or `journey-admin` key does **not** get `ingest`, and an `ingest`-only key does **not** get admin access. The only ways to reach the data plane are an explicit `ingest` grant or `full-admin`.
 
-Keys can be revoked and have optional expiry dates. Active keys are cached in memory for 60 seconds.
+Keys can be revoked, rotated (`POST /v1/admin/api-keys/{id}/rotate`, with a grace period for the old key) and have optional expiry dates. Active secret keys are cached in memory for 60 seconds per instance.
 
 If neither `ADMIN_API_KEY` nor any database-backed keys are configured, admin endpoints return `503 Service Unavailable`.
 
@@ -82,6 +85,8 @@ The following middleware is scoped to the **admin router** (`/v1/admin/*`), not 
 
 - **Rate limiter** -- Sliding window (100 req/min per key) with Redis backend and in-memory fallback
 - **Audit logger** -- Records all admin mutations (POST/PUT/PATCH/DELETE) with actor, action, resource, and IP
+
+The data plane has its own rate limits: 3000 req/min per secret key and 1000 req/min per publishable key per client IP on the browser-reachable ingest routes, and 30 req/min per key on `/v1/emails`, each configurable by env var. Every rate-limited response carries `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy` (plus `X-RateLimit-Limit`/`X-RateLimit-Remaining`), and a `429` adds `Retry-After`. CORS exposes all of them to browser code. See [Data API: Rate limits](/docs/data-api/authentication#rate-limits).
 
 ## Error Responses
 

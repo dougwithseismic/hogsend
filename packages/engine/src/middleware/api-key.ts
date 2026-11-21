@@ -62,6 +62,16 @@ const KEY_CACHE = new Map<
 const CACHE_TTL = 60_000;
 const LAST_USED_DEBOUNCE = 5 * 60_000;
 
+/**
+ * Drop a key's cached auth entry so THIS process re-reads the row on the key's
+ * next request. Called after a revoke or a rotation changes the row. The cache
+ * is per process: other API instances keep their entry until its TTL (60s)
+ * runs out, which is the documented revocation lag.
+ */
+export function evictCachedApiKey(keyHash: string): void {
+  KEY_CACHE.delete(keyHash);
+}
+
 export const requireApiKey = createMiddleware<AppEnv>(async (c, next) => {
   const { env, db } = c.get("container");
 

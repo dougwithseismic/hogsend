@@ -103,9 +103,13 @@ The public data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`, 
 | `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing API URL. Used to generate unsubscribe and click/open tracking links in emails, and as the base URL for the data-plane client in `src/lib/hogsend.ts`. Must be reachable by end users (e.g. `https://api.yourdomain.com`). |
 | `HOGSEND_API_KEY` | No | — | API, Worker | Ingest-scoped data-plane API key for `@hogsend/client` / the CLI. Format `hsk_<base64url(32 bytes)>`. `pnpm bootstrap` auto-mints one locally (step 7) and writes it here. In production, mint one with `POST /v1/admin/api-keys` and scopes `["ingest"]` (a `full-admin` key also satisfies the scope). |
 | `ADMIN_API_KEY` | No | — | API | Legacy full-admin Bearer key for `/v1/admin/*` endpoints and the `hogsend` CLI's admin commands. Resolves to scopes `["full-admin"]`. Without it (and without a Studio session), admin endpoints are inaccessible. |
+| `INGEST_RATE_LIMIT_MAX` | No | `3000` | API | Requests per window per **secret** key on the browser-reachable ingest routes (`/v1/events`, `/v1/lists`, `/v1/feed`, `/v1/flags`, the contact upsert, the `/me` routes). See [Rate limits](/docs/data-api/authentication#rate-limits). |
+| `INGEST_PUBLIC_RATE_LIMIT_MAX` | No | `1000` | API | Requests per window per **publishable** (`pk_`) key, per client IP, on the same routes. |
+| `INGEST_RATE_LIMIT_WINDOW_MS` | No | `60000` | API | Sliding-window length for both ingest budgets, in milliseconds. |
+| `EMAIL_RATE_LIMIT_MAX` | No | `30` | API | Requests per minute per key on `/v1/emails`. |
 
 <Callout type="warn">
-  Don't ship a `full-admin` key (or `ADMIN_API_KEY`) to client-side code — it can mutate contacts and journeys. Use an ingest-scoped `HOGSEND_API_KEY` on the data plane. Generate a strong admin key: `openssl rand -hex 32`.
+  Don't ship any secret (`hsk_`) key to client-side code: not `ADMIN_API_KEY`, not a `full-admin` key, and not the ingest-scoped `HOGSEND_API_KEY` either. Browser code uses a publishable `pk_` key, minted with `publishable: true` and an `allowedOrigins` list (see [Secret and publishable keys](/docs/data-api/authentication#secret-and-publishable-keys)). Generate a strong admin key: `openssl rand -hex 32`.
 </Callout>
 
 <Callout type="info">

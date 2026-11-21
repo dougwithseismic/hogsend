@@ -13,7 +13,11 @@ import type { Auth } from "./lib/auth.js";
 import { mountStudio } from "./lib/studio.js";
 import type { ApiKeyContext } from "./middleware/api-key.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
+import {
+  clientIpKey,
+  createRateLimit,
+  RATE_LIMIT_HEADERS,
+} from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
 import { SNIPPET_PATH } from "./routes/snippet.js";
@@ -105,6 +109,10 @@ export function createApp(
       // header-bearer, not cookie-auth), so reflecting the Origin does not widen
       // credentialed/cookie exposure.
       origin: (origin) => origin ?? "*",
+      // Let browser code read the rate-limit headers. None is CORS-safelisted,
+      // so without this `@hogsend/js` sees a 429 but no `Retry-After` (its
+      // `RateLimitError.retryAfter` stays undefined) and no `RateLimit-*`.
+      exposeHeaders: [...RATE_LIMIT_HEADERS],
     }),
   );
   app.use("*", compress());
