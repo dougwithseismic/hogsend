@@ -108,6 +108,834 @@ const ENTRIES: ChangelogEntry[] = [
     ),
   },
   {
+    version: "0.67.0",
+    anchor: "0-67-0",
+    date: "August 18, 2026",
+    title: "Referrals, and contact traits in the browser",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>defineReferral()</Code>. A contact shares a link; a visitor
+          who arrives through it, identifies and qualifies is recorded as their
+          referee. Each stage (touch, bind, qualify, convert) emits a{" "}
+          <Code>referral.*</Code> event that can trigger a journey and reach
+          your webhook subscribers, and <Code>before*</Code> hooks can veto any
+          stage. <Code>getReferralLink()</Code> mints a person&rsquo;s share
+          link from inside a journey.
+        </Bullet>
+        <Bullet>
+          Referral reporting is a query, not program config.{" "}
+          <Code>GET /v1/referrals/report</Code> takes the attribution model,
+          window, depth and per-level weights as request parameters, so you can
+          credit multi-level referrals differently without backfilling anything.
+          Studio gets observe-only referral views. Payouts are not included.
+        </Bullet>
+        <Bullet>
+          Referrals across the SDKs: <Code>@hogsend/client</Code>{" "}
+          <Code>referrals.*</Code>, <Code>@hogsend/js</Code>{" "}
+          <Code>referral.link()</Code>, <Code>@hogsend/react</Code>{" "}
+          <Code>useReferralLink()</Code>, and the MCP tools{" "}
+          <Code>get_referral_report</Code> and <Code>get_referral_tree</Code>.
+        </Bullet>
+        <Bullet>
+          Contact traits you choose to expose are now readable in the browser.
+          List the property keys in{" "}
+          <Code>
+            {"createHogsendClient({ contacts: { publicProperties } })"}
+          </Code>{" "}
+          and <Code>GET /v1/contacts/me</Code> returns them for the visitor the
+          server identified. The default exposes nothing, and a contact key
+          supplied by the request is never trusted.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/js</Code> gains <Code>hogsend.getContact()</Code> and{" "}
+          <Code>hogsend.getTrait(key)</Code>, refreshed on identify and cleared
+          on reset; <Code>@hogsend/react</Code> gains <Code>useContact()</Code>{" "}
+          and <Code>useTrait(key)</Code>. Augment <Code>ContactTraitsMap</Code>{" "}
+          for typed keys.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code> (new referral tables). Additive: nothing reaches
+        the browser until you add keys to <Code>publicProperties</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.66.0",
+    anchor: "0-66-0",
+    date: "August 17, 2026",
+    title: "A drop-in script tag for the browser SDK",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>@hogsend/js</Code> now ships a self-booting script build. Add
+          one <Code>&lt;script&gt;</Code> tag with <Code>data-key</Code> (and
+          optionally <Code>data-host</Code>, <Code>data-user-id</Code>,{" "}
+          <Code>data-user-token</Code>, <Code>data-pageview</Code>) and{" "}
+          <Code>window.hogsend</Code> is ready. Calls made before it loads are
+          queued and replayed, and a <Code>hogsend:ready</Code> event fires when
+          it boots.
+        </Bullet>
+        <Bullet>
+          Your instance serves the file first-party at{" "}
+          <Code>GET /hogsend.js</Code>, with an ETag and cache headers. New
+          scaffolds include <Code>@hogsend/js</Code>, so the route works out of
+          the box; <Code>HOGSEND_JS_PATH</Code> points it at a different build.
+        </Bullet>
+        <Bullet>
+          The script build carries the GTM bridge (
+          <Code>data-datalayer=&quot;push&quot;</Code>,{" "}
+          <Code>data-datalayer-watch</Code>) and a <Code>hogsend.ui</Code>{" "}
+          namespace with plain-JavaScript <Code>banner()</Code> and{" "}
+          <Code>toasts()</Code> renderers, also importable as{" "}
+          <Code>@hogsend/js/ui</Code>.
+        </Bullet>
+        <Bullet>
+          A bulk contact import no longer starts one journey per merged contact
+          that loses a linked account. The <Code>account.unlinked</Code> webhook
+          still fires either way.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. To serve{" "}
+        <Code>/hogsend.js</Code> from an existing app, add{" "}
+        <Code>@hogsend/js</Code> as a dependency; without it the route returns
+        404.
+      </>
+    ),
+  },
+  {
+    version: "0.65.0",
+    anchor: "0-65-0",
+    date: "August 14, 2026",
+    title: "Account linking for Steam and Twitch",
+    bullets: (
+      <>
+        <Bullet>
+          Players can link a Steam or Twitch account to their contact. Steam
+          needs no credentials (<Code>STEAM_WEB_API_KEY</Code> is optional);
+          Twitch turns on when both <Code>ACCOUNT_LINK_TWITCH_CLIENT_ID</Code>{" "}
+          and <Code>ACCOUNT_LINK_TWITCH_CLIENT_SECRET</Code> are set. Any other
+          platform is a <Code>defineAccountLink()</Code> call using the{" "}
+          <Code>oauth2Link()</Code> or <Code>steamOpenIdLink()</Code> presets.
+        </Bullet>
+        <Bullet>
+          A hosted flow at <Code>/v1/accounts/:provider/start</Code> and{" "}
+          <Code>/callback</Code> handles the redirect, signed state, PKCE and a{" "}
+          <Code>beforeLink</Code> veto hook. The browser can request a link URL
+          itself (<Code>POST /v1/accounts/link-url</Code>) with a user token
+          your server minted, so you ship no backend endpoint for it.
+        </Bullet>
+        <Bullet>
+          A data API under the new <Code>accounts</Code> key scope: list links,
+          look up who owns a platform account, unlink, bulk import (insert-only,
+          never moves an existing link) and mint link URLs. Players can see and
+          revoke their own links with <Code>GET /v1/accounts/me</Code> and{" "}
+          <Code>POST /v1/accounts/me/revoke</Code>.
+        </Bullet>
+        <Bullet>
+          <Code>account.linked</Code>, <Code>account.unlinked</Code> and{" "}
+          <Code>account.link_failed</Code> reach both your webhook subscribers
+          and your journeys. Webhook payloads carry the full current state and a{" "}
+          <Code>version</Code> sent as a decimal string, so a subscriber can
+          discard late or out-of-order deliveries; compare it with{" "}
+          <Code>BigInt()</Code>. Imports enroll journeys only with{" "}
+          <Code>enrollJourneys: true</Code>.
+        </Bullet>
+        <Bullet>
+          Merging two contacts carries their linked accounts to the survivor,
+          and deleting a contact unlinks its accounts.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code> (new linked-accounts table). Account linking
+        needs Redis: without <Code>REDIS_URL</Code> its routes return 503.{" "}
+        <Code>ConnectorStateIntent.connectorId</Code> is now optional, which
+        matters only if your own code reads it.
+      </>
+    ),
+  },
+  {
+    version: "0.64.0",
+    anchor: "0-64-0",
+    date: "August 12, 2026",
+    title: "Hogsend Email, and replies as events",
+    bullets: (
+      <>
+        <Bullet>
+          Hogsend Email, the sending included with Hogsend Cloud.{" "}
+          <Code>@hogsend/plugin-hogsend</Code> is an email provider that sends
+          over the Hogsend relay, so an instance needs no Resend key and no AWS
+          account. A domain verifies with one TXT record instead of three
+          CNAMEs. Select it with <Code>EMAIL_PROVIDER=hogsend</Code>.
+        </Bullet>
+        <Bullet>
+          On Hogsend Email, a reply to journey mail arrives as{" "}
+          <Code>email.replied</Code>, so a journey can wait on it and branch on
+          whether a person answered. Replies are always forwarded to a human
+          address, and auto-responders are forwarded but never emitted, so an
+          out-of-office cannot advance a journey or start a mail loop.
+        </Bullet>
+        <Bullet>
+          A redelivered bounce notification is now counted once, so it can no
+          longer push a deliverable address into suppression. Binary attachments
+          sent over the managed path, which were being corrupted, now arrive
+          intact.
+        </Bullet>
+        <Bullet>
+          <Code>@hono/zod-openapi</Code> is pinned to 1.4.0: version 1.5.2 ships
+          broken type declarations that failed <Code>check-types</Code> in a
+          fresh scaffold.
+        </Bullet>
+        <Bullet>
+          Scaffolded apps gain <Code>lint</Code>, <Code>lint:fix</Code> and{" "}
+          <Code>format</Code> scripts, so <Code>pnpm lint</Code> runs Biome
+          instead of whatever <Code>lint</Code> binary is on your PATH (0.64.1).
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Additive: your current
+        email provider stays active unless you set{" "}
+        <Code>EMAIL_PROVIDER=hogsend</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.63.0",
+    anchor: "0-63-0",
+    date: "August 5, 2026",
+    title: "Hogsend Cloud from the command line",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>hogsend signup</Code> creates a Hogsend Cloud account, and{" "}
+          <Code>hogsend login --email</Code> signs in with an emailed code, no
+          browser needed.
+        </Bullet>
+        <Bullet>
+          <Code>hogsend publish</Code> offers to sign you in when you
+          aren&rsquo;t, reports each phase while your first publish provisions
+          the instance, and with <Code>--no-wait</Code> prints the build id and
+          returns.
+        </Bullet>
+        <Bullet>
+          <Code>create-hogsend --cloud</Code> scaffolds an app and takes it to a
+          live hosted instance in one command.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/mcp</Code> gains five cloud tools: sign up, verify,
+          whoami, publish and build status. An admin key is now optional;
+          without one the instance tools are hidden and the cloud tools still
+          work.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No engine changes;
+        self-hosted deploys are unaffected.
+      </>
+    ),
+  },
+  {
+    version: "0.62.0",
+    anchor: "0-62-0",
+    date: "August 3, 2026",
+    title: "One-click CLI login and a deploy template that boots",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>hogsend login</Code> opens your browser at the approval page
+          with the code filled in, so approving is one click. The code and URL
+          are still printed, and <Code>--no-browser</Code> (or a headless or SSH
+          session) completes the same flow by hand.
+        </Bullet>
+        <Bullet>
+          Fixed Studio sign-in rate limiting behind Railway&rsquo;s edge. Every
+          caller landed in one shared bucket, so ten failed logins by anyone
+          locked sign-in for everyone. The limiter now keys on the real client
+          IP.
+        </Bullet>
+        <Bullet>
+          Scaffolded apps now start with <Code>node dist/index.js</Code> and{" "}
+          <Code>node dist/worker.js</Code> on Railway and migrate with{" "}
+          <Code>tsx scripts/migrate.ts</Code>. The previous <Code>pnpm</Code>{" "}
+          commands crash-looped on first boot in the production image.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. If your app was
+        scaffolded earlier and deploys to Railway, make the same change to its
+        start and pre-deploy commands.
+      </>
+    ),
+  },
+  {
+    version: "0.61.0",
+    anchor: "0-61-0",
+    date: "July 29, 2026",
+    title: "Merged-away keys resolve to the right person",
+    bullets: (
+      <>
+        <Bullet>
+          Security fix. After two contacts merged, a browser (publishable-key)
+          caller could present the merged-away key to read that person&rsquo;s
+          earlier in-app feed items, or claim the key for itself. Both are
+          closed.
+        </Bullet>
+        <Bullet>
+          A merged-away key now resolves to the surviving contact wherever you
+          look someone up: <Code>/v1/contacts/find</Code>,{" "}
+          <Code>DELETE /v1/contacts</Code> (erasing by an old email erases the
+          person it merged into), Studio contact search and detail, bucket
+          checks, feed recipients and journey run lookups.
+        </Bullet>
+        <Bullet>
+          Merges no longer rewrite history. Events and sends keep the key they
+          were recorded under, and ownership moves with the contact.
+        </Bullet>
+        <Bullet>
+          Tightened: an identified contact&rsquo;s email can no longer be used
+          as an anonymous id.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No response shapes
+        change.
+      </>
+    ),
+  },
+  {
+    version: "0.60.0",
+    anchor: "0-60-0",
+    date: "July 29, 2026",
+    title: "History follows the contact, not the key",
+    bullets: (
+      <>
+        <Bullet>
+          Every read of a person&rsquo;s history now follows the contact rather
+          than the key it was written under: journey entry limits and exit
+          checks, buckets and campaign audiences, email suppression and
+          preferences, Studio and agent views, holdout lift, and attribution and
+          revenue. A person whose key changed through a merge keeps one
+          continuous history.
+        </Bullet>
+        <Bullet>
+          Identifying a visitor attaches their anonymous history to the contact
+          without rewriting it, so each row stays a record of the key it
+          happened under.
+        </Bullet>
+        <Bullet>
+          Subjects with no contact record, such as a send to a raw address, are
+          still read by their key. That remains a supported state.
+        </Bullet>
+        <Bullet>
+          Studio&rsquo;s events feed shows the contact that owns each event
+          instead of guessing, and an event whose owner was deleted shows no
+          contact.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code>. On a large deployment, run the three preflight
+        uniqueness queries from the release notes first. Breaking for code that
+        calls these engine functions directly: <Code>checkEntryLimit</Code>,{" "}
+        <Code>checkEmailPreferences</Code>,{" "}
+        <Code>readRecipientPreferences</Code>, <Code>getContactRevenue</Code>,{" "}
+        <Code>recordAttributionCredits</Code> and{" "}
+        <Code>recoverClickContext</Code> now require{" "}
+        <Code>contactId: string | null</Code>, and <Code>ConditionContext</Code>{" "}
+        requires <Code>contactId</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.59.0",
+    anchor: "0-59-0",
+    date: "July 28, 2026",
+    title: "Every history row records its contact",
+    bullets: (
+      <>
+        <Bullet>
+          Events, journey states, bucket memberships, email sends and
+          preferences now record the contact that owns them, alongside the key
+          they were written under. The write is best-effort: a failed lookup
+          leaves it empty and never fails the send, ingest or enrollment it
+          rides on.
+        </Bullet>
+        <Bullet>
+          Existing rows are filled by a background sweep that is chunked,
+          resumable and safe to re-run. It starts at boot and runs again once
+          the last sweep is older than 24 hours (
+          <Code>CONTACT_ID_BACKFILL_RESWEEP_HOURS</Code>). Force a run with{" "}
+          <Code>POST /v1/admin/maintenance/backfill-contact-id</Code> and check
+          coverage with <Code>GET /v1/admin/maintenance/contact-id-verify</Code>
+          .
+        </Bullet>
+        <Bullet>
+          Nothing reads the new field yet; 0.60 switches history reads onto it.
+          Merges carry it to the surviving contact.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code>. The migration builds five indexes and blocks
+        writes to each table while it runs. If <Code>user_events</Code> is
+        large, build the indexes concurrently while still on 0.58 (the
+        statements are in the release notes); the migration then finds them and
+        skips the lock.
+      </>
+    ),
+  },
+  {
+    version: "0.57.0",
+    anchor: "0-57-0",
+    date: "July 28, 2026",
+    title: "Contacts come from identity, not traffic",
+    bullets: (
+      <>
+        <Bullet>
+          Anonymous browser traffic no longer creates contact rows. A
+          publishable-key event that asserts no identity, an unauthenticated
+          arrival, and an in-app feed send to a bare anonymous id are still
+          stored, routed to journeys, checked against exits and buckets, and
+          mirrored to analytics. They just don&rsquo;t mint a contact. If your
+          contacts list was filling with blank rows, that stops.
+        </Bullet>
+        <Bullet>
+          When the visitor identifies, their anonymous events, journey states,
+          bucket memberships, sends and preferences are adopted onto the
+          contact. Signing in from a second device works the same way: that
+          device&rsquo;s anonymous id resolves to the same person and its
+          history is adopted.
+        </Bullet>
+        <Bullet>
+          One person can hold many keys. A second email, external id, anonymous
+          id or Discord id is recorded and resolves back to the same contact
+          instead of creating a duplicate. An external or anonymous id that
+          already identifies another contact is refused and logged.
+        </Bullet>
+        <Bullet>
+          Buckets now see email-only and anonymous members. Property criteria
+          evaluate against their real data, leave, <Code>maxDwell</Code> and
+          dwell passes fire for them, and a campaign targeting a bucket reaches
+          every member. So a backlog of old dwell messages doesn&rsquo;t go out,
+          the first sweep after upgrading starts their dwell clocks from that
+          moment.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. If you track revenue: an
+        anonymous browser event with no <Code>value</Code> no longer fires
+        conversions, attribution credits or funnel progress (events with{" "}
+        <Code>value</Code> or a <Code>groups</Code> map, secret-key calls and
+        identified events still do). <Code>@hogsend/plugin-discord</Code> no
+        longer requests the presence intent by default, so{" "}
+        <Code>discord.presence_active</Code> stops firing unless you pass
+        explicit <Code>intents</Code>. Your own <Code>ingestEvent</Code> calls
+        are unchanged.
+      </>
+    ),
+  },
+  {
+    version: "0.56.0",
+    anchor: "0-56-0",
+    date: "July 25, 2026",
+    title: "Enrichment lands on canonical contact fields",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>refineContact()</Code> now writes enrichment to canonical
+          contact properties (<Code>title</Code>, <Code>seniority</Code>,{" "}
+          <Code>company</Code>, <Code>company_domain</Code>,{" "}
+          <Code>company_employees</Code> and others) instead of{" "}
+          <Code>refined_*</Code> keys, and records where the data came from in
+          one <Code>{"enrichment: { provider, at }"}</Code> object.
+        </Bullet>
+        <Bullet>
+          Enrichment fills only empty fields, so a paid lookup never overwrites
+          first-party data you already set. Fit buckets still re-evaluate when a
+          lookup returns a value you already had.
+        </Bullet>
+        <Bullet>
+          Lookups cached by 0.54 are converted to the new field names when read.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Breaking if you read{" "}
+        <Code>refined_*</Code> properties: point bucket criteria and conditions
+        at the canonical names.
+      </>
+    ),
+  },
+  {
+    version: "0.55.0",
+    anchor: "0-55-0",
+    date: "July 25, 2026",
+    title: "Opt-in provider plugins that load in every app",
+    bullets: (
+      <>
+        <Bullet>
+          The Apollo, Postmark and Twilio presets now work in scaffolded apps.
+          Before, setting <Code>APOLLO_API_KEY</Code>,{" "}
+          <Code>POSTMARK_SERVER_TOKEN</Code> or the Twilio credentials
+          registered nothing while the deploy looked healthy.
+        </Bullet>
+        <Bullet>
+          <Code>create-hogsend --with apollo|postmark|twilio</Code> (repeatable
+          or comma-separated, plus an interactive picker) adds the plugin as a
+          direct dependency and puts its credentials in{" "}
+          <Code>.env.example</Code>.
+        </Bullet>
+        <Bullet>
+          Boot logs now say whether a plugin is not installed, failed to load,
+          or is missing an export, instead of reporting every failure as
+          &ldquo;not installed&rdquo;.
+        </Bullet>
+        <Bullet>
+          Bucket enter and leave events no longer create duplicate contacts for
+          visitors who were never identified.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. If you set any of these
+        credentials, add the matching package as a direct dependency of your app
+        (for example <Code>pnpm add @hogsend/plugin-apollo</Code>); the
+        engine&rsquo;s optional dependency is not enough.
+      </>
+    ),
+  },
+  {
+    version: "0.54.0",
+    anchor: "0-54-0",
+    date: "July 25, 2026",
+    title: "Contact enrichment",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>refineContact()</Code> pulls person and company data for a
+          known contact from an enrichment provider and writes it to the
+          contact, so a bucket built from behaviour can also be qualified by
+          fit. It is a standalone import like <Code>sendEmail()</Code> and never
+          throws: every failure comes back as a status.
+        </Bullet>
+        <Bullet>
+          Enrichment providers are bring-your-own, authored with{" "}
+          <Code>defineEnrichmentProvider()</Code>.{" "}
+          <Code>@hogsend/plugin-apollo</Code> is the reference implementation.
+        </Bullet>
+        <Bullet>
+          Spend controls ship with it. Every lookup is cached per provider and
+          key, misses included, and <Code>ENRICHMENT_MONTHLY_LOOKUPS</Code> is a
+          hard monthly cap on vendor calls that fails closed.
+        </Bullet>
+        <Bullet>
+          <Code>GET /v1/admin/contacts</Code> can sort by a numeric contact
+          property (<Code>orderBy=property</Code>), which turns a bucket into a
+          ranked list. A new <Code>contact.refined</Code> webhook event fires on
+          each new refinement; a cache hit emits nothing.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>.{" "}
+        <Code>ENRICHMENT_MONTHLY_LOOKUPS</Code> defaults to <Code>0</Code>,
+        which means uncapped, so set it per environment before turning on a paid
+        provider.
+      </>
+    ),
+  },
+  {
+    version: "0.53.0",
+    anchor: "0-53-0",
+    date: "July 21, 2026",
+    title: "Managed links from the client SDK",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>@hogsend/client</Code> gains a <Code>links</Code> resource:{" "}
+          <Code>create</Code>, <Code>get</Code>, <Code>list</Code>,{" "}
+          <Code>update</Code>, <Code>archive</Code>, <Code>qr</Code> and{" "}
+          <Code>qrUrl</Code>.
+        </Bullet>
+        <Bullet>
+          Link minting is idempotent. Pass an <Code>idempotencyKey</Code> to
+          dedupe links without a slug, and re-minting an existing slug with
+          compatible settings returns the existing link instead of a 409. Links
+          also accept a <Code>source</Code> field.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Additive.
+      </>
+    ),
+  },
+  {
+    version: "0.52.0",
+    anchor: "0-52-0",
+    date: "July 21, 2026",
+    title: "Group-scoped waits",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>ctx.waitForEvent</Code> and <Code>ctx.history.hasEvent</Code>{" "}
+          take a <Code>group</Code> option, so a person&rsquo;s journey can wait
+          until anyone in their account or team fires an event. The group comes
+          from an explicit <Code>{"{ type, key }"}</Code>, the trigger
+          event&rsquo;s groups, or the user&rsquo;s only membership; an
+          ambiguous case throws <Code>GroupScopeUnresolvableError</Code> rather
+          than guessing.
+        </Bullet>
+        <Bullet>
+          Wait results now include <Code>actorUserId</Code>, the user who fired
+          the matching event, on every hit, including ordinary user-scoped
+          waits.
+        </Bullet>
+        <Bullet>
+          A filtered wait records its outcome once and replays it, so a redeploy
+          after the wait resolved can no longer flip the run onto the timeout
+          branch. In 0.52.1, replaying a run after a crash no longer fails when
+          a resolved filtered or group wait is followed by more steps.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/testing</Code> simulates group scope (
+          <Code>triggerGroups</Code>), and new scaffolds include a typed{" "}
+          <Code>groups.d.ts</Code> plus a group-wait example journey with tests.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Tests that compare wait
+        results by exact equality will see the new <Code>actorUserId</Code>{" "}
+        field, and reusing one wait label twice in a run now throws. Group waits
+        are code-first only; Journey Blueprints don&rsquo;t have the option yet.
+      </>
+    ),
+  },
+  {
+    version: "0.51.0",
+    anchor: "0-51-0",
+    date: "July 20, 2026",
+    title: "Searchable Studio pickers and a real suppressed status",
+    bullets: (
+      <>
+        <Bullet>
+          Studio replaces free-typed identifiers with searchable two-pane
+          pickers: events (with the journeys that use them and first and last
+          seen), people (server-searched, with a profile card), sources, group
+          types, templates and journeys. You can still type a value that
+          isn&rsquo;t in the list.
+        </Bullet>
+        <Bullet>
+          Sends blocked by suppression or test mode get their own{" "}
+          <Code>suppressed</Code> status instead of <Code>failed</Code>, so{" "}
+          <Code>failed</Code> now means a real dispatch failure. Studio shows it
+          as a neutral chip and can filter by it. Frequency caps and journey
+          min-gap checks ignore suppressed sends, as they already did failed
+          ones.
+        </Bullet>
+        <Bullet>
+          Campaign stats gain a <Code>skipped</Code> count for suppressed sends
+          and now attribute every send to its campaign directly, so nothing
+          blocked goes uncounted.
+        </Bullet>
+        <Bullet>
+          <Code>hogsend upgrade</Code> no longer aborts on pnpm 11&rsquo;s
+          interactive prompt when run with <Code>--json</Code>,{" "}
+          <Code>--yes</Code> or without a terminal.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code> (adds the <Code>suppressed</Code> status). Sends
+        recorded before this version keep their old <Code>failed</Code> status.
+      </>
+    ),
+  },
+  {
+    version: "0.50.0",
+    anchor: "0-50-0",
+    date: "July 18, 2026",
+    title: "Groups, in-journey A/B tests, and journey unit tests",
+    bullets: (
+      <>
+        <Bullet>
+          Groups: track accounts, teams or companies by{" "}
+          <Code>(groupType, groupKey)</Code>, each with its own properties and
+          members, with or without an analytics provider. Writes and reads use a
+          secret key (<Code>/v1/groups</Code>, <Code>@hogsend/client</Code>{" "}
+          <Code>groups.*</Code>, Segment <Code>group</Code> calls); browsers can
+          only attach events to a group, with <Code>hogsend.group()</Code> or{" "}
+          <Code>useGroup()</Code>. With PostHog configured, associations forward
+          as <Code>$groups</Code>. New <Code>group.*</Code> webhook events and
+          Studio views.
+        </Bullet>
+        <Bullet>
+          <Code>ctx.variant(key, arms)</Code> runs a deterministic, equal-split
+          A/B test inside a journey. Each contact&rsquo;s arm is recorded once
+          and replayed unchanged, even if a later deploy changes the arms.
+        </Bullet>
+        <Bullet>
+          New <Code>@hogsend/testing</Code>: run journeys in-process against
+          virtual time, scripted events and a captured mailbox, with scenario
+          tables and optional Vitest matchers. New scaffolds include a tested
+          example.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/js</Code> gains a two-way <Code>window.dataLayer</Code>{" "}
+          bridge, off by default: pipe an allowlist of existing GTM events into
+          Hogsend, and mirror Hogsend events back out as{" "}
+          <Code>hogsend.&lt;name&gt;</Code>. <Code>client.setUserToken()</Code>{" "}
+          applies a late-arriving user token without remounting the React
+          provider.
+        </Bullet>
+        <Bullet>
+          New <Code>@hogsend/video</Code>: normalized watch-depth events from
+          YouTube, Vimeo and HTML5 video, sent to Hogsend, PostHog, GA4, Segment
+          or your own emitter.
+        </Bullet>
+        <Bullet>
+          Also new: a weekly <Code>impact.digest</Code> webhook event covering
+          newly shipped journey versions and holdout results that cross a
+          win-probability threshold; an Intercom/Fin webhook preset that turns
+          conversations into <Code>support.*</Code> events (set{" "}
+          <Code>INTERCOM_CLIENT_SECRET</Code>); and an optional{" "}
+          <Code>BASE_CURRENCY</Code> lens that adds converted figures to group
+          revenue views.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>, then run{" "}
+        <Code>db:migrate</Code> (new group tables). Additive.{" "}
+        <Code>ctx.history.email</Code> and <Code>ctx.history.sms</Code> no
+        longer count attempts that never reached a provider. Journeys stay
+        person-scoped; group-level journeys are not part of this release.
+      </>
+    ),
+  },
+  {
+    version: "0.46.0",
+    anchor: "0-46-0",
+    date: "July 14, 2026",
+    title: "Scaffold to running with zero prompts",
+    bullets: (
+      <>
+        <Bullet>
+          The scaffold, bootstrap and run path works with no prompts, so an
+          agent or CI job can drive it. New flags <Code>--admin-email</Code> and{" "}
+          <Code>--admin-password</Code> preset the first Studio admin (created
+          on first boot), and <Code>--posthog</Code> records PostHog intent
+          without a browser.
+        </Bullet>
+        <Bullet>
+          Fixed: setting <Code>STUDIO_ADMIN_EMAIL</Code> now creates the first
+          admin at boot, as documented. The template never made the call.
+        </Bullet>
+        <Bullet>
+          Every scaffold&rsquo;s <Code>CLAUDE.md</Code> includes a headless
+          &ldquo;zero to running&rdquo; runbook. In a non-interactive run,
+          bootstrap failures print their full cause, and bootstrap moves the
+          app&rsquo;s own port when 3002 is busy.
+        </Bullet>
+        <Bullet>
+          Pass <Code>{"journeyConstants: { templates, events }"}</Code> to{" "}
+          <Code>createHogsendClient</Code> and Studio&rsquo;s journey graph
+          resolves <Code>Templates.X</Code> and <Code>Events.X</Code> to their
+          real values, so email steps preview exactly and wait nodes show live
+          counts. New scaffolds wire it by default.
+        </Bullet>
+        <Bullet>
+          Fixes: the Studio events feed no longer shows an event twice when two
+          contacts share a key, and in 0.46.1 the Setup checklist&rsquo;s docs
+          links no longer 404.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Apps scaffolded earlier
+        that rely on <Code>STUDIO_ADMIN_EMAIL</Code>: add{" "}
+        <Code>{"await bootstrapAdminFromEnv({ client });"}</Code> to{" "}
+        <Code>src/index.ts</Code>, just before{" "}
+        <Code>bootstrapApiKeyFromEnv</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.45.0",
+    anchor: "0-45-0",
+    date: "July 14, 2026",
+    title: "A first run that works, and PostHog without pasted keys",
+    bullets: (
+      <>
+        <Bullet>
+          The engine boots without email credentials. With no provider
+          configured, Studio, ingest and non-email journeys all work and each
+          send fails with a clear message, so new scaffolds no longer need a
+          placeholder <Code>RESEND_API_KEY</Code>. A provider you name
+          explicitly still fails at boot if it isn&rsquo;t registered.
+        </Bullet>
+        <Bullet>
+          <Code>hogsend connect posthog</Code> is now the whole PostHog setup.
+          The project key it discovers is stored and activated at boot, so
+          capture works without setting <Code>POSTHOG_API_KEY</Code>. If no
+          admin key is configured locally, the CLI offers to mint one into{" "}
+          <Code>.env</Code>.
+        </Bullet>
+        <Bullet>
+          First-run fixes in <Code>create-hogsend</Code>: installs work on pnpm
+          11, apps in a folder with a space in its path no longer skip engine
+          migrations silently, and bootstrap checks that migrations finished and
+          exits non-zero with a summary when any step fails.
+        </Bullet>
+        <Bullet>
+          Bootstrap mints an admin key alongside the ingest key and can run the
+          PostHog connect flow as its last step. The scaffold&rsquo;s PostHog
+          question becomes &ldquo;Where will events come from?&rdquo;, with your
+          own app code selected by default.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. Additive.
+      </>
+    ),
+  },
+  {
     version: "0.44.0",
     anchor: "0-44-0",
     date: "July 13, 2026",
