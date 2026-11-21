@@ -421,6 +421,15 @@ export const env = createEnv({
     OUTBOUND_WEBHOOK_BASE_DELAY_MS: z.coerce.number().optional(),
     OUTBOUND_WEBHOOK_MAX_DELAY_MS: z.coerce.number().optional(),
     OUTBOUND_WEBHOOK_STUCK_AFTER_MS: z.coerce.number().optional(),
+    // How long the outbound spine reuses its list of enabled endpoints before
+    // re-reading `webhook_endpoints` (lib/outbound-endpoint-cache.ts). Read raw
+    // off process.env at emit time; default 30000, 0 disables the cache. The
+    // admin webhook routes clear it on the instance that handled the write.
+    OUTBOUND_ENDPOINT_CACHE_TTL_MS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .optional(),
     // --- Integration presets (Section 2.2) ---
     // Signature-source secrets. The webhook route resolves a preset's secret via
     // env[source.auth.envKey]; a signature source FAILS CLOSED when its secret is

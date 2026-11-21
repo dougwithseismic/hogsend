@@ -33,6 +33,8 @@ const CHUNK_SIZE = 100;
 interface CampaignRecipient {
   email: string;
   userId?: string;
+  /** The owning `contacts.id`, when the resolver joined it (skips a resolve). */
+  contactId?: string;
 }
 
 /**
@@ -584,6 +586,7 @@ export const sendCampaignTask = hatchet.task({
               props: (step.props ?? {}) as never,
               to: r.email,
               userId: r.userId,
+              ...(r.contactId ? { contactId: r.contactId } : {}),
               userEmail: r.email,
               subject: step.subject,
               from: step.from,
@@ -978,6 +981,7 @@ async function* resolveBucketRecipients(
           .select({
             id: bucketMemberships.id,
             userId: bucketMemberships.userId,
+            contactId: contacts.id,
             membershipEmail: bucketMemberships.userEmail,
             contactEmail: contacts.email,
           })
@@ -1011,7 +1015,11 @@ async function* resolveBucketRecipients(
       if (!raw) return undefined;
       // Normalize so the recipient matches the normalized email_preferences
       // keyspace the mailer's suppression check queries (see fn docstring).
-      return { email: normalizeEmail(raw), userId: row.userId };
+      return {
+        email: normalizeEmail(raw),
+        userId: row.userId,
+        contactId: row.contactId,
+      };
     },
   });
 }
@@ -1159,6 +1167,7 @@ async function* resolveOptOutListRecipients(
       return {
         email: normalizeEmail(row.email),
         userId: row.userId ?? row.contactId,
+        contactId: row.contactId,
       };
     },
   });

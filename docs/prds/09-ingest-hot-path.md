@@ -81,3 +81,53 @@ as upper bounds.
   count, used by `ctx.history.hasEvent`) is unchanged.
 - Single digits for the warm ingest needs part B (contact id threading, exit
   select narrowing) or folding the probe into the contact update.
+
+### Part B (contact id threading, exit narrowing, key and endpoint caches)
+
+Same test file, same counter. The counter now ignores postgres.js's per-new-
+connection array-type fetch, which appeared only when the pool happened to open
+a connection mid-block.
+
+| Path | Part A | Part B |
+| --- | --- | --- |
+| Warm ingest (no buckets, no outbound endpoints) | 10 | 10 |
+| One tracked send (journey or API path) | 6 | 5 |
+| One tracked send handed a fresh `contactId` (campaign path) | 6 | 4 |
+| Re-check of N buckets a contact already belongs to | 2N + reads | 1 membership read, no bumps |
+| `pk_` request on a warm key | 2 (`select` + `lastUsedAt` update) | 0 |
+
+- Outbound endpoint cache (`lib/outbound-endpoint-cache.ts`): every enabled
+  single-tenant endpoint with its `event_types`, filtered in memory per emit.
+  30 s TTL (`OUTBOUND_ENDPOINT_CACHE_TTL_MS`, read at emit time, `0` turns it
+  off) and a generation counter so a read that started before an
+  invalidation can't refill the cache with the pre-write list. Cleared by the
+  admin create/update/delete routes and the PostHog destination seed, on the
+  instance that made the change only. The worker and other API instances lag
+  up to 30 s: a new endpoint misses events in that window; a disabled or
+  deleted one is still never sent to, because `deliver-webhook` re-reads the
+  endpoint row. Secret rotation does not invalidate (it changes neither
+  `disabled` nor `event_types`). `apps/api/vitest.config.ts` sets the TTL to
+  `0` because many test files write endpoints straight to the DB.
+- `pk_` keys go through `loadApiKey` (`middleware/api-key.ts`), the same 60 s
+  cache and 5-minute debounced `lastUsedAt` as secret keys. Before, every
+  browser request selected the key and wrote `lastUsedAt`. The trade: a revoked
+  or rotated `pk_` key now keeps working on other instances for up to a
+  minute, exactly like a secret key.
+- Buckets: one `IN (…)` read for every candidate's active membership instead of
+  a `findFirst` per candidate; the contact read uses the threaded `contactId`
+  instead of `lookupContactIdByKey`; a stable member's `last_evaluated_at` is
+  rewritten only when it is older than 60 s. The only reader of that column is
+  the reconcile cron's oldest-first cursor on a 5-minute cadence, which a
+  minute's lag doesn't reorder.
+- Exits select `id, journeyId, hatchetRunId` instead of whole rows and write
+  their `end-exited` log rows with one multi-row insert (`logTransitions`).
+- The tracked mailer takes an explicit `contactId` option. Only the campaign
+  resolvers pass it (they join `contacts` with `deleted_at IS NULL` in the
+  same unit of work). Journey sends deliberately do NOT pass the
+  enrollment-time contact id: a merge mid-journey would make it stale and the
+  send row would be stamped on the merged-away contact. They still pay the
+  lookup.
+- Not done, for a later row: the warm ingest is still 10. The remaining
+  candidates are the `journey_blueprints` trigger lookup (cacheable like the
+  endpoints) and folding the orphan probe into the contact update (row 12's
+  resolver fast path).

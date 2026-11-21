@@ -14,6 +14,7 @@ process.env.DATABASE_URL =
 const { apiKeys } = await import("@hogsend/db");
 const { eq, like } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
+const { countQueries } = await import("./query-counter.js");
 
 const mockHatchet = {
   durableTask: vi.fn(() => ({
@@ -29,7 +30,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({ overrides: { hatchet: mockHatchet } });
 const app = createApp(container);
-const { db } = container;
+const { db, dbClient } = container;
 
 const RUN = `akl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const ORIGIN = "https://keys-lifecycle.example.com";
@@ -115,6 +116,24 @@ describe("secret vs publishable keys", () => {
       headers: { Authorization: `Bearer ${k.key}`, Origin: ORIGIN },
     });
     expect(admin.status).toBe(403);
+  });
+
+  it("reads a publishable key once, then serves it from the auth cache", async () => {
+    const k = await mint({
+      name: "cached publishable",
+      publishable: true,
+      allowedOrigins: [ORIGIN],
+    });
+    const first = await countQueries(dbClient, () => probe(k.key, ORIGIN));
+    expect(first.result).toBe(200);
+    const touchesKeys = (statements: { sql: string }[]) =>
+      statements.filter((st) => /"api_keys"/.test(st.sql));
+    // A cold key: one read, plus the debounced lastUsedAt write.
+    expect(touchesKeys(first.statements)).toHaveLength(2);
+
+    const second = await countQueries(dbClient, () => probe(k.key, ORIGIN));
+    expect(second.result).toBe(200);
+    expect(touchesKeys(second.statements)).toHaveLength(0);
   });
 
   it("refuses a publishable key with no allowedOrigins", async () => {

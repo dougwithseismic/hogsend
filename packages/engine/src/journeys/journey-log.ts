@@ -62,3 +62,34 @@ export function logTransition(args: LogTransitionArgs): void {
     // synchronous build/dispatch failure — swallow; logging must never throw
   }
 }
+
+/**
+ * `logTransition` for many states at once: one multi-row insert, with the same
+ * fire-and-forget, never-throws contract. Used where a single event moves a
+ * batch of states (an exit fan-out), so the log costs one statement instead of
+ * one per state.
+ */
+export function logTransitions(
+  db: Database,
+  rows: ReadonlyArray<Omit<LogTransitionArgs, "db">>,
+): void {
+  if (rows.length === 0) return;
+  try {
+    void db
+      .insert(journeyLogs)
+      .values(
+        rows.map((row) => ({
+          journeyStateId: row.journeyStateId,
+          fromNodeId: row.from ?? null,
+          toNodeId: row.to ?? null,
+          action: row.action,
+          detail: row.detail ?? null,
+        })),
+      )
+      .catch(() => {
+        // best-effort timeline write — never surface into the caller
+      });
+  } catch {
+    // synchronous build/dispatch failure — swallow; logging must never throw
+  }
+}

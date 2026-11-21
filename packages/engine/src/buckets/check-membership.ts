@@ -8,7 +8,7 @@ import {
 } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import {
   contactKeySql,
@@ -25,6 +25,9 @@ import {
 import { getBucketRegistrySingleton } from "./registry-singleton.js";
 
 export type BucketTransitionKind = "entered" | "left";
+
+/** A stable member's `last_evaluated_at` is rewritten at most once a minute. */
+const LAST_EVALUATED_BUMP_MS = 60_000;
 
 export interface BucketTransition {
   bucketId: string;
@@ -216,7 +219,13 @@ export async function checkBucketMembership(opts: {
     // it returns null for exactly the soft-deleted contact that failure (2)
     // above is about. Stopping at the null would leave `contactDeleted` false
     // and silently re-open the GDPR guard for the rows it exists to protect.
-    const resolvedId = await lookupContactIdByKey(db, userId);
+    //
+    // PRD 09 part B — when `ingestEvent` hands us the contact id it just
+    // resolved, read by that id directly: it is the alias-resolved survivor
+    // already, so the extra `lookupContactIdByKey` round trip would only
+    // re-derive it. The select still returns `deletedAt`, so the GDPR guard
+    // below holds for the pinned path too.
+    const resolvedId = contactId ?? (await lookupContactIdByKey(db, userId));
     const [contact] = await db
       .select({
         properties: contacts.properties,
@@ -249,26 +258,43 @@ export async function checkBucketMembership(opts: {
 
   const transitions: BucketTransition[] = [];
 
-  for (const bucket of candidates) {
-    if (!bucket.criteria) continue;
-
-    // wasMember — current active, non-deleted membership row (cheap pre-filter;
-    // the authoritative guard is the RETURNING-gated mutation below). Read by
-    // SUBJECT: a membership adopted onto this contact under a since-stale key
-    // is invisible to a `user_id` probe, and missing it re-runs the JOIN path,
-    // which then loses the arbiter-less race and no-ops — a member who silently
-    // never re-emits and never leaves.
-    const active = await db.query.bucketMemberships.findFirst({
-      where: and(
+  // wasMember — current active, non-deleted membership rows (cheap pre-filter;
+  // the authoritative guard is the RETURNING-gated mutation below). Read by
+  // SUBJECT: a membership adopted onto this contact under a since-stale key
+  // is invisible to a `user_id` probe, and missing it re-runs the JOIN path,
+  // which then loses the arbiter-less race and no-ops — a member who silently
+  // never re-emits and never leaves.
+  //
+  // PRD 09 part B — one `bucket_id IN (...)` read for every candidate instead
+  // of one probe per bucket. The first row per bucket wins, as `findFirst` did.
+  const activeRows = await db
+    .select()
+    .from(bucketMemberships)
+    .where(
+      and(
         bySubject(bucketMemberships, {
           contactId: contactId ?? null,
           userKey: userId,
         }),
-        eq(bucketMemberships.bucketId, bucket.id),
+        inArray(
+          bucketMemberships.bucketId,
+          candidates.map((bucket) => bucket.id),
+        ),
         eq(bucketMemberships.status, "active"),
         isNull(bucketMemberships.deletedAt),
       ),
-    });
+    );
+  const activeByBucket = new Map<string, (typeof activeRows)[number]>();
+  for (const row of activeRows) {
+    if (!activeByBucket.has(row.bucketId))
+      activeByBucket.set(row.bucketId, row);
+  }
+  const bumpBefore = Date.now() - LAST_EVALUATED_BUMP_MS;
+
+  for (const bucket of candidates) {
+    if (!bucket.criteria) continue;
+
+    const active = activeByBucket.get(bucket.id);
     const wasMember = !!active;
 
     // isMember — the criteria evaluation. event/count sub-conditions read
@@ -303,11 +329,19 @@ export async function checkBucketMembership(opts: {
       });
       if (transition) transitions.push(transition);
     } else if (wasMember && isMember) {
-      // stable member → no transition, no emit. Cheap observability bump.
-      await db
-        .update(bucketMemberships)
-        .set({ lastEvaluatedAt: new Date() })
-        .where(eq(bucketMemberships.id, active.id));
+      // stable member → no transition, no emit. Cheap observability bump,
+      // skipped when the row was evaluated within the last minute: a busy
+      // member would otherwise write this row on every event. The reconcile
+      // cron orders by this column, so a minute of staleness only nudges it.
+      if (
+        active.lastEvaluatedAt == null ||
+        active.lastEvaluatedAt.getTime() < bumpBefore
+      ) {
+        await db
+          .update(bucketMemberships)
+          .set({ lastEvaluatedAt: new Date() })
+          .where(eq(bucketMemberships.id, active.id));
+      }
     } else if (wasMember && !isMember) {
       const transition = await handleLeave({
         db,

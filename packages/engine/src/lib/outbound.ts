@@ -1,14 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import {
-  type Database,
-  webhookDeliveries,
-  webhookEndpoints,
-} from "@hogsend/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { type Database, webhookDeliveries } from "@hogsend/db";
 import { deliverWebhookTask } from "../workflows/deliver-webhook.js";
 import type { SerializedContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
+import { loadSubscribableEndpoints } from "./outbound-endpoint-cache.js";
 import {
   WEBHOOK_EVENT_TYPES,
   type WebhookEventType,
@@ -717,19 +713,12 @@ export async function emitOutbound<E extends OutboundEventName>(opts: {
     const webhookId = `msg_${randomUUID()}`;
     const timestamp = new Date();
 
-    // (2) Active, subscribed endpoints. `event_types @> '["<event>"]'` matches
-    // the jsonb array containing this event. Single-tenant: organizationId IS
-    // NULL (NOT a hardcoded tenant — keeps the MT wiring non-breaking).
-    const endpoints = await db
-      .select({ id: webhookEndpoints.id })
-      .from(webhookEndpoints)
-      .where(
-        and(
-          eq(webhookEndpoints.disabled, false),
-          isNull(webhookEndpoints.organizationId),
-          sql`${webhookEndpoints.eventTypes} @> ${JSON.stringify([event])}::jsonb`,
-        ),
-      );
+    // (2) Active, subscribed endpoints, from the endpoint cache below.
+    // Single-tenant: organizationId IS NULL (NOT a hardcoded tenant — keeps the
+    // MT wiring non-breaking).
+    const endpoints = (await loadSubscribableEndpoints(db)).filter((endpoint) =>
+      endpoint.eventTypes.includes(event),
+    );
 
     if (endpoints.length === 0) return;
 

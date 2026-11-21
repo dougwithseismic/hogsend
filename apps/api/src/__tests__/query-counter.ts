@@ -41,6 +41,9 @@ interface DebuggableOptions {
   debug?: boolean | DebugFn;
 }
 
+const DRIVER_TYPE_FETCH =
+  /^\s*select\s+b\.oid,\s*b\.typarray\s+from\s+pg_catalog\.pg_type\b/i;
+
 export async function countQueries<T>(
   client: DatabaseClient,
   block: () => Promise<T>,
@@ -53,6 +56,10 @@ export async function countQueries<T>(
   let lastSeen = Date.now();
 
   options.debug = (_connection, query, parameters) => {
+    // postgres.js reads the array type list once per NEW connection. It is
+    // driver bookkeeping, not work the code under test asked for, and it
+    // appears only when the pool happens to open a connection mid-block.
+    if (DRIVER_TYPE_FETCH.test(query)) return;
     statements.push({ sql: query, params: [...parameters] });
     lastSeen = Date.now();
   };

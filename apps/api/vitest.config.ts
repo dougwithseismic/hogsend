@@ -35,6 +35,7 @@ const WEBHOOK_FANOUT = [
   "src/__tests__/groups-outbound.test.ts",
   "src/__tests__/impact-digest.test.ts",
   "src/__tests__/link-tracker-email-invariant.test.ts",
+  "src/__tests__/outbound-endpoint-cache.test.ts",
   "src/__tests__/outbound-webhooks-delivery.test.ts",
   "src/__tests__/outbound-webhooks-emit.test.ts",
   "src/__tests__/outbound-webhooks-routes.test.ts",
@@ -94,6 +95,10 @@ export default defineConfig({
       NODE_ENV: "test",
       PORT: "3002",
       LOG_LEVEL: "error",
+      // Tests insert and flip webhook_endpoints rows straight through the DB,
+      // which the admin routes' cache invalidation never sees. Off by default
+      // here; outbound-endpoint-cache.test.ts turns it back on per test.
+      OUTBOUND_ENDPOINT_CACHE_TTL_MS: "0",
       // DO NOT "fix" this DATABASE_URL to point at a real database. It names a
       // deliberately DEAD endpoint, and that is load-bearing.
       //

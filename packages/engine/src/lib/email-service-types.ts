@@ -52,6 +52,14 @@ export interface SendTrackedEmailOptions<
    * transactional sends.
    */
   campaignId?: string;
+  /**
+   * The recipient's `contacts.id` when the caller already holds it fresh (a
+   * campaign resolver that joined `contacts`). The mailer then stamps
+   * `email_sends.contact_id` with it instead of resolving `userId` again. Leave
+   * it unset unless the id was read in the same unit of work: a journey's
+   * enrollment-time id can go stale across a merge.
+   */
+  contactId?: string;
   /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
   userId?: string;
   userEmail?: string;
@@ -183,6 +191,8 @@ export interface EmailServiceSendOptions<
   journeyStateId?: string;
   /** Campaign identity for campaign-dispatched sends (see SendTrackedEmailOptions). */
   campaignId?: string;
+  /** A fresh `contacts.id` for the recipient (see SendTrackedEmailOptions). */
+  contactId?: string;
   /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
   userId?: string;
   userEmail?: string;

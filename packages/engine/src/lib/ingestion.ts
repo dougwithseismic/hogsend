@@ -17,7 +17,7 @@ import {
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
 import { BLUEPRINT_RUN_EVENT } from "../journeys/constants.js";
-import { logTransition } from "../journeys/journey-log.js";
+import { logTransitions } from "../journeys/journey-log.js";
 import {
   logResidualTwins,
   mergeAnalyticsIdentities,
@@ -1074,16 +1074,26 @@ async function checkExits(
 ): Promise<ExitResult[]> {
   const results: ExitResult[] = [];
 
-  const activeStates = await db.query.journeyStates.findMany({
-    where: and(
-      bySubject(journeyStates, {
-        contactId: event.contactId,
-        userKey: event.userId,
-      }),
-      inArray(journeyStates.status, ["active", "waiting"]),
-      isNull(journeyStates.deletedAt),
-    ),
-  });
+  // Only the three columns the exit decision and the cancel need: a state row
+  // carries the journey's whole `context` jsonb, and this read runs on every
+  // ingest for every active enrollment the subject has.
+  const activeStates = await db
+    .select({
+      id: journeyStates.id,
+      journeyId: journeyStates.journeyId,
+      hatchetRunId: journeyStates.hatchetRunId,
+    })
+    .from(journeyStates)
+    .where(
+      and(
+        bySubject(journeyStates, {
+          contactId: event.contactId,
+          userKey: event.userId,
+        }),
+        inArray(journeyStates.status, ["active", "waiting"]),
+        isNull(journeyStates.deletedAt),
+      ),
+    );
 
   // Blueprint enrollments share journeyStates but are NOT in the code-journey
   // registry — their exitOn lives on the journey_blueprints row (spec §4).
@@ -1156,17 +1166,18 @@ async function checkExits(
       })
       .where(inArray(journeyStates.id, statesToExit));
 
-    // Fire-and-forget EXIT transition logs (best-effort; the exit path is
-    // already best-effort around the hatchet cancel below). Never throws.
-    for (const id of statesToExit) {
-      logTransition({
-        db,
+    // Fire-and-forget EXIT transition logs, one insert for the batch
+    // (best-effort; the exit path is already best-effort around the hatchet
+    // cancel below). Never throws.
+    logTransitions(
+      db,
+      statesToExit.map((id) => ({
         journeyStateId: id,
         from: null,
         to: "end-exited",
-        action: "exited",
-      });
-    }
+        action: "exited" as const,
+      })),
+    );
 
     // Cancel the live durable runs so a journey suspended in a sleep or
     // `waitForEvent` can't resume and fire after it has exited. Best-effort: a

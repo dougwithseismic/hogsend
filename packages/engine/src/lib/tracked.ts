@@ -276,8 +276,11 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   //
   // D6 — wrapped: a bookkeeping resolve may never fail the send it rides on.
   // Placed AFTER the idempotency short-circuit so a deduped retry pays nothing.
-  let sendContactId: string | null = null;
-  if (options.userId) {
+  //
+  // PRD 09 part B — a caller that already holds the recipient's contact id
+  // (the campaign resolvers join `contacts`) passes it and skips the resolve.
+  let sendContactId: string | null = options.contactId ?? null;
+  if (sendContactId === null && options.userId) {
     try {
       sendContactId = await lookupContactIdByKey(db, options.userId);
     } catch (err) {

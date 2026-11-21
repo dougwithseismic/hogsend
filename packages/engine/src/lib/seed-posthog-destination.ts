@@ -1,6 +1,7 @@
 import { type Database, webhookEndpoints } from "@hogsend/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Logger } from "./logger.js";
+import { invalidateOutboundEndpointCache } from "./outbound-endpoint-cache.js";
 
 /**
  * Transaction-scoped advisory-lock key serializing the single-tenant PostHog
@@ -59,7 +60,7 @@ export async function seedPostHogDestination(opts: {
   // build the client) with a transaction-scoped advisory lock, so the race can
   // never double-seed. A per-endpoint unique constraint is intentionally avoided
   // — operators may legitimately create multiple PostHog endpoints by hand.
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(${SEED_ADVISORY_LOCK_KEY})`,
     );
@@ -153,4 +154,7 @@ export async function seedPostHogDestination(opts: {
     });
     return { seeded: true };
   });
+  // After commit: the outbound spine must see a seeded or reconciled row now.
+  invalidateOutboundEndpointCache();
+  return result;
 }

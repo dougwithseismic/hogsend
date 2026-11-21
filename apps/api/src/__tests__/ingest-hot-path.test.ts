@@ -1,5 +1,5 @@
 /**
- * PRD 09 part A — the database cost of the two hottest engine paths.
+ * PRD 09 — the database cost of the two hottest engine paths.
  *
  * 1. Statement budgets, counted on the wire with `countQueries` (every
  *    statement counts, BEGIN/COMMIT and advisory locks included):
@@ -8,8 +8,13 @@
  *            before: 17 statements (8 of them no-op orphan adoption)
  *            after:  10 (adoption is one existence probe)
  *      (b) one tracked send through the container's mailer to a known
- *          contact: 6 statements before and after (part A makes the
- *          preference read an index probe; it does not remove a statement).
+ *          contact: 6 statements before, 5 after part B (the subscribed
+ *          webhook endpoints come from a cache instead of a read per emit).
+ *      (c) the same send handed a fresh `contactId` (the campaign path):
+ *          4, because the mailer skips its contact lookup.
+ *      (d) a re-check of three buckets the contact already belongs to: one
+ *          membership read for all three and no `last_evaluated_at` rewrite
+ *          (before: one read and one update per bucket).
  *    The bounds are upper bounds at the new numbers, so a regression fails.
  * 2. The orphan-adoption gate opens for an orphan in ANY of the five tables.
  * 3. EXPLAIN pins: the per-send preference read uses
@@ -31,6 +36,8 @@ import {
 process.env.DATABASE_URL =
   process.env.HOGSEND_TEST_DATABASE_URL ??
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
+// Measure the production shape: vitest.config turns the endpoint cache off.
+process.env.OUTBOUND_ENDPOINT_CACHE_TTL_MS = "30000";
 
 const { hatchetMock } = vi.hoisted(() => {
   const factory = () => ({
@@ -70,8 +77,15 @@ const { evaluateCondition, evaluateEventCondition } = await import(
   "@hogsend/core"
 );
 type EventCondition = import("@hogsend/core").EventCondition;
-const { createHogsendClient, hatchet, ingestEvent, resolveOrCreateContact } =
-  await import("@hogsend/engine");
+const {
+  buildBucketRegistry,
+  checkBucketMembership,
+  createHogsendClient,
+  defineBucket,
+  hatchet,
+  ingestEvent,
+  resolveOrCreateContact,
+} = await import("@hogsend/engine");
 type EmailProvider = import("@hogsend/engine").EmailProvider;
 const { templates } = await import("../emails/index.js");
 const { lists } = await import("../lists/index.js");
@@ -98,9 +112,10 @@ const RUN = `hot-${randomUUID().slice(0, 8)}`;
 const uid = (label: string) => `${RUN}-${label}`;
 const mail = (label: string) => `${RUN}-${label}@example.com`;
 
-/** The measured budgets (PRD 09 part A). Lower them as later parts land. */
+/** The measured budgets (PRD 09). Lower them as later work lands. */
 const WARM_INGEST_BUDGET = 10;
-const TRACKED_SEND_BUDGET = 6;
+const TRACKED_SEND_BUDGET = 5;
+const TRACKED_SEND_WITH_CONTACT_ID_BUDGET = 4;
 
 afterAll(async () => {
   const key = `${RUN}-%`;
@@ -172,6 +187,13 @@ describe("PRD 09 — statement budgets", () => {
     const userId = uid("send");
     const to = mail("send");
     await resolveOrCreateContact({ db, userId, email: to });
+    // Warm-up send: fills the outbound endpoint cache, as any earlier send
+    // in a running process would have.
+    await container.emailService.send({
+      template: "welcome",
+      to: mail("send-warmup"),
+      props: { name: "Ada" },
+    });
 
     const counted = await countQueries(dbClient, () =>
       container.emailService.send({
@@ -186,6 +208,103 @@ describe("PRD 09 — statement budgets", () => {
       counted.count,
       describeStatements(counted.statements),
     ).toBeLessThanOrEqual(TRACKED_SEND_BUDGET);
+  });
+
+  it("(c) a send handed a fresh contactId skips the contact lookup", async () => {
+    const userId = uid("send-cid");
+    const to = mail("send-cid");
+    const contact = await resolveOrCreateContact({ db, userId, email: to });
+    await container.emailService.send({
+      template: "welcome",
+      to: mail("send-cid-warmup"),
+      props: { name: "Ada" },
+    });
+
+    const counted = await countQueries(dbClient, () =>
+      container.emailService.send({
+        template: "welcome",
+        to,
+        props: { name: "Ada" },
+        userId,
+        contactId: contact.id,
+      }),
+    );
+    const listing = describeStatements(counted.statements);
+    expect(counted.result.status).toBe("sent");
+    expect(counted.count, listing).toBeLessThanOrEqual(
+      TRACKED_SEND_WITH_CONTACT_ID_BUDGET,
+    );
+    expect(
+      counted.statements.filter((st) => /from "contacts"/.test(st.sql)),
+      listing,
+    ).toHaveLength(0);
+
+    const [row] = await db
+      .select({ contactId: emailSends.contactId })
+      .from(emailSends)
+      .where(eq(emailSends.toEmail, to));
+    expect(row?.contactId).toBe(contact.id);
+  });
+
+  it("(d) re-checking buckets a contact already belongs to", async () => {
+    const userId = uid("buckets");
+    // The `plan` fact rides the contactProperties patch below.
+    const contact = await resolveOrCreateContact({
+      db,
+      userId,
+      email: mail("buckets"),
+    });
+    const bucketRegistry = buildBucketRegistry(
+      ["a", "b", "c"].map((suffix) =>
+        defineBucket({
+          meta: {
+            id: uid(`pro-${suffix}`),
+            name: `Pro ${suffix}`,
+            enabled: true,
+            criteria: {
+              type: "property",
+              property: "plan",
+              operator: "eq",
+              value: "pro",
+            },
+          },
+        }),
+      ),
+      "*",
+    );
+    const check = () =>
+      checkBucketMembership({
+        db,
+        registry,
+        hatchet,
+        logger,
+        userId,
+        userEmail: mail("buckets"),
+        contactId: contact.id,
+        event: `${RUN}.upgraded`,
+        eventProperties: {},
+        contactProperties: { plan: "pro" },
+        bucketRegistry,
+      });
+
+    const joined = await check();
+    expect(joined.filter((t) => t.transition === "entered")).toHaveLength(3);
+
+    const counted = await countQueries(dbClient, check);
+    const listing = describeStatements(counted.statements);
+    expect(counted.result, listing).toHaveLength(0);
+    expect(
+      counted.statements.filter((st) =>
+        /from "bucket_memberships"/.test(st.sql),
+      ),
+      listing,
+    ).toHaveLength(1);
+    expect(
+      counted.statements.filter((st) =>
+        /^update "bucket_memberships" set "last_evaluated_at"/.test(st.sql),
+      ),
+      listing,
+    ).toHaveLength(0);
   });
 });
 
