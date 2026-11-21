@@ -321,7 +321,7 @@ async function explainAtVolume(
       await tx`ANALYZE email_preferences`;
       await tx`SET LOCAL enable_seqscan = off`;
       const rows = await tx.unsafe(`EXPLAIN ${statement}`, params as never[]);
-      plan = rows.map((r) => (r as Record<string, string>)["QUERY PLAN"]);
+      plan = rows.map((r) => (r as Record<string, string>)["QUERY PLAN"] ?? "");
       throw ROLLBACK;
     });
   } catch (err) {
