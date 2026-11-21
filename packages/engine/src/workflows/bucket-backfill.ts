@@ -10,7 +10,6 @@ import {
   bucketConfigs,
   bucketMemberships,
   contacts,
-  createDatabase,
   type Database,
   importJobs,
   userEvents,
@@ -35,6 +34,7 @@ import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import { contactKeySql, normalizeEmailOrNull } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -108,7 +108,7 @@ export const bucketBackfillTask = hatchet.task({
   retries: 0,
   executionTimeout: "600s",
   fn: async (input: BucketBackfillInput) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();

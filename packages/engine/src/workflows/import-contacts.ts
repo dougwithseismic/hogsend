@@ -1,8 +1,9 @@
 import type { Database } from "@hogsend/db";
-import { contacts, createDatabase, importJobs } from "@hogsend/db";
+import { contacts, importJobs } from "@hogsend/db";
 import { and, eq, isNull } from "drizzle-orm";
 import Papa from "papaparse";
 import { resolveOrCreateContact } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { normalizePhone } from "../lib/phone.js";
 
@@ -70,9 +71,7 @@ export const importContactsTask = hatchet.task({
   retries: 0,
   executionTimeout: "600s",
   fn: async (input: { jobId: string; data: string; format: string }) => {
-    const { db } = createDatabase({
-      url: process.env.DATABASE_URL ?? "",
-    });
+    const db = getDb();
 
     await db
       .update(importJobs)

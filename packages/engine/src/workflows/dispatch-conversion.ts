@@ -1,5 +1,5 @@
-import { createDatabase } from "@hogsend/db";
 import { deliverConversionDispatch } from "../lib/conversion-dispatch.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
 
@@ -19,7 +19,7 @@ export const dispatchConversionTask = hatchet.task({
   retries: 4,
   executionTimeout: "60s",
   fn: async (input: DispatchConversionInput) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     return deliverConversionDispatch({
       db,

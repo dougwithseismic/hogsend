@@ -1,11 +1,7 @@
-import {
-  createDatabase,
-  type Database,
-  emailSends,
-  journeyStates,
-} from "@hogsend/db";
+import { type Database, emailSends, journeyStates } from "@hogsend/db";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { checkAlertRules } from "../lib/alerting.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger, type Logger } from "../lib/logger.js";
 
@@ -199,9 +195,7 @@ export const checkAlertsTask = hatchet.task({
   retries: 1,
   executionTimeout: "60s",
   fn: async () => {
-    const { db } = createDatabase({
-      url: process.env.DATABASE_URL ?? "",
-    });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
 
     await surfaceRecentFailures({ db, logger });

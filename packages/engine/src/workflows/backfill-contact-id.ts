@@ -1,12 +1,8 @@
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types.js";
-import {
-  contacts,
-  createDatabase,
-  type Database,
-  importJobs,
-} from "@hogsend/db";
+import { contacts, type Database, importJobs } from "@hogsend/db";
 import { and, desc, eq, gt, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { contactKeySql } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -836,7 +832,7 @@ export const contactIdBackfillTask = hatchet.task({
   // timeout is not lost — the next re-sweep resumes it for free.
   executionTimeout: "3600s",
   fn: async (input: ContactIdBackfillInput) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     return runContactIdBackfill({
       db,

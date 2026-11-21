@@ -14,9 +14,12 @@ and [product-spec.md](product-spec.md); architecture rules live in the root
   features are required here, just working in autonomous fashion to build the
   best version of … hogsend." Invoked via `/autopilot`.
 - **Ship rights** (2026-11-21, granted by the `/autopilot` brief): push feature
-  branches, open PRs, merge PRs once the required checks are green, merge the
-  changesets "Version Packages" PR (CI publishes `@hogsend/*` to npm), and
-  deploy the docs site. NOT covered: re-provisioning torn-down production
+  branches, open PRs, merge PRs once the required checks are green, and
+  deploy the docs site. NOT covered: merging the changesets "Version
+  Packages" PR, which publishes `@hogsend/*` to npm — RELEASING.md §2a makes
+  that "a human decision", and its required checks never run on the
+  bot-opened PR, so merging it would mean bypassing protection (corrected
+  2026-11-21). Also not covered: re-provisioning torn-down production
   infrastructure, DNS/domain changes, anything billed beyond existing Railway
   usage, live payments. Never bypass branch protection (`--admin`).
 - **Base branch**: `main`. Protected: required checks `Release integrity`,

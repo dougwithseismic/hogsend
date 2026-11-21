@@ -1,12 +1,12 @@
 import { ConcurrencyLimitStrategy } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import {
-  createDatabase,
   type Database,
   webhookDeliveries,
   webhookEndpoints,
 } from "@hogsend/db";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { computeJourneyLift } from "../lib/journey-lift.js";
 import { createLogger, type Logger } from "../lib/logger.js";
@@ -638,7 +638,7 @@ export const impactDigestTask = hatchet.task({
     until?: string;
   }> => {
     // Cron runs have no request container — self-bootstrap (check-alerts).
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
 
     // (1) Subscriber pre-check — THE opt-in gate, one indexed query with

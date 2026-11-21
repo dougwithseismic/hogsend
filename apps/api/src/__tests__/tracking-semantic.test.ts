@@ -86,12 +86,18 @@ async function insertClick(trackedLinkId: string, clickedAt: Date) {
   await db.insert(linkClicks).values({ trackedLinkId, clickedAt });
 }
 
-async function semanticEvents(userKey: string) {
+// A journeyless send carries no subject key, so the answer resolves by the
+// recipient's EMAIL and lands on that contact (never keyed on the address).
+async function semanticEvents(email: string) {
   return db
-    .select()
+    .select({
+      properties: userEvents.properties,
+      idempotencyKey: userEvents.idempotencyKey,
+    })
     .from(userEvents)
+    .innerJoin(contacts, eq(contacts.id, userEvents.contactId))
     .where(
-      and(eq(userEvents.userId, userKey), eq(userEvents.event, SEMANTIC_EVENT)),
+      and(eq(contacts.email, email), eq(userEvents.event, SEMANTIC_EVENT)),
     );
 }
 
@@ -100,6 +106,11 @@ const userKeys: string[] = [];
 
 afterAll(async () => {
   if (userKeys.length > 0) {
+    const owned = db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(inArray(contacts.email, userKeys));
+    await db.delete(userEvents).where(inArray(userEvents.contactId, owned));
     await db.delete(userEvents).where(inArray(userEvents.userId, userKeys));
     await db.delete(contacts).where(inArray(contacts.email, userKeys));
   }
@@ -278,7 +289,11 @@ describe("confirmSemanticClick", () => {
       .where(eq(trackedLinks.id, linkId));
     expect(links[0]?.semanticEmittedAt).not.toBeNull();
 
-    // Still exactly one stored answer.
-    expect(await semanticEvents(send.toEmail)).toHaveLength(1);
+    // Still exactly one stored answer (the seeded row, found by its slot key).
+    const answers = await db
+      .select({ id: userEvents.id })
+      .from(userEvents)
+      .where(eq(userEvents.idempotencyKey, `sem:${send.id}:${SEMANTIC_EVENT}`));
+    expect(answers).toHaveLength(1);
   });
 });

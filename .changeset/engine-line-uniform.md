@@ -8,11 +8,9 @@
 "@hogsend/js": patch
 "@hogsend/mcp": patch
 "@hogsend/plugin-apollo": patch
-"@hogsend/plugin-discord": patch
 "@hogsend/plugin-hogsend": patch
 "@hogsend/plugin-meta-capi": patch
 "@hogsend/plugin-posthog": patch
-"@hogsend/plugin-postmark": patch
 "@hogsend/plugin-resend": patch
 "@hogsend/plugin-telegram": patch
 "@hogsend/plugin-twilio": patch

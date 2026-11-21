@@ -83,12 +83,27 @@ const ENTRIES: ChangelogEntry[] = [
           implementation. Journeys, the journey context and your typed template
           keys are exactly as strict as before.
         </Bullet>
+        <Bullet>
+          Fixed: opening or clicking an email sent outside a journey could
+          overwrite that contact&apos;s user id with their email address. The
+          event now lands on the contact by email and leaves their id alone.
+        </Bullet>
+        <Bullet>
+          Fixed: when thousands of bucket members expired at once, the
+          five-minute check failed every time and nobody left. They now leave in
+          batches of 500.
+        </Bullet>
+        <Bullet>
+          Background jobs share one database connection pool instead of opening
+          a new one per run, and webhook retries are queued instead of waiting
+          on each delivery in turn. Discord and Postmark calls time out after 10
+          seconds.
+        </Bullet>
       </>
     ),
     upgradeNote: (
       <>
-        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No code changes; runtime
-        behaviour is identical.
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No code changes.
       </>
     ),
   },

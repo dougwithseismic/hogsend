@@ -574,3 +574,96 @@ describe("reconcile lapsed-active set-based JOIN exactness (Fix #3)", () => {
     expect(enteredPushCountForUser(COMPOSITE_BUCKET_ID, stillActive)).toBe(0);
   });
 });
+
+// ===========================================================================
+// Mass TTL expiry is chunked (one inArray over every leaver used to exceed
+// postgres.js's 65,534-parameter limit and throw on every tick).
+// ===========================================================================
+
+describe("reconcile maxDwell mass expiry", () => {
+  const TTL_BUCKET_ID = `${RUN}-mass-ttl`;
+  const ttlBucket = defineBucket({
+    meta: {
+      id: TTL_BUCKET_ID,
+      name: "Mass TTL",
+      enabled: true,
+      maxDwell: { hours: 24 },
+      criteria: {
+        type: "property",
+        property: "plan",
+        operator: "eq",
+        value: "vip",
+      },
+    },
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(bucketMemberships)
+      .where(eq(bucketMemberships.bucketId, TTL_BUCKET_ID));
+    await db
+      .delete(bucketConfigs)
+      .where(eq(bucketConfigs.bucketId, TTL_BUCKET_ID));
+  });
+
+  it("leaves every expired member across several chunks in one tick", async () => {
+    const COUNT = 1201; // three chunks of BATCH_SIZE (500)
+    const ids = Array.from({ length: COUNT }, (_, i) =>
+      uid(`ttl-${String(i).padStart(5, "0")}`),
+    );
+    await db
+      .insert(contacts)
+      .values(
+        ids.map((externalId) => ({
+          externalId,
+          email: `${externalId}@example.com`,
+          properties: { plan: "vip" },
+        })),
+      )
+      .onConflictDoNothing();
+    const owners = await db
+      .select({ id: contacts.id, externalId: contacts.externalId })
+      .from(contacts)
+      .where(inArray(contacts.externalId, ids));
+    const past = new Date(Date.now() - 2 * DAY);
+    await db.insert(bucketMemberships).values(
+      owners.map((o) => ({
+        userId: o.externalId as string,
+        userEmail: `${o.externalId}@example.com`,
+        bucketId: TTL_BUCKET_ID,
+        status: "active" as const,
+        source: "event" as const,
+        entryCount: 1,
+        contactId: o.id,
+        enteredAt: new Date(Date.now() - 3 * DAY),
+        maxDwellAt: past,
+      })),
+    );
+    await db
+      .insert(bucketConfigs)
+      .values({
+        bucketId: TTL_BUCKET_ID,
+        criteriaHash: computeCriteriaHash(ttlBucket.meta.criteria),
+        coalesceClaimedAt: new Date(),
+      })
+      .onConflictDoNothing();
+    setBucketRegistry(buildBucketRegistry([ttlBucket], "*"));
+
+    await runReconcile();
+
+    const [left] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(bucketMemberships)
+      .where(
+        and(
+          eq(bucketMemberships.bucketId, TTL_BUCKET_ID),
+          eq(bucketMemberships.status, "left"),
+        ),
+      );
+    expect(left?.n).toBe(COUNT);
+    const leftPushes = pushSpy.mock.calls.filter(
+      (c) => c[0] === `bucket:left:${TTL_BUCKET_ID}`,
+    ).length;
+    expect(leftPushes).toBe(COUNT);
+  }, 120_000);
+});

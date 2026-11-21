@@ -1,7 +1,8 @@
 import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types.js";
-import { createDatabase, type Database, importJobs } from "@hogsend/db";
+import { type Database, importJobs } from "@hogsend/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { ALIAS_REASON_BACKFILL } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -330,7 +331,7 @@ export const identityAliasBackfillTask = hatchet.task({
   retries: 0,
   executionTimeout: "600s",
   fn: async (input: IdentityAliasBackfillInput) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     return runIdentityAliasBackfill({
       db,

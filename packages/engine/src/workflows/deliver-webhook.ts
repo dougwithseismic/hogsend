@@ -420,7 +420,7 @@ const REAPER_BATCH = 500;
  *    never reached a terminal write) is re-driven once it is older than
  *    `STUCK_AFTER_MS` (measured from `updatedAt`, which step 3's CAS bumped).
  *
- * Recovery is `deliverWebhookTask.run({ deliveryId })`; the delivery task's own
+ * Recovery is `deliverWebhookTask.runNoWait({ deliveryId })`; the delivery task's own
  * `sending` CAS guard makes an overlap with a still-live run safe (the loser
  * no-ops). Self-bootstraps `db`/`logger` from `process.env` (cron runs have no
  * request container).
@@ -462,7 +462,10 @@ export const reapDueWebhookDeliveriesTask = hatchet.task({
     let reDriven = 0;
     for (const row of due) {
       try {
-        await deliverWebhookTask.run({ deliveryId: row.id });
+        // Enqueue, don't await completion: up to REAPER_BATCH serial `.run()`s
+        // against a slow endpoint (15 s timeout each) blew the 120 s budget.
+        // The delivery task's own CAS claim makes a duplicate enqueue a no-op.
+        await deliverWebhookTask.runNoWait({ deliveryId: row.id });
         reDriven += 1;
       } catch (err) {
         logger.warn("reap-due-webhook-deliveries: re-drive failed", {

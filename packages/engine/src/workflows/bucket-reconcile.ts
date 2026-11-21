@@ -12,7 +12,6 @@ import {
   bucketConfigs,
   bucketMemberships,
   contacts,
-  createDatabase,
   type Database,
   importJobs,
   userEvents,
@@ -46,6 +45,7 @@ import {
   lookupContactIdByKey,
   normalizeEmailOrNull,
 } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { toSleepDuration } from "../lib/hatchet-duration.js";
 import type { Logger } from "../lib/logger.js";
@@ -93,7 +93,7 @@ export const bucketReconcileTask = hatchet.task({
     limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
   },
   fn: async () => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();
@@ -237,7 +237,7 @@ export const bucketExpiryTask = hatchet.durableTask({
   onEvents: [`${BUCKET_EVENT_PREFIX}arm-expiry`],
   retries: 0,
   fn: async (input: BucketArmExpiryInput, ctx) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();
@@ -600,14 +600,7 @@ async function reconcileBucketTtlLeaves(opts: {
   });
 }
 
-/**
- * Bulk compare-and-swap a set of active members to `left`, then emit `bucket:left`
- * for each row the UPDATE actually flipped (gated on RETURNING — the loser of a
- * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
- * a member still inside its dwell window is NOT left here (the dwell deadline is
- * carried on `expiresAt`; the next eligible tick leaves it).
- */
-async function bulkLeave(opts: {
+interface BulkLeaveOpts {
   db: Database;
   logger: Logger;
   journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
@@ -615,7 +608,30 @@ async function bulkLeave(opts: {
   leavers: BucketLeaver[];
   /** Why these members leave — TTL passes "maxDwell", criteria passes "criteria". */
   reason: BucketLeaveReason;
-}): Promise<number> {
+}
+
+/**
+ * Bulk compare-and-swap a set of active members to `left`, then emit `bucket:left`
+ * for each row the UPDATE actually flipped (gated on RETURNING — the loser of a
+ * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
+ * a member still inside its dwell window is NOT left here (the dwell deadline is
+ * carried on `expiresAt`; the next eligible tick leaves it).
+ */
+async function bulkLeave(opts: BulkLeaveOpts): Promise<number> {
+  // Chunked: one `inArray` over a mass expiry (backfill stamps one maxDwellAt
+  // on a whole cohort) exceeds postgres.js's 65,534-parameter limit and throws
+  // on every tick. Flip + emit per BATCH_SIZE chunk so each tick makes progress.
+  let flipped = 0;
+  for (let i = 0; i < opts.leavers.length; i += BATCH_SIZE) {
+    flipped += await bulkLeaveChunk({
+      ...opts,
+      leavers: opts.leavers.slice(i, i + BATCH_SIZE),
+    });
+  }
+  return flipped;
+}
+
+async function bulkLeaveChunk(opts: BulkLeaveOpts): Promise<number> {
   const { db, logger, journeyRegistry, bucket, leavers, reason } = opts;
   const userIds = leavers.map((l) => l.userId);
   // Membership key → resolved contact row id, for the emit's provenance pin.
