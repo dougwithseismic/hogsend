@@ -8,7 +8,18 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
 
 | # | PRD | Status | Depends | Scope |
 |---|-----|--------|---------|-------|
-| 06 | [Ship compiled engine type declarations](prds/06-engine-declarations.md) | `[~] (building since 2026-11-21, autopilot)` | — | Fresh scaffold `check-types` OOMs today; ship `dist/*.d.ts` behind the `types` condition, keep runtime on `src`. Fixes #657. |
+| 06 | [Ship compiled engine type declarations](prds/06-engine-declarations.md) | `[~] merged #684; reaches users when Version Packages #685 is merged (needs you)` | — | Fresh scaffold `check-types` OOMs today; ship `dist/*.d.ts` behind the `types` condition, keep runtime on `src`. Fixes #657. |
+| 07 | [Fix the correctness bugs from the engine audit](prds/07-audit-correctness.md) | `[~] (building since 2026-11-21, autopilot)` | — | Tracking re-ingest wrote the recipient address into `external_id`; bucket mass expiry overflowed the parameter limit; per-run DB pools; serial webhook reaper; un-timed plugin fetches. |
+| 08 | Public changelog catch-up (0.45 → current) | `[ ]` | — | Launch bar: hogsend.com/changelog stops at 0.44.0. One user-facing entry per minor, sourced from the package CHANGELOGs. |
+| 09 | [Cut the database work on every event and every send](prds/09-ingest-hot-path.md) | `[ ]` | 07 | Audit A1–A4, A6–A9, A11: preference-email index, orphan-adoption gate, event-condition index + `EXISTS`, `pk_` key cache, outbound endpoint cache. Measured statement counts before/after. |
+| 10 | Rate-limit headers + key management | `[ ]` | — | Launch bar: `RateLimit-*` headers on public ingest; secret vs publishable keys and rotation documented and working end to end. |
+| 11 | Landing first screen leads with the wedge | `[ ]` | — | Launch bar: who / outcome / why-us + one CTA from MARKET.md; Core Web Vitals green; no overflow 360–1440 px. |
+| 12 | Resolver fast path + concurrent ingest hooks | `[ ]` | 09 | Audit B1/B2: lock-free warm resolve (re-probe under lock on any change), `Promise.allSettled` for independent post-store hooks. Identity-sensitive: review panel before merge. |
+| 13 | Extensibility cleanup | `[ ]` | 12 | Audit B6/B7: one generic id-keyed registry for the six provider registries, `lib/contacts.ts` split along its clusters, one subject-table list for adoption/merge/erasure/backfill. No behaviour change. |
+| 14 | Refuse merging two identified users on a shared browser (#629) | `[ ]` | 12 | Implement the reserved `allowMerge: "never-identified-pair"` policy. |
+| 15 | `hogsend simulate` | `[ ]` | — | Wedge: run a journey on a simulated clock and print the timeline (sends, waits, branches) for a PR comment. Builds on `@hogsend/testing`. |
+| 16 | Exactly-once connector actions (#661) | `[ ]` | — | Layer-2 dedup for Telegram/Discord sends, matching email/SMS. |
+| 17 | Deliverability panel | `[ ]` | — | Bounce/complaint rates against the Gmail/Yahoo bulk-sender thresholds, in Studio and `check-alerts`. |
 
 ## Launch bar (API / developer tool)
 
@@ -28,6 +39,15 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
 
 ## Needs you
 
+- **Publish: merge the Version Packages PR
+  ([#685](https://github.com/dougwithseismic/hogsend/pull/685)).** It is the
+  one step that puts merged work on npm, and the repo's release rules keep it a
+  human decision (its required checks don't run on the bot-opened PR, so it
+  needs your merge). Run `pnpm release:check` first if you like. It is a
+  rolling accumulator: each round merged to `main` lands in it, so merge
+  whenever you want a release. Unblocks: PRD 06 and every later row reaching
+  `[x]`, the quickstart launch-bar item.
+
 - **Production API and Cloud are offline.** `api.hogsend.com` and
   `cloud.hogsend.com` time out: the Railway project `Hogsend` has no
   `production` environment and the `hogsend-cloud` project no longer exists.
@@ -36,5 +56,12 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
   recipe (it adds Railway usage cost). Unblocks: the dogfood journeys and Cloud.
 
 ## Parking lot
+
+- **Wave 2 (from the engine audit, 2026-11-21):** one tracked-send pipeline
+  for every channel (C1, makes push/WhatsApp cheap); container broken into
+  subsystem modules with no module-level singletons (C2); batched campaign
+  send with a resumable wave cursor and render-once (B3/C3); batch-path SQL
+  (B4); batched targeting estimates + a shared `paginated()` helper (B5);
+  backpressure on the tracking routes (B8); a published throughput benchmark.
 
 - Stale open PRs from July (#602, #614, #627): rebase or close.

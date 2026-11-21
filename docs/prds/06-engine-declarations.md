@@ -48,4 +48,21 @@ pinning `@hono/zod-openapi` to exactly `1.4.0`.
 
 ## Implementation Notes
 
-_Filled in after shipping._
+Shipped in #684 (squash `e786d310`), to be published as `@hogsend/engine@0.67.1` when Version Packages #685 is merged.
+
+- `packages/engine/tsconfig.build.json` emits 350 declaration files (3.3 MB)
+  in ~22 s with zero errors. `build` and `prepack` both run it.
+- Every engine export is `{ "@hogsend/source": src, types: dist, default: src }`;
+  `customConditions: ["@hogsend/source"]` in `@repo/typescript-config/base.json`
+  keeps the monorepo on live source with no build step.
+- Scaffold `check-types` (packed tarballs, `verify-scaffold.sh`): **OOM after
+  37 s at 4 GB → passes in 6 s** (tsc total 3.7 s, check 2.0 s, 642 MB, 2,183
+  files). An unknown template key still errors (`keyof TemplateRegistryMap`),
+  pinned by the new step `[5b]` negative test.
+- `release-doctor` gained a 19th invariant: a package whose `types` points at
+  `dist` must publish `dist` and have a script that emits it.
+- `@hogsend/cli` eject repoints `types` at source, since `dist` is not
+  vendored.
+- `@hono/zod-openapi` stays pinned at `1.4.0` (the #657 workaround) — no longer
+  load-bearing for consumers, kept to avoid an unrelated upgrade in this PRD.
+- Production check: pending the npm publish. Then: `npm view @hogsend/engine@latest types` → `./dist/index.d.ts`, and a fresh `pnpm dlx create-hogsend@latest` → install → `check-types` → boot → `/v1/health` 200.

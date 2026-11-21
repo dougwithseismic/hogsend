@@ -42,14 +42,14 @@ Each is shipped or a backlog row.
 | Per-user timeline, run history | Have |
 | Broadcasts + segments | Partial: campaigns + buckets, no visual segment builder |
 | Suppression, bounces, complaints, preference center | Have |
-| RFC 8058 one-click unsubscribe (Gmail bulk-sender rule) | Unverified — check |
+| RFC 8058 one-click unsubscribe (Gmail bulk-sender rule) | Have: `List-Unsubscribe` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click` on every tracked send |
 | Deliverability dashboard (bounce/complaint rate alerts) | Missing |
 | Frequency caps, send windows, A/B, holdouts | Have |
 | Typed SDKs | Have for TypeScript |
 | MCP + llms.txt + CLI skills | Have (stdio MCP); remote MCP with OAuth unclear |
 | Copy edits without a deploy | Missing |
 | Import from incumbents | Have: `hogsend import loops|customerio|csv` incl. suppressions |
-| Quickstart that type-checks | Broken on 0.67.0 (scaffold `check-types` OOM) → PRD 06 |
+| Quickstart that type-checks | Broken on 0.67.0 (scaffold `check-types` OOM); fixed on `main` by PRD 06, publishes with the next release |
 | Native mobile push | Missing |
 | i18n | Missing |
 | Hosted option | Missing (homepage says self-host only, ELv2) |
@@ -79,12 +79,12 @@ provider, and no per-contact pricing.
 
 ## Openings
 
-- Quickstart type-check is broken → **PRD 06** (in progress).
+- Quickstart type-check is broken → **PRD 06** (merged, awaiting publish).
 - "Will you exist next year?" after three self-host peers died → trust/longevity
   story on the landing page and a supported one-click deploy (later PRD).
 - Hatchet's "hundreds of tasks/s" default is the obvious scale objection →
   publish a benchmark after the hot-path work (later PRD).
-- Gmail bulk-sender rules → verify RFC 8058 and add a deliverability panel.
+- Gmail bulk-sender rules → RFC 8058 verified; add a deliverability panel (PRD 17).
 - Agent-opens-the-PR flow with a simulated timeline in the PR comment
   (`hogsend simulate`) — nobody else can do this structurally.
 
