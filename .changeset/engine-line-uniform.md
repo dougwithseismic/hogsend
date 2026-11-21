@@ -1,8 +1,6 @@
 ---
 "@hogsend/attribution": patch
 "@hogsend/client": patch
-"@hogsend/core": patch
-"@hogsend/db": patch
 "@hogsend/email": patch
 "hogsend": patch
 "@hogsend/js": patch

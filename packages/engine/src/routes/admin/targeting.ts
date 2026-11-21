@@ -253,8 +253,13 @@ export const targetingRouter = new OpenAPIHono<AppEnv>()
     }
 
     const sampled = sample.length;
+    // The sample and the count run on separate connections (separate
+    // snapshots), so a concurrent delete can return a count below the sample
+    // size. Every sampled row existed, so the population is at least `sampled`
+    // and the estimate never drops below the matches actually seen.
+    const population = Math.max(liveTotal, sampled);
     const estimatedTotal =
-      sampled === 0 ? 0 : Math.round((matched / sampled) * liveTotal);
+      sampled === 0 ? 0 : Math.round((matched / sampled) * population);
 
     return c.json({ matched, sampled, estimatedTotal }, 200);
   });

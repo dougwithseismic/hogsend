@@ -103,5 +103,10 @@ export const emailSends = pgTable(
     index("email_sends_contact_id_idx")
       .on(table.contactId)
       .where(sql`contact_id IS NOT NULL`),
+    // PRD 09 — the orphan-adoption probe's `email_sends` leg; see the twin
+    // `user_events_orphan_user_id_idx`.
+    index("email_sends_orphan_user_id_idx")
+      .on(table.userId)
+      .where(sql`contact_id IS NULL`),
   ],
 );

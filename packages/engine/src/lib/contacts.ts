@@ -2881,12 +2881,23 @@ async function foldEmailPreferences(
  * pref-fold), stamp-only writes.
  *
  * Idempotent: a second run finds `contact_id` already set and matches nothing.
+ *
+ * GATED (PRD 09): every warm resolve calls this for the contact's own key,
+ * and almost always there is nothing to adopt. One existence probe
+ * ({@link hasOrphanHistory}) decides first; when it finds no orphan row the
+ * eight statements below are skipped. That is a pure cost cut, not a
+ * behaviour change: each statement below matches only rows with
+ * `user_id = fromKey AND contact_id IS NULL` (the folds' `orphansOnly` loser
+ * scope), so when no such row exists in any of the five tables every one of
+ * them is a no-op.
  */
 async function adoptOrphanHistory(
   tx: Tx,
   fromKey: string,
   row: ContactRow,
 ): Promise<void> {
+  if (!(await hasOrphanHistory(tx, fromKey))) return;
+
   const ownKey = contactKey(row);
 
   // user_events + email_sends: no unique constraint involved — plain stamps.
@@ -2920,6 +2931,41 @@ async function adoptOrphanHistory(
   // §7), so an orphan link row is unrepresentable. The merge path DOES carry
   // links — see foldLinkedAccounts. Do not "fix" this by adding a statement;
   // add a test instead if you doubt it.
+}
+
+/**
+ * The orphan-adoption gate (PRD 09): ONE statement answering "does any of the
+ * five history tables hold a row under `fromKey` that no contact owns?".
+ *
+ * The predicate is exactly the loser scope {@link adoptOrphanHistory}'s
+ * statements use (`user_id = fromKey AND contact_id IS NULL`), deliberately
+ * WITHOUT their `deleted_at` / `status` refinements: the probe only has to be
+ * a superset, so a false positive costs the old eight statements and a false
+ * negative is impossible.
+ *
+ * Every leg is indexed: `user_events` / `email_sends` through their partial
+ * `*_orphan_user_id_idx` (migration 0075, which holds ONLY contactless rows,
+ * so a known contact's probe never walks its history), the other three
+ * through their existing `user_id`-leading indexes. The uncorrelated EXISTS
+ * subqueries are init-plans Postgres evaluates lazily left to right, so the
+ * OR stops at the first leg that finds a row.
+ */
+async function hasOrphanHistory(tx: Tx, fromKey: string): Promise<boolean> {
+  const tables = [
+    userEvents,
+    emailSends,
+    journeyStates,
+    bucketMemberships,
+    emailPreferences,
+  ] as const;
+  const legs = tables.map(
+    (table) =>
+      sql`exists (select 1 from ${table} where ${table.userId} = ${fromKey} and ${table.contactId} is null)`,
+  );
+  const rows = (await tx.execute(
+    sql`select (${sql.join(legs, sql` or `)}) as "found"`,
+  )) as unknown as Array<{ found: boolean }>;
+  return rows[0]?.found === true;
 }
 
 /** RECORD a contact_aliases row per loser key → survivor (reason 'merge'). */

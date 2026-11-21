@@ -85,5 +85,20 @@ export const userEvents = pgTable(
     index("user_events_contact_id_idx")
       .on(table.contactId)
       .where(sql`contact_id IS NOT NULL`),
+    // PRD 09 — the orphan-adoption probe (`adoptOrphanHistory`, every
+    // resolve) asks "does this key have any `contact_id IS NULL` rows?". On
+    // `user_events_user_id_idx` that walked a known contact's WHOLE history to
+    // find none; this index holds only the contactless rows, so a warm
+    // contact's probe is one empty index descent.
+    index("user_events_orphan_user_id_idx")
+      .on(table.userId)
+      .where(sql`contact_id IS NULL`),
+    // PRD 09 — `event` conditions (buckets, flags, `ctx.history.hasEvent`)
+    // scope by `contact_id` once a contact exists (`bySubject`), then filter
+    // on event name and an optional `occurred_at` window. The text-key twin
+    // (`user_events_user_event_occurred_idx`) serves the contactless arm.
+    index("user_events_contact_event_occurred_idx")
+      .on(table.contactId, table.event, table.occurredAt)
+      .where(sql`contact_id IS NOT NULL`),
   ],
 );
