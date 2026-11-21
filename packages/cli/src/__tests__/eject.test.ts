@@ -123,6 +123,37 @@ describe("eject", () => {
     expect(deps["@hogsend/core"]).toBe("workspace:^");
   });
 
+  it("repoints dist declaration types at source (dist is not vendored)", async () => {
+    await writeJson(join(sourceDir, "package.json"), {
+      name: "@hogsend/engine",
+      version: "0.0.1",
+      type: "module",
+      main: "./src/index.ts",
+      types: "./dist/index.d.ts",
+      exports: {
+        ".": {
+          "@hogsend/source": "./src/index.ts",
+          types: "./dist/index.d.ts",
+          default: "./src/index.ts",
+        },
+        "./package.json": "./package.json",
+      },
+      dependencies: { "@hogsend/core": "workspace:^" },
+    });
+    await eject({ pkg: PKG, consumerRoot, sourceDir });
+    const vendored = await readJson<{
+      types: string;
+      exports: Record<string, Record<string, string> | string>;
+    }>(join(consumerRoot, "vendor", "engine", "package.json"));
+    expect(vendored.types).toBe("./src/index.ts");
+    expect(vendored.exports["."]).toEqual({
+      "@hogsend/source": "./src/index.ts",
+      types: "./src/index.ts",
+      default: "./src/index.ts",
+    });
+    expect(vendored.exports["./package.json"]).toBe("./package.json");
+  });
+
   it("returns the expected result shape", async () => {
     const result = await eject({ pkg: PKG, consumerRoot, sourceDir });
     expect(result.depSpecBefore).toBe("workspace:^");

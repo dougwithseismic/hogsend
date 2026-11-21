@@ -28,5 +28,6 @@ for the committed API surface and
 [RELEASING.md](https://github.com/dougwithseismic/hogsend/blob/main/docs/RELEASING.md)
 for semver discipline.
 
-This package ships raw TypeScript source; consumers bundle it via their own build
-(tsup `noExternal`).
+This package ships raw TypeScript source as its runtime entry; consumers bundle
+it via their own build (tsup `noExternal`). Types resolve from emitted
+declarations in `dist/`, so your `tsc` checks your code, not the engine's.

@@ -66,6 +66,33 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.67.1",
+    anchor: "0-67-1",
+    date: "November 2026",
+    title: "A new app type-checks in seconds",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>pnpm check-types</Code> in a freshly scaffolded app now checks
+          only your code: about 4 seconds and 650 MB, where it previously ran
+          out of memory inside the engine before printing anything.
+        </Bullet>
+        <Bullet>
+          The engine ships compiled type declarations, so your editor and{" "}
+          <Code>tsc</Code> read its public types instead of re-checking its
+          implementation. Journeys, the journey context and your typed template
+          keys are exactly as strict as before.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>pnpm dlx hogsend upgrade</Code>. No code changes; runtime
+        behaviour is identical.
+      </>
+    ),
+  },
+  {
     version: "0.44.0",
     anchor: "0-44-0",
     date: "July 13, 2026",

@@ -148,6 +148,7 @@ export async function eject(opts: EjectOptions): Promise<EjectResult> {
   if (vendoredPkg.private === true) {
     delete vendoredPkg.private;
   }
+  pointTypesAtSource(vendoredPkg);
   await writePackageJson(vendoredPkgPath, vendoredPkg);
 
   // 6. Rewrite the consumer dep in place (preserving key order).
@@ -165,6 +166,32 @@ export async function eject(opts: EjectOptions): Promise<EjectResult> {
     copiedFiles,
     followUp: "pnpm install",
   };
+}
+
+/**
+ * A published package may resolve types from emitted `dist/**.d.ts` while its
+ * runtime entry stays raw `src/**.ts` (the engine does). `dist` is excluded
+ * from the vendor copy, and once vendored the user edits `src` — so any
+ * `types` pointing into `./dist/` is repointed at the matching source entry.
+ */
+function pointTypesAtSource(pkg: PackageJson): void {
+  const isDistTypes = (v: unknown): v is string =>
+    typeof v === "string" && v.startsWith("./dist/");
+  const isSource = (v: unknown): v is string =>
+    typeof v === "string" && /\.tsx?$/.test(v) && !v.endsWith(".d.ts");
+
+  if (isDistTypes(pkg.types) && isSource(pkg.main)) {
+    pkg.types = pkg.main;
+  }
+  const exportsMap = pkg.exports;
+  if (!exportsMap || typeof exportsMap !== "object") return;
+  for (const target of Object.values(exportsMap as Record<string, unknown>)) {
+    if (!target || typeof target !== "object") continue;
+    const conditions = target as Record<string, unknown>;
+    if (isDistTypes(conditions.types) && isSource(conditions.default)) {
+      conditions.types = conditions.default;
+    }
+  }
 }
 
 /** Recursively counts regular files under a directory. */
