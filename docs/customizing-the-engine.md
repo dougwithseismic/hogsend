@@ -190,7 +190,10 @@ vendor/
 **Build note (raw `.ts` engine).** `@hogsend/engine` ships raw TypeScript and is
 bundled by your app's tsup `noExternal`. After ejecting, the package **name is
 unchanged** (`@hogsend/engine`), so keep `@hogsend/engine` in your tsup
-`noExternal` list and the vendored build works exactly as before.
+`noExternal` list and the vendored build works exactly as before. The published
+package reads its types from `dist/*.d.ts`; `hogsend eject` repoints them at the
+vendored `src/`, so your `tsc` follows your edits (and checks the engine source
+again, as it did before declarations shipped).
 
 **Upgrade contract after eject:**
 

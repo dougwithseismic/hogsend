@@ -198,19 +198,33 @@ consumers never receive `workspace:` specifiers.
 ## 6. Publish model: raw `.ts`, bundled by the consumer
 
 Most framework packages, including `@hogsend/core`, `@hogsend/db`,
-`@hogsend/engine`, and `@hogsend/testing`, ship **raw TypeScript source**
-(`exports`/`main`/`types` point at `./src/*.ts`). Consumers bundle them via tsup
-`noExternal` or configure their test runner to transform the dependency. A few
-front-door packages (`client`, `js`, `react`, `studio`, and parts of `cli`/`mcp`)
-intentionally ship a built `dist/`; the scaffold verifier asserts those files.
+`@hogsend/engine`, and `@hogsend/testing`, ship **raw TypeScript source** as
+their runtime entry (`exports[*].default`/`main` point at `./src/*.ts`).
+Consumers bundle them via tsup `noExternal` or configure their test runner to
+transform the dependency. A few front-door packages (`client`, `js`, `react`,
+`studio`, and parts of `cli`/`mcp`) intentionally ship a built `dist/`; the
+scaffold verifier asserts those files.
+
+**`@hogsend/engine` types come from emitted declarations.** Its `types`
+condition points at `./dist/**/*.d.ts` (`tsc -p tsconfig.build.json`, run by
+`build` and `prepack`), so a consumer's `tsc` reads the public types instead of
+re-checking ~87k lines of implementation under the consumer's config and
+dependency versions (a fresh scaffold's `check-types` ran out of memory before
+this, 2026-11-21). Inside the monorepo the `@hogsend/source` export condition
+(`customConditions` in `@repo/typescript-config/base.json`) keeps editors and
+`tsc` on live source. `release-doctor` asserts `dist` is in `files`;
+`verify-scaffold.sh` asserts the tarball carries `dist/index.d.ts` and that
+engine types still reject an unknown template key.
+
 That is why:
 
-- `pnpm pack` tarballs contain `.ts`, not `.js`.
+- `pnpm pack` tarballs contain `.ts` (and, for the engine, `dist/*.d.ts`), not
+  `.js`.
 - `files` must include `src/` (and `drizzle/` for db, `emails/` for email) so the
   source actually travels.
-- No new build step is required for raw-source packages to be publishable.
+- No new build step is required for the other raw-source packages to be
+  publishable.
 
-This is locked.
 If a future consumer needs prebuilt JS, that's a separate change to `exports` +
 `tsup`, out of scope for the current model.
 

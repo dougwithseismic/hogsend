@@ -190,6 +190,10 @@ for pkg in "${PACKAGES[@]}"; do
       ;;
     *)
       tar_has "$tgz" 'package/src/' || fail "$tgz missing package/src/**"
+      # The engine's `types` condition points at emitted declarations; without
+      # them every engine import silently degrades to `any` in the consumer.
+      [ "$pkg" = engine ] && { tar_has "$tgz" 'package/dist/index.d.ts' \
+        || fail "$tgz missing package/dist/index.d.ts"; }
       ;;
   esac
 done
@@ -496,6 +500,41 @@ if ! (cd "$APPDIR" && pnpm check-types) >"$TYPES_LOG" 2>&1; then
   diagnose_dependency_types "$TYPES_LOG" "$APPDIR"
   fail "check-types failed"
 fi
+
+# --- 5b. engine types are strict, not `any` ---------------------------------
+# The consumer reads @hogsend/engine through emitted declarations. A packaging
+# slip (missing dist, a broken `types` condition) would not fail check-types —
+# every engine import would just become `any`. Each @ts-expect-error below must
+# fire, or tsc reports it as unused and this step fails.
+echo "==> [5b] engine declarations keep journeys and template keys typed"
+NEG="$APPDIR/src/__engine-types-negative.ts"
+cat >"$NEG" <<'EOF'
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const negative = defineJourney({
+  meta: {
+    id: "types-negative",
+    name: "types-negative",
+    trigger: { event: "types.negative" },
+    entryLimit: "unlimited",
+    enabled: true,
+    suppress: { hours: 1 },
+  },
+  run: async (user, ctx) => {
+    // @ts-expect-error unknown template key (augmented TemplateRegistryMap)
+    await sendEmail({ to: "a@example.com", template: "not-a-template" });
+    // @ts-expect-error the journey context is typed
+    ctx.noSuchMethod();
+    // @ts-expect-error the journey user is typed
+    user.noSuchField.toString();
+  },
+});
+EOF
+if ! (cd "$APPDIR" && pnpm exec tsc --noEmit) >"$TYPES_LOG" 2>&1; then
+  cat "$TYPES_LOG" >&2
+  fail "engine types degraded (an expected type error did not fire)"
+fi
+rm -f "$NEG"
 
 # --- 6. test --------------------------------------------------------------
 echo "==> [6/10] pnpm test (scaffolded journey example)"

@@ -534,6 +534,30 @@ const checks = [
     },
   },
   {
+    // A package whose `types` points at emitted `dist/**/*.d.ts` (the engine,
+    // since it stopped making every consumer type-check its implementation)
+    // publishes BROKEN types if `dist` is missing from the tarball: tsc resolves
+    // nothing, `skipLibCheck` hides it, and every import silently becomes `any`.
+    // Guard both halves: `dist` must be in `files`, and a `build` (run by
+    // `pnpm release`) or `prepack` script must emit it.
+    name: "packages with emitted declarations publish dist and have a script that emits it",
+    fn: () => {
+      const offenders = scanPackages(ENGINE_LINE, (pkg) => {
+        const entry = pkg.types || "";
+        if (!/^\.\/dist\/.*\.d\.ts$/.test(entry)) return [];
+        const bad = [];
+        if (!(pkg.files || []).includes("dist")) {
+          bad.push(`${pkg.name}: "files" omits "dist"`);
+        }
+        if (!pkg.scripts?.prepack && !pkg.scripts?.build) {
+          bad.push(`${pkg.name}: no "build"/"prepack" script emits ${entry}`);
+        }
+        return bad;
+      });
+      return offenders.length === 0 ? null : offenders.join("; ");
+    },
+  },
+  {
     // The engine's OPT-IN plugins (`optionalDependencies`) are reached ONLY
     // through a guarded dynamic import with a runtime-assembled specifier, so
     // no bundler can inline them — Node loads them from node_modules at run
