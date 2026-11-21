@@ -35,6 +35,8 @@ export async function botFetch(
       Authorization: `Bot ${getBotToken()}`,
     },
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    // Runs inside journey tasks: a hung socket must not pin the run.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     throw new Error(

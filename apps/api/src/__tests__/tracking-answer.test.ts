@@ -36,6 +36,18 @@ const EVENT = `checkin.answered.${RUN}`;
 const sendIds: string[] = [];
 const userKeys: string[] = [];
 
+// A journeyless send carries no subject key, so the comment resolves by the
+// recipient's EMAIL and lands on that contact (never keyed on the address).
+async function commentEvents(email: string) {
+  return db
+    .select({ properties: userEvents.properties })
+    .from(userEvents)
+    .innerJoin(contacts, eq(contacts.id, userEvents.contactId))
+    .where(
+      and(eq(contacts.email, email), eq(userEvents.event, `${EVENT}.comment`)),
+    );
+}
+
 async function insertSend(suffix: string) {
   const rows = await db
     .insert(emailSends)
@@ -56,6 +68,11 @@ async function insertSend(suffix: string) {
 
 afterAll(async () => {
   if (userKeys.length > 0) {
+    const owned = db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(inArray(contacts.email, userKeys));
+    await db.delete(userEvents).where(inArray(userEvents.contactId, owned));
     await db.delete(userEvents).where(inArray(userEvents.userId, userKeys));
     await db.delete(contacts).where(inArray(contacts.email, userKeys));
   }
@@ -164,15 +181,7 @@ describe("GET/POST /v1/t/a/:id — hosted answer page", () => {
     const first = await post("The setup wizard lost my config.");
     expect(first.status).toBe(200);
 
-    const events = await db
-      .select()
-      .from(userEvents)
-      .where(
-        and(
-          eq(userEvents.userId, send.toEmail),
-          eq(userEvents.event, `${EVENT}.comment`),
-        ),
-      );
+    const events = await commentEvents(send.toEmail);
     expect(events).toHaveLength(1);
     expect(events[0]?.properties).toMatchObject({
       comment: "The setup wizard lost my config.",
@@ -182,15 +191,7 @@ describe("GET/POST /v1/t/a/:id — hosted answer page", () => {
 
     // A second submission is a no-op (one comment per send + event).
     await post("Changed my mind, all fine actually.");
-    const after = await db
-      .select()
-      .from(userEvents)
-      .where(
-        and(
-          eq(userEvents.userId, send.toEmail),
-          eq(userEvents.event, `${EVENT}.comment`),
-        ),
-      );
+    const after = await commentEvents(send.toEmail);
     expect(after).toHaveLength(1);
     expect(after[0]?.properties).toMatchObject({
       comment: "The setup wizard lost my config.",

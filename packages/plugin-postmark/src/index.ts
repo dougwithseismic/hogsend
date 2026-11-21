@@ -312,6 +312,7 @@ function createPostmarkDomains(cfg: {
           : {}),
       },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: AbortSignal.timeout(10_000),
     });
     let body: unknown;
     try {

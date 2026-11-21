@@ -12,7 +12,6 @@ import {
   bucketConfigs,
   bucketMemberships,
   contacts,
-  createDatabase,
   type Database,
   importJobs,
   userEvents,
@@ -46,6 +45,7 @@ import {
   lookupContactIdByKey,
   normalizeEmailOrNull,
 } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { toSleepDuration } from "../lib/hatchet-duration.js";
 import type { Logger } from "../lib/logger.js";
@@ -93,7 +93,7 @@ export const bucketReconcileTask = hatchet.task({
     limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
   },
   fn: async () => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();
@@ -237,7 +237,7 @@ export const bucketExpiryTask = hatchet.durableTask({
   onEvents: [`${BUCKET_EVENT_PREFIX}arm-expiry`],
   retries: 0,
   fn: async (input: BucketArmExpiryInput, ctx) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();
@@ -614,6 +614,27 @@ async function bulkLeave(opts: {
   bucket: BucketMeta;
   leavers: BucketLeaver[];
   /** Why these members leave — TTL passes "maxDwell", criteria passes "criteria". */
+  reason: BucketLeaveReason;
+}): Promise<number> {
+  // Chunked: one `inArray` over a mass expiry (backfill stamps one maxDwellAt
+  // on a whole cohort) exceeds postgres.js's 65,534-parameter limit and throws
+  // on every tick. Flip + emit per BATCH_SIZE chunk so each tick makes progress.
+  let flipped = 0;
+  for (let i = 0; i < opts.leavers.length; i += BATCH_SIZE) {
+    flipped += await bulkLeaveChunk({
+      ...opts,
+      leavers: opts.leavers.slice(i, i + BATCH_SIZE),
+    });
+  }
+  return flipped;
+}
+
+async function bulkLeaveChunk(opts: {
+  db: Database;
+  logger: Logger;
+  journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
+  bucket: BucketMeta;
+  leavers: BucketLeaver[];
   reason: BucketLeaveReason;
 }): Promise<number> {
   const { db, logger, journeyRegistry, bucket, leavers, reason } = opts;

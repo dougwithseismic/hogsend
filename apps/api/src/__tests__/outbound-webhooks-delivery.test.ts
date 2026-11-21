@@ -30,11 +30,15 @@ process.env.OUTBOUND_WEBHOOK_STUCK_AFTER_MS = "300000";
 // the ENGINE's own `lib/hatchet.ts` at import. We mock BOTH the engine's hatchet
 // (so importing `@hogsend/engine` never dials a live gRPC engine AND the task's
 // `.fn` is preserved for direct invocation) AND the API's `../lib/hatchet.js`.
-// The reaper re-drives via `deliverWebhookTask.run(...)`, so `run` forwards to the
-// REAL delivery `.fn` (captured below) — that is how the reaper test exercises a
-// real re-drive against the dev DB without a live engine.
-const { hatchetMock } = vi.hoisted(() => {
-  const ref: { fn: ((input: unknown) => unknown) | null } = { fn: null };
+// The reaper re-drives via `deliverWebhookTask.runNoWait(...)`, which (inside
+// the reaper suite, `hatchetRef.forwardNoWait`) forwards to the REAL delivery
+// `.fn` (captured below) — that is how the reaper test exercises a real re-drive
+// against the dev DB without a live engine.
+const { hatchetMock, hatchetRef } = vi.hoisted(() => {
+  const ref: {
+    fn: ((input: unknown) => unknown) | null;
+    forwardNoWait: boolean;
+  } = { fn: null, forwardNoWait: false };
   const factory = () => ({
     hatchet: {
       durableTask: vi.fn((config: Record<string, unknown>) => ({
@@ -59,7 +63,19 @@ const { hatchetMock } = vi.hoisted(() => {
             }
             return {};
           }),
-          runNoWait: vi.fn(),
+          // The reaper enqueues with runNoWait; inside the reaper suite it
+          // forwards to the real body (emulating the worker). Elsewhere it
+          // stays inert so emitOutbound never dispatches.
+          runNoWait: vi.fn(async (input: unknown) => {
+            if (
+              config.name === "deliver-webhook" &&
+              ref.fn &&
+              ref.forwardNoWait
+            ) {
+              return ref.fn(input);
+            }
+            return {};
+          }),
         };
       }),
       events: { push: vi.fn() },
@@ -67,7 +83,7 @@ const { hatchetMock } = vi.hoisted(() => {
       worker: vi.fn(),
     },
   });
-  return { hatchetMock: factory };
+  return { hatchetMock: factory, hatchetRef: ref };
 });
 
 vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
@@ -441,6 +457,13 @@ describe("deliverWebhookTask — terminal-status guard (retry-safety)", () => {
 // ===========================================================================
 
 describe("reapDueWebhookDeliveriesTask — retry scheduler + orphan recovery", () => {
+  beforeEach(() => {
+    hatchetRef.forwardNoWait = true;
+  });
+  afterEach(() => {
+    hatchetRef.forwardNoWait = false;
+  });
+
   it("re-drives a due-pending row (nextRetryAt in the past) to delivery", async () => {
     const endpoint = await seedEndpoint({});
     const deliveryId = await seedDelivery({
@@ -457,7 +480,7 @@ describe("reapDueWebhookDeliveriesTask — retry scheduler + orphan recovery", (
     expect(result.candidates).toBeGreaterThanOrEqual(1);
     expect(result.reDriven).toBeGreaterThanOrEqual(1);
 
-    // The reaper drove the real delivery body (mock `.run` → captured fn) → 2xx.
+    // The reaper drove the real delivery body (mock `.runNoWait` → captured fn) → 2xx.
     const row = await getDelivery(deliveryId);
     expect(row?.status).toBe("delivered");
   });

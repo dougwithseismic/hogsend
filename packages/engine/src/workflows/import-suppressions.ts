@@ -1,7 +1,8 @@
-import { createDatabase, importJobs } from "@hogsend/db";
+import { type Database, importJobs } from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import Papa from "papaparse";
 import { resolveRecipient } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { upsertEmailPreference } from "../lib/preferences.js";
 
@@ -106,9 +107,7 @@ export const importSuppressionsTask = hatchet.task({
   retries: 0,
   executionTimeout: "600s",
   fn: async (input: { jobId: string; data: string; format: string }) => {
-    const { db } = createDatabase({
-      url: process.env.DATABASE_URL ?? "",
-    });
+    const db = getDb();
 
     await db
       .update(importJobs)
@@ -192,7 +191,7 @@ export const importSuppressionsTask = hatchet.task({
   },
 });
 
-type Db = ReturnType<typeof createDatabase>["db"];
+type Db = Database;
 
 /**
  * Map one row and write it through the single preference choke point.

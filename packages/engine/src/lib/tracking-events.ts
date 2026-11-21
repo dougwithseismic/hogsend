@@ -12,8 +12,21 @@ import type { Logger } from "./logger.js";
 import { LINK_CLICKED } from "./tracking-event-names.js";
 
 interface EmailSendContext {
+  /**
+   * Display/attribution identity: the enrollment's key, else the send's
+   * recorded `user_id`, else the recipient address. Never re-ingest this as
+   * `userId` — use {@link subjectKey}, which is null for a bare-address send.
+   */
   userId: string;
   userEmail: string;
+  /**
+   * The subject key the send was actually made for (enrollment key, else
+   * `email_sends.user_id`), or null for a bare-address send. Bus re-ingests key
+   * on this, so a raw send's address is offered as an EMAIL key, never as an
+   * external `userId` (which would fill a free `external_id` with the address
+   * and flip the contact's canonical key).
+   */
+  subjectKey: string | null;
   /**
    * PRD 05 T6 — the send's owning contact (`email_sends.contact_id`, falling
    * back to the enrollment's stamp). The denormalized `userId` string above is
@@ -54,6 +67,8 @@ export async function resolveEmailSendContext(
       userEmail: journeyStates.userEmail,
       journeyId: journeyStates.journeyId,
       enrollmentContactId: journeyStates.contactId,
+      sendUserId: emailSends.userId,
+      sendUserEmail: emailSends.userEmail,
     })
     .from(emailSends)
     .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
@@ -63,9 +78,11 @@ export async function resolveEmailSendContext(
   const row = rows[0];
   if (!row) return null;
 
+  const subjectKey = row.userId ?? row.sendUserId ?? null;
   return {
-    userId: row.userId ?? row.toEmail,
-    userEmail: row.userEmail ?? row.toEmail,
+    userId: subjectKey ?? row.toEmail,
+    userEmail: row.userEmail ?? row.sendUserEmail ?? row.toEmail,
+    subjectKey,
     contactId: row.sendContactId ?? row.enrollmentContactId ?? null,
     templateKey: row.templateKey,
     messageId: row.messageId,
@@ -207,7 +224,7 @@ export async function pushTrackingEvent(
     logger,
     event: {
       event,
-      userId: ctx.userId,
+      userId: ctx.subjectKey ?? undefined,
       userEmail: ctx.userEmail,
       // PRD 05 T6 — pin the send's owning contact so the tracking event
       // resolves to the contact even when the frozen send-time key went stale.

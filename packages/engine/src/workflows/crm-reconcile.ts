@@ -1,10 +1,11 @@
 import { ConcurrencyLimitStrategy } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import { createDatabase, crmSyncCursors, type Database } from "@hogsend/db";
+import { crmSyncCursors, type Database } from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { ingestCrmStageEvents } from "../lib/crm-ingest.js";
 import { getCrmSyncConfig } from "../lib/crm-registry-singleton.js";
+import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger, type Logger } from "../lib/logger.js";
 
@@ -122,7 +123,7 @@ export const crmReconcileTask = hatchet.task({
     limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
   },
   fn: async () => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     return runCrmReconcile({ db, logger });
   },
