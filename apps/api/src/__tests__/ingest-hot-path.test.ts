@@ -65,7 +65,7 @@ const {
   journeyStates,
   userEvents,
 } = await import("@hogsend/db");
-const { eq, like, or, sql } = await import("drizzle-orm");
+const { eq, like, or } = await import("drizzle-orm");
 const { evaluateCondition, evaluateEventCondition } = await import(
   "@hogsend/core"
 );
@@ -295,6 +295,41 @@ describe("PRD 09 — the orphan-adoption gate opens for every table", () => {
   }
 });
 
+const ROLLBACK = Symbol("rollback");
+
+/**
+ * EXPLAIN `statement` against a realistically sized `email_preferences`, then
+ * roll everything back. The shared test table holds a few dozen rows churned
+ * by parallel files, and on stats that small and stale the planner's choice
+ * between `email_preferences_email_idx` and a full scan of the older
+ * `(user_id, email)` index flips run to run. Seeding 5,000 rows and ANALYZE
+ * inside the transaction makes the point lookup the clear winner; the rows
+ * and the pg_statistic update both disappear on rollback.
+ */
+async function explainAtVolume(
+  statement: string,
+  params: readonly unknown[],
+): Promise<string> {
+  let plan: string[] = [];
+  try {
+    await dbClient.begin(async (tx) => {
+      await tx.unsafe(
+        `INSERT INTO email_preferences (user_id, email)
+         SELECT 'explain-vol-' || g, 'explain-vol-' || g || '@example.com'
+           FROM generate_series(1, 5000) AS g`,
+      );
+      await tx`ANALYZE email_preferences`;
+      await tx`SET LOCAL enable_seqscan = off`;
+      const rows = await tx.unsafe(`EXPLAIN ${statement}`, params as never[]);
+      plan = rows.map((r) => (r as Record<string, string>)["QUERY PLAN"]);
+      throw ROLLBACK;
+    });
+  } catch (err) {
+    if (err !== ROLLBACK) throw err;
+  }
+  return plan.join("\n");
+}
+
 describe("PRD 09 — EXPLAIN pins on email_preferences", () => {
   it("the per-send preference read uses email_preferences_email_idx", async () => {
     const userId = uid("explain");
@@ -318,19 +353,7 @@ describe("PRD 09 — EXPLAIN pins on email_preferences", () => {
     if (!read) return;
     expect(read.sql).toContain('"email_preferences"."email" = $1');
 
-    // The test table is tiny, so the planner would pick a seq scan on cost
-    // alone. `enable_seqscan = off` only penalizes one (it cannot forbid it),
-    // so an unusable index still shows up as a Seq Scan here. SET LOCAL keeps
-    // it on this transaction's connection only.
-    const plan = await dbClient.begin(async (tx) => {
-      await tx`SET LOCAL enable_seqscan = off`;
-      const rows = await tx.unsafe(
-        `EXPLAIN ${read.sql}`,
-        read.params as never[],
-      );
-      return rows.map((r) => (r as Record<string, string>)["QUERY PLAN"]);
-    });
-    const text = plan.join("\n");
+    const text = await explainAtVolume(read.sql, read.params);
     expect(text).toContain("email_preferences_email_idx");
     expect(text).not.toContain("Seq Scan");
   });
@@ -338,16 +361,12 @@ describe("PRD 09 — EXPLAIN pins on email_preferences", () => {
   it("the campaign anti-join's lower(email) lookup uses email_preferences_lower_email_idx", async () => {
     // The inner side of the correlated NOT EXISTS in send-campaign.ts (bucket
     // and opt-out-list resolvers) and campaigns/cohort-sql.ts, per recipient.
-    const plan = await db.transaction(async (tx) => {
-      await tx.execute(sql`SET LOCAL enable_seqscan = off`);
-      const rows = (await tx.execute(
-        sql`EXPLAIN SELECT 1 FROM ${emailPreferences}
-            WHERE lower(${emailPreferences.email}) = ${mail("anti-join")}
-              AND (${emailPreferences.unsubscribedAll} = true
-                   OR ${emailPreferences.suppressed} = true)`,
-      )) as unknown as Array<Record<string, string>>;
-      return rows.map((r) => r["QUERY PLAN"]).join("\n");
-    });
+    const plan = await explainAtVolume(
+      `SELECT 1 FROM email_preferences
+        WHERE lower(email) = $1
+          AND (unsubscribed_all = true OR suppressed = true)`,
+      [mail("anti-join")],
+    );
     expect(plan).toContain("email_preferences_lower_email_idx");
     expect(plan).toMatch(/Index Cond: \(lower\(email\) =/);
   });
