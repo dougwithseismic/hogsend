@@ -27,8 +27,10 @@ function endpointCacheTtlMs(): number {
  * the PostHog destination seed). It only clears THIS process: another API
  * instance or the worker picks the change up when its own copy expires
  * (`OUTBOUND_ENDPOINT_CACHE_TTL_MS`, default 30 s). A disabled or deleted
- * endpoint is still never sent to inside that window, because the delivery
- * task re-reads the endpoint row before every attempt.
+ * endpoint, or an event it was just unsubscribed from, is still never sent to
+ * inside that window: the delivery task re-reads the endpoint row before every
+ * attempt. `emitOutbound` retries once on the foreign-key error a deleted
+ * cached endpoint causes, so the other endpoints keep their delivery.
  */
 export function invalidateOutboundEndpointCache(): void {
   endpointCache = null;

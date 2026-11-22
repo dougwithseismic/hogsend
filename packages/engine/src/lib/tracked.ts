@@ -25,7 +25,7 @@ import {
   assertAttachmentsSendable,
   attachmentSendMetadata,
 } from "./attachments.js";
-import { lookupContactIdByKey } from "./contacts.js";
+import { lookupContactIdByKey, UUID_REGEX } from "./contacts.js";
 import type { TestModeState } from "./domain-status.js";
 import {
   type FrequencyCapConfig,
@@ -279,7 +279,12 @@ async function sendTrackedEmailInner<K extends TemplateName>(
   //
   // PRD 09 part B — a caller that already holds the recipient's contact id
   // (the campaign resolvers join `contacts`) passes it and skips the resolve.
-  let sendContactId: string | null = options.contactId ?? null;
+  // A value that is not a uuid (an external id passed by mistake) would fail
+  // the `email_sends` insert, so it falls back to the resolve instead (D6).
+  let sendContactId: string | null =
+    options.contactId && UUID_REGEX.test(options.contactId)
+      ? options.contactId
+      : null;
   if (sendContactId === null && options.userId) {
     try {
       sendContactId = await lookupContactIdByKey(db, options.userId);

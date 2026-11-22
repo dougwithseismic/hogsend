@@ -46,7 +46,7 @@ import { createLogger } from "./logger.js";
  * stays logger-free. */
 const logger = createLogger(process.env.LOG_LEVEL);
 
-const UUID_REGEX =
+export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

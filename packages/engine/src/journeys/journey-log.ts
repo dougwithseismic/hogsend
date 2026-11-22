@@ -45,22 +45,8 @@ export interface LogTransitionArgs {
  * Do NOT attempt to dedupe log rows.
  */
 export function logTransition(args: LogTransitionArgs): void {
-  try {
-    void args.db
-      .insert(journeyLogs)
-      .values({
-        journeyStateId: args.journeyStateId,
-        fromNodeId: args.from ?? null,
-        toNodeId: args.to ?? null,
-        action: args.action,
-        detail: args.detail ?? null,
-      })
-      .catch(() => {
-        // best-effort timeline write — never surface into journey execution
-      });
-  } catch {
-    // synchronous build/dispatch failure — swallow; logging must never throw
-  }
+  const { db, ...row } = args;
+  logTransitions(db, [row]);
 }
 
 /**
@@ -87,7 +73,7 @@ export function logTransitions(
         })),
       )
       .catch(() => {
-        // best-effort timeline write — never surface into the caller
+        // best-effort timeline write — never surface into journey execution
       });
   } catch {
     // synchronous build/dispatch failure — swallow; logging must never throw

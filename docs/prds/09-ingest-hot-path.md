@@ -104,8 +104,12 @@ a connection mid-block.
   admin create/update/delete routes and the PostHog destination seed, on the
   instance that made the change only. The worker and other API instances lag
   up to 30 s: a new endpoint misses events in that window; a disabled or
-  deleted one is still never sent to, because `deliver-webhook` re-reads the
-  endpoint row. Secret rotation does not invalidate (it changes neither
+  deleted one, or an event just removed from its subscription, is still never
+  sent to, because `deliver-webhook` re-reads the endpoint row (the
+  subscription re-check is new, reason `event_unsubscribed`). A deleted
+  endpoint still in some process's cache made the multi-row delivery insert
+  fail its foreign key for EVERY endpoint (found in review); `emitOutbound`
+  now catches 23503, invalidates, re-reads and retries once. Secret rotation does not invalidate (it changes neither
   `disabled` nor `event_types`). `apps/api/vitest.config.ts` sets the TTL to
   `0` because many test files write endpoints straight to the DB.
 - `pk_` keys go through `loadApiKey` (`middleware/api-key.ts`), the same 60 s

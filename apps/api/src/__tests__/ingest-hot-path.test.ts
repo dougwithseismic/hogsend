@@ -246,6 +246,26 @@ describe("PRD 09 — statement budgets", () => {
     expect(row?.contactId).toBe(contact.id);
   });
 
+  it("a contactId that is not a uuid falls back to the lookup", async () => {
+    const userId = uid("send-bad-cid");
+    const to = mail("send-bad-cid");
+    const contact = await resolveOrCreateContact({ db, userId, email: to });
+
+    const result = await container.emailService.send({
+      template: "welcome",
+      to,
+      props: { name: "Ada" },
+      userId,
+      contactId: userId,
+    });
+    expect(result.status).toBe("sent");
+    const [row] = await db
+      .select({ contactId: emailSends.contactId })
+      .from(emailSends)
+      .where(eq(emailSends.toEmail, to));
+    expect(row?.contactId).toBe(contact.id);
+  });
+
   it("(d) re-checking buckets a contact already belongs to", async () => {
     const userId = uid("buckets");
     // The `plan` fact rides the contactProperties patch below.

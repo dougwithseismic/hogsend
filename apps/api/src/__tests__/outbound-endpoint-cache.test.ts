@@ -163,6 +163,23 @@ describe("outbound endpoint cache", () => {
     expect(await deliveryCount(id)).toBe(2);
   });
 
+  it("a cached endpoint deleted elsewhere does not cost the others their delivery", async () => {
+    process.env.OUTBOUND_ENDPOINT_CACHE_TTL_MS = "30000";
+    const gone = await createEndpoint("fk-gone");
+    const kept = await createEndpoint("fk-kept");
+    await emitContactCreated();
+    expect(await deliveryCount(kept)).toBe(1);
+
+    // Another instance deleted `gone`; this process still has it cached, so
+    // the multi-row insert hits the foreign key and must retry without it.
+    await db
+      .delete(webhookDeliveries)
+      .where(eq(webhookDeliveries.endpointId, gone));
+    await db.delete(webhookEndpoints).where(eq(webhookEndpoints.id, gone));
+    await emitContactCreated();
+    expect(await deliveryCount(kept)).toBe(2);
+  });
+
   it("sees direct writes immediately with the cache off", async () => {
     process.env.OUTBOUND_ENDPOINT_CACHE_TTL_MS = "0";
     const id = await createEndpoint("off");
