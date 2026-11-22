@@ -242,6 +242,30 @@
 .tw-section {
   position: relative;
 }
+
+/* Below-the-fold homepage sections skip style, layout and paint until they
+   near the viewport. The hero is not a .tw-section, so the first screen is
+   untouched; everything after it stops costing first-paint work and stops
+   pulling its images and the Montserrat headings in before they are needed.
+   `auto` remembers each section's real height once it has rendered, so
+   scrolling back up does not jump. Paint containment clips like
+   overflow:clip, which keeps the sticky columns inside these sections
+   working (they never overflowed their section anyway).
+   Sections carrying a blend layer (thermal, halftone, aurora, screen glows)
+   are left out: containment isolates the section, so the layer would blend
+   against the section alone instead of the page and render differently. */
+main
+> section.tw-section:not(
+  :has(
+    [class*="mix-blend"],
+    [style*="mix-blend-mode"],
+    .ps-aurora-a,
+    .ps-aurora-b
+  )
+) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1000px;
+}
 .tw-section::before {
   content: "";
   position: absolute;

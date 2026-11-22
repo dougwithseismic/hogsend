@@ -14,12 +14,18 @@ import "./home.css";
  *
  * Display face: Montserrat 400 (a freely-licensed Proxima-adjacent geometric
  * grotesque), loaded only on this route as --ps-display.
+ *
+ * Not preloaded: Montserrat only sets the section headings below the hero
+ * (the hero is Inter Display), so a preload would compete with the hero's
+ * fonts for the first-screen bandwidth. The browser fetches it when the first
+ * Montserrat heading is laid out.
  */
 const display = Montserrat({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--ps-display",
   display: "swap",
+  preload: false,
 });
 
 export default function LandingLayout({ children }: { children: ReactNode }) {

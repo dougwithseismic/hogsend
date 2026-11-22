@@ -1,17 +1,32 @@
 "use client";
 
-import { Braces, LineChart, Radio, Workflow } from "lucide-react";
-import { useRef } from "react";
+import {
+  Braces,
+  Check,
+  Copy,
+  Repeat2,
+  ServerCog,
+  ShieldCheck,
+} from "lucide-react";
+import { useRef, useState } from "react";
 import { FieldStage } from "@/app/spike-daylight/dayfield-shared";
 import { getFieldConfig } from "@/app/spike-daylight/field-config";
-import { CopyButton } from "@/components/ds/copy-button";
 import { ThermalHover } from "@/components/ds/thermal";
+import { AnalyticsEvent, capture } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { PluginStrip } from "./plugin-wall";
 import { SessionStage } from "./session-stage";
 
 /* ==========================================================================
  *  The homepage hero: a headline column beside a live agent session.
+ *
+ *  The first screen answers three questions for the buyer in docs/MARKET.md
+ *  (a technical founder or product engineer at a product-led company):
+ *  who it is for (the eyebrow), the outcome (the subhead's first sentence)
+ *  and why this instead of a canvas tool or a hand-rolled stack (the
+ *  headline, then the batteries sentence). It has ONE call to action: the
+ *  copyable scaffold command. Everything else is a quiet text link or lives
+ *  below the fold.
  *
  *  The CLI replay is the hero object. Every file a run writes is minted into
  *  its own draggable window as the terminal prints it — journeys as source,
@@ -27,30 +42,76 @@ const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest";
 const DISPLAY = "[font-family:var(--ff-display)]";
 const ACCENT = "#f64838";
 
+/** The wedge, unpacked: what a DIY drip stack does not give you. */
 const PILLARS = [
   {
     icon: Braces,
-    title: "Code-first",
-    body: "Journeys are TypeScript in your repo. Version, review and ship them like the rest of your product.",
+    title: "Typed journeys in your repo",
+    body: "Each journey is a TypeScript file next to your product code. Review it in a pull request; CI type-checks and tests it.",
   },
   {
-    icon: Workflow,
-    title: "Full-funnel",
-    body: "Onboarding, activation, retention, monetization — one engine across every stage.",
+    icon: Repeat2,
+    title: "Exactly-once sends",
+    body: "Durable waits and sends that survive crashes, retries and redeploys without messaging anyone twice.",
   },
   {
-    icon: Radio,
-    title: "Event-powered",
-    body: "React to any event from PostHog, your product, your warehouse or any webhook source.",
+    icon: ShieldCheck,
+    title: "Unsubscribe and suppression",
+    body: "Preference center, one-click unsubscribe, bounce and complaint suppression on every send.",
   },
   {
-    icon: LineChart,
-    title: "Measure impact",
-    body: "Built-in experiments, holdouts and lift measurement on every journey.",
+    icon: ServerCog,
+    title: "On infrastructure you own",
+    body: "First-party open and click tracking and identity in your own Postgres, sent through Resend, Postmark or your own provider.",
   },
 ] as const;
 
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The hero's one call to action: the whole command is the button. Copying
+ * fires the same `docs.code_copied` event as every CopyButton, so the
+ * activation funnel (filter on `snippet`) is unchanged.
+ */
+function InstallCommand() {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(INSTALL_COMMAND).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      capture(AnalyticsEvent.CODE_COPIED, { snippet: INSTALL_COMMAND });
+    });
+  }
+
+  return (
+    <ThermalHover intensity="bold" className="w-full max-w-[400px]">
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={`Copy the install command: ${INSTALL_COMMAND}`}
+        className="group flex w-full cursor-pointer items-center gap-3 rounded-[6px] border border-white/25 bg-black/55 py-3 pr-3.5 pl-4 text-left backdrop-blur-md transition-colors hover:border-white/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f64838]/70"
+      >
+        <code className="min-w-0 flex-1 overflow-hidden whitespace-nowrap font-mono text-[13px] text-white sm:text-[14px]">
+          <span className="text-white/40">$ </span>
+          {INSTALL_COMMAND}
+        </code>
+        <span
+          aria-live="polite"
+          className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-white/60 transition-colors group-hover:text-white"
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="size-3.5" strokeWidth={1.5} />
+          ) : (
+            <Copy aria-hidden="true" className="size-3.5" strokeWidth={1.5} />
+          )}
+          <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+        </span>
+      </button>
+    </ThermalHover>
+  );
+}
 
 export function WiredHeroSection({
   engineVersion,
@@ -72,68 +133,50 @@ export function WiredHeroSection({
       className="relative min-h-[100svh] overflow-hidden text-white"
     >
       <FieldStage config={config} variant="stage">
-        <div className="relative z-20 mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-6 pt-28 pb-10 md:px-10 md:pt-32">
+        <div className="relative z-20 mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-6 pt-28 pb-10 md:px-10">
           {/* ---- the stage: copy one third, session panel two thirds ---- */}
           <div className="relative grid items-center gap-10 xl:grid-cols-[1fr_2fr] xl:gap-14">
             {/* copy column */}
             <div className="relative z-30 max-w-[600px] xl:max-w-none">
-              <a
-                href="https://course.hogsend.com"
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 py-1 pr-3 pl-1 text-[12px] backdrop-blur-md sm:text-[13px]"
-              >
-                <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium">
-                  New course
-                </span>
-                <span className="font-medium">
-                  Measure → Keep → Grow with PostHog
-                </span>
-              </a>
+              {/* who it is for — plain words, not a link */}
+              <p className="font-mono text-[11px] text-white/60 uppercase tracking-[0.1em]">
+                For product engineers and technical founders
+              </p>
 
+              {/* why us: the wedge — journeys are code in the buyer's repo */}
               <h1
                 className={cn(
-                  "mt-6 text-balance font-normal text-[42px] leading-[1.04] tracking-[-0.03em] md:text-[56px] xl:text-[52px]",
+                  "mt-4 text-balance font-normal text-[40px] leading-[1.04] tracking-[-0.03em] md:text-[56px] xl:text-[52px]",
                   DISPLAY,
                 )}
                 style={{ textShadow: "0 2px 44px rgba(5,1,1,0.55)" }}
               >
-                Superpowers for growth engineers.
+                Lifecycle messaging as code in your repo.
               </h1>
 
-              <p className="mt-6 max-w-[520px] text-[16px] leading-relaxed text-white/80 md:text-lg">
-                Hogsend is a TypeScript framework for growth teams that code.
-                Identify and enrich the people on your product, react to their
-                events, message them where they are, and measure what moved.
+              {/* the outcome, then the batteries a DIY stack lacks. Kept to
+                  five lines at 1440 and 390 so the command clears the
+                  first-visit consent card (fixed bottom-left, ~280px tall) */}
+              <p className="mt-5 max-w-[520px] text-[16px] text-white/80 leading-relaxed md:text-lg">
+                When a customer signs up, stalls in a trial or stops paying,
+                Hogsend runs the follow-up. Journeys go through pull requests
+                and CI like the rest of your code. Exactly-once sends,
+                unsubscribes and suppression are built in, on infrastructure you
+                own.
               </p>
 
-              {/* the copy column is a third of the stage, so the CTAs stack
-                  rather than fighting for one line at xl */}
-              <div className="mt-8 flex flex-col items-start gap-3">
-                <ThermalHover intensity="bold">
-                  <span className="flex min-w-0 items-center gap-2 rounded-[6px] border border-white/15 bg-black/45 py-2.5 pr-2 pl-4 backdrop-blur-md">
-                    <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-white/90 [scrollbar-width:none]">
-                      <span className="text-white/40">$ </span>
-                      {INSTALL_COMMAND}
-                    </code>
-                    <CopyButton
-                      value={INSTALL_COMMAND}
-                      className="shrink-0 text-white/50 hover:text-white"
-                    />
-                  </span>
-                </ThermalHover>
-                <div className="flex items-center gap-5">
+              {/* the one call to action, with a single quiet text link */}
+              <div className="mt-7 flex flex-col items-start gap-3">
+                <InstallCommand />
+                <p className="text-[13px] text-white/55">
+                  Scaffolds the app, Docker services and starter journeys.{" "}
                   <a
-                    href="https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie"
-                    className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
+                    href="/docs/getting-started"
+                    className="whitespace-nowrap text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
                   >
-                    Deploy on Railway →
+                    Read the quickstart →
                   </a>
-                  <a
-                    href="/docs"
-                    className="text-[14px] text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
-                  >
-                    View docs →
-                  </a>
-                </div>
+                </p>
               </div>
             </div>
 
