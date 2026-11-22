@@ -36,7 +36,10 @@ and [product-spec.md](product-spec.md); architecture rules live in the root
      the user.
   2. **Docs site** `https://hogsend.com` — Railway project `hogsend-site`
      (`b3ecea61-7d7f-4043-91c0-fed0239da067`), env `production`, service
-     `hogsend-docs`. Last good deploy 2026-09-23 via `railway up`.
+     `hogsend-docs`. Deploy from a `git archive origin/main` export with
+     `Dockerfile.docs` copied over `Dockerfile` (and its `.dockerignore`), then
+     `railway up <dir> --path-as-root`: the service builds `Dockerfile`, which
+     is otherwise the API image. Last deploy 2026-11-22 (0.68.0).
   3. **Dogfood API** `api.hogsend.com` and **Cloud** `cloud.hogsend.com` —
      OFFLINE (see Needs you in the backlog). The Railway project `Hogsend`
      (`eeeba29d-9c44-4247-a412-f71f2e2eed2c`) has no `production` environment
