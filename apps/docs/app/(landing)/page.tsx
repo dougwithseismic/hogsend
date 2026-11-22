@@ -10,7 +10,7 @@ import {
   MATCHDAY_FIELD,
 } from "@/app/spike-daylight/field-config";
 import { DayfieldHeroSection } from "@/app/spike-daylight/landing/landing-hero";
-import { TrackDemoClick } from "@/components/analytics/track";
+import { TrackDemoClick, TrackDeployClick } from "@/components/analytics/track";
 import { AnnouncementBanner } from "@/components/announcement-banner";
 import { CookieSettingsLink } from "@/components/consent/cookie-settings-link";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
@@ -88,10 +88,10 @@ import { WordReveal } from "./_components/word-reveal";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — The growth stack for teams that code",
+    absolute: "Hogsend — Lifecycle messaging as code in your repo",
   },
   description:
-    "A TypeScript framework for growth teams that code. Identify and enrich the people on your product, react to their events, message them where they are, and measure what moved — with or without PostHog.",
+    "For product engineers and technical founders: onboarding, trial and win-back journeys as TypeScript in your repo, reviewed in a pull request and checked by CI. Exactly-once sends, unsubscribes, suppression, first-party tracking and identity built in, on infrastructure you own.",
   alternates: { canonical: "/" },
   keywords: [
     "lifecycle automation framework",
@@ -2980,6 +2980,19 @@ function PsGetStarted({ engineVersion }: { engineVersion?: string }) {
               className="shrink-0 text-white/40 hover:text-white"
             />
           </div>
+          {/* The one-click deploy used to sit in the hero; the hero now has a
+              single call to action, so the deploy path lives here. */}
+          <p className="mt-4 text-[14px] text-white/55">
+            Rather start from a running stack?{" "}
+            <TrackDeployClick placement="home-get-started">
+              <a
+                href="https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie"
+                className="text-white/75 underline-offset-4 transition-colors hover:text-white hover:underline"
+              >
+                Deploy on Railway →
+              </a>
+            </TrackDeployClick>
+          </p>
         </Reveal>
         <Reveal delay={0.08}>
           <div className="mt-8 max-w-[860px]">
@@ -4626,36 +4639,39 @@ function PsFooter() {
 
 /* ----------------------------------------------------------------- page -- */
 
-export default async function HomePage({
-  searchParams,
+export const HERO_VARIANTS = ["wired", "classic", "matchday", "field"] as const;
+export type HeroVariant = (typeof HERO_VARIANTS)[number];
+
+// The homepage is static, regenerated hourly (ISR) — the same cadence as
+// getEngineVersion's registry read. It used to read searchParams for the
+// `?hero=` preview, which made every request a full dynamic render (~450 ms
+// of server time before the first byte, plus a worse-compressed stream).
+// Previews still work at the same URLs: next.config.mjs rewrites `/?hero=<x>`
+// to `/hero-preview/<x>`, which renders HomeView with that variant forced.
+export const revalidate = 3600;
+
+export default async function HomePage(): Promise<JSX.Element> {
+  return <HomeView />;
+}
+
+export async function HomeView({
+  hero,
 }: {
-  searchParams: Promise<{ hero?: string }>;
-}): Promise<JSX.Element> {
+  /** A forced hero variant — set only by the `/hero-preview/<x>` route. */
+  hero?: HeroVariant;
+} = {}): Promise<JSX.Element> {
   const engineVersion = await getEngineVersion();
   // Hero selection. The windowed agent session is the default; the match-day
   // stadium takes over automatically on the World Cup final (by New-York date,
-  // the event's timezone). `?hero=field` restores the plain day-field hero and
-  // `?hero=classic` the original thermal one, and `?hero=wired` forces the
-  // default back on the one day match-day pre-empts it. Query overrides win,
-  // for previewing any variant on any day. Reading searchParams/date opts this page
-  // into dynamic rendering — acceptable for a hero that changes by hour and day.
-  const { hero } = await searchParams;
+  // the event's timezone; checked at each hourly regeneration). `?hero=field`
+  // restores the plain day-field hero and `?hero=classic` the original thermal
+  // one, and `?hero=wired` forces the default back on the one day match-day
+  // pre-empts it. Query overrides win, for previewing any variant on any day.
   const nyDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   }).format(new Date());
   const isFinalDay = nyDate === WORLD_CUP_FINAL_DATE;
-  const heroVariant =
-    hero === "classic"
-      ? "classic"
-      : hero === "matchday"
-        ? "matchday"
-        : hero === "field"
-          ? "field"
-          : hero === "wired"
-            ? "wired"
-            : isFinalDay
-              ? "matchday"
-              : "wired";
+  const heroVariant: HeroVariant = hero ?? (isFinalDay ? "matchday" : "wired");
   const fieldConfig =
     heroVariant === "matchday" ? MATCHDAY_FIELD : LANDSCAPE_FIELD;
   // Fixed-time fields (the match day) paint the right frame at SSR — no flash.
@@ -4693,7 +4709,7 @@ export default async function HomePage({
            run writes minted into its own window. Same fixed glass nav over the
            hour-lit vista as the day-field hero it replaces. */
         <>
-          <PsNav fixed glass />
+          <PsNav fixed glass quietCta />
           <WiredHeroSection
             engineVersion={engineVersion}
             highlighted={heroSources}

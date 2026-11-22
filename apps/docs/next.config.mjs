@@ -24,25 +24,45 @@ const config = {
   // from being 308-redirected by Next's trailing-slash handling mid-capture.
   skipTrailingSlashRedirect: true,
   async rewrites() {
-    return [
-      {
-        source: "/relay/static/:path*",
-        destination: "https://eu-assets.i.posthog.com/static/:path*",
-      },
-      // Remote SDK config (`/array/<token>/config.js`) is served from the
-      // ASSETS host — it must proxy there too, or it falls through to the
-      // catch-all (ingestion host) and loses the assets-host cache-control
-      // headers, risking stale feature-flag / session-recording / survey config.
-      // This is PostHog's documented three-rule proxy pattern (static, array, catch-all).
-      {
-        source: "/relay/array/:path*",
-        destination: "https://eu-assets.i.posthog.com/array/:path*",
-      },
-      {
-        source: "/relay/:path*",
-        destination: "https://eu.i.posthog.com/:path*",
-      },
-    ];
+    return {
+      // Hero previews: `/?hero=<variant>` renders the homepage with that hero
+      // forced. The homepage itself is static (ISR), so the query is routed to
+      // a sibling page instead of being read at request time. beforeFiles,
+      // because `/` is a real page and afterFiles rewrites never reach it.
+      beforeFiles: [
+        {
+          source: "/",
+          has: [
+            {
+              type: "query",
+              key: "hero",
+              value: "(?<variant>wired|classic|matchday|field)",
+            },
+          ],
+          destination: "/hero-preview/:variant",
+        },
+      ],
+      afterFiles: [
+        {
+          source: "/relay/static/:path*",
+          destination: "https://eu-assets.i.posthog.com/static/:path*",
+        },
+        // Remote SDK config (`/array/<token>/config.js`) is served from the
+        // ASSETS host — it must proxy there too, or it falls through to the
+        // catch-all (ingestion host) and loses the assets-host cache-control
+        // headers, risking stale feature-flag / session-recording / survey config.
+        // This is PostHog's documented three-rule proxy pattern (static, array, catch-all).
+        {
+          source: "/relay/array/:path*",
+          destination: "https://eu-assets.i.posthog.com/array/:path*",
+        },
+        {
+          source: "/relay/:path*",
+          destination: "https://eu.i.posthog.com/:path*",
+        },
+      ],
+      fallback: [],
+    };
   },
   async redirects() {
     return [

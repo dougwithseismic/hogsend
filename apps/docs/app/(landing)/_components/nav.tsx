@@ -40,10 +40,15 @@ const TRIGGER_CLASS =
 export function PsNav({
   fixed = false,
   glass = false,
+  quietCta = false,
 }: {
   fixed?: boolean;
   /** Deep-translucent bar for the day-field hero, so the vista reads through. */
   glass?: boolean;
+  /** Outline instead of white fill for "Start building". The homepage hero
+   *  carries the page's one primary call to action (the scaffold command),
+   *  so the nav button steps back rather than competing with it. */
+  quietCta?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -133,7 +138,12 @@ export function PsNav({
           </a>
           <Link
             href="/docs/getting-started"
-            className="ml-1 hidden h-8 shrink-0 items-center whitespace-nowrap rounded-[6px] bg-white px-3.5 font-medium text-[#0a0606] text-sm tracking-[-0.02em] transition-opacity hover:opacity-85 sm:inline-flex"
+            className={cn(
+              "ml-1 hidden h-8 shrink-0 items-center whitespace-nowrap rounded-[6px] px-3.5 font-medium text-sm tracking-[-0.02em] sm:inline-flex",
+              quietCta
+                ? "border border-white/20 text-white transition-colors hover:border-white/40"
+                : "bg-white text-[#0a0606] transition-opacity hover:opacity-85",
+            )}
           >
             Start building
           </Link>
