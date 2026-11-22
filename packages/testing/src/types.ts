@@ -141,6 +141,18 @@ export interface JourneyTestOptions {
   /** Registered connector actions available to this isolated harness. */
   connectorActions?: readonly TestConnectorAction[];
   onTrigger?: (trigger: CapturedTrigger) => void | Promise<void>;
+  /**
+   * Stop the run once this much virtual time has passed since `now`. A wait
+   * that would resume later ends with outcome `horizon`, and `run()` rejects
+   * with `JourneyHorizonError`. Unset means no limit beyond each wait's own.
+   */
+  until?: DurationObject;
+  /**
+   * Fail the run with `JourneyStepBudgetError` once it records more than this
+   * many timeline entries (a backstop for journeys that loop without a wait).
+   * Unset means no limit.
+   */
+  maxTimelineEntries?: number;
 }
 
 export interface MailboxMessage {
@@ -181,6 +193,16 @@ export interface CapturedExit {
   source: "manual" | "exitOn";
 }
 
+/**
+ * One chronological harness record. Wait entries (`sleep`, `sleepUntil`,
+ * `waitForEvent`, `digest`) carry `label`, `outcome`, `resumedAt` and
+ * `durationMs` (the planned length: sleep duration, time until a `sleepUntil`
+ * target, `waitForEvent` timeout, digest window); `sleepUntil` also carries
+ * `until`. Outcome `horizon` means the `until` option stopped the run during
+ * the wait. Recipient-directed entries (`email`, `sms`, `feed`, `connector`)
+ * carry `idempotencyLabel` when the call passed an explicit one. `variant`
+ * entries carry `key` and `arm`, once per key per run.
+ */
 export interface TimelineEntry {
   type:
     | "event"
@@ -195,7 +217,8 @@ export interface TimelineEntry {
     | "connector"
     | "feed"
     | "trigger"
-    | "guard";
+    | "guard"
+    | "variant";
   at: string;
   [key: string]: unknown;
 }
@@ -266,6 +289,13 @@ export interface ScenarioEvent {
   userEmail?: string;
 }
 
+/** A scheduled change to the global subscription guard. */
+export interface ScenarioGuardChange {
+  subscribed: boolean;
+  after?: DurationObject;
+  at?: Date | string;
+}
+
 export interface JourneyScenario {
   name: string;
   user: TestJourneyUser;
@@ -277,6 +307,23 @@ export interface JourneyScenario {
   preferences?: TestRecipientPreferences;
   connectorActions?: readonly TestConnectorAction[];
   events?: ScenarioEvent[];
+  /** Initial global subscription state (default `true`). */
+  subscribed?: boolean;
+  /** Scheduled subscription changes, e.g. an unsubscribe on day 3. */
+  guard?: ScenarioGuardChange[];
+  /** Prior events, sends and enrollments visible to `ctx.history`. */
+  history?: JourneyHistoryFixtures;
+  /** Enrollment-policy facts for `entry.check()` (holdout, admin override). */
+  entry?: EntryFixtures;
+  /** Recorded `ctx.variant` arms, keyed by variant key. */
+  variants?: Record<string, string>;
+  /**
+   * Stop the run after this much virtual time (see `JourneyTestOptions.until`).
+   * `simulateJourney` defaults it to 720h and reports a run still waiting
+   * there as `running`; `runJourneyScenarios` sets no default and reports a
+   * run that reaches it as a failed row whose error is a `JourneyHorizonError`.
+   */
+  until?: DurationObject;
   setup?: (test: import("./harness.js").JourneyTest) => void | Promise<void>;
 }
 
@@ -302,6 +349,133 @@ export interface JourneyScenarioSummary {
 export interface JourneyScenarioRun {
   results: JourneyScenarioResult[];
   summary: JourneyScenarioSummary;
+}
+
+export interface SimulateJourneyOptions {
+  /**
+   * Run the journey even when the production enrollment guards would skip
+   * this user. The verdict is still reported in `entry`.
+   */
+  force?: boolean;
+  /**
+   * Fail the run once it records more than this many timeline entries
+   * (default 10,000), so a journey that loops without waiting cannot run
+   * forever.
+   */
+  maxSteps?: number;
+}
+
+/** A send attempt's outcome, as returned by the captured services. */
+export type SimulationSendStatus =
+  | "sent"
+  | "suppressed"
+  | "unsubscribed"
+  | "no_consent"
+  | "skipped";
+
+/** One row of a simulation timeline. `at` is an ISO instant. */
+export type SimulationStep =
+  | {
+      kind: "enrolled";
+      at: string;
+      event: string;
+      properties: Record<string, unknown>;
+    }
+  | { kind: "skipped"; at: string; reason: string }
+  | {
+      kind: "event";
+      at: string;
+      event: string;
+      userId: string;
+      properties: Record<string, unknown>;
+    }
+  | {
+      kind: "wait";
+      at: string;
+      wait: "sleep" | "sleepUntil" | "waitForEvent" | "digest";
+      label: string;
+      /** Planned length in ms (sleep, time to target, timeout or window). */
+      durationMs?: number;
+      /** `waitForEvent`/`digest` event name. */
+      event?: string;
+      /**
+       * `resumed` = timer elapsed; `matched` = event arrived; `horizon` = the
+       * simulation stopped while this wait was still pending.
+       */
+      outcome: "resumed" | "matched" | "timedOut" | "exited" | "horizon";
+      resumedAt: string;
+      /** `waitForEvent` match source: `forward`, `lookback` or `pending`. */
+      source?: string;
+    }
+  | { kind: "checkpoint"; at: string; label: string }
+  | { kind: "variant"; at: string; key: string; arm: string }
+  | {
+      kind: "send";
+      at: string;
+      channel: "email" | "sms" | "feed" | "connector";
+      status: SimulationSendStatus;
+      /** Template key; feed type for feed; `connectorId:action` for connectors. */
+      template: string;
+      to?: string;
+      subject?: string;
+      category?: string;
+      reason?: string;
+      idempotencyLabel?: string;
+    }
+  | {
+      kind: "trigger";
+      at: string;
+      event: string;
+      userId: string;
+      properties: Record<string, unknown>;
+    }
+  | { kind: "guard"; at: string; subscribed: boolean }
+  | {
+      kind: "exit";
+      at: string;
+      source: "exitOn" | "manual";
+      reason?: string;
+    }
+  | { kind: "completed"; at: string }
+  /** The run reached the simulation horizon while still waiting. */
+  | { kind: "horizon"; at: string }
+  | { kind: "failed"; at: string; error: string };
+
+/** Stable, JSON-serializable report of one simulated journey run. */
+export interface JourneySimulation {
+  journey: {
+    id: string;
+    name: string;
+    trigger: string;
+    exitOn: string[];
+  };
+  scenario: string;
+  user: { id: string; email: string };
+  startedAt: string;
+  endedAt: string;
+  virtualDurationMs: number;
+  /**
+   * `running` = still waiting when the simulation reached `horizon` (not an
+   * error: the journey would carry on after it).
+   */
+  status: "completed" | "exited" | "failed" | "skipped" | "running";
+  /** Where the simulation stops: `startedAt` plus the scenario's `until`. */
+  horizon: { at: string; durationMs: number };
+  /** Production enrollment-guard verdict for this user. */
+  entry: { allowed: boolean; reason?: string; forced?: boolean };
+  exit?: { source: "exitOn" | "manual"; reason?: string };
+  error?: { name: string; message: string; stack?: string };
+  steps: SimulationStep[];
+  /** Scripted events timed after the run ended, so the journey never saw them. */
+  notReached: Array<{ at: string; event: string }>;
+  summary: {
+    /** Delivered (captured) sends per channel. */
+    sent: Record<"email" | "sms" | "feed" | "connector", number>;
+    /** Send attempts blocked by preferences, consent or suppression. */
+    blocked: number;
+    triggers: number;
+    waits: number;
+  };
 }
 
 export type JourneyDefinition = {

@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { placeholderEnv, resolveTsxBin } from "../lib/consumer-module.js";
 import { color } from "../lib/output.js";
 import type { Command, CommandContext } from "./types.js";
 
@@ -40,23 +41,6 @@ interface FlagMeta {
 }
 
 /**
- * Resolve the consumer's `tsx` binary so we can import a TypeScript flags
- * module in a child process (mirrors how the dev/worker scripts run under tsx).
- * The pnpm/npm `.bin` shim is the reliable entry.
- */
-function resolveTsxBin(consumerRoot: string): string {
-  const shim = join(consumerRoot, "node_modules", ".bin", "tsx");
-  if (existsSync(shim)) return shim;
-  // Fall back to the CLI package's own tsx (bundled as a devDependency).
-  const own = join(dirname(dirname(dirname(import.meta.dirname))), "cli");
-  const ownShim = join(own, "node_modules", ".bin", "tsx");
-  if (existsSync(ownShim)) return ownShim;
-  throw new Error(
-    "could not find a `tsx` binary — install it in the app (pnpm add -D tsx)",
-  );
-}
-
-/**
  * Import the consumer's flags module under tsx (a separate process, so the
  * heavy `@hogsend/engine` import resolves from THEIR node_modules) and return
  * each defined flag's `meta`. The loader emits only JSON on stdout.
@@ -80,26 +64,10 @@ function loadFlagMetas(consumerRoot: string, inputPath: string): FlagMeta[] {
   ].join("\n");
 
   // Codegen is a STATIC, offline operation: it only reads each flag's `meta`.
-  // But importing the consumer's module transitively loads `@hogsend/engine`,
-  // which validates its env AND boots a Hatchet client at import time. Supply
-  // benign placeholders so codegen never needs a live DB/Hatchet — any real
-  // value (e.g. from a `.env` the wrapping script loaded) still wins. The
-  // Hatchet token must be a WELL-FORMED JWT (the SDK parses `sub` +
-  // server/grpc claims from it at `HatchetClient.init`); we mint a dummy one
-  // and force the insecure TLS path so no connection is attempted.
-  const placeholderJwt = makePlaceholderJwt();
-  const childEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    DATABASE_URL:
-      process.env.DATABASE_URL ??
-      "postgresql://placeholder:placeholder@localhost:5432/placeholder",
-    BETTER_AUTH_SECRET:
-      process.env.BETTER_AUTH_SECRET ??
-      "hogsend-flags-codegen-placeholder-secret",
-    HATCHET_CLIENT_TOKEN: process.env.HATCHET_CLIENT_TOKEN ?? placeholderJwt,
-    HATCHET_CLIENT_TLS_STRATEGY:
-      process.env.HATCHET_CLIENT_TLS_STRATEGY ?? "none",
-  };
+  // Importing the consumer's module transitively loads `@hogsend/engine`, so
+  // the child gets placeholder env (see placeholderEnv) and never needs a live
+  // DB/Hatchet.
+  const childEnv = placeholderEnv();
 
   const dir = mkdtempSync(join(tmpdir(), "hogsend-flags-"));
   const loaderFile = join(dir, "load-flags.mjs");
@@ -124,23 +92,6 @@ function loadFlagMetas(consumerRoot: string, inputPath: string): FlagMeta[] {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/**
- * A syntactically-valid dummy Hatchet JWT (header.payload.sig) carrying the
- * claims the SDK reads at `HatchetClient.init` (`sub` + server/grpc addresses).
- * Never used for a real connection — codegen only imports the module graph.
- */
-function makePlaceholderJwt(): string {
-  const b64 = (obj: unknown): string =>
-    Buffer.from(JSON.stringify(obj)).toString("base64url");
-  const header = b64({ alg: "none", typ: "JWT" });
-  const payload = b64({
-    sub: "hogsend-flags-codegen",
-    server_url: "https://localhost",
-    grpc_broadcast_address: "localhost:7077",
-  });
-  return `${header}.${payload}.placeholder`;
 }
 
 /** A single JSON-literal value → its TS literal, or `null` if not a literal. */

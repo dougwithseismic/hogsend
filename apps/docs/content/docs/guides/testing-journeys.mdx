@@ -212,6 +212,26 @@ channel/template, triggers, checkpoints, and min/average/max virtual duration.
 Invalid harness options, malformed event scripts, setup errors, and journey
 errors are captured as failed rows; later rows still run with fresh state.
 
+## Simulate from the command line
+
+`hogsend simulate <journeyId>` runs one journey from your app through this
+harness and prints its timeline: waits and how they resumed, sends, triggers,
+guard skips and the final status. A scenario file is the JSON form of a
+scenario row, and `--format markdown` prints a table you can paste into a pull
+request. See [`hogsend simulate`](/docs/cli/simulate).
+
+```bash
+hogsend simulate onboarding --event "2d:project.created" --format markdown
+```
+
+The same report is available in code from `simulateJourney(journey, scenario)`,
+which returns the ordered steps, the outcome, unreached events and a summary.
+It stops after `scenario.until` of virtual time (default `720h`) and reports a
+journey still waiting there as `running`; a run that records more than 10,000
+timeline entries fails. The harness takes the same limits as
+`createJourneyTest` options `until` and `maxTimelineEntries`, where `run()`
+rejects with `JourneyHorizonError` or `JourneyStepBudgetError` (both exported).
+
 ## What virtual time means
 
 Journey time reached through `JourneyContext` is virtual: `ctx.sleep`,

@@ -1,0 +1,242 @@
+---
+title: hogsend simulate
+description: Run one journey from your app on a virtual clock and print its timeline — waits, sends, triggers, guard skips and the final status — without a database, Hatchet or credentials.
+---
+
+`hogsend simulate` runs a journey from your app through
+[`@hogsend/testing`](/docs/guides/testing-journeys) and prints what it would do
+for one user: enrollment, every wait and how it resumed, checkpoints, every
+send, cross-journey triggers, guard and suppression skips, and how the run
+ended. Sleeps and event timeouts advance a virtual clock, so a 14-day journey
+finishes in about a second. Nothing is sent and nothing is written.
+
+```bash
+hogsend simulate <journeyId> [--user <json>] [--event <spec>]... [--scenario <file.json>] [--format text|markdown|json]
+```
+
+## Requirements
+
+Run it from your app root (or pass `--cwd`). The command:
+
+- imports the `journeys` array from `src/journeys/index.ts` (override with `--journeys`);
+- runs it in a child process under the app's own `tsx`, so every `@hogsend/*` import resolves from the app's `node_modules`;
+- needs `@hogsend/testing` installed in the app, on the same version as `@hogsend/engine`:
+
+```bash
+pnpm add -D @hogsend/testing
+```
+
+No `.env` is read and no service is contacted. The child process starts from a
+clean environment: it keeps only what node needs to run (`PATH`, `HOME`, the
+temp and locale variables, `LOG_LEVEL`), so provider credentials in your shell
+(`POSTHOG_API_KEY`, `RESEND_API_KEY`, `POSTMARK_SERVER_TOKEN`, `TWILIO_*`,
+connector tokens, webhook secrets) never reach the journeys. `DATABASE_URL`,
+`REDIS_URL`, `BETTER_AUTH_SECRET` and the Hatchet token are always set to
+placeholders that point nowhere, so a module that validates them at import time
+still loads.
+
+Paths you pass (`--scenario`, `--all-scenarios`, `--journeys`, `--cwd`) are
+relative to the directory you run the command from. Only the defaults are
+relative to the app root, so `hogsend simulate --cwd apps/api --scenario
+apps/api/scenarios/converts.json` works from the repository root.
+
+When `src/emails/registry.ts` or `src/sms/registry.ts` exists, its registry is
+loaded, so sends show the template's default subject and a template key that is
+not registered fails the run, as it would in production. Pass `--no-templates`
+to skip them.
+
+## Describing the run
+
+With no inputs, the journey runs for a default user (`sim-user`,
+`sim-user@example.com`) starting at the current time, with no events. The
+timestamps then change on every run; set `--now` (or `now` in a scenario file)
+for output you can compare or commit.
+
+| Input | Meaning |
+|---|---|
+| `--user <json>` | The enrolled user: `{"id":"u1","email":"a@b.co","properties":{"plan":"pro"}}`. Any key may be omitted. |
+| `--user-id <id>`, `--email <address>` | Shorthands for the user's id and email. |
+| `--event "<after>:<event>[:<json props>]"` | An event from this user, `<after>` from enrollment. Repeatable. |
+| `--now <iso>` | Virtual start time, as an ISO 8601 date (`2026-03-02`) or date-time (`2026-03-02T09:00:00Z`, `2026-03-02T10:00:00+01:00`). A value without an offset is read as UTC. Set it for output that does not change between runs. |
+| `--until <duration>` | How much virtual time to simulate before stopping (default `720h`, the engine's journey limit). See [Long-running journeys](#long-running-journeys). |
+| `--scenario <file.json>` | A scenario file (below). The flags above layer on top of it. |
+| `--all-scenarios <dir>` | Run every `*.json` scenario in a directory, in name order. |
+
+Durations use `s`, `m`, `h`, `d` and `w`, and can be combined: `30m`, `6h`,
+`2d`, `1w`, `1d12h`. Event names may contain colons; the properties start at
+the first colon followed by `{` (spaces between them are fine, as in
+`2d:plan.changed: {"plan":"pro"}`) and must be a JSON object. An event name
+containing spaces, braces or brackets is rejected; put such an event in a
+scenario file.
+
+```bash
+hogsend simulate conversion-trial-upgrade \
+  --event "1d:usage.milestone_reached" \
+  --event '11d:subscription.created:{"plan":"pro"}'
+```
+
+### Scenario files
+
+A scenario file is the JSON form of a
+[`runJourneyScenarios`](/docs/guides/testing-journeys#scenario-tables) row, plus
+an optional `journey` id. Durations may be strings (`"2d"`) or the harness shape
+(`{ "hours": 48 }`). Dates (`now`, `events[].at`, `guard[].at` and the dates in
+`history`) use the same ISO 8601 rule as `--now`. Unknown keys and invalid
+dates are rejected with the file name in the error.
+
+| Key | Description |
+|---|---|
+| `name` | Scenario label in the output. Defaults to the file name. |
+| `journey` | Journey id. Lets `--all-scenarios` mix journeys; must match the positional id when both are given. |
+| `user` | `{ id, email, properties }`. |
+| `now`, `timezone` | Virtual start time and the user's timezone. |
+| `until` | How much virtual time to simulate, like `--until` (which overrides it). |
+| `events` | `[{ event, after \| at, properties?, userId?, userEmail? }]`. Events for another `userId` are listed but do not resume this user's waits or trigger an exit. |
+| `guard` | `[{ subscribed, after \| at }]` — flip the global subscription mid-run, e.g. to see which sends an unsubscribe blocks. |
+| `subscribed` | Starting subscription state (default `true`). |
+| `preferences` | `{ suppressed?, categories?, defaultOptIn? }` for the recipient. |
+| `smsConsent` | `granted`, `missing`, `opted_out` or `suppressed`. |
+| `history` | Prior events, journey completions and sends the journey can read through `ctx.history`. Not shown in the timeline. |
+| `entry` | Enrollment facts: `{ alreadyActive?, heldOut?, adminEnabled?, entry? }`, where `entry` replaces the entry-limit verdict computed from `history`. |
+| `variants` | Force an arm per `ctx.variant` key: `{ "welcome-subject": "short" }`. |
+| `connectorActions` | Connector actions the journey may call. |
+
+```json title="scenarios/trial-converts.json"
+{
+  "name": "converts after the trial-ending email",
+  "journey": "conversion-trial-upgrade",
+  "user": {
+    "id": "user_42",
+    "email": "ada@example.com",
+    "properties": { "plan": "trial" }
+  },
+  "now": "2026-03-02T09:00:00Z",
+  "events": [
+    { "after": "1d", "event": "usage.milestone_reached" },
+    {
+      "after": "11d",
+      "event": "subscription.created",
+      "properties": { "plan": "pro" }
+    }
+  ]
+}
+```
+
+## Output
+
+Steps are ordered by virtual time. A wait is listed when it starts, with its
+planned length and how it resumed: `resumed`, `event arrived`, `timed out`,
+`interrupted by exit`, or `still waiting (horizon)`. A send shows the channel,
+template, recipient, subject and its `idempotencyLabel` when one was passed; a
+blocked send shows the reason (for example `unsubscribed`,
+`category_unsubscribed`, `suppressed`, `journey_suppressed` for a
+`meta.suppress` gap, or `no_consent` for SMS). The last step is `Completed`,
+`Exited` (with the `exitOn` event or the `ctx.exit` reason), `Still running`
+(the run reached the horizon) or `Failed` (with the error). Scripted events
+after the run ended are listed as not reached.
+
+`--format text` (the default) prints an aligned timeline. `--format markdown`
+prints a section you can paste into a pull request. For the scenario above, run
+against the dogfood app:
+
+```bash
+hogsend simulate --scenario scenarios/trial-converts.json --format markdown
+```
+
+```markdown
+### `conversion-trial-upgrade` · converts after the trial-ending email
+
+**2 emails over 11 days; exits on `subscription.created`.**
+
+User `user_42` (ada@example.com) · starts 2026-03-02 09:00 UTC
+
+| Time | Step | Detail |
+| --- | --- | --- |
+| +0m | Enrolled | on `trial.started` |
+| +0m | Sleep | `usage-milestone` for 3d → resumed at +3d |
+| +1d | Event | `usage.milestone_reached` |
+| +3d | Email | `conversion-usage-milestone` → ada@example.com · "You're on a roll — here's what Pro unlocks" |
+| +3d | Sleep | `trial-midpoint` for 4d → resumed at +7d |
+| +7d | Sleep | `trial-ending` for 3d → resumed at +10d |
+| +10d | Email | `conversion-trial-expiring` → ada@example.com · "Your trial ends in 3 days — don't lose your progress" |
+| +10d | Sleep | `trial-final` for 2d → interrupted by exit at +11d |
+| +11d | Event | `subscription.created` `{"plan":"pro"}` |
+| +11d | Exited | `subscription.created` (exitOn) |
+```
+
+`--format json` (or the global `--json`) prints `{ "simulations": [...] }`, one
+report per scenario, each with `journey`, `scenario`, `user`, `startedAt`,
+`horizon` (`{ at, durationMs }`), `endedAt`, `virtualDurationMs`, `status`
+(`completed`, `exited`, `failed`, `skipped` or `running`), `entry`, `exit`,
+`error`, `steps`, `notReached` and a `summary` of sends per channel, blocked
+sends, triggers and waits. A scenario that could not be run at all (for example
+a malformed fixture) is left out of `simulations` and listed in `errors` as
+`{ source, journeyId, message }`; the other scenarios still run. The same report
+is available in code as `simulateJourney()` from `@hogsend/testing`.
+
+## Long-running journeys
+
+A journey that loops (a weekly digest, a renewal reminder) never finishes on
+its own, so every run stops at a horizon: `720h` (30 days, the engine's journey
+execution limit) after the start, or the `--until` / scenario `until` you set. A
+journey still waiting at the horizon is reported as `running`, not as a
+failure: its last wait shows `still waiting at +30d (horizon)` and the timeline
+ends with `Still running`. It exits `0`.
+
+```bash
+hogsend simulate weekly-digest --until 90d
+```
+
+Two limits catch a journey that runs without ever waiting. A run that records
+more than 10,000 timeline entries fails with `JourneyStepBudgetError`, and the
+whole command is stopped after 60 seconds of wall-clock time (raise it with
+`--timeout <seconds>` if the app is slow to load). Both exit `1`. Ctrl-C stops
+the simulation process too.
+
+## Enrollment guards
+
+The run starts with the production enrollment check: `enabled`, `trigger.where`
+against the trigger properties, `entryLimit` against the scenario's history and
+entry facts, the subscription state, holdouts and an already-active run. A user
+the check refuses is reported as `skipped` with the reason, and the journey does
+not run. Pass `--force` to run it anyway; the output notes the reason it would
+have been skipped.
+
+## Exit codes
+
+`simulate` exits `1` when any simulated journey throws, after printing the
+timeline with the error, and when a scenario cannot be run (after printing the
+others). It also exits `1` for invalid input, an unknown journey id (the error
+lists the available ids), a journeys module that fails to load, a run over the
+step budget, or the wall-clock limit. Skipped, exited, completed and `running`
+runs exit `0`.
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--user <json>` | The enrolled user. |
+| `--user-id <id>` | User id (default `sim-user`). |
+| `--email <address>` | User email (default `sim-user@example.com`). |
+| `--event <spec>` | Scripted event, `"<after>:<event>[:<json props>]"`. Repeatable. |
+| `--now <iso>` | Virtual start time, ISO 8601; no offset means UTC (default: the scenario's `now`, else the current time). |
+| `--until <duration>` | Virtual time to simulate before stopping (default `720h`). |
+| `--scenario <file.json>` | Load a scenario file. |
+| `--all-scenarios <dir>` | Run every `*.json` scenario in a directory. |
+| `--format <text\|markdown\|json>` | Output format (default `text`). |
+| `--force` | Run even if the enrollment guards would skip the user. |
+| `--no-templates` | Do not load the email and SMS template registries. |
+| `--journeys <file>` | Journeys module (default `src/journeys/index.ts` in the app root). |
+| `--cwd <dir>` | App root (default: the current directory). |
+| `--timeout <seconds>` | Wall-clock limit for the whole run (default `60`). |
+| `--json` | Same as `--format json`. |
+| `-h, --help` | Show this help. |
+
+## Examples
+
+```bash
+hogsend simulate activation-welcome
+hogsend simulate activation-welcome --user-id user_42 --now 2026-03-02T09:00:00Z
+hogsend simulate feedback-nps --event '15d:nps.submitted:{"score":4}'
+hogsend simulate --all-scenarios scenarios --format markdown > simulation.md
+```

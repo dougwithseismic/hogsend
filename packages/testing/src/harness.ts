@@ -33,6 +33,7 @@ import {
   validateVariantKey,
 } from "@hogsend/engine/testing";
 import { getSmsTemplateDefinition } from "@hogsend/sms";
+import { JourneyHorizonError, JourneyStepBudgetError } from "./errors.js";
 import { JourneyMailbox } from "./mailbox.js";
 import type {
   CapturedTrigger,
@@ -64,7 +65,7 @@ type RecordNamespace =
   | "__throttle__"
   | "__variants__";
 type WaitType = "sleep" | "sleepUntil" | "waitForEvent" | "digest";
-type WaitOutcome = "resumed" | "matched" | "timedOut" | "exited";
+type WaitOutcome = "resumed" | "matched" | "timedOut" | "exited" | "horizon";
 
 type GuardChange = {
   at: number;
@@ -111,10 +112,18 @@ export class JourneyTest {
 
   private currentMs: number;
   private readonly initialMs: number;
+  /** Absolute `until` instant, when the option is set. */
+  private readonly horizonMs: number | undefined;
+  /**
+   * Set once the horizon or the step budget stops the run. Later waits
+   * rethrow it, and `run()` reports it even if the journey caught it.
+   */
+  private halt: JourneyHorizonError | JourneyStepBudgetError | undefined;
   private sequence = 0;
   private hasRun = false;
   private readonly journalEvents: TestEvent[] = [];
   private readonly reportedEventSequences = new Set<number>();
+  private readonly reportedVariants = new Set<string>();
   private readonly guardChanges: GuardChange[] = [];
   private readonly recordValues: Record<RecordNamespace, Map<string, unknown>> =
     {
@@ -223,6 +232,21 @@ export class JourneyTest {
     );
     this.currentMs = start.getTime();
     this.initialMs = this.currentMs;
+    if (this.options.until !== undefined) {
+      const untilMs = durationToMs(this.options.until);
+      if (!(untilMs > 0)) {
+        throw new RangeError(
+          "createJourneyTest until must be a positive duration",
+        );
+      }
+      this.horizonMs = this.initialMs + untilMs;
+    }
+    const budget = this.options.maxTimelineEntries;
+    if (budget !== undefined && !(Number.isInteger(budget) && budget > 0)) {
+      throw new RangeError(
+        "createJourneyTest maxTimelineEntries must be a positive integer",
+      );
+    }
     this.recipientPreferences = this.jsonSnapshot(
       this.options.preferences ?? {},
       "recipient preferences",
@@ -316,11 +340,24 @@ export class JourneyTest {
   }
 
   private recordTimeline(entry: TimelineEntry): void {
-    this.timeline.push(this.jsonSnapshot(entry, "timeline entry"));
-    this.timeline.sort(
-      (left, right) =>
-        new Date(left.at).getTime() - new Date(right.at).getTime(),
-    );
+    const budget = this.options.maxTimelineEntries;
+    if (budget !== undefined && this.timeline.length >= budget) {
+      this.halt ??= new JourneyStepBudgetError(budget, this.now.toISOString());
+      throw this.halt;
+    }
+    const snapshot = this.jsonSnapshot(entry, "timeline entry");
+    // The timeline is kept sorted by `at`; insert after every entry at the
+    // same instant, which matches a stable sort of the appended entry.
+    const at = new Date(snapshot.at).getTime();
+    let low = 0;
+    let high = this.timeline.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      const item = this.timeline[mid];
+      if (item && new Date(item.at).getTime() <= at) low = mid + 1;
+      else high = mid;
+    }
+    this.timeline.splice(low, 0, snapshot);
   }
 
   private cloneDefinitionRegistry<T extends object>(registry: T): T {
@@ -427,9 +464,11 @@ export class JourneyTest {
     at: string;
     label: string;
     targetMs: number;
-    outcome: Exclude<WaitOutcome, "exited">;
+    outcome: Exclude<WaitOutcome, "exited" | "horizon">;
     detail?: Record<string, unknown>;
   }): TimelineEntry {
+    // A journey that caught the stop and waits again records nothing more.
+    if (this.halt) throw this.halt;
     this.updateCurrentJourney("waiting");
     try {
       this.advanceTo(opts.targetMs);
@@ -444,6 +483,14 @@ export class JourneyTest {
     } catch (error) {
       if (error instanceof JourneyExitedError) {
         this.captureWait(opts.type, opts.at, opts.label, "exited", opts.detail);
+      } else if (error instanceof JourneyHorizonError) {
+        this.captureWait(
+          opts.type,
+          opts.at,
+          opts.label,
+          "horizon",
+          opts.detail,
+        );
       }
       throw error;
     }
@@ -657,6 +704,7 @@ export class JourneyTest {
   }
 
   private advanceTo(targetMs: number): void {
+    if (this.halt) throw this.halt;
     const target = Math.max(this.currentMs, targetMs);
     if (this.pendingExitEvent) {
       const pending = this.pendingExitEvent;
@@ -664,11 +712,21 @@ export class JourneyTest {
       this.applyChangesThrough(this.currentMs);
       this.captureExitOn(pending);
     }
-    const exit = this.exitEventBefore(target);
-    const end = exit ? new Date(exit.occurredAt).getTime() : target;
+    // Stop at the horizon: scripted exits and guard changes up to it still
+    // apply, but the clock never passes it.
+    const capped =
+      this.horizonMs === undefined
+        ? target
+        : Math.min(target, Math.max(this.horizonMs, this.currentMs));
+    const exit = this.exitEventBefore(capped);
+    const end = exit ? new Date(exit.occurredAt).getTime() : capped;
     this.applyChangesThrough(end);
     this.currentMs = end;
     if (exit) this.captureExitOn(exit);
+    if (end < target) {
+      this.halt = new JourneyHorizonError(this.now.toISOString());
+      throw this.halt;
+    }
   }
 
   private hasRecentJourneySend(
@@ -699,6 +757,28 @@ export class JourneyTest {
     });
   }
 
+  /**
+   * Recover an explicit `idempotencyLabel` from a derived journey key
+   * (`<kind>:<runAnchor>:<site>:<discriminant>`). The engine derives `site` as
+   * `idempotencyLabel ?? currentLabel ?? fallback`, so a site that differs from
+   * the implicit value was passed explicitly. Caller-supplied keys that do not
+   * carry the harness anchor yield nothing.
+   */
+  private idempotencyLabelDetail(
+    key: string | undefined,
+    discriminant: string,
+    fallbackSite: string,
+  ): { idempotencyLabel?: string } {
+    if (!key) return {};
+    const marker = `:${RUN_ID}:`;
+    const start = key.indexOf(marker);
+    const suffix = `:${discriminant}`;
+    if (start < 0 || !key.endsWith(suffix)) return {};
+    const site = key.slice(start + marker.length, key.length - suffix.length);
+    if (!site || site === (this.currentLabel ?? fallbackSite)) return {};
+    return { idempotencyLabel: site };
+  }
+
   private setLabel(label: string): void {
     this.currentLabel = label;
     const boundary = getJourneyBoundary();
@@ -708,6 +788,11 @@ export class JourneyTest {
   private createServices(): JourneyServiceOverrides {
     return {
       email: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          effect.template,
+          effect.template,
+        );
         if (effect.idempotencyKey) {
           const prior = this.emailIdempotency.get(effect.idempotencyKey);
           if (prior)
@@ -727,6 +812,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -743,6 +829,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -758,6 +845,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -774,6 +862,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "email",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -803,7 +892,12 @@ export class JourneyTest {
           category: message.category,
           journeyId: this.journey.meta.id,
         });
-        this.recordTimeline({ type: "email", at: message.sentAt, ...message });
+        this.recordTimeline({
+          type: "email",
+          at: message.sentAt,
+          ...message,
+          ...label,
+        });
         const result = {
           emailSendId: message.resultId,
           sentAt: message.sentAt,
@@ -817,6 +911,11 @@ export class JourneyTest {
         return this.jsonSnapshot(result, "email send result");
       },
       sms: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          effect.template,
+          effect.template,
+        );
         if (effect.idempotencyKey) {
           const prior = this.smsIdempotency.get(effect.idempotencyKey);
           if (prior) return this.jsonSnapshot(prior, "SMS idempotency result");
@@ -836,6 +935,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -852,6 +952,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -877,6 +978,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -896,6 +998,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -913,6 +1016,7 @@ export class JourneyTest {
           };
           this.recordTimeline({
             type: "sms",
+            ...label,
             at,
             template: effect.template,
             to: effect.to,
@@ -940,7 +1044,12 @@ export class JourneyTest {
           sentAt: message.sentAt,
           journeyId: this.journey.meta.id,
         });
-        this.recordTimeline({ type: "sms", at: message.sentAt, ...message });
+        this.recordTimeline({
+          type: "sms",
+          at: message.sentAt,
+          ...message,
+          ...label,
+        });
         const result = {
           smsSendId: message.resultId,
           status: "sent" as const,
@@ -974,6 +1083,12 @@ export class JourneyTest {
               "(pass it via createJourneyTest({ connectorActions }))",
           );
         }
+        const connectorKey = `${effect.connectorId}:${effect.action}`;
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          connectorKey,
+          connectorKey,
+        );
         if (
           definition.audience?.kind === "member" &&
           !this.subscriptionAt(this.currentMs)
@@ -981,6 +1096,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "connector",
+            ...label,
             at,
             connectorId: effect.connectorId,
             action: effect.action,
@@ -1001,6 +1117,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "connector",
+            ...label,
             at,
             connectorId: effect.connectorId,
             action: effect.action,
@@ -1020,13 +1137,18 @@ export class JourneyTest {
           resultId: `test-connector-${this.effects.connectors.length + 1}`,
         };
         this.effects.connectors.push(record);
-        this.recordTimeline({ type: "connector", ...record });
+        this.recordTimeline({ type: "connector", ...record, ...label });
         const configured = definition.result;
         return typeof configured === "function"
           ? configured(effect.args)
           : (configured ?? { id: record.resultId });
       },
       feed: async (effect) => {
+        const label = this.idempotencyLabelDetail(
+          effect.idempotencyKey,
+          `feed:${effect.type}`,
+          effect.type,
+        );
         const recipientKey =
           effect.recipient.userId ??
           effect.recipient.email ??
@@ -1039,6 +1161,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "feed",
+            ...label,
             at,
             feedType: effect.type,
             recipientKey,
@@ -1056,6 +1179,7 @@ export class JourneyTest {
           const at = this.now.toISOString();
           this.recordTimeline({
             type: "feed",
+            ...label,
             at,
             feedType: effect.type,
             recipientKey,
@@ -1087,7 +1211,12 @@ export class JourneyTest {
         };
         this.effects.feed.push(record);
         const { type: feedType, ...timelineRecord } = record;
-        this.recordTimeline({ type: "feed", feedType, ...timelineRecord });
+        this.recordTimeline({
+          type: "feed",
+          feedType,
+          ...timelineRecord,
+          ...label,
+        });
         if (effect.idempotencyKey)
           this.feedIdempotency.set(effect.idempotencyKey, record.resultId);
         return {
@@ -1158,13 +1287,15 @@ export class JourneyTest {
       sleep: async ({ duration, label }) => {
         const started = this.now.toISOString();
         const node = label ?? `wait:${JSON.stringify(duration)}`;
+        const durationMs = durationToMs(duration);
         this.setLabel(node);
         this.advanceWait({
           type: "sleep",
           at: started,
           label: node,
-          targetMs: this.currentMs + durationToMs(duration),
+          targetMs: this.currentMs + durationMs,
           outcome: "resumed",
+          detail: { durationMs },
         });
         return { sleptAt: started, resumedAt: this.now.toISOString() };
       },
@@ -1179,6 +1310,10 @@ export class JourneyTest {
           label: node,
           targetMs: target.getTime(),
           outcome: "resumed",
+          detail: {
+            until: target.toISOString(),
+            durationMs: Math.max(0, target.getTime() - this.currentMs),
+          },
         });
         return { sleptAt: started, resumedAt: this.now.toISOString() };
       },
@@ -1210,7 +1345,7 @@ export class JourneyTest {
                 new Date(startedMs).toISOString(),
                 node,
                 "exited",
-                { event, source: "pending" },
+                { event, durationMs: timeoutMs, source: "pending" },
               );
             }
             throw error;
@@ -1241,7 +1376,12 @@ export class JourneyTest {
               new Date(startedMs).toISOString(),
               node,
               "matched",
-              { event, timedOut: false, source: "lookback" },
+              {
+                event,
+                timedOut: false,
+                durationMs: timeoutMs,
+                source: "lookback",
+              },
             );
             return {
               timedOut: false,
@@ -1269,7 +1409,12 @@ export class JourneyTest {
           label: node,
           targetMs: hit ? new Date(hit.occurredAt).getTime() : deadline,
           outcome: hit ? "matched" : "timedOut",
-          detail: { event, timedOut: !hit, source: "forward" },
+          detail: {
+            event,
+            timedOut: !hit,
+            durationMs: timeoutMs,
+            source: "forward",
+          },
         });
         return hit
           ? {
@@ -1363,6 +1508,17 @@ export class JourneyTest {
             arms,
           });
         });
+        // One timeline entry per key per run: repeat calls replay the same
+        // arm, so they add nothing a reader needs.
+        if (!this.reportedVariants.has(key)) {
+          this.reportedVariants.add(key);
+          this.recordTimeline({
+            type: "variant",
+            at: this.now.toISOString(),
+            key,
+            arm: assigned,
+          });
+        }
         return assigned as A[number];
       },
       digest: async (opts: DigestOptions) => {
@@ -1390,7 +1546,7 @@ export class JourneyTest {
           label,
           targetMs: new Date(deadline).getTime(),
           outcome: "resumed",
-          detail: { event },
+          detail: { event, durationMs: windowMs },
         });
         const where = normalizeWhere(
           opts.where ??
@@ -1652,9 +1808,20 @@ export class JourneyTest {
       await runWithJourneyBoundary(boundary, () =>
         this.journey.run(user, this.context),
       );
+      // A journey that swallowed the horizon or budget error still stopped.
+      if (this.halt) throw this.halt;
       this.updateCurrentJourney("completed");
       return "completed";
     } catch (error) {
+      if (this.halt instanceof JourneyHorizonError) {
+        // Still waiting, not broken: it would resume after the horizon.
+        this.updateCurrentJourney("waiting");
+        throw this.halt;
+      }
+      if (this.halt) {
+        this.updateCurrentJourney("failed");
+        throw this.halt;
+      }
       if (error instanceof JourneyExitedError) {
         this.updateCurrentJourney("exited");
         return "exited";

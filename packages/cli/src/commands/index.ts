@@ -21,6 +21,7 @@ import { patchCommand } from "./patch.js";
 import { publishCommand } from "./publish.js";
 import { setupCommand } from "./setup.js";
 import { signupCommand } from "./signup.js";
+import { simulateCommand } from "./simulate.js";
 import { skillsCommand } from "./skills.js";
 import { statsCommand } from "./stats.js";
 import { studioCommand } from "./studio.js";
@@ -64,6 +65,7 @@ export const commands: Command[] = [
   hatchetCommand,
   studioCommand,
   devCommand,
+  simulateCommand,
   flagsCommand,
   setupCommand,
   skillsCommand,

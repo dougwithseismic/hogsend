@@ -17,7 +17,7 @@ Market picture: [MARKET.md](MARKET.md). Earlier runs: [archive/](archive/).
 | 12 | Resolver fast path + concurrent ingest hooks | `[ ]` | 09 | Audit B1/B2: lock-free warm resolve (re-probe under lock on any change), `Promise.allSettled` for independent post-store hooks. Identity-sensitive: review panel before merge. |
 | 13 | Extensibility cleanup | `[ ]` | 12 | Audit B6/B7: one generic id-keyed registry for the six provider registries, `lib/contacts.ts` split along its clusters, one subject-table list for adoption/merge/erasure/backfill. No behaviour change. |
 | 14 | Refuse merging two identified users on a shared browser (#629) | `[ ]` | 12 | Implement the reserved `allowMerge: "never-identified-pair"` policy. |
-| 15 | `hogsend simulate` | `[ ]` | — | Wedge: run a journey on a simulated clock and print the timeline (sends, waits, branches) for a PR comment. Builds on `@hogsend/testing`. |
+| 15 | `hogsend simulate` | `[~] in PR; reaches users when Version Packages #685 is merged (needs you)` | — | Wedge: run a journey on a simulated clock and print the timeline (sends, waits, branches) for a PR comment. Builds on `@hogsend/testing`. |
 | 16 | Exactly-once connector actions (#661) | `[ ]` | — | Layer-2 dedup for Telegram/Discord sends, matching email/SMS. |
 | 17 | Deliverability panel | `[ ]` | — | Bounce/complaint rates against the Gmail/Yahoo bulk-sender thresholds, in Studio and `check-alerts`. |
 
