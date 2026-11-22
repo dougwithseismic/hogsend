@@ -124,6 +124,13 @@ const ENTRIES: ChangelogEntry[] = [
           keeps working for 24 hours (configurable) so you can roll it out. A
           revoked key stops working within a minute.
         </Bullet>
+        <Bullet>
+          New <Code>hogsend simulate</Code> runs one journey on a virtual clock
+          and prints what it would do: each wait and how it ended, every send
+          and branch, and the final status. Give it a user and timed events, or
+          a scenario file; nothing is sent. Output is text, markdown for a PR
+          comment, or JSON. Needs <Code>@hogsend/testing</Code> in the app.
+        </Bullet>
       </>
     ),
     upgradeNote: (
