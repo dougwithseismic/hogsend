@@ -91,7 +91,7 @@ export const metadata: Metadata = {
     absolute: "Hogsend — Lifecycle messaging as code in your repo",
   },
   description:
-    "For product engineers and technical founders: onboarding, trial and win-back journeys as TypeScript in your repo, reviewed in a pull request and checked by CI. Exactly-once sends, unsubscribes, suppression, first-party tracking and identity built in, on infrastructure you own.",
+    "Onboarding, trial and win-back journeys as TypeScript in your repo, reviewed in pull requests, with exactly-once sends and suppression built in.",
   alternates: { canonical: "/" },
   keywords: [
     "lifecycle automation framework",
@@ -4604,7 +4604,7 @@ function PsFooter() {
         <div>
           <InkLogo light />
           <p className="mt-6 text-sm text-white/60 tracking-[-0.02em]">
-            The growth stack for teams that code
+            Lifecycle messaging as code in your repo
           </p>
           <p className="mt-2 text-sm text-white/40 tracking-[-0.02em]">
             © 2026 Hogsend. All rights reserved.

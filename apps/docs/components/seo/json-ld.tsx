@@ -43,7 +43,7 @@ export function SoftwareApplicationJsonLd(): JSX.Element {
         url: SITE_URL,
         sameAs: [GITHUB_URL, NPM_URL],
         description:
-          "A TypeScript framework for growth teams that code. Durable journeys live in your repo, work with coding agents, and run across email, in-app, SMS, Discord, and more.",
+          "Lifecycle messaging as code. Durable TypeScript journeys live in your repo, work with coding agents, and run across email, in-app, SMS, Discord, and more.",
       }}
     />
   );

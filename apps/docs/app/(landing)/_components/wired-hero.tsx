@@ -62,7 +62,7 @@ const PILLARS = [
   {
     icon: ServerCog,
     title: "On infrastructure you own",
-    body: "First-party open and click tracking and identity in your own Postgres, with the email provider you already use.",
+    body: "First-party open and click tracking and identity in your own Postgres, sent through Resend, Postmark or your own provider.",
   },
 ] as const;
 
