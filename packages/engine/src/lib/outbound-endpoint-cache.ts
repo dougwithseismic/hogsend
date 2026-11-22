@@ -9,9 +9,18 @@ interface CachedEndpoint {
   eventTypes: string[];
 }
 
-let endpointCache: { rows: CachedEndpoint[]; loadedAt: number } | null = null;
-// Bumped by every invalidation, so a read that started before an admin write
-// can't put the pre-write list back into the cache when it finishes.
+interface CacheEntry {
+  rows: CachedEndpoint[];
+  loadedAt: number;
+  generation: number;
+}
+
+// One entry per database client, so two databases in one process (tests,
+// a multi-database host) never read each other's endpoints.
+const endpointCache = new WeakMap<Database, CacheEntry>();
+// Bumped by every invalidation. An entry from an older generation is ignored,
+// and a read that started before an admin write can't put the pre-write list
+// back into the cache when it finishes.
 let endpointCacheGeneration = 0;
 
 function endpointCacheTtlMs(): number {
@@ -33,7 +42,6 @@ function endpointCacheTtlMs(): number {
  * cached endpoint causes, so the other endpoints keep their delivery.
  */
 export function invalidateOutboundEndpointCache(): void {
-  endpointCache = null;
   endpointCacheGeneration += 1;
 }
 
@@ -47,8 +55,13 @@ export async function loadSubscribableEndpoints(
 ): Promise<CachedEndpoint[]> {
   const ttl = endpointCacheTtlMs();
   const now = Date.now();
-  if (ttl > 0 && endpointCache && now - endpointCache.loadedAt < ttl) {
-    return endpointCache.rows;
+  const cached = ttl > 0 ? endpointCache.get(db) : undefined;
+  if (
+    cached &&
+    cached.generation === endpointCacheGeneration &&
+    now - cached.loadedAt < ttl
+  ) {
+    return cached.rows;
   }
   const generation = endpointCacheGeneration;
   const rows = await db
@@ -64,7 +77,7 @@ export async function loadSubscribableEndpoints(
       ),
     );
   if (ttl > 0 && generation === endpointCacheGeneration) {
-    endpointCache = { rows, loadedAt: now };
+    endpointCache.set(db, { rows, loadedAt: now, generation });
   }
   return rows;
 }
