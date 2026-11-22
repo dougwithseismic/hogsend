@@ -1,9 +1,7 @@
-import { apiKeys } from "@hogsend/db";
-import { and, eq, isNull } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app.js";
 import { hashApiKey } from "../lib/api-key-hash.js";
-import { hasScope, requireApiKey } from "./api-key.js";
+import { hasScope, loadApiKey, requireApiKey } from "./api-key.js";
 
 /**
  * Data-plane guard for the BROWSER-REACHABLE subset of `/v1` (POST /events, the
@@ -17,8 +15,9 @@ import { hasScope, requireApiKey } from "./api-key.js";
  *     byte-for-byte behaviorally identical to the existing
  *     `requireApiKey` → `requireScope("ingest")` stack.
  *
- *   - PUBLISHABLE key (`pk_` bearer): its own UNCACHED DB lookup (the secret
- *     cache does not carry `allowed_origins`). Requires scope `ingest-public`
+ *   - PUBLISHABLE key (`pk_` bearer): read through the same 60s key cache
+ *     (`loadApiKey`, which carries `allowed_origins`) with the same debounced
+ *     `lastUsedAt` bump as secret keys. Requires scope `ingest-public`
  *     and REJECTS any pk_ token that somehow also carries `ingest`/`full-admin`
  *     (defence in depth — a prefix never implies privilege). Enforces the
  *     per-key Origin allowlist FAIL-CLOSED (no/empty allowlist ⇒ reject; Origin
@@ -61,17 +60,13 @@ export const requirePublishableOrIngest = createMiddleware<AppEnv>(
       return next();
     }
 
-    // PUBLISHABLE path: pk_ token. Own DB lookup — `requireApiKey`'s cache does
-    // not carry `allowed_origins`, and pk_ traffic is browser-Origin-gated and
-    // lower-volume, so correctness over the 60s cache.
+    // PUBLISHABLE path: pk_ token. Same cached read as the secret path (a
+    // browser key is hit on every page view, so an uncached lookup plus an
+    // undebounced `lastUsedAt` write was two statements per request). Revoking
+    // or rotating evicts it here at once; other instances pick it up within
+    // the 60s TTL, the same lag secret keys have.
     const { db } = c.get("container");
-    const keyHash = hashApiKey(provided);
-    const rows = await db
-      .select()
-      .from(apiKeys)
-      .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
-      .limit(1);
-    const key = rows[0];
+    const key = await loadApiKey(db, hashApiKey(provided));
     if (!key) {
       return c.json({ error: "Unauthorized" }, 401);
     }
@@ -79,7 +74,7 @@ export const requirePublishableOrIngest = createMiddleware<AppEnv>(
       return c.json({ error: "API key expired" }, 401);
     }
 
-    const scopes = key.scopes as string[];
+    const scopes = key.scopes;
     // A pk_ key MUST be exactly a publishable key. Reject a pk_-prefixed token
     // that somehow carries `ingest`/`full-admin` — the mint route forces
     // `["ingest-public"]`, but never trust the prefix alone to imply privilege.
@@ -106,13 +101,6 @@ export const requirePublishableOrIngest = createMiddleware<AppEnv>(
       allowedOrigins: allowed,
     });
     c.set("publishable", true);
-
-    // Best-effort last-used bump (mirror requireApiKey's fire-and-forget).
-    db.update(apiKeys)
-      .set({ lastUsedAt: new Date() })
-      .where(eq(apiKeys.id, key.id))
-      .then(() => {})
-      .catch(() => {});
 
     return next();
   },

@@ -106,7 +106,8 @@ async function seedEndpoint(opts: {
       secretPrefix,
       kind,
       config: opts.config ?? null,
-      eventTypes: ["email.clicked"],
+      // Delivery re-checks the subscription, so list every type driven below.
+      eventTypes: ["email.clicked", "email.opened"],
       disabled: false,
     })
     .returning({ id: webhookEndpoints.id });

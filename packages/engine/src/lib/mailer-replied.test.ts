@@ -15,6 +15,7 @@ process.env.BETTER_AUTH_SECRET ??= "test-secret";
 process.env.HATCHET_CLIENT_TOKEN ??=
   "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QifQ.eyJhdWQiOiJsb2NhbGhvc3QiLCJleHAiOjQ5MzMyNDA5ODMsImdycGNfYnJvYWRjYXN0X2FkZHJlc3MiOiJsb2NhbGhvc3Q6NzA3NyIsImlhdCI6MTc3OTY0MDk4MywiaXNzIjoibG9jYWxob3N0Iiwic2VydmVyX3VybCI6ImxvY2FsaG9zdCIsInN1YiI6InRlc3QtdGVuYW50LWlkIiwidG9rZW5faWQiOiJ0ZXN0LXRva2VuLWlkIn0.test";
 const { createTrackedMailer } = await import("./mailer.js");
+const { WEBHOOK_EVENT_TYPES } = await import("./webhook-signing.js");
 
 /**
  * `email.replied` handling (PRD 16 task 5).
@@ -128,8 +129,12 @@ function recordingDb(selectRows: SendRow[] = []): {
             leftJoin: () => ({
               where: () => ({ limit: () => Promise.resolve(selectRows) }),
             }),
-            // One subscribed endpoint, so the spine has somewhere to deliver.
-            where: () => Promise.resolve([{ id: "endpoint-1" }]),
+            // One endpoint subscribed to every event, so the spine has
+            // somewhere to deliver whatever the path emits.
+            where: () =>
+              Promise.resolve([
+                { id: "endpoint-1", eventTypes: [...WEBHOOK_EVENT_TYPES] },
+              ]),
           };
         },
       };

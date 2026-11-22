@@ -45,16 +45,33 @@ export interface LogTransitionArgs {
  * Do NOT attempt to dedupe log rows.
  */
 export function logTransition(args: LogTransitionArgs): void {
+  const { db, ...row } = args;
+  logTransitions(db, [row]);
+}
+
+/**
+ * `logTransition` for many states at once: one multi-row insert, with the same
+ * fire-and-forget, never-throws contract. Used where a single event moves a
+ * batch of states (an exit fan-out), so the log costs one statement instead of
+ * one per state.
+ */
+export function logTransitions(
+  db: Database,
+  rows: ReadonlyArray<Omit<LogTransitionArgs, "db">>,
+): void {
+  if (rows.length === 0) return;
   try {
-    void args.db
+    void db
       .insert(journeyLogs)
-      .values({
-        journeyStateId: args.journeyStateId,
-        fromNodeId: args.from ?? null,
-        toNodeId: args.to ?? null,
-        action: args.action,
-        detail: args.detail ?? null,
-      })
+      .values(
+        rows.map((row) => ({
+          journeyStateId: row.journeyStateId,
+          fromNodeId: row.from ?? null,
+          toNodeId: row.to ?? null,
+          action: row.action,
+          detail: row.detail ?? null,
+        })),
+      )
       .catch(() => {
         // best-effort timeline write — never surface into journey execution
       });

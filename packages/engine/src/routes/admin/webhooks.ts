@@ -4,6 +4,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { count, desc, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { PRESET_DESTINATIONS } from "../../destinations/presets/index.js";
+import { invalidateOutboundEndpointCache } from "../../lib/outbound-endpoint-cache.js";
 import { errorSchema } from "../../lib/schemas.js";
 import {
   generateWebhookSecret,
@@ -366,6 +367,7 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
       .returning();
 
     if (!created) throw new Error("Failed to create webhook endpoint");
+    invalidateOutboundEndpointCache();
 
     // The ONLY list/get-shaped response that also carries the full secret — and
     // ONLY for kind="webhook" (keyed destinations have no secret to surface).
@@ -438,6 +440,7 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
     if (!updated) {
       return c.json({ error: "Webhook endpoint not found" }, 404);
     }
+    invalidateOutboundEndpointCache();
 
     return c.json(serializeEndpoint(updated), 200);
   })
@@ -455,6 +458,7 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
     if (deleted.length === 0) {
       return c.json({ error: "Webhook endpoint not found" }, 404);
     }
+    invalidateOutboundEndpointCache();
 
     return c.json({ deleted: true }, 200);
   })

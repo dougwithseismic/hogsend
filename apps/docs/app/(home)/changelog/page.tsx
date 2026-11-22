@@ -106,6 +106,13 @@ const ENTRIES: ChangelogEntry[] = [
           event happened stop at the first match instead of counting them all.
         </Bullet>
         <Bullet>
+          Webhook emits, browser-key checks and bucket re-checks reuse what they
+          already read: subscribed endpoints come from a 30-second cache,
+          publishable keys from the same one-minute cache as secret keys, and a
+          re-check of buckets a contact already belongs to is one query instead
+          of two per bucket.
+        </Bullet>
+        <Bullet>
           The routes a browser can call (events, lists, feed, flags, contact
           upserts) are now rate-limited: 3,000 requests a minute per secret key
           and 1,000 a minute per publishable key per visitor, so one visitor

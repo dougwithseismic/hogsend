@@ -416,6 +416,27 @@ describe("deliverWebhookTask — operator-disabled endpoint discards", () => {
       .where(eq(deadLetterQueue.sourceId, deliveryId));
     expect(dlq).toHaveLength(0);
   });
+
+  it("an endpoint no longer subscribed to the event discards the delivery", async () => {
+    // Emitters read endpoints from a short cache, so a row can be written
+    // just after the operator removed the event from the endpoint.
+    const endpoint = await seedEndpoint({});
+    const deliveryId = await seedDelivery({ endpointId: endpoint.id });
+    await db
+      .update(webhookEndpoints)
+      .set({ eventTypes: ["email.sent"] })
+      .where(eq(webhookEndpoints.id, endpoint.id));
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await deliverTask.fn({ deliveryId });
+    expect(result).toMatchObject({
+      status: "discarded",
+      reason: "event_unsubscribed",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await getDelivery(deliveryId))?.status).toBe("discarded");
+  });
 });
 
 // ===========================================================================

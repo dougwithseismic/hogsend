@@ -50,7 +50,7 @@ When a request hits any `/v1/admin/*` endpoint, the auth middleware runs this se
 
 If no admin key is configured at all (no `ADMIN_API_KEY` env var, no database keys), admin endpoints return `503 Service Unavailable`.
 
-Active secret keys are cached in memory for 60 seconds per API instance. A newly created key works immediately (cache miss triggers a DB lookup). Revoking or rotating a key evicts its entry on the instance that served the request; other instances may accept it for up to 60 seconds until their entry expires. Publishable keys are not cached.
+Active keys, secret and publishable, are cached in memory for 60 seconds per API instance. A newly created key works immediately (cache miss triggers a DB lookup). Revoking or rotating a key evicts its entry on the instance that served the request; other instances may accept it for up to 60 seconds until their entry expires.
 
 ## Legacy Key (Quick Start)
 
@@ -226,7 +226,7 @@ The procedure:
 3. Check the old key's `lastUsedAt` in `GET /v1/admin/api-keys`. Once it stops moving, nothing is using it.
 4. Let it expire, or revoke it early with `DELETE /v1/admin/api-keys/:id`.
 
-If a key has leaked, rotate with `"gracePeriodSeconds": 0`, then deploy the new key. The old key stops working at once on the instance that handled the rotation and within 60 seconds on the others (the auth cache TTL); a publishable key stops at once everywhere.
+If a key has leaked, rotate with `"gracePeriodSeconds": 0`, then deploy the new key. The old key stops working at once on the instance that handled the rotation and within 60 seconds on the others (the auth cache TTL). This applies to publishable keys too.
 
 The API keys section of Studio settings lists, creates and revokes keys; rotation is API-only for now.
 
@@ -239,7 +239,7 @@ curl -X DELETE http://localhost:3002/v1/admin/api-keys/key-uuid \
   -H "Authorization: Bearer your-api-key"
 ```
 
-Revocation sets `revokedAt` on the key record and evicts the key's in-memory cache entry on the instance that served the request, so the key is refused there at once. Other API instances keep their cached entry for up to 60 seconds. Publishable keys are not cached, so a revoked `pk_` key is refused on its next request everywhere.
+Revocation sets `revokedAt` on the key record and evicts the key's in-memory cache entry on the instance that served the request, so the key is refused there at once. Other API instances keep their cached entry for up to 60 seconds, for publishable and secret keys alike.
 
 ## Best Practices
 

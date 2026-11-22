@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import {
-  type Database,
-  webhookDeliveries,
-  webhookEndpoints,
-} from "@hogsend/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { type Database, webhookDeliveries } from "@hogsend/db";
 import { deliverWebhookTask } from "../workflows/deliver-webhook.js";
 import type { SerializedContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
+import {
+  invalidateOutboundEndpointCache,
+  loadSubscribableEndpoints,
+} from "./outbound-endpoint-cache.js";
 import {
   WEBHOOK_EVENT_TYPES,
   type WebhookEventType,
@@ -27,6 +26,16 @@ export {
    */
   resolveEmailSendContextByResendId,
 } from "./tracking-events.js";
+
+/** Postgres `foreign_key_violation`; drizzle nests the driver error in `cause`. */
+function isForeignKeyViolation(error: unknown): boolean {
+  for (let e = error, depth = 0; e && depth < 5; depth++) {
+    const candidate = e as { code?: string; cause?: unknown };
+    if (candidate.code === "23503") return true;
+    e = candidate.cause;
+  }
+  return false;
+}
 
 /**
  * The outbound event catalog re-exported for the emit spine. Identical to the
@@ -717,19 +726,14 @@ export async function emitOutbound<E extends OutboundEventName>(opts: {
     const webhookId = `msg_${randomUUID()}`;
     const timestamp = new Date();
 
-    // (2) Active, subscribed endpoints. `event_types @> '["<event>"]'` matches
-    // the jsonb array containing this event. Single-tenant: organizationId IS
-    // NULL (NOT a hardcoded tenant — keeps the MT wiring non-breaking).
-    const endpoints = await db
-      .select({ id: webhookEndpoints.id })
-      .from(webhookEndpoints)
-      .where(
-        and(
-          eq(webhookEndpoints.disabled, false),
-          isNull(webhookEndpoints.organizationId),
-          sql`${webhookEndpoints.eventTypes} @> ${JSON.stringify([event])}::jsonb`,
-        ),
+    // (2) Active, subscribed endpoints, from the endpoint cache below.
+    // Single-tenant: organizationId IS NULL (NOT a hardcoded tenant — keeps the
+    // MT wiring non-breaking).
+    const subscribed = async () =>
+      (await loadSubscribableEndpoints(db)).filter((endpoint) =>
+        endpoint.eventTypes.includes(event),
       );
+    let endpoints = await subscribed();
 
     if (endpoints.length === 0) return;
 
@@ -743,25 +747,40 @@ export async function emitOutbound<E extends OutboundEventName>(opts: {
 
     // (4) One delivery row per endpoint, sharing the webhookId. onConflictDoNothing
     // on (endpointId, dedupeKey) is the producer-side fan-out idempotency guard.
-    const inserted = await db
-      .insert(webhookDeliveries)
-      .values(
-        endpoints.map((endpoint) => ({
-          endpointId: endpoint.id,
-          organizationId,
-          webhookId,
-          eventType: event,
-          dedupeKey: dedupeKey ?? null,
-          payload: envelope as unknown as Record<string, unknown>,
-          status: "pending" as const,
-          attemptCount: 0,
-          nextRetryAt: timestamp,
-        })),
-      )
-      .onConflictDoNothing({
-        target: [webhookDeliveries.endpointId, webhookDeliveries.dedupeKey],
-      })
-      .returning({ id: webhookDeliveries.id });
+    const insertDeliveries = (targets: typeof endpoints) =>
+      db
+        .insert(webhookDeliveries)
+        .values(
+          targets.map((endpoint) => ({
+            endpointId: endpoint.id,
+            organizationId,
+            webhookId,
+            eventType: event,
+            dedupeKey: dedupeKey ?? null,
+            payload: envelope as unknown as Record<string, unknown>,
+            status: "pending" as const,
+            attemptCount: 0,
+            nextRetryAt: timestamp,
+          })),
+        )
+        .onConflictDoNothing({
+          target: [webhookDeliveries.endpointId, webhookDeliveries.dedupeKey],
+        })
+        .returning({ id: webhookDeliveries.id });
+
+    let inserted: Awaited<ReturnType<typeof insertDeliveries>>;
+    try {
+      inserted = await insertDeliveries(endpoints);
+    } catch (error) {
+      // A cached endpoint was deleted on another instance: the FK fails the
+      // whole multi-row insert, which would drop the event for every OTHER
+      // endpoint too. Re-read the endpoints and retry once without it.
+      if (!isForeignKeyViolation(error)) throw error;
+      invalidateOutboundEndpointCache();
+      endpoints = await subscribed();
+      if (endpoints.length === 0) return;
+      inserted = await insertDeliveries(endpoints);
+    }
 
     // (5) Enqueue the durable delivery task per freshly-inserted row,
     // fire-and-forget. A failed enqueue is recovered by the reaper (the row is

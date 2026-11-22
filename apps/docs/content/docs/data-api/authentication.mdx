@@ -156,9 +156,7 @@ The response carries the new `key` (shown once) and `rotatedFrom: { id, expiresA
 
 ## Caching and revocation
 
-Secret keys are cached in memory for 60 seconds per API instance. A newly created key works immediately (a cache miss triggers a DB lookup). Revoking or rotating a key evicts its cache entry on the instance that served the admin request, so it stops working there at once; other instances keep their cached entry for up to 60 seconds.
-
-Publishable keys are not cached: every request reads the key row, so a revoked or expired `pk_` key is refused on the next request on every instance.
+Secret and publishable keys are cached in memory for 60 seconds per API instance. A newly created key works immediately (a cache miss triggers a DB lookup). Revoking or rotating a key evicts its cache entry on the instance that served the admin request, so it stops working there at once; other instances keep their cached entry for up to 60 seconds.
 
 ## Rate limits
 

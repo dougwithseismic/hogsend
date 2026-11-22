@@ -121,14 +121,22 @@ export const deliverWebhookTask = hatchet.task({
       return { status: row.status, skipped: true };
     }
 
-    // (2) Load the endpoint. Absent (cascade-deleted) OR disabled → `discarded`:
-    // an operator action, NOT a delivery error, so it is NOT dead-lettered.
+    // (2) Load the endpoint. Absent (cascade-deleted), disabled, or no longer
+    // subscribed to this event → `discarded`: an operator action, NOT a
+    // delivery error, so it is NOT dead-lettered. The subscription re-check
+    // matters because emitters read endpoints from a short cache
+    // (lib/outbound-endpoint-cache.ts). A `webhook.test` delivery is sent on
+    // request and is exempt.
     const [endpoint] = await db
       .select()
       .from(webhookEndpoints)
       .where(eq(webhookEndpoints.id, row.endpointId))
       .limit(1);
-    if (!endpoint || endpoint.disabled) {
+    const unsubscribed =
+      !!endpoint &&
+      row.eventType !== "webhook.test" &&
+      !(endpoint.eventTypes as readonly string[]).includes(row.eventType);
+    if (!endpoint || endpoint.disabled || unsubscribed) {
       await db
         .update(webhookDeliveries)
         .set({
@@ -139,9 +147,11 @@ export const deliverWebhookTask = hatchet.task({
         .where(eq(webhookDeliveries.id, row.id));
       return {
         status: "discarded" as const,
-        reason: endpoint
-          ? ("endpoint_disabled" as const)
-          : ("endpoint_deleted" as const),
+        reason: !endpoint
+          ? ("endpoint_deleted" as const)
+          : endpoint.disabled
+            ? ("endpoint_disabled" as const)
+            : ("event_unsubscribed" as const),
       };
     }
 
