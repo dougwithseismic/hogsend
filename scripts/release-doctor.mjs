@@ -243,6 +243,8 @@ function scanPackages(names, predicate) {
 }
 
 /** Each check returns null when satisfied, or a precise violation string. */
+const REPOSITORY_URL = "https://github.com/dougwithseismic/hogsend.git";
+
 const checks = [
   {
     name: "root and scaffold pin the same pnpm version",
@@ -619,7 +621,7 @@ const checks = [
     },
   },
   {
-    name: "public packages declare publishConfig.access=public; api stays private",
+    name: "public packages declare publishConfig.access=public and repository.url; api stays private",
     fn: () => {
       const errs = scanPackages([...ENGINE_LINE, "create-hogsend"], (pkg) => {
         const e = [];
@@ -627,6 +629,11 @@ const checks = [
           e.push(`${pkg.name} is private:true but should publish`);
         if (pkg.publishConfig?.access !== "public")
           e.push(`${pkg.name} missing publishConfig.access:public`);
+        // Trusted publishing attaches provenance, and npm rejects the upload
+        // (E422) unless repository.url names the repo the build came from.
+        const url = pkg.repository?.url ?? pkg.repository;
+        if (url !== REPOSITORY_URL)
+          e.push(`${pkg.name} repository.url must be ${REPOSITORY_URL}`);
         return e;
       });
       if (!readJson("apps/api/package.json").private)
