@@ -1,5 +1,14 @@
 # @hogsend/course
 
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [e786d31]
+  - @hogsend/js@0.68.0
+  - @hogsend/react@0.68.0
+  - @hogsend/video@0.68.0
+
 ## 0.0.28
 
 ### Patch Changes

@@ -1,5 +1,53 @@
 # @hogsend/engine
 
+## 0.68.0
+
+### Minor Changes
+
+- 9e41430: The browser-reachable ingest routes (`/v1/events`, `/v1/lists`, `/v1/feed`, `/v1/flags`, the `/v1/contacts` upsert, `/v1/contacts/me`, `/v1/accounts/me`, `/v1/accounts/link-url`, `/v1/referrals/me`) are now rate-limited after auth and scope: 3000 requests per minute per secret key, and 1000 per minute per publishable key per client IP, so one visitor cannot spend a site's shared `pk_` budget. Configure with the new optional `INGEST_RATE_LIMIT_MAX`, `INGEST_PUBLIC_RATE_LIMIT_MAX` and `INGEST_RATE_LIMIT_WINDOW_MS`; the `/v1/emails` budget (still 30/min) is now configurable with `EMAIL_RATE_LIMIT_MAX`. Requests that fail auth spend no budget.
+
+  Every rate-limited response (admin, emails, ingest) now carries `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (seconds until the window frees a slot, read from the oldest request in it) and `RateLimit-Policy` (`<limit>;w=<seconds>`) alongside the existing `X-RateLimit-*` pair, and `Retry-After` on a `429` now reports the real wait instead of the full window. CORS exposes these headers, so browser code can read them. A request matched by two overlapping guards is counted once.
+
+  New `POST /v1/admin/api-keys/:id/rotate` mints a replacement key with the same name, scopes, key class and Origin allowlist, and expires the old key after a grace period (`gracePeriodSeconds`, default 24 hours, `0` to retire it at once). Revoking or rotating a key now evicts it from the auth cache on the instance that handled the request, so it is refused there immediately.
+
+### Patch Changes
+
+- e786d31: The engine now ships compiled type declarations (`dist/**/*.d.ts`) and points its `types` export condition at them, so a consumer's `tsc` reads the engine's public types instead of re-type-checking its ~87k lines of implementation source. A freshly scaffolded app's `pnpm check-types` previously ran out of memory (4 GB heap) inside `@hogsend/engine`; it now type-checks only the app's own code. Runtime resolution is unchanged (the `default` condition still points at `src/`, bundled by tsup `noExternal`), and inside this monorepo the `@hogsend/source` condition keeps editors and `tsc` on live source.
+- d977e1d: Ingesting an event for a known contact now takes 10 database statements instead of 17. Before, every identity resolve ran eight statements to adopt contactless history under the contact's key, even when there was none, and two of them read the contact's whole event and send history. It now runs one indexed check first and skips the eight when nothing is waiting to be adopted. Adoption itself is unchanged.
+
+  Bucket and flag `event` conditions now answer `exists`/`not_exists` with an `EXISTS` check and stop counting a `count` comparison once the answer is settled, instead of counting every matching event. `ctx.history.hasEvent` still returns the exact count.
+
+  Migration `0075` adds five indexes: `email_preferences(email)`, which turns the preference check on every tracked send from a sequential scan into an index lookup; `email_preferences(lower(email))` for the campaign suppression checks; partial `user_events(user_id)` and `email_sends(user_id)` indexes over contactless rows for the adoption check; and a partial `user_events(contact_id, event, occurred_at)` index for `event` conditions. It uses `CREATE INDEX IF NOT EXISTS`, so on a large database you can build the indexes online before you deploy, and the migration will skip them:
+
+  ```sql
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS user_events_orphan_user_id_idx ON user_events (user_id) WHERE contact_id IS NULL;
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS user_events_contact_event_occurred_idx ON user_events (contact_id, event, occurred_at) WHERE contact_id IS NOT NULL;
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS email_sends_orphan_user_id_idx ON email_sends (user_id) WHERE contact_id IS NULL;
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS email_preferences_email_idx ON email_preferences (email);
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS email_preferences_lower_email_idx ON email_preferences (lower(email));
+  ```
+
+  A `CONCURRENTLY` build that fails leaves an invalid index; drop it and retry.
+
+- 497b148: Less database work per event, per send and per browser request:
+  - Outbound webhook emits read the list of enabled endpoints from a 30-second in-process cache instead of querying `webhook_endpoints` on every event. The admin webhook routes and the PostHog destination seed clear it on the instance that made the change; another API instance or the worker picks the change up within 30 seconds. Inside that window a disabled or deleted endpoint is never delivered to, and neither is an event the endpoint was just unsubscribed from: delivery re-reads the endpoint and discards those rows (reason `event_unsubscribed` for the last case). An endpoint deleted on another instance does not cost the other endpoints their delivery; the emit re-reads and retries without it. Set `OUTBOUND_ENDPOINT_CACHE_TTL_MS` to change the window, or `0` to turn the cache off.
+  - Publishable (`pk_`) keys authenticate from the same 60-second cache as secret keys, and their `lastUsedAt` is written at most every 5 minutes instead of on every request. As with secret keys, a revoked or rotated publishable key stops working on other instances within a minute.
+  - Bucket checks read every candidate membership in one query instead of one per bucket, reuse the contact id the ingest already resolved, and rewrite a stable member's `last_evaluated_at` at most once a minute.
+  - Exit checks select only the columns they use and write their journey log rows in one insert.
+  - Campaign sends pass the recipient's contact id to the mailer, which skips its contact lookup. `emailService.send()` accepts an optional `contactId` for callers that read the contact in the same unit of work.
+
+- d977e1d: The Studio targeting estimate no longer reports fewer matching contacts than it actually found in its sample when contacts are deleted while it runs.
+- 184a319: Opens and clicks on a journeyless email no longer write the recipient's address into the contact's `external_id`. The tracking re-ingest now keys on the send's recorded `user_id` (or the enrollment's), and falls back to the address as an email key. Bucket max-dwell expiry leaves members in chunks of 500, so a mass expiry no longer throws on every reconcile tick. Workflow tasks share the process database pool instead of opening a new one per run. The outbound-webhook reaper enqueues re-drives instead of awaiting each delivery.
+- Updated dependencies [e786d31]
+- Updated dependencies [d977e1d]
+  - @hogsend/attribution@0.68.0
+  - @hogsend/core@0.68.0
+  - @hogsend/db@0.68.0
+  - @hogsend/email@0.68.0
+  - @hogsend/plugin-posthog@0.68.0
+  - @hogsend/plugin-resend@0.68.0
+  - @hogsend/sms@0.68.0
+
 ## 0.67.0
 
 ### Minor Changes
