@@ -9,9 +9,11 @@ import { cn } from "@/lib/cn";
  * slides up over it — `top: min(0px, 100vh - height)` handles cards both
  * shorter and taller than the viewport. As the next card covers a pinned one,
  * the covered card recedes: it scales down toward its pinned bottom edge,
- * slips upward, and a veil dims it under the incoming card. All effects are
+ * slips upward, and a veil dims it under the incoming card. Once a card is
+ * buried under the next one it is un-pinned, so only the cards in play stay
+ * stuck to the viewport however deep the deck runs. All effects are
  * transform/opacity only, driven by one rAF-throttled scroll handler, and
- * skipped entirely under prefers-reduced-motion (plain pin-and-cover remains).
+ * skipped under prefers-reduced-motion (plain pin-and-cover remains).
  *
  * Positioned siblings paint over earlier ones in DOM order, so no z-index
  * bookkeeping is needed; the deck wrapper is `relative` to bound how long a
@@ -41,6 +43,16 @@ export function StackDeck({
     if (!deck) return;
     const cards = Array.from(
       deck.querySelectorAll<HTMLElement>("[data-stack-card]"),
+      (el) => ({
+        el,
+        inner: el.querySelector<HTMLElement>("[data-stack-inner]"),
+        veil: el.querySelector<HTMLElement>("[data-stack-veil]"),
+        height: el.offsetHeight,
+        pinTop: "",
+        buried: false,
+        transform: "",
+        veilOpacity: "0",
+      }),
     );
     if (cards.length === 0) return;
 
@@ -52,35 +64,70 @@ export function StackDeck({
     // The pin point: bottom edge at the viewport bottom, whatever the height.
     const updateTops = () => {
       for (const card of cards) {
-        card.style.top = `min(0px, calc(100vh - ${card.offsetHeight}px))`;
+        card.height = card.el.offsetHeight;
+        card.pinTop = `min(0px, calc(100vh - ${card.height}px))`;
+        if (!card.buried) card.el.style.top = card.pinTop;
       }
     };
 
-    // Recede each covered card in proportion to how far the next card has
-    // risen over it (0 = untouched, 1 = fully covered).
     const update = () => {
       raf = 0;
-      if (reducedMotion) return;
       const vh = window.innerHeight;
+
+      // Read every geometry value before writing any style, so the writes
+      // below never force a synchronous layout partway through the loop.
+      // Flow tops are summed from heights: a sticky card's offsetTop reports
+      // its stuck position, not where it sits in the flow.
+      const deckTop = deck.getBoundingClientRect().top;
+      const flowTops: number[] = [];
+      let flowTop = deckTop;
+      for (const card of cards) {
+        flowTops.push(flowTop);
+        flowTop += card.height;
+      }
+      const liveTops = cards.map((card) => card.el.getBoundingClientRect().top);
+
       for (let i = 0; i < cards.length; i++) {
-        const inner = cards[i].querySelector<HTMLElement>("[data-stack-inner]");
-        const veil = cards[i].querySelector<HTMLElement>("[data-stack-veil]");
-        if (!inner || !veil) continue;
-        const next = cards[i + 1];
-        const progress = next
-          ? Math.min(
-              1,
-              Math.max(0, (vh - next.getBoundingClientRect().top) / vh),
-            )
-          : 0;
-        // Clear the transform entirely at rest so untouched cards are not
-        // promoted to their own (huge) compositor layers — permanent layers
-        // this size cause ghost-frame glitches while scrolling fast.
-        inner.style.transform =
+        const card = cards[i];
+        const hasNext = i + 1 < cards.length;
+
+        // Un-pin a card once it is buried: the next card has covered it
+        // completely (its flow top passed the viewport top) and scrolled a
+        // further viewport on. Left pinned, every covered card stays stuck to
+        // the viewport underneath the visible one, so by the end of the deck
+        // the browser composites the whole stack on every frame and scrolling
+        // falls apart. Back in the flow it sits wholly above the viewport, so
+        // nothing visibly changes; the spare viewport means a fast scroll back
+        // up re-pins it while it is still hidden, before it can show a gap.
+        const buried = hasNext && flowTops[i + 1] <= -vh;
+        if (buried !== card.buried) {
+          card.buried = buried;
+          card.el.style.position = buried ? "relative" : "";
+          card.el.style.top = buried ? "" : card.pinTop;
+        }
+
+        // Recede a covered card in proportion to how far the next card has
+        // risen over it (0 = untouched, 1 = fully covered).
+        const progress =
+          hasNext && !buried && !reducedMotion
+            ? Math.min(1, Math.max(0, (vh - liveTops[i + 1]) / vh))
+            : 0;
+        // Clear the transform entirely at rest (and once buried) so those
+        // cards are not promoted to their own huge compositor layers —
+        // permanent layers this size cause ghost-frame glitches.
+        const transform =
           progress > 0
             ? `translateY(${(progress * -28).toFixed(1)}px) scale(${(1 - progress * 0.045).toFixed(4)})`
             : "";
-        veil.style.opacity = progress > 0 ? (progress * 0.6).toFixed(3) : "0";
+        const veilOpacity = progress > 0 ? (progress * 0.6).toFixed(3) : "0";
+        if (card.inner && transform !== card.transform) {
+          card.inner.style.transform = transform;
+          card.transform = transform;
+        }
+        if (card.veil && veilOpacity !== card.veilOpacity) {
+          card.veil.style.opacity = veilOpacity;
+          card.veilOpacity = veilOpacity;
+        }
       }
     };
 
@@ -95,7 +142,7 @@ export function StackDeck({
     updateTops();
     update();
     const observer = new ResizeObserver(onResize);
-    for (const card of cards) observer.observe(card);
+    for (const card of cards) observer.observe(card.el);
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", onResize);
     return () => {
